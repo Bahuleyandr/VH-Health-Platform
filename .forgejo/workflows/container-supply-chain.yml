@@ -39,7 +39,7 @@ jobs:
             image: vhhealth-backend
             context: apps/backend
             dockerfile: apps/backend/Dockerfile
-            build_args: '--build-arg NODE_IMAGE=mirror.gcr.io/library/node:22-alpine'
+            build_args: '--build-arg NODE_IMAGE=mirror.gcr.io/library/node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2'
           - app: admin
             image: vhhealth-admin
             context: apps/admin
@@ -128,32 +128,40 @@ jobs:
             --format sarif \
             --output output/container/${{ matrix.app }}/trivy-image-misconfig.sarif
 
-      - name: Optional registry push and cosign signature
+      - name: Registry push and cosign signature gate
         env:
           CONTAINER_REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
           CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
           CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           summary="output/container/${{ matrix.app }}/signing-summary.txt"
-          if [ -z "${CONTAINER_REGISTRY:-}" ] || [ -z "${CONTAINER_REGISTRY_USERNAME:-}" ] || [ -z "${CONTAINER_REGISTRY_PASSWORD:-}" ]; then
-            echo "Registry secrets are not configured; kept build local and skipped signing." | tee "$summary"
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+            echo "Pull-request build kept local; release signing is enforced on push/manual runs." | tee "$summary"
             exit 0
+          fi
+          missing=()
+          for name in CONTAINER_REGISTRY CONTAINER_REGISTRY_USERNAME CONTAINER_REGISTRY_PASSWORD COSIGN_PRIVATE_KEY COSIGN_PASSWORD COSIGN_PUBLIC_KEY; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Signing path missing required secret(s): %s\n' "${missing[*]}" | tee "$summary"
+            echo "::error::Container signing is fail-closed for push/manual runs; configure ${missing[*]}"
+            exit 1
           fi
           target="${CONTAINER_REGISTRY%/}/${{ matrix.image }}:${{ github.sha }}"
           printf '%s' "$CONTAINER_REGISTRY_PASSWORD" | docker login "$CONTAINER_REGISTRY" -u "$CONTAINER_REGISTRY_USERNAME" --password-stdin
           docker tag local/${{ matrix.image }}:${{ github.sha }} "$target"
           docker push "$target"
-          if [ -z "${COSIGN_PRIVATE_KEY:-}" ] || [ -z "${COSIGN_PASSWORD:-}" ]; then
-            echo "Image pushed to $target; cosign key secrets are not configured, signing skipped." | tee "$summary"
-            exit 0
-          fi
           curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64 -o /tmp/cosign
           chmod +x /tmp/cosign
           /tmp/cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$target"
-          echo "Image pushed and signed: $target" | tee "$summary"
+          /tmp/cosign verify --key env://COSIGN_PUBLIC_KEY "$target" \
+            > output/container/${{ matrix.app }}/cosign-verify.json
+          echo "Image pushed, signed, and verified: $target" | tee "$summary"
 
       - name: Upload image reports
         if: always()

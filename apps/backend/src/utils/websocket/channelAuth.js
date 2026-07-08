@@ -94,6 +94,7 @@ export const CHANNEL_CATALOG = Object.freeze({
   'staff:incidents': { description: 'Incident reports — sentinel/severe safety events + status changes', roles: 'staff' },
   'staff:dialysis-board': { description: 'Dialysis unit — session lifecycle, intra-dialysis observations, complications, vascular access, serology', roles: 'staff' },
   'staff:blood-bank': { description: 'Blood bank — request lifecycle, unit stock, crossmatch, transfusion closed-loop + reactions', roles: 'staff' },
+  'staff:cold-chain': { description: 'Cold chain — unit readings, excursions, acknowledgements, corrective actions, and silent-sensor warnings', roles: 'staff' },
   'staff:radiology': { description: 'Radiology board — order lifecycle, acquisition, report submission, sign-off, addendum', roles: 'staff' },
   'staff:pathology': { description: 'Anatomic pathology — accession, grossing, blocks/slides, reports, sign-off, addendum', roles: 'staff' },
   'admin:beds':               { description: 'Bed occupancy + admission/discharge events (admin view)', roles: 'admin' },

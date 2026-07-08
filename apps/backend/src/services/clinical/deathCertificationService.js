@@ -6,9 +6,10 @@
 // or → cancelled (only from pending). Body release is a separate
 // PATCH that can happen any time after pending.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import * as taskService from '../workflow/taskService.js';
 
 function tenantOr(t) { return requireTenantId(t); }
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
@@ -23,6 +24,10 @@ const STATUS_TRANSITIONS = {
 
 const VALID_PLACES = ['inpatient', 'emergency', 'icu', 'or', 'home_brought_dead', 'transferred_out_dead'];
 const VALID_MANNERS = ['natural', 'accident', 'suicide', 'homicide', 'pending', 'undetermined'];
+const SLOT_STATUSES = ['available', 'occupied', 'cleaning', 'maintenance', 'retired'];
+const CUSTODY_EVENT_TYPES = ['receive', 'store', 'release'];
+const RELEASE_METHODS = ['family', 'mortuary_van', 'unclaimed_to_municipality'];
+const UNCLAIMED_SLA_KEY = 'mortuary_unclaimed_body';
 
 async function assertPatientInTenant(tenantId, patientUid) {
   const rows = await prisma.$queryRawUnsafe(
@@ -82,6 +87,221 @@ function validateForCertification(rec) {
     errs.push('pregnancy_stage required when was_pregnancy_related');
   }
   return errs;
+}
+
+function cleanText(value, max = null) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  return max ? text.slice(0, max) : text;
+}
+
+function normalizePositiveInt(value, label) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw AppError.badRequest(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function normalizePositiveBigInt(value, label) {
+  const text = cleanText(value);
+  if (!text || !/^\d+$/.test(text)) {
+    throw AppError.badRequest(`${label} must be a positive integer`);
+  }
+  return text;
+}
+
+function normalizeLimit(value, fallback = 100, max = 500) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
+
+function normalizeSlotStatus(status, fallback = 'available') {
+  const clean = cleanText(status) || fallback;
+  if (!SLOT_STATUSES.includes(clean)) {
+    throw AppError.badRequest(`slot status must be one of: ${SLOT_STATUSES.join(', ')}`);
+  }
+  return clean;
+}
+
+function stringifyObject(value, label = 'metadata') {
+  if (value === null || value === undefined) return '{}';
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw AppError.badRequest(`${label} must be a JSON object`);
+  }
+  return JSON.stringify(value);
+}
+
+function validateCustodyEventInput(eventType, body = {}) {
+  const errs = [];
+  if (!CUSTODY_EVENT_TYPES.includes(eventType)) {
+    errs.push(`event_type must be one of: ${CUSTODY_EVENT_TYPES.join(', ')}`);
+  }
+  if (eventType === 'store' && !body.slot_id) {
+    errs.push('slot_id required for store events');
+  }
+  if (eventType === 'release') {
+    if (!body.body_released_to_name && body.release_method !== 'unclaimed_to_municipality') {
+      errs.push('body_released_to_name required for release events');
+    }
+    if (!body.body_released_to_relation && body.release_method !== 'unclaimed_to_municipality') {
+      errs.push('body_released_to_relation required for release events');
+    }
+    if (!body.release_method && !body.body_release_method) {
+      errs.push('release_method required for release events');
+    }
+  }
+  const releaseMethod = body.release_method || body.body_release_method;
+  if (releaseMethod && !RELEASE_METHODS.includes(releaseMethod)) {
+    errs.push(`release_method must be one of: ${RELEASE_METHODS.join(', ')}`);
+  }
+  return errs;
+}
+
+function ensureCustodyEventInput(eventType, body = {}) {
+  const errs = validateCustodyEventInput(eventType, body);
+  if (errs.length) throw AppError.badRequest(errs.join('; '));
+}
+
+async function assertDeathRecordForCustody(tx, tenantId, id, { forUpdate = false } = {}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid, mccd_serial, date_of_death, time_of_death,
+            is_medicolegal, police_clearance_at, body_released_at
+       FROM death_records
+      WHERE id = $1::int AND tenant_id = $2::uuid
+      ${forUpdate ? 'FOR UPDATE' : ''}`,
+    normalizePositiveInt(id, 'death_record_id'),
+    tenantOr(tenantId),
+  );
+  const rec = unwrap(rows);
+  if (!rec) throw AppError.notFound('Death record not found');
+  return rec;
+}
+
+async function latestCustodyEvent(tx, tenantId, deathRecordId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT *
+       FROM body_custody_events
+      WHERE tenant_id = $1::uuid AND death_record_id = $2::int
+      ORDER BY event_at DESC, id DESC
+      LIMIT 1`,
+    tenantOr(tenantId),
+    normalizePositiveInt(deathRecordId, 'death_record_id'),
+  );
+  return unwrap(rows) || null;
+}
+
+async function insertCustodyEvent(tx, tenantId, deathRecordId, eventType, body = {}) {
+  ensureCustodyEventInput(eventType, body);
+  const slotId = body.slot_id ? normalizePositiveBigInt(body.slot_id, 'slot_id') : null;
+  const releaseMethod = body.release_method || body.body_release_method || null;
+  const rows = await tx.$queryRawUnsafe(
+    `INSERT INTO body_custody_events
+       (tenant_id, death_record_id, slot_id, event_type, event_at,
+        performed_by, performed_by_role, witness_name, witness_uid, witness_id_proof,
+        claimant_name, claimant_relation, claimant_contact,
+        is_unclaimed, unclaimed_reason, release_method, notes, metadata)
+     VALUES ($1::uuid, $2::int, $3::bigint, $4, COALESCE($5::timestamptz, NOW()),
+             $6::uuid, $7, $8, $9::uuid, $10,
+             $11, $12, $13,
+             COALESCE($14::boolean, false), $15, $16, $17, $18::jsonb)
+     RETURNING *`,
+    tenantOr(tenantId),
+    normalizePositiveInt(deathRecordId, 'death_record_id'),
+    slotId,
+    eventType,
+    body.event_at || null,
+    body.performed_by || null,
+    cleanText(body.performed_by_role, 80),
+    cleanText(body.witness_name, 160),
+    body.witness_uid || null,
+    cleanText(body.witness_id_proof, 80),
+    cleanText(body.claimant_name || body.body_released_to_name, 160),
+    cleanText(body.claimant_relation || body.body_released_to_relation, 80),
+    cleanText(body.claimant_contact, 80),
+    Boolean(body.is_unclaimed),
+    cleanText(body.unclaimed_reason),
+    releaseMethod,
+    cleanText(body.notes),
+    stringifyObject(body.metadata),
+  );
+  return unwrap(rows);
+}
+
+async function queueUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = null }) {
+  const tid = tenantOr(tenantId);
+  const id = normalizePositiveInt(deathRecordId, 'death_record_id');
+  const { startWorkflowSla } = await import('./canonicalClinicalPlatformService.js');
+  const sla = await startWorkflowSla({
+    tenantId: tid,
+    ruleCode: UNCLAIMED_SLA_KEY,
+    sourceTable: 'death_records',
+    sourceId: String(id),
+    priority: 'high',
+    metadata: { source: 'mortuary_body_custody' },
+  });
+  const slaInstanceId = sla?.id || null;
+
+  return setTenantTx(tid, async (tx) => taskService.createTask({
+    tenantId: tid,
+    tx,
+    taskKind: 'review',
+    title: `Unclaimed body custody follow-up: death record #${id}`,
+    description: 'Body received into mortuary custody without a claimant or release plan.',
+    relatedResourceType: 'death_record',
+    relatedResourceId: String(id),
+    priority: 'high',
+    assignedToRole: 'MEDICAL_RECORDS',
+    createdBy: actorUid || null,
+    metadata: {
+      source: 'mortuary_body_custody',
+      sla_key: UNCLAIMED_SLA_KEY,
+      sla_instance_id: slaInstanceId,
+    },
+    onConflictResourceDoNothing: true,
+  }));
+}
+
+async function completeUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = null, tx = null }) {
+  const tid = tenantOr(tenantId);
+  const db = tx || prisma;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, status
+       FROM tasks
+      WHERE tenant_id = $1::uuid
+        AND related_resource_type = 'death_record'
+        AND related_resource_id = $2
+        AND metadata->>'sla_key' = $3
+        AND status NOT IN ('completed', 'cancelled')
+      ORDER BY id ASC`,
+    tid,
+    String(normalizePositiveInt(deathRecordId, 'death_record_id')),
+    UNCLAIMED_SLA_KEY,
+  );
+  for (const task of rows) {
+    let currentStatus = task.status;
+    if (currentStatus === 'blocked') {
+      const unblocked = await taskService.transitionTask({
+        tenantId: tid,
+        id: task.id,
+        nextStatus: 'in_progress',
+        tx,
+      });
+      currentStatus = unblocked.status;
+    }
+    if (currentStatus !== 'completed' && currentStatus !== 'cancelled') {
+      await taskService.transitionTask({
+        tenantId: tid,
+        id: task.id,
+        nextStatus: 'completed',
+        tx,
+      });
+    }
+  }
+  void actorUid;
+  return rows.length;
 }
 
 export async function createDeathRecord({ tenantId, ...body }) {
@@ -246,12 +466,12 @@ export async function transition({ tenantId, id, to_status, certified_by, certif
   return unwrap(rows);
 }
 
-export async function recordBodyRelease({ tenantId, id, ...body }) {
+async function recordBodyReleaseWithDb(db, { tenantId, id, ...body }) {
   if (!body.body_released_to_name) throw AppError.badRequest('body_released_to_name required');
   if (!body.body_released_to_relation) throw AppError.badRequest('body_released_to_relation required');
 
   // Block release if medicolegal AND no police clearance recorded.
-  const recRows = await prisma.$queryRawUnsafe(
+  const recRows = await db.$queryRawUnsafe(
     `SELECT id, is_medicolegal, police_clearance_at FROM death_records
      WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(id, 10), tenantOr(tenantId));
@@ -272,13 +492,17 @@ export async function recordBodyRelease({ tenantId, id, ...body }) {
         updated_at = NOW()
     WHERE id = $6 AND tenant_id = $7::uuid
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
+  const rows = await db.$queryRawUnsafe(sql,
     body.body_released_to_name, body.body_released_to_relation,
     body.body_released_to_id_proof || null,
     body.body_release_witnessed_by || null,
     body.body_release_method || null,
     rec.id, tenantOr(tenantId));
   return unwrap(rows);
+}
+
+export async function recordBodyRelease({ tenantId, id, ...body }) {
+  return recordBodyReleaseWithDb(prisma, { tenantId, id, ...body });
 }
 
 export async function recordPoliceClearance({ tenantId, id, fir_no, station }) {
@@ -296,6 +520,308 @@ export async function recordPoliceClearance({ tenantId, id, fir_no, station }) {
   const r = unwrap(rows);
   if (!r) throw AppError.notFound('Death record not found');
   return r;
+}
+
+// -- Mortuary custody -------------------------------------------------------
+
+export async function createMortuarySlot({ tenantId, slot_code, display_name, location_id, status = 'available', notes }) {
+  const code = cleanText(slot_code, 80);
+  if (!code) throw AppError.badRequest('slot_code required');
+  const cleanStatus = normalizeSlotStatus(status);
+  if (cleanStatus === 'occupied') {
+    throw AppError.badRequest('New mortuary slots cannot start occupied');
+  }
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO mortuary_slots
+         (tenant_id, slot_code, display_name, location_id, status, notes)
+       VALUES ($1::uuid, $2, $3, $4::int, $5, $6)
+       ON CONFLICT (tenant_id, slot_code) DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         location_id = EXCLUDED.location_id,
+         status = CASE
+           WHEN mortuary_slots.status = 'occupied' THEN mortuary_slots.status
+           ELSE EXCLUDED.status
+         END,
+         notes = EXCLUDED.notes,
+         updated_at = NOW()
+       RETURNING *`,
+      tenantOr(tenantId),
+      code,
+      cleanText(display_name, 160) || code,
+      location_id ? normalizePositiveInt(location_id, 'location_id') : null,
+      cleanStatus,
+      cleanText(notes),
+    );
+    return unwrap(rows);
+  });
+}
+
+export async function listMortuarySlots({ tenantId, status = null, limit = 200 } = {}) {
+  const lim = normalizeLimit(limit, 200, 500);
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
+    const params = [tenantOr(tenantId)];
+    const filters = ['s.tenant_id = $1::uuid'];
+    if (status) {
+      params.push(normalizeSlotStatus(status, null));
+      filters.push(`s.status = $${params.length}`);
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT s.*,
+              l.display_name AS location_name,
+              d.patient_uid AS current_patient_uid,
+              d.mccd_serial AS current_mccd_serial,
+              d.date_of_death AS current_date_of_death,
+              d.time_of_death AS current_time_of_death
+         FROM mortuary_slots s
+         LEFT JOIN facility_locations l
+           ON l.id = s.location_id AND l.tenant_id = s.tenant_id
+         LEFT JOIN death_records d
+           ON d.id = s.current_death_record_id AND d.tenant_id = s.tenant_id
+        WHERE ${filters.join(' AND ')}
+        ORDER BY s.slot_code ASC
+        LIMIT $${params.length + 1}::int`,
+      ...params,
+      lim,
+    );
+    return rows;
+  });
+}
+
+export async function recordBodyReceive({ tenantId, id, ...body }) {
+  const tid = tenantOr(tenantId);
+  const deathRecordId = normalizePositiveInt(id, 'death_record_id');
+  const event = await setTenantTx(tid, async (tx) => {
+    const rec = await assertDeathRecordForCustody(tx, tid, deathRecordId, { forUpdate: true });
+    if (rec.body_released_at) throw AppError.badRequest('Body is already released');
+    const latest = await latestCustodyEvent(tx, tid, deathRecordId);
+    if (latest && latest.event_type !== 'release') {
+      throw AppError.badRequest('Body is already in mortuary custody');
+    }
+    return insertCustodyEvent(tx, tid, deathRecordId, 'receive', body);
+  });
+  if (event.is_unclaimed) {
+    await queueUnclaimedBodyTask({
+      tenantId: tid,
+      deathRecordId,
+      actorUid: body.performed_by || null,
+    });
+  }
+  return event;
+}
+
+export async function recordBodyStorage({ tenantId, id, slot_id, ...body }) {
+  const tid = tenantOr(tenantId);
+  const deathRecordId = normalizePositiveInt(id, 'death_record_id');
+  const slotId = normalizePositiveBigInt(slot_id, 'slot_id');
+  return setTenantTx(tid, async (tx) => {
+    const rec = await assertDeathRecordForCustody(tx, tid, deathRecordId, { forUpdate: true });
+    if (rec.body_released_at) throw AppError.badRequest('Body is already released');
+
+    const latest = await latestCustodyEvent(tx, tid, deathRecordId);
+    if (!latest) throw AppError.badRequest('Body must be received before storage');
+    if (latest.event_type === 'release') throw AppError.badRequest('Body is already released');
+
+    const slotRows = await tx.$queryRawUnsafe(
+      `SELECT id, status, current_death_record_id
+         FROM mortuary_slots
+        WHERE id = $1::bigint AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      slotId,
+      tid,
+    );
+    const slot = unwrap(slotRows);
+    if (!slot) throw AppError.notFound('Mortuary slot not found');
+    if (slot.status !== 'available' && Number(slot.current_death_record_id) !== deathRecordId) {
+      throw AppError.badRequest('Mortuary slot is not available');
+    }
+
+    const otherSlotRows = await tx.$queryRawUnsafe(
+      `SELECT id, slot_code
+         FROM mortuary_slots
+        WHERE tenant_id = $1::uuid
+          AND current_death_record_id = $2::int
+          AND id <> $3::bigint
+        LIMIT 1`,
+      tid,
+      deathRecordId,
+      slotId,
+    );
+    if (unwrap(otherSlotRows)) throw AppError.badRequest('Body is already stored in another slot');
+
+    await tx.$executeRawUnsafe(
+      `UPDATE mortuary_slots
+          SET status = 'occupied',
+              current_death_record_id = $1::int,
+              occupied_since = COALESCE(occupied_since, NOW()),
+              updated_at = NOW()
+        WHERE id = $2::bigint AND tenant_id = $3::uuid`,
+      deathRecordId,
+      slotId,
+      tid,
+    );
+
+    return insertCustodyEvent(tx, tid, deathRecordId, 'store', {
+      ...body,
+      slot_id: slotId,
+      is_unclaimed: body.is_unclaimed ?? latest.is_unclaimed,
+    });
+  });
+}
+
+export async function recordMortuaryBodyRelease({ tenantId, id, ...body }) {
+  const tid = tenantOr(tenantId);
+  const deathRecordId = normalizePositiveInt(id, 'death_record_id');
+  const releaseMethod = body.release_method || body.body_release_method || 'family';
+
+  return setTenantTx(tid, async (tx) => {
+    const rec = await assertDeathRecordForCustody(tx, tid, deathRecordId, { forUpdate: true });
+    if (rec.body_released_at) throw AppError.badRequest('Body is already released');
+
+    const activeSlotRows = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM mortuary_slots
+        WHERE tenant_id = $1::uuid
+          AND current_death_record_id = $2::int
+        FOR UPDATE`,
+      tid,
+      deathRecordId,
+    );
+    const activeSlot = unwrap(activeSlotRows);
+
+    const released = await recordBodyReleaseWithDb(tx, {
+      tenantId: tid,
+      id: deathRecordId,
+      body_released_to_name: body.body_released_to_name || body.claimant_name,
+      body_released_to_relation: body.body_released_to_relation || body.claimant_relation,
+      body_released_to_id_proof: body.body_released_to_id_proof || body.witness_id_proof,
+      body_release_witnessed_by: body.body_release_witnessed_by || body.performed_by,
+      body_release_method: releaseMethod,
+    });
+
+    if (activeSlot) {
+      await tx.$executeRawUnsafe(
+        `UPDATE mortuary_slots
+            SET status = 'available',
+                current_death_record_id = NULL,
+                occupied_since = NULL,
+                updated_at = NOW()
+          WHERE id = $1::bigint AND tenant_id = $2::uuid`,
+        activeSlot.id,
+        tid,
+      );
+    }
+
+    const event = await insertCustodyEvent(tx, tid, deathRecordId, 'release', {
+      ...body,
+      slot_id: activeSlot?.id || null,
+      release_method: releaseMethod,
+      claimant_name: body.claimant_name || body.body_released_to_name,
+      claimant_relation: body.claimant_relation || body.body_released_to_relation,
+      is_unclaimed: releaseMethod === 'unclaimed_to_municipality',
+    });
+    await completeUnclaimedBodyTask({
+      tenantId: tid,
+      deathRecordId,
+      actorUid: body.performed_by || null,
+      tx,
+    });
+    return { death_record: released, custody_event: event };
+  });
+}
+
+export async function getBodyCustodyChain({ tenantId, id }) {
+  const tid = tenantOr(tenantId);
+  const deathRecordId = normalizePositiveInt(id, 'death_record_id');
+  return setTenantTx(tid, async (tx) => {
+    const rec = await assertDeathRecordForCustody(tx, tid, deathRecordId);
+    const events = await tx.$queryRawUnsafe(
+      `SELECT e.*, s.slot_code, s.display_name AS slot_name
+         FROM body_custody_events e
+         LEFT JOIN mortuary_slots s
+           ON s.id = e.slot_id AND s.tenant_id = e.tenant_id
+        WHERE e.tenant_id = $1::uuid AND e.death_record_id = $2::int
+        ORDER BY e.event_at ASC, e.id ASC`,
+      tid,
+      deathRecordId,
+    );
+    return { death_record: rec, events };
+  });
+}
+
+export async function mortuaryBoard({ tenantId }) {
+  const tid = tenantOr(tenantId);
+  return setTenantTx(tid, async (tx) => {
+    const slots = await tx.$queryRawUnsafe(
+      `SELECT s.*, l.display_name AS location_name,
+              d.patient_uid AS current_patient_uid,
+              d.mccd_serial AS current_mccd_serial,
+              d.date_of_death AS current_date_of_death,
+              d.time_of_death AS current_time_of_death
+         FROM mortuary_slots s
+         LEFT JOIN facility_locations l
+           ON l.id = s.location_id AND l.tenant_id = s.tenant_id
+         LEFT JOIN death_records d
+           ON d.id = s.current_death_record_id AND d.tenant_id = s.tenant_id
+        WHERE s.tenant_id = $1::uuid
+        ORDER BY s.slot_code ASC`,
+      tid,
+    );
+    const occupancyRows = await tx.$queryRawUnsafe(
+      `SELECT status, COUNT(*)::int AS count
+         FROM mortuary_slots
+        WHERE tenant_id = $1::uuid
+        GROUP BY status`,
+      tid,
+    );
+    const activeBodies = await tx.$queryRawUnsafe(
+      `WITH latest AS (
+         SELECT DISTINCT ON (death_record_id) *
+           FROM body_custody_events
+          WHERE tenant_id = $1::uuid
+          ORDER BY death_record_id, event_at DESC, id DESC
+       )
+       SELECT d.id AS death_record_id, d.patient_uid, d.mccd_serial,
+              d.date_of_death, d.time_of_death, d.is_medicolegal,
+              d.police_clearance_at, d.body_released_at,
+              latest.event_type AS latest_event_type,
+              latest.event_at AS latest_event_at,
+              latest.is_unclaimed,
+              latest.unclaimed_reason,
+              s.id AS slot_id, s.slot_code, s.display_name AS slot_name,
+              task.id AS unclaimed_task_id, task.status AS unclaimed_task_status,
+              sla.id AS unclaimed_sla_id, sla.status AS unclaimed_sla_status,
+              sla.due_at AS unclaimed_due_at
+         FROM latest
+         JOIN death_records d
+           ON d.id = latest.death_record_id AND d.tenant_id = latest.tenant_id
+         LEFT JOIN mortuary_slots s
+           ON s.current_death_record_id = d.id AND s.tenant_id = d.tenant_id
+         LEFT JOIN tasks task
+           ON task.tenant_id = d.tenant_id
+          AND task.related_resource_type = 'death_record'
+          AND task.related_resource_id = d.id::text
+          AND task.metadata->>'sla_key' = $2
+          AND task.status NOT IN ('completed', 'cancelled')
+         LEFT JOIN workflow_sla_instances sla
+           ON sla.id = NULLIF(task.metadata->>'sla_instance_id', '')::uuid
+        WHERE d.body_released_at IS NULL
+          AND latest.event_type <> 'release'
+        ORDER BY latest.event_at DESC`,
+      tid,
+      UNCLAIMED_SLA_KEY,
+    );
+    return {
+      occupancy: occupancyRows.reduce((acc, row) => {
+        acc.total += Number(row.count || 0);
+        acc[row.status] = Number(row.count || 0);
+        return acc;
+      }, { total: 0, available: 0, occupied: 0, cleaning: 0, maintenance: 0, retired: 0 }),
+      slots,
+      active_bodies: activeBodies,
+      unclaimed: activeBodies.filter((row) => row.is_unclaimed),
+    };
+  });
 }
 
 // ── MORTALITY REVIEW ────────────────────────────────────────────────
@@ -421,4 +947,6 @@ export async function summary30d({ tenantId }) {
 export const _internal = {
   STATUS_TRANSITIONS, validateForCertification,
   VALID_PLACES, VALID_MANNERS,
+  SLOT_STATUSES, CUSTODY_EVENT_TYPES, RELEASE_METHODS,
+  UNCLAIMED_SLA_KEY, validateCustodyEventInput,
 };

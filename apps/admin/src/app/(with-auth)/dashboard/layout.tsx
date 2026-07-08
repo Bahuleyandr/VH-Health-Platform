@@ -35,6 +35,7 @@ const navigation: NavItem[] = [
   { name: 'Doctors', href: '/dashboard/doctors', requiredPermissions: ['doctorManagement'] },
   { name: 'Departments', href: '/dashboard/departments', requiredPermissions: ['departmentManagement'] },
   { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
+  { name: 'Oncology', href: '/dashboard/oncology', minRole: 'STAFF' },
   { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
   { name: 'Reporting', href: '/dashboard/reporting', minRole: 'HR' },
   { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
@@ -63,6 +64,7 @@ const navigation: NavItem[] = [
   { name: 'Consent', href: '/dashboard/consent', requiredPermissions: ['userManagement'] },
   { name: 'Feedback', href: '/dashboard/feedback', requiredPermissions: ['userManagement'] },
   { name: 'Devices', href: '/dashboard/devices', requiredRole: 'ADMIN' },
+  { name: 'Cold Chain', href: '/dashboard/cold-chain', minRole: 'STAFF' },
   { name: 'ABDM', href: '/dashboard/abdm', requiredRole: 'ADMIN' },
   { name: 'Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },
 ];

@@ -46,6 +46,14 @@ export function canonicalPair(a, b) {
   return x < y ? [x, y] : [y, x];
 }
 
+function comparableText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const FREQUENCY_PER_DAY = Object.freeze({
   od: 1, qd: 1, 'once daily': 1, daily: 1, om: 1, on: 1, hs: 1, nocte: 1, stat: 1, 'once': 1,
   bd: 2, bid: 2, 'twice daily': 2, 'q12h': 2,
@@ -128,51 +136,105 @@ export function matchMonographKeys(monographs, medText) {
   return [...hits];
 }
 
+function priorityOf(row) {
+  const priority = Number(row?.source_priority ?? row?.priority ?? 100);
+  return Number.isFinite(priority) ? priority : 100;
+}
+
+function preferredRows(rows, keyFor) {
+  const byKey = new Map();
+  for (const row of rows || []) {
+    const key = keyFor(row);
+    if (!key) continue;
+    const current = byKey.get(key);
+    if (!current || priorityOf(row) > priorityOf(current)) {
+      byKey.set(key, row);
+    }
+  }
+  return [...byKey.values()];
+}
+
 async function loadKb() {
   if (kbCache.kb && Date.now() - kbCache.loadedAt < KB_CACHE_TTL_MS) return kbCache.kb;
   try {
-    const [monographs, interactions, groups, xreact, cautions, doses, ivPairs] = await Promise.all([
+    const [monographRows, interactionRows, groupRows, xreactRows, cautionRows, doseRows, ivPairRows] = await Promise.all([
       prisma.$queryRawUnsafe(
-        `SELECT m.drug_key, m.display_name, m.drug_class, m.aliases, m.source_key
+        `SELECT m.drug_key, m.display_name, m.drug_class, m.aliases, m.source_key,
+                s.priority AS source_priority, s.is_starter
            FROM drug_kb_monographs m
-           JOIN drug_kb_sources s ON s.source_key = m.source_key AND s.is_active`,
+           JOIN drug_kb_sources s ON s.source_key = m.source_key AND s.is_active
+          ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
       prisma.$queryRawUnsafe(
-        `SELECT i.drug_a_key, i.drug_b_key, i.severity, i.mechanism, i.effect, i.management, i.source_key
+        `SELECT i.drug_a_key, i.drug_b_key, i.severity, i.mechanism, i.effect, i.management, i.source_key,
+                s.priority AS source_priority, s.is_starter
            FROM drug_kb_interactions i
-           JOIN drug_kb_sources s ON s.source_key = i.source_key AND s.is_active`,
+           JOIN drug_kb_sources s ON s.source_key = i.source_key AND s.is_active
+          ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
       prisma.$queryRawUnsafe(
-        `SELECT g.group_key, g.member_key, g.source_key
+        `SELECT g.group_key, g.member_key, g.source_key, s.priority AS source_priority, s.is_starter
            FROM drug_kb_allergy_groups g
-           JOIN drug_kb_sources s ON s.source_key = g.source_key AND s.is_active`,
+           JOIN drug_kb_sources s ON s.source_key = g.source_key AND s.is_active
+          ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
       prisma.$queryRawUnsafe(
-        `SELECT x.group_key, x.reacts_with_group_key, x.risk, x.note, x.source_key
+        `SELECT x.group_key, x.reacts_with_group_key, x.risk, x.note, x.source_key,
+                s.priority AS source_priority, s.is_starter
            FROM drug_kb_allergy_cross_reactivity x
-           JOIN drug_kb_sources s ON s.source_key = x.source_key AND s.is_active`,
+           JOIN drug_kb_sources s ON s.source_key = x.source_key AND s.is_active
+          ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
       prisma.$queryRawUnsafe(
-        `SELECT c.drug_key, c.icd10_prefix, c.condition_label, c.risk, c.note, c.source_key
+        `SELECT c.drug_key, c.icd10_prefix, c.condition_label, c.risk, c.note, c.source_key,
+                s.priority AS source_priority, s.is_starter
            FROM drug_kb_condition_cautions c
-           JOIN drug_kb_sources s ON s.source_key = c.source_key AND s.is_active`,
+           JOIN drug_kb_sources s ON s.source_key = c.source_key AND s.is_active
+          ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
       prisma.$queryRawUnsafe(
         `SELECT d.drug_key, d.route, d.population, d.max_single_dose_mg, d.max_daily_dose_mg,
-                d.max_daily_mg_per_kg, d.min_egfr, d.egfr_max_daily_mg, d.note, d.source_key
+                d.max_daily_mg_per_kg, d.min_egfr, d.egfr_max_daily_mg, d.note, d.source_key,
+                s.priority AS source_priority, s.is_starter
            FROM drug_kb_dose_ranges d
-           JOIN drug_kb_sources s ON s.source_key = d.source_key AND s.is_active`,
+           JOIN drug_kb_sources s ON s.source_key = d.source_key AND s.is_active
+          ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
       prisma.$queryRawUnsafe(
-        `SELECT v.drug_a_key, v.drug_b_key, v.compatibility, v.diluent, v.note, v.source_key
+        `SELECT v.drug_a_key, v.drug_b_key, v.compatibility, v.diluent, v.note, v.source_key,
+                s.priority AS source_priority, s.is_starter
            FROM drug_kb_iv_compatibility v
-           JOIN drug_kb_sources s ON s.source_key = v.source_key AND s.is_active`,
+           JOIN drug_kb_sources s ON s.source_key = v.source_key AND s.is_active
+          ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
     ]);
 
+    const monographs = preferredRows(monographRows, (row) => String(row.drug_key || '').toLowerCase());
+    const interactions = preferredRows(interactionRows, (row) => {
+      const [a, b] = canonicalPair(row.drug_a_key, row.drug_b_key);
+      return `${a}|${b}`;
+    });
+    const groups = preferredRows(groupRows, (row) => (
+      `${String(row.group_key || '').toLowerCase()}|${String(row.member_key || '').toLowerCase()}`
+    ));
+    const xreact = preferredRows(xreactRows, (row) => (
+      `${String(row.group_key || '').toLowerCase()}|${String(row.reacts_with_group_key || '').toLowerCase()}`
+    ));
+    const cautions = preferredRows(cautionRows, (row) => (
+      `${String(row.drug_key || '').toLowerCase()}|${String(row.icd10_prefix || '').toUpperCase()}`
+    ));
+    const doses = preferredRows(doseRows, (row) => (
+      `${String(row.drug_key || '').toLowerCase()}|${String(row.route || 'any').toLowerCase()}|${String(row.population || '').toLowerCase()}`
+    ));
+    const ivPairs = preferredRows(ivPairRows, (row) => {
+      const [a, b] = canonicalPair(row.drug_a_key, row.drug_b_key);
+      return `${a}|${b}`;
+    });
+
     const interactionIndex = new Map();
     for (const row of interactions) {
-      interactionIndex.set(`${row.drug_a_key}|${row.drug_b_key}`, row);
+      const [a, b] = canonicalPair(row.drug_a_key, row.drug_b_key);
+      interactionIndex.set(`${a}|${b}`, { ...row, drug_a_key: a, drug_b_key: b });
     }
     const groupsByMember = new Map();
     const membersByGroup = new Map();
@@ -200,7 +262,8 @@ async function loadKb() {
     }
     const ivIndex = new Map();
     for (const row of ivPairs) {
-      ivIndex.set(`${row.drug_a_key}|${row.drug_b_key}`, row);
+      const [a, b] = canonicalPair(row.drug_a_key, row.drug_b_key);
+      ivIndex.set(`${a}|${b}`, { ...row, drug_a_key: a, drug_b_key: b });
     }
 
     const kb = {
@@ -242,8 +305,11 @@ async function loadKb() {
 export async function drugKbStatus() {
   try {
     const sources = await prisma.$queryRawUnsafe(
-      `SELECT source_key, name, vendor, version, license_note, is_starter, is_active, imported_at
-         FROM drug_kb_sources ORDER BY is_active DESC, source_key`,
+      `SELECT source_key, name, vendor, version, license_note, is_starter, is_active,
+              priority, source_family, edition_status, license_status, imported_at,
+              accepted_at, activated_at, deactivated_at, metadata
+         FROM drug_kb_sources
+        ORDER BY is_active DESC, priority DESC, is_starter ASC, source_key`,
     );
     __resetDrugKbCache();
     const kb = await loadKb();
@@ -260,18 +326,19 @@ export async function drugKbStatus() {
 }
 
 function allergenGroups(kb, allergenText) {
-  const text = String(allergenText || '').toLowerCase().trim();
+  const text = comparableText(allergenText);
   const groups = new Set();
   if (!text) return groups;
   // Direct member-name hit ("amoxicillin"), group-name hit ("penicillins" /
   // "penicillin", "sulfa" → sulfonamides), substring either direction.
   for (const [member, memberGroups] of kb.groupsByMember.entries()) {
-    if (text.includes(member) || member.includes(text)) {
+    const label = comparableText(member);
+    if (text.includes(label) || label.includes(text)) {
       for (const g of memberGroups) groups.add(g);
     }
   }
   for (const groupKey of kb.membersByGroup.keys()) {
-    const label = groupKey.toLowerCase();
+    const label = comparableText(groupKey);
     if (text.includes(label) || label.startsWith(text) || (text.length >= 4 && label.includes(text))) {
       groups.add(groupKey);
     }

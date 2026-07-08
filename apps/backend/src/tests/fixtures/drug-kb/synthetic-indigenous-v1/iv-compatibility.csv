@@ -1,0 +1,2 @@
+drug_a_key,drug_b_key,compatibility,diluent,note,license_status,review_status,source_refs,provenance,author_user_id,clinical_reviewer_user_id,pharmacy_reviewer_user_id,approved_by
+fixture_calcium,fixture_fluid,incompatible,,synthetic note,hospital_owned,approved,"[{""id"":""SRC-FIXTURE"",""license_status"":""hospital_owned""}]","{""content_basis"":""original_authoring"",""license_decision_id"":""LD-FIXTURE""}",00000000-0000-4000-8000-000000000101,00000000-0000-4000-8000-000000000102,00000000-0000-4000-8000-000000000103,00000000-0000-4000-8000-000000000104

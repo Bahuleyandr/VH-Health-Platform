@@ -5,6 +5,7 @@ import { getHealthReport } from '../../../middleware/selfHealingMiddleware.js';
 import { success } from '../../../utils/responseHelper.js';
 import { AppError } from '../../../utils/AppError.js';
 import { getClinicalAiRuntimeStatus } from '../../../services/ai/localLlmClient.js';
+import { drugKbStatus } from '../../../services/clinical/drugKnowledgeBaseService.js';
 import {
   deleteClinicalAiTenantModule,
   getClinicalAiBudgetStatus,
@@ -91,13 +92,16 @@ router.get('/status', async (req, res, next) => {
   try {
     const live = String(req.query.live || '').toLowerCase() === 'true';
     const days = parseClinicalAiWindowDays(req.query.days);
-    const status = await getClinicalAiRuntimeStatus({
-      live,
-      days,
-      tenantId: req.tenantId,
-      tenantRegion: req.tenant?.region || null,
-    });
-    return success(res, status, 'Clinical AI status retrieved');
+    const [status, drugKb] = await Promise.all([
+      getClinicalAiRuntimeStatus({
+        live,
+        days,
+        tenantId: req.tenantId,
+        tenantRegion: req.tenant?.region || null,
+      }),
+      drugKbStatus(),
+    ]);
+    return success(res, { ...status, drug_kb_status: drugKb }, 'Clinical AI status retrieved');
   } catch (err) {
     return next(clinicalAiSchemaUnavailable(err));
   }

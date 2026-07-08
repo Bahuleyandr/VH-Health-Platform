@@ -134,7 +134,8 @@ function main() {
   console.error(
     `[check-prod-digests] FAIL: ${summary}\n` +
       '  main must deploy immutable digests. Run the release pipeline (release-images.yml) or the\n' +
-      '  manual repair path:  node scripts/update-prod-digests.mjs --tag backend-vX.Y.Z [--tag admin-vX.Y.Z] [--tag staff-web-vX.Y.Z]\n' +
+      '  manual repair path (requires cosign verification):\n' +
+      '    COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs --tag backend-vX.Y.Z [--tag admin-vX.Y.Z] [--tag staff-web-vX.Y.Z]\n' +
       '  and commit the bump before merging to main.',
   );
   process.exit(1);
