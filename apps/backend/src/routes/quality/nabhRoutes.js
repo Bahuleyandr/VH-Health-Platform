@@ -9,7 +9,10 @@ import {
   computeIndicators,
   snapshotIndicators,
   listSnapshots,
+  freezePeriodPack,
+  getFrozenPeriodPack,
   packToCsv,
+  packToPdfBuffer,
 } from '../../services/quality/nabhIndicatorService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -37,6 +40,10 @@ function handleFailure(res, err, context) {
   return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
 }
 
+function periodPackFilename(from, to, extension) {
+  return `nabh-period-pack-${from}-${to}.${extension}`;
+}
+
 router.get('/indicators', async (req, res) => {
   try {
     if (!gate(req, res)) return undefined;
@@ -49,6 +56,48 @@ router.get('/indicators', async (req, res) => {
     return success(res, pack, 'NABH indicators');
   } catch (err) {
     return handleFailure(res, err, 'compute indicators');
+  }
+});
+
+router.post('/period-pack', async (req, res) => {
+  try {
+    if (!gate(req, res)) return undefined;
+    const pack = await freezePeriodPack(
+      { from: req.body.from, to: req.body.to },
+      { actorUid: req.user?.uid || null, tenantId: req.tenantId },
+    );
+    return success(res, pack, 'NABH period pack frozen', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'freeze period pack');
+  }
+});
+
+router.get('/period-pack', async (req, res) => {
+  try {
+    if (!gate(req, res)) return undefined;
+    const pack = await getFrozenPeriodPack({
+      from: req.query.from,
+      to: req.query.to,
+      tenantId: req.tenantId,
+    });
+    const format = String(req.query.format || 'json').toLowerCase();
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${periodPackFilename(req.query.from, req.query.to, 'csv')}"`);
+      return res.send(packToCsv(pack));
+    }
+    if (format === 'pdf') {
+      const pdf = await packToPdfBuffer(pack);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${periodPackFilename(req.query.from, req.query.to, 'pdf')}"`);
+      return res.send(pdf);
+    }
+    if (format && format !== 'json') {
+      throw AppError.badRequest('format must be one of json, csv, pdf', 'NABH_EXPORT_FORMAT_UNSUPPORTED');
+    }
+    return success(res, pack, 'Frozen NABH period pack');
+  } catch (err) {
+    return handleFailure(res, err, 'export period pack');
   }
 });
 

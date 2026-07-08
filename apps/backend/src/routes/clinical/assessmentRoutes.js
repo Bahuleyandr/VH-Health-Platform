@@ -98,7 +98,7 @@ router.post('/growth', guardAssessmentWrite, async (req, res, next) => {
     let percentiles = b.percentiles ?? null;
     let zScores = b.z_scores ?? null;
     let classification = b.classification ?? null;
-    if (b.reference_dataset === 'WHO_0_5' && b.sex && b.age_in_days != null) {
+    if (['WHO_0_5', 'IAP_5_18'].includes(b.reference_dataset) && b.sex && b.age_in_days != null) {
       try {
         const auto = {};
         const autoZ = {};
@@ -106,12 +106,14 @@ router.post('/growth', guardAssessmentWrite, async (req, res, next) => {
         for (const [field, metric] of [
           ['height_cm', 'height_cm'],
           ['weight_kg', 'weight_kg'],
+          ['head_circumference_cm', 'head_circumference_cm'],
+          ['bmi', 'bmi'],
         ]) {
           if (b[field] != null) {
-            const r = computePercentile({
+            const r = await computePercentile({
               sex: b.sex, ageInDays: b.age_in_days, metric, value: b[field],
             });
-            if (r.z_score != null) {
+            if (r.z_score != null && r.reference_dataset === b.reference_dataset) {
               auto[metric] = r.percentile;
               autoZ[metric] = r.z_score;
               firstClass = firstClass ?? r.classification;
@@ -160,9 +162,9 @@ router.get('/growth', guardAssessmentView, async (req, res, next) => {
 //   ?sex=M|F&ageInDays=N&metric=height_cm|weight_kg|...&value=N
 // Used by the paeds OPD UI before recording, and by the patient-app
 // "where is my child on the chart" tile.
-router.get('/growth/percentile', (req, res) => {
+router.get('/growth/percentile', async (req, res) => {
   try {
-    const result = computePercentile({
+    const result = await computePercentile({
       sex: req.query.sex,
       ageInDays: req.query.ageInDays ?? req.query.age_in_days,
       metric: req.query.metric,

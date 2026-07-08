@@ -13,6 +13,7 @@ const TYPE_TO_PREFERENCE_KEY = new Map([
   ['appointment_reminder_24h', 'appointment_reminder'],
   ['appointment_reminder_1h', 'appointment_reminder'],
   ['reminder', 'appointment_reminder'],
+  ['engagement_campaign', 'engagement_campaign'],
   ['lab_result_ready', 'results_ready'],
   ['investigation_result_ready', 'results_ready'],
   ['result_ready', 'results_ready'],
@@ -51,6 +52,13 @@ export function legacyChannelsForOutboxRow(row = {}) {
 export function resolveChannelsForOutboxRow(row = {}, settings = {}) {
   const preferenceKey = notificationPreferenceKeyForType(row.type);
   const legacyChannels = legacyChannelsForOutboxRow(row);
+  const payloadChannels = row?.payload && typeof row.payload === 'object'
+    ? normalizeChannelList(row.payload.channels)
+    : [];
+
+  if (preferenceKey === 'engagement_campaign' && payloadChannels.length > 0) {
+    return { channels: payloadChannels, preferenceKey: preferenceKey || 'engagement_campaign', source: 'tenant' };
+  }
 
   if (!preferenceKey) {
     return { channels: legacyChannels, preferenceKey: null, source: 'legacy' };

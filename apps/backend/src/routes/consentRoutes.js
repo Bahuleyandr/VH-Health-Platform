@@ -51,6 +51,11 @@ const VALID_CONSENT_TYPES = [
   // (assertPatientConsentInTenant allowedTypes: ['recording_consent', 'treatment']).
   // Also accepted by voicePatientAssistantIvrService.
   'recording_consent',
+  'marketing_whatsapp',
+  'care_reminder_whatsapp',
+  'rpm_monitoring',
+  'nps_survey',
+  'teleconsult_followup',
 ];
 
 // Stage-5 — how consent was obtained. `thumbprint` / `verbal` are
