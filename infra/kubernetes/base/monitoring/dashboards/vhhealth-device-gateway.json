@@ -1,9 +1,79 @@
 {
   "title": "VH Health Device Gateway",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "panels": [
+    {
+      "type": "stat",
+      "title": "Active MLLP Connections",
+      "targets": [
+        {
+          "expr": "sum(mllp_connections_active)",
+          "legendFormat": "connections"
+        }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Active Registered Devices",
+      "targets": [
+        {
+          "expr": "device_registry_active_devices",
+          "legendFormat": "active"
+        }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Silent Devices",
+      "targets": [
+        {
+          "expr": "device_silent_devices",
+          "legendFormat": "silent"
+        }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Open Cold-Chain Excursions",
+      "targets": [
+        {
+          "expr": "cold_chain_open_excursions",
+          "legendFormat": "open"
+        }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "MLLP Messages by Status",
+      "targets": [
+        {
+          "expr": "sum by (source, status) (rate(mllp_messages_received_total[5m]))",
+          "legendFormat": "{{source}} {{status}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway ACK Latency p95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(gateway_ack_latency_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }
+    },
     {
       "type": "timeseries",
       "title": "Gateway Spool Depth",
@@ -13,40 +83,77 @@
           "legendFormat": "{{source}}"
         }
       ],
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 }
     },
     {
       "type": "timeseries",
-      "title": "Silent Devices",
+      "title": "Oldest Spool Age",
       "targets": [
         {
-          "expr": "device_silent_devices",
-          "legendFormat": "silent"
+          "expr": "gateway_spool_oldest_age_seconds",
+          "legendFormat": "seconds"
         }
       ],
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 }
     },
     {
       "type": "timeseries",
-      "title": "Forward Failures",
+      "title": "Forward Failures and Dead Letters",
       "targets": [
         {
           "expr": "increase(gateway_forward_failures_total[5m])",
-          "legendFormat": "{{reason}}"
+          "legendFormat": "forward {{reason}}"
+        },
+        {
+          "expr": "increase(gateway_dead_letter_total[5m])",
+          "legendFormat": "dead-letter"
         }
       ],
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 }
     },
     {
       "type": "timeseries",
-      "title": "Suppressed Samples",
+      "title": "Suppressed Device Samples",
       "targets": [
         {
           "expr": "increase(device_samples_suppressed_total[5m])",
           "legendFormat": "{{reason}}"
         }
       ],
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Unverified Device Vitals",
+      "targets": [
+        {
+          "expr": "device_vitals_unverified_rows",
+          "legendFormat": "unverified"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 28 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Active Device Associations",
+      "targets": [
+        {
+          "expr": "device_associations_active",
+          "legendFormat": "active"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 28 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Unassociated Device Messages",
+      "targets": [
+        {
+          "expr": "increase(device_unassociated_messages_total[15m])",
+          "legendFormat": "unassociated"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 28 }
     }
   ]
 }

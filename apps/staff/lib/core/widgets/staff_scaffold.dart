@@ -424,6 +424,33 @@ class StaffScaffold extends StatelessWidget {
             '/profile',
           ),
         ];
+      case StaffRole.physiotherapist:
+        return [
+          const _NavItem(
+            'role.nav.home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'role.nav.physiotherapy',
+            Icons.accessibility_new_outlined,
+            Icons.accessibility_new,
+            '/physiotherapy',
+          ),
+          const _NavItem(
+            'role.nav.records',
+            Icons.folder_shared_outlined,
+            Icons.folder_shared,
+            '/patient-records',
+          ),
+          const _NavItem(
+            'role.nav.profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
       case StaffRole.housekeeping:
         return [
           const _NavItem(

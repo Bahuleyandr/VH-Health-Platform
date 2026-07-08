@@ -767,6 +767,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigations_upload',
         'investigation_results',
       },
+      StaffRole.physiotherapist => {
+        'physiotherapy',
+        'patient_records',
+        'patient_command_board',
+        'referrals',
+        'clinical_inbox',
+      },
       StaffRole.housekeeping => {
         'bed_board',
         'housekeeping_hub',
