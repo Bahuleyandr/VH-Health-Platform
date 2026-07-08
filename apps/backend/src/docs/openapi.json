@@ -69031,6 +69031,23 @@
         }
       }
     },
+    "/api/v1/feedback/nps": {
+      "post": {
+        "operationId": "post_api_v1_feedback_nps",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/feedback/quick-rating": {
       "post": {
         "operationId": "post_api_v1_feedback_quick_rating",
@@ -85210,6 +85227,57 @@
       },
       "post": {
         "operationId": "post_api_v1_quality_nabh_snapshots",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/nps/dashboard": {
+      "get": {
+        "operationId": "get_api_v1_quality_nps_dashboard",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/nps/rollups/rebuild": {
+      "post": {
+        "operationId": "post_api_v1_quality_nps_rollups_rebuild",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/nps/service-recovery": {
+      "get": {
+        "operationId": "get_api_v1_quality_nps_service_recovery",
         "responses": {
           "200": {
             "description": "Successful response",
