@@ -92,6 +92,10 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   lease push) to clear secret-scan RANGE false positives: the range scan walks every PR
   commit, so a follow-up rename never cleans history (#499). We squash-merge anyway —
   intra-PR history is disposable. Only after the worker session is stood down.
+- **"Suite failed to run" ≠ regression.** A `Cannot find module` load failure in a worker or
+  coordinator tree means STALE node_modules (deps merged since the last install — e.g.
+  @node-saml after Wave A). `npm install` and re-run before escalating; a real main
+  regression shows a test ASSERTION failure on a fresh install (billing-v2 false alarm, 2026-07-08).
 - **Gates recheck `mergeable`.** Green checks do NOT imply mergeable — a roll against a
   stale local github/main leaves the branch CONFLICTING despite green CI (#503). The gate
   merges only on zero-non-green AND `mergeable == MERGEABLE`; fetch main with an explicit
