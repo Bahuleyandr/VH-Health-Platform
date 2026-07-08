@@ -81,6 +81,7 @@ import {
   INVESTIGATION_ROUTE_ROLES,
   IPD_SUPPORT_ROUTE_ROLES,
   LAB_ROUTE_ROLES,
+  LINEN_LAUNDRY_ROUTE_ROLES,
   MATERNITY_ROUTE_ROLES,
   MICROBIOLOGY_ROUTE_ROLES,
   NURSING_ASSESSMENT_ROUTE_ROLES,
@@ -155,6 +156,7 @@ import pharmacySupplyRoutes from './routes/admin/pharmacySupplyRoutes.js';
 import prescriptionRoutes from './routes/prescription/index.js';
 import recordRoutes from './routes/record/index.js';
 import housekeepingRoutes from './routes/housekeepingRoutes.js';
+import linenLaundryRoutes from './routes/linen/linenLaundryRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 import scimRoutes from './routes/scimRoutes.js';
 import staffRoutes from './routes/staff/index.js';
@@ -774,6 +776,13 @@ app.use(
   '/api/v1/housekeeping',
   requireRole(...HOUSEKEEPING_VISIBILITY_ROUTE_ROLES),
   housekeepingRoutes,
+);
+
+app.use(
+  '/api/v1/linen-laundry',
+  requireRole(...LINEN_LAUNDRY_ROUTE_ROLES),
+  sanitizeAllBodyStrings,
+  linenLaundryRoutes,
 );
 
 // Bed/Ward management.
