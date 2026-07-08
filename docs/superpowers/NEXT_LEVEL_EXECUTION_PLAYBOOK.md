@@ -92,6 +92,12 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   lease push) to clear secret-scan RANGE false positives: the range scan walks every PR
   commit, so a follow-up rename never cleans history (#499). We squash-merge anyway —
   intra-PR history is disposable. Only after the worker session is stood down.
+- **Known-transient CI failures — rerun, do not debug:** (a) Melos workspace "Failed to
+  download .../flutter//engine_stamp.json" (double-slash 404; Flutter bootstrap flake, hit
+  #497 and #500 on 2026-07-08); (b) smoke route-crawl "Test timeout ... net::ERR_ABORTED /
+  frame was detached" on routes the PR does not touch (dev-server collapse on a loaded
+  runner, hit #512); (c) runner ENETUNREACH/ETIMEDOUT to Azure/Microsoft endpoints.
+   then re-arm the gate.
 - **Design kickoffs self-gate on their OUTPUT artifact.** Before launching any design/docs
   prompt, check `git ls-tree github/main:docs/superpowers/specs` for its deliverable — a
   kickoff run twice produces a duplicate spec (#509 vs #463). Every design prompt must open
