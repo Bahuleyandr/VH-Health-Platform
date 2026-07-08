@@ -735,6 +735,7 @@ QA rehearsal is acceptable only if every skipped item is listed in `00-owner-dec
 | `ledger_authoritative_mode` | `shadow` | `FLIP-READY` reconciliation evidence | `ledger-reconciliation-evidence.mjs` output | Set `shadow` |
 | `CHEMO_REQUIRE_ADMIN_PRIVILEGE` and future privilege gates | `false` | Catalog, grants, department signoff, inertness proof | Credential/privilege tests and owner approval | Set env flag false |
 | CSSD hard enforcement | `warn_only=true`, `enforcement_enabled=false` | Department signoff after warn-only pilot | CSSD board and issue-log evidence | Restore warn-only |
+| Metabase optional module (`infra/kubernetes/optional/metabase`) | Held and unreferenced by the root kustomization | BI owner approves; SSO and network policy reviewed | Rendered manifest diff and dashboard smoke | Remove the overlay reference and scale down |
 | PrometheusRule/Grafana activation | Rules present, firing behavior environment-dependent | Rule syntax, dashboard load, alert routing pass | `validate-monitoring.mjs` and alert route test | Remove bad rule or silence with incident note |
 | Backup/DR production posture | Not a feature flag; go/no-go gate | RPO/RTO drill passes or exception signed | Restore drill output | Stop go-live |
 | Pen-test/certification signoff | Not a feature flag; go/no-go gate | External owner approval complete | Signed report or exception | Stop go-live |
