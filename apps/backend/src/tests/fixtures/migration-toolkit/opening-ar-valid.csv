@@ -1,0 +1,2 @@
+external_invoice_id,external_patient_id,mrn,invoice_number,amount_due,currency,invoice_date
+BILL-1001,LEG-1001,MRN-1001,LEG-BILL-1001,1200.50,INR,2026-06-30

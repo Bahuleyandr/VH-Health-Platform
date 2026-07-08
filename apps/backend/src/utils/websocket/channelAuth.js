@@ -97,6 +97,7 @@ export const CHANNEL_CATALOG = Object.freeze({
   'staff:cold-chain': { description: 'Cold chain — unit readings, excursions, acknowledgements, corrective actions, and silent-sensor warnings', roles: 'staff' },
   'staff:radiology': { description: 'Radiology board — order lifecycle, acquisition, report submission, sign-off, addendum', roles: 'staff' },
   'staff:pathology': { description: 'Anatomic pathology — accession, grossing, blocks/slides, reports, sign-off, addendum', roles: 'staff' },
+  'staff:transport': { description: 'Patient transport — porter task board invalidations and SLA escalations', roles: 'staff' },
   'admin:beds':               { description: 'Bed occupancy + admission/discharge events (admin view)', roles: 'admin' },
   'admin:kpi':                { description: 'Live KPI tile updates for admin dashboard', roles: 'admin' },
   'admin:daily-ops':          { description: 'Daily operations snapshot — OPD/IP/OR/collections/claims headline numbers', roles: 'admin' },

@@ -13,6 +13,7 @@ import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 import { success, error } from '../utils/responseHelper.js';
 import { isClinical, isAdmin } from '../utils/roleHelpers.js';
 import { parseListQuery } from '../utils/listQuery.js';
+import { submitNpsResponse as submitNpsResponseService } from '../services/feedback/npsService.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -377,6 +378,49 @@ export async function submitQuickRating(req, res) {
     if (err.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Quick Rating Error:', err);
     error(res, 'Failed to submit rating', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+}
+
+// Submit 0-10 NPS response.
+export async function submitNpsResponse(req, res) {
+  const {
+    score,
+    feedback_id,
+    appointment_id,
+    encounter_type,
+    encounter_ref,
+    channel = 'app',
+    consent_id,
+    comment,
+    source_campaign_recipient_id,
+    dedupe_key,
+  } = req.body || {};
+
+  try {
+    const result = await submitNpsResponseService({
+      tenantId: tenantOf(req),
+      patientUid: req.body?.patient_uid || req.user?.uid,
+      score,
+      feedbackId: feedback_id,
+      appointmentId: appointment_id,
+      encounterType: encounter_type,
+      encounterRef: encounter_ref,
+      channel,
+      consentId: consent_id,
+      comment,
+      sourceCampaignRecipientId: source_campaign_recipient_id,
+      dedupeKey: dedupe_key,
+      createdBy: req.user?.uid || null,
+    });
+
+    return success(res, {
+      response: result.response,
+      serviceRecoveryTask: result.recoveryTask || null,
+    }, 'NPS response submitted successfully', 201);
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode, err.details);
+    logger.error('Submit NPS Response Error:', err);
+    return error(res, 'Failed to submit NPS response', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 }
 

@@ -87,7 +87,17 @@ function pushTenantWhere(where, params, tenantId, column = 'tenant_id') {
   where.push(`${column} = $${params.length}::uuid`);
 }
 
-async function findBillingInvoice(invoiceId, tenantId, columns = '*', db = prisma) {
+const BILLING_INVOICE_PUBLIC_COLUMNS = `
+  id, invoice_number, patient_uid, patient_name, patient_phone,
+  admission_id, doctor_uid, department, invoice_type,
+  patient_state, hospital_state, subtotal, cgst_amount, sgst_amount,
+  igst_amount, discount_amount, discount_reason, discount_approved_by,
+  total_amount, amount_paid, amount_due, status, notes, created_by,
+  issued_at, voided_at, voided_by, void_reason, tenant_id,
+  created_at, updated_at
+`;
+
+async function findBillingInvoice(invoiceId, tenantId, columns = BILLING_INVOICE_PUBLIC_COLUMNS, db = prisma) {
   const params = [Number(invoiceId)];
   const tenantSql = appendTenantPredicate(params, tenantId);
   const rows = await db.$queryRawUnsafe(

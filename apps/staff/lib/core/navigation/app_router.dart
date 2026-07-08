@@ -109,6 +109,7 @@ import '../../features/dietary/screens/dietary_screen.dart';
 
 // Dental
 import '../../features/dental/screens/dental_screen.dart';
+import '../../features/physio/screens/physio_screen.dart';
 
 // Theatre
 import '../../features/cath_lab/screens/cath_lab_screen.dart';
@@ -981,6 +982,21 @@ final GoRouter appRouter = GoRouter(
               child: DentalScreen(
                 initialPatientUid: q['patient_uid'],
                 initialPatientName: q['name'],
+              ),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/physiotherapy',
+          name: 'physiotherapy',
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: PhysioScreen(
+                initialPatientUid: q['patient_uid'],
+                initialFollowUpPlanId: int.tryParse(
+                  q['follow_up_plan_id'] ?? '',
+                ),
               ),
             );
           },

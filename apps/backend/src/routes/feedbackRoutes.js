@@ -62,6 +62,9 @@ wrapAutoRBAC(
       // 👍 Quick Rating (Simple 1-5 star rating)
       ['/quick-rating', feedbackController.submitQuickRating],
 
+      // 📈 NPS Rating (0-10, stored separately from 1-5 star feedback)
+      ['/nps', sanitizeFeedbackFields, feedbackController.submitNpsResponse],
+
       // 💬 Respond to Feedback (Staff access)
       ['/respond', feedbackController.respondToFeedback]
     ],
