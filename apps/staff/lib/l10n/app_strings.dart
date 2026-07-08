@@ -19128,7 +19128,8 @@ class AppStrings {
       'physio.patient_uid': "நோயாளி UID",
       'physio.plan_linked': "திட்டம் #{id} இணைக்கப்பட்டது",
       'physio.plan_name': "திட்டப் பெயர்",
-      'physio.plan_required': "அமர்வு பதிவு செய்வதற்கு முன் மறுவாழ்வு திட்டம் தொடங்கவும்",
+      'physio.plan_required':
+          "அமர்வு பதிவு செய்வதற்கு முன் மறுவாழ்வு திட்டம் தொடங்கவும்",
       'physio.plan_started': "மறுவாழ்வு திட்டம் தொடங்கப்பட்டது",
       'physio.record_assessment': "மதிப்பீடு பதிவு செய்யவும்",
       'physio.record_session': "அமர்வு பதிவு செய்யவும்",
@@ -19138,7 +19139,8 @@ class AppStrings {
       'physio.submit_failed': "பிசியோ புதுப்பிப்பு தோல்வி",
       'physio.title': "பிசியோதெரபி",
       'physio.worklist': "தெரபிஸ்ட் பணிப்பட்டி",
-      'physio.worklist_empty': "பிசியோ பரிந்துரைகள் அல்லது செயலில் உள்ள மறுவாழ்வு திட்டங்கள் இல்லை",
+      'physio.worklist_empty':
+          "பிசியோ பரிந்துரைகள் அல்லது செயலில் உள்ள மறுவாழ்வு திட்டங்கள் இல்லை",
       // REVIEW: AI first-pass S4 dynamic i18n sweep - confirm wording before production.
       's4.dynamic.app_router.page_not_found': "பக்கம் கிடைக்கவில்லை: {route}",
       's4.dynamic.patient_notes.update_failed':
@@ -24924,7 +24926,8 @@ class AppStrings {
       'physio.patient_uid': "రోగి UID",
       'physio.plan_linked': "ప్లాన్ #{id} లింక్ అయింది",
       'physio.plan_name': "ప్లాన్ పేరు",
-      'physio.plan_required': "సెషన్ నమోదు చేసే ముందు రిహాబ్ ప్లాన్ ప్రారంభించండి",
+      'physio.plan_required':
+          "సెషన్ నమోదు చేసే ముందు రిహాబ్ ప్లాన్ ప్రారంభించండి",
       'physio.plan_started': "రిహాబ్ ప్లాన్ ప్రారంభమైంది",
       'physio.record_assessment': "అంచనా నమోదు చేయండి",
       'physio.record_session': "సెషన్ నమోదు చేయండి",
@@ -24934,7 +24937,8 @@ class AppStrings {
       'physio.submit_failed': "ఫిజియో నవీకరణ విఫలమైంది",
       'physio.title': "ఫిజియోథెరపీ",
       'physio.worklist': "థెరపిస్ట్ పనుల జాబితా",
-      'physio.worklist_empty': "ఫిజియో రెఫరల్స్ లేదా యాక్టివ్ రిహాబ్ ప్లాన్స్ లేవు",
+      'physio.worklist_empty':
+          "ఫిజియో రెఫరల్స్ లేదా యాక్టివ్ రిహాబ్ ప్లాన్స్ లేవు",
       // REVIEW: AI first-pass S4 dynamic i18n sweep - confirm wording before production.
       's4.dynamic.app_router.page_not_found': "పేజీ కనుగొనబడలేదు: {route}",
       's4.dynamic.patient_notes.update_failed': "నవీకరణ విఫలమైంది: {error}",
@@ -25238,7 +25242,8 @@ class AppStrings {
       'physio.patient_uid': 'രോഗി UID',
       'physio.plan_linked': 'പ്ലാൻ #{id} ലിങ്ക് ചെയ്തു',
       'physio.plan_name': 'പ്ലാൻ പേര്',
-      'physio.plan_required': 'സെഷൻ രേഖപ്പെടുത്തുന്നതിന് മുമ്പ് റിഹാബ് പ്ലാൻ ആരംഭിക്കുക',
+      'physio.plan_required':
+          'സെഷൻ രേഖപ്പെടുത്തുന്നതിന് മുമ്പ് റിഹാബ് പ്ലാൻ ആരംഭിക്കുക',
       'physio.plan_started': 'റിഹാബ് പ്ലാൻ ആരംഭിച്ചു',
       'physio.record_assessment': 'അസസ്മെന്റ് രേഖപ്പെടുത്തുക',
       'physio.record_session': 'സെഷൻ രേഖപ്പെടുത്തുക',
