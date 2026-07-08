@@ -10,11 +10,13 @@ on:
   pull_request:
     paths:
       - "infra/kubernetes/optional/analytics-warehouse/**"
+      - "infra/kubernetes/optional/metabase/**"
       - ".github/workflows/ci-warehouse.yml"
   push:
     branches: [main]
     paths:
       - "infra/kubernetes/optional/analytics-warehouse/**"
+      - "infra/kubernetes/optional/metabase/**"
       - ".github/workflows/ci-warehouse.yml"
 
 concurrency:
@@ -90,4 +92,5 @@ jobs:
       - name: kustomize build (module manifests + configmap refs resolve)
         run: |
           kubectl kustomize infra/kubernetes/optional/analytics-warehouse > /dev/null
+          kubectl kustomize infra/kubernetes/optional/metabase > /dev/null
           echo "kustomize build OK"

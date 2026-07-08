@@ -2,6 +2,7 @@
 
 Status: **code-complete 2026-06-11** · deploy is owner-side (opt-in overlay)
 Owner runbook: [`infra/kubernetes/optional/analytics-warehouse/README.md`](../infra/kubernetes/optional/analytics-warehouse/README.md)
+Metabase module: [`infra/kubernetes/optional/metabase/README.md`](../infra/kubernetes/optional/metabase/README.md)
 
 ## Why
 
@@ -70,8 +71,9 @@ bounds. **No external dbt packages** — the cluster has no egress.
 
 Relationship to the in-app `bi_*` tables (migration 157): those OLTP rollups
 keep serving the in-app admin dashboards; the warehouse marts are the
-analytics-grade replacements for exec/Metabase use. Retire `bi_*` consumers
-opportunistically.
+analytics-grade replacements for exec/Metabase use. The optional Metabase
+module is deploy-held and must point only at `analytics_marts` as
+`vh_metabase`; retire `bi_*` consumers opportunistically.
 
 ## Operating it
 
