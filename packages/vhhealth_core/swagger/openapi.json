@@ -38788,6 +38788,151 @@
         ]
       }
     },
+    "/api/v1/admin/migration-toolkit/jobs": {
+      "get": {
+        "operationId": "get_api_v1_admin_migration_toolkit_jobs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_migration_toolkit_jobs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/migration-toolkit/jobs/{jobId}/rehearsals": {
+      "post": {
+        "operationId": "post_api_v1_admin_migration_toolkit_jobs_by_jobId_rehearsals",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/migration-toolkit/jobs/{jobId}/report": {
+      "get": {
+        "operationId": "get_api_v1_admin_migration_toolkit_jobs_by_jobId_report",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/migration-toolkit/jobs/{jobId}/source-files": {
+      "post": {
+        "operationId": "post_api_v1_admin_migration_toolkit_jobs_by_jobId_source_files",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/migration-toolkit/mapping-profiles": {
+      "get": {
+        "operationId": "get_api_v1_admin_migration_toolkit_mapping_profiles",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_migration_toolkit_mapping_profiles",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/nhcx/claim/{claimId}/status": {
       "post": {
         "operationId": "post_api_v1_admin_nhcx_claim_by_claimId_status",
