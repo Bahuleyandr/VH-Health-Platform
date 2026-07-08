@@ -1,0 +1,2 @@
+external_patient_id,mrn,full_name,phone,email,dob,gender
+LEG-1001,MRN-1001,Asha Rao,9812345678,asha@example.test,1988-03-14,F

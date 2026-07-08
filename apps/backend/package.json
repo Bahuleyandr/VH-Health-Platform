@@ -71,6 +71,8 @@
     "load-test:health": "k6 run load-tests/k6/health.js",
     "load-test:auth": "k6 run load-tests/k6/auth.js",
     "load-test:api": "k6 run load-tests/k6/api.js",
+    "load-test:500bed": "k6 run loadtest/hospital-day-500bed.js",
+    "load-test:500bed:evidence": "node scripts/loadtest-500bed-evidence.mjs",
     "test:watch": "node --experimental-vm-modules --max-old-space-size=2048 node_modules/jest/bin/jest.js --watch",
     "test:coverage": "node scripts/run-coverage-jest.mjs",
     "test:suite": "node --experimental-vm-modules --max-old-space-size=2048 node_modules/jest/bin/jest.js --runInBand --testPathPatterns"
