@@ -24,6 +24,10 @@ import { requireTenantId } from '../tenant/tenantService.js';
 const METABASE_URL = process.env.METABASE_URL || '';
 const METABASE_EMBED_SECRET = process.env.METABASE_EMBED_SECRET || '';
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
+const DEFAULT_EMBED_TTL_SECONDS = 600;
+const MIN_EMBED_TTL_SECONDS = 60;
+const MAX_EMBED_TTL_SECONDS = 86400;
+const RESERVED_PARAM_KEYS = new Set(['tenant', 'tenantid']);
 
 // Curated catalogue surfaced to the front-end so the dashboard picker
 // isn't free-text. The numeric ids must match what's actually defined
@@ -34,6 +38,34 @@ function envInt(name, fallback) {
   if (!raw) return fallback;
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeParamKey(key) {
+  return String(key).replace(/[-_]/g, '').toLowerCase();
+}
+
+function sanitizeEmbedParams(params) {
+  if (params == null) return {};
+  if (Array.isArray(params) || typeof params !== 'object') {
+    throw AppError.badRequest('Metabase embed params must be an object', 'METABASE_PARAMS_INVALID');
+  }
+  const sanitized = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (RESERVED_PARAM_KEYS.has(normalizeParamKey(key))) {
+      throw AppError.badRequest(
+        'Tenant scope is server-managed for Metabase embeds',
+        'METABASE_TENANT_PARAM_FORBIDDEN'
+      );
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
+function clampTtlSeconds(ttlSeconds) {
+  const parsed = Number.parseInt(ttlSeconds, 10);
+  const seconds = Number.isFinite(parsed) ? parsed : DEFAULT_EMBED_TTL_SECONDS;
+  return Math.max(MIN_EMBED_TTL_SECONDS, Math.min(MAX_EMBED_TTL_SECONDS, seconds));
 }
 
 export const DASHBOARDS = {
@@ -101,17 +133,20 @@ export function buildEmbedUrl({ key, params = {}, ttlSeconds = 600, tenantId = D
   if (!dash.metabase_id) {
     throw AppError.badRequest(`Dashboard ${key} has no metabase_id configured`);
   }
+  const resolvedTenantId = requireTenantId(tenantId);
+  const sanitizedParams = sanitizeEmbedParams(params);
+  const ttl = clampTtlSeconds(ttlSeconds);
   const payload = {
     resource: { dashboard: dash.metabase_id },
     params: {
-      ...params,
-      tenant_id: requireTenantId(tenantId),
+      ...sanitizedParams,
+      tenant_id: resolvedTenantId,
     },
-    exp: Math.round(Date.now() / 1000) + Math.max(60, Math.min(86400, ttlSeconds)),
+    exp: Math.round(Date.now() / 1000) + ttl,
   };
   const token = jwt.sign(payload, METABASE_EMBED_SECRET, { algorithm: 'HS256' });
   const url = `${METABASE_URL.replace(/\/$/, '')}/embed/dashboard/${token}#bordered=false&titled=false`;
-  return { key, title: dash.title, url, ttlSeconds };
+  return { key, title: dash.title, url, ttlSeconds: ttl };
 }
 
 /**

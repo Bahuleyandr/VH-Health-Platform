@@ -1,0 +1,14 @@
+# NL-10 B1 - Metabase optional module.
+#
+# HELD by default: deliberately NOT referenced by base/kustomization.yaml or
+# overlays/prod/kustomization.yaml. Enable only after the analytics warehouse
+# optional module is enabled and dbt grants marts-only access to vh_metabase.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - metabase-app-db.yaml
+  - metabase.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true

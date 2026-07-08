@@ -76,8 +76,9 @@ retired in favour of CRDs without touching migration 295.
    warehouse; slot lag on the publisher (query in subscribe-job logs).
 6. First dbt build: `kubectl -n vhhealth-platform create job
    --from=cronjob/vh-warehouse-dbt dbt-initial`.
-7. Point Metabase at `vhhealth-warehouse-rw:5432/vhhealth` as `vh_metabase`
-   (sees ONLY the `analytics_marts` schema), and retire its OLTP connection.
+7. Enable `../metabase` only after the warehouse is healthy, then point
+   Metabase at `vhhealth-warehouse-rw:5432/vhhealth` as `vh_metabase`
+   (sees ONLY the `analytics_marts` schema), and retire any OLTP connection.
 
 ## After every backend release that adds migrations (runbook)
 
