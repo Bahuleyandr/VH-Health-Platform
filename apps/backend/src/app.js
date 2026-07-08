@@ -69,6 +69,7 @@ import {
   CLINICAL_STAFF_ROUTE_ROLES,
   COMPLIANCE_ROUTE_ROLES,
   CONSENT_ROUTE_ROLES,
+  CSSD_ROUTE_ROLES,
   DELIVERY_ROUTE_ROLES,
   DIETARY_ROUTE_ROLES,
   DIALYSIS_ROUTE_ROLES,
@@ -230,6 +231,7 @@ import theatreRoutes from './routes/theatre/theatreRoutes.js';
 import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
 import anesthesiaChartRoutes from './routes/theatre/anesthesiaChartRoutes.js';
 import surgicalDocumentationRoutes from './routes/admin/surgicalDocumentationRoutes.js';
+import cssdRoutes from './routes/cssd/cssdRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
 import labPanelRoutes from './routes/lab/labPanelRoutes.js';
 import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisationRoutes.js';
@@ -1154,6 +1156,7 @@ app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGua
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), orBoardRoutes);
 app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ANESTHESIA_CHART', { careTeamModeGoverned: true }), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/cssd', requireRole(...CSSD_ROUTE_ROLES), sanitizeAllBodyStrings, cssdRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real

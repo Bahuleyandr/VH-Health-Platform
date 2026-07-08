@@ -60,6 +60,7 @@ const navigation: NavItem[] = [
   { name: 'Feature Flags', href: '/dashboard/feature-flags', requiredRole: 'ADMIN' },
   { name: 'Compliance', href: '/dashboard/compliance', requiredRole: 'ADMIN' },
   { name: 'Clinical AI', href: '/dashboard/clinical-ai', requiredRole: 'ADMIN' },
+  { name: 'CSSD', href: '/dashboard/cssd', minRole: 'STAFF' },
   { name: 'Consent', href: '/dashboard/consent', requiredPermissions: ['userManagement'] },
   { name: 'Feedback', href: '/dashboard/feedback', requiredPermissions: ['userManagement'] },
   { name: 'Devices', href: '/dashboard/devices', requiredRole: 'ADMIN' },
