@@ -78,6 +78,39 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   `lint:raw-params` (spread args; `::type` casts inside jsonb builders).
 - **`gh pr checks --watch` exits 1 spuriously — always re-query.** GHA on this repo works
   (billing resolved); `gh run watch --exit-status` also lies.
+- **Chains hard-abort before push.** The QA PG (127.0.0.1:55432) can be down or die mid-chain;
+  a chain that pushes anyway ships a half-regenerated roll (schema.prisma missing the branch's
+  own models — cost two bad pushes on 2026-07-08). Every roll chain prechecks
+  `psql .../postgres -c "SELECT 1"` and must abort BEFORE `git commit`/`git push` unless
+  ci-setup-db, the seeder proof (`"failed": []`), `prisma db pull`, and `openapi:check` all
+  passed. Restart: `pg_ctl -D D:/Dev/Tools/vhhealth-test-postgres-data -o "-p 55432 -h 127.0.0.1" -l <log> start`.
+- **Branch-delete only after `gh pr view N --json state` == `MERGED`.** Deleting the head
+  branch of an unmerged PR auto-closes it (#488 incident; recovered by push-back + reopen).
+- **`--force-with-lease` needs the colon form** `--force-with-lease=refs/heads/<b>:<sha>`;
+  the comma form silently degrades to a plain push (rejected as non-fast-forward).
+- **Coordinator MAY squash a delivered PR branch** (`reset --soft <base>` + one commit +
+  lease push) to clear secret-scan RANGE false positives: the range scan walks every PR
+  commit, so a follow-up rename never cleans history (#499). We squash-merge anyway —
+  intra-PR history is disposable. Only after the worker session is stood down.
+- **Known-transient CI failures — rerun, do not debug:** (a) Melos workspace "Failed to
+  download .../flutter//engine_stamp.json" (double-slash 404; Flutter bootstrap flake, hit
+  #497 and #500 on 2026-07-08); (b) smoke route-crawl "Test timeout ... net::ERR_ABORTED /
+  frame was detached" on routes the PR does not touch (dev-server collapse on a loaded
+  runner, hit #512); (c) runner ENETUNREACH/ETIMEDOUT to Azure/Microsoft endpoints.
+  `gh run rerun <run-id> --failed` then re-arm the gate.
+- **Design kickoffs self-gate on their OUTPUT artifact.** Before launching any design/docs
+  prompt, check `git ls-tree github/main:docs/superpowers/specs` for its deliverable — a
+  kickoff run twice produces a duplicate spec (#509 vs #463). Every design prompt must open
+  with a STOP-IF-DONE gate on its own output path, and the coordinator checks §9 status
+  before handing out a kickoff line.
+- **"Suite failed to run" ≠ regression.** A `Cannot find module` load failure in a worker or
+  coordinator tree means STALE node_modules (deps merged since the last install — e.g.
+  @node-saml after Wave A). `npm install` and re-run before escalating; a real main
+  regression shows a test ASSERTION failure on a fresh install (billing-v2 false alarm, 2026-07-08).
+- **Gates recheck `mergeable`.** Green checks do NOT imply mergeable — a roll against a
+  stale local github/main leaves the branch CONFLICTING despite green CI (#503). The gate
+  merges only on zero-non-green AND `mergeable == MERGEABLE`; fetch main with an explicit
+  refspec (`git fetch github +refs/heads/main:refs/remotes/github/main`) right before rolling.
 
 ## 4. Coordinator verification method (specs AND build PRs)
 
@@ -117,7 +150,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 391–393 | NL-7 P2 cold-chain | launched 2026-07-07 (round 2b, gate open: P1 on main) |
 | 394–396 | NL-7 P3 CMMS | launched 2026-07-07 (round 2b, gate open: P1 on main) |
 | 397–400 | N6-6 infection depth | launched 2026-07-07 (round 3) |
-| 401–402 | NL-5 P4 pediatric packs | launched 2026-07-07 (round 3) |
+| 401–402 | NL-5 P4 pediatric packs | **on main** (#512 — NL-5 BUILD-COMPLETE) |
 | 403 | N6-8 dental UI (if needed) | launched 2026-07-07 (round 3) |
 | 404–407 | N6-3 donor processing | launched 2026-07-07 (round 3; start gate self-blocks until N6-2 on main) |
 | 408–410 | NL-5 P2 + indigenous-KB substrate | launched 2026-07-07 (round 4) |
@@ -132,15 +165,32 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | — | NL12-S4 SLSA + NL12-S5 Kyverno gate | launched 2026-07-07 — ZERO-MIGRATION slices (no block; any migration need = STOP and ask coordinator) |
 | 432 | NL10-B1 Metabase module (build; deploy HELD) | launched 2026-07-08 (round 7) |
 | 433–434 | NL11-S3 entitlements P1 | launched 2026-07-08 (round 7) |
-| 435–438 | NL9-P1 consent-safe campaigns | launched 2026-07-08 (round 7) |
-| 439 | NL12-S1 NABH export contract | launched 2026-07-08 (round 7) |
-| 440–442 | N6-11 physio/rehab | launched 2026-07-08 (round 7) |
-| 443–445 | NL11-S9 migration toolkit P2 (gate open: S1 on main) | launched 2026-07-08 (round 8) |
+| 435–438 | NL9-P1 consent-safe campaigns | **on main** (#500) |
+| 439 | NL12-S1 NABH export (shipped via #505 with ZERO migrations) | unused gap — do not reuse |
+| 440–442 | N6-11 physio/rehab | **on main** (#503) |
+| 443–445 | NL11-S9 migration toolkit P2 | **on main** (#497) |
 | 446–447 | NL-7 P4 pilot hardening (RTLS half stays owner-gated) | launched 2026-07-08 (round 8) |
-| 448–449 | NL12-S2 SIEM export seam | launched 2026-07-08 (round 8) |
-| — | NL12-S3 500-bed load pack | launched 2026-07-08 — ZERO-MIGRATION |
-| 450–451 | NL8-P2 PHI-free queue displays | launched 2026-07-08 (round 8) |
-| 452+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 448–449 | NL12-S2 SIEM export seam | **on main** (#501) |
+| — | NL12-S3 500-bed load pack | **on main** (#499, zero-migration) |
+| 450 | NL8-P2 PHI-free queue displays (#502 used only 450) | **on main** (#502); 451 unused gap, do not reuse |
+| 439 | NL12-S1 NABH (delivered #494 with ZERO migrations) | unused — documented gap, do not reuse |
+| 451 | NL8-P2 (delivered #502 using only 450) | unused — documented gap, do not reuse |
+| 452–453 | NL9-P2 NPS analytics | **on main** (#510) |
+| 454–456 | NL8-P3 porter/transport | **on main** (#511) |
+| 457–458 | NL9-P3 teleconsult follow-ups | launched 2026-07-08 (round 10 tranches) |
+| 459–460 | NL8-P5 census/LOS | launched 2026-07-08 (round 10 tranches) |
+| 461–463 | NL11-S08 SMART-on-FHIR writes P1 | launched 2026-07-08 (round 10 tranches) |
+| 464 | NL12-S8 cert cockpit | launched 2026-07-08 (round 10 tranches) |
+| 465 | NL10-B2 catalog embeds (deploy HELD, build inert) | launched 2026-07-08 (round 10 tranches) |
+| 466 | NL10-B3 digest/benchmarks (deploy HELD, build inert) | launched 2026-07-08 (round 10 tranches) |
+| 467 | NL11-S04 design tokens P1 | launched 2026-07-08 (round 10 tranches) |
+| 468–469 | NL11-S05 white-label P1 | launched 2026-07-08 (round 10 tranches) |
+| 470 | NL11-S06 demo tenant P1 | launched 2026-07-08 (round 10 tranches) |
+| 471–472 | NL11-S07 manuals/LMS P1 | launched 2026-07-08 (round 10 tranches) |
+| 473–474 | N6-14 linen (deliberate Wave-B tail) | assigned 2026-07-08 (hold until Wave B tail) |
+| 475–477 | NL11-S11 interface engine P1 (gate S10 **on main** #513) | launched 2026-07-08 (round 10) |
+| 478–481 | NL8-P4 scheduling optimization | launched 2026-07-08 (round 10 tranches) |
+| 482+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
