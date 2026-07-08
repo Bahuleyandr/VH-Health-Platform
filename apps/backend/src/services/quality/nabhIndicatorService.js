@@ -8,6 +8,89 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import PDFDocument from 'pdfkit';
+
+export const ASSESSOR_EXPORT_CONTRACT = Object.freeze({
+  pack_type: 'NABH_PERIOD_PACK',
+  canonical_format_status: 'pending_assessor_format',
+  evidence_control_code: 'NABH_AUDIT_EXPORT',
+  supported_formats: ['json', 'csv', 'pdf'],
+  phi_policy: 'Aggregate quality indicators only; no patient identifiers or raw clinical payloads.',
+  acceptance_boundary: 'Hospital owner must confirm the assessor-required file format before marking evidence accepted.',
+});
+
+export const INDICATOR_DEFINITIONS = Object.freeze({
+  ama_lama_discharge_pct: {
+    chapter: 'QPS',
+    source_tables: ['admissions'],
+    numerator: 'Discharges with discharge_type AMA or LAMA in the period.',
+    denominator: 'All discharges in the period.',
+    assessor_note: 'Lower is better; period is based on discharged_at.',
+  },
+  medication_error_rate_per_1000: {
+    chapter: 'QPS',
+    source_tables: ['medication_safety_reviews', 'medication_administrations'],
+    numerator: 'Medication safety reviews with blocked or overridden status in the period.',
+    denominator: 'Administered medication administrations in the period.',
+    assessor_note: 'Reported per 1000 administrations; lower is better.',
+  },
+  lab_tat_minutes: {
+    chapter: 'QPS',
+    source_tables: ['lab_results'],
+    numerator: 'Median minutes from sample received to signed off.',
+    denominator: 'Signed lab results in the period.',
+    assessor_note: 'p50 and p90 are included in details.',
+  },
+  radiology_tat_minutes: {
+    chapter: 'QPS',
+    source_tables: ['radiology_orders'],
+    numerator: 'Median minutes from order creation to completed radiology report.',
+    denominator: 'Completed radiology reports in the period.',
+    assessor_note: 'p50 and p90 are included in details.',
+  },
+  critical_alert_ack_minutes: {
+    chapter: 'QPS',
+    source_tables: ['lab_critical_alerts'],
+    numerator: 'Median minutes from critical alert firing to acknowledgement.',
+    denominator: 'Acknowledged critical alerts in the period.',
+    assessor_note: 'p50 and p90 are included in details.',
+  },
+  hai_rate_per_1000_patient_days: {
+    chapter: 'HIC',
+    source_tables: ['hai_cases', 'admissions'],
+    numerator: 'HAI numerator_count in the period.',
+    denominator: 'Inpatient patient-days overlapping the period.',
+    assessor_note: 'Reported per 1000 patient-days; lower is better.',
+  },
+  hai_device_rate_per_1000_device_days: {
+    chapter: 'HIC',
+    source_tables: ['hai_cases', 'device_presence_logs'],
+    numerator: 'Device-associated HAI numerator_count in the period.',
+    denominator: 'Device-days overlapping the period.',
+    assessor_note: 'Reported per 1000 device-days and split by device type in details.',
+  },
+  incident_counts: {
+    chapter: 'QPS',
+    source_tables: ['quality_incidents'],
+    numerator: 'Reported quality incidents in the period.',
+    denominator: null,
+    assessor_note: 'Counts are split by incident_type in details.',
+  },
+  patient_satisfaction_positive_pct: {
+    chapter: 'PRE',
+    source_tables: ['feedback', 'patient_feedback'],
+    numerator: 'Patient feedback ratings greater than or equal to 4 on a 5-point scale.',
+    denominator: 'Patient feedback ratings captured in the period.',
+    assessor_note: 'Format remains pending owner confirmation; aggregate only.',
+  },
+  rca_completion_pct: {
+    chapter: 'QPS',
+    source_tables: ['quality_incidents'],
+    numerator: 'Major/sentinel incidents closed or resolved with RCA, corrective action, and preventive action.',
+    denominator: 'Major/sentinel incidents requiring RCA in the period.',
+    assessor_note: 'RCA scope is explicitly limited to major and sentinel incidents.',
+  },
+});
 
 function isMissingSchema(err) {
   return /does not exist/i.test(String(err?.message || ''));
@@ -23,6 +106,22 @@ function per1000(numerator, denominator) {
   return Number(((numerator / denominator) * 1000).toFixed(2));
 }
 
+function normalizeForWire(value) {
+  if (value == null) return value;
+  if (typeof value.toNumber === 'function') return value.toNumber();
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map((item) => normalizeForWire(item));
+  if (typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeForWire(item)]));
+  }
+  return value;
+}
+
+function dateOnly(value) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 function requireTenantId(tenantId) {
   if (!tenantId) {
     throw AppError.forbidden('Tenant context is required for NABH indicators', 'NABH_TENANT_REQUIRED');
@@ -32,7 +131,22 @@ function requireTenantId(tenantId) {
 
 /** Build one indicator result row. Pure-ish shape helper. */
 function indicator(code, label, unit, value, numerator, denominator, details = {}) {
-  return { code, label, unit, value, numerator, denominator, details };
+  const definition = INDICATOR_DEFINITIONS[code] || {};
+  return {
+    code,
+    label,
+    unit,
+    value,
+    numerator,
+    denominator,
+    definition,
+    details: {
+      ...details,
+      definition_status: ASSESSOR_EXPORT_CONTRACT.canonical_format_status,
+      source_tables: definition.source_tables || [],
+      assessor_note: definition.assessor_note || null,
+    },
+  };
 }
 
 async function tatIndicator({ code, label, sql, params }) {
@@ -233,6 +347,78 @@ const INDICATORS = {
       by_category: Object.fromEntries(rows.map((r) => [r.category, Number(r.n)])),
     });
   },
+
+  async patient_satisfaction_positive_pct({ from, to, tenantId }) {
+    const rows = await prisma.$queryRawUnsafe(
+      `WITH survey_rows AS (
+         SELECT rating::numeric AS rating
+           FROM feedback
+          WHERE tenant_id = $1::uuid
+            AND created_at >= $2::date
+            AND created_at < ($3::date + 1)
+            AND rating BETWEEN 1 AND 5
+         UNION ALL
+         SELECT rating::numeric AS rating
+           FROM patient_feedback
+          WHERE tenant_id = $1::uuid
+            AND created_at >= $2::date
+            AND created_at < ($3::date + 1)
+            AND rating BETWEEN 1 AND 5
+       )
+       SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE rating >= 4)::int AS positive,
+              ROUND(AVG(rating), 2) AS average_rating
+         FROM survey_rows`,
+      tenantId, from, to,
+    );
+    const row = rows[0] || {};
+    const numerator = Number(row.positive) || 0;
+    const denominator = Number(row.total) || 0;
+    return indicator(
+      'patient_satisfaction_positive_pct',
+      'Patient satisfaction positive responses',
+      '%',
+      pct(numerator, denominator),
+      numerator,
+      denominator,
+      { average_rating: row.average_rating != null ? Number(row.average_rating) : null },
+    );
+  },
+
+  async rca_completion_pct({ from, to, tenantId }) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) FILTER (
+                WHERE severity IN ('major', 'sentinel')
+              )::int AS required,
+              COUNT(*) FILTER (
+                WHERE severity IN ('major', 'sentinel')
+                  AND status IN ('resolved', 'closed')
+                  AND NULLIF(BTRIM(COALESCE(root_cause, '')), '') IS NOT NULL
+                  AND NULLIF(BTRIM(COALESCE(corrective_action, '')), '') IS NOT NULL
+                  AND NULLIF(BTRIM(COALESCE(preventive_action, '')), '') IS NOT NULL
+              )::int AS completed
+         FROM quality_incidents
+        WHERE tenant_id = $1::uuid
+          AND date_occurred >= $2::date
+          AND date_occurred < ($3::date + 1)`,
+      tenantId, from, to,
+    );
+    const row = rows[0] || {};
+    const numerator = Number(row.completed) || 0;
+    const denominator = Number(row.required) || 0;
+    return indicator(
+      'rca_completion_pct',
+      'RCA completion for major/sentinel incidents',
+      '%',
+      pct(numerator, denominator),
+      numerator,
+      denominator,
+      {
+        rca_required_scope: 'quality_incidents.severity IN (major, sentinel)',
+        completion_requires: ['root_cause', 'corrective_action', 'preventive_action', 'status resolved/closed'],
+      },
+    );
+  },
 };
 
 export const INDICATOR_CODES = Object.freeze(Object.keys(INDICATORS));
@@ -255,7 +441,12 @@ export async function computeIndicators({ from, to, tenantId } = {}) {
       });
     }
   }
-  return { period: { from, to }, indicators: results };
+  return {
+    period: { from, to },
+    export_contract: ASSESSOR_EXPORT_CONTRACT,
+    indicator_dictionary: INDICATOR_DEFINITIONS,
+    indicators: results,
+  };
 }
 
 export async function snapshotIndicators({ from, to } = {}, context = {}) {
@@ -287,18 +478,94 @@ export async function listSnapshots({ from = null, to = null, tenantId } = {}) {
   let where = 'tenant_id = $1::uuid';
   if (from) { params.push(from); where += ` AND period_start >= $${params.length}::date`; }
   if (to) { params.push(to); where += ` AND period_end <= $${params.length}::date`; }
-  return prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT period_start, period_end, indicator_code, label, value, numerator, denominator,
             unit, details, computed_at
        FROM nabh_indicator_snapshots WHERE ${where}
       ORDER BY period_start DESC, indicator_code`,
     ...params,
   );
+  return rows.map((row) => normalizeForWire(row));
+}
+
+async function listFrozenSnapshotRows({ from, to, tenantId }) {
+  return prisma.$queryRawUnsafe(
+    `SELECT period_start, period_end, indicator_code, label, value, numerator, denominator,
+            unit, details, computed_at
+       FROM nabh_indicator_snapshots
+      WHERE tenant_id = $1::uuid
+        AND period_start = $2::date
+        AND period_end = $3::date
+      ORDER BY indicator_code`,
+    tenantId, from, to,
+  );
+}
+
+function snapshotRowToIndicator(row) {
+  const shaped = normalizeForWire(row);
+  const definition = INDICATOR_DEFINITIONS[shaped.indicator_code] || {};
+  return {
+    code: shaped.indicator_code,
+    label: shaped.label,
+    value: shaped.value,
+    unit: shaped.unit,
+    numerator: shaped.numerator,
+    denominator: shaped.denominator,
+    available: true,
+    definition,
+    details: normalizeForWire(shaped.details || {}),
+    computed_at: shaped.computed_at,
+  };
+}
+
+export async function getFrozenPeriodPack({ from, to, tenantId } = {}) {
+  if (!from || !to) throw AppError.badRequest('from and to dates are required', 'NABH_PERIOD_REQUIRED');
+  if (new Date(from) > new Date(to)) throw AppError.badRequest('from must be <= to', 'NABH_PERIOD_INVERTED');
+  const resolvedTenantId = requireTenantId(tenantId);
+  const rows = await listFrozenSnapshotRows({ from, to, tenantId: resolvedTenantId });
+  if (!rows.length) {
+    throw AppError.notFound('NABH period pack has not been frozen for this period', 'NABH_PERIOD_PACK_NOT_FROZEN');
+  }
+  const indicators = rows.map(snapshotRowToIndicator)
+    .sort((a, b) => INDICATOR_CODES.indexOf(a.code) - INDICATOR_CODES.indexOf(b.code));
+  const present = new Set(indicators.map((item) => item.code));
+  const missing = INDICATOR_CODES.filter((code) => !present.has(code));
+  const frozenAt = indicators.reduce((latest, item) => {
+    if (!item.computed_at) return latest;
+    return !latest || item.computed_at > latest ? item.computed_at : latest;
+  }, null);
+  return {
+    pack_type: 'NABH_PERIOD_PACK',
+    status: 'frozen',
+    tenant_id: resolvedTenantId,
+    period: { from: dateOnly(from), to: dateOnly(to) },
+    frozen_at: frozenAt,
+    generated_at: new Date().toISOString(),
+    export_contract: ASSESSOR_EXPORT_CONTRACT,
+    evidence_attachment: {
+      control_code: 'NABH_AUDIT_EXPORT',
+      status: 'pending_operator_acceptance',
+      evidence_table: 'india_compliance_evidence',
+      attach_files: ['json', 'csv', 'pdf'],
+      note: ASSESSOR_EXPORT_CONTRACT.acceptance_boundary,
+    },
+    indicator_dictionary: INDICATOR_DEFINITIONS,
+    indicator_count: indicators.length,
+    expected_indicator_count: INDICATOR_CODES.length,
+    missing_indicator_codes: missing,
+    indicators,
+  };
+}
+
+export async function freezePeriodPack({ from, to } = {}, context = {}) {
+  const snapshot = await snapshotIndicators({ from, to }, context);
+  const pack = await getFrozenPeriodPack({ from, to, tenantId: context.tenantId });
+  return { ...pack, snapshot_saved: snapshot.snapshot_saved };
 }
 
 /** Assessor CSV: one row per indicator. Pure given a pack — unit-tested. */
 export function packToCsv(pack) {
-  const header = 'indicator_code,label,value,unit,numerator,denominator,period_start,period_end,available';
+  const header = 'indicator_code,label,value,unit,numerator,denominator,period_start,period_end,available,definition_status,evidence_control,source_tables,assessor_note';
   const escape = (v) => {
     const s = v == null ? '' : String(v);
     return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
@@ -306,8 +573,57 @@ export function packToCsv(pack) {
   const lines = pack.indicators.map((i) => [
     i.code, i.label, i.value, i.unit, i.numerator, i.denominator,
     pack.period.from, pack.period.to, i.available,
+    i.details?.definition_status || pack.export_contract?.canonical_format_status || '',
+    pack.evidence_attachment?.control_code || pack.export_contract?.evidence_control_code || '',
+    (i.definition?.source_tables || i.details?.source_tables || []).join(';'),
+    i.definition?.assessor_note || i.details?.assessor_note || '',
   ].map(escape).join(','));
   return [header, ...lines].join('\n');
 }
 
-export default { INDICATOR_CODES, computeIndicators, snapshotIndicators, listSnapshots, packToCsv };
+export async function packToPdfBuffer(pack) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 36, size: 'A4' });
+    const chunks = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    doc.fontSize(16).text('NABH Indicator Period Pack');
+    doc.moveDown(0.4);
+    doc.fontSize(10).text(`Period: ${pack.period.from} to ${pack.period.to}`);
+    doc.text(`Status: ${pack.status || 'computed'}`);
+    doc.text(`Assessor format: ${pack.export_contract?.canonical_format_status || 'pending_assessor_format'}`);
+    doc.text(`Evidence control: ${pack.evidence_attachment?.control_code || 'NABH_AUDIT_EXPORT'}`);
+    doc.text(`PHI policy: ${pack.export_contract?.phi_policy || ASSESSOR_EXPORT_CONTRACT.phi_policy}`);
+    doc.moveDown();
+
+    for (const item of pack.indicators) {
+      const value = item.value == null ? 'n/a' : `${item.value} ${item.unit || ''}`.trim();
+      const counts = [item.numerator, item.denominator]
+        .map((part) => (part == null ? 'n/a' : String(part)))
+        .join(' / ');
+      doc.fontSize(10).text(`${item.code}: ${item.label}`, { continued: false });
+      doc.fontSize(9).text(`Value: ${value}; numerator / denominator: ${counts}; available: ${item.available}`);
+      if (item.definition?.assessor_note) {
+        doc.fontSize(8).text(`Note: ${item.definition.assessor_note}`);
+      }
+      doc.moveDown(0.3);
+    }
+
+    doc.end();
+  });
+}
+
+export default {
+  ASSESSOR_EXPORT_CONTRACT,
+  INDICATOR_DEFINITIONS,
+  INDICATOR_CODES,
+  computeIndicators,
+  snapshotIndicators,
+  listSnapshots,
+  freezePeriodPack,
+  getFrozenPeriodPack,
+  packToCsv,
+  packToPdfBuffer,
+};

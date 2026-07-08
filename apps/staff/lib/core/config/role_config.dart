@@ -26,6 +26,7 @@ enum StaffRole {
   storesPurchaseIncharge('STORES_PURCHASE_INCHARGE'),
   lab('LAB_STAFF'),
   radiologyStaff('RADIOLOGY_STAFF'),
+  physiotherapist('PHYSIOTHERAPIST'),
   biomedicalStaff('BIOMEDICAL_STAFF'),
   housekeeping('HOUSEKEEPING_STAFF'),
   housekeepingIncharge('HOUSEKEEPING_INCHARGE'),
@@ -71,6 +72,15 @@ enum StaffRole {
       'RADIOLOGY_TECHNICIAN',
     }.contains(normalized)) {
       return StaffRole.radiologyStaff;
+    }
+    if (const {
+      'PHYSIO',
+      'PHYSIOTHERAPY',
+      'PHYSIOTHERAPIST',
+      'PHYSICAL_THERAPIST',
+      'REHAB_THERAPIST',
+    }.contains(normalized)) {
+      return StaffRole.physiotherapist;
     }
     if (const {
       'BIOMED',
@@ -215,6 +225,7 @@ enum StaffRole {
     StaffRole.storesPurchaseIncharge => const Color(0xFF7C2D12),
     StaffRole.lab => const Color(0xFF0097A7),
     StaffRole.radiologyStaff => const Color(0xFF0277BD),
+    StaffRole.physiotherapist => const Color(0xFF2E7D32),
     StaffRole.biomedicalStaff => const Color(0xFF1565C0),
     StaffRole.housekeeping => const Color(0xFF007A64),
     StaffRole.housekeepingIncharge => const Color(0xFF00695C),
@@ -271,6 +282,7 @@ enum StaffRole {
     StaffRole.radiologyStaff ||
     StaffRole.security ||
     StaffRole.general => null,
+    StaffRole.physiotherapist => 'physiotherapy',
   };
 
   String get rosterDepartmentLabelKey =>
@@ -290,6 +302,7 @@ enum StaffRole {
         'billing' => 'role.roster_department.billing',
         'ambulance' => 'role.roster_department.ambulance',
         'maintenance' => 'role.roster_department.maintenance',
+        'physiotherapy' => 'role.roster_department.physiotherapy',
         _ => 'role.roster_department.not_configured',
       };
 }
@@ -754,6 +767,13 @@ class RoleFeatures {
     route: '/ophthalmology',
     color: Color(0xFF00897B),
   );
+  static const DashboardFeature _physiotherapy = DashboardFeature(
+    id: 'physiotherapy',
+    titleKey: 'role.feature.physiotherapy',
+    icon: Icons.accessibility_new,
+    route: '/physiotherapy',
+    color: Color(0xFF2E7D32),
+  );
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
@@ -986,6 +1006,7 @@ class RoleFeatures {
         _cathLab,
         _theatre,
         _ophthalmology,
+        _physiotherapy,
         _radiology,
         _patientCommandBoard,
         _referrals,
@@ -1023,6 +1044,7 @@ class RoleFeatures {
         _cathLab,
         _theatre,
         _ophthalmology,
+        _physiotherapy,
         _radiology,
         _patientCommandBoard,
         _referrals,
@@ -1095,6 +1117,22 @@ class RoleFeatures {
         _radiology,
         _investigationsUpload,
         _investigationResults,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.physiotherapist => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _physiotherapy,
+        _clinicalInbox,
+        _patientRecords,
+        _patientCommandBoard,
+        _referrals,
+        _dischargeHub,
         _leave,
         _staffDirectory,
         _messaging,
@@ -1697,6 +1735,48 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
+      StaffRole.physiotherapist => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+          ),
+          labelKey: 'role.nav.home',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.accessibility_new_outlined),
+            activeIcon: Icon(Icons.accessibility_new),
+          ),
+          labelKey: 'role.nav.physiotherapy',
+          route: '/physiotherapy',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.view_timeline_outlined),
+            activeIcon: Icon(Icons.view_timeline),
+          ),
+          labelKey: 'role.nav.command',
+          route: '/patient-command-board',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+          ),
+          labelKey: 'role.nav.messages',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+          ),
+          labelKey: 'role.nav.profile',
+          route: '/profile',
+        ),
+      ],
       StaffRole.housekeeping => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -2132,7 +2212,8 @@ class RoleFeatures {
       StaffRole.otNurse ||
       StaffRole.otIncharge ||
       StaffRole.cathLabStaff ||
-      StaffRole.cathLabIncharge => true,
+      StaffRole.cathLabIncharge ||
+      StaffRole.physiotherapist => true,
       _ => false,
     };
   }
@@ -2169,6 +2250,7 @@ class RoleFeatures {
       StaffRole.otIncharge ||
       StaffRole.cathLabStaff ||
       StaffRole.cathLabIncharge ||
+      StaffRole.physiotherapist ||
       StaffRole.pharmacy ||
       StaffRole.pharmacyIncharge ||
       StaffRole.admissionOfficer ||
@@ -2215,6 +2297,7 @@ class RoleFeatures {
       StaffRole.otIncharge ||
       StaffRole.cathLabStaff ||
       StaffRole.cathLabIncharge ||
+      StaffRole.physiotherapist ||
       StaffRole.receptionist ||
       StaffRole.receptionIncharge ||
       StaffRole.billingStaff ||
@@ -2294,6 +2377,7 @@ class RoleFeatures {
       StaffRole.storesPurchaseIncharge ||
       StaffRole.lab ||
       StaffRole.radiologyStaff ||
+      StaffRole.physiotherapist ||
       StaffRole.receptionist ||
       StaffRole.receptionIncharge ||
       StaffRole.billingStaff ||
@@ -2399,6 +2483,18 @@ class RoleFeatures {
           selectedIcon: Icons.medical_services,
           route: '/dental',
           featureId: 'dental_charting',
+        ),
+      );
+    }
+
+    if (role == StaffRole.physiotherapist) {
+      items.add(
+        const WorkbenchNavItem(
+          labelKey: 'role.nav.physiotherapy',
+          icon: Icons.accessibility_new_outlined,
+          selectedIcon: Icons.accessibility_new,
+          route: '/physiotherapy',
+          featureId: 'physiotherapy',
         ),
       );
     }

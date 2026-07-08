@@ -64,6 +64,11 @@ export const CLINICAL_STAFF_ROUTE_ROLES = getRolesForCapabilityGroups([
   exclude: ['RECEPTIONIST', 'RECEPTION_INCHARGE'],
 });
 
+export const PHYSIO_ROUTE_ROLES = mergeRoles(
+  CLINICAL_STAFF_ROUTE_ROLES,
+  rolesFrom(['PHYSIOTHERAPIST']),
+);
+
 export const EMR_TIMELINE_READ_ROUTE_ROLES = mergeRoles(
   CLINICAL_STAFF_ROUTE_ROLES,
   rolesFrom(['RECEPTIONIST', 'RECEPTION_INCHARGE']),

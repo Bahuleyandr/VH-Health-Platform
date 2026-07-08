@@ -10,6 +10,8 @@ import {
   Eye,
   TrendingUp,
   BarChart3,
+  AlertTriangle,
+  Gauge,
 } from "lucide-react";
 import { fetchAdminAPI } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,9 +22,6 @@ interface FeedbackItem {
   id?: number;
   patient_id?: string;
   patient_name?: string;
-  // The backend list query aliases the patient as `user_name` and the
-  // department as `department_name`; kept here so the queryFn can normalize
-  // them onto patient_name / department, which the table renders.
   user_name?: string;
   department_name?: string;
   doctor_id?: string;
@@ -56,6 +55,52 @@ interface FeedbackDashboardOverall {
 
 interface FeedbackDashboardPayload extends FeedbackDashboardOverall {
   overallStats?: FeedbackDashboardOverall;
+}
+
+interface NpsMetric {
+  response_count: number;
+  request_count: number;
+  promoter_count: number;
+  passive_count: number;
+  detractor_count: number;
+  nps_score: number | null;
+  response_rate: number | null;
+  minimum_sample_size: number;
+  sample_visible: boolean;
+}
+
+interface NpsBreakdown extends NpsMetric {
+  dimension_type: string;
+  dimension_key: string;
+  dimension_label: string;
+}
+
+interface NpsTrend extends NpsMetric {
+  day: string;
+}
+
+interface ServiceRecoveryTask {
+  task_id: number;
+  status: string;
+  priority: string;
+  assigned_to_role?: string | null;
+  nps_response_id: string;
+  score: number;
+  nps_bucket: string;
+  channel: string;
+  encounter_type: string;
+  department_display_name?: string | null;
+  doctor_display_name?: string | null;
+  comment_redaction_status: string;
+  submitted_at?: string | null;
+}
+
+interface NpsDashboardPayload {
+  window_days: number;
+  overall: NpsMetric;
+  trend: NpsTrend[];
+  breakdowns: NpsBreakdown[];
+  urgent_queue: ServiceRecoveryTask[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -95,7 +140,7 @@ function StarRating({ rating, size = "sm" }: { rating: number; size?: "sm" | "lg
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function FeedbackPage() {
-  const [activeTab, setActiveTab] = useState<"list" | "stats">("list");
+  const [activeTab, setActiveTab] = useState<"list" | "stats" | "nps">("list");
   const [search, setSearch] = useState("");
   const [ratingFilter, setRatingFilter] = useState("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
@@ -111,11 +156,9 @@ export default function FeedbackPage() {
   } = useQuery<FeedbackItem[]>({
     queryKey: ["feedback-list"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/feedback");
+      const res = await fetchAdminAPI<unknown>("/feedback/recent?limit=100");
       const data = unwrap<{ feedback?: FeedbackItem[] } | FeedbackItem[]>(res);
       const rows = Array.isArray(data) ? data : data.feedback ?? [];
-      // Normalize the backend's user_name / department_name aliases onto the
-      // patient_name / department fields the table + filters + detail panel read.
       return rows.map((r) => ({
         ...r,
         patient_name: r.patient_name ?? r.user_name,
@@ -125,10 +168,10 @@ export default function FeedbackPage() {
   });
 
   // Fetch feedback stats
-  const { data: stats, isLoading: statsLoading } = useQuery<FeedbackStats>({
+  const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<FeedbackStats>({
     queryKey: ["feedback-stats"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/feedback/stats");
+      const res = await fetchAdminAPI<unknown>("/feedback/dashboard?timeframe=30d");
       const data = unwrap<FeedbackDashboardPayload>(res);
       const overall: FeedbackDashboardOverall = data.overallStats ?? data;
       return {
@@ -139,6 +182,18 @@ export default function FeedbackPage() {
             ? Math.round((Number(overall.responded_count ?? 0) / Number(overall.total_feedback ?? 1)) * 100)
             : 0,
       };
+    },
+  });
+
+  const {
+    data: npsDashboard,
+    isLoading: npsLoading,
+    refetch: refetchNps,
+  } = useQuery<NpsDashboardPayload>({
+    queryKey: ["nps-dashboard"],
+    queryFn: async () => {
+      const res = await fetchAdminAPI<unknown>("/quality/nps/dashboard?days=30&minimum_sample_size=5");
+      return unwrap<NpsDashboardPayload>(res);
     },
   });
 
@@ -167,11 +222,14 @@ export default function FeedbackPage() {
       ? (feedbackList.reduce((s, f) => s + f.rating, 0) / feedbackList.length).toFixed(1)
       : "0"),
     responseRate: stats?.response_rate ?? 0,
+    npsScore: npsDashboard?.overall?.nps_score,
+    recoveryCount: npsDashboard?.urgent_queue?.length ?? 0,
   };
 
   const tabs = [
     { key: "list" as const, label: "Feedback", icon: MessageSquare },
     { key: "stats" as const, label: "Statistics", icon: BarChart3 },
+    { key: "nps" as const, label: "NPS", icon: Gauge },
   ];
 
   return (
@@ -188,7 +246,11 @@ export default function FeedbackPage() {
           </p>
         </div>
         <button
-          onClick={() => refetch()}
+          onClick={() => {
+            refetch();
+            refetchStats();
+            refetchNps();
+          }}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent transition-colors"
         >
           <RefreshCw className="h-4 w-4" /> Refresh
@@ -196,7 +258,7 @@ export default function FeedbackPage() {
       </div>
 
       {/* Overview Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="border border-border rounded-lg bg-card p-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <MessageSquare className="h-4 w-4" /> Total Feedback
@@ -217,6 +279,17 @@ export default function FeedbackPage() {
             <TrendingUp className="h-4 w-4" /> Response Rate
           </div>
           <p className="text-2xl font-bold mt-1 text-blue-700">{overviewStats.responseRate}%</p>
+        </div>
+        <div className="border border-rose-200 rounded-lg bg-rose-50 p-4">
+          <div className="flex items-center gap-2 text-sm text-rose-600">
+            <Gauge className="h-4 w-4" /> NPS
+          </div>
+          <div className="flex items-end justify-between gap-3">
+            <p className="text-2xl font-bold mt-1 text-rose-700">
+              {overviewStats.npsScore === null || overviewStats.npsScore === undefined ? "Hidden" : overviewStats.npsScore}
+            </p>
+            <span className="text-xs text-rose-700">{overviewStats.recoveryCount} recovery</span>
+          </div>
         </div>
       </div>
 
@@ -502,6 +575,130 @@ export default function FeedbackPage() {
                   </div>
                 </div>
               )}
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === "nps" && (
+        <div className="space-y-6">
+          {npsLoading && (
+            <div className="space-y-3">
+              {[...Array(3)].map((_, i) => (
+                <Skeleton key={i} className="h-32 w-full rounded-lg" />
+              ))}
+            </div>
+          )}
+
+          {!npsLoading && npsDashboard && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="border border-border rounded-lg bg-card p-4">
+                  <div className="text-sm text-muted-foreground">Responses</div>
+                  <p className="text-2xl font-bold mt-1">{npsDashboard.overall.response_count}</p>
+                </div>
+                <div className="border border-emerald-200 rounded-lg bg-emerald-50 p-4">
+                  <div className="text-sm text-emerald-700">Promoters</div>
+                  <p className="text-2xl font-bold mt-1 text-emerald-800">{npsDashboard.overall.promoter_count}</p>
+                </div>
+                <div className="border border-red-200 rounded-lg bg-red-50 p-4">
+                  <div className="text-sm text-red-700">Detractors</div>
+                  <p className="text-2xl font-bold mt-1 text-red-800">{npsDashboard.overall.detractor_count}</p>
+                </div>
+                <div className="border border-border rounded-lg bg-card p-4">
+                  <div className="text-sm text-muted-foreground">Response Rate</div>
+                  <p className="text-2xl font-bold mt-1">
+                    {npsDashboard.overall.response_rate === null ? "\u2014" : `${npsDashboard.overall.response_rate}%`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div className="border border-border rounded-lg bg-card p-6">
+                  <h3 className="text-lg font-semibold mb-4">NPS Trend</h3>
+                  <div className="space-y-3">
+                    {npsDashboard.trend.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No NPS responses in this window</p>
+                    )}
+                    {npsDashboard.trend.slice(-14).map((point) => {
+                      const value = point.nps_score ?? 0;
+                      const width = point.sample_visible ? Math.max(8, Math.min(100, value + 100) / 2) : 8;
+                      return (
+                        <div key={point.day} className="grid grid-cols-[6rem_1fr_4rem] items-center gap-3 text-sm">
+                          <span className="text-muted-foreground">{fmtDate(point.day)}</span>
+                          <div className="h-3 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${point.sample_visible ? "bg-rose-500" : "bg-muted-foreground/30"}`}
+                              style={{ width: `${width}%` }}
+                            />
+                          </div>
+                          <span className="text-right font-medium">
+                            {point.sample_visible ? point.nps_score : "Hidden"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="border border-border rounded-lg bg-card p-6">
+                  <h3 className="text-lg font-semibold mb-4">Service Recovery Queue</h3>
+                  <div className="space-y-3">
+                    {npsDashboard.urgent_queue.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No open recovery tasks</p>
+                    )}
+                    {npsDashboard.urgent_queue.map((task) => (
+                      <div key={task.task_id} className="rounded-md border border-border p-3 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium">Score {task.score} / {task.nps_bucket}</span>
+                          <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
+                            task.priority === "critical" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                          }`}>
+                            <AlertTriangle className="h-3 w-3" />
+                            {task.priority}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-muted-foreground">
+                          {task.department_display_name ?? "Unknown department"} · {task.doctor_display_name ?? "Unknown doctor"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {task.status} · {task.assigned_to_role ?? "QUALITY_OFFICER"} · {fmtDate(task.submitted_at)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-border rounded-lg bg-card p-6">
+                <h3 className="text-lg font-semibold mb-4">Breakdowns</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-2 font-medium text-muted-foreground">Slice</th>
+                        <th className="text-left py-2 font-medium text-muted-foreground">Label</th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">Responses</th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">Promoters</th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">Detractors</th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">NPS</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {npsDashboard.breakdowns.map((row) => (
+                        <tr key={`${row.dimension_type}:${row.dimension_key}`}>
+                          <td className="py-2 text-muted-foreground">{row.dimension_type.replace("_", " ")}</td>
+                          <td className="py-2 font-medium">{row.dimension_label}</td>
+                          <td className="py-2 text-right">{row.response_count}</td>
+                          <td className="py-2 text-right">{row.promoter_count}</td>
+                          <td className="py-2 text-right">{row.detractor_count}</td>
+                          <td className="py-2 text-right">{row.sample_visible ? row.nps_score : "Hidden"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </>
           )}
         </div>

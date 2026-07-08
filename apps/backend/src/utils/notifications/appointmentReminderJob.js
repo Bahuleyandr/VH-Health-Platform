@@ -174,7 +174,8 @@ async function processPendingScheduledNotificationsInner() {
             body: 'Please take a moment to rate your experience at Venkataeswara Hospitals.',
             data: {
               type: 'feedback_request',
-              appointment_id: String(data.appointment_id || '')
+              appointment_id: String(data.appointment_id || ''),
+              survey: String(data.survey || '')
             },
             userId: String(notif.user_id),
           }).catch(e => logger.warn(`[ScheduledNotif] Push notification failed for notif ${notif.id}:`, e.message));

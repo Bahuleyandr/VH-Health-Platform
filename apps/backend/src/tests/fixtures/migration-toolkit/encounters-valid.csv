@@ -1,0 +1,2 @@
+external_encounter_id,external_patient_id,mrn,encounter_date,encounter_type,department,doctor
+ENC-1001,LEG-1001,MRN-1001,2026-07-01,ip,General Medicine,Dr Mehta

@@ -46,3 +46,45 @@ describe('NL11-S1 migration toolkit migrations', () => {
     expect(sql).toMatch(/raw_content_stored/i);
   });
 });
+
+describe('NL11-S9 migration toolkit P2 migrations', () => {
+  it('uses only the assigned 443-445 migration block for commit, ADT, and acceptance tables', () => {
+    const mig443 = readMigration('443_migration_toolkit_commit_batches.sql');
+    const mig444 = readMigration('444_migration_toolkit_hl7_adt_batches.sql');
+    const mig445 = readMigration('445_migration_toolkit_acceptance_merge_queue.sql');
+
+    expect(mig443).toMatch(/CREATE TABLE IF NOT EXISTS migration_commit_batches/i);
+    expect(mig443).toMatch(/CREATE TABLE IF NOT EXISTS migration_commit_records/i);
+    expect(mig444).toMatch(/CREATE TABLE IF NOT EXISTS migration_hl7_adt_batches/i);
+    expect(mig444).toMatch(/CREATE TABLE IF NOT EXISTS migration_hl7_adt_messages/i);
+    expect(mig445).toMatch(/CREATE TABLE IF NOT EXISTS migration_merge_queue_items/i);
+    expect(mig445).toMatch(/CREATE TABLE IF NOT EXISTS migration_acceptance_reports/i);
+  });
+
+  it('keeps P2 tables tenant-scoped, RLS-forced, and replayable', () => {
+    const sql = [
+      readMigration('443_migration_toolkit_commit_batches.sql'),
+      readMigration('444_migration_toolkit_hl7_adt_batches.sql'),
+      readMigration('445_migration_toolkit_acceptance_merge_queue.sql'),
+    ].join('\n');
+
+    for (const table of [
+      'migration_commit_batches',
+      'migration_commit_records',
+      'migration_hl7_adt_batches',
+      'migration_hl7_adt_messages',
+      'migration_merge_queue_items',
+      'migration_acceptance_reports',
+    ]) {
+      expect(sql).toContain(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+      expect(sql).toContain(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`);
+      expect(sql).toContain(`CREATE POLICY tenant_isolation ON ${table}`);
+    }
+
+    expect(sql).toMatch(/ux_migration_commit_batches_idempotency/i);
+    expect(sql).toMatch(/ux_migration_commit_records_idempotency/i);
+    expect(sql).toMatch(/ux_migration_hl7_adt_batches_idempotency/i);
+    expect(sql).toMatch(/rollback_proof/i);
+    expect(sql).toMatch(/replay_proof/i);
+  });
+});
