@@ -1,5 +1,4 @@
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
 export const ENTITLEMENT_FEATURE_KEYS = Object.freeze({
