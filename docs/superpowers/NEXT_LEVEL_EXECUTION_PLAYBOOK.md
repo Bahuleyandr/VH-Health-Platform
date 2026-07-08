@@ -135,7 +135,12 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 435–438 | NL9-P1 consent-safe campaigns | launched 2026-07-08 (round 7) |
 | 439 | NL12-S1 NABH export contract | launched 2026-07-08 (round 7) |
 | 440–442 | N6-11 physio/rehab | launched 2026-07-08 (round 7) |
-| 443+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 443–445 | NL11-S9 migration toolkit P2 (gate open: S1 on main) | launched 2026-07-08 (round 8) |
+| 446–447 | NL-7 P4 pilot hardening (RTLS half stays owner-gated) | launched 2026-07-08 (round 8) |
+| 448–449 | NL12-S2 SIEM export seam | launched 2026-07-08 (round 8) |
+| — | NL12-S3 500-bed load pack | launched 2026-07-08 — ZERO-MIGRATION |
+| 450–451 | NL8-P2 PHI-free queue displays | launched 2026-07-08 (round 8) |
+| 452+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
