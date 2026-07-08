@@ -1326,35 +1326,38 @@ model care_plan_review_log {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model care_plans {
-  id                      Int                    @id @default(autoincrement())
-  tenant_id               String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid             String                 @db.Uuid
-  plan_kind               String                 @default("general") @db.VarChar(40)
-  primary_condition       String?                @db.VarChar(255)
-  primary_condition_icd10 String?                @db.VarChar(20)
-  display_name            String                 @db.VarChar(255)
+  id                      Int                     @id @default(autoincrement())
+  tenant_id               String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid             String                  @db.Uuid
+  plan_kind               String                  @default("general") @db.VarChar(40)
+  primary_condition       String?                 @db.VarChar(255)
+  primary_condition_icd10 String?                 @db.VarChar(20)
+  display_name            String                  @db.VarChar(255)
   description             String?
-  status                  String                 @default("draft") @db.VarChar(20)
-  start_date              DateTime?              @db.Date
-  target_end_date         DateTime?              @db.Date
-  actual_end_date         DateTime?              @db.Date
-  primary_doctor_uid      String?                @db.Uuid
-  care_team_role          String?                @db.VarChar(80)
+  status                  String                  @default("draft") @db.VarChar(20)
+  start_date              DateTime?               @db.Date
+  target_end_date         DateTime?               @db.Date
+  actual_end_date         DateTime?               @db.Date
+  primary_doctor_uid      String?                 @db.Uuid
+  care_team_role          String?                 @db.VarChar(80)
   encounter_id            Int?
   facility_id             Int?
-  is_patient_visible      Boolean                @default(false)
-  metadata                Json                   @default("{}")
-  created_by              String?                @db.Uuid
+  is_patient_visible      Boolean                 @default(false)
+  metadata                Json                    @default("{}")
+  created_by              String?                 @db.Uuid
   superseded_by_id        Int?
-  created_at              DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime               @default(now()) @db.Timestamptz(6)
+  created_at              DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                @default(now()) @db.Timestamptz(6)
   care_plan_activities    care_plan_activities[]
   care_plan_goals         care_plan_goals[]
   care_plan_review_log    care_plan_review_log[]
-  care_plans              care_plans?            @relation("care_plansTocare_plans", fields: [superseded_by_id], references: [id], onUpdate: NoAction)
-  other_care_plans        care_plans[]           @relation("care_plansTocare_plans")
-  tenants                 tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  care_plans              care_plans?             @relation("care_plansTocare_plans", fields: [superseded_by_id], references: [id], onUpdate: NoAction)
+  other_care_plans        care_plans[]            @relation("care_plansTocare_plans")
+  tenants                 tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   follow_up_plans         follow_up_plans[]
+  physio_assessments      physio_assessments[]
+  physio_outcome_scores   physio_outcome_scores[]
+  physio_sessions         physio_sessions[]
 
   @@index([tenant_id, plan_kind, status], map: "idx_care_plans_kind")
   @@index([tenant_id, patient_uid, status], map: "idx_care_plans_patient_status")
@@ -5276,31 +5279,33 @@ model file_metadata {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model follow_up_plans {
-  id                       Int         @id @default(autoincrement())
-  tenant_id                String      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid              String      @db.Uuid
-  origin_kind              String      @db.VarChar(40)
-  origin_resource_type     String?     @db.VarChar(60)
-  origin_resource_id       String?     @db.VarChar(120)
+  id                       Int                  @id @default(autoincrement())
+  tenant_id                String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid              String               @db.Uuid
+  origin_kind              String               @db.VarChar(40)
+  origin_resource_type     String?              @db.VarChar(60)
+  origin_resource_id       String?              @db.VarChar(120)
   encounter_id             Int?
-  doctor_uid               String?     @db.Uuid
+  doctor_uid               String?              @db.Uuid
   facility_id              Int?
   care_plan_id             Int?
-  due_at                   DateTime?   @db.Timestamptz(6)
+  due_at                   DateTime?            @db.Timestamptz(6)
   appointment_id           Int?
-  appointment_status       String      @default("pending") @db.VarChar(20)
+  appointment_status       String               @default("pending") @db.VarChar(20)
   reason                   String?
   reminder_offsets_minutes Int[]
-  reminder_last_sent_at    DateTime?   @db.Timestamptz(6)
-  status                   String      @default("open") @db.VarChar(20)
-  closed_at                DateTime?   @db.Timestamptz(6)
-  closure_outcome          String?     @db.VarChar(60)
-  metadata                 Json        @default("{}")
-  created_by               String?     @db.Uuid
-  created_at               DateTime    @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime    @default(now()) @db.Timestamptz(6)
-  care_plans               care_plans? @relation(fields: [care_plan_id], references: [id], onUpdate: NoAction)
-  tenants                  tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reminder_last_sent_at    DateTime?            @db.Timestamptz(6)
+  status                   String               @default("open") @db.VarChar(20)
+  closed_at                DateTime?            @db.Timestamptz(6)
+  closure_outcome          String?              @db.VarChar(60)
+  metadata                 Json                 @default("{}")
+  created_by               String?              @db.Uuid
+  created_at               DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime             @default(now()) @db.Timestamptz(6)
+  care_plans               care_plans?          @relation(fields: [care_plan_id], references: [id], onUpdate: NoAction)
+  tenants                  tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  physio_assessments       physio_assessments[]
+  physio_sessions          physio_sessions[]
 
   @@index([tenant_id, patient_uid, status], map: "idx_follow_up_patient")
   @@index([tenant_id, status, due_at], map: "idx_follow_up_tenant_status")
@@ -8324,39 +8329,40 @@ model radiology_orders {
 }
 
 model referrals {
-  id                                        Int       @id @default(autoincrement())
-  referral_number                           String    @db.VarChar(50)
-  patient_uid                               String    @db.Uuid
-  encounter_id                              String?   @db.Uuid
-  referring_doctor                          String    @db.Uuid
-  referred_to_doctor                        String?   @db.Uuid
+  id                                        Int                  @id @default(autoincrement())
+  referral_number                           String               @db.VarChar(50)
+  patient_uid                               String               @db.Uuid
+  encounter_id                              String?              @db.Uuid
+  referring_doctor                          String               @db.Uuid
+  referred_to_doctor                        String?              @db.Uuid
   referred_to_department                    String
-  referral_type                             String    @default("internal") @db.VarChar(20)
+  referral_type                             String               @default("internal") @db.VarChar(20)
   reason                                    String
-  urgency                                   String    @default("routine") @db.VarChar(20)
+  urgency                                   String               @default("routine") @db.VarChar(20)
   clinical_summary                          String?
-  status                                    String    @default("pending") @db.VarChar(20)
-  accepted_by                               String?   @db.Uuid
-  accepted_at                               DateTime? @db.Timestamptz(6)
-  completed_at                              DateTime? @db.Timestamptz(6)
+  status                                    String               @default("pending") @db.VarChar(20)
+  accepted_by                               String?              @db.Uuid
+  accepted_at                               DateTime?            @db.Timestamptz(6)
+  completed_at                              DateTime?            @db.Timestamptz(6)
   response_notes                            String?
-  created_at                                DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at                                DateTime  @default(now()) @db.Timestamptz(6)
-  priority                                  String?   @default("ROUTINE") @db.VarChar(50)
-  requester_id                              String?   @db.Uuid
-  performer_id                              String?   @db.Uuid
+  created_at                                DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at                                DateTime             @default(now()) @db.Timestamptz(6)
+  priority                                  String?              @default("ROUTINE") @db.VarChar(50)
+  requester_id                              String?              @db.Uuid
+  performer_id                              String?              @db.Uuid
   clinical_notes                            String?
   notes                                     String?
-  tenant_id                                 String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  first_seen_at                             DateTime? @db.Timestamptz(6)
-  first_seen_by                             String?   @db.Uuid
-  request_context                           Json      @default("{}")
-  source                                    String?   @default("ward") @db.VarChar(50)
-  tenants                                   tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referrals_tenant")
-  users_referrals_accepted_byTousers        users?    @relation("referrals_accepted_byTousers", fields: [accepted_by], references: [uid], onUpdate: NoAction)
-  users_referrals_patient_uidTousers        users     @relation("referrals_patient_uidTousers", fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
-  users_referrals_referred_to_doctorTousers users?    @relation("referrals_referred_to_doctorTousers", fields: [referred_to_doctor], references: [uid], onUpdate: NoAction)
-  users_referrals_referring_doctorTousers   users     @relation("referrals_referring_doctorTousers", fields: [referring_doctor], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  tenant_id                                 String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  first_seen_at                             DateTime?            @db.Timestamptz(6)
+  first_seen_by                             String?              @db.Uuid
+  request_context                           Json                 @default("{}")
+  source                                    String?              @default("ward") @db.VarChar(50)
+  physio_assessments                        physio_assessments[]
+  tenants                                   tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referrals_tenant")
+  users_referrals_accepted_byTousers        users?               @relation("referrals_accepted_byTousers", fields: [accepted_by], references: [uid], onUpdate: NoAction)
+  users_referrals_patient_uidTousers        users                @relation("referrals_patient_uidTousers", fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  users_referrals_referred_to_doctorTousers users?               @relation("referrals_referred_to_doctorTousers", fields: [referred_to_doctor], references: [uid], onUpdate: NoAction)
+  users_referrals_referring_doctorTousers   users                @relation("referrals_referring_doctorTousers", fields: [referring_doctor], references: [uid], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenant_id, referral_number], map: "uniq_referrals_tenant_referral_number")
   @@index([created_at(sort: Desc)], map: "idx_referrals_created_at")
@@ -9936,6 +9942,9 @@ model tenants {
   pharmacy_stock_movements                   pharmacy_stock_movements[]
   pharmacy_substitutes                       pharmacy_substitutes[]
   pharmacy_suppliers                         pharmacy_suppliers[]
+  physio_assessments                         physio_assessments[]
+  physio_outcome_scores                      physio_outcome_scores[]
+  physio_sessions                            physio_sessions[]
   portal_proxy_grants                        portal_proxy_grants[]
   postop_complication_alerts                 postop_complication_alerts[]
   postop_notes                               postop_notes[]
@@ -17959,4 +17968,114 @@ model siem_export_targets {
   @@unique([tenant_id, target_key], map: "uq_siem_export_targets_key")
   @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_siem_export_targets_tenant_status")
   @@index([tenant_id, transport, status], map: "idx_siem_export_targets_transport")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model physio_assessments {
+  id                     BigInt                  @id @default(autoincrement())
+  tenant_id              String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid            String                  @db.Uuid
+  encounter_id           Int?
+  follow_up_plan_id      Int?
+  referral_id            Int?
+  care_plan_id           Int?
+  assessment_kind        String                  @default("initial") @db.VarChar(40)
+  mobility_status        String                  @default("not_assessed") @db.VarChar(40)
+  pain_score             Int?
+  rom_measures           Json                    @default("[]")
+  strength_measures      Json                    @default("[]")
+  functional_limitations Json                    @default("[]")
+  precautions            String?
+  goals_text             String?
+  baseline_outcome_score Decimal?                @db.Decimal(5, 2)
+  notes                  String?
+  metadata               Json                    @default("{}")
+  assessed_by            String?                 @db.Uuid
+  assessed_at            DateTime                @default(now()) @db.Timestamptz(6)
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                @default(now()) @db.Timestamptz(6)
+  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_physio_assessments_tenant")
+  care_plans             care_plans?             @relation(fields: [care_plan_id], references: [id], onUpdate: NoAction)
+  follow_up_plans        follow_up_plans?        @relation(fields: [follow_up_plan_id], references: [id], onUpdate: NoAction)
+  referrals              referrals?              @relation(fields: [referral_id], references: [id], onUpdate: NoAction)
+  physio_outcome_scores  physio_outcome_scores[]
+  physio_sessions        physio_sessions[]
+
+  @@index([tenant_id, assessed_by, assessed_at(sort: Desc)], map: "idx_physio_assessments_assessed_by", where: raw("(assessed_by IS NOT NULL)"))
+  @@index([tenant_id, care_plan_id], map: "idx_physio_assessments_care_plan", where: raw("(care_plan_id IS NOT NULL)"))
+  @@index([tenant_id, follow_up_plan_id], map: "idx_physio_assessments_follow_up", where: raw("(follow_up_plan_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, assessed_at(sort: Desc)], map: "idx_physio_assessments_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model physio_outcome_scores {
+  id                 BigInt              @id @default(autoincrement())
+  tenant_id          String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid        String              @db.Uuid
+  care_plan_id       Int
+  assessment_id      BigInt?
+  session_id         BigInt?
+  score_kind         String              @default("functional") @db.VarChar(40)
+  score_label        String              @db.VarChar(160)
+  score_value        Decimal             @db.Decimal(8, 2)
+  score_unit         String              @default("score") @db.VarChar(40)
+  scored_at          DateTime            @default(now()) @db.Timestamptz(6)
+  recorded_by        String?             @db.Uuid
+  notes              String?
+  metadata           Json                @default("{}")
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime            @default(now()) @db.Timestamptz(6)
+  tenants            tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_physio_outcome_scores_tenant")
+  physio_assessments physio_assessments? @relation(fields: [assessment_id], references: [id], onUpdate: NoAction)
+  care_plans         care_plans          @relation(fields: [care_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  physio_sessions    physio_sessions?    @relation(fields: [session_id], references: [id], onUpdate: NoAction)
+
+  @@index([tenant_id, patient_uid, scored_at(sort: Desc)], map: "idx_physio_outcome_scores_patient")
+  @@index([tenant_id, care_plan_id, score_kind, scored_at], map: "idx_physio_outcome_scores_plan")
+  @@index([tenant_id, session_id], map: "idx_physio_outcome_scores_session", where: raw("(session_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model physio_sessions {
+  id                    BigInt                  @id @default(autoincrement())
+  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid           String                  @db.Uuid
+  care_plan_id          Int
+  assessment_id         BigInt?
+  follow_up_plan_id     Int?
+  session_status        String                  @default("scheduled") @db.VarChar(30)
+  session_type          String                  @default("therapy") @db.VarChar(40)
+  scheduled_for         DateTime?               @db.Timestamptz(6)
+  started_at            DateTime?               @db.Timestamptz(6)
+  completed_at          DateTime?               @db.Timestamptz(6)
+  therapist_uid         String?                 @db.Uuid
+  duration_minutes      Int?
+  pain_score_before     Int?
+  pain_score_after      Int?
+  rom_entries           Json                    @default("[]")
+  exercise_entries      Json                    @default("[]")
+  gait_balance_entries  Json                    @default("[]")
+  assistive_device      String?                 @db.VarChar(120)
+  response_to_treatment String?
+  home_program          String?
+  next_steps            String?
+  outcome_score         Decimal?                @db.Decimal(5, 2)
+  notes                 String?
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  physio_outcome_scores physio_outcome_scores[]
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_physio_sessions_tenant")
+  physio_assessments    physio_assessments?     @relation(fields: [assessment_id], references: [id], onUpdate: NoAction)
+  care_plans            care_plans              @relation(fields: [care_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  follow_up_plans       follow_up_plans?        @relation(fields: [follow_up_plan_id], references: [id], onUpdate: NoAction)
+
+  @@index([tenant_id, assessment_id], map: "idx_physio_sessions_assessment", where: raw("(assessment_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_physio_sessions_patient")
+  @@index([tenant_id, care_plan_id, created_at(sort: Desc)], map: "idx_physio_sessions_plan")
+  @@index([tenant_id, session_status, scheduled_for], map: "idx_physio_sessions_status")
+  @@index([tenant_id, therapist_uid, scheduled_for], map: "idx_physio_sessions_therapist", where: raw("(therapist_uid IS NOT NULL)"))
 }

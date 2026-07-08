@@ -241,8 +241,11 @@ function detectXorPair(definition) {
 }
 
 function checkedValue(checksByTable, table, column) {
+  const textTypes = new Set(['bpchar', 'char', 'name', 'text', 'varchar']);
+  if (!textTypes.has(column.udt_name)) return null;
+
   const definitions = checksByTable.get(table) || [];
-  const lowerColumn = column.toLowerCase();
+  const lowerColumn = column.column_name.toLowerCase();
   for (const definition of definitions) {
     if (!definition.toLowerCase().includes(lowerColumn)) continue;
     const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map((match) => match[1]);
@@ -332,7 +335,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
 }
 
 function primitiveValue(column, table, index, ctx, checksByTable) {
-  const checked = checkedValue(checksByTable, table, column.column_name);
+  const checked = checkedValue(checksByTable, table, column);
   if (checked) return clip(checked, column.character_maximum_length);
 
   const semantic = semanticValue(column, table, index, ctx, column.character_maximum_length);
