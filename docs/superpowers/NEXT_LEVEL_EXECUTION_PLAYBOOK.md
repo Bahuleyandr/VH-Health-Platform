@@ -78,6 +78,24 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   `lint:raw-params` (spread args; `::type` casts inside jsonb builders).
 - **`gh pr checks --watch` exits 1 spuriously — always re-query.** GHA on this repo works
   (billing resolved); `gh run watch --exit-status` also lies.
+- **Chains hard-abort before push.** The QA PG (127.0.0.1:55432) can be down or die mid-chain;
+  a chain that pushes anyway ships a half-regenerated roll (schema.prisma missing the branch's
+  own models — cost two bad pushes on 2026-07-08). Every roll chain prechecks
+  `psql .../postgres -c "SELECT 1"` and must abort BEFORE `git commit`/`git push` unless
+  ci-setup-db, the seeder proof (`"failed": []`), `prisma db pull`, and `openapi:check` all
+  passed. Restart: `pg_ctl -D D:/Dev/Tools/vhhealth-test-postgres-data -o "-p 55432 -h 127.0.0.1" -l <log> start`.
+- **Branch-delete only after `gh pr view N --json state` == `MERGED`.** Deleting the head
+  branch of an unmerged PR auto-closes it (#488 incident; recovered by push-back + reopen).
+- **`--force-with-lease` needs the colon form** `--force-with-lease=refs/heads/<b>:<sha>`;
+  the comma form silently degrades to a plain push (rejected as non-fast-forward).
+- **Coordinator MAY squash a delivered PR branch** (`reset --soft <base>` + one commit +
+  lease push) to clear secret-scan RANGE false positives: the range scan walks every PR
+  commit, so a follow-up rename never cleans history (#499). We squash-merge anyway —
+  intra-PR history is disposable. Only after the worker session is stood down.
+- **Gates recheck `mergeable`.** Green checks do NOT imply mergeable — a roll against a
+  stale local github/main leaves the branch CONFLICTING despite green CI (#503). The gate
+  merges only on zero-non-green AND `mergeable == MERGEABLE`; fetch main with an explicit
+  refspec (`git fetch github +refs/heads/main:refs/remotes/github/main`) right before rolling.
 
 ## 4. Coordinator verification method (specs AND build PRs)
 
