@@ -36,6 +36,24 @@ const MANUAL_SEED_TABLES = new Set([
   // ~ '^[0-9a-f]{64}$' CHECKs reject the generic seeder's values.
   'donation_events',
   'donor_consents',
+  // NL-7 P3 biomedical CMMS rows need a valid device -> schedule -> work-order
+  // chain plus timestamp/check-constrained certificate data.
+  'clinical_ai_biomed_devices',
+  'biomed_maintenance_schedules',
+  'biomed_work_orders',
+  'biomed_work_order_updates',
+  'biomed_work_order_recipients',
+  'biomed_calibration_certificates',
+  // NL-7 P2 cold-chain units need a fridge-sensor device and an ordered
+  // min/max temperature range before child readings/excursions can seed.
+  'cold_chain_units',
+  // N6-12 mortuary slots enforce occupancy consistency: an available
+  // slot cannot carry a current body reference.
+  'mortuary_slots',
+  // N6-10 infusion chair coverage needs an active chair plus an ordered,
+  // cycle-date-aligned booking window.
+  'infusion_chairs',
+  'chair_bookings',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -81,6 +99,17 @@ async function columnExists(table, column) {
        FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
     [table, column]
+  );
+  return result.rowCount > 0;
+}
+
+async function tableExists(table) {
+  const result = await client.query(
+    `SELECT 1
+       FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = $1
+      LIMIT 1`,
+    [table]
   );
   return result.rowCount > 0;
 }
@@ -249,6 +278,8 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('task_id')) return ctx.taskId;
   if (name.includes('api_client_id')) return ctx.apiClientId;
   if (name.includes('from_node_id') || name.includes('to_node_id')) return ctx.kgNodeId;
+
+  if (table === 'ophthalmic_biometry' && name === 'axial_length_mm') return 23.5;
 
   if (name.includes('phone')) return text(`+919777${String(index).padStart(5, '0')}`);
   if (name.includes('email')) return text(`${tablePrefix}.${name}@example.test`);
@@ -1231,16 +1262,376 @@ async function seedDonorIntakeTables() {
   }
 }
 
+async function seedBiomedCmmsTables() {
+  let device = await first('clinical_ai_biomed_devices', 'id, tenant_id', 'TRUE', []);
+  if (!device) {
+    const created = await client.query(
+      `INSERT INTO clinical_ai_biomed_devices (
+         tenant_id, device_code, device_type, manufacturer, model, serial_number,
+         location, installed_at, usage_hours, fault_events_last_90d, status, metadata
+       )
+       VALUES (
+         $1::uuid, 'BIO-SEED-0001', 'ventilator', 'Seed Biomedical', 'Ventilator QA',
+         'BIO-SEED-SN-0001', 'ICU seed bay', CURRENT_DATE - INTERVAL '180 days',
+         1200, 0, 'in_service', '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id, tenant_id`,
+      [DEFAULT_TENANT_ID],
+    );
+    device = created.rows[0];
+  }
+
+  const staffUser = await first('users', 'id, uid', 'role <> $1', ['PATIENT']);
+  if (!staffUser) return;
+
+  let schedule = await first('biomed_maintenance_schedules', 'id, tenant_id', 'TRUE', []);
+  if (!schedule) {
+    const created = await client.query(
+      `INSERT INTO biomed_maintenance_schedules (
+         tenant_id, biomed_device_id, kind, interval_days, next_due_at,
+         assigned_role, assigned_to_id, assigned_to_uid, created_by, metadata
+       )
+       VALUES (
+         $1::uuid, $2, 'preventive', 90, NOW() + INTERVAL '30 days',
+         'BIOMEDICAL_STAFF', $3, $4::uuid, $4::uuid,
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id, tenant_id`,
+      [device.tenant_id || DEFAULT_TENANT_ID, device.id, staffUser.id, staffUser.uid],
+    );
+    schedule = created.rows[0];
+  }
+
+  let workOrder = await first('biomed_work_orders', 'id, tenant_id', 'TRUE', []);
+  if (!workOrder) {
+    const created = await client.query(
+      `INSERT INTO biomed_work_orders (
+         tenant_id, biomed_device_id, schedule_id, kind, priority, status,
+         description, assigned_to_id, assigned_to_uid, assigned_to_role,
+         assigned_by, assigned_at, sla_due_at, source, due_window_start,
+         due_window_end, created_by, metadata
+       )
+       VALUES (
+         $1::uuid, $2, $3, 'preventive', 'normal', 'assigned',
+         'Seed preventive maintenance work order for QA coverage.',
+         $4, $5::uuid, 'BIOMEDICAL_STAFF', $5::uuid, NOW(),
+         NOW() + INTERVAL '72 hours', 'schedule', NOW() + INTERVAL '30 days',
+         NOW() + INTERVAL '31 days', $5::uuid,
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id, tenant_id`,
+      [schedule.tenant_id || device.tenant_id || DEFAULT_TENANT_ID, device.id, schedule.id, staffUser.id, staffUser.uid],
+    );
+    workOrder = created.rows[0];
+  }
+
+  await client.query(
+    `UPDATE biomed_maintenance_schedules
+        SET last_work_order_id = $1,
+            updated_at = NOW()
+      WHERE id = $2
+        AND last_work_order_id IS NULL`,
+    [workOrder.id, schedule.id],
+  );
+
+  await insertIfEmpty('biomed_work_order_recipients', [{
+    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+    work_order_id: workOrder.id,
+    staff_id: staffUser.id,
+    staff_uid: staffUser.uid,
+    recipient_kind: 'assignee',
+    source: 'seed',
+  }]);
+
+  await insertIfEmpty('biomed_work_order_updates', [{
+    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+    work_order_id: workOrder.id,
+    previous_status: 'open',
+    status: 'assigned',
+    message: 'Seed work-order update for QA coverage.',
+    author_id: staffUser.id,
+    author_uid: staffUser.uid,
+    author_role: 'BIOMEDICAL_STAFF',
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+
+  await insertIfEmpty('biomed_calibration_certificates', [{
+    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+    biomed_device_id: device.id,
+    work_order_id: workOrder.id,
+    certificate_number: 'BIO-CERT-SEED-0001',
+    calibrated_at: new Date('2026-05-04T09:00:00.000Z'),
+    due_at: new Date('2027-05-04T09:00:00.000Z'),
+    performed_by: 'Seed Biomedical Engineer',
+    performed_by_uid: staffUser.uid,
+    document_id: 'seed-biomed-calibration-document',
+    document_storage_key: 'seed/biomed/calibration/BIO-CERT-SEED-0001.pdf',
+    document_mime_type: 'application/pdf',
+    result: 'pass',
+    notes: 'Seed calibration certificate for QA coverage.',
+    created_by: staffUser.uid,
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
+async function seedColdChainTables() {
+  let device = await first(
+    'device_registry',
+    'id',
+    'tenant_id = $1 AND kind = $2',
+    [DEFAULT_TENANT_ID, 'fridge_sensor']
+  );
+
+  if (!device) {
+    await insert('device_registry', {
+      tenant_id: DEFAULT_TENANT_ID,
+      device_code: 'SEED-COLD-FRIDGE-01',
+      display_name: 'Seed cold-chain fridge sensor',
+      kind: 'fridge_sensor',
+      protocol: 'http-json',
+      vendor: 'Seed',
+      model: 'ColdChain',
+      serial_number: 'SEED-COLD-FRIDGE-01',
+      status: 'active',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    });
+    device = await first(
+      'device_registry',
+      'id',
+      'tenant_id = $1 AND kind = $2',
+      [DEFAULT_TENANT_ID, 'fridge_sensor']
+    );
+  }
+
+  if (!device) return;
+
+  await insertIfEmpty('cold_chain_units', [{
+    tenant_id: DEFAULT_TENANT_ID,
+    unit_code: 'SEED-COLD-FRIDGE-01',
+    display_name: 'Seed cold-chain refrigerator',
+    kind: 'fridge',
+    department: 'pharmacy',
+    device_registry_id: device.id,
+    min_temp_c: 2,
+    max_temp_c: 8,
+    excursion_grace_minutes: 15,
+    status: 'active',
+    retention_days: 730,
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
+async function seedMortuarySlots() {
+  await insertIfEmpty('mortuary_slots', [{
+    tenant_id: DEFAULT_TENANT_ID,
+    slot_code: 'MORT-SEED-0001',
+    display_name: 'Seed mortuary slot',
+    status: 'available',
+    notes: 'Seed slot for QA coverage',
+  }]);
+}
+
+async function seedInfusionChairTables() {
+  let chair = await first(
+    'infusion_chairs',
+    'id, tenant_id',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+
+  if (!chair) {
+    const created = await client.query(
+      `INSERT INTO infusion_chairs (
+         tenant_id, unit_name, chair_code, display_name, status, location_note
+       )
+       VALUES (
+         $1::uuid, 'Day Care', 'SEED-CHAIR-1', 'Seed Chair 1',
+         'active', 'Seed chair for QA coverage'
+       )
+       ON CONFLICT (tenant_id, unit_name, chair_code)
+       DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         status = 'active',
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING id, tenant_id`,
+      [DEFAULT_TENANT_ID],
+    );
+    chair = created.rows[0];
+  }
+
+  if (await tableCount('chair_bookings')) return;
+
+  const cycleResult = await client.query(
+    `SELECT c.id, c.tenant_id, c.scheduled_date, p.patient_uid
+       FROM chemo_cycles c
+       JOIN chemo_treatment_plans p ON p.id = c.plan_id
+      ORDER BY c.id
+      LIMIT 1`,
+  );
+  const cycle = cycleResult.rows[0];
+  if (!chair || !cycle?.patient_uid) return;
+
+  const scheduledDate =
+    cycle.scheduled_date instanceof Date
+      ? cycle.scheduled_date.toISOString().slice(0, 10)
+      : String(cycle.scheduled_date).slice(0, 10);
+
+  await insertIfEmpty('chair_bookings', [{
+    tenant_id: cycle.tenant_id || chair.tenant_id || DEFAULT_TENANT_ID,
+    chair_id: chair.id,
+    cycle_id: cycle.id,
+    patient_uid: cycle.patient_uid,
+    start_at: `${scheduledDate}T09:00:00.000Z`,
+    end_at: `${scheduledDate}T10:00:00.000Z`,
+    status: 'booked',
+    warning_codes: [],
+    notes: 'Seed booking for QA coverage',
+  }]);
+}
+
+async function seedMergedMainCoverageTables() {
+  const hasBiomedCalibration = await tableExists('biomed_calibration_certificates');
+  const hasBiomedMaintenance = await tableExists('biomed_maintenance_schedules');
+
+  if ((hasBiomedCalibration || hasBiomedMaintenance) && await tableExists('clinical_ai_biomed_devices')) {
+    const biomedDevice = await first(
+      'clinical_ai_biomed_devices',
+      'id, tenant_id',
+      'tenant_id = $1::uuid',
+      [DEFAULT_TENANT_ID],
+    );
+
+    if (biomedDevice && hasBiomedCalibration) {
+      await insertIfEmpty('biomed_calibration_certificates', [{
+        tenant_id: biomedDevice.tenant_id || DEFAULT_TENANT_ID,
+        biomed_device_id: biomedDevice.id,
+        certificate_number: 'CAL-SEED-0001',
+        calibrated_at: new Date('2026-05-04T09:00:00.000Z'),
+        due_at: new Date('2027-05-04T09:00:00.000Z'),
+        performed_by: 'Seed biomedical engineer',
+        document_id: 'DOC-SEED-CAL-0001',
+        document_storage_key: 'seed/biomed/calibration/DOC-SEED-CAL-0001.pdf',
+        document_mime_type: 'application/pdf',
+        result: 'pass',
+        notes: 'Seed calibration certificate for QA coverage',
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      }]);
+    }
+
+    if (biomedDevice && hasBiomedMaintenance) {
+      await insertIfEmpty('biomed_maintenance_schedules', [{
+        tenant_id: biomedDevice.tenant_id || DEFAULT_TENANT_ID,
+        biomed_device_id: biomedDevice.id,
+        kind: 'preventive',
+        interval_days: 90,
+        next_due_at: new Date('2026-08-04T09:00:00.000Z'),
+        assigned_role: 'BIOMEDICAL_STAFF',
+        active: true,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      }]);
+    }
+  }
+
+  if (await tableExists('cold_chain_units') && await tableExists('device_registry')) {
+    const registeredDevice = await first(
+      'device_registry',
+      'id, tenant_id',
+      'tenant_id = $1::uuid',
+      [DEFAULT_TENANT_ID],
+    );
+
+    if (registeredDevice) {
+      await insertIfEmpty('cold_chain_units', [{
+        tenant_id: registeredDevice.tenant_id || DEFAULT_TENANT_ID,
+        unit_code: 'CC-SEED-0001',
+        display_name: 'Seed vaccine fridge',
+        kind: 'fridge',
+        department: 'pharmacy',
+        device_registry_id: registeredDevice.id,
+        min_temp_c: 2,
+        max_temp_c: 8,
+        excursion_grace_minutes: 15,
+        alert_roles: ['PHARMACY_INCHARGE'],
+        status: 'active',
+        retention_days: 730,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      }]);
+    }
+  }
+
+  const hasMigrationSourceFiles = await tableExists('migration_source_files');
+  const hasMigrationImportRecords = await tableExists('migration_import_records');
+
+  if (!hasMigrationSourceFiles || !(await tableExists('migration_import_jobs'))) return;
+
+  const importJob = await first(
+    'migration_import_jobs',
+    'id, tenant_id',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+
+  if (!importJob) return;
+
+  if (hasMigrationSourceFiles) {
+    await insertIfEmpty('migration_source_files', [{
+      tenant_id: importJob.tenant_id || DEFAULT_TENANT_ID,
+      job_id: importJob.id,
+      file_kind: 'patient',
+      source_filename: 'seed-patients.csv',
+      content_sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      mime_type: 'text/csv',
+      byte_size: 128,
+      row_count: 1,
+      header_row: JSON.stringify(['external_id', 'full_name']),
+      column_profile: JSON.stringify({ external_id: 'text', full_name: 'text' }),
+      sample_rows_redacted: JSON.stringify([{ external_id: 'SEED-1', full_name: 'Seed Patient' }]),
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if (!hasMigrationImportRecords || !hasMigrationSourceFiles) return;
+
+  const sourceFile = await first(
+    'migration_source_files',
+    'id, tenant_id, job_id',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+
+  if (!sourceFile) return;
+
+  await insertIfEmpty('migration_import_records', [{
+    tenant_id: sourceFile.tenant_id || DEFAULT_TENANT_ID,
+    job_id: sourceFile.job_id || importJob.id,
+    source_file_id: sourceFile.id,
+    target_kind: 'patient',
+    source_row_number: 1,
+    source_key: 'SEED-1',
+    row_hash: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+    normalized_preview_redacted: JSON.stringify({ external_id: 'SEED-1' }),
+    validation_state: 'valid',
+    duplicate_candidate: false,
+    duplicate_summary: JSON.stringify({}),
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
   await seedIdentityProviderTables();
+  await seedColdChainTables();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();
   await seedDonorIntakeTables();
+  await seedBiomedCmmsTables();
+  await seedMortuarySlots();
+  await seedInfusionChairTables();
+  await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));

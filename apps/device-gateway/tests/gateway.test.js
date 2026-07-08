@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { jest } from '@jest/globals';
-import { GatewayRuntime } from '../src/gateway.js';
+import { GatewayRuntime, startGateway } from '../src/gateway.js';
 
 const message = (id = 'CTRL-1') => [
   `MSH|^~\\&|MON-ICU-01|ICU||VHHEALTH|20260707090000||ORU^R01|${id}|P|2.5`,
@@ -109,6 +109,48 @@ describe('GatewayRuntime', () => {
       await restarted.drainSource('MON-ICU-01');
       expect(drained).toEqual(['CRASH-1', 'CRASH-2']);
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('forwards cold-chain HTTP readings with the sensor bearer token', async () => {
+    const backend = {
+      ingestColdChain: jest.fn(async () => ({ action: 'reading_recorded' })),
+    };
+    const { dir, runtime } = await tempRuntime(backend);
+    let started;
+    try {
+      started = await startGateway({
+        listeners: [],
+        runtime,
+        metricsPort: 0,
+        coldChainIngestPort: 0,
+      });
+      const address = started.coldChainServer.address();
+      const res = await fetch(`http://127.0.0.1:${address.port}/ingest/cold-chain`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer sensor-token',
+          'content-type': 'application/json',
+          'x-tenant-id': '00000000-0000-4000-8000-000000000001',
+        },
+        body: JSON.stringify({ unit_code: 'FRIDGE-1', temp_c: 4.2 }),
+      });
+      expect(res.status).toBe(202);
+      expect(backend.ingestColdChain).toHaveBeenCalledWith(
+        expect.objectContaining({
+          unit_code: 'FRIDGE-1',
+          temp_c: 4.2,
+          source_ip: '127.0.0.1',
+        }),
+        {
+          deviceToken: 'sensor-token',
+          tenantId: '00000000-0000-4000-8000-000000000001',
+        },
+      );
+    } finally {
+      await new Promise((resolve) => started?.coldChainServer?.close(resolve));
+      await new Promise((resolve) => started?.metricsServer?.close(resolve));
       await rm(dir, { recursive: true, force: true });
     }
   });

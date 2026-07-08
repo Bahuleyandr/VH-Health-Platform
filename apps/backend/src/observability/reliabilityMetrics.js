@@ -28,6 +28,7 @@ const deviceVitalsUnverifiedRows = new Gauge('device_vitals_unverified_rows', 'U
 const deviceAssociationsActive = new Gauge('device_associations_active', 'Active device-patient associations');
 const deviceUnassociatedMessages = new Gauge('device_unassociated_messages_total', 'Device ORU messages parked as DEVICE_NOT_ASSOCIATED');
 const deviceSamplesSuppressed = new Gauge('device_samples_suppressed_total', 'Device vital samples suppressed by bounded policy reason', ['reason']);
+const coldChainOpenExcursions = new Gauge('cold_chain_open_excursions', 'Open or acknowledged cold-chain excursions requiring staff action');
 
 // ---- Counters (incremented inline at the event site) ----------------------
 const wsBroadcastDropped = new Counter('ws_broadcast_dropped_total', 'Observable WS broadcast/sendToUser drops (per-socket backpressure or cross-process fan-out fallback). NOTE: the at-most-once Redis-failover drop is invisible to the app — see ws_fanout_subscriber_errors_total for the failover-window proxy.', ['reason']);
@@ -153,6 +154,11 @@ export async function collectReliabilityMetrics() {
          WHERE message_type = 'ORU^VITALS'
            AND status = 'failed'
            AND error = 'DEVICE_NOT_ASSOCIATED'
+      ),
+      cold_chain AS (
+        SELECT COUNT(*) AS open_excursions
+          FROM cold_chain_excursions
+         WHERE status IN ('open', 'acknowledged')
       )
       SELECT
         registry.active_devices,
@@ -160,17 +166,19 @@ export async function collectReliabilityMetrics() {
         vitals.unverified_rows,
         associations.active_associations,
         unassociated.unassociated_messages,
+        cold_chain.open_excursions,
         COALESCE((
           SELECT jsonb_object_agg(reason, count)
             FROM device_vital_suppression_counters
         ), '{}'::jsonb) AS suppressed
-      FROM registry, vitals, associations, unassociated
+      FROM registry, vitals, associations, unassociated, cold_chain
     `);
     deviceRegistryActiveDevices.set({}, Number(dm?.active_devices ?? 0));
     deviceSilentDevices.set({}, Number(dm?.silent_devices ?? 0));
     deviceVitalsUnverifiedRows.set({}, Number(dm?.unverified_rows ?? 0));
     deviceAssociationsActive.set({}, Number(dm?.active_associations ?? 0));
     deviceUnassociatedMessages.set({}, Number(dm?.unassociated_messages ?? 0));
+    coldChainOpenExcursions.set({}, Number(dm?.open_excursions ?? 0));
     const suppressed = dm?.suppressed && typeof dm.suppressed === 'object' ? dm.suppressed : {};
     for (const [reason, value] of Object.entries(suppressed)) {
       deviceSamplesSuppressed.set({ reason }, Number(value ?? 0));
@@ -190,6 +198,7 @@ export function serializeReliabilityMetrics() {
     webhookPending, webhookFailed, webhookDead,
     deviceRegistryActiveDevices, deviceSilentDevices, deviceVitalsUnverifiedRows,
     deviceAssociationsActive, deviceUnassociatedMessages, deviceSamplesSuppressed,
+    coldChainOpenExcursions,
     dbBreakerOpen,
     wsBroadcastDropped, wsFanoutSubscriberErrors, eventDeadLettered,
     ledgerReconciliationDrift,

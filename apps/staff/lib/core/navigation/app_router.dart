@@ -76,6 +76,7 @@ import '../../features/housekeeping/screens/tasks_screen.dart';
 import '../../features/housekeeping/screens/housekeeping_hub_screen.dart';
 import '../../features/housekeeping/screens/housekeeping_command_screen.dart';
 import '../../features/housekeeping/screens/housekeeping_roster_board_screen.dart';
+import '../../features/biomed/screens/biomed_work_orders_screen.dart';
 
 // Directory
 import '../../features/directory/screens/staff_directory_screen.dart';
@@ -106,6 +107,9 @@ import '../../features/bloodbank/screens/transfusion_scan_screen.dart';
 // Dietary
 import '../../features/dietary/screens/dietary_screen.dart';
 
+// Dental
+import '../../features/dental/screens/dental_screen.dart';
+
 // Theatre
 import '../../features/cath_lab/screens/cath_lab_screen.dart';
 import '../../features/theatre/screens/theatre_screen.dart';
@@ -116,6 +120,7 @@ import '../../features/maternity/screens/partograph_entry_screen.dart';
 import '../../features/maternity/screens/partograph_view_screen.dart';
 
 // Radiology
+import '../../features/ophthalmology/screens/ophthalmology_screen.dart';
 import '../../features/radiology/screens/radiology_screen.dart';
 
 // EMR
@@ -784,6 +789,12 @@ final GoRouter appRouter = GoRouter(
               const NoTransitionPage(child: HousekeepingRosterBoardScreen()),
         ),
         GoRoute(
+          path: '/biomed-work-orders',
+          name: 'biomed-work-orders',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: BiomedWorkOrdersScreen()),
+        ),
+        GoRoute(
           path: '/staff-roster/:department',
           name: 'staff-roster',
           pageBuilder: (context, state) {
@@ -961,6 +972,19 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: DietaryScreen()),
         ),
+        GoRoute(
+          path: '/dental',
+          name: 'dental',
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: DentalScreen(
+                initialPatientUid: q['patient_uid'],
+                initialPatientName: q['name'],
+              ),
+            );
+          },
+        ),
 
         // Theatre
         GoRoute(
@@ -1024,6 +1048,12 @@ final GoRouter appRouter = GoRouter(
         ),
 
         // Radiology
+        GoRoute(
+          path: '/ophthalmology',
+          name: 'ophthalmology',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: OphthalmologyScreen()),
+        ),
         GoRoute(
           path: '/radiology',
           name: 'radiology',
