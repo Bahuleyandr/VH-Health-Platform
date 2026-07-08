@@ -16,7 +16,7 @@ const endChunk = process.env.JEST_CI_END_CHUNK
   : null;
 const isolatedTestPatterns = String(
   process.env.JEST_CI_ISOLATED_TESTS
-    || 'document-integrity.deep.test.js,pharmacy-ward-indent.test.js',
+    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js',
 )
   .split(',')
   .map((pattern) => pattern.trim())
@@ -110,7 +110,8 @@ if (listResult.status !== 0) {
 const testFiles = (listResult.stdout || '')
   .split(/\r?\n/)
   .map((line) => line.trim())
-  .filter(Boolean);
+  .filter(Boolean)
+  .sort((a, b) => a.localeCompare(b));
 
 if (testFiles.length === 0) {
   console.error('Jest did not discover any test files.');

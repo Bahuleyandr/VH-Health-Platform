@@ -54,6 +54,11 @@ const MANUAL_SEED_TABLES = new Set([
   // cycle-date-aligned booking window.
   'infusion_chairs',
   'chair_bookings',
+  // NL11-S1 migration toolkit: source_row_number is a plain INTEGER the
+  // generic seeder fills with semantic strings, and content_sha256/row_hash
+  // carry 64-lowercase-hex CHECKs.
+  'migration_source_files',
+  'migration_import_records',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -99,6 +104,17 @@ async function columnExists(table, column) {
        FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
     [table, column]
+  );
+  return result.rowCount > 0;
+}
+
+async function tableExists(table) {
+  const result = await client.query(
+    `SELECT 1
+       FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = $1
+      LIMIT 1`,
+    [table]
   );
   return result.rowCount > 0;
 }
@@ -267,6 +283,8 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('task_id')) return ctx.taskId;
   if (name.includes('api_client_id')) return ctx.apiClientId;
   if (name.includes('from_node_id') || name.includes('to_node_id')) return ctx.kgNodeId;
+
+  if (table === 'ophthalmic_biometry' && name === 'axial_length_mm') return 23.5;
 
   if (name.includes('phone')) return text(`+919777${String(index).padStart(5, '0')}`);
   if (name.includes('email')) return text(`${tablePrefix}.${name}@example.test`);
@@ -1476,6 +1494,166 @@ async function seedInfusionChairTables() {
   }]);
 }
 
+async function seedMergedMainCoverageTables() {
+  const hasBiomedCalibration = await tableExists('biomed_calibration_certificates');
+  const hasBiomedMaintenance = await tableExists('biomed_maintenance_schedules');
+
+  if ((hasBiomedCalibration || hasBiomedMaintenance) && await tableExists('clinical_ai_biomed_devices')) {
+    const biomedDevice = await first(
+      'clinical_ai_biomed_devices',
+      'id, tenant_id',
+      'tenant_id = $1::uuid',
+      [DEFAULT_TENANT_ID],
+    );
+
+    if (biomedDevice && hasBiomedCalibration) {
+      await insertIfEmpty('biomed_calibration_certificates', [{
+        tenant_id: biomedDevice.tenant_id || DEFAULT_TENANT_ID,
+        biomed_device_id: biomedDevice.id,
+        certificate_number: 'CAL-SEED-0001',
+        calibrated_at: new Date('2026-05-04T09:00:00.000Z'),
+        due_at: new Date('2027-05-04T09:00:00.000Z'),
+        performed_by: 'Seed biomedical engineer',
+        document_id: 'DOC-SEED-CAL-0001',
+        document_storage_key: 'seed/biomed/calibration/DOC-SEED-CAL-0001.pdf',
+        document_mime_type: 'application/pdf',
+        result: 'pass',
+        notes: 'Seed calibration certificate for QA coverage',
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      }]);
+    }
+
+    if (biomedDevice && hasBiomedMaintenance) {
+      await insertIfEmpty('biomed_maintenance_schedules', [{
+        tenant_id: biomedDevice.tenant_id || DEFAULT_TENANT_ID,
+        biomed_device_id: biomedDevice.id,
+        kind: 'preventive',
+        interval_days: 90,
+        next_due_at: new Date('2026-08-04T09:00:00.000Z'),
+        assigned_role: 'BIOMEDICAL_STAFF',
+        active: true,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      }]);
+    }
+  }
+
+  if (await tableExists('cold_chain_units') && await tableExists('device_registry')) {
+    const registeredDevice = await first(
+      'device_registry',
+      'id, tenant_id',
+      'tenant_id = $1::uuid',
+      [DEFAULT_TENANT_ID],
+    );
+
+    if (registeredDevice) {
+      await insertIfEmpty('cold_chain_units', [{
+        tenant_id: registeredDevice.tenant_id || DEFAULT_TENANT_ID,
+        unit_code: 'CC-SEED-0001',
+        display_name: 'Seed vaccine fridge',
+        kind: 'fridge',
+        department: 'pharmacy',
+        device_registry_id: registeredDevice.id,
+        min_temp_c: 2,
+        max_temp_c: 8,
+        excursion_grace_minutes: 15,
+        alert_roles: ['PHARMACY_INCHARGE'],
+        status: 'active',
+        retention_days: 730,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      }]);
+    }
+  }
+
+  const hasMigrationSourceFiles = await tableExists('migration_source_files');
+  const hasMigrationImportRecords = await tableExists('migration_import_records');
+
+  if (!hasMigrationSourceFiles || !(await tableExists('migration_import_jobs'))) return;
+
+  const importJob = await first(
+    'migration_import_jobs',
+    'id, tenant_id',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+
+  if (!importJob) return;
+
+  if (hasMigrationSourceFiles) {
+    await insertIfEmpty('migration_source_files', [{
+      tenant_id: importJob.tenant_id || DEFAULT_TENANT_ID,
+      job_id: importJob.id,
+      file_kind: 'patient',
+      source_filename: 'seed-patients.csv',
+      content_sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      mime_type: 'text/csv',
+      byte_size: 128,
+      row_count: 1,
+      header_row: JSON.stringify(['external_id', 'full_name']),
+      column_profile: JSON.stringify({ external_id: 'text', full_name: 'text' }),
+      sample_rows_redacted: JSON.stringify([{ external_id: 'SEED-1', full_name: 'Seed Patient' }]),
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if (!hasMigrationImportRecords || !hasMigrationSourceFiles) return;
+
+  const sourceFile = await first(
+    'migration_source_files',
+    'id, tenant_id, job_id',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+
+  if (!sourceFile) return;
+
+  await insertIfEmpty('migration_import_records', [{
+    tenant_id: sourceFile.tenant_id || DEFAULT_TENANT_ID,
+    job_id: sourceFile.job_id || importJob.id,
+    source_file_id: sourceFile.id,
+    target_kind: 'patient',
+    source_row_number: 1,
+    source_key: 'SEED-1',
+    row_hash: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+    normalized_preview_redacted: JSON.stringify({ external_id: 'SEED-1' }),
+    validation_state: 'valid',
+    duplicate_candidate: false,
+    duplicate_summary: JSON.stringify({}),
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
+async function seedMigrationToolkitTables() {
+  // NL11-S1: constraint-aware seeds — generic values violate the 64-hex
+  // sha256 CHECKs and the INTEGER source_row_number column.
+  const job = await first('migration_import_jobs', 'id, tenant_id', 'TRUE', []);
+  if (!job) return;
+  const hex64 = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+
+  if (!(await tableCount('migration_source_files'))) {
+    await insertIfEmpty('migration_source_files', [{
+      tenant_id: job.tenant_id || DEFAULT_TENANT_ID,
+      job_id: job.id,
+      file_kind: 'patient',
+      source_filename: 'seed-patients.csv',
+      content_sha256: hex64,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if (!(await tableCount('migration_import_records'))) {
+    const file = await first('migration_source_files', 'id, tenant_id, job_id', 'TRUE', []);
+    if (!file) return;
+    await insertIfEmpty('migration_import_records', [{
+      tenant_id: file.tenant_id || DEFAULT_TENANT_ID,
+      job_id: file.job_id,
+      source_file_id: file.id,
+      target_kind: 'patient',
+      source_row_number: 1,
+      row_hash: hex64,
+    }]);
+  }
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -1490,6 +1668,8 @@ try {
   await seedBiomedCmmsTables();
   await seedMortuarySlots();
   await seedInfusionChairTables();
+  await seedMigrationToolkitTables();
+  await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));

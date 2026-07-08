@@ -164,6 +164,22 @@ bool frontOfficeCanCompleteAppointment(StaffRole role) {
 }
 
 @visibleForTesting
+Map<String, dynamic> frontOfficeSupervisedKioskCheckinPayload({
+  required int appointmentId,
+  String? department,
+  Map<String, dynamic>? profileDelta,
+}) {
+  final body = <String, dynamic>{
+    'appointmentId': appointmentId,
+    if (_text(department).isNotEmpty) 'department': _text(department),
+    if (profileDelta != null && profileDelta.isNotEmpty)
+      'profileDelta': Map<String, dynamic>.from(profileDelta),
+    'acknowledgements': const ['front_office_arrival_confirmed'],
+  };
+  return body;
+}
+
+@visibleForTesting
 Map<String, dynamic> frontOfficeWalkInRegistrationPayload({
   required Map<String, dynamic> patient,
   Map<String, dynamic>? doctor,

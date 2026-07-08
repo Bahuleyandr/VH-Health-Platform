@@ -39,6 +39,8 @@ export interface SessionRow {
   machine_no: string | null;
   station_no: string | null;
   modality: string;
+  dialyser: string | null;
+  reuse_count: number | null;
   scheduled_start_at: string | null;
   actual_start_at: string | null;
   actual_end_at: string | null;
@@ -90,6 +92,44 @@ export interface IntraObs {
   event_note: string | null;
   intervention: string | null;
   intervention_dose: string | null;
+}
+
+export interface ReuseRegisterRow {
+  id: number;
+  session_id: number;
+  dialyzer_serial: string;
+  reuse_cycle_count: number;
+  integrity_test_result: string;
+  status: string;
+  discard_reason: string | null;
+  register_format_status: string;
+  processed_at: string;
+}
+
+export interface MachineQaLog {
+  id: number;
+  machine_no: string;
+  session_id: number | null;
+  qa_date: string;
+  disinfection_completed: boolean;
+  machine_ready: boolean;
+  status: string;
+  warn_only: boolean;
+  issues: string[];
+  recorded_at: string;
+}
+
+export interface BillingHookResult {
+  status: string;
+  emitted: boolean;
+  invoice_id?: number;
+  invoice_item_id?: number;
+  unit_price?: number;
+}
+
+export interface CompletionResult extends SessionRow {
+  machine_qa_warnings?: string[];
+  billing_hook?: BillingHookResult;
 }
 
 export interface SerologyRow {

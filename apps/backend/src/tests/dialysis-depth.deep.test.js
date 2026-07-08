@@ -13,12 +13,46 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TEST_NAME = 'D7TEST DialysisPatient';
 const MACHINE = `D7T-MACH-${String(Date.now()).slice(-5)}`;
+const MACHINE_2 = `${MACHINE}-B`;
+const TENANT = '00000000-0000-4000-8000-000000000001';
 
 let patientUid;
 let dialysisPatientId;
 let sessionId;
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM billing_payments
+      WHERE invoice_id IN (
+        SELECT id FROM billing_invoices
+        WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)
+      )`,
+    TEST_NAME,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM billing_invoice_items
+      WHERE invoice_id IN (
+        SELECT id FROM billing_invoices
+        WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)
+      )`,
+    TEST_NAME,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM billing_invoices
+      WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`,
+    TEST_NAME,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `UPDATE dialysis_billing_settings
+        SET charge_enabled = false, unit_price = NULL, finance_reviewed_at = NULL, updated_at = NOW()
+      WHERE tenant_id = $1::uuid`,
+    TENANT,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM dialysis_machine_qa_logs
+      WHERE machine_no IN ($1, $2)`,
+    MACHINE, MACHINE_2,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM dialysis_patients WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`, TEST_NAME,
   ).catch(() => {});
@@ -220,5 +254,156 @@ d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)'
       patientUid,
     );
     expect(timeline.length).toBe(1);
+  });
+
+  test('dialyzer reuse register enforces cycle consistency with session reuse_count', async () => {
+    const good = await nurse.post(`/api/v1/dialysis/sessions/${sessionId}/reuse-register`).send({
+      dialyzer_serial: `DIALYZER-${MACHINE}`,
+      reuse_cycle_count: 4,
+      integrity_test_result: 'pass',
+      integrity_test_method: 'pressure-hold',
+      disinfectant: 'peracetic acid',
+    });
+    expect(good.status).toBe(200);
+    expect(good.body.data.register_format_status).toBe('format_pending');
+    expect(good.body.data.reuse_cycle_count).toBe(4);
+
+    const session = await prisma.$queryRawUnsafe(
+      `SELECT reuse_count FROM dialysis_sessions WHERE id = $1::int`,
+      sessionId,
+    );
+    expect(session[0].reuse_count).toBe(4);
+
+    const mismatch = await nurse.post(`/api/v1/dialysis/sessions/${sessionId}/reuse-register`).send({
+      dialyzer_serial: `DIALYZER-${MACHINE}`,
+      reuse_cycle_count: 5,
+      integrity_test_result: 'pass',
+    });
+    expect(mismatch.status).toBe(400);
+
+    const list = await nurse.get(`/api/v1/dialysis/sessions/${sessionId}/reuse-register`);
+    expect(list.status).toBe(200);
+    expect(list.body.data).toHaveLength(1);
+  });
+
+  test('completion surfaces warn-only machine QA and stays billing-inert by default', async () => {
+    const qa = await nurse.post('/api/v1/dialysis/machine-qa').send({
+      session_id: sessionId,
+      machine_no: MACHINE,
+      disinfection_completed: false,
+      machine_ready: false,
+      status: 'failed',
+      issues: ['conductivity alarm during turnover'],
+    });
+    expect(qa.status).toBe(200);
+
+    const beforeLines = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM billing_invoice_items
+        WHERE source_ref_type = 'dialysis_session'
+          AND source_ref_id = $1::int`,
+      sessionId,
+    );
+    expect(beforeLines[0].n).toBe(0);
+
+    const complete = await nurse.post(`/api/v1/dialysis/sessions/${sessionId}/complete`).send({
+      post_weight_kg: 63.8,
+      post_bp_systolic: 118,
+      post_bp_diastolic: 74,
+      actual_uf_l: 1.4,
+      urea_pre_mg_dl: 100,
+      urea_post_mg_dl: 32,
+    });
+    expect(complete.status).toBe(200);
+    expect(complete.body.data.status).toBe('completed');
+    expect(complete.body.data.machine_qa_warnings).toEqual(expect.arrayContaining([
+      `Machine ${MACHINE} disinfection is not marked complete`,
+      `Machine ${MACHINE} is not marked ready`,
+      `Machine ${MACHINE} QA status is failed`,
+    ]));
+    expect(complete.body.data.billing_hook).toMatchObject({ status: 'disabled', emitted: false });
+
+    const afterLines = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM billing_invoice_items
+        WHERE source_ref_type = 'dialysis_session'
+          AND source_ref_id = $1::int`,
+      sessionId,
+    );
+    expect(afterLines[0].n).toBe(0);
+
+    const timeline = await prisma.$queryRawUnsafe(
+      `SELECT event_type FROM clinical_timeline_events
+       WHERE patient_uid = $1::uuid AND event_type = 'dialysis.completed'`,
+      patientUid,
+    );
+    expect(timeline.length).toBe(1);
+  });
+
+  test('finance-reviewed dialysis tariff emits one draft billing line on completion', async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO dialysis_billing_settings
+         (tenant_id, charge_enabled, service_code, unit_price, gst_rate, finance_reviewed_at, acceptance_snapshot)
+       VALUES ($1::uuid, true, 'DIALYSIS-HD-SESSION', 2500.00, 0, NOW(), '{"review":"test"}'::jsonb)
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         charge_enabled = true,
+         service_code = EXCLUDED.service_code,
+         unit_price = EXCLUDED.unit_price,
+         gst_rate = EXCLUDED.gst_rate,
+         finance_reviewed_at = NOW(),
+         acceptance_snapshot = EXCLUDED.acceptance_snapshot,
+         updated_at = NOW()`,
+      TENANT,
+    );
+
+    const scheduled = await nurse.post('/api/v1/dialysis/sessions').send({
+      dialysis_patient_id: dialysisPatientId,
+      session_date: '2026-06-12',
+      machine_no: MACHINE_2,
+      reuse_count: 0,
+    });
+    expect(scheduled.status).toBe(200);
+    const billableSessionId = scheduled.body.data.id;
+
+    const start = await nurse.post(`/api/v1/dialysis/sessions/${billableSessionId}/start`).send({
+      pre_weight_kg: 65.0,
+    });
+    expect(start.status).toBe(200);
+
+    const qa = await nurse.post('/api/v1/dialysis/machine-qa').send({
+      session_id: billableSessionId,
+      machine_no: MACHINE_2,
+      disinfection_completed: true,
+      disinfection_method: 'heat disinfection',
+      machine_ready: true,
+      status: 'passed',
+    });
+    expect(qa.status).toBe(200);
+
+    const complete = await nurse.post(`/api/v1/dialysis/sessions/${billableSessionId}/complete`).send({
+      post_weight_kg: 63.5,
+      actual_uf_l: 1.5,
+      urea_pre_mg_dl: 100,
+      urea_post_mg_dl: 30,
+    });
+    expect(complete.status).toBe(200);
+    expect(complete.body.data.machine_qa_warnings).toEqual([]);
+    expect(complete.body.data.billing_hook).toMatchObject({
+      status: 'emitted',
+      emitted: true,
+      unit_price: 2500,
+    });
+    const lines = await prisma.$queryRawUnsafe(
+      `SELECT bii.source_ref_type, bii.source_ref_id, bii.line_total, bi.status, bi.department
+         FROM billing_invoice_items bii
+         JOIN billing_invoices bi ON bi.id = bii.invoice_id
+        WHERE bii.source_ref_type = 'dialysis_session'
+          AND bii.source_ref_id = $1::int`,
+      billableSessionId,
+    );
+    expect(lines).toHaveLength(1);
+    expect(Number(lines[0].line_total)).toBe(2500);
+    expect(lines[0].status).toBe('DRAFT');
+    expect(lines[0].department).toBe('Dialysis');
   });
 });

@@ -168,6 +168,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "anesthesia-chart": { minRank: STAFF },
   dietary: { minRank: STAFF },
   theatre: { minRank: STAFF },
+  cssd: { minRank: STAFF },
   "or-board": { minRank: STAFF },
   maternity: { minRank: STAFF },
   "blood-bank": { minRank: STAFF },

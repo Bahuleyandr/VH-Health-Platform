@@ -239,6 +239,25 @@ void main() {
     );
   });
 
+  group('frontOfficeSupervisedKioskCheckinPayload', () {
+    test(
+      'keeps kiosk arrival separate from appointment status confirmation',
+      () {
+        final body = frontOfficeSupervisedKioskCheckinPayload(
+          appointmentId: 42,
+          department: 'Cardiology',
+          profileDelta: const {'address': 'Updated street'},
+        );
+
+        expect(body['appointmentId'], 42);
+        expect(body['department'], 'Cardiology');
+        expect(body['profileDelta'], {'address': 'Updated street'});
+        expect(body['status'], isNull);
+        expect(body['acknowledgements'], ['front_office_arrival_confirmed']);
+      },
+    );
+  });
+
   group('front-office OPD to IPD admission advice mapping', () {
     test('uses the advised appointment id as the admission advice id', () {
       expect(
