@@ -101,8 +101,8 @@ async function ensureScheduleSeededForPatient({ patientUid, tenantId }) {
  * Seed a paediatric patient's immunisation schedule from the active
  * vaccine_catalogue. due_date for each row = dob + recommended_age_days.
  * Idempotent on (patient_uid, vaccine_catalogue_id) via the UNIQUE
- * constraint — repeat calls update existing rows' due_date instead of
- * inserting duplicates.
+ * constraint. Existing rows keep their original due_date because pack
+ * timing changes apply only to future seeds.
  *
  * If the patient already has a newborn_immunisations cohort row for the
  * same vaccine, the new patient_immunisations row's
@@ -137,7 +137,7 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
          (patient_uid, vaccine_catalogue_id, due_date, tenant_id)
        VALUES ($1::uuid, $2, $3::date, $4::uuid)
        ON CONFLICT (patient_uid, vaccine_catalogue_id)
-       DO UPDATE SET due_date = EXCLUDED.due_date, updated_at = NOW()
+       DO UPDATE SET updated_at = patient_immunisations.updated_at
        WHERE patient_immunisations.tenant_id = EXCLUDED.tenant_id
        RETURNING (xmax = 0) AS was_insert`,
       patientUid, Number(row.id), dueIso, tid,

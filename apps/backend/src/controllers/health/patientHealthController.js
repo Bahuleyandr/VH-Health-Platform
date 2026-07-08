@@ -415,7 +415,7 @@ export async function recordStaffVitals(req, res) {
     //   2026-05-11-pediatric-opd-nurse-4354eb08
     let growth = null;
     try {
-      growth = computeGrowthSnapshot({
+      growth = await computeGrowthSnapshot({
         gender: patient[0].gender,
         birthday: patient[0].birthday,
         weightKg: weight,
