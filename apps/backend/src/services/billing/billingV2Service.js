@@ -567,6 +567,7 @@ const VALID_SOURCE_REF_TYPES = new Set([
   'room_day',
   'discharge_consult',
   'theatre_case',
+  'dialysis_session',
   'admission_package',
   'package',
   'manual',
