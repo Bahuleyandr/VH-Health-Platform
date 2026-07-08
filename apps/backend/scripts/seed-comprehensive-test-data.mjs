@@ -56,9 +56,12 @@ const MANUAL_SEED_TABLES = new Set([
   'chair_bookings',
   // NL11-S1 migration toolkit: source_row_number is a plain INTEGER the
   // generic seeder fills with semantic strings, and content_sha256/row_hash
-  // carry 64-lowercase-hex CHECKs.
+  // carry 64-lowercase-hex CHECKs. NL11-S9 adds HL7 ADT hash + enum checks
+  // that also need constraint-aware values.
   'migration_source_files',
   'migration_import_records',
+  'migration_hl7_adt_batches',
+  'migration_hl7_adt_messages',
   // NL12-S2 SIEM: transport/severity/source enums + CHAR(64) hex hashes +
   // a redaction CHECK that forbids raw_payload_exported=true.
   'siem_export_targets',
@@ -1631,11 +1634,12 @@ async function seedMergedMainCoverageTables() {
 }
 
 async function seedMigrationToolkitTables() {
-  // NL11-S1: constraint-aware seeds — generic values violate the 64-hex
-  // sha256 CHECKs and the INTEGER source_row_number column.
+  // NL11-S1/S9: constraint-aware seeds — generic values violate the 64-hex
+  // sha256 CHECKs, ADT enum checks, and the INTEGER source_row_number column.
   const job = await first('migration_import_jobs', 'id, tenant_id', 'TRUE', []);
   if (!job) return;
   const hex64 = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+  const altHex64 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
   if (!(await tableCount('migration_source_files'))) {
     await insertIfEmpty('migration_source_files', [{
@@ -1658,6 +1662,40 @@ async function seedMigrationToolkitTables() {
       target_kind: 'patient',
       source_row_number: 1,
       row_hash: hex64,
+    }]);
+  }
+
+  if ((await tableExists('migration_hl7_adt_batches')) && !(await tableCount('migration_hl7_adt_batches'))) {
+    await insertIfEmpty('migration_hl7_adt_batches', [{
+      tenant_id: job.tenant_id || DEFAULT_TENANT_ID,
+      job_id: job.id,
+      status: 'committed',
+      source_filename: 'seed-adt-a01.hl7',
+      content_sha256: altHex64,
+      message_count: 1,
+      accepted_count: 1,
+      rejected_count: 0,
+      idempotency_key: 'seed-hl7-adt-batch-1',
+      summary: JSON.stringify({ seed: true, accepted: 1 }),
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if ((await tableExists('migration_hl7_adt_messages')) && !(await tableCount('migration_hl7_adt_messages'))) {
+    const batch = await first('migration_hl7_adt_batches', 'id, tenant_id', 'TRUE', []);
+    if (!batch) return;
+    const commitBatch = await first('migration_commit_batches', 'id', 'TRUE', []);
+    await insertIfEmpty('migration_hl7_adt_messages', [{
+      tenant_id: batch.tenant_id || DEFAULT_TENANT_ID,
+      hl7_batch_id: batch.id,
+      commit_batch_id: commitBatch?.id,
+      message_control_id: 'SEED-ADT-A01-1',
+      message_type: 'ADT^A01',
+      source_patient_key: 'SEED-1',
+      raw_message_hash: hex64,
+      parsed_summary_redacted: JSON.stringify({ messageType: 'ADT^A01', patientKey: 'SEED-1' }),
+      validation_findings: JSON.stringify([]),
+      status: 'committed',
     }]);
   }
 }

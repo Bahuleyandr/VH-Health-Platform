@@ -3,15 +3,18 @@
  *
  * Mounted at /api/v1/admin/migration-toolkit. The parent admin mount applies
  * JWT, role, step-up, IP allowlist, and admin rate limiting. This router keeps
- * P1 deliberately rehearsal-only: CSV content is profiled in memory and only
- * redacted previews/findings/reports are persisted.
+ * P1 is rehearsal-only. P2 adds explicit commit batches and HL7 ADT imports;
+ * both preserve redacted reports and idempotency proofs.
  */
 
 import express from 'express';
 
 import {
+  commitImportJob,
   createImportJob,
+  getAcceptanceReport,
   getRehearsalReport,
+  importHl7AdtBatch,
   listImportJobs,
   listMappingProfiles,
   profileSourceFile,
@@ -85,6 +88,37 @@ router.post('/jobs/:jobId/rehearsals', async (req, res, next) => {
   }
 });
 
+router.post('/jobs/:jobId/commits', async (req, res, next) => {
+  try {
+    const result = await commitImportJob({
+      tenantId: req.tenantId,
+      jobId: req.params.jobId,
+      files: req.body?.files,
+      idempotencyKey: req.body?.idempotency_key,
+      committedBy: req.user?.uid || null,
+    });
+    return success(res, result, 'Migration commit batch completed', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/jobs/:jobId/hl7-adt-batches', async (req, res, next) => {
+  try {
+    const result = await importHl7AdtBatch({
+      tenantId: req.tenantId,
+      jobId: req.params.jobId,
+      messages: req.body?.messages,
+      sourceFilename: req.body?.source_filename,
+      idempotencyKey: req.body?.idempotency_key,
+      committedBy: req.user?.uid || null,
+    });
+    return success(res, result, 'HL7 ADT migration batch imported', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get('/jobs/:jobId/report', async (req, res, next) => {
   try {
     const row = await getRehearsalReport({
@@ -92,6 +126,18 @@ router.get('/jobs/:jobId/report', async (req, res, next) => {
       jobId: req.params.jobId,
     });
     return success(res, row, 'Migration rehearsal report retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/jobs/:jobId/commit-batches/:batchId/report', async (req, res, next) => {
+  try {
+    const row = await getAcceptanceReport({
+      tenantId: req.tenantId,
+      batchId: req.params.batchId,
+    });
+    return success(res, row, 'Migration acceptance report retrieved');
   } catch (err) {
     return next(err);
   }

@@ -438,6 +438,7 @@ model admissions {
   next_review_at                  DateTime?                @db.Timestamptz(6)
   prior_admission_id              Int?
   tenant_id                       String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  migration_source_key            String?                  @db.VarChar(180)
   emergency_visit                 emergency_visits?        @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onUpdate: NoAction)
   package                         packages?                @relation(fields: [package_id], references: [id], onUpdate: NoAction)
   insurance_policy                insurance_policies?      @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
@@ -452,6 +453,7 @@ model admissions {
   isolation_orders                isolation_orders[]
   outbreak_episode_cases          outbreak_episode_cases[]
 
+  @@unique([tenant_id, migration_source_key], map: "ux_admissions_migration_source_key", where: raw("(migration_source_key IS NOT NULL)"))
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
   @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
   @@index([bed_pending_since], map: "idx_admissions_bed_pending")
@@ -9868,9 +9870,15 @@ model tenants {
   mfa_devices                                mfa_devices[]
   micro_isolates                             micro_isolates[]
   micro_sensitivities                        micro_sensitivities[]
+  migration_acceptance_reports               migration_acceptance_reports[]
+  migration_commit_batches                   migration_commit_batches[]
+  migration_commit_records                   migration_commit_records[]
+  migration_hl7_adt_batches                  migration_hl7_adt_batches[]
+  migration_hl7_adt_messages                 migration_hl7_adt_messages[]
   migration_import_jobs                      migration_import_jobs[]
   migration_import_records                   migration_import_records[]
   migration_mapping_profiles                 migration_mapping_profiles[]
+  migration_merge_queue_items                migration_merge_queue_items[]
   migration_rehearsal_reports                migration_rehearsal_reports[]
   migration_source_files                     migration_source_files[]
   migration_validation_findings              migration_validation_findings[]
@@ -11226,6 +11234,7 @@ model billing_invoices {
   tenant_id                   String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at                  DateTime?                     @default(now()) @db.Timestamptz(6)
   updated_at                  DateTime?                     @default(now()) @db.Timestamptz(6)
+  migration_source_key        String?                       @db.VarChar(180)
   billing_advance_settlements billing_advance_settlements[]
   billing_invoice_items       billing_invoice_items[]
   billing_payment_links       billing_payment_links[]
@@ -11235,6 +11244,7 @@ model billing_invoices {
   tpa_claims                  tpa_claims[]
 
   @@unique([tenant_id, invoice_number], map: "uniq_billing_invoices_tenant_invoice_number", where: raw("(invoice_number IS NOT NULL)"))
+  @@unique([tenant_id, migration_source_key], map: "ux_billing_invoices_migration_source_key", where: raw("(migration_source_key IS NOT NULL)"))
   @@index([issued_at(sort: Desc)], map: "idx_invoices_issued_at")
   @@index([patient_uid], map: "idx_invoices_patient")
   @@index([status], map: "idx_invoices_status")
@@ -17377,8 +17387,13 @@ model migration_import_jobs {
   updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
   completed_at                  DateTime?                       @db.Timestamptz(6)
   metadata                      Json                            @default("{}")
+  migration_acceptance_reports  migration_acceptance_reports[]
+  migration_commit_batches      migration_commit_batches[]
+  migration_commit_records      migration_commit_records[]
+  migration_hl7_adt_batches     migration_hl7_adt_batches[]
   tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_import_jobs_tenant")
   migration_import_records      migration_import_records[]
+  migration_merge_queue_items   migration_merge_queue_items[]
   migration_rehearsal_reports   migration_rehearsal_reports?
   migration_source_files        migration_source_files[]
   migration_validation_findings migration_validation_findings[]
@@ -17406,10 +17421,12 @@ model migration_import_records {
   duplicate_summary             Json                            @default("{}")
   created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
   metadata                      Json                            @default("{}")
+  migration_commit_records      migration_commit_records[]
   tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_import_records_tenant")
   migration_import_jobs         migration_import_jobs           @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   migration_mapping_profiles    migration_mapping_profiles?     @relation(fields: [mapping_profile_id], references: [id], onUpdate: NoAction)
   migration_source_files        migration_source_files          @relation(fields: [source_file_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_merge_queue_items   migration_merge_queue_items[]
   migration_validation_findings migration_validation_findings[]
 
   @@unique([tenant_id, source_file_id, source_row_number], map: "ux_migration_import_records_source_row")
@@ -18078,4 +18095,178 @@ model physio_sessions {
   @@index([tenant_id, care_plan_id, created_at(sort: Desc)], map: "idx_physio_sessions_plan")
   @@index([tenant_id, session_status, scheduled_for], map: "idx_physio_sessions_status")
   @@index([tenant_id, therapist_uid, scheduled_for], map: "idx_physio_sessions_therapist", where: raw("(therapist_uid IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_acceptance_reports {
+  id                       BigInt                   @id @default(autoincrement())
+  uid                      String                   @unique(map: "migration_acceptance_reports_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_id                   BigInt
+  commit_batch_id          BigInt                   @unique(map: "ux_migration_acceptance_reports_batch")
+  status                   String                   @default("accepted") @db.VarChar(40)
+  phi_redacted             Boolean                  @default(true)
+  report_json              Json                     @default("{}")
+  acceptance_summary       Json                     @default("{}")
+  opening_balance_totals   Json                     @default("{}")
+  rollback_proof           Json                     @default("{}")
+  replay_proof             Json                     @default("{}")
+  generated_by             String?                  @db.Uuid
+  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  metadata                 Json                     @default("{}")
+  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_acceptance_reports_tenant")
+  migration_commit_batches migration_commit_batches @relation(fields: [commit_batch_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_import_jobs    migration_import_jobs    @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, job_id, created_at(sort: Desc)], map: "idx_migration_acceptance_reports_job")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_commit_batches {
+  id                           BigInt                        @id @default(autoincrement())
+  uid                          String                        @unique(map: "migration_commit_batches_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                    String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_id                       BigInt
+  status                       String                        @default("prepared") @db.VarChar(40)
+  idempotency_key              String                        @db.VarChar(160)
+  requested_by                 String?                       @db.Uuid
+  committed_by                 String?                       @db.Uuid
+  committed_at                 DateTime?                     @db.Timestamptz(6)
+  rolled_back_by               String?                       @db.Uuid
+  rolled_back_at               DateTime?                     @db.Timestamptz(6)
+  row_counts                   Json                          @default("{}")
+  acceptance_summary           Json                          @default("{}")
+  opening_balance_totals       Json                          @default("{}")
+  rollback_plan                Json                          @default("{}")
+  replay_proof                 Json                          @default("{}")
+  metadata                     Json                          @default("{}")
+  created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  migration_acceptance_reports migration_acceptance_reports?
+  tenants                      tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_commit_batches_tenant")
+  migration_import_jobs        migration_import_jobs         @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_commit_records     migration_commit_records[]
+  migration_hl7_adt_messages   migration_hl7_adt_messages[]
+  migration_merge_queue_items  migration_merge_queue_items[]
+
+  @@unique([tenant_id, idempotency_key], map: "ux_migration_commit_batches_idempotency")
+  @@index([tenant_id, job_id, created_at(sort: Desc)], map: "idx_migration_commit_batches_job")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_commit_records {
+  id                       BigInt                    @id @default(autoincrement())
+  uid                      String                    @unique(map: "migration_commit_records_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  commit_batch_id          BigInt
+  job_id                   BigInt
+  import_record_id         BigInt?
+  target_kind              String                    @db.VarChar(40)
+  source_key               String?                   @db.VarChar(180)
+  row_hash                 String?                   @db.VarChar(64)
+  status                   String                    @db.VarChar(40)
+  action                   String                    @db.VarChar(40)
+  target_table             String?                   @db.VarChar(80)
+  target_id                String?                   @db.VarChar(120)
+  target_uid               String?                   @db.Uuid
+  idempotency_key          String                    @db.VarChar(220)
+  rollback_payload         Json                      @default("{}")
+  replay_proof             Json                      @default("{}")
+  error_redacted           String?
+  metadata                 Json                      @default("{}")
+  created_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  tenants                  tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_commit_records_tenant")
+  migration_commit_batches migration_commit_batches  @relation(fields: [commit_batch_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_import_records migration_import_records? @relation(fields: [import_record_id], references: [id], onUpdate: NoAction)
+  migration_import_jobs    migration_import_jobs     @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, commit_batch_id, idempotency_key], map: "ux_migration_commit_records_idempotency")
+  @@index([tenant_id, commit_batch_id, target_kind, status], map: "idx_migration_commit_records_batch")
+  @@index([tenant_id, target_table, target_id], map: "idx_migration_commit_records_target", where: raw("((target_table IS NOT NULL) AND (target_id IS NOT NULL))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_hl7_adt_batches {
+  id                         BigInt                       @id @default(autoincrement())
+  uid                        String                       @unique(map: "migration_hl7_adt_batches_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                  String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_id                     BigInt
+  status                     String                       @default("received") @db.VarChar(40)
+  source_filename            String?                      @db.VarChar(260)
+  content_sha256             String                       @db.VarChar(64)
+  message_count              Int                          @default(0)
+  accepted_count             Int                          @default(0)
+  rejected_count             Int                          @default(0)
+  idempotency_key            String                       @db.VarChar(160)
+  received_by                String?                      @db.Uuid
+  completed_at               DateTime?                    @db.Timestamptz(6)
+  summary                    Json                         @default("{}")
+  metadata                   Json                         @default("{}")
+  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_hl7_adt_batches_tenant")
+  migration_import_jobs      migration_import_jobs        @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_hl7_adt_messages migration_hl7_adt_messages[]
+
+  @@unique([tenant_id, idempotency_key], map: "ux_migration_hl7_adt_batches_idempotency")
+  @@index([tenant_id, job_id, created_at(sort: Desc)], map: "idx_migration_hl7_adt_batches_job")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_hl7_adt_messages {
+  id                        BigInt                    @id @default(autoincrement())
+  uid                       String                    @unique(map: "migration_hl7_adt_messages_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                 String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  hl7_batch_id              BigInt
+  commit_batch_id           BigInt?
+  message_control_id        String                    @db.VarChar(120)
+  message_type              String                    @db.VarChar(20)
+  source_patient_key        String?                   @db.VarChar(180)
+  raw_message_hash          String                    @db.VarChar(64)
+  parsed_summary_redacted   Json                      @default("{}")
+  validation_findings       Json                      @default("[]")
+  status                    String                    @default("parsed") @db.VarChar(40)
+  created_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  tenants                   tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_hl7_adt_messages_tenant")
+  migration_commit_batches  migration_commit_batches? @relation(fields: [commit_batch_id], references: [id], onUpdate: NoAction)
+  migration_hl7_adt_batches migration_hl7_adt_batches @relation(fields: [hl7_batch_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, hl7_batch_id, message_control_id], map: "ux_migration_hl7_adt_messages_control")
+  @@index([tenant_id, hl7_batch_id, status], map: "idx_migration_hl7_adt_messages_batch")
+  @@index([tenant_id, source_patient_key], map: "idx_migration_hl7_adt_messages_patient", where: raw("(source_patient_key IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_merge_queue_items {
+  id                       BigInt                    @id @default(autoincrement())
+  uid                      String                    @unique(map: "migration_merge_queue_items_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_id                   BigInt
+  commit_batch_id          BigInt
+  import_record_id         BigInt?
+  conflict_kind            String                    @db.VarChar(60)
+  source_patient_key       String?                   @db.VarChar(180)
+  candidate_patient_uid    String?                   @db.Uuid
+  imported_patient_uid     String?                   @db.Uuid
+  status                   String                    @default("review_required") @db.VarChar(40)
+  review_payload_redacted  Json                      @default("{}")
+  resolution               Json                      @default("{}")
+  created_by               String?                   @db.Uuid
+  reviewed_by              String?                   @db.Uuid
+  reviewed_at              DateTime?                 @db.Timestamptz(6)
+  created_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  tenants                  tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_merge_queue_items_tenant")
+  migration_commit_batches migration_commit_batches  @relation(fields: [commit_batch_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_import_records migration_import_records? @relation(fields: [import_record_id], references: [id], onUpdate: NoAction)
+  migration_import_jobs    migration_import_jobs     @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, commit_batch_id, import_record_id, conflict_kind], map: "ux_migration_merge_queue_items_record")
+  @@index([tenant_id, candidate_patient_uid], map: "idx_migration_merge_queue_items_candidate", where: raw("(candidate_patient_uid IS NOT NULL)"))
+  @@index([tenant_id, job_id, status, created_at(sort: Desc)], map: "idx_migration_merge_queue_items_job")
 }
