@@ -137,11 +137,30 @@ router.post('/sessions/:id/start', requireStaffOrAdmin, wrap(async (req) => {
 router.post('/sessions/:id/complete', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.completeSession({
-    tenantId, id: req.params.id, ...req.body,
+    tenantId, id: req.params.id, completed_by: req.user?.uid, actorRole: req.user?.role, ...req.body,
   });
   emitDialysisEvent('session-completed', { tenantId });
   return row;
 }));
+
+router.post('/sessions/:id/reuse-register', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.recordReuseRegister({
+    tenantId,
+    session_id: req.params.id,
+    processed_by: req.user?.uid,
+    ...req.body,
+  });
+  emitDialysisEvent('reuse-register-updated', { tenantId });
+  return row;
+}));
+
+router.get('/sessions/:id/reuse-register', requireStaffOrAdmin, wrap(async (req) =>
+  svc.listReuseRegister({
+    tenantId: tenantOf(req),
+    session_id: req.params.id,
+    limit: req.query.limit,
+  })));
 
 router.post('/sessions/:id/cancel', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
@@ -179,6 +198,25 @@ router.post('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) => {
 
 router.get('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) =>
   svc.listSessionEvents({ tenantId: tenantOf(req), session_id: req.params.id })));
+
+router.post('/machine-qa', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.recordMachineQaLog({
+    tenantId,
+    recorded_by: req.user?.uid,
+    ...req.body,
+  });
+  emitDialysisEvent('machine-qa-recorded', { tenantId });
+  return row;
+}));
+
+router.get('/machine-qa', requireStaffOrAdmin, wrap(async (req) =>
+  svc.listMachineQaLogs({
+    tenantId: tenantOf(req),
+    machine_no: req.query.machine_no,
+    session_id: req.query.session_id,
+    limit: req.query.limit,
+  })));
 
 // Machine-data ingestion (roadmap D7) — raw payloads hit the B3 inbox
 // first; observations land source='device' on the in-progress session

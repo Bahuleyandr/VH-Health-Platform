@@ -5,6 +5,7 @@ import { _internal } from '../../services/clinical/dialysisService.js';
 const {
   SESSION_TRANSITIONS, computeUrr, computeKtv,
   VALID_MODALITIES, VALID_ACCESS_TYPES,
+  validateReuseRegisterInput, buildMachineQaWarnings,
 } = _internal;
 
 describe('Dialysis session status walk', () => {
@@ -110,5 +111,75 @@ describe('Modality + access allowlists', () => {
 
   it('rejects nonsense access types', () => {
     expect(VALID_ACCESS_TYPES).not.toContain('peripheral_iv_line');
+  });
+});
+
+describe('Dialyzer reuse cycle rules', () => {
+  it('normalizes a passing in-use register row', () => {
+    expect(validateReuseRegisterInput({
+      reuse_cycle_count: 3,
+      integrity_test_result: 'pass',
+      status: 'in_use',
+    })).toMatchObject({
+      reuseCycleCount: 3,
+      integrity: 'pass',
+      status: 'in_use',
+    });
+  });
+
+  it('rejects non-integer or out-of-range cycle counts', () => {
+    expect(() => validateReuseRegisterInput({ reuse_cycle_count: '2.5' })).toThrow(/reuse_cycle_count/);
+    expect(() => validateReuseRegisterInput({ reuse_cycle_count: 101 })).toThrow(/reuse_cycle_count/);
+  });
+
+  it('requires a disposition for failed integrity tests', () => {
+    expect(() => validateReuseRegisterInput({
+      reuse_cycle_count: 1,
+      integrity_test_result: 'fail',
+      status: 'in_use',
+    })).toThrow(/failed integrity/i);
+    expect(validateReuseRegisterInput({
+      reuse_cycle_count: 1,
+      integrity_test_result: 'fail',
+      status: 'quarantined',
+    }).status).toBe('quarantined');
+  });
+
+  it('requires a discard reason when status is discarded', () => {
+    expect(() => validateReuseRegisterInput({
+      reuse_cycle_count: 7,
+      status: 'discarded',
+    })).toThrow(/discard_reason/);
+  });
+});
+
+describe('Machine QA warn-only gate', () => {
+  it('warns when no same-day QA log exists', () => {
+    expect(buildMachineQaWarnings(null, 'HD-01')).toEqual([
+      'No same-day machine QA log for HD-01',
+    ]);
+  });
+
+  it('warns on incomplete disinfection and failed status', () => {
+    const warnings = buildMachineQaWarnings({
+      disinfection_completed: false,
+      machine_ready: false,
+      status: 'failed',
+      warn_only: true,
+    }, 'HD-02');
+    expect(warnings).toEqual(expect.arrayContaining([
+      'Machine HD-02 disinfection is not marked complete',
+      'Machine HD-02 is not marked ready',
+      'Machine HD-02 QA status is failed',
+    ]));
+  });
+
+  it('is quiet for a passed, ready QA log', () => {
+    expect(buildMachineQaWarnings({
+      disinfection_completed: true,
+      machine_ready: true,
+      status: 'passed',
+      warn_only: true,
+    }, 'HD-03')).toEqual([]);
   });
 });

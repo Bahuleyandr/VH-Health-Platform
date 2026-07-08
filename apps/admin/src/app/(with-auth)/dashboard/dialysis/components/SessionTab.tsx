@@ -11,13 +11,24 @@ import {
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
-import { IntraObs, SessionRow, fmtTime, unwrapList } from "./types";
+import {
+  CompletionResult,
+  IntraObs,
+  MachineQaLog,
+  ReuseRegisterRow,
+  SessionRow,
+  fmtTime,
+  unwrapList,
+} from "./types";
 import { dialysisRefetchMs } from "../realtime";
 
 export default function SessionTab({ sessionId, subscribed }: { sessionId: number; subscribed: boolean }) {
   const qc = useQueryClient();
   const [showObs, setShowObs] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
+  const [showReuse, setShowReuse] = useState(false);
+  const [showMachineQa, setShowMachineQa] = useState(false);
+  const [completionResult, setCompletionResult] = useState<CompletionResult | null>(null);
 
   // List filter — patient-by-id endpoint isn't ideal (we need session
   // detail), so re-list and find. For real prod we'd have GET
@@ -40,6 +51,22 @@ export default function SessionTab({ sessionId, subscribed }: { sessionId: numbe
     refetchInterval: dialysisRefetchMs(subscribed, 30_000),
   });
 
+  const { data: reuseRows = [] } = useQuery<ReuseRegisterRow[]>({
+    queryKey: ["dialysis", "reuse-register", sessionId],
+    queryFn: async () => unwrapList<ReuseRegisterRow>(
+      await fetchAdminAPI<unknown>(`/dialysis/sessions/${sessionId}/reuse-register`),
+    ),
+    refetchInterval: dialysisRefetchMs(subscribed, 60_000),
+  });
+
+  const { data: qaLogs = [] } = useQuery<MachineQaLog[]>({
+    queryKey: ["dialysis", "machine-qa", sessionId],
+    queryFn: async () => unwrapList<MachineQaLog>(
+      await fetchAdminAPI<unknown>(`/dialysis/machine-qa?session_id=${sessionId}`),
+    ),
+    refetchInterval: dialysisRefetchMs(subscribed, 60_000),
+  });
+
   if (!sess) {
     return <LoadingSpinner />;
   }
@@ -55,8 +82,11 @@ export default function SessionTab({ sessionId, subscribed }: { sessionId: numbe
             <div className="text-xs text-muted-foreground">
               {sess.session_date} · {sess.modality.toUpperCase()}
               {sess.machine_no && ` · machine ${sess.machine_no}`}
-              {sess.actual_start_at && (
+          {sess.actual_start_at && (
                 <> · started {fmtTime(sess.actual_start_at)}</>
+              )}
+              {sess.reuse_count != null && (
+                <> · reuse {sess.reuse_count}</>
               )}
             </div>
           </div>
@@ -97,6 +127,14 @@ export default function SessionTab({ sessionId, subscribed }: { sessionId: numbe
       </div>
 
       <div className="flex gap-2 flex-wrap">
+        <button type="button" onClick={() => setShowReuse(true)}
+          className="rounded border border-border px-4 py-2 text-sm">
+          Reuse register
+        </button>
+        <button type="button" onClick={() => setShowMachineQa(true)}
+          className="rounded border border-border px-4 py-2 text-sm">
+          Machine QA
+        </button>
         {sess.status === "in_progress" && (
           <>
             <button type="button" onClick={() => setShowObs(true)}
@@ -110,6 +148,29 @@ export default function SessionTab({ sessionId, subscribed }: { sessionId: numbe
           </>
         )}
       </div>
+
+      {completionResult && (
+        <div className="rounded-lg border border-border p-3 text-sm">
+          <div className="font-medium">Completion signals</div>
+          {completionResult.machine_qa_warnings && completionResult.machine_qa_warnings.length > 0 ? (
+            <ul className="mt-2 list-disc pl-5 text-amber-300">
+              {completionResult.machine_qa_warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-2 text-emerald-300">Machine QA clear.</div>
+          )}
+          {completionResult.billing_hook && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              Billing hook: {completionResult.billing_hook.status}
+              {completionResult.billing_hook.invoice_id && (
+                <> · invoice #{completionResult.billing_hook.invoice_id}</>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {isLoading && <LoadingSpinner />}
       {!isLoading && obs.length === 0 && (
@@ -168,6 +229,55 @@ export default function SessionTab({ sessionId, subscribed }: { sessionId: numbe
         </div>
       )}
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="rounded-lg border border-border p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">Reuse register</div>
+            <button type="button" onClick={() => setShowReuse(true)} className="text-xs underline">
+              Update
+            </button>
+          </div>
+          {reuseRows.length === 0 ? (
+            <div className="mt-2 text-sm text-muted-foreground">No dialyzer reuse register row yet.</div>
+          ) : (
+            <div className="mt-2 space-y-1 text-sm">
+              {reuseRows.map((row) => (
+                <div key={row.id} className="rounded border border-border/70 p-2">
+                  <div className="font-mono text-xs">{row.dialyzer_serial}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Cycle {row.reuse_cycle_count} · {row.integrity_test_result} · {row.status}
+                  </div>
+                  <div className="text-xs text-amber-300">{row.register_format_status.replace(/_/g, " ")}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-border p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">Machine QA</div>
+            <button type="button" onClick={() => setShowMachineQa(true)} className="text-xs underline">
+              Record
+            </button>
+          </div>
+          {qaLogs.length === 0 ? (
+            <div className="mt-2 text-sm text-muted-foreground">No machine QA log attached.</div>
+          ) : (
+            <div className="mt-2 space-y-1 text-sm">
+              {qaLogs.map((log) => (
+                <div key={log.id} className="rounded border border-border/70 p-2">
+                  <div className="font-mono text-xs">{log.machine_no}</div>
+                  <div className={log.status === "passed" ? "text-xs text-emerald-300" : "text-xs text-amber-300"}>
+                    {log.status} · disinfection {log.disinfection_completed ? "done" : "pending"} · ready {log.machine_ready ? "yes" : "no"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {showObs && (
         <ObsModal
           sessionId={sessionId}
@@ -183,9 +293,32 @@ export default function SessionTab({ sessionId, subscribed }: { sessionId: numbe
         <CompleteModal
           sessionId={sessionId}
           onClose={() => setShowComplete(false)}
-          onCompleted={() => {
+          onCompleted={(row) => {
+            setCompletionResult(row);
             qc.invalidateQueries({ queryKey: ["dialysis"] });
             setShowComplete(false);
+          }}
+        />
+      )}
+
+      {showReuse && (
+        <ReuseRegisterModal
+          session={sess}
+          onClose={() => setShowReuse(false)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["dialysis"] });
+            setShowReuse(false);
+          }}
+        />
+      )}
+
+      {showMachineQa && (
+        <MachineQaModal
+          session={sess}
+          onClose={() => setShowMachineQa(false)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["dialysis"] });
+            setShowMachineQa(false);
           }}
         />
       )}
@@ -287,7 +420,7 @@ function ObsModal({
 
 function CompleteModal({
   sessionId, onClose, onCompleted,
-}: { sessionId: number; onClose: () => void; onCompleted: () => void }) {
+}: { sessionId: number; onClose: () => void; onCompleted: (row: CompletionResult) => void }) {
   const [form, setForm] = useState({
     post_weight_kg: "",
     post_bp_systolic: "",
@@ -309,7 +442,7 @@ function CompleteModal({
     setForm({ ...form, [k]: v });
 
   const m = useMutation({
-    mutationFn: async () => fetchAdminAPI<unknown>(
+    mutationFn: async () => fetchAdminAPI<CompletionResult>(
       `/dialysis/sessions/${sessionId}/complete`,
       {
         method: "POST",
@@ -324,7 +457,7 @@ function CompleteModal({
           urea_post_mg_dl: form.urea_post_mg_dl ? Number(form.urea_post_mg_dl) : undefined,
         },
       }),
-    onSuccess: () => onCompleted(),
+    onSuccess: (row) => onCompleted(row),
   });
 
   return (
@@ -398,6 +531,207 @@ function CompleteModal({
   );
 }
 
+function ReuseRegisterModal({
+  session, onClose, onSaved,
+}: { session: SessionRow; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({
+    dialyzer_serial: session.dialyser || "",
+    reuse_cycle_count: session.reuse_count != null ? String(session.reuse_count) : "",
+    integrity_test_result: "pass",
+    integrity_test_method: "",
+    disinfectant: "",
+    status: "in_use",
+    discard_reason: "",
+    notes: "",
+  });
+
+  const setF = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
+    setForm({ ...form, [k]: v });
+
+  const m = useMutation({
+    mutationFn: async () => fetchAdminAPI<unknown>(
+      `/dialysis/sessions/${session.id}/reuse-register`,
+      {
+        method: "POST",
+        body: {
+          ...form,
+          reuse_cycle_count: Number(form.reuse_cycle_count),
+          integrity_test_method: form.integrity_test_method || undefined,
+          disinfectant: form.disinfectant || undefined,
+          discard_reason: form.discard_reason || undefined,
+          notes: form.notes || undefined,
+        },
+      }),
+    onSuccess: () => onSaved(),
+  });
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/60 p-6 overflow-y-auto">
+      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-6 space-y-3 my-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Dialyzer reuse register</h2>
+          <button type="button" className="text-muted-foreground" onClick={onClose}>x</button>
+        </div>
+        <p className="text-xs text-amber-300">
+          Format pending until the authoritative dialyzer reuse register is sourced.
+        </p>
+
+        <Field label="Dialyzer serial *" v={form.dialyzer_serial}
+          on={(v) => setF("dialyzer_serial", v)} />
+        <Field label="Reuse cycle count *" v={form.reuse_cycle_count} type="number"
+          on={(v) => setF("reuse_cycle_count", v)} />
+
+        <div className="grid grid-cols-2 gap-2">
+          <SelectF label="Integrity test" v={form.integrity_test_result}
+            on={(v) => setF("integrity_test_result", v)}
+            options={[["pending", "Pending"], ["pass", "Pass"], ["fail", "Fail"], ["not_done", "Not done"]]} />
+          <SelectF label="Status" v={form.status}
+            on={(v) => setF("status", v)}
+            options={[["in_use", "In use"], ["quarantined", "Quarantined"], ["discarded", "Discarded"]]} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Test method" v={form.integrity_test_method}
+            on={(v) => setF("integrity_test_method", v)} />
+          <Field label="Disinfectant" v={form.disinfectant}
+            on={(v) => setF("disinfectant", v)} />
+        </div>
+
+        {form.status === "discarded" && (
+          <Field label="Discard reason" v={form.discard_reason}
+            on={(v) => setF("discard_reason", v)} />
+        )}
+
+        <div>
+          <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+            Notes
+          </label>
+          <textarea rows={2} value={form.notes}
+            onChange={(e) => setF("notes", e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm" />
+        </div>
+
+        {m.error instanceof Error && (
+          <div className="text-sm text-rose-400">{m.error.message}</div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="px-4 py-2 text-sm" onClick={onClose}>Cancel</button>
+          <button type="button" disabled={!form.dialyzer_serial.trim() || !form.reuse_cycle_count || m.isPending}
+            onClick={() => m.mutate()}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+            {m.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MachineQaModal({
+  session, onClose, onSaved,
+}: { session: SessionRow; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({
+    machine_no: session.machine_no || "",
+    disinfection_completed: true,
+    disinfection_method: "",
+    disinfectant_lot: "",
+    machine_ready: true,
+    status: "passed",
+    issues: "",
+    notes: "",
+  });
+
+  const setF = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
+    setForm({ ...form, [k]: v });
+
+  const m = useMutation({
+    mutationFn: async () => fetchAdminAPI<unknown>(
+      "/dialysis/machine-qa",
+      {
+        method: "POST",
+        body: {
+          session_id: session.id,
+          machine_no: form.machine_no,
+          disinfection_completed: form.disinfection_completed,
+          disinfection_method: form.disinfection_method || undefined,
+          disinfectant_lot: form.disinfectant_lot || undefined,
+          machine_ready: form.machine_ready,
+          status: form.status,
+          issues: form.issues
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean),
+          notes: form.notes || undefined,
+        },
+      }),
+    onSuccess: () => onSaved(),
+  });
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/60 p-6 overflow-y-auto">
+      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-6 space-y-3 my-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Machine QA</h2>
+          <button type="button" className="text-muted-foreground" onClick={onClose}>x</button>
+        </div>
+
+        <Field label="Machine no. *" v={form.machine_no}
+          on={(v) => setF("machine_no", v)} />
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Disinfection method" v={form.disinfection_method}
+            on={(v) => setF("disinfection_method", v)} />
+          <Field label="Disinfectant lot" v={form.disinfectant_lot}
+            on={(v) => setF("disinfectant_lot", v)} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <Check label="Disinfection complete" v={form.disinfection_completed}
+            on={(v) => setF("disinfection_completed", v)} />
+          <Check label="Machine ready" v={form.machine_ready}
+            on={(v) => setF("machine_ready", v)} />
+        </div>
+
+        <SelectF label="Status" v={form.status}
+          on={(v) => setF("status", v)}
+          options={[["pending", "Pending"], ["passed", "Passed"], ["failed", "Failed"], ["maintenance_required", "Maintenance required"]]} />
+
+        <div>
+          <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+            Issues
+          </label>
+          <textarea rows={3} value={form.issues}
+            onChange={(e) => setF("issues", e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm" />
+        </div>
+
+        <div>
+          <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+            Notes
+          </label>
+          <textarea rows={2} value={form.notes}
+            onChange={(e) => setF("notes", e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm" />
+        </div>
+
+        {m.error instanceof Error && (
+          <div className="text-sm text-rose-400">{m.error.message}</div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="px-4 py-2 text-sm" onClick={onClose}>Cancel</button>
+          <button type="button" disabled={!form.machine_no.trim() || m.isPending}
+            onClick={() => m.mutate()}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+            {m.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NumF({
   label, v, on, step,
 }: { label: string; v: string | undefined; on: (v: string) => void; step?: string }) {
@@ -424,6 +758,24 @@ function Field({
       <input type={type} value={v} onChange={(e) => on(e.target.value)}
         placeholder={placeholder}
         className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm" />
+    </div>
+  );
+}
+
+function SelectF({
+  label, v, on, options,
+}: { label: string; v: string; on: (v: string) => void; options: Array<[string, string]> }) {
+  return (
+    <div>
+      <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+        {label}
+      </label>
+      <select value={v} onChange={(e) => on(e.target.value)}
+        className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm">
+        {options.map(([value, text]) => (
+          <option key={value} value={value}>{text}</option>
+        ))}
+      </select>
     </div>
   );
 }
