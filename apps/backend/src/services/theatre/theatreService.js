@@ -4,8 +4,10 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { getCataractBiometryReadiness } from '../clinical/ophthalmologyService.js';
 import { assertPrivilegeForGate, isGateEnabled } from '../staff/credentialingService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { getOtSterilityWarnings } from '../cssd/cssdService.js';
 
 // Postgres exclusion_violation — raised by migration 319's
 // excl_ot_schedules_room_no_overlap when an insert/update would create a
@@ -218,6 +220,7 @@ async function createStructuredPreopFromOtReady(schedule, checklist, { completed
       source: 'theatre_ot_ready_checklist',
       legacy_ot_ready: true,
       checklist_keys: Object.keys(checklist).sort(),
+      readiness_warnings: Array.isArray(checklist.readiness_warnings) ? checklist.readiness_warnings : [],
     }),
   );
   return rows[0] || null;
@@ -524,13 +527,23 @@ class TheatreService {
       conditions.push(`status = $${params.length}`);
     }
 
-    return prisma.$queryRawUnsafe(
+    const schedules = await prisma.$queryRawUnsafe(
       `SELECT ${OT_RETURNING}
        FROM ot_schedules
        WHERE ${conditions.join(' AND ')}
        ORDER BY scheduled_time ASC NULLS LAST, created_at ASC`,
       ...params
     );
+    if (!schedules.length) return schedules;
+
+    const warningsBySchedule = await getOtSterilityWarnings({
+      tenantId,
+      scheduleIds: schedules.map((schedule) => schedule.id),
+    });
+    return schedules.map((schedule) => ({
+      ...schedule,
+      cssd_warnings: warningsBySchedule.get(Number(schedule.id)) || [],
+    }));
   }
 
   async updateStatus(id, newStatus, updatedBy, options = {}) {
@@ -654,19 +667,24 @@ class TheatreService {
     if (['completed', 'cancelled'].includes(existing[0].status)) {
       throw AppError.badRequest('Cannot update checklist for a completed or cancelled surgery');
     }
-    assertOtReadySiteMark(checklist, existing[0]);
+
+    const wantsOtReady = !!(checklist && typeof checklist === 'object' && !Array.isArray(checklist) && checklist.ot_ready === true);
+    let readinessWarnings = [];
+    let checklistForWrite = checklist;
+
+    assertOtReadySiteMark(checklistForWrite, existing[0]);
 
     // Diabetic glucose gate: pre-op for any patient with an active
     // diabetes diagnosis must include a documented blood glucose check
     // before ot_ready can flip to true. Avoids the hypo/hyperglycaemia
     // window that an unmonitored fasting diabetic enters under anaesthesia.
-    if (checklist && typeof checklist === 'object' && !Array.isArray(checklist) && checklist.ot_ready === true) {
-      const checklistMarksDiabetic = checklist.diabetic_patient === true
-        || checklist.diabetes === true
-        || String(checklist.diabetic_status || '').toLowerCase() === 'diabetic';
-      const glucoseChecked = checklist.blood_glucose_checked === true
-        || (checklist.blood_glucose_mg_dl != null && Number.isFinite(Number(checklist.blood_glucose_mg_dl)))
-        || (checklist.glucose != null && Number.isFinite(Number(checklist.glucose)));
+    if (wantsOtReady) {
+      const checklistMarksDiabetic = checklistForWrite.diabetic_patient === true
+        || checklistForWrite.diabetes === true
+        || String(checklistForWrite.diabetic_status || '').toLowerCase() === 'diabetic';
+      const glucoseChecked = checklistForWrite.blood_glucose_checked === true
+        || (checklistForWrite.blood_glucose_mg_dl != null && Number.isFinite(Number(checklistForWrite.blood_glucose_mg_dl)))
+        || (checklistForWrite.glucose != null && Number.isFinite(Number(checklistForWrite.glucose)));
       if (!glucoseChecked && (checklistMarksDiabetic || await isDiabeticPatient(existing[0].patient_uid))) {
         throw AppError.badRequest(
           'Cannot set OT-ready for a diabetic patient until a pre-op blood glucose check is documented',
@@ -680,6 +698,12 @@ class TheatreService {
         gate: 'theatre_ot_ready_surgeon',
         enabled: isGateEnabled('THEATRE_REQUIRE_OT_READY_SURGEON_PRIVILEGE'),
       });
+      const cataractReadiness = await getCataractBiometryReadiness(existing[0], { tenantId: tid });
+      readinessWarnings = cataractReadiness?.warnings || [];
+      checklistForWrite = {
+        ...checklistForWrite,
+        readiness_warnings: readinessWarnings,
+      };
     }
 
     // Canonical clinical write: the checklist update + structured preop row +
@@ -690,14 +714,15 @@ class TheatreService {
         `UPDATE ot_schedules SET pre_op_checklist = $1::jsonb, updated_at = NOW()
          WHERE id = $2 AND tenant_id = $3::uuid
          RETURNING ${OT_RETURNING}`,
-        JSON.stringify(checklist ?? {}), scheduleId, tid
+        JSON.stringify(checklistForWrite ?? {}), scheduleId, tid
       );
 
-      const preop = await createStructuredPreopFromOtReady(existing[0], checklist, { tenantId: tid, completedBy, db: tx });
+      const preop = await createStructuredPreopFromOtReady(existing[0], checklistForWrite, { tenantId: tid, completedBy, db: tx });
       const row = result[0];
       if (preop?.id) row.pre_op_check_id = preop.id;
+      row.readiness_warnings = readinessWarnings;
 
-      const otReady = !!(checklist && typeof checklist === 'object' && !Array.isArray(checklist) && checklist.ot_ready === true);
+      const otReady = !!(checklistForWrite && typeof checklistForWrite === 'object' && !Array.isArray(checklistForWrite) && checklistForWrite.ot_ready === true);
       await recordCanonicalClinicalEvent({
         tenantId: tid,
         patientUid: existing[0].patient_uid,
@@ -713,6 +738,7 @@ class TheatreService {
         payload: {
           ot_ready: otReady,
           pre_op_check_id: preop?.id || null,
+          readiness_warnings: readinessWarnings,
           procedure_name: existing[0].procedure_name,
         },
       }, { db: tx });

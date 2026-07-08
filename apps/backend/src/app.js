@@ -64,10 +64,12 @@ import {
   BILLING_ROUTE_ROLES,
   BILLING_V2_ROUTE_ROLES,
   BLOOD_BANK_ROUTE_ROLES,
+  COLD_CHAIN_ROUTE_ROLES,
   CLINICAL_ASSESSMENT_ROUTE_ROLES,
   CLINICAL_STAFF_ROUTE_ROLES,
   COMPLIANCE_ROUTE_ROLES,
   CONSENT_ROUTE_ROLES,
+  CSSD_ROUTE_ROLES,
   DELIVERY_ROUTE_ROLES,
   DIETARY_ROUTE_ROLES,
   DIALYSIS_ROUTE_ROLES,
@@ -130,6 +132,7 @@ import deliveryRoutes from './routes/delivery/index.js';
 import departmentRoutes from './routes/department/index.js';
 import { getDepartmentsWithDoctors } from './controllers/department/departmentController.js';
 import deviceRoutes from './routes/deviceRoutes.js';
+import { coldChainRoutes, coldChainIngestRoutes } from './routes/coldChainRoutes.js';
 import doctorRoutes from './routes/doctor/index.js';
 import healthRoutes from './routes/health/index.js';
 import uptimeRoutes from './routes/health/uptimeRoutes.js';
@@ -230,6 +233,7 @@ import theatreRoutes from './routes/theatre/theatreRoutes.js';
 import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
 import anesthesiaChartRoutes from './routes/theatre/anesthesiaChartRoutes.js';
 import surgicalDocumentationRoutes from './routes/admin/surgicalDocumentationRoutes.js';
+import cssdRoutes from './routes/cssd/cssdRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
 import labPanelRoutes from './routes/lab/labPanelRoutes.js';
 import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisationRoutes.js';
@@ -595,6 +599,7 @@ app.use('/api/v1/config', configRoutes);
 // HL7v2 messaging — mounted before global JWT auth so /receive works with API key only.
 // JWT is enforced on /generate within the route file itself.
 app.use('/api/v1/hl7', hl7Routes);
+app.use('/api/v1/ingest/cold-chain', coldChainIngestRoutes);
 
 // Guest patient directory: the login/dashboard UI exposes Departments before a
 // patient JWT exists. Keep this exact read-only surface API-key-only while the
@@ -942,6 +947,7 @@ app.use('/api/v1/hl7-feeds', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogg
 
 // ICU monitor vitals ingestion + verification queue (roadmap C5).
 app.use('/api/v1/devices', requireRole(...CLINICAL_STAFF_ROLES, 'DEVICE_GATEWAY'), phiAccessLogger('DEVICE_VITALS'), deviceVitalsRoutes);
+app.use('/api/v1/cold-chain', requireRole(...COLD_CHAIN_ROUTE_ROLES), coldChainRoutes);
 
 // Scheduling optimization (roadmap D2) — templates, slot grids, waitlist,
 // bookable resources. Reception works this surface alongside clinicians.
@@ -1153,6 +1159,7 @@ app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGua
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), orBoardRoutes);
 app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ANESTHESIA_CHART', { careTeamModeGoverned: true }), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/cssd', requireRole(...CSSD_ROUTE_ROLES), sanitizeAllBodyStrings, cssdRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real

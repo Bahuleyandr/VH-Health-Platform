@@ -69,7 +69,7 @@ is silently bypassed. Full detail: PHASE0 §1 (readonly) + §8 (runtime role).
 (pods can't pull them). Resolve real digests before the first `apps` sync.
 
 - [ ] **C1.** Build + sign + push the first images (GH Actions `release-images.yml`, or tag `backend-v…`/`admin-v…`/`staff-web-v…`). (date / initials): ______
-- [ ] **C2.** `GHCR_TOKEN=<read:packages> node scripts/update-prod-digests.mjs --tag backend-v<v> --tag admin-v<v> --tag staff-web-v<v>` → commit "chore(prod): bootstrap H11 digest pins" → push. *(PHASE0 §5)* (date / initials): ______
+- [ ] **C2.** `GHCR_TOKEN=<read:packages> COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs --tag backend-v<v> --tag admin-v<v> --tag staff-web-v<v>` → verify signatures, commit "chore(prod): bootstrap H11 digest pins" → push. *(PHASE0 §5)* (date / initials): ______
 - [ ] **C3.** Future releases auto-update the pin block via `release-images.yml`; `release-pin-digests.yml` is the manual repair path. (noted)
 
 ---
@@ -111,8 +111,8 @@ Static review can't prove tenant isolation is live. Run these against prod
 kustomization in **Audit** mode. *(PHASE0 §6)*
 
 - [ ] **F1.** Install Kyverno ≥ 1.12 (command in the policy file header; the ansible bootstrap does **not** install it yet). (date / initials): ______
-- [ ] **F2.** Watch one full sync in Audit mode → confirm **zero unexpected** image-signature violations. (date / initials): ______
-- [ ] **F3.** Flip `validationFailureAction: Audit → Enforce`. ⚠️ Flipping before a clean audit cycle risks a cluster-wide pod-admission outage. (date / initials): ______
+- [ ] **F2.** Run `node scripts/check-kyverno-enforce-readiness.mjs --live --context <prod-context> --since-hours 24 --min-pass-results 3` and attach the clean Audit-mode output plus raw PolicyReport/ClusterPolicyReport evidence. (date / initials): ______
+- [ ] **F3.** Follow [`KYVERNO_ENFORCE_READINESS.md`](KYVERNO_ENFORCE_READINESS.md) for the operator-only `Audit` to `Enforce` flip, server-side dry-run, observation, and rollback window. Flipping before a clean audit cycle risks a cluster-wide pod-admission outage. (date / initials): ______
 
 ---
 

@@ -1,0 +1,3 @@
+legacy_patient_id,bill_no,outstanding_amount,currency
+LEG-001,INV-1001,1200,INR
+LEG-002,INV-1002,not-a-number,INR

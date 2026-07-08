@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.6
 
+ARG NODE_IMAGE=node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
+
 # ---- Dependencies Stage ----
-FROM node:22-alpine AS deps
+FROM ${NODE_IMAGE} AS deps
 
 WORKDIR /app
 
@@ -9,7 +11,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 # ---- Build Stage ----
-FROM node:22-alpine AS build
+FROM ${NODE_IMAGE} AS build
 
 WORKDIR /app
 
@@ -57,7 +59,7 @@ RUN --mount=type=secret,id=sentry_auth_token,required=false \
     npm run build
 
 # ---- Runner Stage ----
-FROM node:22-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 
 RUN apk upgrade --no-cache libcrypto3 libssl3 && \
     apk add --no-cache curl && \
