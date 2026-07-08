@@ -9970,6 +9970,10 @@ model tenants {
   scheduled_notifications                    scheduled_notifications[]
   service_catalog                            service_catalog[]
   set_issue_log                              set_issue_log[]
+  siem_export_cursors                        siem_export_cursors[]
+  siem_export_delivery_attempts              siem_export_delivery_attempts[]
+  siem_export_events                         siem_export_events[]
+  siem_export_targets                        siem_export_targets[]
   sla_definitions                            sla_definitions[]
   smart_access_tokens                        smart_access_tokens[]
   smart_apps                                 smart_apps[]
@@ -17739,4 +17743,121 @@ model developer_portal_audit_events {
   @@index([tenant_id, api_client_id, created_at(sort: Desc)], map: "idx_developer_portal_audit_client_time", where: raw("(api_client_id IS NOT NULL)"))
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_developer_portal_audit_tenant_time")
   @@index([tenant_id, event_type, created_at(sort: Desc)], map: "idx_developer_portal_audit_type_time")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model siem_export_cursors {
+  id               BigInt    @id @default(autoincrement())
+  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  source_name      String    @db.VarChar(80)
+  cursor_key       String    @default("global") @db.VarChar(160)
+  last_source_id   BigInt?
+  last_source_ref  String?
+  last_source_at   DateTime? @db.Timestamptz(6)
+  last_exported_at DateTime? @db.Timestamptz(6)
+  metadata         Json      @default("{}")
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_siem_export_cursors_tenant")
+
+  @@unique([tenant_id, source_name, cursor_key], map: "uq_siem_export_cursors_source")
+  @@index([tenant_id, source_name, updated_at(sort: Desc)], map: "idx_siem_export_cursors_source")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model siem_export_delivery_attempts {
+  id                  BigInt              @id @default(autoincrement())
+  tenant_id           String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  event_id            BigInt
+  target_id           BigInt
+  transport           String              @db.VarChar(40)
+  attempt_number      Int                 @default(1)
+  status              String              @default("pending") @db.VarChar(20)
+  payload_snapshot    Json                @default("{}")
+  payload_sha256      String              @db.Char(64)
+  http_status         Int?
+  response_excerpt    String?
+  error_message       String?
+  evidence_uri        String?
+  request_id          String?             @db.VarChar(100)
+  next_retry_at       DateTime            @default(now()) @db.Timestamptz(6)
+  started_at          DateTime?           @db.Timestamptz(6)
+  completed_at        DateTime?           @db.Timestamptz(6)
+  metadata            Json                @default("{}")
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime            @default(now()) @db.Timestamptz(6)
+  tenants             tenants             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_siem_export_delivery_attempts_tenant")
+  siem_export_events  siem_export_events  @relation(fields: [event_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  siem_export_targets siem_export_targets @relation(fields: [target_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([event_id, target_id, attempt_number], map: "uq_siem_export_delivery_attempt")
+  @@index([event_id, attempt_number], map: "idx_siem_delivery_attempts_event")
+  @@index([target_id, created_at(sort: Desc)], map: "idx_siem_delivery_attempts_target")
+  @@index([tenant_id, status, next_retry_at], map: "idx_siem_delivery_attempts_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model siem_export_events {
+  id                            BigInt                          @id @default(autoincrement())
+  uid                           String                          @unique(map: "uq_siem_export_events_uid") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  source_name                   String                          @db.VarChar(80)
+  source_id                     String
+  source_created_at             DateTime?                       @db.Timestamptz(6)
+  event_type                    String                          @db.VarChar(120)
+  severity                      String                          @db.VarChar(20)
+  category                      String                          @default("security") @db.VarChar(80)
+  actor_hash                    String?                         @db.Char(64)
+  subject_hash                  String?                         @db.Char(64)
+  ip_hash                       String?                         @db.Char(64)
+  request_id                    String?                         @db.VarChar(100)
+  resource_type                 String?                         @db.VarChar(100)
+  resource_hash                 String?                         @db.Char(64)
+  redaction_policy_version      String                          @default("nl12-s2-phi-min-v1") @db.VarChar(80)
+  minimized_payload             Json                            @default("{}")
+  payload_sha256                String                          @db.Char(64)
+  export_status                 String                          @default("pending") @db.VarChar(20)
+  synthetic                     Boolean                         @default(false)
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  siem_export_delivery_attempts siem_export_delivery_attempts[]
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_siem_export_events_tenant")
+
+  @@unique([tenant_id, source_name, source_id], map: "uq_siem_export_events_source")
+  @@index([tenant_id, severity, created_at(sort: Desc)], map: "idx_siem_export_events_severity")
+  @@index([tenant_id, source_name, source_created_at(sort: Desc)], map: "idx_siem_export_events_source")
+  @@index([tenant_id, export_status, created_at], map: "idx_siem_export_events_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model siem_export_targets {
+  id                            BigInt                          @id @default(autoincrement())
+  uid                           String                          @unique(map: "uq_siem_export_targets_uid") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  target_key                    String                          @db.VarChar(80)
+  display_name                  String                          @db.VarChar(160)
+  transport                     String                          @db.VarChar(40)
+  status                        String                          @default("draft") @db.VarChar(20)
+  min_severity                  String                          @default("high") @db.VarChar(20)
+  endpoint_url                  String?
+  syslog_host                   String?
+  syslog_port                   Int?
+  object_drop_uri               String?
+  redaction_policy_version      String                          @default("nl12-s2-phi-min-v1") @db.VarChar(80)
+  config                        Json                            @default("{}")
+  created_by                    String?                         @db.Uuid
+  updated_by                    String?                         @db.Uuid
+  last_drill_at                 DateTime?                       @db.Timestamptz(6)
+  metadata                      Json                            @default("{}")
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  siem_export_delivery_attempts siem_export_delivery_attempts[]
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_siem_export_targets_tenant")
+
+  @@unique([tenant_id, target_key], map: "uq_siem_export_targets_key")
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_siem_export_targets_tenant_status")
+  @@index([tenant_id, transport, status], map: "idx_siem_export_targets_transport")
 }
