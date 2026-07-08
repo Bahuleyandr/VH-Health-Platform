@@ -171,19 +171,19 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 451 | NL8-P2 (delivered #502 using only 450) | unused — documented gap, do not reuse |
 | 452–453 | NL9-P2 NPS analytics | launched 2026-07-08 (round 9) |
 | 454–456 | NL8-P3 porter/transport | launched 2026-07-08 (round 9) |
-| 457–458 | NL9-P3 teleconsult follow-ups | assigned 2026-07-08 (round 9 bench) |
-| 459–460 | NL8-P5 census/LOS | assigned 2026-07-08 (round 9 bench) |
-| 461–463 | NL11-S08 SMART-on-FHIR writes P1 | assigned 2026-07-08 (round 9 bench) |
-| 464 | NL12-S8 cert cockpit | assigned 2026-07-08 (round 9 bench) |
-| 465 | NL10-B2 catalog embeds (deploy HELD, build inert) | assigned 2026-07-08 (round 9 bench) |
-| 466 | NL10-B3 digest/benchmarks (deploy HELD, build inert) | assigned 2026-07-08 (round 9 bench) |
-| 467 | NL11-S04 design tokens P1 | assigned 2026-07-08 (round 9 bench) |
-| 468–469 | NL11-S05 white-label P1 | assigned 2026-07-08 (round 9 bench) |
-| 470 | NL11-S06 demo tenant P1 | assigned 2026-07-08 (round 9 bench) |
-| 471–472 | NL11-S07 manuals/LMS P1 | assigned 2026-07-08 (round 9 bench) |
+| 457–458 | NL9-P3 teleconsult follow-ups | launched 2026-07-08 (round 10 tranches) |
+| 459–460 | NL8-P5 census/LOS | launched 2026-07-08 (round 10 tranches) |
+| 461–463 | NL11-S08 SMART-on-FHIR writes P1 | launched 2026-07-08 (round 10 tranches) |
+| 464 | NL12-S8 cert cockpit | launched 2026-07-08 (round 10 tranches) |
+| 465 | NL10-B2 catalog embeds (deploy HELD, build inert) | launched 2026-07-08 (round 10 tranches) |
+| 466 | NL10-B3 digest/benchmarks (deploy HELD, build inert) | launched 2026-07-08 (round 10 tranches) |
+| 467 | NL11-S04 design tokens P1 | launched 2026-07-08 (round 10 tranches) |
+| 468–469 | NL11-S05 white-label P1 | launched 2026-07-08 (round 10 tranches) |
+| 470 | NL11-S06 demo tenant P1 | launched 2026-07-08 (round 10 tranches) |
+| 471–472 | NL11-S07 manuals/LMS P1 | launched 2026-07-08 (round 10 tranches) |
 | 473–474 | N6-14 linen (deliberate Wave-B tail) | assigned 2026-07-08 (hold until Wave B tail) |
 | 475–477 | NL11-S11 interface engine P1 (gate S10 passed #513) | launched 2026-07-08 (round 10) |
-| 478–481 | NL8-P4 scheduling optimization | assigned 2026-07-08 (round 10 bench) |
+| 478–481 | NL8-P4 scheduling optimization | launched 2026-07-08 (round 10 tranches) |
 | 482+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
