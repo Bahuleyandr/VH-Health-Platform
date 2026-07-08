@@ -175,11 +175,23 @@ installed before ArgoCD can apply the ClusterPolicy CRD:
    pending (the ansible bootstrap does NOT install it yet).
 2. ~~Add `- image-policy` to `infra/kubernetes/base/kustomization.yaml`.~~ DONE
    (committable now).
-3. Watch one full sync in Audit mode, confirm zero unexpected violations, then
-   flip `validationFailureAction: Audit → Enforce`. Flipping before a clean
-   audit cycle risks a cluster-wide pod-admission outage.
+3. Run the Enforce readiness gate from
+   `docs/KYVERNO_ENFORCE_READINESS.md`:
+   ```bash
+   node scripts/check-kyverno-enforce-readiness.mjs \
+     --live \
+     --context <prod-context> \
+     --since-hours 24 \
+     --min-pass-results 3
+   ```
+   This checks the public-key Secret, fresh PolicyReport pass evidence, and
+   zero fail/warn/error results for the image-signature policy.
+4. Follow `docs/KYVERNO_ENFORCE_READINESS.md` for the operator-only flip,
+   server-side dry-run, observation, and rollback commands. Flipping before a
+   clean audit cycle risks a cluster-wide pod-admission outage.
 
 - [ ] Kyverno installed (date / initials): ______
+- [ ] Public-key Secret present + clean Audit cycle recorded (date / initials): ______
 - [ ] Enforcing (date / initials): ______
 
 ## 7. M14 / M13 / L11 / M17 — remaining infra operator steps

@@ -127,14 +127,6 @@ function toNullableDate(value) {
   return d.toISOString().slice(0, 10);
 }
 
-function toDateOnlyString(value) {
-  if (!value) return null;
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
-}
-
 function optionalInt(value, fieldName = 'id') {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 1) {
@@ -451,8 +443,8 @@ function normalizeDeviceRow(row) {
   if (!row) return row;
   return {
     ...row,
-    installed_at: toDateOnlyString(row.installed_at),
-    warranty_expires_on: toDateOnlyString(row.warranty_expires_on),
+    installed_at: toNullableDate(row.installed_at),
+    warranty_expires_on: toNullableDate(row.warranty_expires_on),
     usage_hours: toNumber(row.usage_hours, 0),
     fault_events_last_90d: toNumber(row.fault_events_last_90d, 0),
     mean_time_between_failures_hours: row.mean_time_between_failures_hours !== null
