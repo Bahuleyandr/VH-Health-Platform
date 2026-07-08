@@ -1,42 +1,28 @@
 // src/services/clinical/growthPercentileService.js
 //
-// B-7 — WHO growth percentile + z-score computation.
+// B-7 / NL-5 P4 growth percentile + z-score computation.
 //
-// growth_charts (migration 131) accepts pre-computed `percentiles`
-// and `z_scores` from the caller — but no server-side helper computed
-// them. Paeds OPD nurses + the patient-app weight tracker had to
-// either skip the field or compute by hand. This module provides:
-//
-//   - computeZScoreLMS({ L, M, S, value })  pure WHO LMS formula.
-//   - computePercentile({ sex, ageInDays, metric, value })
-//        Looks up the LMS triplet for the cohort, returns
-//        { z_score, percentile, classification }.
-//
-// Reference data:
-//   The WHO Child Growth Standards (0-5 years) and CDC 2-20 standards
-//   are public. The full datasets are large (~15K rows across all
-//   metrics + sex). To keep this module tractable we embed monthly
-//   reference points for the most common cohort (0-60 months, height
-//   + weight) and linearly interpolate between months. Production
-//   accuracy work should load the full LMS file via reference_dataset
-//   = 'WHO_0_5' / 'IAP_5_18' as captured in clinicalAssessmentService.
-//
-// LMS formula (WHO):
-//   z = (((value / M) ^ L) - 1) / (L * S)        when L != 0
-//   z = ln(value / M) / S                          when L  = 0
-//
-// Percentile:
-//   percentile = Φ(z) * 100
-//   where Φ is the standard normal CDF.
+// Reference data posture:
+//   1. Prefer full LMS rows in growth_reference_lms.
+//   2. Fall back to the embedded WHO 0-5 approximation when DB reference
+//      rows are absent, so dev/offline behavior remains unchanged.
+//   3. IAP 5-18 cohorts require imported LMS rows.
 
+import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 
 const VALID_METRICS = ['height_cm', 'weight_kg', 'head_circumference_cm', 'bmi'];
 const VALID_SEXES = ['M', 'F'];
+const GROWTH_DATASETS = ['WHO_0_5', 'IAP_5_18', 'CDC_2_20', 'FENTON'];
+const AVERAGE_MONTH_DAYS = 30.4375;
+const WHO_MAX_AGE_DAYS = Math.round(60 * AVERAGE_MONTH_DAYS);
+const IAP_MAX_AGE_DAYS = Math.round(18 * 365.25);
+const lmsCache = new Map();
+let loggedLmsLookupFailure = false;
 
-// ── Standard normal CDF (Abramowitz & Stegun approximation) ──────────
-// Accurate to ~7 decimals — plenty for percentile rendering.
+// Standard normal CDF (Abramowitz & Stegun approximation). Accurate to
+// ~7 decimals, which is plenty for percentile rendering.
 function normalCdf(z) {
   const sign = z < 0 ? -1 : 1;
   const x = Math.abs(z) / Math.sqrt(2);
@@ -46,10 +32,6 @@ function normalCdf(z) {
   return 0.5 * (1.0 + sign * y);
 }
 
-/**
- * Pure LMS z-score. Exposed for callers that already have an LMS
- * triplet from another source (e.g. an external chart-spec service).
- */
 export function computeZScoreLMS({ L, M, S, value }) {
   if (L == null || M == null || S == null || value == null) return null;
   const v = Number(value), l = Number(L), m = Number(M), s = Number(S);
@@ -59,20 +41,9 @@ export function computeZScoreLMS({ L, M, S, value }) {
   return (Math.pow(v / m, l) - 1) / (l * s);
 }
 
-// ── WHO 0-5 monthly reference (approximations) ───────────────────────
-//
-// Source: WHO Child Growth Standards, monthly LMS values rounded to
-// 4 decimals. Embedded monthly across 0..60 months. Linear
-// interpolation between months covers in-between ages.
-//
-// IMPORTANT: these are approximate medians + a fixed sigma per metric;
-// the full WHO LMS table has different L/M/S per age. For diagnostic
-// accuracy in production, replace this lookup with the full LMS load.
-// This embedded set is enough for the patient-app trend tile + the
-// nurse-side "child below 5th percentile" alert.
-
+// WHO 0-5 monthly reference approximation. The full WHO LMS table should be
+// imported into growth_reference_lms for diagnostic-grade accuracy.
 const WHO_HEIGHT_M = {
-  // [ageMonth]: [M_male, M_female] in cm
   0: [49.9, 49.1], 1: [54.7, 53.7], 2: [58.4, 57.1], 3: [61.4, 59.8],
   4: [63.9, 62.1], 5: [65.9, 64.0], 6: [67.6, 65.7], 7: [69.2, 67.3],
   8: [70.6, 68.7], 9: [72.0, 70.1], 10: [73.3, 71.5], 11: [74.5, 72.8],
@@ -81,7 +52,6 @@ const WHO_HEIGHT_M = {
   48: [103.3, 102.7], 54: [106.7, 106.2], 60: [110.0, 109.4],
 };
 const WHO_WEIGHT_M = {
-  // [ageMonth]: [M_male, M_female] in kg
   0: [3.3, 3.2], 1: [4.5, 4.2], 2: [5.6, 5.1], 3: [6.4, 5.8],
   4: [7.0, 6.4], 5: [7.5, 6.9], 6: [7.9, 7.3], 7: [8.3, 7.6],
   8: [8.6, 7.9], 9: [8.9, 8.2], 10: [9.2, 8.5], 11: [9.4, 8.7],
@@ -90,7 +60,6 @@ const WHO_WEIGHT_M = {
   48: [16.3, 16.1], 54: [17.3, 17.2], 60: [18.3, 18.2],
 };
 
-// Approximate uniform L/S per metric (the real LMS varies by month).
 const APPROX_LS = {
   height_cm:              { L: 1, S: 0.040 },
   weight_kg:              { L: 0, S: 0.130 },
@@ -100,9 +69,7 @@ const APPROX_LS = {
 
 function lookupMedian(table, sex, ageMonths) {
   const sexIdx = sex === 'M' ? 0 : 1;
-  // exact monthly hit
   if (table[ageMonths] !== undefined) return table[ageMonths][sexIdx];
-  // Find bracketing months for linear interpolation.
   const months = Object.keys(table).map(Number).sort((a, b) => a - b);
   if (ageMonths < months[0]) return table[months[0]][sexIdx];
   if (ageMonths > months[months.length - 1]) return table[months[months.length - 1]][sexIdx];
@@ -120,26 +87,149 @@ function lookupMedian(table, sex, ageMonths) {
 
 function classifyZ(z, _metric) {
   if (z == null || !Number.isFinite(z)) return null;
-  // Generic WHO bands. Severity language differs by metric per the
-  // WHO terminology but the cutoffs are consistent.
   if (z <= -3) return 'severely_low';
   if (z <= -2) return 'low';
-  if (z >= 3)  return 'severely_high';
-  if (z >= 2)  return 'high';
+  if (z >= 3) return 'severely_high';
+  if (z >= 2) return 'high';
   return 'normal';
 }
 
-/**
- * Compute percentile + z-score + WHO classification band.
- *
- * @param {Object} args
- * @param {'M'|'F'} args.sex
- * @param {number}  args.ageInDays
- * @param {'height_cm'|'weight_kg'|'head_circumference_cm'|'bmi'} args.metric
- * @param {number}  args.value
- * @returns {{ z_score, percentile, classification, source: 'WHO_0_5_approx' | null }}
- */
-export function computePercentile({ sex, ageInDays, metric, value } = {}) {
+function numberFromDb(value) {
+  if (value == null) return null;
+  if (typeof value.toNumber === 'function') return value.toNumber();
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function datasetForAge(ageInDays) {
+  const age = Number(ageInDays);
+  if (age <= WHO_MAX_AGE_DAYS) return 'WHO_0_5';
+  if (age <= IAP_MAX_AGE_DAYS) return 'IAP_5_18';
+  return null;
+}
+
+function lmsCacheKey(dataset, sex, metric) {
+  return `${dataset}:${sex}:${metric}`;
+}
+
+async function loadLmsRows(dataset, sex, metric) {
+  const key = lmsCacheKey(dataset, sex, metric);
+  if (lmsCache.has(key)) return lmsCache.get(key);
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT age_days, l, m, s, source_version
+         FROM growth_reference_lms
+        WHERE dataset = $1
+          AND sex = $2
+          AND metric = $3
+        ORDER BY age_days ASC`,
+      dataset, sex, metric,
+    );
+    const normalized = rows.map((row) => ({
+      age_days: Number(row.age_days),
+      L: numberFromDb(row.l),
+      M: numberFromDb(row.m),
+      S: numberFromDb(row.s),
+      source_version: row.source_version || null,
+    })).filter((row) => Number.isFinite(row.age_days)
+      && Number.isFinite(row.L)
+      && Number.isFinite(row.M)
+      && Number.isFinite(row.S));
+    lmsCache.set(key, normalized);
+    return normalized;
+  } catch (err) {
+    if (!loggedLmsLookupFailure) {
+      logger.warn(`growthPercentileService: growth_reference_lms lookup unavailable; using fallback where possible (${err?.message ?? err})`);
+      loggedLmsLookupFailure = true;
+    }
+    return [];
+  }
+}
+
+function interpolateLms(rows, ageInDays) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const age = Number(ageInDays);
+  const exact = rows.find((row) => row.age_days === age);
+  if (exact) return exact;
+  if (age < rows[0].age_days || age > rows[rows.length - 1].age_days) return null;
+  let lo = rows[0], hi = rows[rows.length - 1];
+  for (let i = 0; i < rows.length - 1; i += 1) {
+    if (age >= rows[i].age_days && age <= rows[i + 1].age_days) {
+      lo = rows[i]; hi = rows[i + 1]; break;
+    }
+  }
+  const span = hi.age_days - lo.age_days;
+  if (span <= 0) return lo;
+  const t = (age - lo.age_days) / span;
+  return {
+    L: lo.L + t * (hi.L - lo.L),
+    M: lo.M + t * (hi.M - lo.M),
+    S: lo.S + t * (hi.S - lo.S),
+    source_version: hi.source_version || lo.source_version || null,
+  };
+}
+
+function shapeResult({ z, metric, source, sourceVersion = null, referenceDataset = null, note = null }) {
+  if (z == null) {
+    return { z_score: null, percentile: null, classification: null, source, reference_dataset: referenceDataset, note };
+  }
+  const result = {
+    z_score: +z.toFixed(3),
+    percentile: +(normalCdf(z) * 100).toFixed(2),
+    classification: classifyZ(z, metric),
+    source,
+    reference_dataset: referenceDataset,
+  };
+  if (sourceVersion) result.source_version = sourceVersion;
+  if (note) result.note = note;
+  return result;
+}
+
+async function computeFromReferenceTable({ dataset, sex, ageInDays, metric, value }) {
+  const rows = await loadLmsRows(dataset, sex, metric);
+  const lms = interpolateLms(rows, Number(ageInDays));
+  if (!lms) return null;
+  const z = computeZScoreLMS({ L: lms.L, M: lms.M, S: lms.S, value: Number(value) });
+  return shapeResult({
+    z,
+    metric,
+    source: dataset,
+    sourceVersion: lms.source_version,
+    referenceDataset: dataset,
+  });
+}
+
+function computeApproximateWho({ sex, ageInDays, metric, value }) {
+  const ageMonths = Number(ageInDays) / AVERAGE_MONTH_DAYS;
+  let M = null;
+  if (metric === 'height_cm') M = lookupMedian(WHO_HEIGHT_M, sex, ageMonths);
+  if (metric === 'weight_kg') M = lookupMedian(WHO_WEIGHT_M, sex, ageMonths);
+  if (M == null) {
+    return shapeResult({
+      z: null,
+      metric,
+      source: null,
+      referenceDataset: 'WHO_0_5',
+      note: `Reference data for ${metric} not embedded; load full WHO LMS dataset`,
+    });
+  }
+  const { L, S } = APPROX_LS[metric];
+  const z = computeZScoreLMS({ L, M, S, value: Number(value) });
+  return shapeResult({
+    z,
+    metric,
+    source: 'WHO_0_5_approx',
+    referenceDataset: 'WHO_0_5',
+    note: 'Approximation - embedded monthly LMS subset. Replace with full WHO LMS for diagnostic-grade accuracy.',
+  });
+}
+
+export function clearGrowthReferenceCache() {
+  lmsCache.clear();
+  loggedLmsLookupFailure = false;
+}
+
+export async function computePercentile({ sex, ageInDays, metric, value } = {}) {
   if (!VALID_SEXES.includes(sex)) {
     throw AppError.badRequest(`sex must be one of ${VALID_SEXES.join(', ')}`);
   }
@@ -153,44 +243,35 @@ export function computePercentile({ sex, ageInDays, metric, value } = {}) {
     throw AppError.badRequest('value must be a positive number');
   }
 
-  const ageMonths = Number(ageInDays) / 30.4375; // average month length
-  // Out-of-table = bail with the approximate-only signal.
-  if (ageMonths > 60) {
-    return { z_score: null, percentile: null, classification: null,
+  const dataset = datasetForAge(ageInDays);
+  if (!dataset || !GROWTH_DATASETS.includes(dataset)) {
+    return {
+      z_score: null,
+      percentile: null,
+      classification: null,
       source: null,
-      note: 'Age > 60 months — WHO 0-5 standard does not apply; load IAP 5-18 dataset for older cohorts',
+      reference_dataset: null,
+      note: 'Age is outside the configured WHO 0-5 and IAP 5-18 pediatric LMS cohorts',
     };
   }
 
-  let M = null;
-  if (metric === 'height_cm') M = lookupMedian(WHO_HEIGHT_M, sex, ageMonths);
-  if (metric === 'weight_kg') M = lookupMedian(WHO_WEIGHT_M, sex, ageMonths);
-  // head_circumference + bmi: not embedded in this approximate set.
-  // Caller falls back to recordGrowthChart with caller-supplied values.
-  if (M == null) {
-    return { z_score: null, percentile: null, classification: null, source: null,
-      note: `Reference data for ${metric} not embedded; load full WHO LMS dataset`,
-    };
+  const tableResult = await computeFromReferenceTable({ dataset, sex, ageInDays, metric, value });
+  if (tableResult) return tableResult;
+
+  if (dataset === 'WHO_0_5') {
+    return computeApproximateWho({ sex, ageInDays, metric, value });
   }
-  const { L, S } = APPROX_LS[metric];
-  const z = computeZScoreLMS({ L, M, S, value: Number(value) });
-  if (z == null) {
-    return { z_score: null, percentile: null, classification: null, source: null };
-  }
-  const percentile = +(normalCdf(z) * 100).toFixed(2);
+
   return {
-    z_score: +z.toFixed(3),
-    percentile,
-    classification: classifyZ(z, metric),
-    source: 'WHO_0_5_approx',
-    note: 'Approximation — embedded monthly LMS subset. Replace with full WHO LMS for diagnostic-grade accuracy.',
+    z_score: null,
+    percentile: null,
+    classification: null,
+    source: null,
+    reference_dataset: dataset,
+    note: `${dataset} LMS rows are not loaded for ${sex}/${metric}`,
   };
 }
 
-// Map a free-text users.gender value to the M/F the WHO tables key on.
-// Returns null for anything we can't confidently classify (intersex,
-// 'unknown', empty) — the caller then skips percentile computation
-// rather than guessing a cohort.
 export function normaliseSex(gender) {
   if (!gender) return null;
   const g = String(gender).trim().toLowerCase();
@@ -199,9 +280,6 @@ export function normaliseSex(gender) {
   return null;
 }
 
-// Whole days between a date of birth and `asOf` (default now). Returns
-// null for a missing / unparseable / future DOB so a caller can treat
-// the percentile as simply unavailable rather than erroring.
 export function ageInDaysFrom(birthday, asOf = new Date()) {
   if (!birthday) return null;
   const dob = birthday instanceof Date ? birthday : new Date(birthday);
@@ -210,46 +288,38 @@ export function ageInDaysFrom(birthday, asOf = new Date()) {
   return days >= 0 ? days : null;
 }
 
-/**
- * Given a patient's sex + DOB and a freshly-recorded weight / height,
- * compute the WHO growth percentiles for whichever measurements are
- * present. This is the wiring that lets the vitals recording flow
- * surface percentiles inline instead of forcing a separate
- * POST /clinical/assessments/growth call. Findings:
- *   2026-05-09-pediatric-opd-nurse-growth-chart-not-linked-to-vitals
- *   2026-05-11-pediatric-opd-nurse-4354eb08
- *
- * Returns null when the cohort can't be resolved — no DOB/sex on file,
- * an age outside the embedded WHO 0-5 table, or no usable measurement —
- * so callers can treat the growth block as best-effort and never block
- * the vitals save on it.
- *
- * @returns {{ sex, age_in_days, reference_dataset, metrics } | null}
- */
-export function computeGrowthSnapshot({ gender, birthday, weightKg, heightCm, asOf } = {}) {
+export async function computeGrowthSnapshot({
+  gender,
+  birthday,
+  weightKg,
+  heightCm,
+  headCircumferenceCm,
+  bmi,
+  asOf,
+} = {}) {
   const sex = normaliseSex(gender);
   const ageInDays = ageInDaysFrom(birthday, asOf instanceof Date ? asOf : new Date());
   if (!sex || ageInDays == null) return null;
 
   const metrics = {};
-  for (const [metric, value] of [['weight_kg', weightKg], ['height_cm', heightCm]]) {
+  for (const [metric, value] of [
+    ['weight_kg', weightKg],
+    ['height_cm', heightCm],
+    ['head_circumference_cm', headCircumferenceCm],
+    ['bmi', bmi],
+  ]) {
     if (value === null || value === undefined || value === '') continue;
     try {
-      const r = computePercentile({ sex, ageInDays, metric, value: Number(value) });
+      const r = await computePercentile({ sex, ageInDays, metric, value: Number(value) });
       if (r && r.percentile != null) metrics[metric] = r;
     } catch (err) {
-      // A bad single measurement (negative, non-numeric) shouldn't sink
-      // the other metric or the vitals save — skip it. Warn so an
-      // incomplete percentile block in the response can be told apart
-      // from "metric not submitted" by anyone reading the logs.
-      // Surfaced by the 2026-05-15 weekly error-scan (Finding 1).
       logger.warn(
         `growthPercentileService: skipping ${metric} percentile (sex=${sex}, ageInDays=${ageInDays}, value=${value}): ${err?.message ?? err}`,
       );
     }
   }
   if (Object.keys(metrics).length === 0) return null;
-  return { sex, age_in_days: ageInDays, reference_dataset: 'WHO_0_5', metrics };
+  return { sex, age_in_days: ageInDays, reference_dataset: datasetForAge(ageInDays), metrics };
 }
 
 export default {
@@ -258,4 +328,5 @@ export default {
   normaliseSex,
   ageInDaysFrom,
   computeGrowthSnapshot,
+  clearGrowthReferenceCache,
 };

@@ -9810,6 +9810,7 @@ model tenants {
   idempotency_keys                           idempotency_keys[]
   identity_audit_events                      identity_audit_events[]
   identity_saml_replay_cache                 identity_saml_replay_cache[]
+  immunisation_schedule_import_batches       immunisation_schedule_import_batches[]
   incident_reports                           incident_reports[]
   india_compliance_evidence                  india_compliance_evidence[]
   infection_cases                            infection_cases[]
@@ -13693,11 +13694,15 @@ model vaccine_catalogue {
   active                Boolean                 @default(true)
   tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  schedule_source       String                  @default("custom") @db.VarChar(10)
+  source_version        String?                 @db.VarChar(40)
+  retired_at            DateTime?               @db.Timestamptz(6)
   newborn_immunisations newborn_immunisations[]
   patient_immunisations patient_immunisations[]
 
   @@unique([tenant_id, code, dose_number])
   @@index([recommended_age_days, active], map: "idx_vaccine_catalogue_age")
+  @@index([tenant_id, schedule_source, source_version, active], map: "idx_vaccine_catalogue_schedule_source")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -17838,4 +17843,73 @@ model tenant_entitlements {
 
   @@unique([tenant_id, package_key], map: "ux_tenant_entitlements_tenant_package")
   @@index([tenant_id, status, expires_at], map: "idx_tenant_entitlements_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model growth_lms_import_batches {
+  id                   BigInt                 @id @default(autoincrement())
+  dataset              String                 @db.VarChar(20)
+  source_ref           String
+  source_version       String?                @db.VarChar(80)
+  status               String                 @default("pending") @db.VarChar(20)
+  rows_processed       Int                    @default(0)
+  rows_upserted        Int                    @default(0)
+  rows_skipped         Int                    @default(0)
+  rows_failed          Int                    @default(0)
+  dry_run              Boolean                @default(false)
+  error_detail         String?
+  started_at           DateTime?              @db.Timestamptz(6)
+  finished_at          DateTime?              @db.Timestamptz(6)
+  metadata             Json                   @default("{}")
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  growth_reference_lms growth_reference_lms[]
+
+  @@index([dataset, created_at(sort: Desc)], map: "idx_growth_lms_import_dataset_created")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model growth_reference_lms {
+  id                        BigInt                     @id @default(autoincrement())
+  dataset                   String                     @db.VarChar(20)
+  sex                       String                     @db.Char(1)
+  metric                    String                     @db.VarChar(40)
+  age_days                  Int
+  l                         Decimal                    @db.Decimal(12, 8)
+  m                         Decimal                    @db.Decimal(12, 6)
+  s                         Decimal                    @db.Decimal(12, 8)
+  source_version            String?                    @db.VarChar(80)
+  import_batch_id           BigInt?
+  created_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  growth_lms_import_batches growth_lms_import_batches? @relation(fields: [import_batch_id], references: [id], onUpdate: NoAction)
+
+  @@unique([dataset, sex, metric, age_days], map: "growth_reference_lms_dataset_sex_metric_age_key")
+  @@index([dataset, sex, metric, age_days], map: "idx_growth_reference_lms_lookup")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model immunisation_schedule_import_batches {
+  id             BigInt    @id @default(autoincrement())
+  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  schedule       String    @db.VarChar(10)
+  source_version String    @db.VarChar(40)
+  status         String    @default("pending") @db.VarChar(20)
+  rows_processed Int       @default(0)
+  rows_upserted  Int       @default(0)
+  rows_retired   Int       @default(0)
+  rows_skipped   Int       @default(0)
+  rows_failed    Int       @default(0)
+  dry_run        Boolean   @default(false)
+  error_detail   String?
+  run_by         String?   @db.Uuid
+  metadata       Json      @default("{}")
+  started_at     DateTime? @db.Timestamptz(6)
+  finished_at    DateTime? @db.Timestamptz(6)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_immunisation_schedule_import_tenant_created")
 }

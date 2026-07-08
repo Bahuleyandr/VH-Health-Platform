@@ -373,7 +373,7 @@ function normalizeRecordedAt(value) {
 // Compute the growth snapshot for a single vitals row, given the patient's
 // DOB + sex already resolved. Returns null when there's no weight/height on
 // the row or the cohort can't be resolved (no DOB/sex, age outside WHO 0-5).
-function growthSnapshotForRow(row, patient) {
+async function growthSnapshotForRow(row, patient) {
   if (!row || !patient) return null;
   if (row.weight_kg == null && row.height_cm == null) return null;
   return computeGrowthSnapshot({
@@ -394,7 +394,7 @@ async function computeGrowthForVitalsRow(row) {
       where: { uid: row.patient_uid },
       select: { birthday: true, gender: true },
     });
-    return growthSnapshotForRow(row, patient);
+    return await growthSnapshotForRow(row, patient);
   } catch (err) {
     logger.warn(`Growth percentile computation failed for patient=${row.patient_uid}: ${err.message}`);
     return null;
@@ -422,7 +422,7 @@ async function attachGrowthToVitalsRows(rows, patientUid) {
   }
   for (const row of rows) {
     if (!row) continue;
-    row.growth = growthSnapshotForRow(row, patient);
+    row.growth = await growthSnapshotForRow(row, patient);
   }
   return rows;
 }
