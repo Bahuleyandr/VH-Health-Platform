@@ -853,6 +853,7 @@ model appointments {
   tenants                              tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointments_tenant")
   bed_inspections                      bed_inspections[]
   clinical_notes                       clinical_notes[]
+  engagement_follow_up_loops           engagement_follow_up_loops[]
   feedback_nps_responses               feedback_nps_responses[]
   investigation_bookings               investigation_bookings[]
   ophthalmic_biometry                  ophthalmic_biometry[]
@@ -9452,40 +9453,41 @@ model task_comments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model tasks {
-  id                    Int                     @id @default(autoincrement())
-  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  workflow_run_id       Int?
-  workflow_step_id      Int?
-  parent_task_id        Int?
-  task_kind             String                  @default("general") @db.VarChar(60)
-  title                 String                  @db.VarChar(500)
-  description           String?
-  patient_uid           String?                 @db.Uuid
-  encounter_id          Int?
-  related_resource_type String?                 @db.VarChar(60)
-  related_resource_id   String?                 @db.VarChar(120)
-  priority              String                  @default("normal") @db.VarChar(20)
-  status                String                  @default("open") @db.VarChar(20)
-  assigned_to_uid       String?                 @db.Uuid
-  assigned_to_role      String?                 @db.VarChar(80)
-  created_by            String?                 @db.Uuid
-  due_at                DateTime?               @db.Timestamptz(6)
-  completed_at          DateTime?               @db.Timestamptz(6)
-  cancelled_at          DateTime?               @db.Timestamptz(6)
-  cancellation_reason   String?
-  sla_definition_id     Int?
-  sla_breached_at       DateTime?               @db.Timestamptz(6)
-  metadata              Json                    @default("{}")
-  created_at            DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
-  approvals             approvals[]
-  cold_chain_excursions cold_chain_excursions[]
-  task_comments         task_comments[]
-  tasks                 tasks?                  @relation("tasksTotasks", fields: [parent_task_id], references: [id], onUpdate: NoAction)
-  other_tasks           tasks[]                 @relation("tasksTotasks")
-  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  workflow_runs         workflow_runs?          @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
-  workflow_steps        workflow_steps?         @relation(fields: [workflow_step_id], references: [id], onUpdate: NoAction)
+  id                         Int                          @id @default(autoincrement())
+  tenant_id                  String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  workflow_run_id            Int?
+  workflow_step_id           Int?
+  parent_task_id             Int?
+  task_kind                  String                       @default("general") @db.VarChar(60)
+  title                      String                       @db.VarChar(500)
+  description                String?
+  patient_uid                String?                      @db.Uuid
+  encounter_id               Int?
+  related_resource_type      String?                      @db.VarChar(60)
+  related_resource_id        String?                      @db.VarChar(120)
+  priority                   String                       @default("normal") @db.VarChar(20)
+  status                     String                       @default("open") @db.VarChar(20)
+  assigned_to_uid            String?                      @db.Uuid
+  assigned_to_role           String?                      @db.VarChar(80)
+  created_by                 String?                      @db.Uuid
+  due_at                     DateTime?                    @db.Timestamptz(6)
+  completed_at               DateTime?                    @db.Timestamptz(6)
+  cancelled_at               DateTime?                    @db.Timestamptz(6)
+  cancellation_reason        String?
+  sla_definition_id          Int?
+  sla_breached_at            DateTime?                    @db.Timestamptz(6)
+  metadata                   Json                         @default("{}")
+  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  approvals                  approvals[]
+  cold_chain_excursions      cold_chain_excursions[]
+  engagement_follow_up_steps engagement_follow_up_steps[]
+  task_comments              task_comments[]
+  tasks                      tasks?                       @relation("tasksTotasks", fields: [parent_task_id], references: [id], onUpdate: NoAction)
+  other_tasks                tasks[]                      @relation("tasksTotasks")
+  tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workflow_runs              workflow_runs?               @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
+  workflow_steps             workflow_steps?              @relation(fields: [workflow_step_id], references: [id], onUpdate: NoAction)
 
   @@unique([tenant_id, related_resource_type, related_resource_id], map: "uq_task_open_per_resource", where: raw("(((status)::text = ANY ((ARRAY['open'::character varying, 'in_progress'::character varying, 'blocked'::character varying])::text[])) AND (related_resource_type IS NOT NULL) AND (related_resource_id IS NOT NULL))"))
   @@index([tenant_id, status, priority, due_at], map: "idx_tasks_tenant_status")
@@ -9793,6 +9795,9 @@ model tenants {
   engagement_audience_snapshots              engagement_audience_snapshots[]
   engagement_campaign_recipients             engagement_campaign_recipients[]
   engagement_campaigns                       engagement_campaigns[]
+  engagement_follow_up_events                engagement_follow_up_events[]
+  engagement_follow_up_loops                 engagement_follow_up_loops[]
+  engagement_follow_up_steps                 engagement_follow_up_steps[]
   engagement_settings                        engagement_settings?
   engagement_suppression_events              engagement_suppression_events[]
   engagement_templates                       engagement_templates[]
@@ -10065,6 +10070,7 @@ model tenants {
   tariff_plans                               tariff_plans?
   task_comments                              task_comments[]
   tasks                                      tasks[]
+  teleconsult_follow_up_settings             teleconsult_follow_up_settings?
   teleconsult_provider_configs               teleconsult_provider_configs?
   teleconsultations                          teleconsultations[]
   tenant_entitlements                        tenant_entitlements[]
@@ -18888,4 +18894,109 @@ model queue_display_settings {
   created_at                 DateTime  @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime  @default(now()) @db.Timestamptz(6)
   tenants                    tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_follow_up_events {
+  id                         BigInt                     @id @default(autoincrement())
+  tenant_id                  String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  loop_id                    BigInt
+  event_kind                 String                     @db.VarChar(40)
+  previous_status            String?                    @db.VarChar(30)
+  next_status                String?                    @db.VarChar(30)
+  actor_uid                  String?                    @db.Uuid
+  reason                     String?                    @db.VarChar(160)
+  metadata                   Json                       @default("{}")
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  engagement_follow_up_loops engagement_follow_up_loops @relation(fields: [loop_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([loop_id, created_at], map: "idx_follow_up_events_loop")
+  @@index([tenant_id, event_kind, created_at(sort: Desc)], map: "idx_follow_up_events_tenant_kind")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_follow_up_loops {
+  id                          BigInt                        @id @default(autoincrement())
+  tenant_id                   String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  source_type                 String                        @db.VarChar(40)
+  source_ref                  String                        @db.VarChar(120)
+  appointment_id              Int?
+  patient_uid                 String                        @db.Uuid
+  owner_uid                   String?                       @db.Uuid
+  loop_type                   String                        @db.VarChar(60)
+  status                      String                        @default("open") @db.VarChar(30)
+  consent_type                String                        @default("teleconsult_followup") @db.VarChar(80)
+  due_policy                  Json                          @default("{}")
+  due_at                      DateTime?                     @db.Timestamptz(6)
+  safe_link_path              String                        @default("/appointments") @db.VarChar(160)
+  close_reason                String?                       @db.VarChar(120)
+  closed_at                   DateTime?                     @db.Timestamptz(6)
+  closed_by                   String?                       @db.Uuid
+  created_by                  String?                       @db.Uuid
+  metadata                    Json                          @default("{}")
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  engagement_follow_up_events engagement_follow_up_events[]
+  appointments                appointments?                 @relation(fields: [appointment_id], references: [id], onUpdate: NoAction)
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  engagement_follow_up_steps  engagement_follow_up_steps[]
+
+  @@unique([tenant_id, source_type, source_ref, loop_type], map: "uq_follow_up_loop_open_source", where: raw("((status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'waiting_patient'::character varying, 'staff_review'::character varying])::text[]))"))
+  @@index([tenant_id, owner_uid, status, due_at], map: "idx_follow_up_loops_owner", where: raw("(owner_uid IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, status, due_at(sort: Desc)], map: "idx_follow_up_loops_patient")
+  @@index([tenant_id, status, due_at], map: "idx_follow_up_loops_tenant_due", where: raw("(due_at IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_follow_up_steps {
+  id                         BigInt                     @id @default(autoincrement())
+  tenant_id                  String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  loop_id                    BigInt
+  step_kind                  String                     @db.VarChar(40)
+  status                     String                     @default("scheduled") @db.VarChar(30)
+  scheduled_at               DateTime?                  @db.Timestamptz(6)
+  completed_at               DateTime?                  @db.Timestamptz(6)
+  template_key               String?                    @db.VarChar(120)
+  campaign_recipient_id      BigInt?
+  outbox_id                  Int?
+  staff_task_id              Int?
+  result                     Json                       @default("{}")
+  suppression_reason         String?                    @db.VarChar(120)
+  safe_link_path             String?                    @db.VarChar(160)
+  metadata                   Json                       @default("{}")
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  engagement_follow_up_loops engagement_follow_up_loops @relation(fields: [loop_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tasks                      tasks?                     @relation(fields: [staff_task_id], references: [id], onUpdate: NoAction)
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, status, scheduled_at], map: "idx_follow_up_steps_due", where: raw("(scheduled_at IS NOT NULL)"))
+  @@index([loop_id, scheduled_at], map: "idx_follow_up_steps_loop")
+  @@index([tenant_id, staff_task_id], map: "idx_follow_up_steps_task", where: raw("(staff_task_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model teleconsult_follow_up_settings {
+  id                   BigInt    @id @default(autoincrement())
+  tenant_id            String    @unique @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  enabled              Boolean   @default(false)
+  enabled_at           DateTime? @db.Timestamptz(6)
+  enabled_by           String?   @db.Uuid
+  acceptance_snapshot  Json      @default("{}")
+  consent_type         String    @default("teleconsult_followup") @db.VarChar(80)
+  patient_route        String    @default("/appointments") @db.VarChar(160)
+  secure_message_route String    @default("/portal/messages") @db.VarChar(160)
+  staff_task_role      String    @default("DOCTOR") @db.VarChar(80)
+  trigger_defaults     Json      @default("{\"prescription_created\": {\"enabled\": true, \"offset_days\": 2}, \"investigation_ordered\": {\"enabled\": true, \"offset_days\": 3}, \"teleconsult_completed\": {\"enabled\": true, \"offset_days\": 7}, \"secure_message_fallback\": {\"enabled\": true, \"offset_days\": 1}, \"clinician_follow_up_due_date\": {\"enabled\": true, \"offset_days\": 0}}")
+  metadata             Json      @default("{}")
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime  @default(now()) @db.Timestamptz(6)
+  tenants              tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, enabled], map: "idx_teleconsult_follow_up_settings_enabled")
 }
