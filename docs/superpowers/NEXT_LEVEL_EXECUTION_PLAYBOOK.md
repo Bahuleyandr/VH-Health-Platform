@@ -172,7 +172,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 446–447 | NL-7 P4 pilot hardening (RTLS half stays owner-gated) | launched 2026-07-08 (round 8) |
 | 448–449 | NL12-S2 SIEM export seam | **on main** (#501) |
 | — | NL12-S3 500-bed load pack | **on main** (#499, zero-migration) |
-| 450 | NL8-P2 PHI-free queue displays (#502 used only 450) | rolling — gate live; 451 unused gap, do not reuse |
+| 450 | NL8-P2 PHI-free queue displays (#502 used only 450) | **on main** (#502); 451 unused gap, do not reuse |
 | 439 | NL12-S1 NABH (delivered #494 with ZERO migrations) | unused — documented gap, do not reuse |
 | 451 | NL8-P2 (delivered #502 using only 450) | unused — documented gap, do not reuse |
 | 452–453 | NL9-P2 NPS analytics | **on main** (#510) |
