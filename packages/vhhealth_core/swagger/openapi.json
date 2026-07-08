@@ -85192,6 +85192,38 @@
         }
       }
     },
+    "/api/v1/quality/nabh/period-pack": {
+      "get": {
+        "operationId": "get_api_v1_quality_nabh_period_pack",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_quality_nabh_period_pack",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/quality/nabh/snapshots": {
       "get": {
         "operationId": "get_api_v1_quality_nabh_snapshots",

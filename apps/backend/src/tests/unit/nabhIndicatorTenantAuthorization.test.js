@@ -25,6 +25,7 @@ const {
   computeIndicators,
   snapshotIndicators,
   listSnapshots,
+  getFrozenPeriodPack,
 } = await import('../../services/quality/nabhIndicatorService.js');
 
 beforeEach(() => {
@@ -57,15 +58,17 @@ describe('NABH indicator tenant authorization', () => {
       tenantId: TENANT,
     });
 
-    expect(pack.indicators).toHaveLength(8);
+    expect(pack.indicators).toHaveLength(10);
     expect(pack.indicators.map((indicator) => indicator.code)).toContain('hai_device_rate_per_1000_device_days');
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(10);
+    expect(pack.indicators.map((indicator) => indicator.code)).toContain('patient_satisfaction_positive_pct');
+    expect(pack.indicators.map((indicator) => indicator.code)).toContain('rca_completion_pct');
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(12);
     for (const call of queryRawUnsafeMock.mock.calls) {
       expect(call[0]).toContain('tenant_id = $1::uuid');
       expect(call[1]).toBe(TENANT);
     }
 
-    const incidentSql = queryRawUnsafeMock.mock.calls.at(-1)[0];
+    const incidentSql = queryRawUnsafeMock.mock.calls[9][0];
     expect(incidentSql).toContain('TRIM(incident_type)');
     expect(incidentSql).not.toContain('TRIM(category)');
 
@@ -79,6 +82,16 @@ describe('NABH indicator tenant authorization', () => {
     expect(deviceDaysCall[0]).toContain('FROM device_presence_logs');
     expect(deviceDaysCall[0]).toContain('tenant_id = $1::uuid');
     expect(deviceDaysCall.slice(1)).toEqual([TENANT, '2026-06-01', '2026-06-30']);
+
+    const satisfactionCall = queryRawUnsafeMock.mock.calls[10];
+    expect(satisfactionCall[0]).toContain('FROM feedback');
+    expect(satisfactionCall[0]).toContain('FROM patient_feedback');
+    expect(satisfactionCall.slice(1)).toEqual([TENANT, '2026-06-01', '2026-06-30']);
+
+    const rcaCall = queryRawUnsafeMock.mock.calls[11];
+    expect(rcaCall[0]).toContain('FROM quality_incidents');
+    expect(rcaCall[0]).toContain("severity IN ('major', 'sentinel')");
+    expect(rcaCall.slice(1)).toEqual([TENANT, '2026-06-01', '2026-06-30']);
   });
 
   it('writes and lists snapshots under the caller tenant', async () => {
@@ -93,6 +106,8 @@ describe('NABH indicator tenant authorization', () => {
       .mockResolvedValueOnce([{ patient_days: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ positive: 0, total: 0, average_rating: null }])
+      .mockResolvedValueOnce([{ completed: 0, required: 0 }])
       .mockResolvedValue([{ id: 1 }]);
 
     const snapshot = await snapshotIndicators(
@@ -100,8 +115,8 @@ describe('NABH indicator tenant authorization', () => {
       { tenantId: TENANT, actorUid: ACTOR },
     );
 
-    expect(snapshot.snapshot_saved).toBe(8);
-    const insertCalls = queryRawUnsafeMock.mock.calls.slice(10);
+    expect(snapshot.snapshot_saved).toBe(10);
+    const insertCalls = queryRawUnsafeMock.mock.calls.slice(12);
     for (const call of insertCalls) {
       expect(call[0]).toContain('INSERT INTO nabh_indicator_snapshots');
       expect(call[0]).toContain('(tenant_id, period_start');
@@ -115,5 +130,31 @@ describe('NABH indicator tenant authorization', () => {
     const [listSql, ...listParams] = queryRawUnsafeMock.mock.calls[0];
     expect(listSql).toContain('FROM nabh_indicator_snapshots WHERE tenant_id = $1::uuid');
     expect(listParams).toEqual([TENANT, '2026-06-01', '2026-06-30']);
+  });
+
+  it('maps frozen snapshot Decimal values to plain JSON for assessor packs', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      period_start: new Date('2026-06-01T00:00:00.000Z'),
+      period_end: new Date('2026-06-30T00:00:00.000Z'),
+      indicator_code: 'patient_satisfaction_positive_pct',
+      label: 'Patient satisfaction positive responses',
+      value: { toNumber: () => 87.5 },
+      numerator: { toNumber: () => 7 },
+      denominator: { toNumber: () => 8 },
+      unit: '%',
+      details: { average_rating: { toNumber: () => 4.6 } },
+      computed_at: new Date('2026-07-01T10:00:00.000Z'),
+    }]);
+
+    const pack = await getFrozenPeriodPack({
+      from: '2026-06-01',
+      to: '2026-06-30',
+      tenantId: TENANT,
+    });
+
+    expect(pack.indicators[0].value).toBe(87.5);
+    expect(pack.indicators[0].details.average_rating).toBe(4.6);
+    expect(pack.export_contract.canonical_format_status).toBe('pending_assessor_format');
+    expect(pack.evidence_attachment.control_code).toBe('NABH_AUDIT_EXPORT');
   });
 });
