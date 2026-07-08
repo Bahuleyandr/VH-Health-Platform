@@ -147,6 +147,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   // ── Home + universally available ──────────────────────────────────────────
   "": { minRank: ANY_AUTHENTICATED },
   appointments: { minRank: ANY_AUTHENTICATED },
+  "queue-displays": { minRank: STAFF },
   housekeeping: { minRank: ANY_AUTHENTICATED },
   sos: { minRank: ANY_AUTHENTICATED },
   notifications: { minRank: STAFF },
