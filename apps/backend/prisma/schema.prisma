@@ -9771,6 +9771,7 @@ model tenants {
   e_prescriptions                            e_prescriptions[]
   emergency_visits                           emergency_visits[]
   encryption_keys                            encryption_keys[]
+  entitlement_audit_events                   entitlement_audit_events[]
   escalation_rules                           escalation_rules[]
   event_outbox                               event_outbox[]
   external_system_mappings                   external_system_mappings[]
@@ -10017,6 +10018,7 @@ model tenants {
   tasks                                      tasks[]
   teleconsult_provider_configs               teleconsult_provider_configs?
   teleconsultations                          teleconsultations[]
+  tenant_entitlements                        tenant_entitlements[]
   tenant_identity_providers                  tenant_identity_providers[]
   tenant_idp_role_mappings                   tenant_idp_role_mappings[]
   tenant_interop_secrets                     tenant_interop_secrets[]
@@ -17739,4 +17741,101 @@ model developer_portal_audit_events {
   @@index([tenant_id, api_client_id, created_at(sort: Desc)], map: "idx_developer_portal_audit_client_time", where: raw("(api_client_id IS NOT NULL)"))
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_developer_portal_audit_tenant_time")
   @@index([tenant_id, event_type, created_at(sort: Desc)], map: "idx_developer_portal_audit_type_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model entitlement_audit_events {
+  id               BigInt            @id @default(autoincrement())
+  tenant_id        String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  feature_key      String?           @db.VarChar(120)
+  package_key      String?           @db.VarChar(80)
+  action           String            @db.VarChar(80)
+  decision         String            @db.VarChar(40)
+  enforcement_mode String?           @db.VarChar(30)
+  surface          String?           @db.VarChar(60)
+  route_path       String?
+  actor_uid        String?           @db.Uuid
+  actor_role       String?           @db.VarChar(80)
+  request_id       String?           @db.VarChar(100)
+  metadata         Json              @default("{}")
+  created_at       DateTime          @default(now()) @db.Timestamptz(6)
+  product_features product_features? @relation(fields: [feature_key], references: [feature_key], onUpdate: NoAction)
+  product_packages product_packages? @relation(fields: [package_key], references: [package_key], onUpdate: NoAction)
+  tenants          tenants           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_entitlement_audit_events_tenant")
+
+  @@index([feature_key, created_at(sort: Desc)], map: "idx_entitlement_audit_events_feature_created")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_entitlement_audit_events_tenant_created")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model product_features {
+  feature_key              String                     @id @db.VarChar(120)
+  display_name             String                     @db.VarChar(160)
+  description              String?
+  category                 String                     @db.VarChar(60)
+  enforcement_mode         String                     @default("hard_block") @db.VarChar(30)
+  urgent_clinical          Boolean                    @default(false)
+  route_patterns           Json                       @default("[]")
+  nav_surfaces             Json                       @default("[]")
+  mobile_surface_keys      String[]                   @default([])
+  metadata                 Json                       @default("{}")
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  entitlement_audit_events entitlement_audit_events[]
+  product_package_features product_package_features[]
+
+  @@index([category, feature_key], map: "idx_product_features_category")
+  @@index([mobile_surface_keys], map: "idx_product_features_mobile_surfaces", type: Gin)
+}
+
+model product_package_features {
+  package_key      String           @db.VarChar(80)
+  feature_key      String           @db.VarChar(120)
+  included         Boolean          @default(true)
+  limits           Json             @default("{}")
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  product_features product_features @relation(fields: [feature_key], references: [feature_key], onDelete: Cascade, onUpdate: NoAction)
+  product_packages product_packages @relation(fields: [package_key], references: [package_key], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([package_key, feature_key])
+  @@index([feature_key], map: "idx_product_package_features_feature")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model product_packages {
+  package_key              String                     @id @db.VarChar(80)
+  display_name             String                     @db.VarChar(160)
+  description              String?
+  package_tier             String                     @default("standard") @db.VarChar(40)
+  status                   String                     @default("active") @db.VarChar(30)
+  grace_period_days        Int                        @default(14)
+  metadata                 Json                       @default("{}")
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  entitlement_audit_events entitlement_audit_events[]
+  product_package_features product_package_features[]
+  tenant_entitlements      tenant_entitlements[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tenant_entitlements {
+  id               BigInt           @id @default(autoincrement())
+  tenant_id        String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  package_key      String           @db.VarChar(80)
+  status           String           @default("active") @db.VarChar(30)
+  starts_at        DateTime         @default(now()) @db.Timestamptz(6)
+  expires_at       DateTime?        @db.Timestamptz(6)
+  grace_ends_at    DateTime?        @db.Timestamptz(6)
+  source           String           @default("manual") @db.VarChar(60)
+  assigned_by      String?          @db.Uuid
+  metadata         Json             @default("{}")
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tenant_entitlements_tenant")
+  product_packages product_packages @relation(fields: [package_key], references: [package_key], onUpdate: NoAction)
+
+  @@unique([tenant_id, package_key], map: "ux_tenant_entitlements_tenant_package")
+  @@index([tenant_id, status, expires_at], map: "idx_tenant_entitlements_tenant_status")
 }

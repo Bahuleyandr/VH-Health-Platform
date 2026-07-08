@@ -112,6 +112,7 @@ import clinicalAiAdminRoutes from './routes/admin/clinicalAiRoutes.js';
 import clinicalAiClinicalUseRoutes from './routes/admin/clinicalAi/clinicalUseRoutes.js';
 import { CLINICAL_AI_USER_ROLES_LIST } from './routes/admin/clinicalAi/shared.js';
 import adminForecastRoutes from './routes/admin/forecastRoutes.js';
+import entitlementCapabilityRoutes from './routes/entitlements/capabilityRoutes.js';
 // Results-inbox (design §4.5): a DEDICATED minimal 2-endpoint router
 // (GET /tasks/inbox + POST /tasks/:id/acknowledge) mounted clinical-staff-gated
 // at /api/v1/clinical-inbox so the safety net is reachable by clinicians — WITHOUT
@@ -625,6 +626,10 @@ app.use(normalizeIdentityFields); // runs AFTER JWT auth
 // most need attributed to a user; public/pre-auth routes still get the
 // per-request tags from sentryScopeMiddleware mounted at the top of the chain.
 app.use(attachUserContext);
+
+// Entitlement capability manifest for authenticated clients. Clinical/mobile
+// surfaces stay informational; hard-blocking happens only on opted-in routes.
+app.use('/api/v1/entitlements', requireRole(...ALL_STAFF_MESSAGING_ROUTE_ROLES, 'PATIENT'), entitlementCapabilityRoutes);
 
 // ====================================
 // AUTHENTICATED ROUTES (API key required)
