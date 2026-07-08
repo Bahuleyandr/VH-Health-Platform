@@ -9,6 +9,9 @@ import {
   recordExam,
   addRefraction,
   getPatientHistory,
+  recordBiometry,
+  attachImaging,
+  generateSpectaclesPrescriptionPdf,
 } from '../../services/clinical/ophthalmologyService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -32,6 +35,8 @@ router.post('/exams', async (req, res) => {
     const exam = await recordExam({
       tenantId: tenantOf(req),
       patientUid: req.body.patient_uid,
+      encounterId: req.body.encounter_id || null,
+      appointmentId: req.body.appointment_id ?? null,
       examType: req.body.exam_type || 'comprehensive',
       odVaUnaided: req.body.od_va_unaided ?? null,
       osVaUnaided: req.body.os_va_unaided ?? null,
@@ -57,6 +62,33 @@ router.post('/exams', async (req, res) => {
   }
 });
 
+router.post('/exams/:id/biometry', async (req, res) => {
+  try {
+    const biometry = await recordBiometry(req.params.id, {
+      tenantId: tenantOf(req),
+      eye: req.body.eye,
+      k1Diopters: req.body.k1_diopters ?? null,
+      k1Axis: req.body.k1_axis ?? null,
+      k2Diopters: req.body.k2_diopters ?? null,
+      k2Axis: req.body.k2_axis ?? null,
+      axialLengthMm: req.body.axial_length_mm,
+      anteriorChamberDepthMm: req.body.anterior_chamber_depth_mm ?? null,
+      lensThicknessMm: req.body.lens_thickness_mm ?? null,
+      whiteToWhiteMm: req.body.white_to_white_mm ?? null,
+      targetRefraction: req.body.target_refraction ?? null,
+      iolFormula: req.body.iol_formula || null,
+      selectedIolPower: req.body.selected_iol_power ?? null,
+      selectedIolModel: req.body.selected_iol_model || null,
+      calculationReference: req.body.calculation_reference || null,
+      notes: req.body.notes || null,
+      metadata: req.body.metadata || {},
+    }, ctx(req));
+    return success(res, { biometry }, 'Biometry recorded', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'record biometry');
+  }
+});
+
 router.post('/exams/:id/refractions', async (req, res) => {
   try {
     const refraction = await addRefraction(req.params.id, {
@@ -72,6 +104,37 @@ router.post('/exams/:id/refractions', async (req, res) => {
     return success(res, { refraction }, 'Refraction recorded', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'record refraction');
+  }
+});
+
+router.post('/exams/:id/imaging-attachments', async (req, res) => {
+  try {
+    const attachment = await attachImaging(req.params.id, {
+      tenantId: tenantOf(req),
+      eye: req.body.eye ?? null,
+      imageType: req.body.image_type || 'other',
+      storageKey: req.body.storage_key,
+      storageUrl: req.body.storage_url || null,
+      mimeType: req.body.mime_type,
+      fileSize: req.body.file_size ?? null,
+      sha256Hash: req.body.sha256_hash || null,
+      capturedAt: req.body.captured_at || null,
+      metadata: req.body.metadata || {},
+    }, ctx(req));
+    return success(res, { attachment }, 'Imaging attachment linked', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'link imaging attachment');
+  }
+});
+
+router.get('/exams/:id/spectacles-rx.pdf', async (req, res) => {
+  try {
+    const pdf = await generateSpectaclesPrescriptionPdf(req.params.id, { tenantId: tenantOf(req) });
+    res.setHeader('Content-Type', pdf.content_type);
+    res.setHeader('Content-Disposition', `inline; filename="${pdf.filename}"`);
+    return res.status(HTTP_STATUS.OK).send(pdf.buffer);
+  } catch (err) {
+    return handleFailure(res, err, 'generate spectacles prescription');
   }
 });
 
