@@ -1685,7 +1685,7 @@ async function seedSiemExportTables() {
       severity: 'high',
       payload_sha256: hex64,
       minimized_payload: JSON.stringify({ redaction: { raw_payload_exported: false }, seed: true }),
-      metadata: JSON.stringify({ seed: true }),
+      synthetic: true,
     }]);
   }
   const event = await first('siem_export_events', 'id, tenant_id', 'TRUE', []);
