@@ -56,9 +56,17 @@ const MANUAL_SEED_TABLES = new Set([
   'chair_bookings',
   // NL11-S1 migration toolkit: source_row_number is a plain INTEGER the
   // generic seeder fills with semantic strings, and content_sha256/row_hash
-  // carry 64-lowercase-hex CHECKs.
+  // carry 64-lowercase-hex CHECKs. NL11-S9 adds HL7 ADT hash + enum checks
+  // that also need constraint-aware values.
   'migration_source_files',
   'migration_import_records',
+  'migration_hl7_adt_batches',
+  'migration_hl7_adt_messages',
+  // NL12-S2 SIEM: transport/severity/source enums + CHAR(64) hex hashes +
+  // a redaction CHECK that forbids raw_payload_exported=true.
+  'siem_export_targets',
+  'siem_export_events',
+  'siem_export_delivery_attempts',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -236,8 +244,11 @@ function detectXorPair(definition) {
 }
 
 function checkedValue(checksByTable, table, column) {
+  const textTypes = new Set(['bpchar', 'char', 'name', 'text', 'varchar']);
+  if (!textTypes.has(column.udt_name)) return null;
+
   const definitions = checksByTable.get(table) || [];
-  const lowerColumn = column.toLowerCase();
+  const lowerColumn = column.column_name.toLowerCase();
   for (const definition of definitions) {
     if (!definition.toLowerCase().includes(lowerColumn)) continue;
     const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map((match) => match[1]);
@@ -327,7 +338,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
 }
 
 function primitiveValue(column, table, index, ctx, checksByTable) {
-  const checked = checkedValue(checksByTable, table, column.column_name);
+  const checked = checkedValue(checksByTable, table, column);
   if (checked) return clip(checked, column.character_maximum_length);
 
   const semantic = semanticValue(column, table, index, ctx, column.character_maximum_length);
@@ -1623,11 +1634,12 @@ async function seedMergedMainCoverageTables() {
 }
 
 async function seedMigrationToolkitTables() {
-  // NL11-S1: constraint-aware seeds — generic values violate the 64-hex
-  // sha256 CHECKs and the INTEGER source_row_number column.
+  // NL11-S1/S9: constraint-aware seeds — generic values violate the 64-hex
+  // sha256 CHECKs, ADT enum checks, and the INTEGER source_row_number column.
   const job = await first('migration_import_jobs', 'id, tenant_id', 'TRUE', []);
   if (!job) return;
   const hex64 = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+  const altHex64 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
   if (!(await tableCount('migration_source_files'))) {
     await insertIfEmpty('migration_source_files', [{
@@ -1652,6 +1664,84 @@ async function seedMigrationToolkitTables() {
       row_hash: hex64,
     }]);
   }
+
+  if ((await tableExists('migration_hl7_adt_batches')) && !(await tableCount('migration_hl7_adt_batches'))) {
+    await insertIfEmpty('migration_hl7_adt_batches', [{
+      tenant_id: job.tenant_id || DEFAULT_TENANT_ID,
+      job_id: job.id,
+      status: 'committed',
+      source_filename: 'seed-adt-a01.hl7',
+      content_sha256: altHex64,
+      message_count: 1,
+      accepted_count: 1,
+      rejected_count: 0,
+      idempotency_key: 'seed-hl7-adt-batch-1',
+      summary: JSON.stringify({ seed: true, accepted: 1 }),
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if ((await tableExists('migration_hl7_adt_messages')) && !(await tableCount('migration_hl7_adt_messages'))) {
+    const batch = await first('migration_hl7_adt_batches', 'id, tenant_id', 'TRUE', []);
+    if (!batch) return;
+    const commitBatch = await first('migration_commit_batches', 'id', 'TRUE', []);
+    await insertIfEmpty('migration_hl7_adt_messages', [{
+      tenant_id: batch.tenant_id || DEFAULT_TENANT_ID,
+      hl7_batch_id: batch.id,
+      commit_batch_id: commitBatch?.id,
+      message_control_id: 'SEED-ADT-A01-1',
+      message_type: 'ADT^A01',
+      source_patient_key: 'SEED-1',
+      raw_message_hash: hex64,
+      parsed_summary_redacted: JSON.stringify({ messageType: 'ADT^A01', patientKey: 'SEED-1' }),
+      validation_findings: JSON.stringify([]),
+      status: 'committed',
+    }]);
+  }
+}
+
+async function seedSiemExportTables() {
+  // NL12-S2: constraint-aware seeds (transport/severity/source enums,
+  // CHAR(64) hex hashes, minimized_payload redaction invariant).
+  const hex64 = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+  if (!(await tableCount('siem_export_targets'))) {
+    await insertIfEmpty('siem_export_targets', [{
+      tenant_id: DEFAULT_TENANT_ID,
+      target_key: 'seed-siem-webhook',
+      display_name: 'Seed SIEM webhook target',
+      transport: 'webhook',
+      status: 'draft',
+      min_severity: 'high',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+  const target = await first('siem_export_targets', 'id, tenant_id', 'TRUE', []);
+  if (!target) return;
+  if (!(await tableCount('siem_export_events'))) {
+    await insertIfEmpty('siem_export_events', [{
+      tenant_id: target.tenant_id || DEFAULT_TENANT_ID,
+      source_name: 'synthetic',
+      source_id: 'seed-event-1',
+      event_type: 'seed.security.event',
+      severity: 'high',
+      payload_sha256: hex64,
+      minimized_payload: JSON.stringify({ redaction: { raw_payload_exported: false }, seed: true }),
+      synthetic: true,
+    }]);
+  }
+  const event = await first('siem_export_events', 'id, tenant_id', 'TRUE', []);
+  if (!event) return;
+  if (!(await tableCount('siem_export_delivery_attempts'))) {
+    await insertIfEmpty('siem_export_delivery_attempts', [{
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      event_id: event.id,
+      target_id: target.id,
+      transport: 'webhook',
+      status: 'pending',
+      payload_sha256: hex64,
+      metadata: JSON.stringify({ seed: true }),
+    }]);
+  }
 }
 
 try {
@@ -1669,6 +1759,7 @@ try {
   await seedMortuarySlots();
   await seedInfusionChairTables();
   await seedMigrationToolkitTables();
+  await seedSiemExportTables();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);

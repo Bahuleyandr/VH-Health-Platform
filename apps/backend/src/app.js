@@ -89,6 +89,7 @@ import {
   PATIENT_FLOW_ROUTE_ROLES,
   PATHOLOGY_ROUTE_ROLES,
   PCPNDT_ROUTE_ROLES,
+  PHYSIO_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
   PHARMACY_ORDER_ROUTE_ROLES,
   PHARMACY_SUPPLY_ROUTE_ROLES,
@@ -113,6 +114,7 @@ import clinicalAiAdminRoutes from './routes/admin/clinicalAiRoutes.js';
 import clinicalAiClinicalUseRoutes from './routes/admin/clinicalAi/clinicalUseRoutes.js';
 import { CLINICAL_AI_USER_ROLES_LIST } from './routes/admin/clinicalAi/shared.js';
 import adminForecastRoutes from './routes/admin/forecastRoutes.js';
+import entitlementCapabilityRoutes from './routes/entitlements/capabilityRoutes.js';
 // Results-inbox (design §4.5): a DEDICATED minimal 2-endpoint router
 // (GET /tasks/inbox + POST /tasks/:id/acknowledge) mounted clinical-staff-gated
 // at /api/v1/clinical-inbox so the safety net is reachable by clinicians — WITHOUT
@@ -281,6 +283,7 @@ import researchRoutes from './routes/research/researchRoutes.js';
 import oncologyRoutes from './routes/oncology/oncologyRoutes.js';
 import dentalRoutes from './routes/clinical/dentalRoutes.js';
 import ophthalmologyRoutes from './routes/clinical/ophthalmologyRoutes.js';
+import physioRoutes from './routes/clinical/physioRoutes.js';
 import resultReleaseRoutes from './routes/lab/resultReleaseRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
@@ -627,6 +630,10 @@ app.use(normalizeIdentityFields); // runs AFTER JWT auth
 // most need attributed to a user; public/pre-auth routes still get the
 // per-request tags from sentryScopeMiddleware mounted at the top of the chain.
 app.use(attachUserContext);
+
+// Entitlement capability manifest for authenticated clients. Clinical/mobile
+// surfaces stay informational; hard-blocking happens only on opted-in routes.
+app.use('/api/v1/entitlements', requireRole(...ALL_STAFF_MESSAGING_ROUTE_ROLES, 'PATIENT'), entitlementCapabilityRoutes);
 
 // ====================================
 // AUTHENTICATED ROUTES (API key required)
@@ -986,6 +993,10 @@ app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyS
 
 // Ophthalmology (roadmap D7) — per-eye exams, IOP alerts, refractions.
 app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
+
+// Physiotherapy and rehabilitation (NL6-11) — follow-up intake, rehab plans,
+// structured sessions, and patient-visible outcome progress.
+app.use('/api/v1/physio', requireRole(...PHYSIO_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PHYSIOTHERAPY'), physioRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);

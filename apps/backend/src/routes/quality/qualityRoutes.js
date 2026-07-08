@@ -5,6 +5,11 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import qualityService from '../../services/quality/qualityService.js';
+import {
+  getNpsDashboard,
+  listServiceRecoveryTasks,
+  refreshNpsRollups,
+} from '../../services/feedback/npsService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isStaff, isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import { requiredString, requiredEnum, requiredDate, requiredUUID, paramId } from '../../validators/sharedValidators.js';
@@ -156,6 +161,88 @@ router.get('/dashboard', async (req, res, next) => {
       return error(res, err.message, err.statusCode);
     }
     logger.error('Failed to get quality dashboard:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /quality/nps/dashboard
+ * NPS analytics with sample-size suppression — QUALITY_OFFICER, ADMIN, LEADERSHIP
+ */
+router.get('/nps/dashboard', async (req, res, next) => {
+  try {
+    if (!hasQualityAccess(req.user?.role)) {
+      return error(res, 'Insufficient permissions to view NPS dashboard', 403);
+    }
+
+    const dashboard = await getNpsDashboard({
+      tenantId: req.tenantId,
+      days: req.query.days,
+      minimumSampleSize: req.query.minimum_sample_size,
+    });
+
+    return success(res, dashboard, 'NPS dashboard retrieved');
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to get NPS dashboard:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /quality/nps/service-recovery
+ * Quality/admin queue for low-score or urgent NPS responses.
+ */
+router.get('/nps/service-recovery', async (req, res, next) => {
+  try {
+    if (!hasQualityAccess(req.user?.role)) {
+      return error(res, 'Insufficient permissions to view service recovery tasks', 403);
+    }
+
+    const result = await listServiceRecoveryTasks({
+      tenantId: req.tenantId,
+      status: req.query.status,
+      limit: req.query.limit,
+    });
+
+    return success(res, result.tasks, 'NPS service recovery tasks retrieved', 200, {
+      count: result.count,
+    });
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to get NPS service recovery queue:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * POST /quality/nps/rollups/rebuild
+ * Refresh tenant NPS rollup snapshots for dashboard/reporting use.
+ */
+router.post('/nps/rollups/rebuild', async (req, res, next) => {
+  try {
+    const role = req.user?.role;
+    if (!QUALITY_ROLES.includes(role)) {
+      return error(res, 'Only quality officers or admins can rebuild NPS rollups', 403);
+    }
+
+    const result = await refreshNpsRollups({
+      tenantId: req.tenantId,
+      days: req.body?.days ?? req.query.days,
+      minimumSampleSize: req.body?.minimum_sample_size ?? req.query.minimum_sample_size,
+      grain: req.body?.grain ?? req.query.grain,
+    });
+
+    return success(res, result, 'NPS rollups refreshed');
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to rebuild NPS rollups:', { error: err.message });
     next(err);
   }
 });

@@ -62,6 +62,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/clinical-alerts",
   "api/v1/dialysis",
   "api/v1/icu",
+  "api/v1/infection-control",
   "api/v1/oncology",
   "api/v1/lab",
   "api/v1/microbiology",
@@ -72,6 +73,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/maternity",
   "api/v1/pcpndt",
   "api/v1/pharmacy-orders",
+  "api/v1/physio",
   "api/v1/productivity",
   "api/v1/staff-messaging",
 ];

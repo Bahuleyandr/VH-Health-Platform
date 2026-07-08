@@ -37768,6 +37768,119 @@
         ]
       }
     },
+    "/api/v1/admin/entitlements/catalog": {
+      "get": {
+        "operationId": "get_api_v1_admin_entitlements_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/entitlements/current": {
+      "get": {
+        "operationId": "get_api_v1_admin_entitlements_current",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/entitlements/tenants/{tenantId}": {
+      "get": {
+        "operationId": "get_api_v1_admin_entitlements_tenants_by_tenantId",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_entitlements_tenants_by_tenantId",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/entitlements/tenants/{tenantId}/audit": {
+      "get": {
+        "operationId": "get_api_v1_admin_entitlements_tenants_by_tenantId_audit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/events": {
       "get": {
         "operationId": "get_api_v1_admin_events",
@@ -39018,6 +39131,95 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/admin/migration-toolkit/jobs/{jobId}/commit-batches/{batchId}/report": {
+      "get": {
+        "operationId": "get_api_v1_admin_migration_toolkit_jobs_by_jobId_commit_batches_by_batchId_report",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "batchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/migration-toolkit/jobs/{jobId}/commits": {
+      "post": {
+        "operationId": "post_api_v1_admin_migration_toolkit_jobs_by_jobId_commits",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/migration-toolkit/jobs/{jobId}/hl7-adt-batches": {
+      "post": {
+        "operationId": "post_api_v1_admin_migration_toolkit_jobs_by_jobId_hl7_adt_batches",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/admin/migration-toolkit/jobs/{jobId}/rehearsals": {
@@ -69025,6 +69227,23 @@
         }
       }
     },
+    "/api/v1/entitlements/capabilities": {
+      "get": {
+        "operationId": "get_api_v1_entitlements_capabilities",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/feedback": {
       "post": {
         "operationId": "post_api_v1_feedback",
@@ -69096,6 +69315,23 @@
     "/api/v1/feedback/my-stats": {
       "get": {
         "operationId": "get_api_v1_feedback_my_stats",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feedback/nps": {
+      "post": {
+        "operationId": "post_api_v1_feedback_nps",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -77692,6 +77928,293 @@
         ]
       }
     },
+    "/api/v1/patient-flow/transport/settings": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_patient_flow_transport_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_tasks",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/my": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_tasks_my",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_tasks_by_taskId",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/accept": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_accept",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/assign": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_assign",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_cancel",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/complete": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_complete",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/pickup": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_pickup",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/zones": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_zones",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient-flow/transport/zones/{zoneKey}": {
+      "put": {
+        "operationId": "put_api_v1_patient_flow_transport_zones_by_zoneKey",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "zoneKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/patient/appointments": {
       "get": {
         "operationId": "get_api_v1_patient_appointments",
@@ -82873,6 +83396,162 @@
         ]
       }
     },
+    "/api/v1/physio/admin/progress": {
+      "get": {
+        "operationId": "get_api_v1_physio_admin_progress",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/physio/assessments": {
+      "post": {
+        "operationId": "post_api_v1_physio_assessments",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/physio/care-plans/{id}/outcomes": {
+      "get": {
+        "operationId": "get_api_v1_physio_care_plans_by_id_outcomes",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/physio/outcomes": {
+      "post": {
+        "operationId": "post_api_v1_physio_outcomes",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/physio/patients/{uid}/summary": {
+      "get": {
+        "operationId": "get_api_v1_physio_patients_by_uid_summary",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/physio/sessions": {
+      "post": {
+        "operationId": "post_api_v1_physio_sessions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/physio/therapy-plans": {
+      "post": {
+        "operationId": "post_api_v1_physio_therapy_plans",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/physio/worklist": {
+      "get": {
+        "operationId": "get_api_v1_physio_worklist",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pmjay/beneficiaries": {
       "post": {
         "operationId": "post_api_v1_pmjay_beneficiaries",
@@ -85271,6 +85950,38 @@
         }
       }
     },
+    "/api/v1/quality/nabh/period-pack": {
+      "get": {
+        "operationId": "get_api_v1_quality_nabh_period_pack",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_quality_nabh_period_pack",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/quality/nabh/snapshots": {
       "get": {
         "operationId": "get_api_v1_quality_nabh_snapshots",
@@ -85289,6 +86000,57 @@
       },
       "post": {
         "operationId": "post_api_v1_quality_nabh_snapshots",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/nps/dashboard": {
+      "get": {
+        "operationId": "get_api_v1_quality_nps_dashboard",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/nps/rollups/rebuild": {
+      "post": {
+        "operationId": "post_api_v1_quality_nps_rollups_rebuild",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/nps/service-recovery": {
+      "get": {
+        "operationId": "get_api_v1_quality_nps_service_recovery",
         "responses": {
           "200": {
             "description": "Successful response",

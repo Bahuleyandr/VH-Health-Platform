@@ -30,8 +30,10 @@ p95 above SLO (400ms reads / 800ms writes) for 10m.
 2. CNPG: CPU throttling / replication pressure (`kubectl top pods`,
    Grafana CNPG dashboard). auto_explain output is in the postgres logs
    for queries >2s.
-3. Compare with the last k6 baseline (`apps/backend/loadtest/README.md`) —
-   if load is simply higher than baselined capacity, scale before tuning.
+3. Compare with the last k6 baseline (`apps/backend/loadtest/README.md`) and,
+   for pilot-scale incidents, the latest completed
+   `apps/backend/loadtest/500-bed-slo-rebaseline-template.md` evidence bundle.
+   If load is simply higher than baselined capacity, scale before tuning.
 
 ## BackendClinicalRouteErrors
 
