@@ -1,0 +1,255 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vh-metabase
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: metabase
+    app.kubernetes.io/component: embedded-bi
+    app.kubernetes.io/part-of: vhhealth
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vh-metabase-config
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: metabase
+    app.kubernetes.io/component: embedded-bi
+    app.kubernetes.io/part-of: vhhealth
+data:
+  MB_DB_TYPE: "postgres"
+  MB_DB_HOST: "vhhealth-metabase-rw"
+  MB_DB_PORT: "5432"
+  MB_DB_DBNAME: "metabase"
+  MB_SITE_NAME: "VH Health Analytics"
+  MB_SITE_URL: "https://analytics.vhhealth.hospital.local"
+  MB_JETTY_HOST: "0.0.0.0"
+  MB_JETTY_PORT: "3000"
+  MB_ENABLE_EMBEDDING: "true"
+  MB_ENABLE_PUBLIC_SHARING: "false"
+  MB_ANON_TRACKING_ENABLED: "false"
+  MB_CHECK_FOR_UPDATES: "false"
+  MB_PASSWORD_COMPLEXITY: "strong"
+  MB_PASSWORD_LENGTH: "12"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vh-metabase-warehouse-contract
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: metabase
+    app.kubernetes.io/component: embedded-bi
+    app.kubernetes.io/part-of: vhhealth
+data:
+  warehouseHost: "vhhealth-warehouse-rw"
+  warehousePort: "5432"
+  warehouseDatabase: "vhhealth"
+  warehouseUser: "vh_metabase"
+  allowedSchema: "analytics_marts"
+  oltpConnections: "forbidden"
+  phase1Posture: "internal-single-tenant-embeds-only"
+  hospitalAdminNativeSql: "forbidden"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vh-metabase
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: metabase
+    app.kubernetes.io/component: embedded-bi
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metabase
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metabase
+        app.kubernetes.io/component: embedded-bi
+        app.kubernetes.io/part-of: vhhealth
+    spec:
+      serviceAccountName: vh-metabase
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2000
+        runAsGroup: 2000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: metabase
+          # Pin an image digest at enable time per SECURITY_HARDENING_CHECKLIST.md.
+          image: metabase/metabase:v0.50.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: vh-metabase-config
+          env:
+            - name: MB_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: vh-metabase-app-db-credentials
+                  key: username
+            - name: MB_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: vh-metabase-app-db-credentials
+                  key: password
+            - name: MB_ENCRYPTION_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vh-metabase-app-secrets
+                  key: encryption-secret-key
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vh-metabase
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: metabase
+    app.kubernetes.io/component: embedded-bi
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  selector:
+    app.kubernetes.io/name: metabase
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+# LAN-only Ingress for embedded dashboards. The backend signs iframe URLs; do
+# not create hospital-admin Metabase logins in phase 1.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vh-metabase
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: metabase
+    app.kubernetes.io/component: embedded-bi
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/exposure: lan-only
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+    cert-manager.io/cluster-issuer: step-ca-internal
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+spec:
+  ingressClassName: nginx-internal
+  tls:
+    - hosts:
+        - analytics.vhhealth.hospital.local
+      secretName: vh-metabase-tls
+  rules:
+    - host: analytics.vhhealth.hospital.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vh-metabase
+                port:
+                  number: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vh-metabase
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: metabase
+    app.kubernetes.io/component: embedded-bi
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: metabase
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: ingress-nginx-internal
+      ports:
+        - port: 3000
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: vhhealth-metabase
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: vhhealth-warehouse
+      ports:
+        - port: 5432
+          protocol: TCP

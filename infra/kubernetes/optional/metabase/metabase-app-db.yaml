@@ -1,0 +1,75 @@
+# Metabase application metadata database.
+#
+# This stores Metabase users, cards, dashboard metadata, and encrypted data
+# source credentials. It is NOT an analytics source and must not receive OLTP
+# credentials. Metabase's only VH Health data-source credential is vh_metabase
+# on the analytics warehouse marts.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vhhealth-metabase
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: vhhealth-metabase
+    app.kubernetes.io/component: metabase-app-db
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "VH Health Metabase application metadata database"
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.2-1
+  instances: 1
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      shared_buffers: "256MB"
+      effective_cache_size: "768MB"
+      work_mem: "8MB"
+      maintenance_work_mem: "128MB"
+      statement_timeout: "30000"
+      idle_in_transaction_session_timeout: "600s"
+    pg_hba:
+      - "host all all 10.0.0.0/8 scram-sha-256"
+      - "host all all 172.16.0.0/12 scram-sha-256"
+      - "host all all 192.168.0.0/16 scram-sha-256"
+
+  managed:
+    roles:
+      - name: metabase_app
+        ensure: present
+        comment: "Metabase application metadata owner; not an analytics data-source role"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: false
+        passwordSecret:
+          name: vh-metabase-app-db-credentials
+
+  bootstrap:
+    initdb:
+      database: metabase
+      owner: metabase_app
+      encoding: UTF8
+      localeCType: "C"
+      localeCollate: "C"
+      dataChecksums: true
+
+  storage:
+    size: 20Gi
+    storageClass: local-path
+    resizeInUseVolumes: true
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+
+  monitoring:
+    enablePodMonitor: true

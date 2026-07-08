@@ -68,6 +68,8 @@ export default async function validateApiKey(req, res, next) {
     if (dbClient) {
       req.apiClient = dbClient.client_code;
       req.apiClientId = dbClient.api_client_id;
+      req.apiClientEnvironment = dbClient.environment;
+      req.apiClientScopes = Array.isArray(dbClient.scopes) ? dbClient.scopes : [];
       req.tenantId = dbClient.tenant_id;
       return next();
     }

@@ -69,6 +69,7 @@ import {
   CLINICAL_STAFF_ROUTE_ROLES,
   COMPLIANCE_ROUTE_ROLES,
   CONSENT_ROUTE_ROLES,
+  CSSD_ROUTE_ROLES,
   DELIVERY_ROUTE_ROLES,
   DIETARY_ROUTE_ROLES,
   DIALYSIS_ROUTE_ROLES,
@@ -84,6 +85,7 @@ import {
   MICROBIOLOGY_ROUTE_ROLES,
   NURSING_ASSESSMENT_ROUTE_ROLES,
   PAEDIATRIC_ROUTE_ROLES,
+  PATIENT_FLOW_ROUTE_ROLES,
   PATHOLOGY_ROUTE_ROLES,
   PCPNDT_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
@@ -145,6 +147,7 @@ import investigationRoutes from './routes/investigation/index.js';
 import logRoutes from './routes/logs/index.js';
 import notificationRoutes from './routes/notification/index.js';
 import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
+import patientFlowRoutes from './routes/patientFlow/kioskCheckinRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
 import pharmacyInventoryV2Routes from './routes/pharmacy/inventoryV2Routes.js';
 import pharmacySupplyRoutes from './routes/admin/pharmacySupplyRoutes.js';
@@ -231,6 +234,7 @@ import theatreRoutes from './routes/theatre/theatreRoutes.js';
 import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
 import anesthesiaChartRoutes from './routes/theatre/anesthesiaChartRoutes.js';
 import surgicalDocumentationRoutes from './routes/admin/surgicalDocumentationRoutes.js';
+import cssdRoutes from './routes/cssd/cssdRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
 import labPanelRoutes from './routes/lab/labPanelRoutes.js';
 import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisationRoutes.js';
@@ -695,6 +699,7 @@ app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_O
 app.use('/api/v1/pharmacy', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PHARMACY_ORDER', { careTeamModeGoverned: true }), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 app.use('/api/v1/prescriptions', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PRESCRIPTION', { careTeamModeGoverned: true }), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
 app.use('/api/v1/delivery', patientRateLimiter, requireRole(...DELIVERY_ROUTE_ROLES), deliveryRoutes);
+app.use('/api/v1/patient-flow', patientRateLimiter, requireRole(...PATIENT_FLOW_ROUTE_ROLES), phiAccessLogger('PATIENT_FLOW_CHECKIN'), patientFlowRoutes);
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
@@ -1159,6 +1164,7 @@ app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGua
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), orBoardRoutes);
 app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ANESTHESIA_CHART', { careTeamModeGoverned: true }), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/cssd', requireRole(...CSSD_ROUTE_ROLES), sanitizeAllBodyStrings, cssdRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real

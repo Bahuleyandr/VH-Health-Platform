@@ -29,6 +29,10 @@ describe('dashboard tenant scoping', () => {
     queryRawUnsafeMock.mockResolvedValue([]);
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('builds daily ops from tenant-scoped source tables, not global BI views', async () => {
     await snapshot.getDailyOpsSnapshot({ tenantId: TENANT_ID });
 
@@ -65,12 +69,11 @@ describe('dashboard tenant scoping', () => {
     expect(call.slice(1)).toEqual([TENANT_ID, '60']);
   });
 
-  it('forces the server tenant into Metabase embed JWT params', () => {
+  it('adds the server tenant to Metabase embed JWT params', () => {
     const { url } = metabase.buildEmbedUrl({
       key: 'daily_ops',
       tenantId: TENANT_ID,
       params: {
-        tenant_id: '99999999-9999-4999-8999-999999999999',
         department: 'lab',
       },
       ttlSeconds: 120,
@@ -84,5 +87,53 @@ describe('dashboard tenant scoping', () => {
       tenant_id: TENANT_ID,
       department: 'lab',
     });
+  });
+
+  it('rejects client-supplied Metabase tenant params', () => {
+    expect(() => metabase.buildEmbedUrl({
+      key: 'daily_ops',
+      tenantId: TENANT_ID,
+      params: {
+        tenant_id: '99999999-9999-4999-8999-999999999999',
+      },
+      ttlSeconds: 120,
+    })).toThrow('Tenant scope is server-managed');
+
+    expect(() => metabase.buildEmbedUrl({
+      key: 'daily_ops',
+      tenantId: TENANT_ID,
+      params: {
+        tenantId: '99999999-9999-4999-8999-999999999999',
+      },
+      ttlSeconds: 120,
+    })).toThrow('Tenant scope is server-managed');
+  });
+
+  it('clamps Metabase embed TTLs and reports the effective TTL', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+
+    const high = metabase.buildEmbedUrl({
+      key: 'daily_ops',
+      tenantId: TENANT_ID,
+      ttlSeconds: 999999,
+    });
+    const highPayload = jwt.verify(
+      high.url.match(/\/embed\/dashboard\/([^#]+)/)?.[1],
+      process.env.METABASE_EMBED_SECRET
+    );
+    expect(high.ttlSeconds).toBe(86400);
+    expect(highPayload.exp).toBe(1_700_000_000 + 86400);
+
+    const low = metabase.buildEmbedUrl({
+      key: 'daily_ops',
+      tenantId: TENANT_ID,
+      ttlSeconds: 10,
+    });
+    const lowPayload = jwt.verify(
+      low.url.match(/\/embed\/dashboard\/([^#]+)/)?.[1],
+      process.env.METABASE_EMBED_SECRET
+    );
+    expect(low.ttlSeconds).toBe(60);
+    expect(lowPayload.exp).toBe(1_700_000_000 + 60);
   });
 });

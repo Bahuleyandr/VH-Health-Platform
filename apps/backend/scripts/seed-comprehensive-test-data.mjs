@@ -54,6 +54,11 @@ const MANUAL_SEED_TABLES = new Set([
   // cycle-date-aligned booking window.
   'infusion_chairs',
   'chair_bookings',
+  // NL11-S1 migration toolkit: source_row_number is a plain INTEGER the
+  // generic seeder fills with semantic strings, and content_sha256/row_hash
+  // carry 64-lowercase-hex CHECKs.
+  'migration_source_files',
+  'migration_import_records',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1617,6 +1622,38 @@ async function seedMergedMainCoverageTables() {
   }]);
 }
 
+async function seedMigrationToolkitTables() {
+  // NL11-S1: constraint-aware seeds — generic values violate the 64-hex
+  // sha256 CHECKs and the INTEGER source_row_number column.
+  const job = await first('migration_import_jobs', 'id, tenant_id', 'TRUE', []);
+  if (!job) return;
+  const hex64 = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+
+  if (!(await tableCount('migration_source_files'))) {
+    await insertIfEmpty('migration_source_files', [{
+      tenant_id: job.tenant_id || DEFAULT_TENANT_ID,
+      job_id: job.id,
+      file_kind: 'patient',
+      source_filename: 'seed-patients.csv',
+      content_sha256: hex64,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if (!(await tableCount('migration_import_records'))) {
+    const file = await first('migration_source_files', 'id, tenant_id, job_id', 'TRUE', []);
+    if (!file) return;
+    await insertIfEmpty('migration_import_records', [{
+      tenant_id: file.tenant_id || DEFAULT_TENANT_ID,
+      job_id: file.job_id,
+      source_file_id: file.id,
+      target_kind: 'patient',
+      source_row_number: 1,
+      row_hash: hex64,
+    }]);
+  }
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -1631,6 +1668,7 @@ try {
   await seedBiomedCmmsTables();
   await seedMortuarySlots();
   await seedInfusionChairTables();
+  await seedMigrationToolkitTables();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);

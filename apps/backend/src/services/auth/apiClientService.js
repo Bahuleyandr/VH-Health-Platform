@@ -30,6 +30,7 @@ export const CLIENT_KINDS = [
   'integration', 'webhook', 'mobile_app', 'partner', 'internal_service', 'other',
 ];
 export const CLIENT_STATUSES = ['active', 'paused', 'revoked', 'archived'];
+export const CLIENT_ENVIRONMENTS = ['sandbox', 'production'];
 export const KEY_STATUSES = ['active', 'revoked', 'expired'];
 
 function resolveTenantId(options = {}) {
@@ -115,7 +116,7 @@ function timingSafeEqualString(a, b) {
 // ---------------------------------------------------------------------------
 
 const CLIENT_RETURNING = `id, tenant_id, client_code, display_name, description,
-  client_kind, status, scopes, allowed_ips, rate_limit_profile,
+  client_kind, status, environment, scopes, allowed_ips, rate_limit_profile,
   contact_email, contact_phone, metadata, created_by, created_at, updated_at`;
 
 export async function upsertApiClient({
@@ -126,6 +127,7 @@ export async function upsertApiClient({
   description = null,
   clientKind = 'integration',
   status = 'active',
+  environment = 'sandbox',
   scopes = [],
   allowedIps = [],
   rateLimitProfile = null,
@@ -143,6 +145,7 @@ export async function upsertApiClient({
     cleanCode, cleanName, safeText(description),
     normalizeEnum(clientKind, CLIENT_KINDS, 'client_kind') || 'integration',
     normalizeEnum(status, CLIENT_STATUSES, 'status') || 'active',
+    normalizeEnum(environment, CLIENT_ENVIRONMENTS, 'environment') || 'sandbox',
     normalizeStringArray(scopes, 'scopes'),
     normalizeStringArray(allowedIps, 'allowed_ips', 50),
     safeText(rateLimitProfile, 40),
@@ -155,10 +158,10 @@ export async function upsertApiClient({
       const rows = await prisma.$queryRawUnsafe(
         `UPDATE api_clients SET
            client_code = $1, display_name = $2, description = $3, client_kind = $4,
-           status = $5, scopes = $6::text[], allowed_ips = $7::text[],
-           rate_limit_profile = $8, contact_email = $9, contact_phone = $10,
-           metadata = $11::jsonb, updated_at = NOW()
-         WHERE id = $12 AND tenant_id = $13::uuid
+           status = $5, environment = $6, scopes = $7::text[], allowed_ips = $8::text[],
+           rate_limit_profile = $9, contact_email = $10, contact_phone = $11,
+           metadata = $12::jsonb, updated_at = NOW()
+         WHERE id = $13 AND tenant_id = $14::uuid
          RETURNING ${CLIENT_RETURNING}`,
         ...args, clientId, tid,
       );
@@ -168,9 +171,9 @@ export async function upsertApiClient({
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO api_clients
          (tenant_id, client_code, display_name, description, client_kind, status,
-          scopes, allowed_ips, rate_limit_profile,
+          environment, scopes, allowed_ips, rate_limit_profile,
           contact_email, contact_phone, metadata, created_by)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::text[], $8::text[], $9, $10, $11, $12::jsonb, $13::uuid)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::text[], $9::text[], $10, $11, $12, $13::jsonb, $14::uuid)
        RETURNING ${CLIENT_RETURNING}`,
       tid, ...args, maybeUuid(createdBy, 'created_by'),
     );
@@ -182,7 +185,7 @@ export async function upsertApiClient({
 }
 
 export async function listApiClients({
-  tenantId = null, status = null, clientKind = null,
+  tenantId = null, status = null, clientKind = null, environment = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const filters = ['tenant_id = $1::uuid'];
@@ -194,6 +197,10 @@ export async function listApiClients({
   if (clientKind) {
     params.push(normalizeEnum(clientKind, CLIENT_KINDS, 'client_kind'));
     filters.push(`client_kind = $${params.length}`);
+  }
+  if (environment) {
+    params.push(normalizeEnum(environment, CLIENT_ENVIRONMENTS, 'environment'));
+    filters.push(`environment = $${params.length}`);
   }
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -245,13 +252,70 @@ export async function issueApiKey({
       `INSERT INTO api_keys
          (tenant_id, api_client_id, key_hash, key_prefix, display_name,
           status, expires_at, created_by)
-       VALUES ($1::uuid, $2, $3, $4, $5, 'active', $6::timestamptz, $7::uuid)
+       SELECT $1::uuid, c.id, $3, $4, $5, 'active', $6::timestamptz, $7::uuid
+       FROM api_clients c
+       WHERE c.id = $2 AND c.tenant_id = $1::uuid
        RETURNING ${KEY_RETURNING}`,
       tid, clientId, keyHash, keyPrefix,
       safeText(displayName, SHORT_MAX), cleanExpires,
       maybeUuid(createdBy, 'created_by'),
     );
+    if (!rows[0]) throw AppError.badRequest('Invalid api_client_id');
     return { plaintext, key: rows[0] };
+  } catch (err) {
+    if (isFkViolation(err)) throw AppError.badRequest('Invalid api_client_id');
+    throw err;
+  }
+}
+
+export async function rotateApiKey({
+  tenantId = null,
+  apiClientId,
+  id,
+  displayName = null,
+  expiresAt = null,
+  revokedReason = 'rotated',
+  createdBy = null,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const clientId = normalizeId(apiClientId, 'api_client_id');
+  const keyId = normalizeId(id, 'api_key id');
+  const plaintext = `vh_${crypto.randomBytes(KEY_BYTE_LENGTH).toString('base64url')}`;
+  const keyHash = hashApiKey(plaintext);
+  const keyPrefix = plaintext.slice(0, KEY_PREFIX_LEN + 3);
+  let cleanExpires = null;
+  if (expiresAt) {
+    const dt = new Date(String(expiresAt));
+    if (Number.isNaN(dt.getTime())) throw AppError.badRequest('expires_at must be a valid timestamp');
+    cleanExpires = dt.toISOString();
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const revokedRows = await tx.$queryRawUnsafe(
+        `UPDATE api_keys
+         SET status = 'revoked', revoked_at = NOW(), revoked_reason = $1, updated_at = NOW()
+         WHERE id = $2 AND api_client_id = $3 AND tenant_id = $4::uuid AND status = 'active'
+         RETURNING ${KEY_RETURNING}`,
+        safeText(revokedReason), keyId, clientId, tid,
+      );
+      if (!revokedRows[0]) throw AppError.notFound('Active API key not found');
+
+      const keyRows = await tx.$queryRawUnsafe(
+        `INSERT INTO api_keys
+           (tenant_id, api_client_id, key_hash, key_prefix, display_name,
+            status, expires_at, created_by)
+         SELECT $1::uuid, c.id, $3, $4, $5, 'active', $6::timestamptz, $7::uuid
+         FROM api_clients c
+         WHERE c.id = $2 AND c.tenant_id = $1::uuid
+         RETURNING ${KEY_RETURNING}`,
+        tid, clientId, keyHash, keyPrefix,
+        safeText(displayName, SHORT_MAX), cleanExpires,
+        maybeUuid(createdBy, 'created_by'),
+      );
+      if (!keyRows[0]) throw AppError.badRequest('Invalid api_client_id');
+      return { plaintext, key: keyRows[0], revoked_key: revokedRows[0] };
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid api_client_id');
     throw err;
@@ -318,7 +382,7 @@ export async function authenticateByApiKey({
     const rows = await prisma.$queryRawUnsafe(
       `SELECT k.id AS key_id, k.api_client_id, k.status AS key_status, k.expires_at,
               c.tenant_id, c.client_code, c.display_name, c.client_kind, c.status AS client_status,
-              c.scopes, c.allowed_ips, c.rate_limit_profile
+              c.environment, c.scopes, c.allowed_ips, c.rate_limit_profile
        FROM api_keys k
        JOIN api_clients c ON c.id = k.api_client_id AND c.tenant_id = k.tenant_id
        WHERE k.tenant_id = $1::uuid AND k.key_hash = $2
@@ -346,6 +410,7 @@ export async function authenticateByApiKey({
       client_code: row.client_code,
       display_name: row.display_name,
       client_kind: row.client_kind,
+      environment: row.environment,
       scopes: row.scopes,
       allowed_ips: row.allowed_ips,
       rate_limit_profile: row.rate_limit_profile,
@@ -373,7 +438,7 @@ export async function authenticateByApiKeyGlobal({ plaintext, ipAddress = null }
     const rows = await prisma.$queryRawUnsafe(
       `SELECT k.id AS key_id, k.api_client_id, k.status AS key_status, k.expires_at, k.tenant_id,
               c.client_code, c.display_name, c.client_kind, c.status AS client_status,
-              c.scopes, c.allowed_ips, c.rate_limit_profile
+              c.environment, c.scopes, c.allowed_ips, c.rate_limit_profile
        FROM api_keys k
        JOIN api_clients c ON c.id = k.api_client_id AND c.tenant_id = k.tenant_id
        WHERE k.key_hash = $1
@@ -401,6 +466,7 @@ export async function authenticateByApiKeyGlobal({ plaintext, ipAddress = null }
       client_code: row.client_code,
       display_name: row.display_name,
       client_kind: row.client_kind,
+      environment: row.environment,
       scopes: row.scopes,
       allowed_ips: row.allowed_ips,
       rate_limit_profile: row.rate_limit_profile,
@@ -420,6 +486,7 @@ export default {
   upsertApiClient,
   listApiClients,
   issueApiKey,
+  rotateApiKey,
   revokeApiKey,
   listApiKeys,
   authenticateByApiKey,

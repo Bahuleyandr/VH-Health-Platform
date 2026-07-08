@@ -138,6 +138,19 @@ export const envSchema = Joi.object({
   PACS_VIEWER_URL: Joi.string().uri().allow('').optional().label('PACS_VIEWER_URL'),
   PACS_AET: Joi.string().max(16).allow('').optional().label('PACS_AET'),
 
+  // Embedded BI (NL-10 B1) — optional until Metabase is enabled. The Metabase
+  // deployment must use the analytics warehouse marts role only, never OLTP.
+  METABASE_URL: Joi.string().uri().allow('').optional().label('METABASE_URL'),
+  METABASE_EMBED_SECRET: Joi.string().allow('').optional().label('METABASE_EMBED_SECRET'),
+  METABASE_DASH_DAILY_OPS: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_DAILY_OPS'),
+  METABASE_DASH_OPD_VOLUME: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OPD_VOLUME'),
+  METABASE_DASH_IP_OCCUPANCY: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_IP_OCCUPANCY'),
+  METABASE_DASH_PAYER_MIX: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_PAYER_MIX'),
+  METABASE_DASH_LAB_TAT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_LAB_TAT'),
+  METABASE_DASH_DOCTOR_PROD: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_DOCTOR_PROD'),
+  METABASE_DASH_OR_THROUGHPUT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OR_THROUGHPUT'),
+  METABASE_DASH_SAFETY: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_SAFETY'),
+
   // Encryption — MANDATORY. No JWT_SECRET fallback (compliance footgun).
   // Each key protects a different class of data and MUST be rotated independently.
   //   FIELD_ENCRYPTION_KEY  — at-rest PHI columns (names, DOB, diagnosis, etc.)
