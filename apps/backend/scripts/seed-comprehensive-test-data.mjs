@@ -308,6 +308,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('role')) return text('staff');
   if (name.includes('type') || name.includes('kind') || name.includes('category')) return text('general');
   if (name.includes('code')) return text(`CODE-${index}`);
+  if (name.includes('number') && ['int2', 'int4', 'int8', 'float4', 'float8', 'numeric', 'money'].includes(column.udt_name)) return 1;
   if (name.includes('number')) return text(`VH-${String(index).padStart(5, '0')}`);
   if (name.includes('key')) return text(`${SEED_TAG}_${tablePrefix}_${index}`);
   if (name === 'sha256_hash' || name.endsWith('_sha256_hash')) return text('0'.repeat(64));
