@@ -4456,25 +4456,26 @@ model department_audit_log {
 }
 
 model departments {
-  id                  Int      @id @default(autoincrement())
-  name                String   @db.VarChar(100)
-  description         String?
-  is_active           Boolean  @default(true)
-  created_at          DateTime @default(now()) @db.Timestamp(6)
-  updated_at          DateTime @db.Timestamp(6)
-  head_doctor_id      Int?
-  head_uid            String?  @db.Uuid
-  contact_number      String?  @db.VarChar(20)
-  location            String?
-  budget              Decimal? @db.Decimal(14, 2)
-  code                String?  @db.VarChar(32)
-  floor               String?  @db.VarChar(32)
-  building            String?  @db.VarChar(64)
-  deactivation_reason String?
-  updated_by          String?  @db.Uuid
-  tenant_id           String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departments_tenant")
-  wards               wards[]
+  id                     Int                      @id @default(autoincrement())
+  name                   String                   @db.VarChar(100)
+  description            String?
+  is_active              Boolean                  @default(true)
+  created_at             DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at             DateTime                 @db.Timestamp(6)
+  head_doctor_id         Int?
+  head_uid               String?                  @db.Uuid
+  contact_number         String?                  @db.VarChar(20)
+  location               String?
+  budget                 Decimal?                 @db.Decimal(14, 2)
+  code                   String?                  @db.VarChar(32)
+  floor                  String?                  @db.VarChar(32)
+  building               String?                  @db.VarChar(64)
+  deactivation_reason    String?
+  updated_by             String?                  @db.Uuid
+  tenant_id              String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departments_tenant")
+  queue_display_profiles queue_display_profiles[]
+  wards                  wards[]
 
   @@unique([tenant_id, name], map: "uniq_departments_tenant_name")
   @@index([head_doctor_id], map: "idx_departments_head_doctor")
@@ -5033,36 +5034,37 @@ model external_system_mappings {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model facilities {
-  id                  Int                  @id @default(autoincrement())
-  tenant_id           String               @unique(map: "uq_facility_default", where: raw("(is_default = true)")) @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  facility_code       String               @db.VarChar(80)
-  display_name        String               @db.VarChar(255)
-  facility_kind       String               @default("hospital") @db.VarChar(40)
-  legal_entity_name   String?              @db.VarChar(255)
-  registration_number String?              @db.VarChar(120)
-  address_line1       String?              @db.VarChar(255)
-  address_line2       String?              @db.VarChar(255)
-  city                String?              @db.VarChar(120)
-  state               String?              @db.VarChar(120)
-  country             String               @default("IN") @db.VarChar(80)
-  postal_code         String?              @db.VarChar(20)
-  timezone            String               @default("Asia/Kolkata") @db.VarChar(60)
-  phone               String?              @db.VarChar(40)
-  email               String?              @db.VarChar(255)
-  status              String               @default("active") @db.VarChar(20)
-  is_default          Boolean              @default(false)
-  geo_lat             Decimal?             @db.Decimal(10, 6)
-  geo_lng             Decimal?             @db.Decimal(10, 6)
-  metadata            Json                 @default("{}")
-  created_by          String?              @db.Uuid
-  created_at          DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
-  appointment_queues  appointment_queues[]
-  tenants             tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  facility_locations  facility_locations[]
-  facility_rooms      facility_rooms[]
-  lab_analyzers       lab_analyzers[]
-  service_catalog     service_catalog[]
+  id                     Int                      @id @default(autoincrement())
+  tenant_id              String                   @unique(map: "uq_facility_default", where: raw("(is_default = true)")) @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_code          String                   @db.VarChar(80)
+  display_name           String                   @db.VarChar(255)
+  facility_kind          String                   @default("hospital") @db.VarChar(40)
+  legal_entity_name      String?                  @db.VarChar(255)
+  registration_number    String?                  @db.VarChar(120)
+  address_line1          String?                  @db.VarChar(255)
+  address_line2          String?                  @db.VarChar(255)
+  city                   String?                  @db.VarChar(120)
+  state                  String?                  @db.VarChar(120)
+  country                String                   @default("IN") @db.VarChar(80)
+  postal_code            String?                  @db.VarChar(20)
+  timezone               String                   @default("Asia/Kolkata") @db.VarChar(60)
+  phone                  String?                  @db.VarChar(40)
+  email                  String?                  @db.VarChar(255)
+  status                 String                   @default("active") @db.VarChar(20)
+  is_default             Boolean                  @default(false)
+  geo_lat                Decimal?                 @db.Decimal(10, 6)
+  geo_lng                Decimal?                 @db.Decimal(10, 6)
+  metadata               Json                     @default("{}")
+  created_by             String?                  @db.Uuid
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  appointment_queues     appointment_queues[]
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facility_locations     facility_locations[]
+  facility_rooms         facility_rooms[]
+  lab_analyzers          lab_analyzers[]
+  queue_display_profiles queue_display_profiles[]
+  service_catalog        service_catalog[]
 
   @@unique([tenant_id, facility_code])
   @@index([tenant_id, facility_kind, status], map: "idx_facilities_tenant_kind")
@@ -9989,6 +9991,8 @@ model tenants {
   provider_availability_templates            provider_availability_templates[]
   provider_leaves                            provider_leaves[]
   quality_incidents                          quality_incidents[]
+  queue_display_profiles                     queue_display_profiles[]
+  queue_display_settings                     queue_display_settings?
   radiology_orders                           radiology_orders[]
   radiology_peer_review_settings             radiology_peer_review_settings?
   radiology_peer_reviews                     radiology_peer_reviews[]
@@ -18829,4 +18833,59 @@ model engagement_templates {
 
   @@unique([tenant_id, notification_template_id, channel, locale], map: "ux_engagement_templates_active_copy", where: raw("(retired_at IS NULL)"))
   @@index([tenant_id, template_kind, channel], map: "idx_engagement_templates_tenant_kind", where: raw("(retired_at IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model queue_display_profiles {
+  id                          BigInt       @id @default(autoincrement())
+  tenant_id                   String       @db.Uuid
+  profile_key                 String       @db.VarChar(80)
+  display_name                String       @db.VarChar(160)
+  location_label              String?      @db.VarChar(160)
+  facility_id                 Int?
+  department_id               Int?
+  doctor_id                   Int?
+  queue_kind                  String?      @db.VarChar(40)
+  queue_label_override        String?      @db.VarChar(255)
+  counter_label               String?      @db.VarChar(120)
+  display_mode                String       @default("token_board") @db.VarChar(40)
+  language_code               String       @default("en") @db.VarChar(16)
+  accessibility_size          String       @default("standard") @db.VarChar(20)
+  contrast_mode               String       @default("standard") @db.VarChar(20)
+  motion_mode                 String       @default("standard") @db.VarChar(20)
+  audio_announcements_enabled Boolean      @default(false)
+  masked_name_policy          String       @default("token_only") @db.VarChar(40)
+  is_active                   Boolean      @default(true)
+  created_by                  String?      @db.Uuid
+  updated_by                  String?      @db.Uuid
+  created_at                  DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime     @default(now()) @db.Timestamptz(6)
+  departments                 departments? @relation(fields: [department_id], references: [id], onUpdate: NoAction)
+  facilities                  facilities?  @relation(fields: [facility_id], references: [id], onUpdate: NoAction)
+  tenants                     tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, profile_key], map: "ux_queue_display_profiles_key")
+  @@index([tenant_id, is_active, display_name], map: "idx_queue_display_profiles_active")
+  @@index([tenant_id, department_id, is_active], map: "idx_queue_display_profiles_department", where: raw("(department_id IS NOT NULL)"))
+  @@index([tenant_id, doctor_id, is_active], map: "idx_queue_display_profiles_doctor", where: raw("(doctor_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model queue_display_settings {
+  tenant_id                  String    @id @db.Uuid
+  enabled                    Boolean   @default(false)
+  poll_interval_seconds      Int       @default(15)
+  max_items                  Int       @default(12)
+  eta_buckets_enabled        Boolean   @default(false)
+  default_language_code      String    @default("en") @db.VarChar(16)
+  default_accessibility_size String    @default("standard") @db.VarChar(20)
+  enabled_at                 DateTime? @db.Timestamptz(6)
+  enabled_by                 String?   @db.Uuid
+  acceptance_snapshot        Json?
+  updated_by                 String?   @db.Uuid
+  created_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                    tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
