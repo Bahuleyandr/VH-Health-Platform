@@ -176,7 +176,13 @@ export const PATIENT_FLOW_SUPERVISED_ROUTE_ROLES = mergeRoles(
 
 export const PATIENT_FLOW_ROUTE_ROLES = mergeRoles(
   PATIENT_FLOW_SUPERVISED_ROUTE_ROLES,
-  rolesFrom(['PATIENT']),
+  rolesFrom([
+    'PATIENT',
+    'DRIVER',
+    'DELIVERY_STAFF',
+    'EMERGENCY_RESPONDER',
+    'AMBULANCE_COORDINATOR',
+  ]),
 );
 
 export const PATIENT_FLOW_SETTINGS_ROUTE_ROLES = mergeRoles(
@@ -185,6 +191,30 @@ export const PATIENT_FLOW_SETTINGS_ROUTE_ROLES = mergeRoles(
     'RECEPTION_INCHARGE',
     'ADMISSION_OFFICER',
     'CMO',
+    'MEDICAL_SUPERINTENDENT',
+  ]),
+);
+
+export const PATIENT_TRANSPORT_ROUTE_ROLES = mergeRoles(
+  PATIENT_FLOW_SUPERVISED_ROUTE_ROLES,
+  getRolesForCapabilityGroups(['ip_flow', 'diagnostics', 'emergency', 'people_operations']),
+  rolesFrom([
+    'DRIVER',
+    'DELIVERY_STAFF',
+    'EMERGENCY_RESPONDER',
+    'AMBULANCE_COORDINATOR',
+    'HR_STAFF',
+    'MEDICAL_SUPERINTENDENT',
+  ]),
+);
+
+export const PATIENT_TRANSPORT_SETTINGS_ROUTE_ROLES = mergeRoles(
+  ADMIN_ROUTE_ROLES,
+  rolesFrom([
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'IP_INCHARGE',
+    'HR_STAFF',
     'MEDICAL_SUPERINTENDENT',
   ]),
 );

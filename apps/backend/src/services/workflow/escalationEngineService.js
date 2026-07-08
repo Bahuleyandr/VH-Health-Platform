@@ -42,6 +42,7 @@ import * as taskService from './taskService.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { sendSecurityWebhook } from '../../utils/securityWebhook.js';
 import { ROLES, DOCTOR_TIERS, LEADERSHIP_ROLES } from '../../utils/roleHelpers.js';
+import { runTransportEscalationSweep } from '../patientFlow/porterTransportService.js';
 // Reuse the producer's role-token resolver + backfill entrypoint. resolveRoleCode
 // MUST be shared (not duplicated) so the mig-312 seed tokens (DUTY/LEADERSHIP)
 // resolve to the IDENTICAL concrete role on the assignment (producer) and
@@ -416,9 +417,7 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
     logger.error('escalation sweep: tenant discovery failed', { err: err?.message });
     return counters;
   }
-  if (!Array.isArray(tenants) || tenants.length === 0) return counters;
-
-  for (const t of tenants) {
+  for (const t of (Array.isArray(tenants) ? tenants : [])) {
     const tenantId = t.tenant_id;
     if (!tenantId) continue;
     try {
@@ -612,6 +611,18 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
 
   if (counters.escalated || counters.autoResolved || counters.backfilled || counters.markedOverdue) {
     logger.info('escalation sweep complete', { ...counters });
+  }
+  try {
+    const transport = await runTransportEscalationSweep({ now: clock, limit: cap });
+    if (transport.scanned || transport.breached || transport.notified) {
+      logger.info('transport escalation sweep complete', {
+        transportScanned: transport.scanned,
+        transportBreached: transport.breached,
+        transportNotified: transport.notified,
+      });
+    }
+  } catch (err) {
+    logger.error('transport escalation sweep failed', { err: err?.message });
   }
   return counters;
 }
