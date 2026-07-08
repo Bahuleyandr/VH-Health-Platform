@@ -9853,6 +9853,12 @@ model tenants {
   mfa_devices                                mfa_devices[]
   micro_isolates                             micro_isolates[]
   micro_sensitivities                        micro_sensitivities[]
+  migration_import_jobs                      migration_import_jobs[]
+  migration_import_records                   migration_import_records[]
+  migration_mapping_profiles                 migration_mapping_profiles[]
+  migration_rehearsal_reports                migration_rehearsal_reports[]
+  migration_source_files                     migration_source_files[]
+  migration_validation_findings              migration_validation_findings[]
   mlc_records                                mlc_records[]
   mortuary_slots                             mortuary_slots[]
   nabh_indicator_snapshots                   nabh_indicator_snapshots[]
@@ -17320,4 +17326,165 @@ model dialyzer_reuse_register {
   @@unique([tenant_id, session_id], map: "ux_dialyzer_reuse_register_session")
   @@index([tenant_id, dialysis_patient_id, processed_at(sort: Desc)], map: "idx_dialyzer_reuse_register_patient")
   @@index([tenant_id, dialyzer_serial, reuse_cycle_count(sort: Desc)], map: "idx_dialyzer_reuse_register_serial")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_import_jobs {
+  id                            BigInt                          @id @default(autoincrement())
+  uid                           String                          @unique(map: "migration_import_jobs_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_name                      String                          @db.VarChar(180)
+  source_system                 String?                         @db.VarChar(120)
+  import_kind                   String                          @db.VarChar(40)
+  status                        String                          @default("draft") @db.VarChar(40)
+  dry_run_only                  Boolean                         @default(true)
+  authoritative_write_enabled   Boolean                         @default(false)
+  redaction_mode                String                          @default("phi_redacted") @db.VarChar(40)
+  row_counts                    Json                            @default("{}")
+  created_by                    String?                         @db.Uuid
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  completed_at                  DateTime?                       @db.Timestamptz(6)
+  metadata                      Json                            @default("{}")
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_import_jobs_tenant")
+  migration_import_records      migration_import_records[]
+  migration_rehearsal_reports   migration_rehearsal_reports?
+  migration_source_files        migration_source_files[]
+  migration_validation_findings migration_validation_findings[]
+
+  @@index([tenant_id, import_kind, created_at(sort: Desc)], map: "idx_migration_import_jobs_tenant_kind")
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_migration_import_jobs_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_import_records {
+  id                            BigInt                          @id @default(autoincrement())
+  uid                           String                          @unique(map: "migration_import_records_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_id                        BigInt
+  source_file_id                BigInt
+  mapping_profile_id            BigInt?
+  target_kind                   String                          @db.VarChar(40)
+  source_row_number             Int
+  source_key                    String?                         @db.VarChar(180)
+  row_hash                      String                          @db.VarChar(64)
+  normalized_preview_redacted   Json                            @default("{}")
+  validation_state              String                          @default("pending") @db.VarChar(30)
+  duplicate_candidate           Boolean                         @default(false)
+  duplicate_summary             Json                            @default("{}")
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  metadata                      Json                            @default("{}")
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_import_records_tenant")
+  migration_import_jobs         migration_import_jobs           @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_mapping_profiles    migration_mapping_profiles?     @relation(fields: [mapping_profile_id], references: [id], onUpdate: NoAction)
+  migration_source_files        migration_source_files          @relation(fields: [source_file_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_validation_findings migration_validation_findings[]
+
+  @@unique([tenant_id, source_file_id, source_row_number], map: "ux_migration_import_records_source_row")
+  @@index([tenant_id, job_id, duplicate_candidate], map: "idx_migration_import_records_duplicate", where: raw("(duplicate_candidate IS TRUE)"))
+  @@index([tenant_id, job_id, validation_state, source_row_number], map: "idx_migration_import_records_job_state")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_mapping_profiles {
+  id                       BigInt                     @id @default(autoincrement())
+  uid                      String                     @unique(map: "migration_mapping_profiles_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  profile_name             String                     @db.VarChar(180)
+  source_system            String?                    @db.VarChar(120)
+  target_kind              String                     @db.VarChar(40)
+  version                  Int                        @default(1)
+  status                   String                     @default("draft") @db.VarChar(40)
+  field_map                Json                       @default("{}")
+  transform_notes          String?
+  created_by               String?                    @db.Uuid
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  metadata                 Json                       @default("{}")
+  migration_import_records migration_import_records[]
+  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_mapping_profiles_tenant")
+
+  @@unique([tenant_id, target_kind, profile_name, version], map: "ux_migration_mapping_profiles_name_version")
+  @@index([tenant_id, target_kind, status, updated_at(sort: Desc)], map: "idx_migration_mapping_profiles_tenant_target")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_rehearsal_reports {
+  id                    BigInt                @id @default(autoincrement())
+  uid                   String                @unique(map: "migration_rehearsal_reports_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_id                BigInt                @unique(map: "ux_migration_rehearsal_reports_job")
+  status                String                @default("report_ready") @db.VarChar(40)
+  phi_redacted          Boolean               @default(true)
+  summary               Json                  @default("{}")
+  validation_summary    Json                  @default("{}")
+  duplicate_summary     Json                  @default("{}")
+  no_write_proof        Json                  @default("{}")
+  generated_by          String?               @db.Uuid
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  metadata              Json                  @default("{}")
+  tenants               tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_rehearsal_reports_tenant")
+  migration_import_jobs migration_import_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_migration_rehearsal_reports_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_source_files {
+  id                            BigInt                          @id @default(autoincrement())
+  uid                           String                          @unique(map: "migration_source_files_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_id                        BigInt
+  file_kind                     String                          @db.VarChar(40)
+  source_filename               String                          @db.VarChar(260)
+  content_sha256                String                          @db.VarChar(64)
+  mime_type                     String                          @default("text/csv") @db.VarChar(120)
+  byte_size                     Int                             @default(0)
+  row_count                     Int                             @default(0)
+  header_row                    Json                            @default("[]")
+  column_profile                Json                            @default("{}")
+  sample_rows_redacted          Json                            @default("[]")
+  storage_contract              Json                            @default("{\"report_redaction\": \"phi_redacted\", \"raw_content_stored\": false}")
+  uploaded_by                   String?                         @db.Uuid
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  metadata                      Json                            @default("{}")
+  migration_import_records      migration_import_records[]
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_source_files_tenant")
+  migration_import_jobs         migration_import_jobs           @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_validation_findings migration_validation_findings[]
+
+  @@index([tenant_id, content_sha256], map: "idx_migration_source_files_hash")
+  @@index([tenant_id, job_id, file_kind, created_at(sort: Desc)], map: "idx_migration_source_files_job")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model migration_validation_findings {
+  id                       BigInt                    @id @default(autoincrement())
+  uid                      String                    @unique(map: "migration_validation_findings_uid_unique") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  job_id                   BigInt
+  source_file_id           BigInt
+  import_record_id         BigInt?
+  finding_code             String                    @db.VarChar(80)
+  severity                 String                    @db.VarChar(20)
+  target_kind              String                    @db.VarChar(40)
+  field_name               String?                   @db.VarChar(120)
+  source_row_number        Int?
+  message_redacted         String
+  remediation_hint         String?
+  metadata                 Json                      @default("{}")
+  created_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  tenants                  tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_migration_validation_findings_tenant")
+  migration_import_records migration_import_records? @relation(fields: [import_record_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_import_jobs    migration_import_jobs     @relation(fields: [job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration_source_files   migration_source_files    @relation(fields: [source_file_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, job_id, severity, finding_code], map: "idx_migration_validation_findings_job")
+  @@index([tenant_id, import_record_id], map: "idx_migration_validation_findings_record")
 }
