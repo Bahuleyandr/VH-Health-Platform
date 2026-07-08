@@ -1,5 +1,5 @@
 import { apiFetch } from '../api-fetch';
-import { APIError, deleteJSON, fetchAdminAPI, getJSON, postJSON } from './core';
+import { APIError, deleteJSON, fetchAdminAPI, getJSON, postJSON, type QueryParams } from './core';
 
 export interface ClinicalAiConfig {
   moduleKey?: string | null;
@@ -1786,6 +1786,52 @@ export interface BedDischargeForecast {
   generated_at: string;
 }
 
+export interface CommandCenterCensusLosSummary {
+  ward: string;
+  forecast_window_hours: number;
+  admitted_count: number;
+  likely_discharges_24h: number;
+  likely_discharges_48h: number;
+}
+
+export interface CommandCenterCensusLosPatient {
+  admission_id: number | null;
+  patient_uid: string | null;
+  ward: string | null;
+  bed_number: string | null;
+  likely_discharge_24h: boolean;
+  likely_discharge_48h: boolean;
+  remaining_hours_estimate: number | null;
+}
+
+export interface CommandCenterCensusLosBridge {
+  settings_key: string;
+  source_modules: string[];
+  governance_owner_role: string;
+  freshness_threshold_minutes: number;
+  hide_stale_forecasts: boolean;
+  stale_forecasts_hidden_locked: boolean;
+  decision_support_only: boolean;
+  review_required: boolean;
+  visible: boolean;
+  hidden: boolean;
+  hidden_reason: 'stale_forecast' | 'missing_forecast' | null;
+  latest_forecast_id: number | null;
+  generated_at: string | null;
+  stored_at: string | null;
+  age_minutes: number | null;
+  confidence_band: string;
+  summary: CommandCenterCensusLosSummary | null;
+  patients: CommandCenterCensusLosPatient[];
+  recommended_actions: string[];
+}
+
+export interface CommandCenterSnapshotsResult extends Record<string, unknown> {
+  snapshots: unknown[];
+  count: number;
+  census_los?: CommandCenterCensusLosBridge;
+}
+
 export interface PharmacyStockoutForecastItem {
   medication_name: string;
   order_count: number;
@@ -1805,6 +1851,22 @@ export async function getBedDischargeForecast(params: { ward?: string; windowHou
   if (params.ward) query.ward = params.ward;
   if (params.windowHours) query.window_hours = params.windowHours;
   return getJSON<BedDischargeForecast>('/admin/forecast/beds', query);
+}
+
+export async function getCommandCenterSnapshots(params: Record<string, unknown> = {}) {
+  const query: QueryParams = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (
+      typeof value === 'string'
+      || typeof value === 'number'
+      || typeof value === 'boolean'
+      || value === null
+      || value === undefined
+    ) {
+      query[key] = value;
+    }
+  }
+  return getJSON<CommandCenterSnapshotsResult>('/admin/clinical-ai/command-center/snapshots', query);
 }
 
 export async function getPharmacyStockoutForecast(days = 7) {

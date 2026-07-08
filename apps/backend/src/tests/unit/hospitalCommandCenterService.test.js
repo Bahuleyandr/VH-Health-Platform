@@ -10,6 +10,8 @@ import {
   computeOverallScore,
   evaluateCommandCenter,
   buildCommandActions,
+  buildCensusLosSignals,
+  normalizeCensusLosSettings,
 } from '../../services/ai/hospitalCommandCenterService.js';
 
 describe('hospital command center helpers', () => {
@@ -174,6 +176,12 @@ describe('hospital command center helpers', () => {
     it('sums score_delta values across department results', () => {
       expect(computeOverallScore([{ score_delta: 10 }, { score_delta: 25 }])).toBe(35);
     });
+
+    it('converts Decimal-like score values before wire shaping', () => {
+      expect(
+        computeOverallScore([{ score_delta: { toNumber: () => 12.5 } }, { score_delta: 2 }]),
+      ).toBe(14.5);
+    });
   });
 
   describe('evaluateCommandCenter', () => {
@@ -197,6 +205,43 @@ describe('hospital command center helpers', () => {
       expect(Array.isArray(actions)).toBe(true);
       expect(actions.some((line) => /decision support only/i.test(line))).toBe(true);
       expect(actions.some((line) => /crisis|bed/i.test(line))).toBe(true);
+    });
+
+    it('adds a census/LOS refresh action when the forecast is hidden as stale', () => {
+      const actions = buildCommandActions({
+        commandStatus: 'watch',
+        departmentStatus: { bed: { tier: 'watch' } },
+        signals: [{ code: 'CENSUS_LOS_FORECAST_STALE' }],
+      });
+      expect(actions.some((line) => /predictive LOS tiles hidden/i.test(line))).toBe(true);
+      expect(actions.some((line) => /decision support only/i.test(line))).toBe(true);
+    });
+  });
+
+  describe('normalizeCensusLosSettings', () => {
+    it('locks stale forecast hiding on even when tenant settings try to disable it', () => {
+      const settings = normalizeCensusLosSettings({
+        governance_owner_role: 'HOUSE_SUPERVISOR',
+        freshness_threshold_minutes: 9999,
+        hide_stale_forecasts: false,
+      });
+      expect(settings.governance_owner_role).toBe('HOUSE_SUPERVISOR');
+      expect(settings.freshness_threshold_minutes).toBe(1440);
+      expect(settings.hide_stale_forecasts).toBe(true);
+      expect(settings.stale_forecasts_hidden_locked).toBe(true);
+    });
+  });
+
+  describe('buildCensusLosSignals', () => {
+    it('emits a governance-owned stale signal without exposing stale forecast rows', () => {
+      const signals = buildCensusLosSignals({
+        hidden_reason: 'stale_forecast',
+        age_minutes: 180,
+        governance_owner_role: 'BED_MANAGER',
+      });
+      expect(signals).toHaveLength(1);
+      expect(signals[0].code).toBe('CENSUS_LOS_FORECAST_STALE');
+      expect(signals[0].detail).toMatch(/BED_MANAGER/);
     });
   });
 });
