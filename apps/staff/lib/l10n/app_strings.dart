@@ -7061,6 +7061,25 @@ class AppStrings {
       's4.lib.patient_command_board.no_active_patients': "No active patients",
       's4.lib.patient_command_board.no_matching_patients':
           "No matching patients",
+      's4.lib.patient_command_board.icu_chart': "ICU chart",
+      's4.lib.patient_command_board.device_vitals': "device vitals",
+      's4.lib.patient_command_board.unverified': "unverified",
+      's4.lib.patient_command_board.active_lines': "active lines",
+      's4.lib.patient_command_board.weaning_trials': "weaning trials",
+      's4.lib.patient_command_board.latest_device_vitals':
+          "Latest device vitals",
+      's4.lib.patient_command_board.no_device_vitals': "No device vitals",
+      's4.lib.patient_command_board.ventilation': "Ventilation",
+      's4.lib.patient_command_board.no_active_episode': "No active episode",
+      's4.lib.patient_command_board.lines_tubes_drains':
+          "Lines / tubes / drains",
+      's4.lib.patient_command_board.no_active_lines': "No active lines",
+      's4.lib.patient_command_board.latest_score': "Latest score",
+      's4.lib.patient_command_board.no_score_output': "No score output",
+      's4.lib.patient_command_board.order_mutation_flagged':
+          "order mutation flagged",
+      's4.lib.patient_command_board.decision_support_only':
+          "decision support only",
       's4.lib.patient_notes_list.addendum': "Addendum",
       's4.lib.patient_context_chip.clear_patient_context':
           "Clear patient context",
@@ -12269,6 +12288,27 @@ class AppStrings {
       's4.lib.patient_command_board.no_active_patients': "कोई सक्रिय रोगी नहीं",
       's4.lib.patient_command_board.no_matching_patients':
           "कोई मेल खाता रोगी नहीं",
+      's4.lib.patient_command_board.icu_chart': "ICU चार्ट",
+      's4.lib.patient_command_board.device_vitals': "डिवाइस वाइटल्स",
+      's4.lib.patient_command_board.unverified': "असत्यापित",
+      's4.lib.patient_command_board.active_lines': "सक्रिय लाइनें",
+      's4.lib.patient_command_board.weaning_trials': "वीिनिंग ट्रायल",
+      's4.lib.patient_command_board.latest_device_vitals':
+          "नवीनतम डिवाइस वाइटल्स",
+      's4.lib.patient_command_board.no_device_vitals':
+          "कोई डिवाइस वाइटल्स नहीं",
+      's4.lib.patient_command_board.ventilation': "वेंटिलेशन",
+      's4.lib.patient_command_board.no_active_episode':
+          "कोई सक्रिय एपिसोड नहीं",
+      's4.lib.patient_command_board.lines_tubes_drains':
+          "लाइनें / ट्यूब / ड्रेन",
+      's4.lib.patient_command_board.no_active_lines': "कोई सक्रिय लाइन नहीं",
+      's4.lib.patient_command_board.latest_score': "नवीनतम स्कोर",
+      's4.lib.patient_command_board.no_score_output': "कोई स्कोर आउटपुट नहीं",
+      's4.lib.patient_command_board.order_mutation_flagged':
+          "ऑर्डर बदलाव चिह्नित",
+      's4.lib.patient_command_board.decision_support_only':
+          "केवल निर्णय सहायता",
       // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
       's4.lib.patient_notes_list.addendum': "परिशिष्ट",
       's4.lib.patient_context_chip.clear_patient_context': "स्पष्ट रोगी संदर्भ",
@@ -18095,6 +18135,27 @@ class AppStrings {
           "செயலில் உள்ள நோயாளிகள் இல்லை",
       's4.lib.patient_command_board.no_matching_patients':
           "பொருந்தும் நோயாளிகள் இல்லை",
+      's4.lib.patient_command_board.icu_chart': "ICU சார்ட்",
+      's4.lib.patient_command_board.device_vitals': "சாதன வைட்டல்ஸ்",
+      's4.lib.patient_command_board.unverified': "சரிபார்க்கப்படாதவை",
+      's4.lib.patient_command_board.active_lines': "செயலில் உள்ள லைன்கள்",
+      's4.lib.patient_command_board.weaning_trials': "வீனிங் சோதனைகள்",
+      's4.lib.patient_command_board.latest_device_vitals':
+          "சமீபத்திய சாதன வைட்டல்ஸ்",
+      's4.lib.patient_command_board.no_device_vitals': "சாதன வைட்டல்ஸ் இல்லை",
+      's4.lib.patient_command_board.ventilation': "வெண்டிலேஷன்",
+      's4.lib.patient_command_board.no_active_episode':
+          "செயலில் உள்ள எபிசோடு இல்லை",
+      's4.lib.patient_command_board.lines_tubes_drains':
+          "லைன்கள் / டியூப்கள் / டிரெயின்கள்",
+      's4.lib.patient_command_board.no_active_lines':
+          "செயலில் உள்ள லைன்கள் இல்லை",
+      's4.lib.patient_command_board.latest_score': "சமீபத்திய ஸ்கோர்",
+      's4.lib.patient_command_board.no_score_output': "ஸ்கோர் வெளியீடு இல்லை",
+      's4.lib.patient_command_board.order_mutation_flagged':
+          "ஆர்டர் மாற்றம் குறிக்கப்பட்டது",
+      's4.lib.patient_command_board.decision_support_only':
+          "முடிவு ஆதரவு மட்டும்",
       // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
       's4.lib.patient_notes_list.addendum': "சேர்க்கை",
       's4.lib.patient_context_chip.clear_patient_context':
@@ -23917,6 +23978,26 @@ class AppStrings {
           "క్రియాశీల రోగులు లేరు",
       's4.lib.patient_command_board.no_matching_patients':
           "సరిపోలే రోగులు లేరు",
+      's4.lib.patient_command_board.icu_chart': "ICU చార్ట్",
+      's4.lib.patient_command_board.device_vitals': "డివైస్ వైటల్స్",
+      's4.lib.patient_command_board.unverified': "ధృవీకరించనివి",
+      's4.lib.patient_command_board.active_lines': "క్రియాశీల లైన్లు",
+      's4.lib.patient_command_board.weaning_trials': "వీనింగ్ ట్రయల్స్",
+      's4.lib.patient_command_board.latest_device_vitals':
+          "తాజా డివైస్ వైటల్స్",
+      's4.lib.patient_command_board.no_device_vitals': "డివైస్ వైటల్స్ లేవు",
+      's4.lib.patient_command_board.ventilation': "వెంటిలేషన్",
+      's4.lib.patient_command_board.no_active_episode':
+          "క్రియాశీల ఎపిసోడ్ లేదు",
+      's4.lib.patient_command_board.lines_tubes_drains':
+          "లైన్లు / ట్యూబులు / డ్రైన్లు",
+      's4.lib.patient_command_board.no_active_lines': "క్రియాశీల లైన్లు లేవు",
+      's4.lib.patient_command_board.latest_score': "తాజా స్కోర్",
+      's4.lib.patient_command_board.no_score_output': "స్కోర్ అవుట్‌పుట్ లేదు",
+      's4.lib.patient_command_board.order_mutation_flagged':
+          "ఆర్డర్ మార్పు గుర్తించబడింది",
+      's4.lib.patient_command_board.decision_support_only':
+          "నిర్ణయ సహాయం మాత్రమే",
       // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
       's4.lib.patient_notes_list.addendum': "అనుబంధం",
       's4.lib.patient_context_chip.clear_patient_context':
@@ -25954,6 +26035,25 @@ class AppStrings {
       'dental.materials': 'വസ്തുക്കൾ',
       'dental.submit_procedure': 'പ്രക്രിയ പ്ലാൻ സേവ് ചെയ്യുക',
       'dental.linked_finding_value': 'പല്ല് {tooth} ൽ {finding}',
+      's4.lib.patient_command_board.icu_chart': 'ICU ചാർട്ട്',
+      's4.lib.patient_command_board.device_vitals': 'ഡിവൈസ് വൈറ്റൽസ്',
+      's4.lib.patient_command_board.unverified': 'സ്ഥിരീകരിക്കാത്തത്',
+      's4.lib.patient_command_board.active_lines': 'സജീവ ലൈനുകൾ',
+      's4.lib.patient_command_board.weaning_trials': 'വീനിംഗ് ട്രയലുകൾ',
+      's4.lib.patient_command_board.latest_device_vitals':
+          'പുതിയ ഡിവൈസ് വൈറ്റൽസ്',
+      's4.lib.patient_command_board.no_device_vitals': 'ഡിവൈസ് വൈറ്റൽസ് ഇല്ല',
+      's4.lib.patient_command_board.ventilation': 'വെന്റിലേഷൻ',
+      's4.lib.patient_command_board.no_active_episode': 'സജീവ എപ്പിസോഡ് ഇല്ല',
+      's4.lib.patient_command_board.lines_tubes_drains':
+          'ലൈനുകൾ / ട്യൂബുകൾ / ഡ്രെയിനുകൾ',
+      's4.lib.patient_command_board.no_active_lines': 'സജീവ ലൈനുകൾ ഇല്ല',
+      's4.lib.patient_command_board.latest_score': 'പുതിയ സ്കോർ',
+      's4.lib.patient_command_board.no_score_output': 'സ്കോർ ഔട്ട്പുട്ട് ഇല്ല',
+      's4.lib.patient_command_board.order_mutation_flagged':
+          'ഓർഡർ മാറ്റം അടയാളപ്പെടുത്തി',
+      's4.lib.patient_command_board.decision_support_only':
+          'തീരുമാന സഹായം മാത്രം',
       'summary.title': 'രോഗി സംഗ്രഹം',
       'summary.tooltip': 'രോഗി സംഗ്രഹം',
       'summary.admitted_bed': 'അഡ്മിറ്റ് · ബെഡ് {bed}',

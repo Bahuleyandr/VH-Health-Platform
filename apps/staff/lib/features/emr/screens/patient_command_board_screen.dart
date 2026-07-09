@@ -6,6 +6,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
+import '../widgets/icu_chart_depth_panel.dart';
 import '../widgets/patient_summary_sheet.dart';
 
 @visibleForTesting
@@ -1084,6 +1085,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final alerts = _asMap(row['alerts']);
     final tasks = _asMap(row['tasks']);
     final discharge = _asMap(row['discharge']);
+    final icuChart = _asMap(row['icu_chart']);
     final actions = _asListOfMaps(row['actions']);
     final color = _colorFor(_text(priority['color']));
     final name = _text(
@@ -1261,6 +1263,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium,
                     ),
+                    if (IcuChartDepthPanel.hasRenderableData(icuChart)) ...[
+                      const SizedBox(height: 10),
+                      IcuChartDepthPanel(chart: icuChart),
+                    ],
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
