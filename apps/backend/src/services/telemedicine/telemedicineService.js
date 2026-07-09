@@ -20,6 +20,10 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
+import {
+  createTeleconsultFollowUpFromCompletion,
+  normalizeTeleconsultCompletionFacts,
+} from '../engagement/teleconsultFollowUpService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -279,10 +283,15 @@ export async function transitionTeleconsultation({
   tenantId = null, id, nextStatus,
   cancellationReason = null,
   recordingUrl = null,
+  completionFacts = null,
+  actorUid = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const consultId = normalizeId(id, 'teleconsultation id');
   const cleanNext = normalizeEnum(nextStatus, CONSULT_STATUSES, 'next_status', { required: true });
+  const normalizedCompletionFacts = cleanNext === 'completed' && completionFacts
+    ? normalizeTeleconsultCompletionFacts(completionFacts)
+    : null;
 
   const current = await getTeleconsultation({ tenantId: tid, id: consultId });
   const allowed = CONSULT_TRANSITIONS[current.status] || [];
@@ -321,6 +330,15 @@ export async function transitionTeleconsultation({
     ...params,
   );
   if (!rows[0]) throw AppError.notFound('Teleconsultation not found');
+  if (normalizedCompletionFacts) {
+    const followUp = await createTeleconsultFollowUpFromCompletion({
+      tenantId: tid,
+      teleconsultationId: rows[0].id,
+      completionFacts: normalizedCompletionFacts,
+      actorUid,
+    });
+    return { ...rows[0], follow_up_loop: followUp };
+  }
   return rows[0];
 }
 
