@@ -1793,6 +1793,9 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(crisis.body.data.module_key).toBe('hospital_command_center');
     expect(crisis.body.data.command_status).toBe('crisis');
     expect(crisis.body.data.overall_score).toBeGreaterThan(0);
+    expect(crisis.body.data.census_los.decision_support_only).toBe(true);
+    expect(crisis.body.data.census_los.hide_stale_forecasts).toBe(true);
+    expect(crisis.body.data.census_los.stale_forecasts_hidden_locked).toBe(true);
 
     const normal = await admin.post('/api/v1/admin/clinical-ai/command-center/evaluate').send({
       bed: { occupancyPct: 70, dischargeReadyWaitMinutes: 30, admissionQueueCount: 1 },
@@ -1808,6 +1811,13 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const listed = await admin.get('/api/v1/admin/clinical-ai/command-center/snapshots');
     expectStatus(listed, 200, 'list command center snapshots');
     expect(listed.body.data.snapshots.length).toBeGreaterThanOrEqual(2);
+    expect(listed.body.data.census_los.governance_owner_role).toBeTruthy();
+    expect(listed.body.data.census_los.decision_support_only).toBe(true);
+    if (listed.body.data.census_los.hidden) {
+      expect(listed.body.data.census_los.patients).toEqual([]);
+    } else {
+      expect(listed.body.data.census_los.summary).toBeTruthy();
+    }
 
     const decided = await admin
       .patch(`/api/v1/admin/clinical-ai/command-center/snapshots/${crisis.body.data.snapshot_id}`)

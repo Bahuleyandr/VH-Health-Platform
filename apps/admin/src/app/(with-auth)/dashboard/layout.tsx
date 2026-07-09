@@ -51,6 +51,7 @@ const navigation: NavItem[] = [
   { name: 'Attendance Audit', href: '/dashboard/attendance-audit', requiredRole: 'ADMIN' },
   { name: 'Incident Reports', href: '/dashboard/incidents', minRole: 'HR' },
   { name: 'Housekeeping', href: '/dashboard/housekeeping', minRole: 'HR' },
+  { name: 'Linen & Laundry', href: '/dashboard/linen-laundry', minRole: 'STAFF' },
   { name: 'Grievances (HR)', href: '/dashboard/grievances', minRole: 'HR' },
   { name: 'Bed Management', href: '/dashboard/beds', requiredPermissions: ['departmentManagement'] },
   { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },

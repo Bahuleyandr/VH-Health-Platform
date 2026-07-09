@@ -14,6 +14,10 @@ import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js
 import * as snapshot from '../../services/dashboards/snapshotService.js';
 import { getTeleconsultOpsSnapshot } from '../../services/dashboards/teleconsultOpsService.js';
 import * as metabase from '../../services/dashboards/metabaseService.js';
+import {
+  listDashboardCatalog,
+  listDatasetCatalog,
+} from '../../services/dashboards/analyticsCatalogService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -22,6 +26,10 @@ const router = Router();
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
+}
+
+function roleOf(req) {
+  return req.user?.rawRole || req.user?.role;
 }
 
 function wrap(handler) {
@@ -96,8 +104,16 @@ router.get('/snapshot/lab-tat', requireAdmin, wrap(async (req) =>
 ));
 
 // ── Metabase embedding ──────────────────────────────────────────────
-router.get('/embed/list', requireAdmin, wrap(async () =>
-  metabase.listDashboards(),
+router.get('/catalog', requireAdmin, wrap(async (req) => {
+  const [datasets, dashboards] = await Promise.all([
+    listDatasetCatalog(),
+    listDashboardCatalog({ role: roleOf(req), includeHeld: true }),
+  ]);
+  return { datasets, dashboards };
+}));
+
+router.get('/embed/list', requireAdmin, wrap(async (req) =>
+  metabase.listDashboards({ role: roleOf(req) }),
 ));
 
 router.post('/embed/url', requireAdmin, wrap(async (req) =>
@@ -106,6 +122,7 @@ router.post('/embed/url', requireAdmin, wrap(async (req) =>
     params: req.body.params || {},
     ttlSeconds: req.body.ttlSeconds,
     tenantId: tenantOf(req),
+    role: roleOf(req),
   }),
 ));
 

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_core/theme/design_tokens.dart';
 import 'package:vhhealth_staff/core/theme/app_theme.dart';
 
 void main() {
@@ -63,6 +64,28 @@ void main() {
         theme.iconButtonTheme.style?.overlayColor?.resolve(hovered),
         isNotNull,
       );
+    });
+  });
+
+  group('AppTheme design tokens', () {
+    test('attaches staff color and shape extensions', () {
+      final light = AppTheme.lightTheme;
+      final colors = light.extension<VhColorTokens>();
+      final shape = light.extension<VhShapeTokens>();
+
+      expect(colors, isNotNull);
+      expect(colors?.primary, VhDesignTokens.clinicalPrimary);
+      expect(colors?.warningOnSurface, VhDesignTokens.warningOnSurfaceLight);
+      expect(shape?.cardRadius, 12);
+      expect(shape?.focusRingWidth, 2);
+    });
+
+    test('uses AA warning-on-surface colors for body text', () {
+      AppTheme.brightness = Brightness.light;
+      expect(AppTheme.warningOnSurface, VhDesignTokens.warningOnSurfaceLight);
+
+      AppTheme.brightness = Brightness.dark;
+      expect(AppTheme.warningOnSurface, VhDesignTokens.warningOnSurfaceDark);
     });
   });
 }

@@ -50,6 +50,7 @@ were consolidated into it on 2026-06-22 and moved to [`archive/`](archive/).
 | Production DB hardening | [`PRODUCTION_DB_HARDENING.md`](PRODUCTION_DB_HARDENING.md) |
 | Downtime procedure | [`DOWNTIME_PROCEDURE.md`](DOWNTIME_PROCEDURE.md) |
 | DR restore drill evidence | [`DR_RESTORE_DRILL.md`](DR_RESTORE_DRILL.md) |
+| Cross-site DR failover plan | [`CROSS_SITE_DR_FAILOVER_PLAN.md`](CROSS_SITE_DR_FAILOVER_PLAN.md) |
 | Live Dalekdefender drift remediation | [`LIVE_DALEKDEFENDER_DRIFT_REMEDIATION.md`](archive/LIVE_DALEKDEFENDER_DRIFT_REMEDIATION.md) |
 | Per-tenant rollout playbook | [`PER_TENANT_ROLLOUT_PLAYBOOK.md`](PER_TENANT_ROLLOUT_PLAYBOOK.md) |
 

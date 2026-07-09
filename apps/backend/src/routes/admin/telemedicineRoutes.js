@@ -8,6 +8,7 @@
  *   GET    /telemedicine/teleconsultations/:id          — fetch one
  *   PATCH  /telemedicine/teleconsultations/:id/transition  — status flip
  *   POST   /telemedicine/teleconsultations/:id/consent  — record remote consent
+ *   PATCH  /telemedicine/follow-up-loops/:id/close      — close follow-up loop
  *
  *   POST   /telemedicine/video-sessions                 — create video session
  *   GET    /telemedicine/video-sessions                 — list
@@ -32,6 +33,7 @@
 import express from 'express';
 
 import { error, success } from '../../utils/responseHelper.js';
+import { closeTeleconsultFollowUpLoop } from '../../services/engagement/teleconsultFollowUpService.js';
 import {
   closeChatSession,
   createChatSession,
@@ -114,6 +116,8 @@ router.patch('/teleconsultations/:id/transition', async (req, res, next) => {
       nextStatus: body.next_status,
       cancellationReason: body.cancellation_reason,
       recordingUrl: body.recording_url,
+      completionFacts: body.completion_facts || body.follow_up_facts || null,
+      actorUid: req.user?.uid || null,
     });
     return success(res, row, 'Teleconsultation transitioned');
   } catch (err) { return next(err); }
@@ -130,6 +134,20 @@ router.post('/teleconsultations/:id/consent', async (req, res, next) => {
       signedAt: body.signed_at,
     });
     return success(res, row, 'Remote consent recorded');
+  } catch (err) { return next(err); }
+});
+
+router.patch('/follow-up-loops/:id/close', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const row = await closeTeleconsultFollowUpLoop({
+      tenantId: req.tenantId,
+      id: req.params.id,
+      nextStatus: body.next_status || 'completed',
+      closeReason: body.close_reason,
+      actorUid: req.user?.uid || null,
+    });
+    return success(res, row, 'Teleconsult follow-up loop closed');
   } catch (err) { return next(err); }
 });
 

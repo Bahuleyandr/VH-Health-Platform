@@ -83,6 +83,7 @@ import {
   INVESTIGATION_ROUTE_ROLES,
   IPD_SUPPORT_ROUTE_ROLES,
   LAB_ROUTE_ROLES,
+  LINEN_LAUNDRY_ROUTE_ROLES,
   MATERNITY_ROUTE_ROLES,
   MICROBIOLOGY_ROUTE_ROLES,
   NURSING_ASSESSMENT_ROUTE_ROLES,
@@ -110,6 +111,7 @@ import {
 // Public / mixed modules
 import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
 import { callbackRouter as nhcxCallbackRoutes } from './routes/nhcx/nhcxCallbackRoutes.js';
+import interfaceEngineIngressRoutes from './routes/interfaceEngine/interfaceEngineIngressRoutes.js';
 import adminDashboardRoutes from './routes/admin/index.js';
 import clinicalAiAdminRoutes from './routes/admin/clinicalAiRoutes.js';
 import clinicalAiClinicalUseRoutes from './routes/admin/clinicalAi/clinicalUseRoutes.js';
@@ -158,6 +160,7 @@ import pharmacySupplyRoutes from './routes/admin/pharmacySupplyRoutes.js';
 import prescriptionRoutes from './routes/prescription/index.js';
 import recordRoutes from './routes/record/index.js';
 import housekeepingRoutes from './routes/housekeepingRoutes.js';
+import linenLaundryRoutes from './routes/linen/linenLaundryRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 import scimRoutes from './routes/scimRoutes.js';
 import staffRoutes from './routes/staff/index.js';
@@ -596,6 +599,8 @@ app.use('/api/v1/scim/v2', genericLimiter, scimRoutes);
 app.use('/api/v1/abdm', abdmCallbackRoutes);
 // NHCX gateway callbacks (public — no JWT/API key, tenant-scoped signed callback)
 app.use('/api/v1/integrations/nhcx', nhcxCallbackRoutes);
+// NL11-S11 interface-engine ingress (public connector, HMAC-signed per tenant/channel).
+app.use('/api/v1/interface-engine', genericLimiter, interfaceEngineIngressRoutes);
 
 // ====================================
 // PUBLIC HEALTH CHECK (no auth required — for Render/uptime monitors)
@@ -826,6 +831,13 @@ app.use(
   '/api/v1/housekeeping',
   requireRole(...HOUSEKEEPING_VISIBILITY_ROUTE_ROLES),
   housekeepingRoutes,
+);
+
+app.use(
+  '/api/v1/linen-laundry',
+  requireRole(...LINEN_LAUNDRY_ROUTE_ROLES),
+  sanitizeAllBodyStrings,
+  linenLaundryRoutes,
 );
 
 // Bed/Ward management.

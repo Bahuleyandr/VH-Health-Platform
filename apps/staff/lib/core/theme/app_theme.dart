@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/theme/design_tokens.dart';
 
 class AppTheme {
   AppTheme._();
@@ -33,11 +34,8 @@ class AppTheme {
   static const Color primaryTeal = Color(0xFF00796B);
   static const Color accentCyan = Color(0xFF0097A7);
   static const Color successGreen = Color(0xFF2E7D32);
-  // warningAmber darkened from #F57F17 (Material Orange 800) to #E65100
-  // (Material Orange 900). The previous tone gave only 2.65:1 contrast
-  // for both warningAmber text on white AND white text on warningAmber
-  // backgrounds — failing WCAG AA either way. #E65100 raises both pairs
-  // to ~5.8:1 (AA) without losing the "amber" reading at a glance.
+  // warningAmber is the filled-status token. Body text uses
+  // warningOnSurface, which is darker in light mode to meet WCAG AA.
   static const Color warningAmber = Color(0xFFE65100);
   static const Color errorRed = Color(0xFFC62828);
 
@@ -114,14 +112,14 @@ class AppTheme {
   //   - body text rendered directly on `cardSurface` or `backgroundGrey`
   //   - inline error/success messages
   static Color get successOnSurface => brightness == Brightness.dark
-      ? const Color(0xFF66BB6A) // Material Green 400 — 6.45:1 on darkCard
+      ? VhDesignTokens.successOnSurfaceDark
       : successGreen;
   static Color get errorOnSurface => brightness == Brightness.dark
-      ? const Color(0xFFFF8A80) // Material Red A100 — 6.42:1 on darkCard
+      ? VhDesignTokens.errorOnSurfaceDark
       : errorRed;
   static Color get warningOnSurface => brightness == Brightness.dark
-      ? const Color(0xFFFFB74D) // Material Orange 300 — 6.92:1 on darkCard
-      : warningAmber;
+      ? VhDesignTokens.warningOnSurfaceDark
+      : VhDesignTokens.warningOnSurfaceLight;
 
   static bool get _persistentDesktopScrollbars {
     if (kIsWeb) return true;
@@ -200,6 +198,10 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
+      extensions: const <ThemeExtension<dynamic>>[
+        VhDesignTokens.staffLight,
+        VhDesignTokens.shape,
+      ],
       scaffoldBackgroundColor: _lightBackground,
       fontFamily: 'Roboto',
       canvasColor: _lightBackground,
@@ -422,6 +424,10 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
+      extensions: const <ThemeExtension<dynamic>>[
+        VhDesignTokens.staffDark,
+        VhDesignTokens.shape,
+      ],
       scaffoldBackgroundColor: darkBackground,
       fontFamily: 'Roboto',
       canvasColor: darkBackground,

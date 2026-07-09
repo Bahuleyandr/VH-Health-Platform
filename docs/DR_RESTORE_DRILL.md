@@ -10,6 +10,12 @@ storage layer eating itself — those need the **off-site** backup chain:
 continuous WAL archiving + nightly base backups to Cloudflare R2
 (`base/cnpg/cluster.yaml` + `base/cnpg/scheduled-backup.yaml`).
 
+Cross-site promotion is covered by the companion
+[`CROSS_SITE_DR_FAILOVER_PLAN.md`](CROSS_SITE_DR_FAILOVER_PLAN.md). Use this
+document for PITR mechanics; use the cross-site plan when the primary site,
+network, or storage layer is unavailable and traffic must move to an approved
+secondary site.
+
 ---
 
 ## Targets (confirmed with hospital leadership — sign off date: TBD)
@@ -250,6 +256,12 @@ Copy this block, fill in values, save to `docs/qa-findings/YYYY-MM-DD-dr-drill.m
 ---
 
 ## Real-incident quick path
+
+For a site-disaster or primary-site isolation event, first read
+[`CROSS_SITE_DR_FAILOVER_PLAN.md`](CROSS_SITE_DR_FAILOVER_PLAN.md) and run the
+cross-site preflight. The steps below are the same database recovery hot path,
+but cross-site promotion adds operator approval, DNS/tunnel cutover, and the
+promotion evidence template.
 
 1. **Declare**: wards switch to the downtime procedure
    (`docs/DOWNTIME_PROCEDURE.md`). Incident commander paged.

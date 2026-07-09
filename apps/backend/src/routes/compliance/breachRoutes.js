@@ -12,6 +12,7 @@ import {
   listDataProcessingActivities,
   upsertDataProcessingActivity,
 } from '../../services/compliance/dataProcessingActivityService.js';
+import { getCertificationCockpit } from '../../services/compliance/certificationCockpitService.js';
 import { getComplianceDashboard } from '../../services/compliance/complianceDashboardService.js';
 import {
   getNextNumber,
@@ -364,6 +365,13 @@ router.get('/dashboard', async (req, res, next) => {
   try {
     const result = await getComplianceDashboard({ tenantId: req.tenantId });
     return success(res, result, 'Compliance dashboard retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.get('/certification-cockpit', async (req, res, next) => {
+  try {
+    const result = await getCertificationCockpit({ tenantId: req.tenantId });
+    return success(res, result, 'Certification evidence cockpit retrieved');
   } catch (err) { return next(err); }
 });
 

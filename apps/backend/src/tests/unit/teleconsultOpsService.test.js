@@ -1,11 +1,14 @@
 import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
+const prismaMock = {
+  $queryRawUnsafe: queryRawUnsafeMock,
+};
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryRawUnsafeMock,
-  },
+  default: prismaMock,
+  setTenant: async (_tenantId, fn) => fn(prismaMock),
+  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
 }));
 
 const {
