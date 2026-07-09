@@ -10,6 +10,9 @@ You are implementing **NL-13 Suite 6 (Nuclear Medicine And Radiotherapy Coordina
 ```
 git fetch github
 git grep -q "NL-13 Quaternary Specialty Suites Design Survey" github/main -- docs/superpowers/specs/2026-07-08-nl13-quaternary-suites-design.md
+# PREREQUISITE gate — NL13-P3 oncology staging (block 489–494) must be MERGED to main
+# (your radiotherapy referrals reference its oncology_diagnoses/staging records):
+git ls-tree --name-only github/main:apps/backend/src/migrations | grep -qE "^(489|49[0-4])_"
 ```
 Exit 0 → proceed. Exit 1 → STOP and report.
 
