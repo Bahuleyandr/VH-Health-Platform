@@ -74,6 +74,7 @@ export function runInfraStage({ install } = {}) {
   let installedTools;
   try {
     run(process.execPath, ['--test', 'scripts/update-prod-digests.test.mjs']);
+    run(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
 
     if (
       install &&

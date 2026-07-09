@@ -4,6 +4,7 @@ import {
   addMinutes,
   expandTemplateSlots,
   computeOverbookAllowance,
+  applyOverbookPolicy,
 } from '../../services/scheduling/schedulingOptimizationService.js';
 
 describe('scheduling expandTemplateSlots', () => {
@@ -30,5 +31,24 @@ describe('scheduling computeOverbookAllowance', () => {
   test('ignores junk scores and never goes negative', () => {
     expect(computeOverbookAllowance(10, [NaN, -1, 2, null])).toBe(0);
     expect(computeOverbookAllowance(0, [0.9])).toBe(0);
+  });
+});
+
+describe('scheduling applyOverbookPolicy', () => {
+  test('keeps no-show suggestions inert until policy is enabled', () => {
+    const result = applyOverbookPolicy(20, [0.9, 0.9, 0.9], { enabled: false });
+    expect(result.allowance).toBe(0);
+    expect(result.suggested_allowance).toBe(2);
+    expect(result.reason).toBe('policy_disabled');
+  });
+
+  test('caps enabled policies by both fraction and slots', () => {
+    const result = applyOverbookPolicy(20, [0.9, 0.9, 0.9], {
+      enabled: true,
+      max_overbook_fraction: 0.5,
+      max_overbook_slots: 1,
+    });
+    expect(result.allowance).toBe(1);
+    expect(result.reason).toBe('policy_enabled');
   });
 });

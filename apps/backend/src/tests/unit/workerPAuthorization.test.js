@@ -271,7 +271,7 @@ describe('Worker P scheduling authorization', () => {
       name: 'Procedure Room 1',
     });
 
-    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('(tenant_id, kind, name, location)');
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('(tenant_id, kind, name, location, service_code');
     expect(queryRawUnsafeMock.mock.calls[0][1]).toBe(TENANT_ID);
   });
 });

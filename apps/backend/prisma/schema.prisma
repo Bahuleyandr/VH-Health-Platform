@@ -804,53 +804,54 @@ model appointment_status_history {
 }
 
 model appointments {
-  id                                   Int                          @id @default(autoincrement())
-  uid                                  String                       @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  phone                                String                       @db.VarChar(15)
+  id                                   Int                                @id @default(autoincrement())
+  uid                                  String                             @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone                                String                             @db.VarChar(15)
   patient_id                           Int?
   doctor_id                            Int?
-  doctor_name                          String                       @default("") @db.VarChar(100)
-  patient_name                         String?                      @db.VarChar(255)
-  appointment_date                     DateTime                     @db.Date
-  appointment_time                     String                       @db.VarChar(10)
-  status                               String                       @default("SCHEDULED") @db.VarChar(50)
+  doctor_name                          String                             @default("") @db.VarChar(100)
+  patient_name                         String?                            @db.VarChar(255)
+  appointment_date                     DateTime                           @db.Date
+  appointment_time                     String                             @db.VarChar(10)
+  status                               String                             @default("SCHEDULED") @db.VarChar(50)
   reason                               String?
   notes                                String?
-  created_at                           DateTime                     @default(now()) @db.Timestamp(6)
-  updated_at                           DateTime                     @db.Timestamp(6)
-  admin_override                       Boolean                      @default(false)
+  created_at                           DateTime                           @default(now()) @db.Timestamp(6)
+  updated_at                           DateTime                           @db.Timestamp(6)
+  admin_override                       Boolean                            @default(false)
   override_reason                      String?
-  created_by                           String?                      @db.Uuid
-  updated_by                           String?                      @db.Uuid
-  reminder_sent                        Boolean                      @default(false)
-  reminder_1h_sent                     Boolean                      @default(false)
-  reminder_24h_sent                    Boolean                      @default(false)
-  token_number                         String?                      @db.VarChar(20)
-  department                           String?                      @db.VarChar(100)
-  confirmed_at                         DateTime?                    @db.Timestamptz(6)
-  sla_target_at                        DateTime?                    @db.Timestamptz(6)
-  visit_type                           String?                      @db.VarChar(50)
-  advised_for_admission_at             DateTime?                    @db.Timestamptz(6)
-  advised_for_admission_by             String?                      @db.Uuid
+  created_by                           String?                            @db.Uuid
+  updated_by                           String?                            @db.Uuid
+  reminder_sent                        Boolean                            @default(false)
+  reminder_1h_sent                     Boolean                            @default(false)
+  reminder_24h_sent                    Boolean                            @default(false)
+  token_number                         String?                            @db.VarChar(20)
+  department                           String?                            @db.VarChar(100)
+  confirmed_at                         DateTime?                          @db.Timestamptz(6)
+  sla_target_at                        DateTime?                          @db.Timestamptz(6)
+  visit_type                           String?                            @db.VarChar(50)
+  advised_for_admission_at             DateTime?                          @db.Timestamptz(6)
+  advised_for_admission_by             String?                            @db.Uuid
   advised_for_admission_note           String?
   parent_appointment_id                Int?
-  visit_no                             String?                      @db.VarChar(50)
-  payer_type                           String?                      @db.VarChar(30)
-  patient_category                     String?                      @db.VarChar(30)
-  insurer_name                         String?                      @db.VarChar(160)
-  policy_number                        String?                      @db.VarChar(80)
-  scheme_name                          String?                      @db.VarChar(120)
-  triage_acuity                        Int?                         @db.SmallInt
-  tenant_id                            String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  visit_no                             String?                            @db.VarChar(50)
+  payer_type                           String?                            @db.VarChar(30)
+  patient_category                     String?                            @db.VarChar(30)
+  insurer_name                         String?                            @db.VarChar(160)
+  policy_number                        String?                            @db.VarChar(80)
+  scheme_name                          String?                            @db.VarChar(120)
+  triage_acuity                        Int?                               @db.SmallInt
+  tenant_id                            String                             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   queue_id                             Int?
   appointment_documents                appointment_documents[]
+  appointment_slot_holds               appointment_slot_holds[]
   appointment_status_history           appointment_status_history[]
-  users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
-  appointments                         appointments?                @relation("appointmentsToappointments", fields: [parent_appointment_id], references: [id], onUpdate: NoAction)
-  other_appointments                   appointments[]               @relation("appointmentsToappointments")
-  users_appointments_patient_idTousers users?                       @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
-  appointment_queues                   appointment_queues?          @relation(fields: [queue_id], references: [id], onUpdate: NoAction)
-  tenants                              tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointments_tenant")
+  users_appointments_doctor_idTousers  users?                             @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
+  appointments                         appointments?                      @relation("appointmentsToappointments", fields: [parent_appointment_id], references: [id], onUpdate: NoAction)
+  other_appointments                   appointments[]                     @relation("appointmentsToappointments")
+  users_appointments_patient_idTousers users?                             @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
+  appointment_queues                   appointment_queues?                @relation(fields: [queue_id], references: [id], onUpdate: NoAction)
+  tenants                              tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointments_tenant")
   bed_inspections                      bed_inspections[]
   clinical_notes                       clinical_notes[]
   engagement_follow_up_loops           engagement_follow_up_loops[]
@@ -860,6 +861,7 @@ model appointments {
   ophthalmic_exams                     ophthalmic_exams[]
   patient_flow_checkins                patient_flow_checkins[]
   porter_transport_tasks               porter_transport_tasks[]
+  scheduling_overbook_audit_events     scheduling_overbook_audit_events[]
   teleconsultations                    teleconsultations[]
 
   @@unique([tenant_id, doctor_id, appointment_date, appointment_time], map: "uniq_appointments_active_doctor_slot", where: raw("((doctor_id IS NOT NULL) AND (appointment_time IS NOT NULL) AND (btrim((appointment_time)::text) <> ''::text) AND (lower(btrim((appointment_time)::text)) <> 'walk-in'::text) AND ((status)::text <> ALL ((ARRAY['CANCELLED'::character varying, 'NO_SHOW'::character varying, 'RESCHEDULED'::character varying])::text[])))"))
@@ -8162,24 +8164,40 @@ model prescription_safety_overrides {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model provider_availability_templates {
-  id             Int       @id @default(autoincrement())
-  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  doctor_id      Int
-  weekday        Int       @db.SmallInt
-  start_time     DateTime  @db.Time(6)
-  end_time       DateTime  @db.Time(6)
-  slot_minutes   Int       @default(15)
-  location       String?   @db.VarChar(120)
-  effective_from DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
-  effective_to   DateTime? @db.Date
-  is_active      Boolean   @default(true)
-  created_by     String?   @db.Uuid
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
-  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_availability_tenant")
+  id                                        Int                                         @id @default(autoincrement())
+  tenant_id                                 String                                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  doctor_id                                 Int
+  weekday                                   Int                                         @db.SmallInt
+  start_time                                DateTime                                    @db.Time(6)
+  end_time                                  DateTime                                    @db.Time(6)
+  slot_minutes                              Int                                         @default(15)
+  location                                  String?                                     @db.VarChar(120)
+  effective_from                            DateTime                                    @default(dbgenerated("CURRENT_DATE")) @db.Date
+  effective_to                              DateTime?                                   @db.Date
+  is_active                                 Boolean                                     @default(true)
+  created_by                                String?                                     @db.Uuid
+  created_at                                DateTime                                    @default(now()) @db.Timestamptz(6)
+  updated_at                                DateTime                                    @default(now()) @db.Timestamptz(6)
+  template_group_uid                        String                                      @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  version                                   Int                                         @default(1)
+  status                                    String                                      @default("active") @db.VarChar(20)
+  appointment_type                          String?                                     @db.VarChar(60)
+  service_code                              String?                                     @db.VarChar(80)
+  visit_type                                String?                                     @db.VarChar(40)
+  room_resource_id                          Int?
+  counter_location                          String?                                     @db.VarChar(120)
+  metadata                                  Json                                        @default("{}")
+  provider_availability_template_audit      provider_availability_template_audit[]
+  provider_availability_template_exceptions provider_availability_template_exceptions[]
+  bookable_resources                        bookable_resources?                         @relation(fields: [room_resource_id], references: [id], onUpdate: NoAction, map: "fk_provider_availability_room_resource")
+  tenants                                   tenants                                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_availability_tenant")
+  scheduling_resource_compatibility         scheduling_resource_compatibility[]
 
+  @@unique([tenant_id, template_group_uid, version], map: "uq_provider_availability_template_version")
   @@index([doctor_id, weekday], map: "idx_provider_availability_doctor", where: raw("is_active"))
   @@index([tenant_id], map: "idx_provider_availability_templates_tenant_id")
+  @@index([tenant_id, template_group_uid, status, version(sort: Desc)], map: "idx_provider_availability_group_active")
+  @@index([tenant_id, doctor_id, appointment_type, service_code, visit_type], map: "idx_provider_availability_service", where: raw("((status)::text = 'active'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -8200,38 +8218,51 @@ model provider_leaves {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model appointment_waitlist {
-  id               Int       @id @default(autoincrement())
-  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid      String    @db.Uuid
-  doctor_id        Int
-  preferred_date   DateTime? @db.Date
-  preferred_window String    @default("any") @db.VarChar(10)
-  priority         Int       @default(5)
-  status           String    @default("waiting") @db.VarChar(20)
-  notes            String?   @db.VarChar(300)
-  offered_slot     Json?
-  offered_at       DateTime? @db.Timestamptz(6)
-  resolved_at      DateTime? @db.Timestamptz(6)
-  created_by       String?   @db.Uuid
-  created_at       DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
-  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_waitlist_tenant")
+  id                 Int       @id @default(autoincrement())
+  tenant_id          String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid        String    @db.Uuid
+  doctor_id          Int
+  preferred_date     DateTime? @db.Date
+  preferred_window   String    @default("any") @db.VarChar(10)
+  priority           Int       @default(5)
+  status             String    @default("waiting") @db.VarChar(20)
+  notes              String?   @db.VarChar(300)
+  offered_slot       Json?
+  offered_at         DateTime? @db.Timestamptz(6)
+  resolved_at        DateTime? @db.Timestamptz(6)
+  created_by         String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
+  offer_expires_at   DateTime? @db.Timestamptz(6)
+  notification_state String    @default("pending") @db.VarChar(30)
+  source_channel     String    @default("staff") @db.VarChar(30)
+  override_reason    String?   @db.VarChar(240)
+  last_notified_at   DateTime? @db.Timestamptz(6)
+  metadata           Json      @default("{}")
+  tenants            tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_waitlist_tenant")
 
   @@index([doctor_id, status, priority, created_at], map: "idx_appointment_waitlist_doctor", where: raw("((status)::text = ANY ((ARRAY['waiting'::character varying, 'offered'::character varying])::text[]))"))
+  @@index([tenant_id, offer_expires_at, status], map: "idx_appointment_waitlist_offer_expiry", where: raw("((status)::text = 'offered'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model bookable_resources {
-  id                Int                 @id @default(autoincrement())
-  tenant_id         String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  kind              String              @db.VarChar(20)
-  name              String              @db.VarChar(160)
-  location          String?             @db.VarChar(160)
-  is_active         Boolean             @default(true)
-  metadata          Json                @default("{}")
-  created_at        DateTime            @default(now()) @db.Timestamptz(6)
-  tenants           tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookable_resources_tenant")
-  resource_bookings resource_bookings[]
+  id                                Int                                 @id @default(autoincrement())
+  tenant_id                         String                              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  kind                              String                              @db.VarChar(20)
+  name                              String                              @db.VarChar(160)
+  location                          String?                             @db.VarChar(160)
+  is_active                         Boolean                             @default(true)
+  metadata                          Json                                @default("{}")
+  created_at                        DateTime                            @default(now()) @db.Timestamptz(6)
+  service_code                      String?                             @db.VarChar(80)
+  department_id                     Int?
+  capacity                          Int                                 @default(1)
+  updated_at                        DateTime                            @default(now()) @db.Timestamptz(6)
+  tenants                           tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookable_resources_tenant")
+  provider_availability_templates   provider_availability_templates[]
+  resource_bookings                 resource_bookings[]
+  scheduling_resource_compatibility scheduling_resource_compatibility[]
 
   @@unique([tenant_id, kind, name], map: "uq_bookable_resources_name")
 }
@@ -9620,6 +9651,7 @@ model tenants {
   appointment_documents                      appointment_documents[]
   appointment_queue_status_history           appointment_queue_status_history[]
   appointment_queues                         appointment_queues[]
+  appointment_slot_holds                     appointment_slot_holds[]
   appointment_status_history                 appointment_status_history[]
   appointment_waitlist                       appointment_waitlist[]
   appointments                               appointments[]
@@ -9843,7 +9875,6 @@ model tenants {
   health_milestone_claims                    health_milestone_claims[]
   health_point_ledger                        health_point_ledger[]
   health_records                             health_records[]
-  help_center_categories                     help_center_categories[]
   hipaa_access_log                           hipaa_access_log[]
   hl7_feed_subscriptions                     hl7_feed_subscriptions[]
   hl7_outbound_messages                      hl7_outbound_messages[]
@@ -9901,9 +9932,6 @@ model tenants {
   lab_interface_messages                     lab_interface_messages[]
   lab_specimen_status_history                lab_specimen_status_history[]
   lab_specimens                              lab_specimens[]
-  learning_assignments                       learning_assignments[]
-  learning_completions                       learning_completions[]
-  learning_modules                           learning_modules[]
   leave_applications                         leave_applications[]
   leave_balance_overrides                    leave_balance_overrides[]
   leave_encashments                          leave_encashments[]
@@ -10023,6 +10051,8 @@ model tenants {
   privilege_catalog                          privilege_catalog[]
   problem_episode_links                      problem_episode_links[]
   problem_list_snapshots                     problem_list_snapshots[]
+  provider_availability_template_audit       provider_availability_template_audit[]
+  provider_availability_template_exceptions  provider_availability_template_exceptions[]
   provider_availability_templates            provider_availability_templates[]
   provider_leaves                            provider_leaves[]
   quality_incidents                          quality_incidents[]
@@ -10049,6 +10079,9 @@ model tenants {
   salary_arrears                             salary_arrears[]
   salary_revisions                           salary_revisions[]
   scheduled_notifications                    scheduled_notifications[]
+  scheduling_overbook_audit_events           scheduling_overbook_audit_events[]
+  scheduling_overbook_policies               scheduling_overbook_policies[]
+  scheduling_resource_compatibility          scheduling_resource_compatibility[]
   service_catalog                            service_catalog[]
   set_issue_log                              set_issue_log[]
   siem_export_cursors                        siem_export_cursors[]
@@ -10110,12 +10143,9 @@ model tenants {
   tenant_idp_role_mappings                   tenant_idp_role_mappings[]
   tenant_interop_secrets                     tenant_interop_secrets[]
   tenant_terminology_settings                tenant_terminology_settings?
-  tour_definitions                           tour_definitions[]
-  tour_events                                tour_events[]
   tpa_claim_correspondence                   tpa_claim_correspondence[]
   tpa_claim_documents                        tpa_claim_documents[]
   tpas                                       tpas[]
-  training_evidence_ledger                   training_evidence_ledger[]
   transfusion_reactions                      transfusion_reactions[]
   transfusion_verifications                  transfusion_verifications[]
   triage_assessments                         triage_assessments[]
@@ -10584,6 +10614,7 @@ model users {
   appointment_documents_appointment_documents_doctor_idTousers                                   appointment_documents[]               @relation("appointment_documents_doctor_idTousers")
   appointment_documents_appointment_documents_patient_idTousers                                  appointment_documents[]               @relation("appointment_documents_patient_idTousers")
   appointment_documents_appointment_documents_uploaded_byTousers                                 appointment_documents[]               @relation("appointment_documents_uploaded_byTousers")
+  appointment_slot_holds                                                                         appointment_slot_holds[]
   appointment_status_history                                                                     appointment_status_history[]
   appointments_appointments_doctor_idTousers                                                     appointments[]                        @relation("appointments_doctor_idTousers")
   appointments_appointments_patient_idTousers                                                    appointments[]                        @relation("appointments_patient_idTousers")
@@ -19608,185 +19639,154 @@ model smart_launch_contexts {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model help_center_categories {
-  id                           BigInt                   @id @default(autoincrement())
-  tenant_id                    String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  category_key                 String                   @db.VarChar(100)
-  label                        String                   @db.VarChar(160)
-  description                  String?
-  parent_category_id           BigInt?
-  role_scope                   String[]                 @default([])
-  sort_order                   Int                      @default(100)
-  status                       String                   @default("active") @db.VarChar(30)
-  metadata                     Json                     @default("{}")
-  created_by                   String?                  @db.Uuid
-  updated_by                   String?                  @db.Uuid
-  created_at                   DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at                   DateTime                 @default(now()) @db.Timestamptz(6)
-  tenants                      tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_help_center_categories_tenant")
-  help_center_categories       help_center_categories?  @relation("help_center_categoriesTohelp_center_categories", fields: [parent_category_id], references: [id], onUpdate: NoAction)
-  other_help_center_categories help_center_categories[] @relation("help_center_categoriesTohelp_center_categories")
+model appointment_slot_holds {
+  id               BigInt        @id @default(autoincrement())
+  tenant_id        String        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  doctor_id        Int
+  appointment_date DateTime      @db.Date
+  slot_start       DateTime      @db.Time(6)
+  slot_end         DateTime      @db.Time(6)
+  source_channel   String        @db.VarChar(30)
+  idempotency_key  String        @db.VarChar(160)
+  hold_token       String        @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  held_by_uid      String?       @db.Uuid
+  held_by_role     String?       @db.VarChar(60)
+  patient_uid      String?       @db.Uuid
+  expires_at       DateTime      @db.Timestamptz(6)
+  status           String        @default("held") @db.VarChar(20)
+  appointment_id   Int?
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime      @default(now()) @db.Timestamptz(6)
+  metadata         Json          @default("{}")
+  appointments     appointments? @relation(fields: [appointment_id], references: [id], onUpdate: NoAction, map: "fk_appointment_slot_holds_appointment")
+  users            users?        @relation(fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_slot_holds_patient")
+  tenants          tenants       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_slot_holds_tenant")
 
-  @@unique([tenant_id, category_key], map: "ux_help_center_categories_key")
-  @@index([tenant_id, status, sort_order, category_key], map: "idx_help_center_categories_tenant_status")
+  @@unique([tenant_id, doctor_id, appointment_date, slot_start], map: "ux_appointment_slot_holds_doctor_slot_active", where: raw("((status)::text = 'held'::text)"))
+  @@unique([tenant_id, idempotency_key], map: "ux_appointment_slot_holds_idempotency_active", where: raw("((status)::text = 'held'::text)"))
+  @@index([tenant_id, expires_at, status], map: "idx_appointment_slot_holds_expiry", where: raw("((status)::text = 'held'::text)"))
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_appointment_slot_holds_patient", where: raw("(patient_uid IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model learning_assignments {
-  id                   BigInt                 @id @default(autoincrement())
-  tenant_id            String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  assignment_key       String                 @db.VarChar(140)
-  module_id            BigInt
-  role_scope           String[]               @default([])
-  assigned_to_uid      String?                @db.Uuid
-  status               String                 @default("active") @db.VarChar(30)
-  due_on               DateTime?              @db.Date
-  evidence_policy      String                 @default("training_completion") @db.VarChar(80)
-  metadata             Json                   @default("{}")
-  created_by           String?                @db.Uuid
-  created_at           DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
-  tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_learning_assignments_tenant")
-  learning_modules     learning_modules       @relation(fields: [module_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  learning_completions learning_completions[]
+model provider_availability_template_audit {
+  id                              BigInt                           @id @default(autoincrement())
+  tenant_id                       String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  template_id                     Int?
+  action                          String                           @db.VarChar(40)
+  changed_by                      String?                          @db.Uuid
+  before_state                    Json?
+  after_state                     Json?
+  metadata                        Json                             @default("{}")
+  created_at                      DateTime                         @default(now()) @db.Timestamptz(6)
+  provider_availability_templates provider_availability_templates? @relation(fields: [template_id], references: [id], onUpdate: NoAction, map: "fk_provider_template_audit_template")
+  tenants                         tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_template_audit_tenant")
 
-  @@unique([tenant_id, assignment_key], map: "ux_learning_assignments_key")
+  @@index([tenant_id, template_id, created_at(sort: Desc)], map: "idx_provider_template_audit_template")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model learning_completions {
-  id                   BigInt                @id @default(autoincrement())
-  tenant_id            String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  module_id            BigInt
-  assignment_id        BigInt?
-  actor_uid            String                @db.Uuid
-  actor_role           String?               @db.VarChar(80)
-  module_version       Int
-  status               String                @default("completed") @db.VarChar(30)
-  completion_source    String                @default("in_app") @db.VarChar(40)
-  completed_at         DateTime              @default(now()) @db.Timestamptz(6)
-  attestation_text     String?
-  evidence_metadata    Json                  @default("{}")
-  created_at           DateTime              @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime              @default(now()) @db.Timestamptz(6)
-  tenants              tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_learning_completions_tenant")
-  learning_assignments learning_assignments? @relation(fields: [assignment_id], references: [id], onUpdate: NoAction)
-  learning_modules     learning_modules      @relation(fields: [module_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+model provider_availability_template_exceptions {
+  id                              BigInt                           @id @default(autoincrement())
+  tenant_id                       String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  template_id                     Int?
+  doctor_id                       Int
+  exception_date                  DateTime                         @db.Date
+  exception_type                  String                           @db.VarChar(20)
+  all_day                         Boolean                          @default(false)
+  start_time                      DateTime?                        @db.Time(6)
+  end_time                        DateTime?                        @db.Time(6)
+  slot_minutes                    Int?
+  location                        String?                          @db.VarChar(120)
+  reason                          String?                          @db.VarChar(240)
+  status                          String                           @default("active") @db.VarChar(20)
+  created_by                      String?                          @db.Uuid
+  created_at                      DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at                      DateTime                         @default(now()) @db.Timestamptz(6)
+  metadata                        Json                             @default("{}")
+  tenants                         tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_template_exceptions_tenant")
+  provider_availability_templates provider_availability_templates? @relation(fields: [template_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([tenant_id, module_id, actor_uid, module_version], map: "ux_learning_completions_actor_module_version")
-  @@index([tenant_id, actor_uid, completed_at(sort: Desc)], map: "idx_learning_completions_actor")
-  @@index([tenant_id, module_id, completed_at(sort: Desc)], map: "idx_learning_completions_module")
+  @@index([tenant_id, doctor_id, exception_date, status], map: "idx_provider_template_exceptions_doctor_day")
+  @@index([tenant_id, template_id, exception_date(sort: Desc)], map: "idx_provider_template_exceptions_template")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model learning_modules {
-  id                   BigInt                 @id @default(autoincrement())
-  tenant_id            String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  module_key           String                 @db.VarChar(120)
-  title                String                 @db.VarChar(180)
-  module_type          String                 @default("role_manual") @db.VarChar(40)
-  category_key         String?                @db.VarChar(100)
-  summary              String?
-  content_markdown     String                 @default("")
-  content_uri          String?
-  role_scope           String[]               @default([])
-  required_for_roles   String[]               @default([])
-  status               String                 @default("draft") @db.VarChar(30)
-  version              Int                    @default(1)
-  estimated_minutes    Int                    @default(5)
-  no_phi               Boolean                @default(true)
-  effective_from       DateTime?              @db.Date
-  review_due_on        DateTime?              @db.Date
-  metadata             Json                   @default("{}")
-  created_by           String?                @db.Uuid
-  updated_by           String?                @db.Uuid
-  published_at         DateTime?              @db.Timestamptz(6)
-  created_at           DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
-  learning_assignments learning_assignments[]
-  learning_completions learning_completions[]
-  tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_learning_modules_tenant")
+model scheduling_overbook_audit_events {
+  id                           BigInt                        @id @default(autoincrement())
+  tenant_id                    String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  policy_id                    BigInt?
+  doctor_id                    Int
+  appointment_id               Int?
+  appointment_date             DateTime                      @db.Date
+  slot_start                   DateTime?                     @db.Time(6)
+  requested_overbook_slots     Int                           @default(1)
+  allowed_overbook_slots       Int                           @default(0)
+  decision                     String                        @db.VarChar(20)
+  override_by                  String?                       @db.Uuid
+  override_role                String?                       @db.VarChar(60)
+  override_reason              String?                       @db.VarChar(240)
+  evidence                     Json                          @default("{}")
+  created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  appointments                 appointments?                 @relation(fields: [appointment_id], references: [id], onUpdate: NoAction, map: "fk_scheduling_overbook_audit_appointment")
+  tenants                      tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_scheduling_overbook_audit_tenant")
+  scheduling_overbook_policies scheduling_overbook_policies? @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
 
-  @@unique([tenant_id, module_key], map: "ux_learning_modules_key")
-  @@index([role_scope], map: "idx_learning_modules_role_scope", type: Gin)
-  @@index([tenant_id, status, module_type, category_key], map: "idx_learning_modules_tenant_status")
+  @@index([tenant_id, doctor_id, appointment_date(sort: Desc), created_at(sort: Desc)], map: "idx_scheduling_overbook_audit_doctor")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model tour_definitions {
-  id            BigInt        @id @default(autoincrement())
-  tenant_id     String        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tour_key      String        @db.VarChar(120)
-  title         String        @db.VarChar(180)
-  surface       String        @db.VarChar(80)
-  route_pattern String?
-  role_scope    String[]      @default([])
-  steps         Json          @default("[]")
-  status        String        @default("draft") @db.VarChar(30)
-  version       Int           @default(1)
-  resume_policy String        @default("resume_last_step") @db.VarChar(30)
-  metadata      Json          @default("{}")
-  created_by    String?       @db.Uuid
-  updated_by    String?       @db.Uuid
-  published_at  DateTime?     @db.Timestamptz(6)
-  created_at    DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime      @default(now()) @db.Timestamptz(6)
-  tenants       tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tour_definitions_tenant")
-  tour_events   tour_events[]
+model scheduling_overbook_policies {
+  id                               BigInt                             @id @default(autoincrement())
+  tenant_id                        String                             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  policy_scope                     String                             @default("tenant") @db.VarChar(30)
+  department_id                    Int?
+  department_name                  String?                            @db.VarChar(120)
+  doctor_id                        Int?
+  visit_type                       String?                            @db.VarChar(40)
+  appointment_type                 String?                            @db.VarChar(60)
+  max_overbook_fraction            Decimal                            @default(0) @db.Decimal(5, 4)
+  max_overbook_slots               Int                                @default(0)
+  authority_role                   String                             @default("RECEPTION_INCHARGE") @db.VarChar(60)
+  override_requires_reason         Boolean                            @default(true)
+  enabled                          Boolean                            @default(false)
+  effective_from                   DateTime                           @default(dbgenerated("CURRENT_DATE")) @db.Date
+  effective_to                     DateTime?                          @db.Date
+  created_by                       String?                            @db.Uuid
+  updated_by                       String?                            @db.Uuid
+  created_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  metadata                         Json                               @default("{}")
+  scheduling_overbook_audit_events scheduling_overbook_audit_events[]
+  tenants                          tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_scheduling_overbook_policies_tenant")
 
-  @@unique([tenant_id, tour_key], map: "ux_tour_definitions_key")
-  @@index([role_scope], map: "idx_tour_definitions_role_scope", type: Gin)
-  @@index([tenant_id, surface, status], map: "idx_tour_definitions_tenant_surface")
+  @@index([tenant_id, enabled, doctor_id, visit_type, appointment_type, effective_from, effective_to], map: "idx_scheduling_overbook_policies_lookup")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model tour_events {
-  id               BigInt           @id @default(autoincrement())
-  tenant_id        String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tour_id          BigInt
-  actor_uid        String           @db.Uuid
-  actor_role       String?          @db.VarChar(80)
-  tour_version     Int
-  event_type       String           @db.VarChar(30)
-  step_key         String?          @db.VarChar(120)
-  metadata         Json             @default("{}")
-  created_at       DateTime         @default(now()) @db.Timestamptz(6)
-  tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tour_events_tenant")
-  tour_definitions tour_definitions @relation(fields: [tour_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+model scheduling_resource_compatibility {
+  id                              BigInt                           @id @default(autoincrement())
+  tenant_id                       String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  resource_id                     Int
+  template_id                     Int?
+  doctor_id                       Int?
+  appointment_type                String?                          @db.VarChar(60)
+  service_code                    String?                          @db.VarChar(80)
+  visit_type                      String?                          @db.VarChar(40)
+  requirement                     String                           @default("compatible") @db.VarChar(20)
+  is_active                       Boolean                          @default(true)
+  created_by                      String?                          @db.Uuid
+  created_at                      DateTime                         @default(now()) @db.Timestamptz(6)
+  metadata                        Json                             @default("{}")
+  bookable_resources              bookable_resources               @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_scheduling_resource_compatibility_resource")
+  provider_availability_templates provider_availability_templates? @relation(fields: [template_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_scheduling_resource_compatibility_template")
+  tenants                         tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_scheduling_resource_compatibility_tenant")
 
-  @@index([tenant_id, actor_uid, created_at(sort: Desc)], map: "idx_tour_events_actor")
-  @@index([tenant_id, tour_id, event_type, created_at(sort: Desc)], map: "idx_tour_events_tour_type")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model training_evidence_ledger {
-  id              BigInt    @id @default(autoincrement())
-  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  evidence_key    String    @db.VarChar(180)
-  source_type     String    @db.VarChar(40)
-  source_id       BigInt?
-  control_code    String    @default("TRAINING_COMPLETION") @db.VarChar(100)
-  subject_uid     String    @db.Uuid
-  subject_role    String?   @db.VarChar(80)
-  title           String    @db.VarChar(220)
-  evidence_status String    @default("captured") @db.VarChar(30)
-  evidence_uri    String?
-  verified_by     String?   @db.Uuid
-  verified_at     DateTime? @db.Timestamptz(6)
-  period_start    DateTime? @db.Date
-  period_end      DateTime? @db.Date
-  metadata        Json      @default("{}")
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
-  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_training_evidence_ledger_tenant")
-
-  @@unique([tenant_id, evidence_key], map: "ux_training_evidence_ledger_key")
-  @@index([tenant_id, control_code, evidence_status, created_at(sort: Desc)], map: "idx_training_evidence_ledger_control")
-  @@index([tenant_id, subject_uid, created_at(sort: Desc)], map: "idx_training_evidence_ledger_subject")
+  @@index([tenant_id, resource_id, doctor_id, appointment_type, service_code, visit_type], map: "idx_scheduling_resource_compatibility_lookup", where: raw("is_active"))
+  @@index([tenant_id, resource_id, is_active], map: "idx_scheduling_resource_compatibility_resource")
 }

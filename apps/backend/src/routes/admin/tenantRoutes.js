@@ -20,6 +20,10 @@ import {
   getTenantKekRewrapJob,
   startTenantKekRewrapJob,
 } from '../../services/security/tenantKekRewrapService.js';
+import {
+  getTenantBrandKit,
+  updateTenantBrandKit,
+} from '../../services/tenant/brandKitService.js';
 import { success } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -92,6 +96,29 @@ router.get('/:tenantId/interop-secrets', async (req, res, next) => {
     await requireTenant(req.params.tenantId);
     const secrets = await listInteropSecretsForTenant(req.params.tenantId);
     return success(res, { secrets, count: secrets.length }, 'Interop secrets retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:tenantId/brand-kit', async (req, res, next) => {
+  try {
+    const tenant = await requireTenant(req.params.tenantId);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const brandKit = await getTenantBrandKit(req.params.tenantId, { tenant, baseUrl });
+    return success(res, { brandKit }, 'Tenant brand kit retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/:tenantId/brand-kit', async (req, res, next) => {
+  try {
+    const before = await getTenantBrandKit(req.params.tenantId);
+    const brandKit = await updateTenantBrandKit(req.params.tenantId, req.body || {});
+    if (!brandKit) throw AppError.notFound('Tenant not found', 'TENANT_NOT_FOUND');
+    await safeAudit(req, 'TENANT_BRAND_KIT_UPDATED', req.params.tenantId, before, brandKit);
+    return success(res, { brandKit }, 'Tenant brand kit updated');
   } catch (err) {
     return next(err);
   }

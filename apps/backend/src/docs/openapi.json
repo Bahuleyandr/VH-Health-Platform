@@ -43157,6 +43157,58 @@
         ]
       }
     },
+    "/api/v1/admin/tenants/{tenantId}/brand-kit": {
+      "get": {
+        "operationId": "get_api_v1_admin_tenants_by_tenantId_brand_kit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_admin_tenants_by_tenantId_brand_kit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/tenants/{tenantId}/interop-secrets": {
       "get": {
         "operationId": "get_api_v1_admin_tenants_by_tenantId_interop_secrets",
@@ -89196,6 +89248,55 @@
         }
       }
     },
+    "/api/v1/scheduling/overbook-policies": {
+      "get": {
+        "operationId": "get_api_v1_scheduling_overbook_policies",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_scheduling_overbook_policies",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scheduling/overbook/evaluate": {
+      "post": {
+        "operationId": "post_api_v1_scheduling_overbook_evaluate",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/scheduling/resources": {
       "post": {
         "operationId": "post_api_v1_scheduling_resources",
@@ -89240,9 +89341,132 @@
         ]
       }
     },
+    "/api/v1/scheduling/resources/{id}/compatibility": {
+      "get": {
+        "operationId": "get_api_v1_scheduling_resources_by_id_compatibility",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_scheduling_resources_by_id_compatibility",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/scheduling/resources/{id}/schedule": {
       "get": {
         "operationId": "get_api_v1_scheduling_resources_by_id_schedule",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/scheduling/slot-holds": {
+      "post": {
+        "operationId": "post_api_v1_scheduling_slot_holds",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scheduling/slot-holds/{id}/confirm": {
+      "post": {
+        "operationId": "post_api_v1_scheduling_slot_holds_by_id_confirm",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/scheduling/slot-holds/{id}/release": {
+      "post": {
+        "operationId": "post_api_v1_scheduling_slot_holds_by_id_release",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -89304,6 +89528,58 @@
     "/api/v1/scheduling/templates/{doctorId}": {
       "get": {
         "operationId": "get_api_v1_scheduling_templates_by_doctorId",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "doctorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/scheduling/templates/{doctorId}/exceptions": {
+      "get": {
+        "operationId": "get_api_v1_scheduling_templates_by_doctorId_exceptions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "doctorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_scheduling_templates_by_doctorId_exceptions",
         "responses": {
           "200": {
             "description": "Successful response",
