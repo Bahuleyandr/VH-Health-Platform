@@ -9843,6 +9843,7 @@ model tenants {
   health_milestone_claims                    health_milestone_claims[]
   health_point_ledger                        health_point_ledger[]
   health_records                             health_records[]
+  help_center_categories                     help_center_categories[]
   hipaa_access_log                           hipaa_access_log[]
   hl7_feed_subscriptions                     hl7_feed_subscriptions[]
   hl7_outbound_messages                      hl7_outbound_messages[]
@@ -9900,6 +9901,9 @@ model tenants {
   lab_interface_messages                     lab_interface_messages[]
   lab_specimen_status_history                lab_specimen_status_history[]
   lab_specimens                              lab_specimens[]
+  learning_assignments                       learning_assignments[]
+  learning_completions                       learning_completions[]
+  learning_modules                           learning_modules[]
   leave_applications                         leave_applications[]
   leave_balance_overrides                    leave_balance_overrides[]
   leave_encashments                          leave_encashments[]
@@ -10106,9 +10110,12 @@ model tenants {
   tenant_idp_role_mappings                   tenant_idp_role_mappings[]
   tenant_interop_secrets                     tenant_interop_secrets[]
   tenant_terminology_settings                tenant_terminology_settings?
+  tour_definitions                           tour_definitions[]
+  tour_events                                tour_events[]
   tpa_claim_correspondence                   tpa_claim_correspondence[]
   tpa_claim_documents                        tpa_claim_documents[]
   tpas                                       tpas[]
+  training_evidence_ledger                   training_evidence_ledger[]
   transfusion_reactions                      transfusion_reactions[]
   transfusion_verifications                  transfusion_verifications[]
   triage_assessments                         triage_assessments[]
@@ -19597,4 +19604,189 @@ model smart_launch_contexts {
   @@index([smart_app_id, status, expires_at], map: "idx_smart_launch_contexts_app_status")
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_smart_launch_contexts_patient", where: raw("(patient_uid IS NOT NULL)"))
   @@index([tenant_id, expires_at], map: "idx_smart_launch_contexts_tenant_pending", where: raw("((status)::text = 'pending'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model help_center_categories {
+  id                           BigInt                   @id @default(autoincrement())
+  tenant_id                    String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  category_key                 String                   @db.VarChar(100)
+  label                        String                   @db.VarChar(160)
+  description                  String?
+  parent_category_id           BigInt?
+  role_scope                   String[]                 @default([])
+  sort_order                   Int                      @default(100)
+  status                       String                   @default("active") @db.VarChar(30)
+  metadata                     Json                     @default("{}")
+  created_by                   String?                  @db.Uuid
+  updated_by                   String?                  @db.Uuid
+  created_at                   DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                 @default(now()) @db.Timestamptz(6)
+  tenants                      tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_help_center_categories_tenant")
+  help_center_categories       help_center_categories?  @relation("help_center_categoriesTohelp_center_categories", fields: [parent_category_id], references: [id], onUpdate: NoAction)
+  other_help_center_categories help_center_categories[] @relation("help_center_categoriesTohelp_center_categories")
+
+  @@unique([tenant_id, category_key], map: "ux_help_center_categories_key")
+  @@index([tenant_id, status, sort_order, category_key], map: "idx_help_center_categories_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model learning_assignments {
+  id                   BigInt                 @id @default(autoincrement())
+  tenant_id            String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  assignment_key       String                 @db.VarChar(140)
+  module_id            BigInt
+  role_scope           String[]               @default([])
+  assigned_to_uid      String?                @db.Uuid
+  status               String                 @default("active") @db.VarChar(30)
+  due_on               DateTime?              @db.Date
+  evidence_policy      String                 @default("training_completion") @db.VarChar(80)
+  metadata             Json                   @default("{}")
+  created_by           String?                @db.Uuid
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_learning_assignments_tenant")
+  learning_modules     learning_modules       @relation(fields: [module_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_completions learning_completions[]
+
+  @@unique([tenant_id, assignment_key], map: "ux_learning_assignments_key")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model learning_completions {
+  id                   BigInt                @id @default(autoincrement())
+  tenant_id            String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  module_id            BigInt
+  assignment_id        BigInt?
+  actor_uid            String                @db.Uuid
+  actor_role           String?               @db.VarChar(80)
+  module_version       Int
+  status               String                @default("completed") @db.VarChar(30)
+  completion_source    String                @default("in_app") @db.VarChar(40)
+  completed_at         DateTime              @default(now()) @db.Timestamptz(6)
+  attestation_text     String?
+  evidence_metadata    Json                  @default("{}")
+  created_at           DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime              @default(now()) @db.Timestamptz(6)
+  tenants              tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_learning_completions_tenant")
+  learning_assignments learning_assignments? @relation(fields: [assignment_id], references: [id], onUpdate: NoAction)
+  learning_modules     learning_modules      @relation(fields: [module_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, module_id, actor_uid, module_version], map: "ux_learning_completions_actor_module_version")
+  @@index([tenant_id, actor_uid, completed_at(sort: Desc)], map: "idx_learning_completions_actor")
+  @@index([tenant_id, module_id, completed_at(sort: Desc)], map: "idx_learning_completions_module")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model learning_modules {
+  id                   BigInt                 @id @default(autoincrement())
+  tenant_id            String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  module_key           String                 @db.VarChar(120)
+  title                String                 @db.VarChar(180)
+  module_type          String                 @default("role_manual") @db.VarChar(40)
+  category_key         String?                @db.VarChar(100)
+  summary              String?
+  content_markdown     String                 @default("")
+  content_uri          String?
+  role_scope           String[]               @default([])
+  required_for_roles   String[]               @default([])
+  status               String                 @default("draft") @db.VarChar(30)
+  version              Int                    @default(1)
+  estimated_minutes    Int                    @default(5)
+  no_phi               Boolean                @default(true)
+  effective_from       DateTime?              @db.Date
+  review_due_on        DateTime?              @db.Date
+  metadata             Json                   @default("{}")
+  created_by           String?                @db.Uuid
+  updated_by           String?                @db.Uuid
+  published_at         DateTime?              @db.Timestamptz(6)
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  learning_assignments learning_assignments[]
+  learning_completions learning_completions[]
+  tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_learning_modules_tenant")
+
+  @@unique([tenant_id, module_key], map: "ux_learning_modules_key")
+  @@index([role_scope], map: "idx_learning_modules_role_scope", type: Gin)
+  @@index([tenant_id, status, module_type, category_key], map: "idx_learning_modules_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tour_definitions {
+  id            BigInt        @id @default(autoincrement())
+  tenant_id     String        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tour_key      String        @db.VarChar(120)
+  title         String        @db.VarChar(180)
+  surface       String        @db.VarChar(80)
+  route_pattern String?
+  role_scope    String[]      @default([])
+  steps         Json          @default("[]")
+  status        String        @default("draft") @db.VarChar(30)
+  version       Int           @default(1)
+  resume_policy String        @default("resume_last_step") @db.VarChar(30)
+  metadata      Json          @default("{}")
+  created_by    String?       @db.Uuid
+  updated_by    String?       @db.Uuid
+  published_at  DateTime?     @db.Timestamptz(6)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime      @default(now()) @db.Timestamptz(6)
+  tenants       tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tour_definitions_tenant")
+  tour_events   tour_events[]
+
+  @@unique([tenant_id, tour_key], map: "ux_tour_definitions_key")
+  @@index([role_scope], map: "idx_tour_definitions_role_scope", type: Gin)
+  @@index([tenant_id, surface, status], map: "idx_tour_definitions_tenant_surface")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tour_events {
+  id               BigInt           @id @default(autoincrement())
+  tenant_id        String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tour_id          BigInt
+  actor_uid        String           @db.Uuid
+  actor_role       String?          @db.VarChar(80)
+  tour_version     Int
+  event_type       String           @db.VarChar(30)
+  step_key         String?          @db.VarChar(120)
+  metadata         Json             @default("{}")
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tour_events_tenant")
+  tour_definitions tour_definitions @relation(fields: [tour_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, actor_uid, created_at(sort: Desc)], map: "idx_tour_events_actor")
+  @@index([tenant_id, tour_id, event_type, created_at(sort: Desc)], map: "idx_tour_events_tour_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model training_evidence_ledger {
+  id              BigInt    @id @default(autoincrement())
+  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  evidence_key    String    @db.VarChar(180)
+  source_type     String    @db.VarChar(40)
+  source_id       BigInt?
+  control_code    String    @default("TRAINING_COMPLETION") @db.VarChar(100)
+  subject_uid     String    @db.Uuid
+  subject_role    String?   @db.VarChar(80)
+  title           String    @db.VarChar(220)
+  evidence_status String    @default("captured") @db.VarChar(30)
+  evidence_uri    String?
+  verified_by     String?   @db.Uuid
+  verified_at     DateTime? @db.Timestamptz(6)
+  period_start    DateTime? @db.Date
+  period_end      DateTime? @db.Date
+  metadata        Json      @default("{}")
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_training_evidence_ledger_tenant")
+
+  @@unique([tenant_id, evidence_key], map: "ux_training_evidence_ledger_key")
+  @@index([tenant_id, control_code, evidence_status, created_at(sort: Desc)], map: "idx_training_evidence_ledger_control")
+  @@index([tenant_id, subject_uid, created_at(sort: Desc)], map: "idx_training_evidence_ledger_subject")
 }

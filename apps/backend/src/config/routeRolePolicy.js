@@ -284,6 +284,7 @@ export const ENGAGEMENT_ROUTE_ROLES = mergeRoles(
 export const ALL_STAFF_MESSAGING_ROUTE_ROLES = getStaffRosterRoleCodes({ includeAdmin: true });
 
 export const STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES = getRolesForCapabilityGroups('phone_self_service');
+export const ADOPTION_ROUTE_ROLES = getStaffRosterRoleCodes({ includeAdmin: true });
 
 export const HOUSEKEEPING_VISIBILITY_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['ip_flow', 'pharmacy', 'diagnostics', 'people_operations', 'housekeeping']),

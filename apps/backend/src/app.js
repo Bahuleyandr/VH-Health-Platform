@@ -56,6 +56,7 @@ import { success, error } from './utils/responseHelper.js';
 import { PATIENT_LOOKUP_ROLES } from './config/patientAccessRoles.js';
 import {
   ADMIN_ROUTE_ROLES,
+  ADOPTION_ROUTE_ROLES,
   ADMISSION_OCCUPANCY_ROUTE_ROLES,
   ADMISSION_SURFACE_ROUTE_ROLES,
   APPOINTMENT_ROUTE_ROLES,
@@ -110,6 +111,7 @@ import {
 
 // Public / mixed modules
 import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
+import adoptionRoutes from './routes/adoption/adoptionRoutes.js';
 import { callbackRouter as nhcxCallbackRoutes } from './routes/nhcx/nhcxCallbackRoutes.js';
 import interfaceEngineIngressRoutes from './routes/interfaceEngine/interfaceEngineIngressRoutes.js';
 import adminDashboardRoutes from './routes/admin/index.js';
@@ -761,6 +763,7 @@ app.use('/api/v1/patient-flow', patientRateLimiter, requireRole(...PATIENT_FLOW_
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/adoption', requireRole(...ADOPTION_ROUTE_ROLES), sanitizeAllBodyStrings, adoptionRoutes);
 app.use('/api/v1/engagement', requireRole(...ENGAGEMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ENGAGEMENT'), engagementRoutes);
 // Staff-side patient lookup (Cmd+K picker and workbench search). Kept
 // explicit in config so clinical, front-office, billing, and records access
