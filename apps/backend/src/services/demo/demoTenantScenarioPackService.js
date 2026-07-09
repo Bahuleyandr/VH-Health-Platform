@@ -89,7 +89,7 @@ export function assertLocalOnlyDatabaseUrl(connectionString) {
 }
 
 function buildPersonas() {
-  const passwordRef = 'VH_DEMO_TENANT_PASSWORD';
+  const loginEnvRef = 'VH_DEMO_TENANT_PASSWORD';
   return [
     {
       key: 'platform_admin',
@@ -99,7 +99,7 @@ function buildPersonas() {
       department: 'Administration',
       login: {
         identifier: 'demo.platform.admin@example.invalid',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/admin/login',
       },
       journeys: ['sales_command_center', 'tenant_reset_readiness'],
@@ -112,7 +112,7 @@ function buildPersonas() {
       department: 'Front Office',
       login: {
         identifier: 'DEMO-470-FD',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['ed_chest_pain_acs', 'billing_settlement'],
@@ -125,7 +125,7 @@ function buildPersonas() {
       department: 'Emergency',
       login: {
         identifier: 'DEMO-470-ED',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['ed_chest_pain_acs', 'dengue_warning_monitoring'],
@@ -138,7 +138,7 @@ function buildPersonas() {
       department: 'Inpatient Ward',
       login: {
         identifier: 'DEMO-470-RN',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['post_op_discharge_hub', 'dengue_warning_monitoring'],
@@ -151,7 +151,7 @@ function buildPersonas() {
       department: 'Laboratory',
       login: {
         identifier: 'DEMO-470-LAB',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['lab_radiology_followup'],
@@ -164,7 +164,7 @@ function buildPersonas() {
       department: 'Radiology',
       login: {
         identifier: 'DEMO-470-RAD',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['lab_radiology_followup'],
@@ -177,7 +177,7 @@ function buildPersonas() {
       department: 'Billing',
       login: {
         identifier: 'DEMO-470-BILL',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['billing_settlement', 'insurance_cashless_claim'],
@@ -190,7 +190,7 @@ function buildPersonas() {
       department: 'Insurance Desk',
       login: {
         identifier: 'DEMO-470-TPA',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['insurance_cashless_claim'],
@@ -203,7 +203,7 @@ function buildPersonas() {
       department: 'Obstetrics',
       login: {
         identifier: 'DEMO-470-OB',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['maternity_antenatal_to_plan'],
@@ -216,7 +216,7 @@ function buildPersonas() {
       department: 'Pharmacy',
       login: {
         identifier: 'DEMO-470-PHARM',
-        passwordRef,
+        passwordRef: loginEnvRef,
         smokePath: '/api/v1/auth/staff/login',
       },
       journeys: ['post_op_discharge_hub', 'billing_settlement'],
