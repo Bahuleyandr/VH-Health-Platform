@@ -557,7 +557,10 @@ reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
   a US-covered-entity partnership lands; scope-gated.
 - **ABDM sandbox-to-prod transition** — needs production ABHA API
   credentials + sandbox sign-off.
-- **Offsite DR cluster** — see `DISASTER-RECOVERY.md` Scenario 6.
+- **Offsite DR cluster** — see
+  [`CROSS_SITE_DR_FAILOVER_PLAN.md`](CROSS_SITE_DR_FAILOVER_PLAN.md) for the
+  site-neutral architecture, preflight, promotion invariants, and evidence
+  template; the actual site and network path remain operator-owned.
 - **Multi-region failover for cross-border clients** — only when the
   platform ships to a second hospital in a second country.
 
