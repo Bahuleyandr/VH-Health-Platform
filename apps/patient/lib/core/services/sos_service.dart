@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/sos_api_service.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/widgets/sos_button.dart' as core;
 
@@ -49,8 +50,9 @@ class SOSService {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
+      LiveRegionSnackBar.build(
+        message: message,
+        announcementPrefix: 'SOS',
         backgroundColor: colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),

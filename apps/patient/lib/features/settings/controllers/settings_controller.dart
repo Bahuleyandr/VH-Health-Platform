@@ -13,6 +13,7 @@ import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 import 'package:vhhealth/features/settings/services/account_deletion_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -95,8 +96,9 @@ class SettingsController {
     tp.setFontSize(size);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${loc.settingsFontSizeChanged} ${size.toInt()} pt'),
+        LiveRegionSnackBar.build(
+          message: '${loc.settingsFontSizeChanged} ${size.toInt()} pt',
+          announcementPrefix: loc.settingsAccessibility,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -485,7 +487,7 @@ class SettingsController {
     if (!context.mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showSnackBar(LiveRegionSnackBar.build(message: message));
   }
 
   Future<void> triggerSOS() async {

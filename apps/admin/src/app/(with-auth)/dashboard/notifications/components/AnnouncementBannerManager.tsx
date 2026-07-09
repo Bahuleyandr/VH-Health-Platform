@@ -148,7 +148,11 @@ export function AnnouncementBannerManager() {
             Clear
           </button>
           {saved && (
-            <span className="inline-flex items-center text-sm text-emerald-600 dark:text-emerald-400">
+            <span
+              className="inline-flex items-center text-sm text-emerald-600 dark:text-emerald-400"
+              role="status"
+              aria-live="polite"
+            >
               ✅ Saved
             </span>
           )}
@@ -188,10 +192,15 @@ export function AnnouncementBanner() {
   if (!banner || dismissed) return null;
 
   const colors = typeColors[banner.type];
+  const liveRole = banner.type === "critical" ? "alert" : "status";
+  const ariaLive = banner.type === "critical" ? "assertive" : "polite";
 
   return (
     <div
       className={`${colors.bg} ${colors.text} px-4 py-2.5 text-sm font-medium flex items-center justify-between`}
+      role={liveRole}
+      aria-live={ariaLive}
+      aria-label={`${banner.type} announcement`}
     >
       <span>📢 {banner.text}</span>
       <button

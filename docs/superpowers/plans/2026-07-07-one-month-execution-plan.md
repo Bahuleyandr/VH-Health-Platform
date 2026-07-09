@@ -124,6 +124,11 @@ full journey-test sweep on the activated posture. Fix-forward anything it surfac
   (NL-12); fix-forward regressions.
 - Full-platform journey sweep (all journeys + smokes) on the combined tree; accessibility
   completion slices; dictation/radiology stretch items if capacity allows.
+- Manual accessibility device passes are scheduled on the operator board:
+  2026-08-04 staff Windows NVDA plus Android TalkBack, 2026-08-05 patient
+  Android TalkBack plus iOS VoiceOver, 2026-08-06 admin Chrome NVDA plus
+  VoiceOver/PDF inspection, and 2026-08-07 retest-only window. Evidence rows
+  follow `docs/accessibility/NL12-S6_ACCESSIBILITY_COMPLETION_PACK.md`.
 - NL-11 docs: user manuals + in-app tours reviewed; demo tenant seeded and walkthrough
   recorded.
 - Cut version tags: `backend-vX`, `admin-vX`, `patient-v*`, `staff-v*` per the tag
