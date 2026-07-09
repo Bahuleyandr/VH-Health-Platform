@@ -16,6 +16,9 @@ Nothing load-bearing lives only in one agent's session memory.
 
 ## 1. Program map and status
 
+> **▶ BUILD-COMPLETE MILESTONE (2026-07-09, main 671ad85cc).** Every authored build prompt in the library is DELIVERED and on main. Waves A/B COMPLETE; NL-5/6/7 complete; NL-8 P1-P5; NL-9 P1-P3; NL-10 B1-B3; NL-11 S1-S11; NL-12 S1-S9. Wave E (NL-13/14) DESIGN specs merged — build prompts NOT yet authored (next coordinator deliverable via section 11). Remaining work: (a) Wave E prompt authoring + build, (b) OPERATOR track per docs/GO_LIVE_RUNBOOK.md, (c) indigenous drug-KB content authoring (spec #463). No build backlog remains.
+
+
 Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequencing, §7 do-not-build,
 §8 execution conventions, §9 status board). Waves: **A** NL-1..4 (trust/rails/table-stakes) ·
 **B** NL-5..7 (clinical content + physical hospital) · **C** NL-8..10 (flow/engagement/BI) ·
@@ -78,6 +81,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   `lint:raw-params` (spread args; `::type` casts inside jsonb builders).
 - **`gh pr checks --watch` exits 1 spuriously — always re-query.** GHA on this repo works
   (billing resolved); `gh run watch --exit-status` also lies.
+- **A FRESH roll worktree needs `npm install` before any proof.** `git worktree add` checks out source but not node_modules; the seeder/ci-setup then die with `ERR_MODULE_NOT_FOUND ('pg'/'bcrypt')`. A REUSED worktree (already installed once) can skip it. The 'regen-only' chain variant that omits install is only safe on a reused worktree (#530 roll failed on a fresh one, 2026-07-09).
 - **Chains hard-abort before push.** The QA PG (127.0.0.1:55432) can be down or die mid-chain;
   a chain that pushes anyway ships a half-regenerated roll (schema.prisma missing the branch's
   own models — cost two bad pushes on 2026-07-08). Every roll chain prechecks
@@ -172,6 +176,10 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 446–447 | NL-7 P4 pilot hardening (RTLS half stays owner-gated) | launched 2026-07-08 (round 8) |
 | 448–449 | NL12-S2 SIEM export seam | **on main** (#501) |
 | — | NL12-S3 500-bed load pack | **on main** (#499, zero-migration) |
+| — | NL12-S7 DR replica | **on main** (#515, zero-migration) |
+| — | NL12-S9 zero-trust | **on main** (#529, zero-migration) |
+| — | NL12-S6 accessibility | **on main** (#531, zero-migration) |
+| — | NL11-S10 engine mini-design gate | **on main** (#513, design-only) |
 | 450 | NL8-P2 PHI-free queue displays (#502 used only 450) | **on main** (#502); 451 unused gap, do not reuse |
 | 439 | NL12-S1 NABH (delivered #494 with ZERO migrations) | unused — documented gap, do not reuse |
 | 451 | NL8-P2 (delivered #502 using only 450) | unused — documented gap, do not reuse |
@@ -179,17 +187,17 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 454–456 | NL8-P3 porter/transport | **on main** (#511) |
 | 457–458 | NL9-P3 teleconsult follow-ups | launched 2026-07-08 (round 10 tranches) |
 | 459–460 | NL8-P5 census/LOS | launched 2026-07-08 (round 10 tranches) |
-| 461–463 | NL11-S08 SMART-on-FHIR writes P1 | launched 2026-07-08 (round 10 tranches) |
-| 464 | NL12-S8 cert cockpit | launched 2026-07-08 (round 10 tranches) |
-| 465 | NL10-B2 catalog embeds (deploy HELD, build inert) | launched 2026-07-08 (round 10 tranches) |
-| 466 | NL10-B3 digest/benchmarks (deploy HELD, build inert) | launched 2026-07-08 (round 10 tranches) |
-| 467 | NL11-S04 design tokens P1 | launched 2026-07-08 (round 10 tranches) |
-| 468–469 | NL11-S05 white-label P1 | launched 2026-07-08 (round 10 tranches) |
-| 470 | NL11-S06 demo tenant P1 | launched 2026-07-08 (round 10 tranches) |
-| 471–472 | NL11-S07 manuals/LMS P1 | launched 2026-07-08 (round 10 tranches) |
-| 473–474 | N6-14 linen (deliberate Wave-B tail) | assigned 2026-07-08 (hold until Wave B tail) |
+| 461–463 | NL11-S08 SMART-on-FHIR writes P1 | **on main** (#523) |
+| 464 | NL12-S8 cert cockpit | **on main** (#522) |
+| 465 | NL10-B2 catalog embeds (deploy HELD) | **on main** (#525) |
+| 466 | NL10-B3 digest/benchmarks (deploy HELD) | **on main** (#524) |
+| 467 | NL11-S04 design tokens P1 | **on main** (#521) |
+| 468 | NL11-S05 white-label P1 (#527 used 468 only) | **on main** (#527); 469 unused gap, do not reuse |
+| 470 | NL11-S06 demo tenant P1 (migration-free) | **on main** (#526); 470 unused gap, do not reuse |
+| 471–472 | NL11-S07 manuals/LMS P1 | **on main** (#530) |
+| 473–474 | N6-14 linen (WAVE B COMPLETE) | **on main** (#518) |
 | 475–477 | NL11-S11 interface engine P1 (gate S10 **on main** #513) | launched 2026-07-08 (round 10) |
-| 478–481 | NL8-P4 scheduling optimization | launched 2026-07-08 (round 10 tranches) |
+| 478–481 | NL8-P4 scheduling optimization | **on main** (#528) |
 | 482+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
