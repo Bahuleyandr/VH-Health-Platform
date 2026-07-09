@@ -19357,3 +19357,66 @@ model interop_worker_leases {
   @@unique([tenant_id, lease_key], map: "ux_interop_worker_leases_key")
   @@index([tenant_id, expires_at], map: "idx_interop_worker_leases_expires")
 }
+
+model analytics_dashboard_catalog {
+  dashboard_key        String   @id
+  title                String
+  description          String
+  metabase_env_var     String
+  dataset_keys         String[] @default([])
+  required_params      String[] @default(["tenant_id"])
+  embed_roles          String[] @default([])
+  owner_role           String
+  status               String   @default("active")
+  certification_status String   @default("certified")
+  last_certified_at    DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
+  display_order        Int      @default(100)
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([dataset_keys], map: "idx_analytics_dashboard_catalog_dataset_keys", type: Gin)
+  @@index([status, display_order, dashboard_key], map: "idx_analytics_dashboard_catalog_status_order")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model analytics_dataset_catalog {
+  dataset_key              String                     @id
+  display_name             String
+  dbt_relation             String
+  grain                    String
+  refresh_cadence          String
+  source_domain            String
+  owner_role               String
+  certification_status     String
+  tenant_boundary_mode     String
+  phi_class                String
+  min_cell_threshold       Int                        @default(10)
+  allowed_roles            String[]                   @default([])
+  export_policy            String
+  deprecation_status       String                     @default("active")
+  description              String                     @default("")
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  analytics_dataset_fields analytics_dataset_fields[]
+
+  @@index([source_domain, display_name], map: "idx_analytics_dataset_catalog_domain")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model analytics_dataset_fields {
+  dataset_key               String
+  field_name                String
+  display_label             String
+  semantic_type             String
+  aggregation_behavior      String
+  phi_class                 String
+  hidden_by_default         Boolean                   @default(false)
+  allowed_filter            Boolean                   @default(true)
+  backend_drilldown_only    Boolean                   @default(false)
+  description               String                    @default("")
+  created_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  analytics_dataset_catalog analytics_dataset_catalog @relation(fields: [dataset_key], references: [dataset_key], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([dataset_key, field_name])
+  @@index([dataset_key, hidden_by_default, backend_drilldown_only], map: "idx_analytics_dataset_fields_hidden")
+}

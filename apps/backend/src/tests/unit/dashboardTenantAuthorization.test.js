@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 process.env.METABASE_URL = 'https://metabase.example.test';
 process.env.METABASE_EMBED_SECRET = 'unit-test-metabase-secret';
 process.env.METABASE_DASH_DAILY_OPS = '42';
+process.env.METABASE_DASH_REVENUE_PAYER_MIX = '77';
 
 const queryRawUnsafeMock = jest.fn();
 
@@ -20,13 +21,92 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 const snapshot = await import('../../services/dashboards/snapshotService.js');
 const metabase = await import('../../services/dashboards/metabaseService.js');
+const catalog = await import('../../services/dashboards/analyticsCatalogService.js');
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+function dashboardRow(overrides = {}) {
+  return {
+    dashboard_key: 'daily_ops',
+    title: 'Daily Operations Snapshot',
+    description: 'Executive huddle metrics',
+    metabase_env_var: 'METABASE_DASH_DAILY_OPS',
+    dataset_keys: ['fct_encounters', 'mart_bed_flow_daily'],
+    required_params: ['tenant_id'],
+    embed_roles: ['ADMIN', 'SUPER_ADMIN', 'CMO'],
+    owner_role: 'MEDICAL_SUPERINTENDENT',
+    status: 'active',
+    certification_status: 'certified',
+    last_certified_at: '2026-07-09',
+    display_order: 10,
+    ...overrides,
+  };
+}
+
+function datasetRow(overrides = {}) {
+  return {
+    dataset_key: 'dim_patient',
+    display_name: 'Patient demographic dimension',
+    dbt_relation: 'analytics_marts.dim_patient',
+    grain: 'one row per pseudonymous patient',
+    refresh_cadence: 'nightly dbt after warehouse replication',
+    source_domain: 'patient_demographics',
+    owner_role: 'DATA_PROTECTION_OFFICER',
+    certification_status: 'internal_only',
+    tenant_boundary_mode: 'pseudonymous_tenant_id',
+    phi_class: 'pseudonymous_phi',
+    min_cell_threshold: 20,
+    allowed_roles: ['ADMIN', 'SUPER_ADMIN', 'CMO'],
+    export_policy: 'blocked',
+    deprecation_status: 'active',
+    description: 'Age-banded pseudonymous demographic dimension',
+    ...overrides,
+  };
+}
+
+function fieldRow(overrides = {}) {
+  return {
+    dataset_key: 'dim_patient',
+    field_name: 'patient_uid',
+    display_label: 'Patient pseudonym',
+    semantic_type: 'pseudonymous_identifier',
+    aggregation_behavior: 'none',
+    phi_class: 'pseudonymous_phi',
+    hidden_by_default: true,
+    allowed_filter: false,
+    backend_drilldown_only: true,
+    description: 'Hidden from BI authors',
+    ...overrides,
+  };
+}
 
 describe('dashboard tenant scoping', () => {
   beforeEach(() => {
     queryRawUnsafeMock.mockReset();
-    queryRawUnsafeMock.mockResolvedValue([]);
+    queryRawUnsafeMock.mockImplementation(async (sql, ...params) => {
+      const text = String(sql);
+      if (text.includes('analytics_dashboard_catalog')) {
+        const rows = [
+          dashboardRow(),
+          dashboardRow({
+            dashboard_key: 'revenue_payer_mix',
+            title: 'Revenue and Payer Mix',
+            metabase_env_var: 'METABASE_DASH_REVENUE_PAYER_MIX',
+            dataset_keys: ['fct_revenue', 'mart_payer_mix_monthly'],
+            embed_roles: ['ADMIN', 'SUPER_ADMIN', 'FINANCE_INCHARGE'],
+            owner_role: 'FINANCE_INCHARGE',
+            display_order: 40,
+          }),
+        ];
+        if (text.includes('WHERE dashboard_key = $1')) {
+          return rows.filter((row) => row.dashboard_key === params[0]);
+        }
+        return rows;
+      }
+      if (text.includes('analytics_dataset_catalog')) return [datasetRow()];
+      if (text.includes('analytics_dataset_fields')) return [fieldRow()];
+      return [];
+    });
   });
 
   afterEach(() => {
@@ -69,10 +149,11 @@ describe('dashboard tenant scoping', () => {
     expect(call.slice(1)).toEqual([TENANT_ID, '60']);
   });
 
-  it('adds the server tenant to Metabase embed JWT params', () => {
-    const { url } = metabase.buildEmbedUrl({
+  it('adds the server tenant to Metabase embed JWT params', async () => {
+    const { url } = await metabase.buildEmbedUrl({
       key: 'daily_ops',
       tenantId: TENANT_ID,
+      role: 'ADMIN',
       params: {
         department: 'lab',
       },
@@ -89,32 +170,35 @@ describe('dashboard tenant scoping', () => {
     });
   });
 
-  it('rejects client-supplied Metabase tenant params', () => {
-    expect(() => metabase.buildEmbedUrl({
+  it('rejects client-supplied Metabase tenant params', async () => {
+    await expect(metabase.buildEmbedUrl({
       key: 'daily_ops',
       tenantId: TENANT_ID,
+      role: 'ADMIN',
       params: {
         tenant_id: '99999999-9999-4999-8999-999999999999',
       },
       ttlSeconds: 120,
-    })).toThrow('Tenant scope is server-managed');
+    })).rejects.toThrow('Tenant scope is server-managed');
 
-    expect(() => metabase.buildEmbedUrl({
+    await expect(metabase.buildEmbedUrl({
       key: 'daily_ops',
       tenantId: TENANT_ID,
+      role: 'ADMIN',
       params: {
         tenantId: '99999999-9999-4999-8999-999999999999',
       },
       ttlSeconds: 120,
-    })).toThrow('Tenant scope is server-managed');
+    })).rejects.toThrow('Tenant scope is server-managed');
   });
 
-  it('clamps Metabase embed TTLs and reports the effective TTL', () => {
+  it('clamps Metabase embed TTLs and reports the effective TTL', async () => {
     jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
 
-    const high = metabase.buildEmbedUrl({
+    const high = await metabase.buildEmbedUrl({
       key: 'daily_ops',
       tenantId: TENANT_ID,
+      role: 'ADMIN',
       ttlSeconds: 999999,
     });
     const highPayload = jwt.verify(
@@ -124,9 +208,10 @@ describe('dashboard tenant scoping', () => {
     expect(high.ttlSeconds).toBe(86400);
     expect(highPayload.exp).toBe(1_700_000_000 + 86400);
 
-    const low = metabase.buildEmbedUrl({
+    const low = await metabase.buildEmbedUrl({
       key: 'daily_ops',
       tenantId: TENANT_ID,
+      role: 'ADMIN',
       ttlSeconds: 10,
     });
     const lowPayload = jwt.verify(
@@ -135,5 +220,36 @@ describe('dashboard tenant scoping', () => {
     );
     expect(low.ttlSeconds).toBe(60);
     expect(lowPayload.exp).toBe(1_700_000_000 + 60);
+  });
+
+  it('keeps patient_uid hidden and backend-drilldown only in the governed catalog', async () => {
+    const datasets = await catalog.listDatasetCatalog();
+    const patient = datasets.find((dataset) => dataset.key === 'dim_patient');
+    const patientUid = patient?.fields.find((field) => field.fieldName === 'patient_uid');
+
+    expect(patient).toMatchObject({
+      phiClass: 'pseudonymous_phi',
+      exportPolicy: 'blocked',
+    });
+    expect(patientUid).toMatchObject({
+      hiddenByDefault: true,
+      allowedFilter: false,
+      backendDrilldownOnly: true,
+    });
+  });
+
+  it('filters curated dashboard embeds by catalog role policy', async () => {
+    await expect(metabase.buildEmbedUrl({
+      key: 'revenue_payer_mix',
+      tenantId: TENANT_ID,
+      role: 'QUALITY_OFFICER',
+    })).rejects.toThrow('Dashboard is not available for this role');
+
+    const allowed = await metabase.buildEmbedUrl({
+      key: 'revenue_payer_mix',
+      tenantId: TENANT_ID,
+      role: 'FINANCE_INCHARGE',
+    });
+    expect(allowed.datasetKeys).toEqual(['fct_revenue', 'mart_payer_mix_monthly']);
   });
 });
