@@ -1,0 +1,122 @@
+{
+  "version": "nl11-s04-p1",
+  "source": "docs/superpowers/specs/2026-07-07-nl11-productization-plan.md#slice-4",
+  "migrationBlock": {
+    "assigned": [467],
+    "used": []
+  },
+  "colors": {
+    "brand": {
+      "primary": "#007A64",
+      "onPrimary": "#FFFFFF",
+      "primaryDark": "#4DB8A8",
+      "onPrimaryDark": "#121212"
+    },
+    "clinical": {
+      "primary": "#1565C0",
+      "onPrimary": "#FFFFFF",
+      "primaryDark": "#90CAF9",
+      "onPrimaryDark": "#0D1B2A",
+      "secondary": "#00796B",
+      "tertiary": "#0097A7"
+    },
+    "surface": {
+      "light": {
+        "background": "#E0F5F6",
+        "staffBackground": "#F5F7FA",
+        "surface": "#FFFFFF",
+        "card": "#FFFFFF",
+        "textPrimary": "#1A237E",
+        "textSecondary": "#546E7A",
+        "border": "#ECEFF1",
+        "inputBorder": "#B0BEC5"
+      },
+      "dark": {
+        "background": "#121212",
+        "staffBackground": "#141420",
+        "surface": "#1E1E1E",
+        "staffSurface": "#1E1E2C",
+        "card": "#252536",
+        "textPrimary": "#E0E0E8",
+        "textSecondary": "#9E9EAE",
+        "border": "#2E2E42",
+        "inputBorder": "#3A3A50"
+      }
+    },
+    "status": {
+      "success": "#2E7D32",
+      "successOnSurfaceLight": "#2E7D32",
+      "successOnSurfaceDark": "#66BB6A",
+      "warning": "#E65100",
+      "warningOnSurfaceLight": "#A84300",
+      "warningOnSurfaceDark": "#FFB74D",
+      "error": "#C62828",
+      "errorOnSurfaceLight": "#C62828",
+      "errorOnSurfaceDark": "#FF8A80",
+      "danger": "#FF5252",
+      "info": "#007A64"
+    }
+  },
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "xxl": 32
+  },
+  "radius": {
+    "input": 8,
+    "control": 10,
+    "card": 12,
+    "dialog": 12,
+    "chip": 20,
+    "pill": 999
+  },
+  "typography": {
+    "baseFontSize": 16,
+    "bodySmall": 12,
+    "body": 14,
+    "title": 18,
+    "display": 34,
+    "letterSpacing": 0
+  },
+  "elevation": {
+    "level1": "0 1px 2px 0 rgb(0 0 0 / 0.06)",
+    "level2": "0 2px 6px -1px rgb(0 0 0 / 0.08)",
+    "level3": "0 8px 24px -8px rgb(0 0 0 / 0.16)"
+  },
+  "iconSize": {
+    "xs": 14,
+    "sm": 16,
+    "md": 20,
+    "lg": 24,
+    "xl": 32
+  },
+  "density": {
+    "compactRowHeight": 40,
+    "comfortableRowHeight": 48,
+    "touchTarget": 48,
+    "desktopScrollbar": 10
+  },
+  "motion": {
+    "fastMs": 120,
+    "standardMs": 200,
+    "slowMs": 320
+  },
+  "focus": {
+    "ringWidth": 2,
+    "ringOffset": 2,
+    "minimumContrastRatio": 3
+  },
+  "componentParityChecklist": [
+    "navigationShell",
+    "forms",
+    "tablesAndLists",
+    "clinicalStatusChips",
+    "alerts",
+    "emptyStates",
+    "authSurfaces",
+    "printableClinicalAndAdminDocuments"
+  ]
+}

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../config/tenant_config.dart';
+import 'design_tokens.dart';
 
 class AppTheme {
-  static const Color primaryColor = Color(0xFF007A64);
-  static const Color backgroundColor = Color(0xFFE0F5F6);
-  static const Color onPrimaryColor = Colors.white;
-  static const Color errorColor = Colors.redAccent;
+  static const Color primaryColor = VhDesignTokens.brandPrimary;
+  static const Color backgroundColor = VhDesignTokens.coreBackgroundLight;
+  static const Color onPrimaryColor = VhDesignTokens.brandOnPrimary;
+  static const Color errorColor = VhDesignTokens.danger;
 
   /// W6 T3 — per-tenant seed colour for the Material 3 ColorScheme. A stamped
   /// build sets `--dart-define=VH_TENANT_PRIMARY=#RRGGBB`; an unstamped (default)
@@ -28,11 +29,11 @@ class AppTheme {
     return value == null ? null : Color(value);
   }
 
-  static const Color surfaceColor = Colors.white;
+  static const Color surfaceColor = VhDesignTokens.surfaceLight;
   static const Color onSurfaceColor = Colors.black87;
 
-  static const Color darkBackgroundColor = Color(0xFF121212);
-  static const Color darkSurfaceColor = Color(0xFF1E1E1E);
+  static const Color darkBackgroundColor = VhDesignTokens.coreBackgroundDark;
+  static const Color darkSurfaceColor = VhDesignTokens.surfaceDark;
   static const Color darkOnSurfaceColor = Colors.white;
 
   static ThemeData getLightTheme(double baseFontSize) {
@@ -128,6 +129,15 @@ class AppTheme {
 
     return ThemeData(
       colorScheme: colorScheme,
+      extensions: <ThemeExtension<dynamic>>[
+        VhDesignTokens.coreLight.copyWith(
+          primary: colorScheme.primary,
+          onPrimary: colorScheme.onPrimary,
+          focusRing: colorScheme.primary,
+          info: colorScheme.primary,
+        ),
+        VhDesignTokens.shape,
+      ],
       primaryColor: primaryColor,
       scaffoldBackgroundColor: backgroundColor,
       appBarTheme: AppBarTheme(
@@ -296,6 +306,15 @@ class AppTheme {
 
     return ThemeData(
       colorScheme: colorScheme,
+      extensions: <ThemeExtension<dynamic>>[
+        VhDesignTokens.coreDark.copyWith(
+          primary: colorScheme.primary,
+          onPrimary: colorScheme.onPrimary,
+          focusRing: colorScheme.primary,
+          info: colorScheme.primary,
+        ),
+        VhDesignTokens.shape,
+      ],
       scaffoldBackgroundColor: darkBackgroundColor,
       appBarTheme: AppBarTheme(
         backgroundColor: colorScheme.primary,

@@ -1,6 +1,8 @@
 // lib/theme/theme_colors.dart
 import 'package:flutter/material.dart';
 
+import 'design_tokens.dart';
+
 class ThemeColors {
   static Color getSuccessColor(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -13,7 +15,9 @@ class ThemeColors {
 
   static Color getWarningColor(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return isDark ? Colors.orange.shade400 : Colors.orange.shade700;
+    return isDark
+        ? VhDesignTokens.warningOnSurfaceDark
+        : VhDesignTokens.warningOnSurfaceLight;
   }
 
   static double getShadowOpacity(BuildContext context) {
@@ -39,7 +43,9 @@ class ThemeColors {
 
   static Color getErrorColor(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return isDark ? Colors.red.shade400 : Colors.red.shade600;
+    return isDark
+        ? VhDesignTokens.errorOnSurfaceDark
+        : VhDesignTokens.errorOnSurfaceLight;
   }
 
   static BoxShadow getCardShadow(BuildContext context) {
