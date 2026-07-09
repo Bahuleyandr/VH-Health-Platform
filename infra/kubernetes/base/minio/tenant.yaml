@@ -218,11 +218,27 @@ spec:
       v1.min.io/tenant: vhhealth-minio
   policyTypes: [Ingress, Egress]
   ingress:
-    # Apps (backend) need the S3 API
+    # Backend runtime and backend-owned jobs need the S3 API. Keep this
+    # pod-selected so future tenant pods do not inherit object-store access.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend-r2-sync
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ward-downtime-packs
       ports:
         - protocol: TCP
           port: 9000

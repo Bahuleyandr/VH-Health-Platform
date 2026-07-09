@@ -17,9 +17,9 @@
 # pods in each namespace so every pod is immediately restricted until a
 # specific allow rule lets traffic through.
 #
-# This requires a CNI that supports NetworkPolicy enforcement (Cilium or
-# Calico). RKE2 ships Canal by default — the Ansible bootstrap swaps to
-# Cilium in L4+L7 mode.
+# This requires a CNI that supports NetworkPolicy enforcement. The current
+# RKE2 default is Canal (flannel + Calico NetworkPolicy), so this baseline is
+# L3/L4-only. Cilium L7 policy is a separate migration plan, not active here.
 ---
 # ---- vhhealth ----
 apiVersion: networking.k8s.io/v1
@@ -162,21 +162,42 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-app-to-platform
+  name: allow-backend-to-cnpg
   namespace: vhhealth-platform
   labels:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: vhhealth-pg
   policyTypes: [Ingress]
   ingress:
-    # Applications (backend, admin) call CNPG, Redis, MinIO by DNS inside
-    # vhhealth-platform. The app-side egress policy restricts destination.
+    # Backend runtime and backend-owned jobs are the only app-namespace
+    # workloads that can initiate Postgres sessions. Redis/MinIO keep their
+    # own service-local NetworkPolicies.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend-migrate
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ward-downtime-packs
+      ports:
+        - protocol: TCP
+          port: 5432
 ---
 # ---- vhhealth-monitoring ----
 apiVersion: networking.k8s.io/v1

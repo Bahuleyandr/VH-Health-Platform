@@ -9,6 +9,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const targets = [
   'infra/kubernetes/apps',
+  'infra/kubernetes/optional/tenant-network-boundary',
   'infra/kubernetes/overlays/staging/apps',
   'infra/kubernetes/overlays/dev',
   'infra/kubernetes/overlays/staging',

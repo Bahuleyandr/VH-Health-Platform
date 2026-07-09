@@ -20,6 +20,10 @@ import jwt from 'jsonwebtoken';
 import { AppError } from '../../utils/AppError.js';
 import * as snapshotService from './snapshotService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  getCuratedDashboard,
+  listDashboardCatalog,
+} from './analyticsCatalogService.js';
 
 const METABASE_URL = process.env.METABASE_URL || '';
 const METABASE_EMBED_SECRET = process.env.METABASE_EMBED_SECRET || '';
@@ -28,17 +32,6 @@ const DEFAULT_EMBED_TTL_SECONDS = 600;
 const MIN_EMBED_TTL_SECONDS = 60;
 const MAX_EMBED_TTL_SECONDS = 86400;
 const RESERVED_PARAM_KEYS = new Set(['tenant', 'tenantid']);
-
-// Curated catalogue surfaced to the front-end so the dashboard picker
-// isn't free-text. The numeric ids must match what's actually defined
-// in the Metabase install — set via env so different tenants /
-// environments can point at different dashboard ids.
-function envInt(name, fallback) {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 function normalizeParamKey(key) {
   return String(key).replace(/[-_]/g, '').toLowerCase();
@@ -68,55 +61,19 @@ function clampTtlSeconds(ttlSeconds) {
   return Math.max(MIN_EMBED_TTL_SECONDS, Math.min(MAX_EMBED_TTL_SECONDS, seconds));
 }
 
-export const DASHBOARDS = {
-  daily_ops: {
-    title: 'Daily Operations Snapshot',
-    description: 'Morning-huddle headline numbers: OPD, IP, OT, criticals, collections.',
-    metabase_id: envInt('METABASE_DASH_DAILY_OPS', 0),
-  },
-  opd_volume: {
-    title: 'OPD Volume',
-    description: 'Per-doctor appointment counts with no-show rate.',
-    metabase_id: envInt('METABASE_DASH_OPD_VOLUME', 0),
-  },
-  ip_occupancy: {
-    title: 'IP Occupancy',
-    description: 'Daily ward-level census trend.',
-    metabase_id: envInt('METABASE_DASH_IP_OCCUPANCY', 0),
-  },
-  payer_mix: {
-    title: 'Payer Mix (monthly)',
-    description: 'Insurance claim revenue split + outstanding amount.',
-    metabase_id: envInt('METABASE_DASH_PAYER_MIX', 0),
-  },
-  lab_tat: {
-    title: 'Lab Turn-Around Time',
-    description: 'Daily / median / p95 TAT in minutes.',
-    metabase_id: envInt('METABASE_DASH_LAB_TAT', 0),
-  },
-  doctor_productivity: {
-    title: 'Doctor Productivity (30d)',
-    description: 'Rolling 30-day per-doctor appointment counts.',
-    metabase_id: envInt('METABASE_DASH_DOCTOR_PROD', 0),
-  },
-  or_throughput: {
-    title: 'OR Throughput',
-    description: 'Per-room daily case counts + minutes used / scheduled.',
-    metabase_id: envInt('METABASE_DASH_OR_THROUGHPUT', 0),
-  },
-  who_safety_compliance: {
-    title: 'WHO Safety Checklist Compliance',
-    description: 'Sign-in / time-out / sign-out completion rates.',
-    metabase_id: envInt('METABASE_DASH_SAFETY', 0),
-  },
-};
-
-export function listDashboards() {
-  return Object.entries(DASHBOARDS).map(([key, d]) => ({
-    key,
-    title: d.title,
-    description: d.description,
-    available: !!d.metabase_id,
+export async function listDashboards({ role } = {}) {
+  const dashboards = await listDashboardCatalog({ role, includeHeld: false });
+  return dashboards.map((dashboard) => ({
+    key: dashboard.key,
+    title: dashboard.title,
+    description: dashboard.description,
+    available: dashboard.available,
+    status: dashboard.status,
+    certificationStatus: dashboard.certificationStatus,
+    datasetKeys: dashboard.datasetKeys,
+    embedRoles: dashboard.embedRoles,
+    ownerRole: dashboard.ownerRole,
+    requiredParams: dashboard.requiredParams,
   }));
 }
 
@@ -124,20 +81,25 @@ export function listDashboards() {
  * Signs an embed JWT and returns the iframe URL. params let us
  * lock the dashboard down per-user (tenant id, doctor id, etc.).
  */
-export function buildEmbedUrl({ key, params = {}, ttlSeconds = 600, tenantId = DEFAULT_TENANT }) {
+export async function buildEmbedUrl({
+  key,
+  params = {},
+  ttlSeconds = 600,
+  tenantId = DEFAULT_TENANT,
+  role,
+}) {
   if (!METABASE_URL || !METABASE_EMBED_SECRET) {
     throw AppError.badRequest('Metabase embedding is not configured (METABASE_URL + METABASE_EMBED_SECRET env required)');
   }
-  const dash = DASHBOARDS[key];
-  if (!dash) throw AppError.notFound(`Unknown dashboard ${key}`);
-  if (!dash.metabase_id) {
+  const dash = await getCuratedDashboard(key, { role });
+  if (!dash.metabaseId) {
     throw AppError.badRequest(`Dashboard ${key} has no metabase_id configured`);
   }
   const resolvedTenantId = requireTenantId(tenantId);
   const sanitizedParams = sanitizeEmbedParams(params);
   const ttl = clampTtlSeconds(ttlSeconds);
   const payload = {
-    resource: { dashboard: dash.metabase_id },
+    resource: { dashboard: dash.metabaseId },
     params: {
       ...sanitizedParams,
       tenant_id: resolvedTenantId,
@@ -146,7 +108,14 @@ export function buildEmbedUrl({ key, params = {}, ttlSeconds = 600, tenantId = D
   };
   const token = jwt.sign(payload, METABASE_EMBED_SECRET, { algorithm: 'HS256' });
   const url = `${METABASE_URL.replace(/\/$/, '')}/embed/dashboard/${token}#bordered=false&titled=false`;
-  return { key, title: dash.title, url, ttlSeconds: ttl };
+  return {
+    key,
+    title: dash.title,
+    url,
+    ttlSeconds: ttl,
+    datasetKeys: dash.datasetKeys,
+    certificationStatus: dash.certificationStatus,
+  };
 }
 
 /**

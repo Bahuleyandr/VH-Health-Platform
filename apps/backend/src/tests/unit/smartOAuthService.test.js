@@ -22,16 +22,20 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 const {
   exchangeAuthorizationCode,
+  issueAuthorizationCodeFromLaunch,
   issueAuthorizationCode,
+  issueLaunchContext,
   listAccessTokens,
   listSmartApps,
   parseSmartScope,
   refreshAccessToken,
   registerSmartApp,
   resolveScopes,
+  revokeTokenByValue,
   revokeAccessToken,
   scopesAllow,
   verifyAccessToken,
+  SMART_FHIR_WRITE_RESOURCE_PLAN,
   __testing__,
 } = await import('../../services/smartFhir/smartOAuthService.js');
 
@@ -156,6 +160,37 @@ describe('registerSmartApp', () => {
     })).rejects.toThrow(/redirect_uris must include/);
   });
 
+  it('rejects wildcard redirect URIs', async () => {
+    await expect(registerSmartApp({
+      tenantId: TENANT,
+      clientId: 'app1',
+      displayName: 'X',
+      redirectUris: ['https://*.example.com/cb'],
+    })).rejects.toThrow(/wildcards are not allowed/);
+  });
+
+  it('rejects production activation without super-admin approval metadata', async () => {
+    await expect(registerSmartApp({
+      tenantId: TENANT,
+      clientId: 'prod1',
+      displayName: 'Prod',
+      redirectUris: ['https://app.example.com/cb'],
+      environment: 'production',
+      status: 'active',
+      allowedScopes: ['patient/Observation.read'],
+    })).rejects.toMatchObject({ code: 'SMART_PRODUCTION_APPROVAL_REQUIRED' });
+  });
+
+  it('rejects broad system write scopes without a signed contract reference', async () => {
+    await expect(registerSmartApp({
+      tenantId: TENANT,
+      clientId: 'syswrite',
+      displayName: 'System Write',
+      appKind: 'backend_service',
+      allowedScopes: ['system/*.write'],
+    })).rejects.toMatchObject({ code: 'SMART_SYSTEM_WRITE_CONTRACT_REQUIRED' });
+  });
+
   it('inserts a public app, no client_secret returned', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, client_id: 'app1', app_kind: 'public', allowed_scopes: ['patient/*.read'],
@@ -194,6 +229,29 @@ describe('registerSmartApp', () => {
       appKind: 'backend_service', allowedScopes: ['system/*.read'],
     });
     expect(result.app.id).toBe(3);
+  });
+
+  it('allows production-approved app registration with approver and contract metadata', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 4,
+      client_id: 'prod-approved',
+      environment: 'production',
+      registration_status: 'production_approved',
+    }]);
+    const result = await registerSmartApp({
+      tenantId: TENANT,
+      clientId: 'prod-approved',
+      displayName: 'Approved Production App',
+      redirectUris: ['https://app.example.com/cb'],
+      allowedScopes: ['patient/Observation.read', 'system/*.write'],
+      environment: 'production',
+      registrationStatus: 'production_approved',
+      approvedBy: USER,
+      productionContractRef: 'MSA-42',
+    });
+    expect(result.app.id).toBe(4);
+    expect(queryUnsafeMock.mock.calls[0]).toContain('production_approved');
+    expect(queryUnsafeMock.mock.calls[0]).toContain('MSA-42');
   });
 
   it('throws conflict on duplicate (tenant, client_id, env)', async () => {
@@ -297,6 +355,108 @@ describe('issueAuthorizationCode + PKCE enforcement', () => {
       requestedScopes: ['patient/Observation.read'],
     });
     expect(result.plaintext_code).toMatch(/^vh_authz_/);
+  });
+});
+
+describe('SMART launch contexts', () => {
+  it('requires patient_uid for patient-context launches', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'active',
+      app_kind: 'public',
+      allowed_scopes: ['launch/patient', 'patient/Observation.read'],
+    }]);
+    await expect(issueLaunchContext({
+      tenantId: TENANT,
+      clientId: 'app1',
+      requestedScopes: ['launch/patient', 'patient/Observation.read'],
+    })).rejects.toThrow(/patient_uid is required/);
+  });
+
+  it('issues an opaque launch token and stores only its hash', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'active',
+        app_kind: 'public',
+        allowed_scopes: ['launch/patient', 'patient/Observation.read'],
+      }])
+      .mockResolvedValueOnce([{ id: 77, requested_scopes: ['patient/Observation.read'] }]);
+    const result = await issueLaunchContext({
+      tenantId: TENANT,
+      clientId: 'app1',
+      requestedScopes: ['launch/patient', 'patient/Observation.read'],
+      patientUid: PATIENT,
+    });
+    expect(result.launch).toMatch(/^vh_launch_/);
+    expect(queryUnsafeMock.mock.calls[1]).not.toContain(result.launch);
+    expect(queryUnsafeMock.mock.calls[1].some((arg) => typeof arg === 'string' && /^[0-9a-f]{64}$/.test(arg))).toBe(true);
+  });
+
+  it('consumes a launch token before issuing an authorization code', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 77,
+        smart_app_id: 1,
+        requested_scopes: ['launch/patient', 'patient/Observation.read'],
+        patient_uid: PATIENT,
+        encounter_id: null,
+        user_uid: USER,
+        user_role: 'DOCTOR',
+      }])
+      .mockResolvedValueOnce([{
+        id: 77,
+        smart_app_id: 1,
+        requested_scopes: ['launch/patient', 'patient/Observation.read'],
+        patient_uid: PATIENT,
+        encounter_id: null,
+        user_uid: USER,
+        user_role: 'DOCTOR',
+      }])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'active',
+        app_kind: 'public',
+        redirect_uris: ['https://app.example.com/cb'],
+        allowed_scopes: ['launch/patient', 'patient/Observation.read'],
+      }])
+      .mockResolvedValueOnce([{ id: 88, granted_scopes: ['patient/Observation.read'] }]);
+    const result = await issueAuthorizationCodeFromLaunch({
+      tenantId: TENANT,
+      clientId: 'app1',
+      redirectUri: 'https://app.example.com/cb',
+      requestedScopes: ['patient/Observation.read'],
+      launchToken: 'vh_launch_test',
+      pkceCodeChallenge: 'abc',
+    });
+    expect(result.plaintext_code).toMatch(/^vh_authz_/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FROM smart_launch_contexts lc/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/UPDATE smart_launch_contexts/);
+    expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/INSERT INTO smart_authz_codes/);
+  });
+
+  it('does not consume a launch token when requested scopes exceed the launch context', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 77,
+      smart_app_id: 1,
+      requested_scopes: ['launch/patient', 'patient/Observation.read'],
+      patient_uid: PATIENT,
+      encounter_id: null,
+      user_uid: USER,
+      user_role: 'DOCTOR',
+    }]);
+
+    await expect(issueAuthorizationCodeFromLaunch({
+      tenantId: TENANT,
+      clientId: 'app1',
+      redirectUri: 'https://app.example.com/cb',
+      requestedScopes: ['patient/Condition.write'],
+      launchToken: 'vh_launch_test',
+      pkceCodeChallenge: 'abc',
+    })).rejects.toMatchObject({ code: 'SMART_LAUNCH_SCOPE_FORBIDDEN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FROM smart_launch_contexts lc/);
   });
 });
 
@@ -478,6 +638,25 @@ describe('revokeAccessToken + listAccessTokens', () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "smart_access_tokens" does not exist'));
     expect(await listAccessTokens({ tenantId: TENANT })).toEqual({ tokens: [], count: 0 });
   });
+
+  it('OAuth revocation authenticates the client and revokes by token hash', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 5,
+        status: 'active',
+        app_kind: 'public',
+        client_secret_hash: null,
+      }])
+      .mockResolvedValueOnce([]);
+    const result = await revokeTokenByValue({
+      tenantId: TENANT,
+      clientId: 'app1',
+      token: 'vh_access_to_revoke',
+    });
+    expect(result).toEqual({ revoked: true });
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/UPDATE smart_access_tokens/);
+    expect(queryUnsafeMock.mock.calls[1]).not.toContain('vh_access_to_revoke');
+  });
 });
 
 describe('TTL constants', () => {
@@ -485,5 +664,17 @@ describe('TTL constants', () => {
     expect(__testing__.ACCESS_TTL_SECONDS).toBe(3600);
     expect(__testing__.REFRESH_TTL_SECONDS).toBe(60 * 60 * 24 * 90);
     expect(__testing__.AUTHZ_CODE_TTL_SECONDS).toBe(300);
+  });
+});
+
+describe('SMART FHIR write resource plan', () => {
+  it('marks only the P1 write resources active with golden fixtures', () => {
+    expect(SMART_FHIR_WRITE_RESOURCE_PLAN.Observation).toEqual(expect.objectContaining({
+      status: 'active',
+      fixture: expect.stringContaining('smart-observation-create.json'),
+    }));
+    expect(SMART_FHIR_WRITE_RESOURCE_PLAN.Condition.status).toBe('active');
+    expect(SMART_FHIR_WRITE_RESOURCE_PLAN.AllergyIntolerance.status).toBe('active');
+    expect(SMART_FHIR_WRITE_RESOURCE_PLAN.Patient.status).toBe('deferred');
   });
 });

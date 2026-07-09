@@ -41598,6 +41598,23 @@
         }
       }
     },
+    "/api/v1/admin/smart-fhir/launch-contexts": {
+      "post": {
+        "operationId": "post_api_v1_admin_smart_fhir_launch_contexts",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/smart-fhir/token": {
       "post": {
         "operationId": "post_api_v1_admin_smart_fhir_token",
@@ -61255,6 +61272,23 @@
         }
       }
     },
+    "/api/v1/compliance/certification-cockpit": {
+      "get": {
+        "operationId": "get_api_v1_compliance_certification_cockpit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/compliance/dashboard": {
       "get": {
         "operationId": "get_api_v1_compliance_dashboard",
@@ -62484,6 +62518,23 @@
     "/api/v1/dashboard": {
       "get": {
         "operationId": "get_api_v1_dashboard",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboards/catalog": {
+      "get": {
+        "operationId": "get_api_v1_dashboards_catalog",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -70307,6 +70358,23 @@
         ]
       }
     },
+    "/api/v1/fhir/.well-known/smart-configuration": {
+      "get": {
+        "operationId": "get_api_v1_fhir_well_known_smart_configuration",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/fhir/AllergyIntolerance": {
       "get": {
         "operationId": "get_api_v1_fhir_AllergyIntolerance",
@@ -70603,9 +70671,60 @@
         }
       }
     },
+    "/api/v1/fhir/authorize": {
+      "get": {
+        "operationId": "get_api_v1_fhir_authorize",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/fhir/metadata": {
       "get": {
         "operationId": "get_api_v1_fhir_metadata",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fhir/revoke": {
+      "post": {
+        "operationId": "post_api_v1_fhir_revoke",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fhir/token": {
+      "post": {
+        "operationId": "post_api_v1_fhir_token",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -88993,6 +89112,55 @@
         }
       }
     },
+    "/api/v1/scheduling/overbook-policies": {
+      "get": {
+        "operationId": "get_api_v1_scheduling_overbook_policies",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_scheduling_overbook_policies",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scheduling/overbook/evaluate": {
+      "post": {
+        "operationId": "post_api_v1_scheduling_overbook_evaluate",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/scheduling/resources": {
       "post": {
         "operationId": "post_api_v1_scheduling_resources",
@@ -89037,9 +89205,132 @@
         ]
       }
     },
+    "/api/v1/scheduling/resources/{id}/compatibility": {
+      "get": {
+        "operationId": "get_api_v1_scheduling_resources_by_id_compatibility",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_scheduling_resources_by_id_compatibility",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/scheduling/resources/{id}/schedule": {
       "get": {
         "operationId": "get_api_v1_scheduling_resources_by_id_schedule",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/scheduling/slot-holds": {
+      "post": {
+        "operationId": "post_api_v1_scheduling_slot_holds",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scheduling/slot-holds/{id}/confirm": {
+      "post": {
+        "operationId": "post_api_v1_scheduling_slot_holds_by_id_confirm",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/scheduling/slot-holds/{id}/release": {
+      "post": {
+        "operationId": "post_api_v1_scheduling_slot_holds_by_id_release",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -89101,6 +89392,58 @@
     "/api/v1/scheduling/templates/{doctorId}": {
       "get": {
         "operationId": "get_api_v1_scheduling_templates_by_doctorId",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "doctorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/scheduling/templates/{doctorId}/exceptions": {
+      "get": {
+        "operationId": "get_api_v1_scheduling_templates_by_doctorId_exceptions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "doctorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_scheduling_templates_by_doctorId_exceptions",
         "responses": {
           "200": {
             "description": "Successful response",
