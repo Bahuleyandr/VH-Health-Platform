@@ -48,10 +48,35 @@ describe('tenantSettingsService', () => {
   });
 
   it('getBranding returns the branding object or {}', async () => {
-    getTenantById.mockResolvedValue({ settings: { branding: { name: 'Apollo' } } });
-    expect(await getBranding('t1')).toEqual({ name: 'Apollo' });
+    getTenantById.mockResolvedValue({
+      settings: {
+        branding: {
+          name: 'Apollo',
+          primaryColor: '#007a64',
+          supportEmail: 'Help@Apollo.example',
+        },
+      },
+    });
+    expect(await getBranding('t1')).toMatchObject({
+      schemaVersion: 1,
+      name: 'Apollo',
+      primaryColor: '#007A64',
+      supportEmail: 'help@apollo.example',
+      mobile: {
+        identityMode: 'stamped_build',
+        tokenColorSource: 'VH_TENANT_PRIMARY',
+      },
+    });
     getTenantById.mockResolvedValue({ settings: {} });
-    expect(await getBranding('t1')).toEqual({});
+    expect(await getBranding('t1')).toMatchObject({
+      schemaVersion: 1,
+      name: null,
+      logoUrl: null,
+      mobile: {
+        identityMode: 'stamped_build',
+        tokenColorSource: 'VH_TENANT_PRIMARY',
+      },
+    });
   });
 
   it('getFrontDeskBiometricCaptureSettings is disabled by default', async () => {

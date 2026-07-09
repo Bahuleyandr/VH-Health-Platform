@@ -1,4 +1,5 @@
 import { fetchAdminAPI, getJSON, postJSON } from './core';
+import type { BrandKitAsset } from './tenantContext';
 
 export type TenantRegion = 'IN' | 'EU' | 'US' | 'AP' | 'OTHER';
 export type TenantComplianceProfile = 'DPDP' | 'HIPAA' | 'GDPR' | 'NONE';
@@ -56,6 +57,62 @@ export interface TenantKekRewrapJob {
   };
 }
 
+export interface TenantBrandKit {
+  schemaVersion: number;
+  name: string | null;
+  primaryColor: string | null;
+  logoUrl: string | null;
+  supportEmail: string | null;
+  legalName: string | null;
+  legalFooter: string | null;
+  helpCenterUrl: string | null;
+  document: {
+    legalName: string | null;
+    footerText: string | null;
+    letterheadUrl: string | null;
+  };
+  email: {
+    fromName: string | null;
+    replyTo: string | null;
+  };
+  assets: {
+    logo: BrandKitAsset | null;
+    documentLetterhead: BrandKitAsset | null;
+  };
+  mobile: {
+    identityMode: 'stamped_build';
+    tokenColorSource: 'VH_TENANT_PRIMARY';
+  };
+  fallbacks?: {
+    name: boolean;
+    logo: boolean;
+    supportEmail: boolean;
+    legalName: boolean;
+    helpCenter: boolean;
+  };
+}
+
+export type TenantBrandKitPatch = Partial<{
+  name: string | null;
+  primaryColor: string | null;
+  logoUrl: string | null;
+  supportEmail: string | null;
+  legalName: string | null;
+  legalFooter: string | null;
+  helpCenterUrl: string | null;
+  document: Partial<{
+    footerText: string | null;
+  }>;
+  email: Partial<{
+    fromName: string | null;
+    replyTo: string | null;
+  }>;
+  assets: Partial<{
+    logo: { storageKey: string } | null;
+    documentLetterhead: { storageKey: string } | null;
+  }>;
+}>;
+
 export async function listTenants(params: { status?: string; region?: string } = {}) {
   const query: Record<string, string | number> = {};
   if (params.status) query.status = params.status;
@@ -67,6 +124,17 @@ export async function listTenantInteropSecrets(tenantId: string) {
   return getJSON<{ secrets: TenantInteropSecret[]; count: number }>(
     `/admin/tenants/${tenantId}/interop-secrets`,
   );
+}
+
+export async function getTenantBrandKit(tenantId: string) {
+  return getJSON<{ brandKit: TenantBrandKit }>(`/admin/tenants/${tenantId}/brand-kit`);
+}
+
+export async function updateTenantBrandKit(tenantId: string, payload: TenantBrandKitPatch) {
+  return fetchAdminAPI<{ brandKit: TenantBrandKit }>(`/admin/tenants/${tenantId}/brand-kit`, {
+    method: 'PATCH',
+    body: payload,
+  });
 }
 
 export async function upsertTenantInteropSecret(tenantId: string, payload: {

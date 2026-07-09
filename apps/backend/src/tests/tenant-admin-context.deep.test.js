@@ -51,7 +51,11 @@ d('W5 S1 — GET /admin/tenant-context', () => {
       slug: `w5-a-${SFX}`,
       name: 'W5 Hospital A',
       region: 'IN',
-      branding: { name: 'Brand A', primaryColor: '#aa0011', logoUrl: 'https://a.example/logo.png' },
+      branding: { name: 'Brand A', primaryColor: '#AA0011', logoUrl: 'https://a.example/logo.png' },
+    });
+    expect(res.body.data.branding.mobile).toEqual({
+      identityMode: 'stamped_build',
+      tokenColorSource: 'VH_TENANT_PRIMARY',
     });
   });
 
@@ -74,6 +78,12 @@ d('W5 S1 — GET /admin/tenant-context', () => {
     // No branding key seeded for B → endpoint fills a safe default name.
     expect(res.body.data.branding).toBeDefined();
     expect(res.body.data.branding.name).toBe('W5 Hospital B');
+    expect(res.body.data.branding.logoUrl).toBeNull();
+    expect(res.body.data.branding.fallbacks).toMatchObject({
+      name: true,
+      logo: true,
+      supportEmail: true,
+    });
   });
 
   it('401s without a token', async () => {

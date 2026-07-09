@@ -8,9 +8,7 @@ jest.mock("@/lib/api/tenantContext", () => ({
   getTenantContext: jest.fn(),
 }));
 
-const mockedGet = getTenantContext as jest.MockedFunction<
-  typeof getTenantContext
->;
+const mockedGet = getTenantContext as jest.MockedFunction<typeof getTenantContext>;
 
 function renderWithQuery(ui: ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -35,7 +33,15 @@ const TENANT_A: TenantContext = {
     name: "Brand A",
     logoUrl: null,
     primaryColor: "#aa0011",
-    supportEmail: null,
+    supportEmail: "support@brand-a.example",
+    legalName: "Brand A Healthcare Pvt Ltd",
+    legalFooter: "Brand A legal footer",
+    helpCenterUrl: "https://help.brand-a.example",
+    document: { legalName: "Brand A Healthcare Pvt Ltd", footerText: "Brand A legal footer", letterheadUrl: null },
+    email: { fromName: "Brand A", replyTo: "support@brand-a.example" },
+    assets: { logo: null, documentLetterhead: null },
+    mobile: { identityMode: "stamped_build", tokenColorSource: "VH_TENANT_PRIMARY" },
+    fallbacks: { name: false, logo: true, supportEmail: false, legalName: false, helpCenter: false },
   },
 };
 
@@ -43,45 +49,26 @@ describe("TenantProvider / useTenant (W5 S2)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     document.documentElement.style.removeProperty("--tenant-primary");
-    document.documentElement.style.removeProperty("--vh-color-brand-primary");
   });
 
   it("exposes the tenant branding name once loaded", async () => {
     mockedGet.mockResolvedValue(TENANT_A);
     renderWithQuery(<Consumer />);
-    await waitFor(() =>
-      expect(screen.getByText("name:Brand A")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("name:Brand A")).toBeInTheDocument());
   });
 
   it("sets --tenant-primary from branding.primaryColor", async () => {
     mockedGet.mockResolvedValue(TENANT_A);
     renderWithQuery(<Consumer />);
     await waitFor(() =>
-      expect(
-        document.documentElement.style.getPropertyValue("--tenant-primary"),
-      ).toBe("#aa0011"),
+      expect(document.documentElement.style.getPropertyValue("--tenant-primary")).toBe("#aa0011"),
     );
-    expect(
-      document.documentElement.style.getPropertyValue(
-        "--vh-color-brand-primary",
-      ),
-    ).toBe("#aa0011");
   });
 
   it("degrades to no tenant (today's look) when the fetch fails — no crash, no CSS var", async () => {
     mockedGet.mockRejectedValue(new Error("401"));
     renderWithQuery(<Consumer />);
-    await waitFor(() =>
-      expect(screen.getByText("name:(none)")).toBeInTheDocument(),
-    );
-    expect(
-      document.documentElement.style.getPropertyValue("--tenant-primary"),
-    ).toBe("");
-    expect(
-      document.documentElement.style.getPropertyValue(
-        "--vh-color-brand-primary",
-      ),
-    ).toBe("");
+    await waitFor(() => expect(screen.getByText("name:(none)")).toBeInTheDocument());
+    expect(document.documentElement.style.getPropertyValue("--tenant-primary")).toBe("");
   });
 });

@@ -7,7 +7,8 @@
 // `tenants.settings` shape (every key optional):
 //   {
 //     rateLimits?: { <profile>: { windowMs?: number, max?: number } },
-//     branding?:   { name?, logoUrl?, primaryColor?, supportEmail? },
+//     branding?:   { name?, logoUrl?, primaryColor?, supportEmail?, legalName?,
+//                    legalFooter?, helpCenterUrl?, document?, email?, assets? },
 //     cache?:      { enabledRoutes?: string[] },
 //     notificationChannels?: {
 //       appointment_reminder?: ('push'|'sms'|'whatsapp'|'voice'|'email'|'inapp'|'print')[],
@@ -34,6 +35,7 @@
 //     },
 //   }
 import { getTenantById } from './tenantService.js';
+import { normalizeBrandKit } from './brandKitSchema.js';
 
 export async function getTenantSettings(tenantId) {
   if (!tenantId) return {};
@@ -50,7 +52,7 @@ export async function getRateLimitOverride(tenantId, profile) {
 
 export async function getBranding(tenantId) {
   const settings = await getTenantSettings(tenantId);
-  return settings.branding && typeof settings.branding === 'object' ? settings.branding : {};
+  return normalizeBrandKit(settings.branding);
 }
 
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {
