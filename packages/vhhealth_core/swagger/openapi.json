@@ -41598,6 +41598,23 @@
         }
       }
     },
+    "/api/v1/admin/smart-fhir/launch-contexts": {
+      "post": {
+        "operationId": "post_api_v1_admin_smart_fhir_launch_contexts",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/smart-fhir/token": {
       "post": {
         "operationId": "post_api_v1_admin_smart_fhir_token",
@@ -70289,6 +70306,23 @@
         ]
       }
     },
+    "/api/v1/fhir/.well-known/smart-configuration": {
+      "get": {
+        "operationId": "get_api_v1_fhir_well_known_smart_configuration",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/fhir/AllergyIntolerance": {
       "get": {
         "operationId": "get_api_v1_fhir_AllergyIntolerance",
@@ -70585,9 +70619,60 @@
         }
       }
     },
+    "/api/v1/fhir/authorize": {
+      "get": {
+        "operationId": "get_api_v1_fhir_authorize",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/fhir/metadata": {
       "get": {
         "operationId": "get_api_v1_fhir_metadata",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fhir/revoke": {
+      "post": {
+        "operationId": "post_api_v1_fhir_revoke",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fhir/token": {
+      "post": {
+        "operationId": "post_api_v1_fhir_token",
         "responses": {
           "200": {
             "description": "Successful response",
