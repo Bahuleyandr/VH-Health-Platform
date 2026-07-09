@@ -33,6 +33,7 @@ const PLATFORM_JWT_PLACEHOLDER = 'platform.jwt.placeholder';
 
 const queryRawUnsafeMock = jest.fn();
 const verifyAccessTokenMock = jest.fn();
+const recordVitalsMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -57,7 +58,7 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/emr/vitalsChartService.js', () => ({
-  recordVitals: jest.fn(),
+  recordVitals: recordVitalsMock,
 }));
 
 jest.unstable_mockModule('../../services/clinical/problemListService.js', () => ({
@@ -101,6 +102,11 @@ function fakeScopesAllow(grantedScopes, { level = 'patient', resource, operation
 }
 
 jest.unstable_mockModule('../../services/smartFhir/smartOAuthService.js', () => ({
+  SMART_FHIR_WRITE_RESOURCE_PLAN: {
+    Observation: { status: 'active' },
+    Condition: { status: 'active' },
+    AllergyIntolerance: { status: 'active' },
+  },
   default: {
     verifyAccessToken: verifyAccessTokenMock,
     scopesAllow: fakeScopesAllow,
@@ -158,6 +164,9 @@ function installObservationQueryMock() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  recordVitalsMock.mockResolvedValue({
+    vitals: { id: 501, recorded_at: '2026-07-09T10:00:00.000Z' },
+  });
   installObservationQueryMock();
 });
 
@@ -219,6 +228,36 @@ describe('FHIR SMART-on-FHIR scope enforcement', () => {
         .set('Authorization', `Bearer ${SMART_TOKEN}`);
       expect(res.status).toBe(200);
       expect(res.body.resourceType).toBe('Bundle');
+    });
+
+    it('allows a patient/Observation.write token to create its own Observation', async () => {
+      verifyAccessTokenMock.mockResolvedValue({
+        id: 17,
+        granted_scopes: ['patient/Observation.write'],
+        patient_uid: PATIENT_A,
+        user_uid: ACTOR_UID,
+        user_role: 'DOCTOR',
+        client_id: 'app-under-test',
+      });
+      queryRawUnsafeMock.mockResolvedValueOnce([{ uid: PATIENT_A, tenant_id: TENANT_A }]);
+      const res = await request(buildApp())
+        .post('/fhir/Observation')
+        .set('Authorization', `Bearer ${SMART_TOKEN}`)
+        .send({
+          resourceType: 'Observation',
+          status: 'final',
+          code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
+          subject: { reference: `Patient/${PATIENT_A}` },
+          valueQuantity: { value: 72, unit: 'beats/min' },
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.resourceType).toBe('Observation');
+      expect(recordVitalsMock).toHaveBeenCalledWith(expect.objectContaining({
+        patient_uid: PATIENT_A,
+        tenant_id: TENANT_A,
+        recorded_by: ACTOR_UID,
+        source: 'fhir',
+      }));
     });
   });
 

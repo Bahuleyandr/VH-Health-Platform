@@ -36,7 +36,11 @@ import {
 } from '../../services/security/accessDecisionService.js';
 import { AppError } from '../../utils/AppError.js';
 import { ROLES, isAdmin, isDoctor, isMedicalRecords } from '../../utils/roleHelpers.js';
-import { verifyAccessToken as verifySmartAccessToken, scopesAllow as smartScopesAllow } from '../../services/smartFhir/smartOAuthService.js';
+import {
+  SMART_FHIR_WRITE_RESOURCE_PLAN,
+  verifyAccessToken as verifySmartAccessToken,
+  scopesAllow as smartScopesAllow,
+} from '../../services/smartFhir/smartOAuthService.js';
 
 const router = express.Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -174,7 +178,12 @@ function requireFhirDirectoryRole(req) {
 
 // Roadmap C3 — write interactions are tighter than the read mount: doctors,
 // admins and the integration service account may create resources.
-function requireFhirWriteRole(req) {
+function requireFhirWriteRole(req, resourceType) {
+  if (req.smart) {
+    const plan = SMART_FHIR_WRITE_RESOURCE_PLAN[resourceType];
+    if (plan?.status === 'active') return;
+    throw AppError.forbidden(`${resourceType} writes are not active for SMART apps`, 'FHIR_SMART_WRITE_RESOURCE_NOT_ACTIVE');
+  }
   const role = req.user?.role;
   if (isDoctor(role) || isAdmin(role) || role === 'SUPER_ADMIN' || role === ROLES.INTEGRATION_ADMIN) {
     return;
@@ -1019,7 +1028,7 @@ router.get(
 router.post(
   '/Condition',
   wrapAsync(async (req, res) => {
-    requireFhirWriteRole(req);
+    requireFhirWriteRole(req, 'Condition');
     const tenantId = tenantOf(req);
     const resource = req.body;
     assertValidInbound(resource, 'Condition');
@@ -1052,7 +1061,7 @@ router.post(
       onsetDate: resource.onsetDateTime ? String(resource.onsetDateTime).slice(0, 10) : null,
       notes: resource.note?.[0]?.text || null,
       codings: clinicalCodings,
-    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId });
+    }, { actorUid: req.user?.uid || req.smart?.user_uid || null, actorRole: req.user?.role || req.smart?.user_role || 'SMART_APP', tenantId });
 
     res.status(201);
     res.setHeader('Location', `Condition/p-${result.problem.id}`);
@@ -1068,7 +1077,7 @@ router.post(
 router.post(
   '/Observation',
   wrapAsync(async (req, res) => {
-    requireFhirWriteRole(req);
+    requireFhirWriteRole(req, 'Observation');
     const tenantId = tenantOf(req);
     const resource = req.body;
     assertValidInbound(resource, 'Observation');
@@ -1090,7 +1099,7 @@ router.post(
       temperature_unit: mappedResult.temperatureUnit || undefined,
       recorded_at: mappedResult.effective || undefined,
       notes: `FHIR Observation create (${mappedResult.mapped.join(', ')})`,
-      recorded_by: req.user?.uid,
+      recorded_by: req.user?.uid || req.smart?.user_uid || null,
       source: 'fhir',
     });
     const row = result?.vitals || result;
@@ -1124,7 +1133,7 @@ router.post(
 router.post(
   '/AllergyIntolerance',
   wrapAsync(async (req, res) => {
-    requireFhirWriteRole(req);
+    requireFhirWriteRole(req, 'AllergyIntolerance');
     const tenantId = tenantOf(req);
     const resource = req.body;
     assertValidInbound(resource, 'AllergyIntolerance');

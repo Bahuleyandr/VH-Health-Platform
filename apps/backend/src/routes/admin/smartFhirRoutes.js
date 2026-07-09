@@ -15,6 +15,7 @@ import { success } from '../../utils/responseHelper.js';
 import {
   exchangeAuthorizationCode,
   issueAuthorizationCode,
+  issueLaunchContext,
   listAccessTokens,
   listSmartApps,
   refreshAccessToken,
@@ -36,10 +37,23 @@ function assertAdminAuthorizeHelperEnabled() {
   }
 }
 
+function assertProductionApprovalAllowed(req, body = {}) {
+  const environment = String(body.environment || 'sandbox').trim();
+  const wantsProductionApproval = environment === 'production'
+    && (body.registration_status === 'production_approved' || body.status === 'active');
+  if (wantsProductionApproval && req.user?.role !== 'SUPER_ADMIN') {
+    throw AppError.forbidden(
+      'Production SMART apps require platform super-admin approval',
+      'SMART_PRODUCTION_APPROVAL_ROLE_REQUIRED',
+    );
+  }
+}
+
 // Apps
 router.post('/apps', async (req, res, next) => {
   try {
     const b = req.body || {};
+    assertProductionApprovalAllowed(req, b);
     const result = await registerSmartApp({
       tenantId: req.tenantId,
       clientId: b.client_id, displayName: b.display_name,
@@ -47,7 +61,12 @@ router.post('/apps', async (req, res, next) => {
       redirectUris: b.redirect_uris, allowedScopes: b.allowed_scopes,
       launchUri: b.launch_uri, jwksUrl: b.jwks_url,
       fhirVersion: b.fhir_version, status: b.status,
-      environment: b.environment, metadata: b.metadata,
+      environment: b.environment,
+      registrationStatus: b.registration_status,
+      approvedBy: b.registration_status === 'production_approved' ? req.user?.uid : b.approved_by,
+      productionContractRef: b.production_contract_ref,
+      approvalNotes: b.approval_notes,
+      metadata: b.metadata,
       createdBy: req.user?.uid || null,
     });
     return success(res, result, 'SMART app registered. Store the plaintext client_secret if returned — it cannot be shown again.', 201);
@@ -81,6 +100,26 @@ router.post('/authorize', async (req, res, next) => {
       state: b.state, environment: b.environment, metadata: b.metadata,
     });
     return success(res, result, 'Authorization code issued', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/launch-contexts', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const result = await issueLaunchContext({
+      tenantId: req.tenantId,
+      clientId: b.client_id,
+      requestedScopes: b.scope ? String(b.scope).split(/\s+/) : b.requested_scopes,
+      patientUid: b.patient_uid,
+      encounterId: b.encounter_id,
+      userUid: b.user_uid || req.user?.uid || null,
+      userRole: b.user_role || req.user?.role || null,
+      environment: b.environment,
+      metadata: b.metadata,
+      createdBy: req.user?.uid || null,
+      ttlSeconds: b.ttl_seconds,
+    });
+    return success(res, result, 'SMART launch context issued', 201);
   } catch (err) { return next(err); }
 });
 

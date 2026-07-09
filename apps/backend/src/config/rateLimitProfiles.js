@@ -56,6 +56,15 @@ export const RATE_LIMIT_PROFILES = {
     message: 'Too many dashboard requests. Please try again shortly.'
   },
 
+  // Public SMART-on-FHIR discovery/OAuth/FHIR resource access. Token and
+  // authorize endpoints are public by design, so keep this tighter than the
+  // generic API-key-gated profile.
+  smartFhirOAuth: {
+    windowMs: 60 * 1000,
+    max: 30,
+    message: 'Too many SMART-on-FHIR requests. Please try again shortly.'
+  },
+
   // P2: SOS rate limiting — max 3 alerts per user per hour
   sos: {
     windowMs: 60 * 60 * 1000, // 1 hour

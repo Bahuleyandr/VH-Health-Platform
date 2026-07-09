@@ -279,14 +279,19 @@ export function phiAccessLogger(recordType) {
   const middleware = function phiAccessLoggerMiddleware(req, res, next) {
     // Log after response is sent (fire-and-forget)
     res.on('finish', () => {
-      const actorUid = req.acting?.actorUid ?? req.user?.uid ?? null;
-      const subjectUid = req.user?.uid ?? null;
+      const actorUid = req.acting?.actorUid ?? req.user?.uid ?? req.smart?.user_uid ?? null;
+      const smartActorId = req.smart?.client_id
+        ? `smart:${req.smart.client_id}`
+        : req.smart?.smart_app_id
+          ? `smart-app:${req.smart.smart_app_id}`
+          : null;
+      const subjectUid = req.user?.uid ?? req.smart?.user_uid ?? null;
       const actingAsDependent = req.acting != null;
 
       // Use the actor (human pressing the button) for the legacy
       // accessed_by column — that preserves historical semantics, since
       // the column always meant "who initiated this access".
-      const userId = actorUid || req.user?.id;
+      const userId = actorUid || req.user?.id || smartActorId;
 
       // Skip if we can't identify who's accessing (middleware ran before auth).
       // This also prevents double-logging auth-layer 401s — those never set
@@ -319,7 +324,7 @@ export function phiAccessLogger(recordType) {
 
       logPhiAccess({
         userId: String(userId),
-        userRole: req.acting?.actorRole ?? req.user?.role ?? 'UNKNOWN',
+        userRole: req.acting?.actorRole ?? req.user?.role ?? req.smart?.user_role ?? 'SMART_APP',
         patientId: patientId ? String(patientId) : null,
         recordType,
         // Denied attempts are recorded as ACCESS_DENIED regardless of the HTTP

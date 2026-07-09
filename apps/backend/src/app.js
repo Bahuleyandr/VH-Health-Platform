@@ -40,6 +40,7 @@ import {
   patientRateLimiter,
   patientInvestigationRateLimiter,
   genericLimiter,
+  getRateLimiter,
   adminRateLimiter,
   dataExportRateLimiter,
   dashboardRateLimiter
@@ -169,6 +170,7 @@ import patientVirtualWardRoutes from './routes/patient/virtualWardRoutes.js';
 
 // FHIR interoperability
 import fhirRoutes from './routes/fhir/fhirRoutes.js';
+import publicSmartFhirRoutes from './routes/smartFhir/publicSmartFhirRoutes.js';
 import cdsHooksRoutes from './routes/clinical/cdsHooksRoutes.js';
 import encounterRoutes from './routes/clinical/encounterRoutes.js';
 
@@ -309,6 +311,7 @@ import metricsRoutes from './routes/metrics/metricsRoutes.js';
 
 // Swagger loader
 import swaggerLoader from './utils/swaggerLoader.js';
+import { resolveTenantForRequest } from './services/tenant/tenantService.js';
 
 // ====================================
 // ENVIRONMENT AND INITIALIZATION
@@ -319,6 +322,46 @@ import './utils/validateEnv.js';
 
 // Create Express app
 const app = express();
+const smartFhirRateLimiter = getRateLimiter('smartFhirOAuth');
+
+function isPublicSmartFhirResourceRequest(req) {
+  const path = String(req.path || '');
+  if (path === '/metadata') return true;
+  const authHeader = req.headers?.authorization || '';
+  return /^Bearer\s+vh_access_/i.test(String(authHeader));
+}
+
+async function publicSmartFhirTenantContext(req, res, next) {
+  try {
+    req.tenantId = await resolveTenantForRequest(req);
+    return next();
+  } catch (err) {
+    const status = typeof err?.statusCode === 'number' ? err.statusCode : 500;
+    return res.status(status).json({
+      resourceType: 'OperationOutcome',
+      issue: [{
+        severity: 'error',
+        code: status === 400 ? 'invalid' : status === 403 ? 'forbidden' : 'exception',
+        diagnostics: status >= 500 ? 'Internal server error' : String(err?.message || 'Tenant context required'),
+        details: err?.code ? { text: err.code } : undefined,
+      }],
+    });
+  }
+}
+
+const publicSmartFhirResourceRouter = express.Router();
+publicSmartFhirResourceRouter.use((req, _res, next) => {
+  if (isPublicSmartFhirResourceRequest(req)) return next();
+  return next('router');
+});
+publicSmartFhirResourceRouter.use(
+  smartFhirRateLimiter,
+  publicSmartFhirTenantContext,
+  fhirPatientContext,
+  requireFhirSearchPatientContext,
+  phiAccessLogger('FHIR_RESOURCE'),
+  fhirRoutes,
+);
 app.set('trust proxy', 1); // Required for Render or Cloudflare
 
 function getCanonicalHttpsOrigin() {
@@ -560,6 +603,12 @@ app.use('/api/v1/integrations/nhcx', nhcxCallbackRoutes);
 app.get('/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
 app.get('/api/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
 app.use('/health', genericLimiter, uptimeRoutes);
+
+// Public SMART-on-FHIR launch + token endpoints, plus a SMART-token-only FHIR
+// resource path. Platform JWT FHIR traffic falls through to the authenticated
+// staff mount below.
+app.use('/api/v1/fhir', smartFhirRateLimiter, publicSmartFhirRoutes);
+app.use('/api/v1/fhir', publicSmartFhirResourceRouter);
 
 // ====================================
 // DB-FREE STATIC DOWNTIME MIRROR (WS2 / REL-5)
