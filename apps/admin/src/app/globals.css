@@ -41,6 +41,9 @@
   --color-warning: var(--warning);
   --color-info: var(--info);
   --color-danger: var(--danger);
+  --color-success-on-surface: var(--success-on-surface);
+  --color-warning-on-surface: var(--warning-on-surface);
+  --color-error-on-surface: var(--error-on-surface);
 
   /* Charts */
   --color-chart-1: var(--chart-1);
@@ -70,38 +73,69 @@
 :root {
   /* Base — VHHealth brand radii: cards 12px, inputs 8px, buttons 12px */
   --radius: 0.75rem; /* 12px → --radius-lg = 12px (cards/buttons), --radius-sm = 8px (inputs) */
+  --vh-radius-input: 8px;
+  --vh-radius-control: 12px;
+  --vh-radius-card: 12px;
+  --vh-focus-ring-width: 2px;
+  --vh-focus-ring-offset: 2px;
+  --vh-density-touch-target: 48px;
+  --vh-motion-fast: 120ms;
+  --vh-motion-standard: 200ms;
+  --vh-motion-slow: 320ms;
+
+  /* Shared NL11-S04 semantic tokens */
+  --vh-color-brand-primary: #007a64;
+  --vh-color-brand-on-primary: #ffffff;
+  --tenant-primary: var(--vh-color-brand-primary);
+  --vh-color-background: #e0f5f6;
+  --vh-color-surface: #ffffff;
+  --vh-color-card: #ffffff;
+  --vh-color-text-primary: #111827;
+  --vh-color-text-secondary: #4b5563;
+  --vh-color-muted: #f0fafa;
+  --vh-color-muted-foreground: #45645f;
+  --vh-color-success: #2e7d32;
+  --vh-color-success-on-surface: #2e7d32;
+  --vh-color-warning: #e65100;
+  --vh-color-warning-on-surface: #a84300;
+  --vh-color-error: #ff5252;
+  --vh-color-error-on-surface: #c62828;
+  --vh-color-info: #007a64;
 
   /* Surface & text */
-  --background: oklch(0.967 0.021 197); /* #E0F5F6 — VHHealth light teal scaffold bg */
-  --foreground: oklch(0.145 0 0);
+  --background: var(--vh-color-background);
+  --foreground: var(--vh-color-text-primary);
 
   /* Cards & popovers */
-  --card: oklch(1 0 0);                 /* #ffffff — white surfaces */
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
+  --card: var(--vh-color-card);
+  --card-foreground: var(--vh-color-text-primary);
+  --popover: var(--vh-color-surface);
+  --popover-foreground: var(--vh-color-text-primary);
 
   /* Brand & roles — VHHealth primary #007A64 */
-  --primary: oklch(0.508 0.124 168);   /* #007A64 — VHHealth teal-green */
-  --primary-foreground: oklch(1 0 0);  /* white */
+  --primary: var(--tenant-primary, var(--vh-color-brand-primary));
+  --primary-foreground: var(--vh-color-brand-on-primary);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.972 0.014 193);     /* #f0fafa — teal-tinted muted */
-  --muted-foreground: oklch(0.45 0.03 178); /* darkened for WCAG AA 4.5:1 on #E0F5F6 bg */
-  --accent: oklch(0.967 0.021 197);    /* matches background teal tint */
-  --accent-foreground: oklch(0.508 0.124 168);
-  --destructive: oklch(0.641 0.220 22); /* #FF5252 — redAccent */
+  --muted: var(--vh-color-muted);
+  --muted-foreground: var(--vh-color-muted-foreground);
+  --accent: oklch(0.967 0.021 197); /* matches background teal tint */
+  --accent-foreground: var(--primary);
+  --destructive: var(--vh-color-error);
 
   /* Dashboard Status Colors */
-  --success: oklch(0.514 0.138 143);   /* #388e3c — green */
-  --warning: oklch(0.618 0.181 47);    /* #e65100 — orange */
-  --info: oklch(0.508 0.124 168);      /* #007A64 — brand primary */
-  --danger: oklch(0.641 0.220 22);     /* #FF5252 — redAccent */
+  --success: var(--vh-color-success);
+  --success-on-surface: var(--vh-color-success-on-surface);
+  --warning: var(--vh-color-warning);
+  --warning-on-surface: var(--vh-color-warning-on-surface);
+  --info: var(--vh-color-info);
+  --danger: var(--vh-color-error);
+  --error-on-surface: var(--vh-color-error-on-surface);
 
   /* UI chrome */
-  --border: oklch(0.508 0.124 168 / 0.2); /* teal-tinted border */
-  --input: oklch(0.508 0.124 168 / 0.3);  /* teal-tinted input border */
-  --ring: oklch(0.508 0.124 168);          /* #007A64 focus ring */
+  --border: color-mix(in oklch, var(--primary) 20%, transparent);
+  --input: color-mix(in oklch, var(--primary) 30%, transparent);
+  --ring: var(--primary);
 
   /* Charts */
   --chart-1: oklch(0.646 0.222 41.116);
@@ -111,11 +145,11 @@
   --chart-5: oklch(0.769 0.188 70.08);
 
   /* Sidebar */
-  --sidebar: oklch(1 0 0);              /* white sidebar in light mode */
+  --sidebar: oklch(1 0 0); /* white sidebar in light mode */
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.508 0.124 168); /* brand primary */
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.967 0.021 197);  /* light teal tint */
+  --sidebar-accent: oklch(0.967 0.021 197); /* light teal tint */
   --sidebar-accent-foreground: oklch(0.508 0.124 168);
   --sidebar-border: oklch(0.508 0.124 168 / 0.15);
   --sidebar-ring: oklch(0.508 0.124 168);
@@ -123,54 +157,75 @@
 
 /* ===== Dark theme ===== */
 .dark {
+  --vh-color-brand-primary: #4db8a8;
+  --vh-color-brand-on-primary: #121212;
+  --tenant-primary: var(--vh-color-brand-primary);
+  --vh-color-background: #121212;
+  --vh-color-surface: #1e1e1e;
+  --vh-color-card: #1e1e1e;
+  --vh-color-text-primary: #ffffff;
+  --vh-color-text-secondary: #9ca3af;
+  --vh-color-muted: #2a2a2a;
+  --vh-color-muted-foreground: #9ca3af;
+  --vh-color-success: #66bb6a;
+  --vh-color-success-on-surface: #66bb6a;
+  --vh-color-warning: #ffb74d;
+  --vh-color-warning-on-surface: #ffb74d;
+  --vh-color-error: #ff5252;
+  --vh-color-error-on-surface: #ff8a80;
+  --vh-color-info: #4db8a8;
+
   /* Surface & text — VHHealth dark theme #121212 bg, #1E1E1E surfaces */
-  --background: oklch(0.118 0 0);       /* #121212 */
-  --foreground: oklch(0.985 0 0);       /* white */
+  --background: var(--vh-color-background);
+  --foreground: var(--vh-color-text-primary);
 
   /* Cards & popovers — #1E1E1E */
-  --card: oklch(0.165 0 0);             /* #1E1E1E */
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.165 0 0);
-  --popover-foreground: oklch(0.985 0 0);
+  --card: var(--vh-color-card);
+  --card-foreground: var(--vh-color-text-primary);
+  --popover: var(--vh-color-surface);
+  --popover-foreground: var(--vh-color-text-primary);
 
   /* Brand & roles — lighter teal for dark mode visibility #4DB8A8 */
-  --primary: oklch(0.718 0.110 179);    /* #4DB8A8 — lighter teal on dark */
-  --primary-foreground: oklch(0.118 0 0); /* dark bg for text on primary */
+  --primary: var(--tenant-primary, var(--vh-color-brand-primary));
+  --primary-foreground: var(--vh-color-brand-on-primary);
   --secondary: oklch(0.22 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.2 0 0);              /* #2a2a2a */
-  --muted-foreground: oklch(0.65 0 0);  /* #9ca3af */
+  --muted: var(--vh-color-muted);
+  --muted-foreground: var(--vh-color-muted-foreground);
   --accent: oklch(0.22 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.641 0.220 22); /* #FF5252 — redAccent */
+  --destructive: var(--vh-color-error);
 
   /* Dashboard Status Colors (Dark Mode) */
-  --success: oklch(0.696 0.17 162.48);
-  --warning: oklch(0.828 0.189 84.429);
-  --info: oklch(0.718 0.110 179);       /* lighter teal */
-  --danger: oklch(0.641 0.220 22);
+  --success: var(--vh-color-success);
+  --success-on-surface: var(--vh-color-success-on-surface);
+  --warning: var(--vh-color-warning);
+  --warning-on-surface: var(--vh-color-warning-on-surface);
+  --info: var(--vh-color-info);
+  --danger: var(--vh-color-error);
+  --error-on-surface: var(--vh-color-error-on-surface);
 
   /* UI chrome */
-  --border: oklch(0.718 0.110 179 / 0.2); /* rgba(77, 184, 168, 0.2) */
-  --input: oklch(0.718 0.110 179 / 0.25);
-  --ring: oklch(0.718 0.110 179);
+  --border: color-mix(in oklch, var(--primary) 20%, transparent);
+  --input: color-mix(in oklch, var(--primary) 25%, transparent);
+  --ring: var(--primary);
 
   /* Charts (tuned for dark bg contrast) */
   --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.718 0.110 179);
+  --chart-2: oklch(0.718 0.11 179);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
 
   /* Sidebar */
-  --sidebar: oklch(0.165 0 0);          /* #1E1E1E */
+  --sidebar: oklch(0.165 0 0); /* #1E1E1E */
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.718 0.110 179); /* #4DB8A8 */
+  --sidebar-primary: oklch(0.718 0.11 179); /* #4DB8A8 */
   --sidebar-primary-foreground: oklch(0.118 0 0);
   --sidebar-accent: oklch(0.22 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.718 0.110 179 / 0.15);
-  --sidebar-ring: oklch(0.718 0.110 179);
+  --sidebar-border: oklch(0.718 0.11 179 / 0.15);
+  --sidebar-ring: oklch(0.718 0.11 179);
 }
 
 /* ===== Base layer ===== */
@@ -182,21 +237,26 @@
   }
 
   /* Apply border color token everywhere for consistency */
-  *, ::before, ::after {
+  *,
+  ::before,
+  ::after {
     @apply border-border;
   }
 
   /* Body surface + text colors from tokens */
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     accent-color: var(--primary);
   }
 
   /* Font smoothing for root and body (moved from Dashboard.module.css) */
-  :root, body {
+  :root,
+  body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -216,7 +276,7 @@
     font-weight: 600;
     transition: all 0.2s ease;
   }
-  
+
   a[href="#content"]:focus {
     left: 1rem;
   }
@@ -243,7 +303,8 @@
   /* Smooth, minimal scrollbars (Chromium/Firefox) */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklch, var(--foreground) 25%, transparent) transparent;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 25%, transparent)
+      transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
     height: 8px;
@@ -255,10 +316,22 @@
   }
 
   /* Card shadow scale (optional, consistent elevations) */
-  .shadow-elev-1 { box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.06), 0 1px 1px -1px oklch(0 0 0 / 0.06); }
-  .shadow-elev-2 { box-shadow: 0 2px 6px -1px oklch(0 0 0 / 0.08), 0 4px 6px -2px oklch(0 0 0 / 0.06); }
-  .shadow-elev-3 { box-shadow: 0 8px 24px -8px oklch(0 0 0 / 0.16); }
+  .shadow-elev-1 {
+    box-shadow:
+      0 1px 2px 0 oklch(0 0 0 / 0.06),
+      0 1px 1px -1px oklch(0 0 0 / 0.06);
+  }
+  .shadow-elev-2 {
+    box-shadow:
+      0 2px 6px -1px oklch(0 0 0 / 0.08),
+      0 4px 6px -2px oklch(0 0 0 / 0.06);
+  }
+  .shadow-elev-3 {
+    box-shadow: 0 8px 24px -8px oklch(0 0 0 / 0.16);
+  }
 
   /* Better text wrapping for headings */
-  .text-balance { text-wrap: balance; }
+  .text-balance {
+    text-wrap: balance;
+  }
 }
