@@ -110,6 +110,7 @@ import {
 // Public / mixed modules
 import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
 import { callbackRouter as nhcxCallbackRoutes } from './routes/nhcx/nhcxCallbackRoutes.js';
+import interfaceEngineIngressRoutes from './routes/interfaceEngine/interfaceEngineIngressRoutes.js';
 import adminDashboardRoutes from './routes/admin/index.js';
 import clinicalAiAdminRoutes from './routes/admin/clinicalAiRoutes.js';
 import clinicalAiClinicalUseRoutes from './routes/admin/clinicalAi/clinicalUseRoutes.js';
@@ -555,6 +556,8 @@ app.use('/api/v1/scim/v2', genericLimiter, scimRoutes);
 app.use('/api/v1/abdm', abdmCallbackRoutes);
 // NHCX gateway callbacks (public — no JWT/API key, tenant-scoped signed callback)
 app.use('/api/v1/integrations/nhcx', nhcxCallbackRoutes);
+// NL11-S11 interface-engine ingress (public connector, HMAC-signed per tenant/channel).
+app.use('/api/v1/interface-engine', genericLimiter, interfaceEngineIngressRoutes);
 
 // ====================================
 // PUBLIC HEALTH CHECK (no auth required — for Render/uptime monitors)
