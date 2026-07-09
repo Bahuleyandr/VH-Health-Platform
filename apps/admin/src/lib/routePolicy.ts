@@ -149,6 +149,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   appointments: { minRank: ANY_AUTHENTICATED },
   "queue-displays": { minRank: STAFF },
   housekeeping: { minRank: ANY_AUTHENTICATED },
+  "linen-laundry": { minRank: STAFF },
   sos: { minRank: ANY_AUTHENTICATED },
   notifications: { minRank: STAFF },
 

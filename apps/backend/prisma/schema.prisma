@@ -9878,6 +9878,10 @@ model tenants {
   leave_encashments                          leave_encashments[]
   leave_types                                leave_types[]
   legal_holds                                legal_holds[]
+  linen_item_types                           linen_item_types[]
+  linen_laundry_cycle_items                  linen_laundry_cycle_items[]
+  linen_laundry_cycles                       linen_laundry_cycles[]
+  linen_ward_par_levels                      linen_ward_par_levels[]
   maternity_apgar_scores                     maternity_apgar_scores[]
   medical_activity_logs                      medical_activity_logs[]
   medical_records                            medical_records[]
@@ -10830,21 +10834,23 @@ model vitals_chart {
 }
 
 model wards {
-  id                             Int                  @id @default(autoincrement())
-  name                           String               @db.VarChar(100)
-  floor                          Int?                 @default(1)
+  id                             Int                     @id @default(autoincrement())
+  name                           String                  @db.VarChar(100)
+  floor                          Int?                    @default(1)
   department_id                  Int?
-  total_beds                     Int?                 @default(0)
-  attendant_pass_color           String?              @db.VarChar(20)
-  attendant_pass_screening_level String?              @default("standard") @db.VarChar(20)
-  created_at                     DateTime?            @default(now()) @db.Timestamptz(6)
-  updated_at                     DateTime?            @default(now()) @db.Timestamptz(6)
-  tenant_id                      String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  total_beds                     Int?                    @default(0)
+  attendant_pass_color           String?                 @db.VarChar(20)
+  attendant_pass_screening_level String?                 @default("standard") @db.VarChar(20)
+  created_at                     DateTime?               @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?               @default(now()) @db.Timestamptz(6)
+  tenant_id                      String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   beds                           beds[]
   downtime_snapshots             downtime_snapshots[]
+  linen_laundry_cycles           linen_laundry_cycles[]
+  linen_ward_par_levels          linen_ward_par_levels[]
   ward_indents                   ward_indents[]
-  tenants                        tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_wards_tenant")
-  departments                    departments?         @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenants                        tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_wards_tenant")
+  departments                    departments?            @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenant_id], map: "idx_wards_tenant_id")
 }
@@ -11799,6 +11805,7 @@ model housekeeping_requests {
   users_housekeeping_requests_verified_by_uidTousers users?                            @relation("housekeeping_requests_verified_by_uidTousers", fields: [verified_by_uid], references: [uid], onUpdate: NoAction)
   housekeeping_zones                                 housekeeping_zones?               @relation(fields: [zone_id], references: [id], onUpdate: NoAction)
   isolation_orders                                   isolation_orders[]
+  linen_laundry_cycles                               linen_laundry_cycles[]
 
   @@unique([tenant_id, request_number], map: "uniq_housekeeping_requests_tenant_request_number")
   @@index([assigned_to, status], map: "idx_housekeeping_requests_assigned")
@@ -18837,6 +18844,29 @@ model engagement_templates {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model linen_item_types {
+  id                        BigInt                      @id @default(autoincrement())
+  tenant_id                 String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  item_code                 String                      @db.VarChar(80)
+  display_name              String                      @db.VarChar(160)
+  category                  String                      @default("bed_linen") @db.VarChar(60)
+  unit                      String                      @default("piece") @db.VarChar(30)
+  active                    Boolean                     @default(true)
+  metadata                  Json                        @default("{}")
+  created_by                String?                     @db.Uuid
+  updated_by                String?                     @db.Uuid
+  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_linen_item_types_tenant")
+  linen_laundry_cycle_items linen_laundry_cycle_items[]
+  linen_ward_par_levels     linen_ward_par_levels[]
+
+  @@unique([tenant_id, item_code], map: "ux_linen_item_types_tenant_code")
+  @@index([tenant_id, active, display_name], map: "idx_linen_item_types_tenant_active")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model queue_display_profiles {
   id                          BigInt       @id @default(autoincrement())
   tenant_id                   String       @db.Uuid
@@ -18869,6 +18899,103 @@ model queue_display_profiles {
   @@index([tenant_id, is_active, display_name], map: "idx_queue_display_profiles_active")
   @@index([tenant_id, department_id, is_active], map: "idx_queue_display_profiles_department", where: raw("(department_id IS NOT NULL)"))
   @@index([tenant_id, doctor_id, is_active], map: "idx_queue_display_profiles_doctor", where: raw("(doctor_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model linen_laundry_cycle_items {
+  id                        BigInt               @id @default(autoincrement())
+  tenant_id                 String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  cycle_id                  BigInt
+  item_type_id              BigInt
+  soiled_planned_quantity   Int                  @default(0)
+  soiled_collected_quantity Int                  @default(0)
+  clean_returned_quantity   Int                  @default(0)
+  damaged_quantity          Int                  @default(0)
+  missing_quantity          Int                  @default(0)
+  discrepancy_quantity      Int                  @default(0)
+  discrepancy_flag          Boolean              @default(false)
+  notes                     String?
+  metadata                  Json                 @default("{}")
+  created_at                DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime             @default(now()) @db.Timestamptz(6)
+  tenants                   tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_linen_laundry_cycle_items_tenant")
+  linen_laundry_cycles      linen_laundry_cycles @relation(fields: [cycle_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  linen_item_types          linen_item_types     @relation(fields: [item_type_id], references: [id], onUpdate: NoAction)
+
+  @@unique([cycle_id, item_type_id], map: "ux_linen_laundry_cycle_items_cycle_item")
+  @@index([tenant_id, item_type_id, updated_at(sort: Desc)], map: "idx_linen_laundry_cycle_items_tenant_item")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model linen_laundry_cycles {
+  id                        BigInt                      @id @default(autoincrement())
+  tenant_id                 String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  cycle_code                String                      @db.VarChar(80)
+  ward_id                   Int
+  ward_name                 String                      @db.VarChar(120)
+  housekeeping_request_id   Int?
+  status                    String                      @default("collection_requested") @db.VarChar(40)
+  discrepancy_flag          Boolean                     @default(false)
+  requested_by              String?                     @db.Uuid
+  requested_at              DateTime                    @default(now()) @db.Timestamptz(6)
+  collected_by              String?                     @db.Uuid
+  collected_at              DateTime?                   @db.Timestamptz(6)
+  sent_to_laundry_by        String?                     @db.Uuid
+  sent_to_laundry_at        DateTime?                   @db.Timestamptz(6)
+  returned_by               String?                     @db.Uuid
+  returned_at               DateTime?                   @db.Timestamptz(6)
+  reconciled_by             String?                     @db.Uuid
+  reconciled_at             DateTime?                   @db.Timestamptz(6)
+  cancelled_by              String?                     @db.Uuid
+  cancelled_at              DateTime?                   @db.Timestamptz(6)
+  cancellation_reason       String?
+  notes                     String?
+  metadata                  Json                        @default("{}")
+  created_by                String?                     @db.Uuid
+  updated_by                String?                     @db.Uuid
+  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  linen_laundry_cycle_items linen_laundry_cycle_items[]
+  tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_linen_laundry_cycles_tenant")
+  housekeeping_requests     housekeeping_requests?      @relation(fields: [housekeeping_request_id], references: [id], onUpdate: NoAction)
+  wards                     wards                       @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
+  linen_ward_par_levels     linen_ward_par_levels[]
+
+  @@unique([tenant_id, cycle_code], map: "ux_linen_laundry_cycles_tenant_code")
+  @@index([tenant_id, discrepancy_flag, updated_at(sort: Desc)], map: "idx_linen_laundry_cycles_discrepancy", where: raw("(discrepancy_flag = true)"))
+  @@index([tenant_id, ward_id, status, updated_at(sort: Desc)], map: "idx_linen_laundry_cycles_tenant_ward_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model linen_ward_par_levels {
+  id                   BigInt                @id @default(autoincrement())
+  tenant_id            String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ward_id              Int
+  ward_name            String                @db.VarChar(120)
+  item_type_id         BigInt
+  par_quantity         Int                   @default(0)
+  actual_quantity      Int                   @default(0)
+  reorder_threshold    Int                   @default(0)
+  last_counted_at      DateTime?             @db.Timestamptz(6)
+  last_cycle_id        BigInt?
+  active               Boolean               @default(true)
+  notes                String?
+  metadata             Json                  @default("{}")
+  created_by           String?               @db.Uuid
+  updated_by           String?               @db.Uuid
+  created_at           DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime              @default(now()) @db.Timestamptz(6)
+  linen_laundry_cycles linen_laundry_cycles? @relation(fields: [last_cycle_id], references: [id], onUpdate: NoAction, map: "fk_linen_ward_par_levels_last_cycle")
+  tenants              tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_linen_ward_par_levels_tenant")
+  linen_item_types     linen_item_types      @relation(fields: [item_type_id], references: [id], onUpdate: NoAction)
+  wards                wards                 @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
+
+  @@unique([tenant_id, ward_id, item_type_id], map: "ux_linen_ward_par_levels_tenant_ward_item")
+  @@index([tenant_id, active, ward_id], map: "idx_linen_ward_par_levels_below_par", where: raw("(actual_quantity < par_quantity)"))
+  @@index([tenant_id, ward_id, active], map: "idx_linen_ward_par_levels_tenant_ward")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

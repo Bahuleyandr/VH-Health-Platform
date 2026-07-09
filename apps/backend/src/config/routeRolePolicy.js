@@ -290,6 +290,13 @@ export const HOUSEKEEPING_VISIBILITY_ROUTE_ROLES = mergeRoles(
   rolesFrom(['DOCTOR']),
 );
 
+export const LINEN_LAUNDRY_ROUTE_ROLES = mergeRoles(
+  HOUSEKEEPING_ROUTE_ROLES,
+  PHARMACY_SUPPLY_ROUTE_ROLES,
+  getRolesForCapabilityGroups('ip_flow'),
+  rolesFrom(['NURSING_STAFF', 'NURSING_INCHARGE', 'STORES_PURCHASE_INCHARGE']),
+);
+
 export const ED_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['ip_flow', 'emergency']),
   rolesFrom(['MEDICAL_RECORDS']),
