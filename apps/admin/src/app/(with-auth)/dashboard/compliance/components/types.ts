@@ -57,3 +57,53 @@ export interface ComplianceDashboardResponse {
   legal_holds: { total: number; active: number };
   generated_at: string;
 }
+
+export interface CertificationCockpitResponse {
+  cockpit_version: string;
+  tenant_id: string;
+  generated_at: string;
+  declaration_boundary: {
+    cert_ready_label: string;
+    externally_certified_label: string;
+    rule: string;
+  };
+  summary: {
+    total_tracks: number;
+    accepted_count: number;
+    open_count: number;
+    blocker_count: number;
+    cert_ready_count: number;
+    externally_certified_count: number;
+  };
+  tracks: CertificationTrack[];
+}
+
+export interface CertificationTrack {
+  key: string;
+  stage: string;
+  control_code: string;
+  control_area: string;
+  control_name: string;
+  status: string;
+  acceptance_state: "accepted" | "open";
+  cert_ready_declaration: string;
+  external_certification_status: string;
+  engagement_status: string;
+  runbook_uri: string;
+  evidence_uri: string | null;
+  owner_uid: string | null;
+  due_at: string | null;
+  verified_by: string | null;
+  verified_at: string | null;
+  notes: string | null;
+  updated_at: string | null;
+  blockers: string[];
+  blocker_count: number;
+  supporting_controls: Array<{
+    control_code: string;
+    status: string;
+    acceptance_state: "accepted" | "open";
+    evidence_uri: string | null;
+    verified_at: string | null;
+  }>;
+}

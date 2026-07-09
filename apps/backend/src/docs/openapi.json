@@ -61203,6 +61203,23 @@
         }
       }
     },
+    "/api/v1/compliance/certification-cockpit": {
+      "get": {
+        "operationId": "get_api_v1_compliance_certification_cockpit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/compliance/dashboard": {
       "get": {
         "operationId": "get_api_v1_compliance_dashboard",
