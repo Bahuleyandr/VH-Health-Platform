@@ -34,6 +34,7 @@
     "ci:db-guardrails:docker": "node scripts/run-db-guardrails-docker.mjs",
     "ci:backend:docker": "node scripts/run-db-guardrails-docker.mjs --with-tests",
     "ci": "npm run lint && npx --yes audit-ci --config .audit-ci.jsonc && npm run db:generate && npm run openapi:check && npm run openapi:check-core && npx spectral lint src/docs/openapi.json && npm run ci:backend:docker",
+    "demo:tenant-pack": "node scripts/demo-tenant-scenario-pack.mjs",
     "pretest": "npm run db:generate && npm run test:db:setup",
     "test": "node --experimental-vm-modules --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand",
     "test:ci": "node scripts/run-ci-jest.mjs",

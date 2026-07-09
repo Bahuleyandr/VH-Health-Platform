@@ -94,6 +94,10 @@ regexes = [
   # universal local-dev convention (loopback trust auth on 127.0.0.1:55432), never
   # a production credential. Same form as the vhhealth:test@ allowlist above.
   '''postgresql://postgres:postgres@''',
+  # Historical NL11-S6 unit-test placeholder from PR #526 before the fixture was
+  # changed to passwordless URLs. `db.prod.internal` is a non-routable test host
+  # and `pw` was not a credential, but the commit range scan still sees it.
+  '''postgresql://vhhealth:pw@''',
   # Local-only dev-cluster DSN (the vhhealth role on :5433, loopback) referenced
   # in a deep-test comment + the backend CLAUDE.md.
   '''postgresql://vhhealth:vhhealth@''',
