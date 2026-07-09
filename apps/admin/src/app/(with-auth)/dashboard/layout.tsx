@@ -68,6 +68,7 @@ const navigation: NavItem[] = [
   { name: 'Feedback', href: '/dashboard/feedback', requiredPermissions: ['userManagement'] },
   { name: 'Devices', href: '/dashboard/devices', requiredRole: 'ADMIN' },
   { name: 'Cold Chain', href: '/dashboard/cold-chain', minRole: 'STAFF' },
+  { name: 'Adoption & LMS', href: '/dashboard/adoption', requiredRole: 'ADMIN' },
   { name: 'Developer Portal', href: '/dashboard/developer-portal', requiredRole: 'ADMIN' },
   { name: 'ABDM', href: '/dashboard/abdm', requiredRole: 'ADMIN' },
   { name: 'Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },

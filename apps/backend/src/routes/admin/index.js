@@ -9,6 +9,7 @@ import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 
 // Sub-routers (must remain mounted)
 import analyticsRoutes from '../analyticsRoutes.js';
+import adoptionRoutes from './adoptionRoutes.js';
 import appointmentAdminRoutes from '../appointment/appointmentAdminRoutes.js';
 import adminDepartmentRoutes from '../department/adminDepartmentRoutes.js';
 import adminDoctorRoutes from '../doctor/adminDoctorRoutes.js';
@@ -126,6 +127,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
 /* -------------------------------------------------------------------------- */
 
 router.use('/audit', auditRoutes);
+router.use('/adoption', adoptionRoutes);
 router.use('/database', databaseRoutes);
 router.use('/devices', deviceRegistryRoutes);
 router.use('/developer-portal', developerPortalRoutes);

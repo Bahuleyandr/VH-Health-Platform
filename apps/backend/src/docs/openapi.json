@@ -27470,6 +27470,91 @@
         }
       }
     },
+    "/api/v1/admin/adoption": {
+      "get": {
+        "operationId": "get_api_v1_admin_adoption",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/adoption/evidence-ledger": {
+      "get": {
+        "operationId": "get_api_v1_admin_adoption_evidence_ledger",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/adoption/help-categories": {
+      "put": {
+        "operationId": "put_api_v1_admin_adoption_help_categories",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/adoption/modules": {
+      "put": {
+        "operationId": "put_api_v1_admin_adoption_modules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/adoption/tours": {
+      "put": {
+        "operationId": "put_api_v1_admin_adoption_tours",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/alerts": {
       "get": {
         "operationId": "get_api_v1_admin_alerts",
@@ -45881,6 +45966,57 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/EmrTransferRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/adoption/catalog": {
+      "get": {
+        "operationId": "get_api_v1_adoption_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/adoption/learning-completions": {
+      "post": {
+        "operationId": "post_api_v1_adoption_learning_completions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/adoption/tour-events": {
+      "post": {
+        "operationId": "post_api_v1_adoption_tour_events",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
               }
             }
           }

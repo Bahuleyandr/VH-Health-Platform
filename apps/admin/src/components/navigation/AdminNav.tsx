@@ -190,6 +190,7 @@ const navSections: NavSection[] = [
       { name: "Audit Logs", href: "/dashboard/audit" },
       { name: "Audit Explorer", href: "/dashboard/audit-explorer" },
       { name: "Integrations", href: "/dashboard/integrations" },
+      { name: "Adoption & LMS", href: "/dashboard/adoption" },
       { name: "Entitlements", href: "/dashboard/entitlements" },
       { name: "ABDM", href: "/dashboard/abdm" },
       { name: "Devices", href: "/dashboard/devices" },
