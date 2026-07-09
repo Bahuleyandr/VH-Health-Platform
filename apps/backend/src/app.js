@@ -66,6 +66,7 @@ import {
   BILLING_ROUTE_ROLES,
   BILLING_V2_ROUTE_ROLES,
   BLOOD_BANK_ROUTE_ROLES,
+  CATH_LAB_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
   CLINICAL_ASSESSMENT_ROUTE_ROLES,
   CLINICAL_STAFF_ROUTE_ROLES,
@@ -254,6 +255,7 @@ import icuRoutes from './routes/clinical/icuRoutes.js';
 import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
+import cathLabRoutes from './routes/clinical/cathLabRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
 
 // Inter-staff messaging
@@ -1267,6 +1269,7 @@ app.use('/api/v1/teleconsult', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLo
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
 app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), patientAccessGuard('DIALYSIS', { careTeamModeGoverned: true }), phiAccessLogger('DIALYSIS'), dialysisRoutes);
+app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('CATH_LAB'), cathLabRoutes);
 
 // Blood Bank
 app.use('/api/v1/blood-bank', requireRole(...BLOOD_BANK_ROUTE_ROLES), patientAccessGuard('BLOOD_BANK', { careTeamModeGoverned: true }), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
