@@ -198,6 +198,123 @@ export const schemas = {
     },
   },
 
+  ClinicalAiCommandCenterCensusLosSummary: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'ward',
+      'forecast_window_hours',
+      'admitted_count',
+      'likely_discharges_24h',
+      'likely_discharges_48h',
+    ],
+    properties: {
+      ward: { type: 'string' },
+      forecast_window_hours: { type: 'integer' },
+      admitted_count: { type: 'integer' },
+      likely_discharges_24h: { type: 'integer' },
+      likely_discharges_48h: { type: 'integer' },
+    },
+  },
+
+  ClinicalAiCommandCenterCensusLosPatient: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'admission_id',
+      'patient_uid',
+      'ward',
+      'bed_number',
+      'likely_discharge_24h',
+      'likely_discharge_48h',
+      'remaining_hours_estimate',
+    ],
+    properties: {
+      admission_id: { type: 'integer', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      ward: { type: 'string', nullable: true },
+      bed_number: { type: 'string', nullable: true },
+      likely_discharge_24h: { type: 'boolean' },
+      likely_discharge_48h: { type: 'boolean' },
+      remaining_hours_estimate: { type: 'number', nullable: true },
+    },
+  },
+
+  ClinicalAiCommandCenterCensusLosBridge: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'settings_key',
+      'source_modules',
+      'governance_owner_role',
+      'freshness_threshold_minutes',
+      'hide_stale_forecasts',
+      'stale_forecasts_hidden_locked',
+      'decision_support_only',
+      'review_required',
+      'visible',
+      'hidden',
+      'hidden_reason',
+      'latest_forecast_id',
+      'generated_at',
+      'stored_at',
+      'age_minutes',
+      'confidence_band',
+      'summary',
+      'patients',
+      'recommended_actions',
+    ],
+    properties: {
+      settings_key: { type: 'string', example: 'nl8_census_los' },
+      source_modules: { type: 'array', items: { type: 'string' } },
+      governance_owner_role: { type: 'string', example: 'BED_MANAGER' },
+      freshness_threshold_minutes: { type: 'integer', example: 120 },
+      hide_stale_forecasts: { type: 'boolean', example: true },
+      stale_forecasts_hidden_locked: { type: 'boolean', example: true },
+      decision_support_only: { type: 'boolean', example: true },
+      review_required: { type: 'boolean', example: true },
+      visible: { type: 'boolean' },
+      hidden: { type: 'boolean' },
+      hidden_reason: {
+        type: 'string',
+        nullable: true,
+        enum: ['stale_forecast', 'missing_forecast'],
+      },
+      latest_forecast_id: { type: 'integer', nullable: true },
+      generated_at: { type: 'string', format: 'date-time', nullable: true },
+      stored_at: { type: 'string', format: 'date-time', nullable: true },
+      age_minutes: { type: 'integer', nullable: true },
+      confidence_band: { type: 'string' },
+      summary: {
+        nullable: true,
+        oneOf: [
+          { $ref: '#/components/schemas/ClinicalAiCommandCenterCensusLosSummary' },
+        ],
+      },
+      patients: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ClinicalAiCommandCenterCensusLosPatient' },
+      },
+      recommended_actions: { type: 'array', items: { type: 'string' } },
+    },
+  },
+
+  ClinicalAiCommandCenterSnapshotListData: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['snapshots', 'count', 'census_los'],
+    properties: {
+      snapshots: {
+        type: 'array',
+        items: { type: 'object', additionalProperties: true },
+      },
+      count: { type: 'integer', example: 0 },
+      census_los: { $ref: '#/components/schemas/ClinicalAiCommandCenterCensusLosBridge' },
+    },
+  },
+
+  ClinicalAiCommandCenterSnapshotListResponse: envelope('ClinicalAiCommandCenterSnapshotListData'),
+
   // =========================================================================
   // STRICT — diagnostics-medication (T4). Blood-bank inventory snapshot rows
   // are pure deterministic inventory records (no LLM `draft`): fixed columns
@@ -2823,7 +2940,7 @@ const CONTROL_OPS = [
 
   // ---- Hospital command center ----
   ['POST /command-center/evaluate', { response: 'ClinicalAiDraftResponse' }],
-  ['GET /command-center/snapshots', { response: 'ClinicalAiCountListResponse' }],
+  ['GET /command-center/snapshots', { response: 'ClinicalAiCommandCenterSnapshotListResponse' }],
   ['PATCH /command-center/snapshots/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
 
   // ---- Dataset labeling studio ----

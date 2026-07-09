@@ -30,6 +30,14 @@ const VALID_PAYMENT_MODES = [
 const VALID_INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIAL', 'PAID', 'VOID'];
 const VALID_REFUND_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'PAID'];
 const HIGH_VALUE_DISCOUNT_APPROVER_ROLES = ['FINANCE_INCHARGE', 'ADMIN', 'SUPER_ADMIN'];
+const INVOICE_DETAIL_COLUMNS = `
+  id, invoice_number, patient_uid, patient_name, patient_phone,
+  admission_id, doctor_uid, department, invoice_type,
+  patient_state, hospital_state, subtotal, cgst_amount, sgst_amount,
+  igst_amount, discount_amount, discount_reason, discount_approved_by,
+  total_amount, amount_paid, amount_due, status, notes, created_by,
+  issued_at, voided_at, voided_by, void_reason, tenant_id, created_at, updated_at
+`;
 
 // Mirrors VALID_CATEGORIES in claimCapsService — the bucket set TPA caps
 // match against. addInvoiceItem rejects unknown categories so ad-hoc
@@ -1060,7 +1068,7 @@ export async function resolveAdmissionTpaCap(admissionId, tenantId) {
 }
 
 export async function getInvoice(invoiceId, { tenantId } = {}) {
-  const invoice = await findBillingInvoice(invoiceId, tenantId);
+  const invoice = await findBillingInvoice(invoiceId, tenantId, INVOICE_DETAIL_COLUMNS);
   if (!invoice) throw AppError.notFound('Invoice not found');
   const items = await prisma.$queryRawUnsafe(
     `SELECT * FROM billing_invoice_items WHERE invoice_id = $1::int ORDER BY id`,

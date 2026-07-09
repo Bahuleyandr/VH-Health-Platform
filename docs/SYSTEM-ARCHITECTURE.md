@@ -688,7 +688,10 @@ Minimum backend-required secrets: `vhhealth-jwt`, `vhhealth-api-keys`,
 - **CNPG pgBackRest** → MinIO (in-cluster, AES-256) → R2 (offsite, Asia-Pac pinned).
 - Etcd snapshots every 6 hours → R2.
 - PITR: targetable per CNPG docs; runbook at [`apps/backend/docs/DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md).
-- Offsite DR cluster: deferred (batch 17 item in `docs/DEPLOYMENT_GUIDE.md` section 10).
+- Offsite DR cluster: site-neutral plan and preflight live in
+  [`CROSS_SITE_DR_FAILOVER_PLAN.md`](CROSS_SITE_DR_FAILOVER_PLAN.md); the DR
+  site, network path, storage jurisdiction, and first timed drill remain
+  operator-owned.
 
 Full end-to-end runbook: **[`docs/DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)**.
 

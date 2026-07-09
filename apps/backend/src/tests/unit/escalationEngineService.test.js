@@ -38,6 +38,7 @@ const transitionTaskMock = jest.fn();
 const queueNotificationMock = jest.fn();
 const sendSecurityWebhookMock = jest.fn();
 const enqueueCriticalResultTaskMock = jest.fn();
+const runTransportEscalationSweepMock = jest.fn(async () => ({ evaluated: 0, escalated: 0, outbox: 0 }));
 
 // resolveRoleCode mirrors the REAL producer mapping (DUTY→DUTY_DOCTOR,
 // LEADERSHIP→CMO). The producer's own unit suite locks that contract
@@ -79,6 +80,10 @@ jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => 
   default: { enqueueCriticalResultTask: enqueueCriticalResultTaskMock, resolveRoleCode: resolveRoleCodeMock },
   enqueueCriticalResultTask: enqueueCriticalResultTaskMock,
   resolveRoleCode: resolveRoleCodeMock,
+}));
+
+jest.unstable_mockModule('../../services/patientFlow/porterTransportService.js', () => ({
+  runTransportEscalationSweep: runTransportEscalationSweepMock,
 }));
 
 const { runEscalationSweep } = await import('../../services/workflow/escalationEngineService.js');

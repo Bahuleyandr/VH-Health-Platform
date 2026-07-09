@@ -77,3 +77,7 @@ migration numbers used · exact test commands run + pass counts · anything defe
 ALL checks green (`gh pr checks` exits 1 spuriously — re-query; don't trust `--watch`).
 **STOP after opening the PR.** The coordinator content-verifies and merges. Do not merge,
 do not push to main, do not touch other workers' branches or reservations.
+If defects surface after delivery (coordinator review or red CI): hand your verified local
+fixes to the coordinator as a diff or exact file contents — do NOT push further commits,
+do NOT rebase or force-push, and do NOT open a new PR for the same scope. One scope = one
+PR, forever (the NL8-P2 round produced three duplicate PRs; two were closed unmerged).

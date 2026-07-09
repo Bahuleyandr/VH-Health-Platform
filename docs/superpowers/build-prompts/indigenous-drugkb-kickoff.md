@@ -1,5 +1,7 @@
 # DESIGN: Indigenous drug-KB content program — kickoff (spec before ANY content authoring)
 
+**START GATE — STOP IF DONE:** `git fetch github && git ls-tree --name-only github/main:docs/superpowers/specs | grep -i indigenous-drugkb` — if a spec already exists on github/main, STOP and report it; do not author a second one. (#509 was a duplicate of #463 because this gate was missing.)
+
 Docs-only design session. Deliverable: ONE grounded spec at
 `docs/superpowers/specs/<today>-indigenous-drugkb-program-design.md` as a docs-only PR. NO code,
 NO drug content. This spec is the mandatory gate before any interaction/dose/caution row is

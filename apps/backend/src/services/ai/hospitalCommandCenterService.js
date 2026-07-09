@@ -28,6 +28,7 @@ import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
 
 const MODULE_KEY = 'hospital_command_center';
+const CENSUS_LOS_SETTINGS_KEY = 'nl8_census_los';
 
 const DEFAULT_PROMPT = {
   version: 'v1',
@@ -44,6 +45,17 @@ export const FINAL_DECISIONS = new Set(['accepted', 'deferred', 'rejected', 'edi
 
 const REVIEW_DISCLAIMER =
   'Duty officer review required — decision support only; no automatic diversion, staffing change, or transfer.';
+const CENSUS_LOS_REVIEW_DISCLAIMER =
+  'Census/LOS forecast is decision support only; duty officer and bed-manager review remains required.';
+const CENSUS_LOS_SOURCE_MODULES = Object.freeze(['bed_discharge_forecast', MODULE_KEY]);
+const DEFAULT_CENSUS_LOS_SETTINGS = Object.freeze({
+  governance_owner_role: 'BED_MANAGER',
+  freshness_threshold_minutes: 120,
+  hide_stale_forecasts: true,
+  stale_forecasts_hidden_locked: true,
+  decision_support_only: true,
+  review_required: true,
+});
 
 // ---------- Small helpers ------------------------------------------------
 
@@ -66,6 +78,14 @@ function asArray(value) {
 function toNumber(value, fallback = 0) {
   if (value === null || value === undefined) return fallback;
   if (typeof value === 'bigint') return Number(value);
+  if (value && typeof value === 'object' && typeof value.toNumber === 'function') {
+    try {
+      const decimalNumber = value.toNumber();
+      return Number.isFinite(decimalNumber) ? decimalNumber : fallback;
+    } catch {
+      return fallback;
+    }
+  }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
@@ -85,6 +105,12 @@ function optionalInt(value, fieldName = 'id') {
 
 function sourceHash(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value || {})).digest('hex');
+}
+
+function clampInt(value, { min, max, fallback }) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
 }
 
 function uniqueCitations(citations) {
@@ -112,6 +138,99 @@ function safeJsonParse(text, fallback) {
 function normalizeStatus(value) {
   const text = cleanText(value).toLowerCase();
   return COMMAND_STATUSES.has(text) ? text : 'unknown';
+}
+
+function normalizeDateIso(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+export function normalizeCensusLosSettings(raw = {}) {
+  const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    governance_owner_role:
+      cleanText(value.governance_owner_role) || DEFAULT_CENSUS_LOS_SETTINGS.governance_owner_role,
+    freshness_threshold_minutes: clampInt(value.freshness_threshold_minutes, {
+      min: 15,
+      max: 1440,
+      fallback: DEFAULT_CENSUS_LOS_SETTINGS.freshness_threshold_minutes,
+    }),
+    hide_stale_forecasts: true,
+    stale_forecasts_hidden_locked: true,
+    decision_support_only: true,
+    review_required: true,
+  };
+}
+
+function normalizeBedForecastPayload(raw = {}) {
+  const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const patients = asArray(value.patients).map((patient) => ({
+    admission_id: toNumber(patient?.admission_id, null),
+    patient_uid: cleanText(patient?.patient_uid) || null,
+    ward: cleanText(patient?.ward) || null,
+    bed_number: cleanText(patient?.bed_number) || null,
+    likely_discharge_24h: Boolean(patient?.likely_discharge_24h),
+    likely_discharge_48h: Boolean(patient?.likely_discharge_48h),
+    remaining_hours_estimate: toNumber(patient?.remaining_hours_estimate, null),
+  }));
+  return {
+    ward: cleanText(value.ward) || 'all',
+    forecast_window_hours: clampInt(value.forecast_window_hours, {
+      min: 1,
+      max: 168,
+      fallback: 24,
+    }),
+    admitted_count: toNumber(value.admitted_count, patients.length),
+    likely_discharges_24h: toNumber(
+      value.likely_discharges_24h,
+      patients.filter((item) => item.likely_discharge_24h).length
+    ),
+    likely_discharges_48h: toNumber(
+      value.likely_discharges_48h,
+      patients.filter((item) => item.likely_discharge_48h).length
+    ),
+    patients,
+    generated_at: normalizeDateIso(value.generated_at),
+  };
+}
+
+function confidenceBandForCensusLos({ visible, ageMinutes, thresholdMinutes }) {
+  if (!visible) return 'hidden';
+  if (!Number.isFinite(ageMinutes)) return 'unknown';
+  if (ageMinutes <= Math.min(60, Math.max(15, thresholdMinutes / 2))) return 'high';
+  return 'moderate';
+}
+
+export function buildCensusLosSignals(censusLos = {}) {
+  if (!censusLos || typeof censusLos !== 'object') return [];
+  if (censusLos.hidden_reason === 'stale_forecast') {
+    return [{
+      code: 'CENSUS_LOS_FORECAST_STALE',
+      detail: `Census/LOS forecast hidden because it is ${censusLos.age_minutes ?? 'unknown'} min old; ${censusLos.governance_owner_role || 'BED_MANAGER'} owns review.`,
+    }];
+  }
+  if (censusLos.hidden_reason === 'missing_forecast') {
+    return [{
+      code: 'CENSUS_LOS_FORECAST_MISSING',
+      detail: `No current census/LOS forecast is available; ${censusLos.governance_owner_role || 'BED_MANAGER'} owns review.`,
+    }];
+  }
+  const summary = censusLos.summary || {};
+  const signals = [];
+  if (toNumber(summary.likely_discharges_24h, 0) > 0) {
+    signals.push({
+      code: 'CENSUS_LOS_24H_DISCHARGES',
+      detail: `${toNumber(summary.likely_discharges_24h, 0)} likely discharges in 24h from the latest bed forecast.`,
+    });
+  }
+  if (toNumber(summary.likely_discharges_48h, 0) > toNumber(summary.likely_discharges_24h, 0)) {
+    signals.push({
+      code: 'CENSUS_LOS_48H_DISCHARGES',
+      detail: `${toNumber(summary.likely_discharges_48h, 0)} likely discharges in 48h from the latest bed forecast.`,
+    });
+  }
+  return signals;
 }
 
 // ---------- Pure helpers (exported) --------------------------------------
@@ -543,9 +662,9 @@ export function buildCommandActions({
   departmentStatus = {},
   signals = [],
 } = {}) {
-  void signals;
   const status = normalizeStatus(commandStatus);
   const actions = [];
+  const signalCodes = new Set(asArray(signals).map((signal) => signal?.code).filter(Boolean));
 
   switch (status) {
     case 'crisis':
@@ -611,6 +730,14 @@ export function buildCommandActions({
     actions.push('Pharmacy elevated — flag critical-med backlog and confirm runner/tube-system throughput.');
   }
 
+  if (signalCodes.has('CENSUS_LOS_FORECAST_STALE')) {
+    actions.push('Census/LOS forecast stale — keep predictive LOS tiles hidden and ask the governance owner to refresh before review.');
+  } else if (signalCodes.has('CENSUS_LOS_FORECAST_MISSING')) {
+    actions.push('Census/LOS forecast missing — generate the bed discharge forecast before relying on predictive patient-flow signals.');
+  } else if (signalCodes.has('CENSUS_LOS_24H_DISCHARGES')) {
+    actions.push('Census/LOS forecast active — review likely 24h discharges with bed management before taking operational action.');
+  }
+
   actions.push(REVIEW_DISCLAIMER);
   return actions;
 }
@@ -656,6 +783,159 @@ async function getActivePrompt(tenantId) {
     if (isMissingSchemaError(err)) return DEFAULT_PROMPT;
     throw err;
   }
+}
+
+async function persistDefaultCensusLosSettings(tenantId, settings) {
+  try {
+    await prisma.$executeRawUnsafe(
+      `UPDATE tenants
+       SET settings = jsonb_set(
+             COALESCE(settings, '{}'::jsonb),
+             '{nl8_census_los}',
+             ($2::jsonb || COALESCE(settings->'nl8_census_los', '{}'::jsonb) || $3::jsonb),
+             true
+           ),
+           updated_at = NOW()
+       WHERE id = $1::uuid`,
+      tenantId,
+      JSON.stringify({
+        governance_owner_role: settings.governance_owner_role,
+        freshness_threshold_minutes: settings.freshness_threshold_minutes,
+        decision_support_only: true,
+        review_required: true,
+        settings_version: 'nl8-p5-2026-07-07',
+      }),
+      JSON.stringify({
+        hide_stale_forecasts: true,
+        stale_forecasts_hidden_locked: true,
+      })
+    );
+  } catch (err) {
+    if (!isMissingSchemaError(err)) {
+      logger.warn('Census/LOS forecast settings default persist failed', { error: err.message });
+    }
+  }
+}
+
+async function getCensusLosSettings(tenantId) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT settings->'nl8_census_los' AS census_los_settings,
+              (settings ? 'nl8_census_los') AS has_census_los_settings
+       FROM tenants
+       WHERE id = $1::uuid
+       LIMIT 1`,
+      tenantId
+    );
+    const row = rows?.[0] || {};
+    const settings = normalizeCensusLosSettings(row.census_los_settings || {});
+    if (!row.has_census_los_settings) {
+      await persistDefaultCensusLosSettings(tenantId, settings);
+    }
+    return settings;
+  } catch (err) {
+    if (isMissingSchemaError(err)) return normalizeCensusLosSettings();
+    throw err;
+  }
+}
+
+async function getLatestBedForecastRow(tenantId) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, ward, forecast_window_hours, forecast, created_at
+       FROM clinical_ai_bed_forecasts
+       WHERE tenant_id = $1::uuid
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      tenantId
+    );
+    return rows?.[0] || null;
+  } catch (err) {
+    if (isMissingSchemaError(err)) return null;
+    throw err;
+  }
+}
+
+export async function getCommandCenterCensusLosBridge({ tenantId = null } = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const settings = await getCensusLosSettings(tid);
+  const latest = await getLatestBedForecastRow(tid);
+  const base = {
+    settings_key: CENSUS_LOS_SETTINGS_KEY,
+    source_modules: [...CENSUS_LOS_SOURCE_MODULES],
+    governance_owner_role: settings.governance_owner_role,
+    freshness_threshold_minutes: settings.freshness_threshold_minutes,
+    hide_stale_forecasts: true,
+    stale_forecasts_hidden_locked: true,
+    decision_support_only: true,
+    review_required: true,
+  };
+  if (!latest) {
+    return {
+      ...base,
+      visible: false,
+      hidden: true,
+      hidden_reason: 'missing_forecast',
+      latest_forecast_id: null,
+      generated_at: null,
+      stored_at: null,
+      age_minutes: null,
+      confidence_band: 'hidden',
+      summary: null,
+      patients: [],
+      recommended_actions: [
+        `Ask ${settings.governance_owner_role} to generate a fresh bed discharge forecast before reviewing census/LOS pressure.`,
+        CENSUS_LOS_REVIEW_DISCLAIMER,
+      ],
+    };
+  }
+
+  const forecast = normalizeBedForecastPayload(latest.forecast || {});
+  const storedAt = normalizeDateIso(latest.created_at);
+  const generatedAt = forecast.generated_at || storedAt;
+  const generatedTime = generatedAt ? new Date(generatedAt).getTime() : NaN;
+  const ageMinutes = Number.isFinite(generatedTime)
+    ? Math.max(0, Math.round((Date.now() - generatedTime) / 60_000))
+    : null;
+  const stale = ageMinutes === null || ageMinutes > settings.freshness_threshold_minutes;
+  const hidden = stale && settings.hide_stale_forecasts;
+  const summary = {
+    ward: forecast.ward || latest.ward || 'all',
+    forecast_window_hours: toNumber(
+      forecast.forecast_window_hours,
+      toNumber(latest.forecast_window_hours, 24)
+    ),
+    admitted_count: toNumber(forecast.admitted_count, 0),
+    likely_discharges_24h: toNumber(forecast.likely_discharges_24h, 0),
+    likely_discharges_48h: toNumber(forecast.likely_discharges_48h, 0),
+  };
+
+  return {
+    ...base,
+    visible: !hidden,
+    hidden,
+    hidden_reason: hidden ? 'stale_forecast' : null,
+    latest_forecast_id: toNumber(latest.id, null),
+    generated_at: generatedAt,
+    stored_at: storedAt,
+    age_minutes: ageMinutes,
+    confidence_band: confidenceBandForCensusLos({
+      visible: !hidden,
+      ageMinutes: toNumber(ageMinutes, NaN),
+      thresholdMinutes: settings.freshness_threshold_minutes,
+    }),
+    summary: hidden ? null : summary,
+    patients: hidden ? [] : forecast.patients,
+    recommended_actions: hidden
+      ? [
+        `Stale census/LOS forecast hidden after ${settings.freshness_threshold_minutes} min; ${settings.governance_owner_role} must refresh before review.`,
+        CENSUS_LOS_REVIEW_DISCLAIMER,
+      ]
+      : [
+        `Review ${summary.likely_discharges_24h} likely 24h discharges and ${summary.likely_discharges_48h} likely 48h discharges before acting.`,
+        CENSUS_LOS_REVIEW_DISCLAIMER,
+      ],
+  };
 }
 
 async function insertGeneration({
@@ -814,8 +1094,19 @@ export async function evaluateCommandSnapshot({
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
+  const censusLos = await getCommandCenterCensusLosBridge({ tenantId });
   const evaluation = evaluateCommandCenter({ bed, ed, ot, housekeeping, radiology, pharmacy });
-  const { command_status, overall_score, department_status, signals } = evaluation;
+  const {
+    command_status,
+    overall_score,
+    department_status,
+    signals: ruleSignals,
+  } = evaluation;
+  const censusLosSignals = buildCensusLosSignals(censusLos);
+  const signals = [
+    ...asArray(ruleSignals),
+    ...censusLosSignals,
+  ];
 
   const recommendedActions = buildCommandActions({
     commandStatus: command_status,
@@ -836,6 +1127,12 @@ export async function evaluateCommandSnapshot({
       source_id: 'beds',
       label: 'Bed occupancy / admission queue snapshot',
       timestamp: null,
+    },
+    {
+      source_type: 'bed_discharge_forecast',
+      source_id: censusLos.latest_forecast_id ? String(censusLos.latest_forecast_id) : 'latest',
+      label: 'Latest census/LOS bed discharge forecast',
+      timestamp: censusLos.generated_at || censusLos.stored_at || null,
     },
     {
       source_type: 'ed_operations',
@@ -910,6 +1207,19 @@ export async function evaluateCommandSnapshot({
       message: 'Hospital command center snapshot has no source citations.',
     });
   }
+  if (censusLos.hidden_reason === 'stale_forecast') {
+    safetyFlags.push({
+      severity: 'medium',
+      code: 'CENSUS_LOS_FORECAST_HIDDEN_STALE',
+      message: 'Stale census/LOS forecast is hidden until the governance owner refreshes it.',
+    });
+  } else if (censusLos.hidden_reason === 'missing_forecast') {
+    safetyFlags.push({
+      severity: 'low',
+      code: 'CENSUS_LOS_FORECAST_MISSING',
+      message: 'No census/LOS forecast is available for command-center review.',
+    });
+  }
   safetyFlags.push({
     severity: 'low',
     code: 'COMMAND_CENTER_DECISION_SUPPORT_ONLY',
@@ -924,6 +1234,7 @@ export async function evaluateCommandSnapshot({
     signals,
     summary,
     recommended_actions: recommendedActions,
+    census_los: censusLos,
     source_citations: uniqueCits,
     safety_flags: safetyFlags,
     rules_authoritative: true,
@@ -945,6 +1256,7 @@ export async function evaluateCommandSnapshot({
           housekeeping,
           radiology,
           pharmacy,
+          census_los: censusLos,
         },
         rule_based_evaluation: {
           command_status,
@@ -1001,6 +1313,12 @@ export async function evaluateCommandSnapshot({
       housekeeping,
       radiology,
       pharmacy,
+      census_los: {
+        latest_forecast_id: censusLos.latest_forecast_id,
+        generated_at: censusLos.generated_at,
+        hidden_reason: censusLos.hidden_reason,
+        summary: censusLos.summary,
+      },
       command_status,
       overall_score,
     }),
@@ -1013,6 +1331,12 @@ export async function evaluateCommandSnapshot({
     metadata: {
       command_status,
       overall_score,
+      census_los: {
+        latest_forecast_id: censusLos.latest_forecast_id,
+        generated_at: censusLos.generated_at,
+        hidden_reason: censusLos.hidden_reason,
+        summary: censusLos.summary,
+      },
       rules_authoritative: true,
       decision_support_only: true,
     },
@@ -1035,6 +1359,12 @@ export async function evaluateCommandSnapshot({
       model: aiResult?.model || null,
       rules_authoritative: true,
       decision_support_only: true,
+      census_los: {
+        latest_forecast_id: censusLos.latest_forecast_id,
+        generated_at: censusLos.generated_at,
+        hidden_reason: censusLos.hidden_reason,
+        summary: censusLos.summary,
+      },
     },
   });
 
@@ -1050,6 +1380,7 @@ export async function evaluateCommandSnapshot({
       overall_score,
       department_status,
       signals,
+      census_los: censusLos,
       module_key: MODULE_KEY,
       prompt_version: prompt.version || 'v1',
       review_status: 'schema_unavailable',
@@ -1097,6 +1428,7 @@ export async function evaluateCommandSnapshot({
     overall_score,
     department_status,
     signals,
+    census_los: censusLos,
     source_citations: draft.source_citations,
     safety_flags: combinedFlags,
     module_key: MODULE_KEY,
@@ -1157,9 +1489,16 @@ export async function listCommandSnapshots({
       safeLimit
     );
     const normalized = asArray(rows).map(normalizeSnapshotRow);
-    return { snapshots: normalized, count: normalized.length };
+    const censusLos = await getCommandCenterCensusLosBridge({ tenantId: tid });
+    return { snapshots: normalized, count: normalized.length, census_los: censusLos };
   } catch (err) {
-    if (isMissingSchemaError(err)) return { snapshots: [], count: 0 };
+    if (isMissingSchemaError(err)) {
+      return {
+        snapshots: [],
+        count: 0,
+        census_los: await getCommandCenterCensusLosBridge({ tenantId: tid }),
+      };
+    }
     throw err;
   }
 }
@@ -1212,7 +1551,9 @@ export default {
   computeOverallScore,
   evaluateCommandCenter,
   buildCommandActions,
+  buildCensusLosSignals,
   summarizeCommandCenter,
+  getCommandCenterCensusLosBridge,
   evaluateCommandSnapshot,
   listCommandSnapshots,
   decideCommandSnapshot,

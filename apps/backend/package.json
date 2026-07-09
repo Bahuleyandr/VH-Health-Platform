@@ -20,6 +20,7 @@
     "check:no-default-tenant-fallback": "node scripts/check-no-default-tenant-fallback.mjs",
     "check:clinical-ai-external-regions": "node scripts/check-clinical-ai-external-region-guards.mjs",
     "check:schema-drift": "node scripts/check-schema-drift.mjs",
+    "dr:cross-site:preflight": "node scripts/dr-cross-site-preflight.mjs",
     "india:preflight": "node scripts/india-deployability-preflight.mjs",
     "india:evidence-template": "node scripts/india-evidence-template.mjs",
     "secrets:scan": "node ../../scripts/scan-secrets.mjs",

@@ -5275,6 +5275,236 @@
           }
         }
       },
+      "ClinicalAiCommandCenterCensusLosBridge": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "settings_key",
+          "source_modules",
+          "governance_owner_role",
+          "freshness_threshold_minutes",
+          "hide_stale_forecasts",
+          "stale_forecasts_hidden_locked",
+          "decision_support_only",
+          "review_required",
+          "visible",
+          "hidden",
+          "hidden_reason",
+          "latest_forecast_id",
+          "generated_at",
+          "stored_at",
+          "age_minutes",
+          "confidence_band",
+          "summary",
+          "patients",
+          "recommended_actions"
+        ],
+        "properties": {
+          "settings_key": {
+            "type": "string",
+            "example": "nl8_census_los"
+          },
+          "source_modules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "governance_owner_role": {
+            "type": "string",
+            "example": "BED_MANAGER"
+          },
+          "freshness_threshold_minutes": {
+            "type": "integer",
+            "example": 120
+          },
+          "hide_stale_forecasts": {
+            "type": "boolean",
+            "example": true
+          },
+          "stale_forecasts_hidden_locked": {
+            "type": "boolean",
+            "example": true
+          },
+          "decision_support_only": {
+            "type": "boolean",
+            "example": true
+          },
+          "review_required": {
+            "type": "boolean",
+            "example": true
+          },
+          "visible": {
+            "type": "boolean"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "hidden_reason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "stale_forecast",
+              "missing_forecast"
+            ]
+          },
+          "latest_forecast_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "stored_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "age_minutes": {
+            "type": "integer",
+            "nullable": true
+          },
+          "confidence_band": {
+            "type": "string"
+          },
+          "summary": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClinicalAiCommandCenterCensusLosSummary"
+              }
+            ]
+          },
+          "patients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalAiCommandCenterCensusLosPatient"
+            }
+          },
+          "recommended_actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ClinicalAiCommandCenterCensusLosPatient": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "admission_id",
+          "patient_uid",
+          "ward",
+          "bed_number",
+          "likely_discharge_24h",
+          "likely_discharge_48h",
+          "remaining_hours_estimate"
+        ],
+        "properties": {
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "ward": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "likely_discharge_24h": {
+            "type": "boolean"
+          },
+          "likely_discharge_48h": {
+            "type": "boolean"
+          },
+          "remaining_hours_estimate": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalAiCommandCenterCensusLosSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ward",
+          "forecast_window_hours",
+          "admitted_count",
+          "likely_discharges_24h",
+          "likely_discharges_48h"
+        ],
+        "properties": {
+          "ward": {
+            "type": "string"
+          },
+          "forecast_window_hours": {
+            "type": "integer"
+          },
+          "admitted_count": {
+            "type": "integer"
+          },
+          "likely_discharges_24h": {
+            "type": "integer"
+          },
+          "likely_discharges_48h": {
+            "type": "integer"
+          }
+        }
+      },
+      "ClinicalAiCommandCenterSnapshotListData": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "snapshots",
+          "count",
+          "census_los"
+        ],
+        "properties": {
+          "snapshots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "count": {
+            "type": "integer",
+            "example": 0
+          },
+          "census_los": {
+            "$ref": "#/components/schemas/ClinicalAiCommandCenterCensusLosBridge"
+          }
+        }
+      },
+      "ClinicalAiCommandCenterSnapshotListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiCommandCenterSnapshotListData"
+          }
+        }
+      },
       "ClinicalAiConfig": {
         "type": "object",
         "additionalProperties": false,
@@ -15544,6 +15774,10 @@
           "invoice_type": {
             "type": "string"
           },
+          "migration_source_key": {
+            "type": "string",
+            "nullable": true
+          },
           "patient_state": {
             "type": "string",
             "nullable": true
@@ -15684,6 +15918,10 @@
           },
           "invoice_type": {
             "type": "string"
+          },
+          "migration_source_key": {
+            "type": "string",
+            "nullable": true
           },
           "patient_state": {
             "type": "string",
@@ -30025,7 +30263,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
+                  "$ref": "#/components/schemas/ClinicalAiCommandCenterSnapshotListResponse"
                 }
               }
             }
@@ -41064,6 +41302,124 @@
         }
       }
     },
+    "/api/v1/admin/queue-displays/profiles": {
+      "get": {
+        "operationId": "get_api_v1_admin_queue_displays_profiles",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_queue_displays_profiles",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/queue-displays/profiles/{profileId}": {
+      "patch": {
+        "operationId": "patch_api_v1_admin_queue_displays_profiles_by_profileId",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "profileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/queue-displays/profiles/{profileId}/board": {
+      "get": {
+        "operationId": "get_api_v1_admin_queue_displays_profiles_by_profileId_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "profileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/queue-displays/settings": {
+      "get": {
+        "operationId": "get_api_v1_admin_queue_displays_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_queue_displays_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/records/admin/analytics": {
       "get": {
         "operationId": "get_api_v1_admin_records_admin_analytics",
@@ -42257,6 +42613,33 @@
     "/api/v1/admin/telemedicine/chat-sessions/{id}/read": {
       "post": {
         "operationId": "post_api_v1_admin_telemedicine_chat_sessions_by_id_read",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/telemedicine/follow-up-loops/{id}/close": {
+      "patch": {
+        "operationId": "patch_api_v1_admin_telemedicine_follow_up_loops_by_id_close",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -46393,6 +46776,67 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/appointments/queue-displays/profiles": {
+      "get": {
+        "operationId": "get_api_v1_appointments_queue_displays_profiles",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/appointments/queue-displays/profiles/{profileId}/board": {
+      "get": {
+        "operationId": "get_api_v1_appointments_queue_displays_profiles_by_profileId_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "profileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/appointments/queue-displays/settings": {
+      "get": {
+        "operationId": "get_api_v1_appointments_queue_displays_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/appointments/queue/today": {
@@ -53477,7 +53921,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
+                  "$ref": "#/components/schemas/ClinicalAiCommandCenterSnapshotListResponse"
                 }
               }
             }
@@ -69352,6 +69796,207 @@
         ]
       }
     },
+    "/api/v1/engagement/campaigns": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/approve": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_approve",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/dry-run": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_dry_run",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/materialize": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_materialize",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/queue-due": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_queue_due",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/submit-approval": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_submit_approval",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/settings": {
+      "get": {
+        "operationId": "get_api_v1_engagement_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_engagement_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engagement/templates": {
+      "post": {
+        "operationId": "post_api_v1_engagement_templates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/entitlements/capabilities": {
       "get": {
         "operationId": "get_api_v1_entitlements_capabilities",
@@ -74541,6 +75186,251 @@
         }
       }
     },
+    "/api/v1/linen-laundry/board": {
+      "get": {
+        "operationId": "get_api_v1_linen_laundry_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linen-laundry/cycles": {
+      "post": {
+        "operationId": "post_api_v1_linen_laundry_cycles",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linen-laundry/cycles/{id}": {
+      "get": {
+        "operationId": "get_api_v1_linen_laundry_cycles_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/linen-laundry/cycles/{id}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_linen_laundry_cycles_by_id_cancel",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/linen-laundry/cycles/{id}/collect": {
+      "post": {
+        "operationId": "post_api_v1_linen_laundry_cycles_by_id_collect",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/linen-laundry/cycles/{id}/laundry": {
+      "post": {
+        "operationId": "post_api_v1_linen_laundry_cycles_by_id_laundry",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/linen-laundry/cycles/{id}/reconcile": {
+      "post": {
+        "operationId": "post_api_v1_linen_laundry_cycles_by_id_reconcile",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/linen-laundry/cycles/{id}/return": {
+      "post": {
+        "operationId": "post_api_v1_linen_laundry_cycles_by_id_return",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/linen-laundry/item-types": {
+      "get": {
+        "operationId": "get_api_v1_linen_laundry_item_types",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_linen_laundry_item_types",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linen-laundry/par-levels": {
+      "put": {
+        "operationId": "put_api_v1_linen_laundry_par_levels",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/logs/audit": {
       "get": {
         "operationId": "get_api_v1_logs_audit",
@@ -78071,6 +78961,293 @@
         "parameters": [
           {
             "name": "departmentKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/settings": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_patient_flow_transport_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_tasks",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/my": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_tasks_my",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_tasks_by_taskId",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/accept": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_accept",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/assign": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_assign",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_cancel",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/complete": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_complete",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/pickup": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_pickup",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/patient-flow/transport/zones": {
+      "get": {
+        "operationId": "get_api_v1_patient_flow_transport_zones",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient-flow/transport/zones/{zoneKey}": {
+      "put": {
+        "operationId": "put_api_v1_patient_flow_transport_zones_by_zoneKey",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "zoneKey",
             "in": "path",
             "required": true,
             "schema": {

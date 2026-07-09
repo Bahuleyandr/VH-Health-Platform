@@ -181,7 +181,13 @@ export const PATIENT_FLOW_SUPERVISED_ROUTE_ROLES = mergeRoles(
 
 export const PATIENT_FLOW_ROUTE_ROLES = mergeRoles(
   PATIENT_FLOW_SUPERVISED_ROUTE_ROLES,
-  rolesFrom(['PATIENT']),
+  rolesFrom([
+    'PATIENT',
+    'DRIVER',
+    'DELIVERY_STAFF',
+    'EMERGENCY_RESPONDER',
+    'AMBULANCE_COORDINATOR',
+  ]),
 );
 
 export const PATIENT_FLOW_SETTINGS_ROUTE_ROLES = mergeRoles(
@@ -190,6 +196,30 @@ export const PATIENT_FLOW_SETTINGS_ROUTE_ROLES = mergeRoles(
     'RECEPTION_INCHARGE',
     'ADMISSION_OFFICER',
     'CMO',
+    'MEDICAL_SUPERINTENDENT',
+  ]),
+);
+
+export const PATIENT_TRANSPORT_ROUTE_ROLES = mergeRoles(
+  PATIENT_FLOW_SUPERVISED_ROUTE_ROLES,
+  getRolesForCapabilityGroups(['ip_flow', 'diagnostics', 'emergency', 'people_operations']),
+  rolesFrom([
+    'DRIVER',
+    'DELIVERY_STAFF',
+    'EMERGENCY_RESPONDER',
+    'AMBULANCE_COORDINATOR',
+    'HR_STAFF',
+    'MEDICAL_SUPERINTENDENT',
+  ]),
+);
+
+export const PATIENT_TRANSPORT_SETTINGS_ROUTE_ROLES = mergeRoles(
+  ADMIN_ROUTE_ROLES,
+  rolesFrom([
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'IP_INCHARGE',
+    'HR_STAFF',
     'MEDICAL_SUPERINTENDENT',
   ]),
 );
@@ -244,6 +274,13 @@ export const STAFF_PATIENT_MESSAGING_ROUTE_ROLES = mergeRoles(
   rolesFrom(['CMO', 'MEDICAL_SUPERINTENDENT']),
 );
 
+export const ENGAGEMENT_ROUTE_ROLES = mergeRoles(
+  ADMIN_ROUTE_ROLES,
+  NOTIFICATION_AUDIT_ROUTE_ROLES,
+  STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
+  rolesFrom(['QUALITY_OFFICER', 'CARE_COORDINATOR']),
+);
+
 export const ALL_STAFF_MESSAGING_ROUTE_ROLES = getStaffRosterRoleCodes({ includeAdmin: true });
 
 export const STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES = getRolesForCapabilityGroups('phone_self_service');
@@ -251,6 +288,13 @@ export const STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES = getRolesForCapabilityGroups(
 export const HOUSEKEEPING_VISIBILITY_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['ip_flow', 'pharmacy', 'diagnostics', 'people_operations', 'housekeeping']),
   rolesFrom(['DOCTOR']),
+);
+
+export const LINEN_LAUNDRY_ROUTE_ROLES = mergeRoles(
+  HOUSEKEEPING_ROUTE_ROLES,
+  PHARMACY_SUPPLY_ROUTE_ROLES,
+  getRolesForCapabilityGroups('ip_flow'),
+  rolesFrom(['NURSING_STAFF', 'NURSING_INCHARGE', 'STORES_PURCHASE_INCHARGE']),
 );
 
 export const ED_ROUTE_ROLES = mergeRoles(
