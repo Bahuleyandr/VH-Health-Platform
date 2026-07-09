@@ -198,7 +198,20 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 473–474 | N6-14 linen (WAVE B COMPLETE) | **on main** (#518) |
 | 475–477 | NL11-S11 interface engine P1 (gate S10 **on main** #513) | launched 2026-07-08 (round 10) |
 | 478–481 | NL8-P4 scheduling optimization | **on main** (#528) |
-| 482+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| **Wave E — NL-13/NL-14 (authored 2026-07-09, prompts in build-prompts/; launch per readiness)** | | |
+| 482–488 | NL13-P1 cath-lab workflow | authored; ROUND-1 launch-ready |
+| 489–494 | NL13-P3 oncology staging/CTCAE/tumor-board | authored; ROUND-1 launch-ready |
+| 495–502 | NL14-P1 ICU flowsheet depth | authored; ROUND-1 launch-ready (NL-7 P1 on main) |
+| 503–507 | NL13-P2 stroke pathway | authored; round-2 |
+| 508–512 | NL13-P4 nuclear-med/radiotherapy | authored; round-2 (after P3 oncology) |
+| 513–517 | NL14-P2 code-blue/resuscitation | authored; round-2 (after ICU P1 data model) |
+| 518–523 | NL14-P2 ED triage/trauma/MLC | authored; round-2 |
+| 524–528 | NL14 ambulance/pre-hospital | authored; round-3 (manual-first) |
+| 529–535 | NL14-P3 NICU/PICU | authored; round-3 (extends ICU P1) |
+| 536–541 | NL14-P3 burns/TBSA | authored; round-3 (NL-5 content studio on main) |
+| 542–545 | NL13-P5 CTVS/perfusion seam | authored; round-3 (minimal seam) |
+| — | NL13-P6 transplant program | authored but ⛔ LAUNCH-BLOCKED — NOTTO/organ-scope owner decision required; block assigned at launch |
+| 546+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -299,6 +312,18 @@ parallel-safe may overlap.
 | `wave-e-nl14-kickoff.md` | NL-14 critical-care/ED depth **survey+design** | same | READY (design) |
 | `golive-readiness-kickoff.md` | `docs/GO_LIVE_RUNBOOK.md` — sequenced activation runbook | Week-3 of the month plan (or on demand) | READY (design) |
 | `indigenous-drugkb-kickoff.md` | indigenous drug-KB program design spec | — | **MERGED** #463 |
+| `nl13-p1-cath-lab.md` | cath-lab cases/readiness/procedure/dose/orders/device-links | NL-13 spec on main | authored; ROUND-1 (482–488) |
+| `nl13-p2-stroke.md` | code-stroke activation, NIHSS, thrombolysis, pathway SLA | NL-13 spec on main | authored; round-2 (503–507) |
+| `nl13-p3-oncology-staging.md` | TNM/AJCC staging, CTCAE toxicity, tumor board | NL-13 spec on main | authored; ROUND-1 (489–494) |
+| `nl13-p4-nuclear-med-radiotherapy.md` | radiotherapy referrals/plans/fractions, nuc-med orders (coordination-only) | NL-13 spec + P3 | authored; round-2 (508–512) |
+| `nl13-p5-ctvs-perfusion.md` | minimal CTVS/perfusion record seam | NL-13 spec on main | authored; round-3 (542–545) |
+| `nl13-p6-transplant.md` | transplant program: candidates/waitlist/committee/NOTTO export | ⛔ NOTTO/organ-scope owner decision | authored; LAUNCH-BLOCKED |
+| `nl14-p1-icu-flowsheet.md` | ICU chart depth, ventilation/weaning, line/tube/drain → N6-6 denominators | NL-14 spec + NL-7 P1 ✓ | authored; ROUND-1 (495–502) |
+| `nl14-p2-code-blue-resus.md` | durable resuscitation_events + append-only timeline | NL-14 spec + ICU P1 | authored; round-2 (513–517) |
+| `nl14-p2-ed-triage-trauma-mlc.md` | tenant triage-scale policy, trauma activation, surveys, MLC gate | NL-14 spec on main | authored; round-2 (518–523) |
+| `nl14-p2p3-ambulance-prehospital.md` | pre-hospital handover (manual-first), acceptance signatures | NL-14 spec on main | authored; round-3 (524–528) |
+| `nl14-p3-nicu-picu.md` | NICU/PICU feeds-fluids, neonatal scoring, phototherapy (extends ICU P1) | NL-14 spec + ICU P1 + NL-5 peds ✓ | authored; round-3 (529–535) |
+| `nl14-p3-burns.md` | burn chart, TBSA region map, content-governed fluid worksheet | NL-14 spec + NL-5 content studio ✓ | authored; round-3 (536–541) |
 
 Wave C/D kickoffs produce SPECS, not code — after each spec merges, run loop steps 2–4 to
 generate that program's build prompts (model them on the NL-5/6/7 ones here).
