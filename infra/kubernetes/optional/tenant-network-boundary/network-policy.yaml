@@ -1,0 +1,110 @@
+# Optional per-tenant namespace NetworkPolicy boundary.
+#
+# Canal enforces this at L3/L4. It does not inspect HTTP Host or paths; those
+# remain application and Cloudflare Access responsibilities until a future
+# Cilium L7 migration lands.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-default-deny-all
+  namespace: vhhealth-tenant-example
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    vhhealth.app/network-boundary: tenant
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-allow-dns-egress
+  namespace: vhhealth-tenant-example
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    vhhealth.app/network-boundary: tenant
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-allow-ingress-edge
+  namespace: vhhealth-tenant-example
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    vhhealth.app/network-boundary: tenant
+spec:
+  podSelector:
+    matchLabels:
+      vhhealth.app/network-exposure: edge
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-allow-backend-api-egress
+  namespace: vhhealth-tenant-example
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    vhhealth.app/network-boundary: tenant
+spec:
+  podSelector:
+    matchLabels:
+      vhhealth.app/needs-backend-api: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+      ports:
+        - protocol: TCP
+          port: 5000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-allow-monitoring-scrape
+  namespace: vhhealth-tenant-example
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    vhhealth.app/network-boundary: tenant
+spec:
+  podSelector:
+    matchLabels:
+      vhhealth.app/metrics: "true"
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
