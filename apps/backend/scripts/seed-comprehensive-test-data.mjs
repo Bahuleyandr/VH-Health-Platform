@@ -9,9 +9,10 @@ const SEED_TAG = 'vh_seed';
 const MANUAL_SEED_TABLES = new Set([
   'insurance_claim_caps',
   // Pillar-D workflow tables — domain CHECKs the auto-seeder can't
-  // satisfy (ordered time windows, XOR dosing, FDI tooth codes, plan-
-  // anchored cycles). Seeded by seedPillarDWorkflowTables below.
+  // satisfy (ordered time windows, slot holds, XOR dosing, FDI tooth
+  // codes, plan-anchored cycles). Seeded by seedPillarDWorkflowTables below.
   'provider_availability_templates',
+  'appointment_slot_holds',
   'resource_bookings',
   'chemo_protocol_drugs',
   'chemo_cycles',
@@ -1132,6 +1133,24 @@ async function seedPillarDWorkflowTables() {
       end_time: '13:00:00',
       slot_minutes: 15,
       location: 'OPD-1 (seed)',
+    }]);
+  }
+
+  const refs = await getCoreRefs();
+  if (doctor && refs.patient?.uid) {
+    await insertIfEmpty('appointment_slot_holds', [{
+      tenant_id: DEFAULT_TENANT_ID,
+      doctor_id: doctor.id,
+      appointment_date: new Date().toISOString().slice(0, 10),
+      slot_start: '09:00:00',
+      slot_end: '09:15:00',
+      source_channel: 'staff',
+      idempotency_key: 'seed-slot-hold-0001',
+      held_by_uid: refs.staff?.uid,
+      held_by_role: 'RECEPTIONIST',
+      patient_uid: refs.patient.uid,
+      expires_at: new Date(Date.now() + 15 * 60 * 1000),
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
     }]);
   }
 
