@@ -21,16 +21,18 @@
  */
 
 import { useState } from "react";
-import { ShieldAlert, FileText, LayoutDashboard } from "lucide-react";
+import { BadgeCheck, ShieldAlert, FileText, LayoutDashboard } from "lucide-react";
 
 import { DashboardTab } from "./components/DashboardTab";
 import { BreachesTab } from "./components/BreachesTab";
 import { AuditTab } from "./components/AuditTab";
+import { CertificationCockpitTab } from "./components/CertificationCockpitTab";
 
-type Tab = "dashboard" | "breaches" | "audit";
+type Tab = "dashboard" | "certification" | "breaches" | "audit";
 
 const TABS: Array<{ key: Tab; label: string; icon: typeof ShieldAlert }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "certification", label: "Certification", icon: BadgeCheck },
   { key: "breaches", label: "Breach Notifications", icon: ShieldAlert },
   { key: "audit", label: "Audit Log Search", icon: FileText },
 ];
@@ -68,6 +70,7 @@ export default function CompliancePage() {
       </div>
 
       {activeTab === "dashboard" && <DashboardTab />}
+      {activeTab === "certification" && <CertificationCockpitTab />}
       {activeTab === "breaches" && <BreachesTab />}
       {activeTab === "audit" && <AuditTab />}
     </div>

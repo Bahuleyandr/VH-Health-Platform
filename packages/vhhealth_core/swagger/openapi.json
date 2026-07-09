@@ -61203,6 +61203,23 @@
         }
       }
     },
+    "/api/v1/compliance/certification-cockpit": {
+      "get": {
+        "operationId": "get_api_v1_compliance_certification_cockpit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/compliance/dashboard": {
       "get": {
         "operationId": "get_api_v1_compliance_dashboard",
@@ -62432,6 +62449,23 @@
     "/api/v1/dashboard": {
       "get": {
         "operationId": "get_api_v1_dashboard",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboards/catalog": {
+      "get": {
+        "operationId": "get_api_v1_dashboards_catalog",
         "responses": {
           "200": {
             "description": "Successful response",
