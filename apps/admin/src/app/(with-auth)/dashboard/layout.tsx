@@ -90,6 +90,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { tenant } = useTenant();
   const brandName = tenant?.branding?.name || 'VH Admin Portal';
   const brandLogo = tenant?.branding?.logoUrl || null;
+  const supportEmail = tenant?.branding?.supportEmail || null;
+  const helpCenterUrl = tenant?.branding?.helpCenterUrl || null;
+  const legalFooter = tenant?.branding?.legalFooter || null;
 
   // Auto-logout after 30 minutes of inactivity
   useIdleTimeout(30 * 60 * 1000);
@@ -196,6 +199,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               );
             })}
           </nav>
+          {(supportEmail || helpCenterUrl || legalFooter) && (
+            <div className={styles.sidebarFooter}>
+              {helpCenterUrl && (
+                <a className={styles.sidebarFooterLink} href={helpCenterUrl} target="_blank" rel="noreferrer">
+                  Help
+                </a>
+              )}
+              {supportEmail && (
+                <a className={styles.sidebarFooterLink} href={`mailto:${supportEmail}`}>
+                  {supportEmail}
+                </a>
+              )}
+              {legalFooter && <p className={styles.sidebarLegal}>{legalFooter}</p>}
+            </div>
+          )}
         </aside>
 
         {/* Mobile Drawer */}
@@ -243,6 +261,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   );
                 })}
               </nav>
+              {(supportEmail || helpCenterUrl || legalFooter) && (
+                <div className={styles.sidebarFooter}>
+                  {helpCenterUrl && (
+                    <a className={styles.sidebarFooterLink} href={helpCenterUrl} target="_blank" rel="noreferrer">
+                      Help
+                    </a>
+                  )}
+                  {supportEmail && (
+                    <a className={styles.sidebarFooterLink} href={`mailto:${supportEmail}`}>
+                      {supportEmail}
+                    </a>
+                  )}
+                  {legalFooter && <p className={styles.sidebarLegal}>{legalFooter}</p>}
+                </div>
+              )}
             </div>
           </Fragment>
         )}

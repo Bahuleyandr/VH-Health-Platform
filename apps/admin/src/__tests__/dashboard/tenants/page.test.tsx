@@ -8,6 +8,7 @@ import {
   listTenants,
   startTenantKekRewrapJob,
   updateTenant,
+  updateTenantBrandKit,
   upsertTenantInteropSecret,
 } from "@/lib/api/tenants";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -20,6 +21,7 @@ jest.mock("@/lib/api/tenants", () => ({
   listTenants: jest.fn(),
   startTenantKekRewrapJob: jest.fn(),
   updateTenant: jest.fn(),
+  updateTenantBrandKit: jest.fn(),
   upsertTenantInteropSecret: jest.fn(),
 }));
 
@@ -36,7 +38,17 @@ const TENANT = {
   region: "IN",
   compliance_profile: "DPDP",
   status: "active",
-  settings: {},
+  settings: {
+    branding: {
+      name: "Acme Care",
+      primaryColor: "#007A64",
+      supportEmail: "support@acme.example",
+      helpCenterUrl: "https://help.acme.example",
+      assets: { logo: { storageKey: "uploads/admin/logo.png" } },
+      document: { footerText: "Acme legal footer" },
+      email: { fromName: "Acme Care", replyTo: "support@acme.example" },
+    },
+  },
   created_at: "2026-07-03T07:00:00.000Z",
   updated_at: "2026-07-03T07:00:00.000Z",
 };
@@ -135,6 +147,22 @@ describe("<TenantsAdminPage /> tenant operations", () => {
     });
     (createTenant as jest.Mock).mockResolvedValue(TENANT);
     (updateTenant as jest.Mock).mockResolvedValue(TENANT);
+    (updateTenantBrandKit as jest.Mock).mockResolvedValue({
+      brandKit: {
+        schemaVersion: 1,
+        name: "Acme Care",
+        primaryColor: "#007A64",
+        logoUrl: null,
+        supportEmail: "support@acme.example",
+        legalName: null,
+        legalFooter: null,
+        helpCenterUrl: "https://help.acme.example",
+        document: { legalName: null, footerText: "Acme legal footer", letterheadUrl: null },
+        email: { fromName: "Acme Care", replyTo: "support@acme.example" },
+        assets: { logo: null, documentLetterhead: null },
+        mobile: { identityMode: "stamped_build", tokenColorSource: "VH_TENANT_PRIMARY" },
+      },
+    });
   });
 
   it("renders masked interop secrets and stores new values without echoing plaintext", async () => {
@@ -168,5 +196,24 @@ describe("<TenantsAdminPage /> tenant operations", () => {
 
     await waitFor(() => expect(startTenantKekRewrapJob).toHaveBeenCalledWith(TENANT.id));
     await screen.findByText("job-123");
+  });
+
+  it("saves the brand kit through the dedicated brand endpoint", async () => {
+    renderPage();
+    await screen.findByText("Acme Hospital");
+    fireEvent.click(screen.getByRole("button", { name: /Details/ }));
+
+    fireEvent.change(await screen.findByLabelText("Brand name"), { target: { value: "Acme White Label" } });
+    fireEvent.change(screen.getByLabelText("Primary color"), { target: { value: "#005A4A" } });
+    fireEvent.change(screen.getByLabelText("Logo storage key"), { target: { value: "uploads/admin/new-logo.png" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save brand kit/ }));
+
+    await waitFor(() => expect(updateTenantBrandKit).toHaveBeenCalledWith(TENANT.id, expect.objectContaining({
+      name: "Acme White Label",
+      primaryColor: "#005A4A",
+      assets: expect.objectContaining({
+        logo: { storageKey: "uploads/admin/new-logo.png" },
+      }),
+    })));
   });
 });

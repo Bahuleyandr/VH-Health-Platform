@@ -43055,6 +43055,58 @@
         ]
       }
     },
+    "/api/v1/admin/tenants/{tenantId}/brand-kit": {
+      "get": {
+        "operationId": "get_api_v1_admin_tenants_by_tenantId_brand_kit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_admin_tenants_by_tenantId_brand_kit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/tenants/{tenantId}/interop-secrets": {
       "get": {
         "operationId": "get_api_v1_admin_tenants_by_tenantId_interop_secrets",

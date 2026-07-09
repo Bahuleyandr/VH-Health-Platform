@@ -29,7 +29,20 @@ const TENANT_A: TenantContext = {
   slug: "hospital-a",
   name: "Hospital A",
   region: "IN",
-  branding: { name: "Brand A", logoUrl: null, primaryColor: "#aa0011", supportEmail: null },
+  branding: {
+    name: "Brand A",
+    logoUrl: null,
+    primaryColor: "#aa0011",
+    supportEmail: "support@brand-a.example",
+    legalName: "Brand A Healthcare Pvt Ltd",
+    legalFooter: "Brand A legal footer",
+    helpCenterUrl: "https://help.brand-a.example",
+    document: { legalName: "Brand A Healthcare Pvt Ltd", footerText: "Brand A legal footer", letterheadUrl: null },
+    email: { fromName: "Brand A", replyTo: "support@brand-a.example" },
+    assets: { logo: null, documentLetterhead: null },
+    mobile: { identityMode: "stamped_build", tokenColorSource: "VH_TENANT_PRIMARY" },
+    fallbacks: { name: false, logo: true, supportEmail: false, legalName: false, helpCenter: false },
+  },
 };
 
 describe("TenantProvider / useTenant (W5 S2)", () => {

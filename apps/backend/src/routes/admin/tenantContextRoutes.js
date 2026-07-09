@@ -10,7 +10,7 @@
 // CRUD. No PHI, no secrets: only public-facing branding + identity.
 import express from 'express';
 import { getTenantById } from '../../services/tenant/tenantService.js';
-import { getBranding } from '../../services/tenant/tenantSettingsService.js';
+import { getTenantBrandKit } from '../../services/tenant/brandKitService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
@@ -21,11 +21,10 @@ router.get('/', async (req, res, next) => {
     if (!tenantId) {
       return error(res, 'Tenant context unavailable', 404, 'TENANT_CONTEXT_UNAVAILABLE');
     }
-    const [tenant, branding] = await Promise.all([
-      getTenantById(tenantId),
-      getBranding(tenantId),
-    ]);
+    const tenant = await getTenantById(tenantId);
     const name = tenant?.name || 'VH Health';
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const branding = await getTenantBrandKit(tenantId, { tenant, baseUrl });
     return success(res, {
       id: tenantId,
       slug: tenant?.slug || null,
@@ -38,6 +37,14 @@ router.get('/', async (req, res, next) => {
         logoUrl: branding.logoUrl || null,
         primaryColor: branding.primaryColor || null,
         supportEmail: branding.supportEmail || null,
+        legalName: branding.legalName || null,
+        legalFooter: branding.legalFooter || null,
+        helpCenterUrl: branding.helpCenterUrl || null,
+        document: branding.document,
+        email: branding.email,
+        assets: branding.assets,
+        mobile: branding.mobile,
+        fallbacks: branding.fallbacks,
       },
     }, 'Tenant context');
   } catch (err) {
