@@ -37,6 +37,12 @@ The by-ear NVDA/TalkBack session (S1, S2, S4–S7, S10–S12) remains an
 **owner-side ceremony** — schedule one tester per platform per the
 Setup section. File failures against `A11y #N` as before.
 
+NL12-S6 now tracks the cross-client device matrix, PDF acceptance
+criteria, and operator evidence template in
+`../../docs/accessibility/NL12-S6_ACCESSIBILITY_COMPLETION_PACK.md`.
+Use that pack for the owner-board schedule; use this file for the
+staff scenario script.
+
 ---
 
 ## Setup
