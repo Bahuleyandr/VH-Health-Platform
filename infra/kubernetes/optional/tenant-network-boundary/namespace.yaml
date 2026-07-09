@@ -1,0 +1,22 @@
+# Example per-tenant namespace boundary.
+#
+# This optional pack is intentionally not referenced by the platform base.
+# Copy it for tenants that need isolated tenant-owned workers or connectors,
+# then replace "example" with the tenant slug before applying.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-tenant-example
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    vhhealth.app/tenant-slug: example
+    vhhealth.app/network-boundary: tenant
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "Example isolated tenant namespace boundary. Not applied by default."

@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "name": "vhhealth-zero-trust-access-policy-pack",
+  "status": "operator-applied",
+  "cloudflareAccountIdRef": "CLOUDFLARE_ACCOUNT_ID",
+  "zone": "vhhealth.app",
+  "currentCni": "canal",
+  "identityProviders": [
+    {
+      "key": "hospital-workforce-idp",
+      "displayName": "Hospital workforce IdP",
+      "operatorSuppliedCloudflareIdRef": "CF_ACCESS_IDP_WORKFORCE_ID",
+      "protocol": "oidc-or-saml",
+      "requiredClaims": ["email", "groups"],
+      "groupClaimCandidates": ["groups", "roles", "memberOf"]
+    }
+  ],
+  "groups": [
+    {
+      "key": "vhhealth-super-admins",
+      "displayName": "VH Health super admins",
+      "idpGroups": ["vh-super-admins", "platform-super-admins"],
+      "mappedVhHealthRoles": ["SUPER_ADMIN"],
+      "allowedApplications": ["admin-portal", "api-admin"],
+      "notes": "Small platform operator group. Requires MFA and a managed device or hospital VPN posture."
+    },
+    {
+      "key": "vhhealth-admins",
+      "displayName": "VH Health tenant admins",
+      "idpGroups": ["vh-admins", "hospital-admins"],
+      "mappedVhHealthRoles": ["ADMIN"],
+      "allowedApplications": ["admin-portal", "api-admin", "tenant-api"],
+      "notes": "Tenant-bound administrators. Application RBAC and tenant_id claims still enforce data access after Access admits the session."
+    },
+    {
+      "key": "vhhealth-clinical-leads",
+      "displayName": "Clinical leads",
+      "idpGroups": ["vh-clinical-leads", "hospital-clinical-leads"],
+      "mappedVhHealthRoles": ["DOCTOR", "NURSE_INCHARGE"],
+      "allowedApplications": ["tenant-api"],
+      "notes": "Allowed through the tenant API edge only for authenticated clinical application sessions."
+    },
+    {
+      "key": "vhhealth-break-glass",
+      "displayName": "Break-glass responders",
+      "idpGroups": ["vh-break-glass"],
+      "mappedVhHealthRoles": ["SUPER_ADMIN"],
+      "allowedApplications": ["admin-portal", "api-admin", "tenant-api"],
+      "maxSessionDuration": "1h",
+      "notes": "Emergency-only group. Operator must review Cloudflare Access logs and VH Health break-glass audit rows after each use."
+    }
+  ],
+  "applications": [
+    {
+      "key": "admin-portal",
+      "name": "VH Health Admin Portal",
+      "hostnames": ["admin.vhhealth.app"],
+      "paths": ["/*"],
+      "sessionDuration": "8h",
+      "defaultDeny": true,
+      "allowedGroups": ["vhhealth-super-admins", "vhhealth-admins", "vhhealth-break-glass"],
+      "requiredSignals": ["mfa", "managed-device-or-hospital-vpn"],
+      "auditTags": ["edge-admin", "staff-facing", "phi-adjacent"]
+    },
+    {
+      "key": "api-admin",
+      "name": "VH Health API administrative paths",
+      "hostnames": ["api.vhhealth.app"],
+      "paths": ["/api/v1/admin/*", "/api/v1/system/*", "/api/v1/quality/*"],
+      "sessionDuration": "4h",
+      "defaultDeny": true,
+      "allowedGroups": ["vhhealth-super-admins", "vhhealth-admins", "vhhealth-break-glass"],
+      "requiredSignals": ["mfa", "managed-device-or-hospital-vpn"],
+      "auditTags": ["edge-api-admin", "privileged-api"]
+    },
+    {
+      "key": "tenant-api",
+      "name": "VH Health tenant API wildcard",
+      "hostnames": ["*.vhhealth.app"],
+      "excludedHostnames": ["api.vhhealth.app", "admin.vhhealth.app"],
+      "paths": ["/api/v1/*"],
+      "sessionDuration": "4h",
+      "defaultDeny": true,
+      "allowedGroups": ["vhhealth-super-admins", "vhhealth-admins", "vhhealth-clinical-leads", "vhhealth-break-glass"],
+      "requiredSignals": ["mfa"],
+      "auditTags": ["edge-tenant-api", "host-preserving-wildcard"]
+    }
+  ],
+  "policyOrder": [
+    {
+      "key": "break-glass-short-session",
+      "decision": "allow",
+      "includeGroups": ["vhhealth-break-glass"],
+      "requireSignals": ["mfa"],
+      "sessionDuration": "1h",
+      "precedence": 10
+    },
+    {
+      "key": "super-admin-managed-device",
+      "decision": "allow",
+      "includeGroups": ["vhhealth-super-admins"],
+      "requireSignals": ["mfa", "managed-device-or-hospital-vpn"],
+      "precedence": 20
+    },
+    {
+      "key": "tenant-admin-managed-device",
+      "decision": "allow",
+      "includeGroups": ["vhhealth-admins"],
+      "requireSignals": ["mfa", "managed-device-or-hospital-vpn"],
+      "precedence": 30
+    },
+    {
+      "key": "clinical-lead-tenant-api",
+      "decision": "allow",
+      "includeGroups": ["vhhealth-clinical-leads"],
+      "requireSignals": ["mfa"],
+      "applications": ["tenant-api"],
+      "precedence": 40
+    },
+    {
+      "key": "default-deny",
+      "decision": "block",
+      "include": ["everyone"],
+      "precedence": 999
+    }
+  ],
+  "networkEvidence": {
+    "defaultDenyNamespaces": ["vhhealth", "vhhealth-platform", "vhhealth-monitoring", "vhhealth-ingress", "vhhealth-security"],
+    "checkedInManifests": [
+      "infra/kubernetes/base/_common/network-policies.yaml",
+      "infra/kubernetes/base/redis/redis-sentinel.yaml",
+      "infra/kubernetes/base/minio/tenant.yaml",
+      "infra/kubernetes/optional/tenant-network-boundary/network-policy.yaml"
+    ],
+    "localChecks": [
+      "node scripts/check-zero-trust-network-pack.mjs",
+      "node scripts/validate-kubernetes-manifests.mjs"
+    ],
+    "operatorChecks": [
+      "kubectl get networkpolicy -A",
+      "kubectl -n vhhealth-platform describe networkpolicy allow-backend-to-cnpg",
+      "kubectl -n vhhealth-platform describe networkpolicy redis-allow-app-ingress",
+      "kubectl -n vhhealth-platform describe networkpolicy minio-allow-cluster-access"
+    ]
+  },
+  "ciliumL7Migration": {
+    "status": "plan-only",
+    "notAppliedInThisSlice": true,
+    "futurePolicyTargets": ["admin.vhhealth.app", "api.vhhealth.app", "*.vhhealth.app"],
+    "futureControls": ["http-host", "http-path", "fqdn-egress", "dns-aware-deny"]
+  }
+}
