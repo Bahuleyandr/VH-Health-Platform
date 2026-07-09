@@ -9,13 +9,13 @@ import {
 describe('demo tenant scenario pack service', () => {
   it('rejects non-local database URLs before stateful generation', () => {
     expect(() => assertLocalOnlyDatabaseUrl(
-      'postgresql://vhhealth:pw@db.prod.internal:5432/vhhealth'
+      'postgresql://vhhealth@db.prod.internal:5432/vhhealth'
     )).toThrow(/non-local database/i);
   });
 
   it('accepts the local VH Health test database shape', () => {
     const context = assertLocalOnlyDatabaseUrl(
-      'postgresql://qa_writer:qa_writer_local@127.0.0.1:55432/vhhealth_test'
+      'postgresql://qa_writer@127.0.0.1:55432/vhhealth_test'
     );
     expect(context).toMatchObject({
       host: '127.0.0.1',
