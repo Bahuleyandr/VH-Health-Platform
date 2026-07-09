@@ -62446,6 +62446,23 @@
         }
       }
     },
+    "/api/v1/dashboards/catalog": {
+      "get": {
+        "operationId": "get_api_v1_dashboards_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/dashboards/embed/list": {
       "get": {
         "operationId": "get_api_v1_dashboards_embed_list",
