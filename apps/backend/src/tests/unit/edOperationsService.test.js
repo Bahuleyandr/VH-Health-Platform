@@ -139,11 +139,14 @@ describe('setVisitTriagePriority', () => {
   });
 
   it('flips priority + stamps updated_at', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ canonical_triage_scale: 'esi' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, triage_priority: 'esi_2' }]);
     const row = await setVisitTriagePriority({
       tenantId: TENANT, id: 1, triagePriority: 'esi_2',
     });
     expect(row.triage_priority).toBe('esi_2');
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FROM tenant_ed_policies/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/UPDATE emergency_visits/);
   });
 });
 
@@ -209,6 +212,7 @@ describe('recordTriageAssessment', () => {
   });
 
   it('inserts an ESI-2 assessment with airway concern', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ canonical_triage_scale: 'esi' }]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, level: 'esi_2', airway_concern: true, assessment_kind: 'esi',
     }]);
@@ -220,6 +224,8 @@ describe('recordTriageAssessment', () => {
       assessedByUid: USER,
     });
     expect(row.airway_concern).toBe(true);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FROM tenant_ed_policies/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO triage_assessments/);
   });
 
   it('listTriageAssessments degrades on schema-missing', async () => {
@@ -423,15 +429,36 @@ describe('certifyMlcRecord', () => {
 
   it('flips status to certified', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
+      id: 99,
+      completeness_status: 'complete',
+      certification_blocked: false,
+      missing_required_fields: [],
+      certificate_signer_uid: USER,
+      reviewed_by_uid: USER,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'certified', certified_by_uid: USER,
     }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
     const row = await certifyMlcRecord({
       tenantId: TENANT, id: 1, certifiedByUid: USER,
     });
     expect(row.status).toBe('certified');
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FROM mlc_completeness_reviews/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/UPDATE mlc_records/);
   });
 
   it('throws 404 when already certified/closed', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 99,
+      completeness_status: 'complete',
+      certification_blocked: false,
+      missing_required_fields: [],
+      certificate_signer_uid: USER,
+      reviewed_by_uid: USER,
+    }]);
     queryUnsafeMock.mockResolvedValueOnce([]);
     await expect(certifyMlcRecord({
       tenantId: TENANT, id: 1, certifiedByUid: USER,

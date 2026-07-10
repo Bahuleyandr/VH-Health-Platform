@@ -46,6 +46,7 @@ import {
   cleanupJourney,
   uidForUserId,
   CANONICAL_EVENTS,
+  DEFAULT_TENANT,
   prisma,
 } from './_journeyHarness.js';
 
@@ -119,6 +120,25 @@ describeJourney('Journey: dynamic-acute-abdomen', () => {
     admin = roleClient('ADMIN', { uid: ADMIN_UID, id: adminRow.id });
     // Non-clinical role for the referral RBAC negative (Step 6).
     labClient = roleClient('LAB_STAFF', { uid: LAB_UID, id: labRow.id, phone: LAB_PHONE });
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenant_ed_policies
+         (tenant_id, canonical_triage_scale, active, reviewer_uid, reviewed_at,
+          activated_by, activated_at, policy_version)
+       VALUES ($1::uuid, 'esi', true, $2::uuid, NOW(), $2::uuid, NOW(), $3)
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         canonical_triage_scale = EXCLUDED.canonical_triage_scale,
+         active = EXCLUDED.active,
+         reviewer_uid = EXCLUDED.reviewer_uid,
+         reviewed_at = EXCLUDED.reviewed_at,
+         activated_by = EXCLUDED.activated_by,
+         activated_at = EXCLUDED.activated_at,
+         policy_version = EXCLUDED.policy_version,
+         updated_at = NOW()`,
+      DEFAULT_TENANT,
+      ADMIN_UID,
+      `journey-ed-triage-${RUN}`,
+    );
 
     const ward = await seedWardWithBeds({ wardName: WARD_NAME, bedNumbers: [BED_A] });
     [bedAId] = ward.bedIds;
