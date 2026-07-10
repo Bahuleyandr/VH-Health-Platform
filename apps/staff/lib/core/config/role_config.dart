@@ -389,6 +389,13 @@ class RoleFeatures {
     route: '/front-office',
     color: Color(0xFF1565C0),
   );
+  static const DashboardFeature _edTraumaWorkbench = DashboardFeature(
+    id: 'ed_trauma_workbench',
+    titleKey: 'role.feature.ed_trauma_workbench',
+    icon: Icons.emergency_share_outlined,
+    route: '/ed-trauma',
+    color: Color(0xFFC62828),
+  );
   static const DashboardFeature _billingDesk = DashboardFeature(
     id: 'billing_desk',
     titleKey: 'role.feature.billing_desk',
@@ -804,6 +811,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         if (role == StaffRole.dutyDoctor) _nursingRoster,
+        _edTraumaWorkbench,
         _opDoctorWorkspace,
         _dentalCharting,
         _clinicalInbox,
@@ -831,6 +839,7 @@ class RoleFeatures {
         _dutyPreference,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _edTraumaWorkbench,
         _patientRecords,
         _investigationResults,
         _theatre,
@@ -851,6 +860,7 @@ class RoleFeatures {
         _dutyPreference,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _edTraumaWorkbench,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -883,6 +893,7 @@ class RoleFeatures {
         _opNursingRoster,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _edTraumaWorkbench,
         _patientRecords,
         _nursingNotes,
         _handover,
@@ -907,6 +918,7 @@ class RoleFeatures {
         _opNursingRoster,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _edTraumaWorkbench,
         _patientRecords,
         _nursingNotes,
         _handover,
@@ -931,6 +943,7 @@ class RoleFeatures {
         _opNursingDashboard,
         _dentalCharting,
         _clinicalInbox,
+        _edTraumaWorkbench,
         _frontOfficeWorkbench,
         _appointments,
         _ophthalmology,
@@ -955,6 +968,7 @@ class RoleFeatures {
         _opNursingDashboard,
         _dentalCharting,
         _clinicalInbox,
+        _edTraumaWorkbench,
         _frontOfficeWorkbench,
         _appointments,
         _ophthalmology,
@@ -976,6 +990,7 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _clinicalInbox,
+        _edTraumaWorkbench,
         _theatre,
         _patientRecords,
         _investigationResults,
@@ -1022,6 +1037,7 @@ class RoleFeatures {
         _schedule,
         _staffRosterHub,
         _frontOfficeWorkbench,
+        _edTraumaWorkbench,
         _appointments,
         _admissions,
         _opDoctorWorkspace,
@@ -1060,6 +1076,7 @@ class RoleFeatures {
         _schedule,
         _staffRosterHub,
         _frontOfficeWorkbench,
+        _edTraumaWorkbench,
         _billingDesk,
         _appointments,
         _admissions,
@@ -1264,8 +1281,16 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
-      StaffRole.driver || StaffRole.security || StaffRole.emergencyResponder =>
-        [_schedule, _dutyPreference, _messaging, _profile, _settings],
+      StaffRole.driver ||
+      StaffRole.security ||
+      StaffRole.emergencyResponder => [
+        _schedule,
+        _dutyPreference,
+        if (role == StaffRole.emergencyResponder) _edTraumaWorkbench,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.maintenance => [
         _schedule,
         _dutyPreference,
@@ -2060,9 +2085,41 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.driver ||
-      StaffRole.security ||
       StaffRole.emergencyResponder => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+          ),
+          labelKey: 'role.nav.home',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.build_outlined),
+            activeIcon: Icon(Icons.emergency_share),
+          ),
+          labelKey: 'role.nav.work',
+          route: '/ed-trauma',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+          ),
+          labelKey: 'role.nav.messages',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+          ),
+          labelKey: 'role.nav.profile',
+          route: '/profile',
+        ),
+      ],
+      StaffRole.driver || StaffRole.security => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),

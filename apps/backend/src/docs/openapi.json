@@ -37776,6 +37776,23 @@
         ]
       }
     },
+    "/api/v1/admin/ed/encounter-evidence": {
+      "post": {
+        "operationId": "post_api_v1_admin_ed_encounter_evidence",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/ed/mlc-records": {
       "get": {
         "operationId": "get_api_v1_admin_ed_mlc_records",
@@ -37835,6 +37852,33 @@
         ]
       }
     },
+    "/api/v1/admin/ed/mlc-records/{id}/completeness": {
+      "put": {
+        "operationId": "put_api_v1_admin_ed_mlc_records_by_id_completeness",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/ed/mlc-records/{id}/police-report": {
       "patch": {
         "operationId": "patch_api_v1_admin_ed_mlc_records_by_id_police_report",
@@ -37860,6 +37904,104 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/admin/ed/policy": {
+      "get": {
+        "operationId": "get_api_v1_admin_ed_policy",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_ed_policy",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/ed/trauma-activations": {
+      "get": {
+        "operationId": "get_api_v1_admin_ed_trauma_activations",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_ed_trauma_activations",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/ed/trauma-surveys": {
+      "post": {
+        "operationId": "post_api_v1_admin_ed_trauma_surveys",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/ed/trauma-timeline": {
+      "post": {
+        "operationId": "post_api_v1_admin_ed_trauma_timeline",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/ed/triage-assessments": {
@@ -67057,6 +67199,23 @@
         ]
       }
     },
+    "/api/v1/ed/encounter-evidence": {
+      "post": {
+        "operationId": "post_api_v1_ed_encounter_evidence",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ed/mlc-records": {
       "get": {
         "operationId": "get_api_v1_ed_mlc_records",
@@ -67116,6 +67275,33 @@
         ]
       }
     },
+    "/api/v1/ed/mlc-records/{id}/completeness": {
+      "put": {
+        "operationId": "put_api_v1_ed_mlc_records_by_id_completeness",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/ed/mlc-records/{id}/police-report": {
       "patch": {
         "operationId": "patch_api_v1_ed_mlc_records_by_id_police_report",
@@ -67141,6 +67327,104 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/ed/policy": {
+      "get": {
+        "operationId": "get_api_v1_ed_policy",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_ed_policy",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ed/trauma-activations": {
+      "get": {
+        "operationId": "get_api_v1_ed_trauma_activations",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_ed_trauma_activations",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ed/trauma-surveys": {
+      "post": {
+        "operationId": "post_api_v1_ed_trauma_surveys",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ed/trauma-timeline": {
+      "post": {
+        "operationId": "post_api_v1_ed_trauma_timeline",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/ed/triage-assessments": {

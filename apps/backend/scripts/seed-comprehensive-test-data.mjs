@@ -87,6 +87,8 @@ const MANUAL_SEED_TABLES = new Set([
   'transplant_committee_reviews',
   'transplant_immunosuppression_plans',
   'transplant_notto_exports',
+  // NL-14 ED evidence requires exactly one source pointer; seed below.
+  'ed_encounter_evidence',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1783,6 +1785,32 @@ async function seedSiemExportTables() {
   }
 }
 
+async function seedEdEncounterEvidence() {
+  if (!(await tableExists('ed_encounter_evidence')) || await tableCount('ed_encounter_evidence')) return;
+
+  const visit = await first('emergency_visits', 'id, tenant_id, patient_uid', 'TRUE', []);
+  const vital = await first(
+    'vitals_chart',
+    'id, tenant_id, patient_uid, recorded_at, device_verified, recorded_by',
+    'TRUE',
+    [],
+  );
+  if (!visit || !vital) return;
+
+  await insertIfEmpty('ed_encounter_evidence', [{
+    tenant_id: visit.tenant_id || vital.tenant_id || DEFAULT_TENANT_ID,
+    emergency_visit_id: visit.id,
+    patient_uid: visit.patient_uid || vital.patient_uid,
+    evidence_kind: 'vital_snapshot',
+    vitals_chart_id: vital.id,
+    observed_at: vital.recorded_at || new Date(),
+    verified: vital.device_verified ?? false,
+    linked_by_uid: vital.recorded_by,
+    notes: 'Seed ED vital snapshot evidence for QA coverage',
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
 async function seedTransplantProgramTables() {
   if (!(await tableExists('transplant_programs'))) return;
 
@@ -2113,6 +2141,7 @@ try {
   await seedIcuChartDepthTables();
   await seedPerfusionSignoffs();
   await seedTransplantProgramTables();
+  await seedEdEncounterEvidence();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
