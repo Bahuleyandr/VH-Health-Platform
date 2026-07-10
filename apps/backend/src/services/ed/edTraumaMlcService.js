@@ -7,7 +7,6 @@ import { requireTenantId } from '../tenant/tenantService.js';
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
 const TEXT_MAX = 8000;
-const SHORT_MAX = 255;
 
 export const CANONICAL_TRIAGE_SCALES = ['esi', 'ats', 'ctas', 'manchester'];
 export const TRAUMA_ACTIVATION_LEVELS = ['standby', 'partial', 'full', 'mass_casualty'];
