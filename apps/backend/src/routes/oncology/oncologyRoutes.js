@@ -26,6 +26,25 @@ import {
   getPatientCumulative,
   getPlanDetail,
 } from '../../services/oncology/chemoService.js';
+import {
+  getOncologyCompletionSettings,
+  setOncologyCompletionSettings,
+  createOncologyDiagnosis,
+  listOncologyDiagnoses,
+  createStagingRecord,
+  signStagingRecord,
+  createToxicityEvent,
+  listToxicityEvents,
+  signToxicityEvent,
+  createTumorBoardMeeting,
+  createTumorBoardCase,
+  listTumorBoardQueue,
+  updateTumorBoardCaseState,
+  createTumorBoardRecommendation,
+  updateTumorBoardRecommendationStatus,
+  createRegistryExport,
+  reviewRegistryExport,
+} from '../../services/oncology/oncologyCompletionService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
@@ -44,7 +63,7 @@ function handleFailure(res, err, context) {
 }
 
 const ctx = (req) => ({ actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
-const tenantOf = (req) => req?.user?.tenantId || req?.tenant?.id || null;
+const tenantOf = (req) => req?.tenantId || req?.user?.tenantId || req?.user?.tenant_id || req?.tenant?.id || null;
 
 // ── protocols ───────────────────────────────────────────────────────────
 
@@ -281,6 +300,291 @@ router.get('/patients/:uid/cumulative', async (req, res) => {
     return success(res, { cumulative, count: cumulative.length }, 'Cumulative chemo doses');
   } catch (err) {
     return handleFailure(res, err, 'get cumulative doses');
+  }
+});
+
+// ── oncology completion settings ────────────────────────────────────────
+
+router.get('/completion-settings', async (req, res) => {
+  try {
+    const settings = await getOncologyCompletionSettings({ tenantId: tenantOf(req) });
+    return success(res, { settings }, 'Oncology completion settings');
+  } catch (err) {
+    return handleFailure(res, err, 'get completion settings');
+  }
+});
+
+router.patch('/completion-settings', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership manage oncology completion settings', HTTP_STATUS.FORBIDDEN);
+    const settings = await setOncologyCompletionSettings({
+      tenantId: tenantOf(req),
+      enabled: req.body.enabled === true,
+      ownerSourcePolicyRef: req.body.owner_source_policy_ref || null,
+      tumorBoardQuorumPolicyRef: req.body.tumor_board_quorum_policy_ref || null,
+      acceptanceSnapshot: req.body.acceptance_snapshot || null,
+    }, ctx(req));
+    return success(res, { settings }, 'Oncology completion settings updated');
+  } catch (err) {
+    return handleFailure(res, err, 'update completion settings');
+  }
+});
+
+// ── diagnosis + staging ─────────────────────────────────────────────────
+
+router.get('/diagnoses', async (req, res) => {
+  try {
+    const diagnoses = await listOncologyDiagnoses({
+      tenantId: tenantOf(req),
+      patientUid: req.query.patient_uid || null,
+      limit: req.query.limit,
+    });
+    return success(res, { diagnoses, count: diagnoses.length }, 'Oncology diagnoses');
+  } catch (err) {
+    return handleFailure(res, err, 'list oncology diagnoses');
+  }
+});
+
+router.post('/diagnoses', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create oncology diagnoses', HTTP_STATUS.FORBIDDEN);
+    const diagnosis = await createOncologyDiagnosis({
+      tenantId: tenantOf(req),
+      patientUid: req.body.patient_uid,
+      encounterId: req.body.encounter_id || null,
+      cancerSite: req.body.cancer_site,
+      morphology: req.body.morphology || null,
+      laterality: req.body.laterality || null,
+      diagnosisDate: req.body.diagnosis_date || null,
+      pathologyReportId: req.body.pathology_report_id || null,
+      malignancyFlagSource: req.body.malignancy_flag_source || null,
+      sourceEvidenceRefs: req.body.source_evidence_refs || [],
+    }, ctx(req));
+    return success(res, { diagnosis }, 'Oncology diagnosis created', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'create oncology diagnosis');
+  }
+});
+
+router.post('/diagnoses/:id/staging', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership record oncology staging', HTTP_STATUS.FORBIDDEN);
+    const staging = await createStagingRecord(req.params.id, {
+      tenantId: tenantOf(req),
+      tCategory: req.body.t_category || null,
+      nCategory: req.body.n_category || null,
+      mCategory: req.body.m_category || null,
+      clinicalStage: req.body.clinical_stage || null,
+      pathologicStage: req.body.pathologic_stage || null,
+      ajccEdition: req.body.ajcc_edition || null,
+      stagingSource: req.body.staging_source || null,
+      stagingSourceVersion: req.body.staging_source_version || null,
+      stagingSourceAttachmentRefs: req.body.staging_source_attachment_refs || [],
+      verify: req.body.verify === true,
+      verificationNote: req.body.verification_note || null,
+    }, ctx(req));
+    return success(res, { staging }, 'Oncology staging recorded', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'record oncology staging');
+  }
+});
+
+router.post('/staging/:id/sign', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership sign oncology staging', HTTP_STATUS.FORBIDDEN);
+    const staging = await signStagingRecord(req.params.id, {
+      tenantId: tenantOf(req),
+      verificationNote: req.body.verification_note || null,
+    }, ctx(req));
+    return success(res, { staging }, 'Oncology staging signed');
+  } catch (err) {
+    return handleFailure(res, err, 'sign oncology staging');
+  }
+});
+
+// ── CTCAE toxicity ──────────────────────────────────────────────────────
+
+router.get('/toxicity-events', async (req, res) => {
+  try {
+    const toxicity_events = await listToxicityEvents({
+      tenantId: tenantOf(req),
+      patientUid: req.query.patient_uid || null,
+      limit: req.query.limit,
+    });
+    return success(res, { toxicity_events, count: toxicity_events.length }, 'Oncology toxicity events');
+  } catch (err) {
+    return handleFailure(res, err, 'list toxicity events');
+  }
+});
+
+router.post('/toxicity-events', async (req, res) => {
+  try {
+    const toxicity_event = await createToxicityEvent({
+      tenantId: tenantOf(req),
+      patientUid: req.body.patient_uid,
+      encounterId: req.body.encounter_id || null,
+      diagnosisId: req.body.diagnosis_id || null,
+      toxicityTerm: req.body.toxicity_term,
+      ctcaeGrade: req.body.ctcae_grade,
+      ctcaeSource: req.body.ctcae_source || null,
+      ctcaeSourceVersion: req.body.ctcae_source_version || null,
+      ctcaeSourceAttachmentRefs: req.body.ctcae_source_attachment_refs || [],
+      attribution: req.body.attribution || null,
+      actionTaken: req.body.action_taken || 'monitor',
+      clinicalNote: req.body.clinical_note || null,
+      chemoPlanId: req.body.chemo_plan_id || null,
+      chemoCycleId: req.body.chemo_cycle_id || null,
+      chemoAdministrationId: req.body.chemo_administration_id || null,
+      signoff: req.body.signoff === true,
+    }, ctx(req));
+    return success(res, { toxicity_event }, 'Toxicity event recorded', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'record toxicity event');
+  }
+});
+
+router.post('/toxicity-events/:id/sign', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership sign toxicity events', HTTP_STATUS.FORBIDDEN);
+    const toxicity_event = await signToxicityEvent(req.params.id, { tenantId: tenantOf(req) }, ctx(req));
+    return success(res, { toxicity_event }, 'Toxicity event signed');
+  } catch (err) {
+    return handleFailure(res, err, 'sign toxicity event');
+  }
+});
+
+// ── tumor board ─────────────────────────────────────────────────────────
+
+router.get('/tumor-board/queue', async (req, res) => {
+  try {
+    const cases = await listTumorBoardQueue({
+      tenantId: tenantOf(req),
+      state: req.query.state || null,
+      limit: req.query.limit,
+    });
+    return success(res, { cases, count: cases.length }, 'Tumor board queue');
+  } catch (err) {
+    return handleFailure(res, err, 'list tumor board queue');
+  }
+});
+
+router.post('/tumor-board/meetings', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create tumor board meetings', HTTP_STATUS.FORBIDDEN);
+    const meeting = await createTumorBoardMeeting({
+      tenantId: tenantOf(req),
+      serviceLine: req.body.service_line,
+      meetingDate: req.body.meeting_date,
+      chairUid: req.body.chair_uid || null,
+      attendeeUids: req.body.attendee_uids || [],
+      externalAttendees: req.body.external_attendees || [],
+      quorumReference: req.body.quorum_reference,
+      status: req.body.status || 'scheduled',
+      notes: req.body.notes || null,
+    }, ctx(req));
+    return success(res, { meeting }, 'Tumor board meeting created', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'create tumor board meeting');
+  }
+});
+
+router.post('/tumor-board/cases', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create tumor board cases', HTTP_STATUS.FORBIDDEN);
+    const board_case = await createTumorBoardCase({
+      tenantId: tenantOf(req),
+      diagnosisId: req.body.diagnosis_id,
+      meetingId: req.body.meeting_id || null,
+      stagingRecordId: req.body.staging_record_id || null,
+      apReportId: req.body.ap_report_id || null,
+      radiologyOrderId: req.body.radiology_order_id || null,
+      question: req.body.question,
+      priority: req.body.priority || 'routine',
+      discussionState: req.body.discussion_state || 'queued',
+    }, ctx(req));
+    return success(res, { board_case }, 'Tumor board case created', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'create tumor board case');
+  }
+});
+
+router.patch('/tumor-board/cases/:id/state', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership change tumor board case state', HTTP_STATUS.FORBIDDEN);
+    const board_case = await updateTumorBoardCaseState(req.params.id, {
+      tenantId: tenantOf(req),
+      state: req.body.state,
+      discussionSummary: req.body.discussion_summary || null,
+    }, ctx(req));
+    return success(res, { board_case }, 'Tumor board case updated');
+  } catch (err) {
+    return handleFailure(res, err, 'update tumor board case');
+  }
+});
+
+router.post('/tumor-board/cases/:id/recommendations', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create tumor board recommendations', HTTP_STATUS.FORBIDDEN);
+    const recommendation = await createTumorBoardRecommendation(req.params.id, {
+      tenantId: tenantOf(req),
+      recommendationType: req.body.recommendation_type,
+      recommendationText: req.body.recommendation_text,
+      responsibleOwnerUid: req.body.responsible_owner_uid || null,
+      dueDate: req.body.due_date,
+      chemoPlanId: req.body.chemo_plan_id || null,
+    }, ctx(req));
+    return success(res, { recommendation }, 'Tumor board recommendation created', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'create tumor board recommendation');
+  }
+});
+
+router.patch('/tumor-board/recommendations/:id/status', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership update tumor board recommendations', HTTP_STATUS.FORBIDDEN);
+    const recommendation = await updateTumorBoardRecommendationStatus(req.params.id, {
+      tenantId: tenantOf(req),
+      status: req.body.status,
+      acceptanceNote: req.body.acceptance_note || null,
+      deferReason: req.body.defer_reason || null,
+    }, ctx(req));
+    return success(res, { recommendation }, 'Tumor board recommendation updated');
+  } catch (err) {
+    return handleFailure(res, err, 'update tumor board recommendation');
+  }
+});
+
+// ── registry exports ────────────────────────────────────────────────────
+
+router.post('/registry-exports', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create oncology registry exports', HTTP_STATUS.FORBIDDEN);
+    const registry_export = await createRegistryExport({
+      tenantId: tenantOf(req),
+      registryName: req.body.registry_name,
+      exportPeriodStart: req.body.export_period_start,
+      exportPeriodEnd: req.body.export_period_end,
+      evidenceRefs: req.body.evidence_refs || [],
+      filterSnapshot: req.body.filter_snapshot || {},
+      rowCount: req.body.row_count || 0,
+    }, ctx(req));
+    return success(res, { registry_export }, 'Oncology registry export created', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'create registry export');
+  }
+});
+
+router.patch('/registry-exports/:id/review', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership review oncology registry exports', HTTP_STATUS.FORBIDDEN);
+    const registry_export = await reviewRegistryExport(req.params.id, {
+      tenantId: tenantOf(req),
+      reviewNote: req.body.review_note || null,
+      release: req.body.release === true,
+    }, ctx(req));
+    return success(res, { registry_export }, 'Oncology registry export reviewed');
+  } catch (err) {
+    return handleFailure(res, err, 'review registry export');
   }
 });
 

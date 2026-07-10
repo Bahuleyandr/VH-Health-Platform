@@ -760,12 +760,26 @@ class RoleFeatures {
     route: '/cath-lab',
     color: Color(0xFFAD1457),
   );
+  static const DashboardFeature _oncology = DashboardFeature(
+    id: 'oncology',
+    titleKey: 'role.feature.oncology',
+    icon: Icons.biotech_outlined,
+    route: '/oncology',
+    color: Color(0xFF455A64),
+  );
   static const DashboardFeature _radiology = DashboardFeature(
     id: 'radiology',
     titleKey: 'role.feature.radiology',
     icon: Icons.biotech,
     route: '/radiology',
     color: Color(0xFF0277BD),
+  );
+  static const DashboardFeature _strokePathway = DashboardFeature(
+    id: 'stroke_pathway',
+    titleKey: 'role.feature.stroke_pathway',
+    icon: Icons.emergency_outlined,
+    route: '/stroke-pathway',
+    color: Color(0xFFC62828),
   );
   static const DashboardFeature _ophthalmology = DashboardFeature(
     id: 'ophthalmology',
@@ -780,6 +794,13 @@ class RoleFeatures {
     icon: Icons.accessibility_new,
     route: '/physiotherapy',
     color: Color(0xFF2E7D32),
+  );
+  static const DashboardFeature _transplantProgram = DashboardFeature(
+    id: 'transplant_program',
+    titleKey: 'role.feature.transplant_program',
+    icon: Icons.health_and_safety_outlined,
+    route: '/transplant',
+    color: Color(0xFF00695C),
   );
 
   /// Returns ordered list of dashboard features for the given role.
@@ -797,6 +818,9 @@ class RoleFeatures {
         _clinicalAiReviewQueue,
         _opAiAssist,
         _ophthalmology,
+        _transplantProgram,
+        _oncology,
+        _strokePathway,
         _patientRecords,
         _patientCommandBoard,
         _referrals,
@@ -844,7 +868,9 @@ class RoleFeatures {
         _investigationResults,
         _labBookings,
         _radiology,
+        _strokePathway,
         _ophthalmology,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -871,6 +897,7 @@ class RoleFeatures {
         _patientRecords,
         _nursingNotes,
         _handover,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -895,6 +922,7 @@ class RoleFeatures {
         _patientRecords,
         _nursingNotes,
         _handover,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -919,6 +947,7 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _appointments,
         _ophthalmology,
+        _oncology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -943,6 +972,7 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _appointments,
         _ophthalmology,
+        _oncology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -1023,7 +1053,9 @@ class RoleFeatures {
         _theatre,
         _ophthalmology,
         _physiotherapy,
+        _transplantProgram,
         _radiology,
+        _strokePathway,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -1062,7 +1094,9 @@ class RoleFeatures {
         _theatre,
         _ophthalmology,
         _physiotherapy,
+        _transplantProgram,
         _radiology,
+        _strokePathway,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -1132,6 +1166,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _radiology,
+        _strokePathway,
         _investigationsUpload,
         _investigationResults,
         _leave,
@@ -2288,6 +2323,24 @@ class RoleFeatures {
     };
   }
 
+  static bool hasOncology(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.nursingSuperintendent ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge => true,
+      _ => false,
+    };
+  }
+
   static bool hasClinicalInbox(StaffRole role) {
     return switch (role) {
       StaffRole.admin ||
@@ -2556,6 +2609,22 @@ class RoleFeatures {
       );
     }
 
+    if (role == StaffRole.doctor ||
+        role == StaffRole.dutyDoctor ||
+        role == StaffRole.medicalSuperintendent ||
+        role == StaffRole.admin ||
+        role == StaffRole.superAdmin) {
+      items.add(
+        const WorkbenchNavItem(
+          labelKey: 'role.nav.transplant_program',
+          icon: Icons.health_and_safety_outlined,
+          selectedIcon: Icons.health_and_safety,
+          route: '/transplant',
+          featureId: 'transplant_program',
+        ),
+      );
+    }
+
     if (hasIpAdmissionAccess(role)) {
       items.add(
         const WorkbenchNavItem(
@@ -2588,6 +2657,18 @@ class RoleFeatures {
           selectedIcon: Icons.folder_shared,
           route: '/patient-records',
           featureId: 'patient_records',
+        ),
+      );
+    }
+
+    if (hasOncology(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          labelKey: 'role.nav.oncology',
+          icon: Icons.biotech_outlined,
+          selectedIcon: Icons.biotech,
+          route: '/oncology',
+          featureId: 'oncology',
         ),
       );
     }
