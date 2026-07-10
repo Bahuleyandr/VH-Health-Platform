@@ -54,9 +54,8 @@ class OncologyTumorBoardCase {
   final String? clinicalStage;
   final String? pathologicStage;
 
-  String get patientLabel => patientName?.trim().isNotEmpty == true
-      ? patientName!
-      : patientUid;
+  String get patientLabel =>
+      patientName?.trim().isNotEmpty == true ? patientName! : patientUid;
 
   String get tnmLabel {
     final parts = [tCategory, nCategory, mCategory]
@@ -87,7 +86,8 @@ class OncologyToxicityEvent {
       patientUid: json['patient_uid']?.toString() ?? '',
       patientName: json['patient_name']?.toString(),
       term: json['toxicity_term']?.toString() ?? '',
-      grade: json['ctcae_grade'] as int? ??
+      grade:
+          json['ctcae_grade'] as int? ??
           int.tryParse('${json['ctcae_grade']}') ??
           0,
       source: json['ctcae_source']?.toString(),
@@ -107,9 +107,8 @@ class OncologyToxicityEvent {
   final String? actionTaken;
   final String signoffStatus;
 
-  String get patientLabel => patientName?.trim().isNotEmpty == true
-      ? patientName!
-      : patientUid;
+  String get patientLabel =>
+      patientName?.trim().isNotEmpty == true ? patientName! : patientUid;
 }
 
 class OncologyToxicityInput {
@@ -138,18 +137,18 @@ class OncologyToxicityInput {
   final bool signoff;
 
   Map<String, dynamic> toJson() => {
-        'patient_uid': patientUid,
-        if (diagnosisId != null) 'diagnosis_id': diagnosisId,
-        'toxicity_term': term,
-        'ctcae_grade': grade,
-        'ctcae_source': source,
-        'ctcae_source_version': sourceVersion,
-        'action_taken': actionTaken,
-        if (chemoCycleId != null) 'chemo_cycle_id': chemoCycleId,
-        if (chemoAdministrationId != null)
-          'chemo_administration_id': chemoAdministrationId,
-        'signoff': signoff,
-      };
+    'patient_uid': patientUid,
+    if (diagnosisId != null) 'diagnosis_id': diagnosisId,
+    'toxicity_term': term,
+    'ctcae_grade': grade,
+    'ctcae_source': source,
+    'ctcae_source_version': sourceVersion,
+    'action_taken': actionTaken,
+    if (chemoCycleId != null) 'chemo_cycle_id': chemoCycleId,
+    if (chemoAdministrationId != null)
+      'chemo_administration_id': chemoAdministrationId,
+    'signoff': signoff,
+  };
 }
 
 abstract class OncologyApiClient {
@@ -172,10 +171,16 @@ class HttpOncologyApiClient implements OncologyApiClient {
 
   Future<http.Response> _get(Uri uri, Map<String, String> headers) {
     final client = _client;
-    return client == null ? http.get(uri, headers: headers) : client.get(uri, headers: headers);
+    return client == null
+        ? http.get(uri, headers: headers)
+        : client.get(uri, headers: headers);
   }
 
-  Future<http.Response> _post(Uri uri, Map<String, String> headers, Object body) {
+  Future<http.Response> _post(
+    Uri uri,
+    Map<String, String> headers,
+    Object body,
+  ) {
     final client = _client;
     return client == null
         ? http.post(uri, headers: headers, body: body)
@@ -206,19 +211,28 @@ class HttpOncologyApiClient implements OncologyApiClient {
     final rows = data['cases'] as List? ?? const [];
     return rows
         .whereType<Map>()
-        .map((row) => OncologyTumorBoardCase.fromJson(Map<String, dynamic>.from(row)))
+        .map(
+          (row) =>
+              OncologyTumorBoardCase.fromJson(Map<String, dynamic>.from(row)),
+        )
         .toList(growable: false);
   }
 
   @override
   Future<List<OncologyToxicityEvent>> fetchToxicityEvents() async {
     final headers = await ApiConfig.authenticatedHeaders();
-    final response = await _get(_uri('/oncology/toxicity-events?limit=25'), headers);
+    final response = await _get(
+      _uri('/oncology/toxicity-events?limit=25'),
+      headers,
+    );
     final data = await _handle(response);
     final rows = data['toxicity_events'] as List? ?? const [];
     return rows
         .whereType<Map>()
-        .map((row) => OncologyToxicityEvent.fromJson(Map<String, dynamic>.from(row)))
+        .map(
+          (row) =>
+              OncologyToxicityEvent.fromJson(Map<String, dynamic>.from(row)),
+        )
         .toList(growable: false);
   }
 
@@ -239,10 +253,8 @@ class HttpOncologyApiClient implements OncologyApiClient {
 }
 
 class OncologyScreen extends StatefulWidget {
-  const OncologyScreen({
-    super.key,
-    OncologyApiClient? apiClient,
-  }) : apiClient = apiClient ?? const HttpOncologyApiClient();
+  const OncologyScreen({super.key, OncologyApiClient? apiClient})
+    : apiClient = apiClient ?? const HttpOncologyApiClient();
 
   final OncologyApiClient apiClient;
 
@@ -351,9 +363,9 @@ class _OncologyScreenState extends State<OncologyScreen> {
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -398,7 +410,11 @@ class _OncologyScreenState extends State<OncologyScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 44),
+              const Icon(
+                Icons.error_outline,
+                color: AppTheme.errorRed,
+                size: 44,
+              ),
               const SizedBox(height: 12),
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 16),
@@ -436,10 +452,12 @@ class _OncologyScreenState extends State<OncologyScreen> {
               if (_toxicity.isEmpty)
                 _emptyPanel(s.lookup('s4.lib.oncology.no_toxicity'))
               else
-                ..._toxicity.map((event) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _toxicityCard(event, s),
-                    )),
+                ..._toxicity.map(
+                  (event) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _toxicityCard(event, s),
+                  ),
+                ),
             ],
           ),
         ),
@@ -449,10 +467,7 @@ class _OncologyScreenState extends State<OncologyScreen> {
 
   Widget _emptyList(String label) {
     return ListView(
-      children: [
-        const SizedBox(height: 120),
-        _emptyPanel(label),
-      ],
+      children: [const SizedBox(height: 120), _emptyPanel(label)],
     );
   }
 
@@ -490,10 +505,16 @@ class _OncologyScreenState extends State<OncologyScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            Text(row.patientLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(
+              row.patientLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
             if (row.tnmLabel.isNotEmpty) ...[
               const SizedBox(height: 4),
-              Text(row.tnmLabel, style: TextStyle(color: AppTheme.textSecondary)),
+              Text(
+                row.tnmLabel,
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
             ],
             const SizedBox(height: 10),
             Text(row.question),
@@ -516,7 +537,11 @@ class _OncologyScreenState extends State<OncologyScreen> {
             ),
             const SizedBox(height: 12),
             _field(_patientUid, s.lookup('s4.lib.oncology.patient_uid')),
-            _field(_diagnosisId, s.lookup('s4.lib.oncology.diagnosis_id'), number: true),
+            _field(
+              _diagnosisId,
+              s.lookup('s4.lib.oncology.diagnosis_id'),
+              number: true,
+            ),
             _field(_term, s.lookup('s4.lib.oncology.toxicity_term')),
             Row(
               children: [
@@ -527,10 +552,12 @@ class _OncologyScreenState extends State<OncologyScreen> {
                       labelText: s.lookup('s4.lib.oncology.ctcae_grade'),
                     ),
                     items: [1, 2, 3, 4, 5]
-                        .map((grade) => DropdownMenuItem(
-                              value: grade,
-                              child: Text('$grade'),
-                            ))
+                        .map(
+                          (grade) => DropdownMenuItem(
+                            value: grade,
+                            child: Text('$grade'),
+                          ),
+                        )
                         .toList(),
                     onChanged: (value) => setState(() => _grade = value ?? 2),
                   ),
@@ -542,30 +569,42 @@ class _OncologyScreenState extends State<OncologyScreen> {
                     decoration: InputDecoration(
                       labelText: s.lookup('s4.lib.oncology.action_taken'),
                     ),
-                    items: const [
-                      'monitor',
-                      'supportive_care',
-                      'dose_delay',
-                      'dose_reduce',
-                      'withhold',
-                      'stop',
-                      'admit',
-                      'other',
-                    ]
-                        .map((action) => DropdownMenuItem(
-                              value: action,
-                              child: Text(action.replaceAll('_', ' ')),
-                            ))
-                        .toList(),
-                    onChanged: (value) => setState(() => _action = value ?? 'monitor'),
+                    items:
+                        const [
+                              'monitor',
+                              'supportive_care',
+                              'dose_delay',
+                              'dose_reduce',
+                              'withhold',
+                              'stop',
+                              'admit',
+                              'other',
+                            ]
+                            .map(
+                              (action) => DropdownMenuItem(
+                                value: action,
+                                child: Text(action.replaceAll('_', ' ')),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (value) =>
+                        setState(() => _action = value ?? 'monitor'),
                   ),
                 ),
               ],
             ),
             _field(_source, s.lookup('s4.lib.oncology.ctcae_source')),
             _field(_sourceVersion, s.lookup('s4.lib.oncology.ctcae_version')),
-            _field(_cycleId, s.lookup('s4.lib.oncology.chemo_cycle_id'), number: true),
-            _field(_administrationId, s.lookup('s4.lib.oncology.chemo_admin_id'), number: true),
+            _field(
+              _cycleId,
+              s.lookup('s4.lib.oncology.chemo_cycle_id'),
+              number: true,
+            ),
+            _field(
+              _administrationId,
+              s.lookup('s4.lib.oncology.chemo_admin_id'),
+              number: true,
+            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _signoff,
@@ -602,7 +641,8 @@ class _OncologyScreenState extends State<OncologyScreen> {
         leading: CircleAvatar(child: Text('${event.grade}')),
         title: Text(event.term),
         subtitle: Text(
-          '${event.patientLabel}\n${event.source ?? ''} ${event.sourceVersion ?? ''}'.trim(),
+          '${event.patientLabel}\n${event.source ?? ''} ${event.sourceVersion ?? ''}'
+              .trim(),
         ),
         isThreeLine: true,
         trailing: _chip(event.signoffStatus),
@@ -626,9 +666,6 @@ class _OncologyScreenState extends State<OncologyScreen> {
   }
 
   Widget _chip(String label) {
-    return Chip(
-      label: Text(label),
-      visualDensity: VisualDensity.compact,
-    );
+    return Chip(label: Text(label), visualDensity: VisualDensity.compact);
   }
 }

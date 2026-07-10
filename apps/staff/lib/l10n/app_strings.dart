@@ -13244,8 +13244,7 @@ class AppStrings {
       's4.lib.oncology.title': "ऑन्कोलॉजी",
       's4.lib.oncology.tumor_board': "ट्यूमर बोर्ड",
       's4.lib.oncology.toxicity': "विषाक्तता",
-      's4.lib.oncology.no_cases':
-          "कोई ट्यूमर बोर्ड केस प्रतीक्षा में नहीं है.",
+      's4.lib.oncology.no_cases': "कोई ट्यूमर बोर्ड केस प्रतीक्षा में नहीं है.",
       's4.lib.oncology.no_toxicity': "कोई विषाक्तता घटना दर्ज नहीं है.",
       's4.lib.oncology.capture_toxicity': "विषाक्तता दर्ज करें",
       's4.lib.oncology.patient_uid': "रोगी UID",
@@ -19193,8 +19192,7 @@ class AppStrings {
       's4.lib.oncology.title': "ஆன்காலஜி",
       's4.lib.oncology.tumor_board': "கட்டி வாரியம்",
       's4.lib.oncology.toxicity': "நச்சுத்தன்மை",
-      's4.lib.oncology.no_cases':
-          "கட்டி வாரியம் வழக்குகள் காத்திருக்கவில்லை.",
+      's4.lib.oncology.no_cases': "கட்டி வாரியம் வழக்குகள் காத்திருக்கவில்லை.",
       's4.lib.oncology.no_toxicity':
           "நச்சுத்தன்மை நிகழ்வுகள் எதுவும் பதிவு செய்யப்படவில்லை.",
       's4.lib.oncology.capture_toxicity': "நச்சுத்தன்மை பதிவு",
@@ -19212,8 +19210,7 @@ class AppStrings {
       's4.lib.oncology.save_toxicity': "நச்சுத்தன்மை சேமி",
       's4.lib.oncology.required_fields':
           "கையொப்பத்திற்கு நோயாளர், சொல், மற்றும் மூலம்/பதிப்பு தேவை.",
-      's4.lib.oncology.toxicity_saved':
-          "நச்சுத்தன்மை நிகழ்வு சேமிக்கப்பட்டது",
+      's4.lib.oncology.toxicity_saved': "நச்சுத்தன்மை நிகழ்வு சேமிக்கப்பட்டது",
       's4.dynamic.duty_preference.not_configured_for_role':
           "{role} க்கான கடமை கோரிக்கைகள் கட்டமைக்கப்படவில்லை.",
       's4.dynamic.duty_preference.request_row_title': "{department} - {shift}",
@@ -25071,10 +25068,8 @@ class AppStrings {
       's4.lib.oncology.title': "ఆంకాలజీ",
       's4.lib.oncology.tumor_board': "ట్యూమర్ బోర్డ్",
       's4.lib.oncology.toxicity': "విష ప్రభావం",
-      's4.lib.oncology.no_cases':
-          "ట్యూమర్ బోర్డ్ కేసులు వేచి లేవు.",
-      's4.lib.oncology.no_toxicity':
-          "విష ప్రభావ ఘటనలు నమోదు కాలేదు.",
+      's4.lib.oncology.no_cases': "ట్యూమర్ బోర్డ్ కేసులు వేచి లేవు.",
+      's4.lib.oncology.no_toxicity': "విష ప్రభావ ఘటనలు నమోదు కాలేదు.",
       's4.lib.oncology.capture_toxicity': "విష ప్రభావాన్ని నమోదు చేయండి",
       's4.lib.oncology.patient_uid': "రోగి UID",
       's4.lib.oncology.diagnosis_id': "నిర్ధారణ ID",
@@ -25574,8 +25569,7 @@ class AppStrings {
       's4.lib.oncology.title': 'ഓങ്കോളജി',
       's4.lib.oncology.tumor_board': 'ട്യൂമർ ബോർഡ്',
       's4.lib.oncology.toxicity': 'വിഷപ്രഭാവം',
-      's4.lib.oncology.no_cases':
-          'കാത്തിരിക്കുന്ന ട്യൂമർ ബോർഡ് കേസുകളില്ല.',
+      's4.lib.oncology.no_cases': 'കാത്തിരിക്കുന്ന ട്യൂമർ ബോർഡ് കേസുകളില്ല.',
       's4.lib.oncology.no_toxicity':
           'വിഷപ്രഭാവ സംഭവങ്ങൾ രേഖപ്പെടുത്തിയിട്ടില്ല.',
       's4.lib.oncology.capture_toxicity': 'വിഷപ്രഭാവം രേഖപ്പെടുത്തുക',
@@ -25593,8 +25587,7 @@ class AppStrings {
       's4.lib.oncology.save_toxicity': 'വിഷപ്രഭാവം സേവ് ചെയ്യുക',
       's4.lib.oncology.required_fields':
           'സൈൻ-ഓഫിന് രോഗി, പദം, ഉറവിടം/പതിപ്പ് ആവശ്യമാണ്.',
-      's4.lib.oncology.toxicity_saved':
-          'വിഷപ്രഭാവ സംഭവം സേവ് ചെയ്തു',
+      's4.lib.oncology.toxicity_saved': 'വിഷപ്രഭാവ സംഭവം സേവ് ചെയ്തു',
       's4.lib.ophthalmology.title': 'കണ്ണ് ചികിത്സ',
       's4.lib.ophthalmology.patient_uid': 'രോഗി UID',
       's4.lib.ophthalmology.patient_uid_required': 'രോഗി UID നിർബന്ധമാണ്',

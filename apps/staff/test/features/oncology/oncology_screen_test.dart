@@ -33,10 +33,22 @@ void main() {
     await tester.tap(find.text('Toxicity'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.widgetWithText(TextField, 'Patient UID'), 'fa130000-0000-4000-8000-000000000001');
-    await tester.enterText(find.widgetWithText(TextField, 'Toxicity term'), 'Mucositis');
-    await tester.enterText(find.widgetWithText(TextField, 'CTCAE source'), 'Hospital supplied CTCAE reference');
-    await tester.enterText(find.widgetWithText(TextField, 'CTCAE version'), 'v5.0-owner');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Patient UID'),
+      'fa130000-0000-4000-8000-000000000001',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Toxicity term'),
+      'Mucositis',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'CTCAE source'),
+      'Hospital supplied CTCAE reference',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'CTCAE version'),
+      'v5.0-owner',
+    );
     await tester.drag(find.byType(ListView).last, const Offset(0, -800));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save toxicity'));
@@ -102,17 +114,17 @@ class _FakeOncologyApiClient implements OncologyApiClient {
 
   @override
   Future<List<OncologyTumorBoardCase>> fetchTumorBoardQueue() async => const [
-        OncologyTumorBoardCase(
-          id: 42,
-          patientUid: 'fa130000-0000-4000-8000-000000000001',
-          patientName: 'NL13 Patient',
-          cancerSite: 'Breast',
-          question: 'Confirm systemic therapy sequence',
-          priority: 'urgent',
-          discussionState: 'queued',
-          tCategory: 'cT2',
-          nCategory: 'cN1',
-          mCategory: 'M0',
-        ),
-      ];
+    OncologyTumorBoardCase(
+      id: 42,
+      patientUid: 'fa130000-0000-4000-8000-000000000001',
+      patientName: 'NL13 Patient',
+      cancerSite: 'Breast',
+      question: 'Confirm systemic therapy sequence',
+      priority: 'urgent',
+      discussionState: 'queued',
+      tCategory: 'cT2',
+      nCategory: 'cN1',
+      mCategory: 'M0',
+    ),
+  ];
 }
