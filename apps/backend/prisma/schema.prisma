@@ -574,38 +574,40 @@ model ambulance_requests {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model anesthesia_records {
-  id                        Int          @id @default(autoincrement())
-  tenant_id                 String       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  id                        Int                  @id @default(autoincrement())
+  tenant_id                 String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   ot_schedule_id            Int
-  patient_uid               String?      @db.Uuid
-  anesthetist               String?      @db.Uuid
-  assistant                 String?      @db.Uuid
-  preop_assessment_complete Boolean      @default(false)
-  asa_grade                 String?      @db.VarChar(8)
-  airway_assessment         Json         @default("{}")
-  preop_meds_held           Json         @default("[]")
-  technique                 String?      @db.VarChar(80)
-  airway_managed            String?      @db.VarChar(40)
-  intubation_grade          String?      @db.VarChar(8)
-  agents_used               Json         @default("[]")
+  patient_uid               String?              @db.Uuid
+  anesthetist               String?              @db.Uuid
+  assistant                 String?              @db.Uuid
+  preop_assessment_complete Boolean              @default(false)
+  asa_grade                 String?              @db.VarChar(8)
+  airway_assessment         Json                 @default("{}")
+  preop_meds_held           Json                 @default("[]")
+  technique                 String?              @db.VarChar(80)
+  airway_managed            String?              @db.VarChar(40)
+  intubation_grade          String?              @db.VarChar(8)
+  agents_used               Json                 @default("[]")
   fluids_in_ml              Int?
-  blood_products_in         Json         @default("[]")
+  blood_products_in         Json                 @default("[]")
   urine_output_ml           Int?
   blood_loss_ml             Int?
-  events                    Json         @default("[]")
+  events                    Json                 @default("[]")
   complications             String?
-  recovery_destination      String?      @db.VarChar(40)
+  recovery_destination      String?              @db.VarChar(40)
   pain_plan                 String?
   ponv_prophylaxis          String?
-  status                    String       @default("draft") @db.VarChar(20)
-  finalized_by              String?      @db.Uuid
-  finalized_at              DateTime?    @db.Timestamptz(6)
+  status                    String               @default("draft") @db.VarChar(20)
+  finalized_by              String?              @db.Uuid
+  finalized_at              DateTime?            @db.Timestamptz(6)
   ai_precheck_generation_id Int?
-  metadata                  Json         @default("{}")
-  created_at                DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime     @default(now()) @db.Timestamptz(6)
-  ot_schedules              ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants                   tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  metadata                  Json                 @default("{}")
+  created_at                DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime             @default(now()) @db.Timestamptz(6)
+  ot_schedules              ot_schedules         @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                   tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ctvs_case_overlays        ctvs_case_overlays[]
+  perfusion_records         perfusion_records[]
 
   @@unique([tenant_id, ot_schedule_id])
   @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_anesthesia_records_tenant_status")
@@ -6895,8 +6897,11 @@ model ot_schedules {
   updated_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
   tenant_id                  String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   anesthesia_records         anesthesia_records[]
+  ctvs_case_overlays         ctvs_case_overlays[]
   intraop_notes              intraop_notes[]
   tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ot_schedules_tenant")
+  perfusion_records          perfusion_records[]
+  perfusion_signoffs         perfusion_signoffs[]
   postop_complication_alerts postop_complication_alerts[]
   postop_notes               postop_notes[]
   preop_checklists           preop_checklists[]
@@ -9816,6 +9821,7 @@ model tenants {
   content_studio_settings                    content_studio_settings?
   credential_document_uploads                credential_document_uploads[]
   credential_expiry_alerts                   credential_expiry_alerts[]
+  ctvs_case_overlays                         ctvs_case_overlays[]
   data_breaches                              data_breaches[]
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
@@ -10049,6 +10055,9 @@ model tenants {
   payslip_queries                            payslip_queries[]
   payslip_query_replies                      payslip_query_replies[]
   payslips                                   payslips[]
+  perfusion_device_links                     perfusion_device_links[]
+  perfusion_records                          perfusion_records[]
+  perfusion_signoffs                         perfusion_signoffs[]
   pharmacy_activity_logs                     pharmacy_activity_logs[]
   pharmacy_catalog                           pharmacy_catalog[]
   pharmacy_expiry_alerts                     pharmacy_expiry_alerts[]
@@ -10674,6 +10683,10 @@ model users {
   cath_post_procedure_orders                                                                     cath_post_procedure_orders[]
   cath_procedure_logs                                                                            cath_procedure_logs[]
   chair_bookings                                                                                 chair_bookings[]
+  ctvs_case_overlays_ctvs_case_overlays_created_byTousers                                        ctvs_case_overlays[]                  @relation("ctvs_case_overlays_created_byTousers")
+  ctvs_case_overlays_ctvs_case_overlays_evidence_owner_uidTousers                                ctvs_case_overlays[]                  @relation("ctvs_case_overlays_evidence_owner_uidTousers")
+  ctvs_case_overlays_ctvs_case_overlays_patient_uidTousers                                       ctvs_case_overlays[]                  @relation("ctvs_case_overlays_patient_uidTousers")
+  ctvs_case_overlays_ctvs_case_overlays_updated_byTousers                                        ctvs_case_overlays[]                  @relation("ctvs_case_overlays_updated_byTousers")
   device_patient_associations                                                                    device_patient_associations[]
   device_presence_logs                                                                           device_presence_logs[]
   device_vital_sample_observations                                                               device_vital_sample_observations[]
@@ -10737,6 +10750,18 @@ model users {
   payroll_runs_payroll_runs_generated_byTousers                                                  payroll_runs[]                        @relation("payroll_runs_generated_byTousers")
   payroll_runs_payroll_runs_locked_byTousers                                                     payroll_runs[]                        @relation("payroll_runs_locked_byTousers")
   payslips                                                                                       payslips[]
+  perfusion_device_links_perfusion_device_links_created_byTousers                                perfusion_device_links[]              @relation("perfusion_device_links_created_byTousers")
+  perfusion_device_links_perfusion_device_links_patient_uidTousers                               perfusion_device_links[]              @relation("perfusion_device_links_patient_uidTousers")
+  perfusion_records_perfusion_records_evidence_owner_uidTousers                                  perfusion_records[]                   @relation("perfusion_records_evidence_owner_uidTousers")
+  perfusion_records_perfusion_records_patient_uidTousers                                         perfusion_records[]                   @relation("perfusion_records_patient_uidTousers")
+  perfusion_records_perfusion_records_perfusionist_uidTousers                                    perfusion_records[]                   @relation("perfusion_records_perfusionist_uidTousers")
+  perfusion_records_perfusion_records_recorded_byTousers                                         perfusion_records[]                   @relation("perfusion_records_recorded_byTousers")
+  perfusion_signoffs_perfusion_signoffs_anesthesia_reviewed_byTousers                            perfusion_signoffs[]                  @relation("perfusion_signoffs_anesthesia_reviewed_byTousers")
+  perfusion_signoffs_perfusion_signoffs_evidence_owner_uidTousers                                perfusion_signoffs[]                  @relation("perfusion_signoffs_evidence_owner_uidTousers")
+  perfusion_signoffs_perfusion_signoffs_finalized_byTousers                                      perfusion_signoffs[]                  @relation("perfusion_signoffs_finalized_byTousers")
+  perfusion_signoffs_perfusion_signoffs_patient_uidTousers                                       perfusion_signoffs[]                  @relation("perfusion_signoffs_patient_uidTousers")
+  perfusion_signoffs_perfusion_signoffs_perfusionist_signed_byTousers                            perfusion_signoffs[]                  @relation("perfusion_signoffs_perfusionist_signed_byTousers")
+  perfusion_signoffs_perfusion_signoffs_surgeon_reviewed_byTousers                               perfusion_signoffs[]                  @relation("perfusion_signoffs_surgeon_reviewed_byTousers")
   pharmacy_order_history                                                                         pharmacy_order_history[]
   pharmacy_orders_pharmacy_orders_dispensed_byTousers                                            pharmacy_orders[]                     @relation("pharmacy_orders_dispensed_byTousers")
   pharmacy_orders_pharmacy_orders_patient_idTousers                                              pharmacy_orders[]                     @relation("pharmacy_orders_patient_idTousers")
@@ -16132,6 +16157,7 @@ model device_patient_associations {
   device_registry              device_registry                @relation(fields: [device_registry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users                        users                          @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
   icu_device_observation_links icu_device_observation_links[]
+  perfusion_device_links       perfusion_device_links[]
 
   @@unique([tenant_id, device_registry_id, channel], map: "ux_device_patient_assoc_active_channel", where: raw("(ended_at IS NULL)"))
   @@index([tenant_id, patient_uid], map: "idx_device_patient_assoc_active_patient", where: raw("(ended_at IS NULL)"))
@@ -20801,4 +20827,161 @@ model tumor_board_recommendations {
 
   @@index([tenant_id, tumor_board_case_id, created_at(sort: Desc)], map: "idx_tumor_board_recommendations_case")
   @@index([tenant_id, due_date], map: "idx_tumor_board_recommendations_due", where: raw("((due_date IS NOT NULL) AND ((status)::text = ANY ((ARRAY['proposed'::character varying, 'accepted'::character varying])::text[])))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ctvs_case_overlays {
+  id                                                 Int                 @id @default(autoincrement())
+  tenant_id                                          String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ot_schedule_id                                     Int
+  patient_uid                                        String              @db.Uuid
+  anesthesia_record_id                               Int?
+  procedure_category                                 String              @db.VarChar(80)
+  bypass_expected                                    Boolean             @default(false)
+  blood_product_readiness                            Json                @default("{}")
+  implant_device_readiness                           Json                @default("{}")
+  evidence_owner_uid                                 String?             @db.Uuid
+  policy_source_label                                String?             @db.VarChar(180)
+  policy_source_version                              String?             @db.VarChar(80)
+  source_document_refs                               Json                @default("[]")
+  attachment_refs                                    Json                @default("[]")
+  metadata                                           Json                @default("{}")
+  created_by                                         String?             @db.Uuid
+  updated_by                                         String?             @db.Uuid
+  created_at                                         DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                         DateTime            @default(now()) @db.Timestamptz(6)
+  anesthesia_records                                 anesthesia_records? @relation(fields: [anesthesia_record_id], references: [id], onUpdate: NoAction)
+  users_ctvs_case_overlays_created_byTousers         users?              @relation("ctvs_case_overlays_created_byTousers", fields: [created_by], references: [uid], onUpdate: NoAction)
+  users_ctvs_case_overlays_evidence_owner_uidTousers users?              @relation("ctvs_case_overlays_evidence_owner_uidTousers", fields: [evidence_owner_uid], references: [uid], onUpdate: NoAction)
+  ot_schedules                                       ot_schedules        @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_ctvs_case_overlays_patient_uidTousers        users               @relation("ctvs_case_overlays_patient_uidTousers", fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  users_ctvs_case_overlays_updated_byTousers         users?              @relation("ctvs_case_overlays_updated_byTousers", fields: [updated_by], references: [uid], onUpdate: NoAction)
+  tenants                                            tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ctvs_case_overlays_tenant")
+  perfusion_records                                  perfusion_records[]
+
+  @@unique([tenant_id, ot_schedule_id])
+  @@index([tenant_id, anesthesia_record_id], map: "idx_ctvs_case_overlays_anesthesia", where: raw("(anesthesia_record_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_ctvs_case_overlays_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model perfusion_device_links {
+  id                                              Int                         @id @default(autoincrement())
+  tenant_id                                       String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  perfusion_record_id                             Int
+  device_patient_association_id                   Int
+  patient_uid                                     String                      @db.Uuid
+  vendor_document_ref                             String?
+  vendor_source_label                             String?                     @db.VarChar(180)
+  vendor_source_version                           String?                     @db.VarChar(80)
+  summary_import_status                           String                      @default("pending") @db.VarChar(32)
+  imported_summary                                Json                        @default("{}")
+  attachment_refs                                 Json                        @default("[]")
+  metadata                                        Json                        @default("{}")
+  created_by                                      String?                     @db.Uuid
+  created_at                                      DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                      DateTime                    @default(now()) @db.Timestamptz(6)
+  tenants                                         tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_perfusion_device_links_tenant")
+  users_perfusion_device_links_created_byTousers  users?                      @relation("perfusion_device_links_created_byTousers", fields: [created_by], references: [uid], onUpdate: NoAction)
+  device_patient_associations                     device_patient_associations @relation(fields: [device_patient_association_id], references: [id], onUpdate: NoAction)
+  users_perfusion_device_links_patient_uidTousers users                       @relation("perfusion_device_links_patient_uidTousers", fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  perfusion_records                               perfusion_records           @relation(fields: [perfusion_record_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, perfusion_record_id, device_patient_association_id])
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_perfusion_device_links_patient")
+  @@index([tenant_id, perfusion_record_id], map: "idx_perfusion_device_links_record")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model perfusion_records {
+  id                                                Int                      @id @default(autoincrement())
+  tenant_id                                         String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ctvs_case_overlay_id                              Int?
+  ot_schedule_id                                    Int
+  patient_uid                                       String                   @db.Uuid
+  anesthesia_record_id                              Int?
+  perfusionist_uid                                  String?                  @db.Uuid
+  bypass_started_at                                 DateTime?                @db.Timestamptz(6)
+  bypass_ended_at                                   DateTime?                @db.Timestamptz(6)
+  bypass_time_minutes                               Decimal?                 @db.Decimal(8, 2)
+  cross_clamp_started_at                            DateTime?                @db.Timestamptz(6)
+  cross_clamp_ended_at                              DateTime?                @db.Timestamptz(6)
+  cross_clamp_time_minutes                          Decimal?                 @db.Decimal(8, 2)
+  act_baseline_seconds                              Decimal?                 @db.Decimal(8, 2)
+  act_peak_seconds                                  Decimal?                 @db.Decimal(8, 2)
+  act_last_seconds                                  Decimal?                 @db.Decimal(8, 2)
+  temperature_min_c                                 Decimal?                 @db.Decimal(5, 2)
+  temperature_max_c                                 Decimal?                 @db.Decimal(5, 2)
+  act_summary                                       Json                     @default("{}")
+  temperature_summary                               Json                     @default("{}")
+  fluids_products_summary                           Json                     @default("{}")
+  complications                                     String?
+  status                                            String                   @default("recorded") @db.VarChar(24)
+  evidence_owner_uid                                String?                  @db.Uuid
+  record_policy_source_label                        String?                  @db.VarChar(180)
+  record_policy_source_version                      String?                  @db.VarChar(80)
+  source_document_refs                              Json                     @default("[]")
+  attachment_refs                                   Json                     @default("[]")
+  metadata                                          Json                     @default("{}")
+  recorded_by                                       String?                  @db.Uuid
+  created_at                                        DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                                        DateTime                 @default(now()) @db.Timestamptz(6)
+  perfusion_device_links                            perfusion_device_links[]
+  tenants                                           tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_perfusion_records_tenant")
+  anesthesia_records                                anesthesia_records?      @relation(fields: [anesthesia_record_id], references: [id], onUpdate: NoAction)
+  ctvs_case_overlays                                ctvs_case_overlays?      @relation(fields: [ctvs_case_overlay_id], references: [id], onUpdate: NoAction)
+  users_perfusion_records_evidence_owner_uidTousers users?                   @relation("perfusion_records_evidence_owner_uidTousers", fields: [evidence_owner_uid], references: [uid], onUpdate: NoAction)
+  ot_schedules                                      ot_schedules             @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_perfusion_records_patient_uidTousers        users                    @relation("perfusion_records_patient_uidTousers", fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  users_perfusion_records_perfusionist_uidTousers   users?                   @relation("perfusion_records_perfusionist_uidTousers", fields: [perfusionist_uid], references: [uid], onUpdate: NoAction)
+  users_perfusion_records_recorded_byTousers        users?                   @relation("perfusion_records_recorded_byTousers", fields: [recorded_by], references: [uid], onUpdate: NoAction)
+  perfusion_signoffs                                perfusion_signoffs[]
+
+  @@unique([tenant_id, ot_schedule_id])
+  @@index([tenant_id, ot_schedule_id], map: "idx_perfusion_records_case")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_perfusion_records_patient")
+  @@index([tenant_id, perfusionist_uid, created_at(sort: Desc)], map: "idx_perfusion_records_perfusionist", where: raw("(perfusionist_uid IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model perfusion_signoffs {
+  id                                                     Int               @id @default(autoincrement())
+  tenant_id                                              String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  perfusion_record_id                                    Int
+  ot_schedule_id                                         Int
+  patient_uid                                            String            @db.Uuid
+  perfusionist_signed_by                                 String?           @db.Uuid
+  perfusionist_signed_at                                 DateTime?         @db.Timestamptz(6)
+  surgeon_reviewed_by                                    String?           @db.Uuid
+  surgeon_reviewed_at                                    DateTime?         @db.Timestamptz(6)
+  anesthesia_reviewed_by                                 String?           @db.Uuid
+  anesthesia_reviewed_at                                 DateTime?         @db.Timestamptz(6)
+  status                                                 String            @default("draft") @db.VarChar(32)
+  finalized_by                                           String?           @db.Uuid
+  finalized_at                                           DateTime?         @db.Timestamptz(6)
+  evidence_owner_uid                                     String?           @db.Uuid
+  signoff_policy_source_label                            String?           @db.VarChar(180)
+  signoff_policy_source_version                          String?           @db.VarChar(80)
+  source_document_refs                                   Json              @default("[]")
+  attachment_refs                                        Json              @default("[]")
+  metadata                                               Json              @default("{}")
+  created_at                                             DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at                                             DateTime          @default(now()) @db.Timestamptz(6)
+  tenants                                                tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_perfusion_signoffs_tenant")
+  users_perfusion_signoffs_anesthesia_reviewed_byTousers users?            @relation("perfusion_signoffs_anesthesia_reviewed_byTousers", fields: [anesthesia_reviewed_by], references: [uid], onUpdate: NoAction)
+  users_perfusion_signoffs_evidence_owner_uidTousers     users?            @relation("perfusion_signoffs_evidence_owner_uidTousers", fields: [evidence_owner_uid], references: [uid], onUpdate: NoAction)
+  users_perfusion_signoffs_finalized_byTousers           users?            @relation("perfusion_signoffs_finalized_byTousers", fields: [finalized_by], references: [uid], onUpdate: NoAction)
+  ot_schedules                                           ot_schedules      @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_perfusion_signoffs_patient_uidTousers            users             @relation("perfusion_signoffs_patient_uidTousers", fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  perfusion_records                                      perfusion_records @relation(fields: [perfusion_record_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_perfusion_signoffs_perfusionist_signed_byTousers users?            @relation("perfusion_signoffs_perfusionist_signed_byTousers", fields: [perfusionist_signed_by], references: [uid], onUpdate: NoAction)
+  users_perfusion_signoffs_surgeon_reviewed_byTousers    users?            @relation("perfusion_signoffs_surgeon_reviewed_byTousers", fields: [surgeon_reviewed_by], references: [uid], onUpdate: NoAction)
+
+  @@unique([tenant_id, perfusion_record_id])
+  @@index([tenant_id, ot_schedule_id], map: "idx_perfusion_signoffs_case")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_perfusion_signoffs_patient")
 }

@@ -73,6 +73,9 @@ const MANUAL_SEED_TABLES = new Set([
   'icu_device_observation_links',
   'icu_scoring_outputs',
   'icu_weaning_trials',
+  // NL-13 P5 perfusion sign-offs require reviewer/timestamp pairs; a minimal
+  // draft row must be linked to the generated perfusion record explicitly.
+  'perfusion_signoffs',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1769,6 +1772,23 @@ async function seedSiemExportTables() {
   }
 }
 
+async function seedPerfusionSignoffs() {
+  if (!(await tableExists('perfusion_signoffs')) || await tableCount('perfusion_signoffs')) return;
+  const record = await first('perfusion_records', 'id, tenant_id, ot_schedule_id, patient_uid', 'TRUE', []);
+  if (!record) return;
+
+  await insertIfEmpty('perfusion_signoffs', [{
+    tenant_id: record.tenant_id || DEFAULT_TENANT_ID,
+    perfusion_record_id: record.id,
+    ot_schedule_id: record.ot_schedule_id,
+    patient_uid: record.patient_uid,
+    status: 'draft',
+    signoff_policy_source_label: 'owner-pending-perfusion-signoff-policy',
+    signoff_policy_source_version: 'pending',
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
 async function seedIcuChartDepthTables() {
   const hasWeaning = await tableExists('icu_weaning_trials');
   const hasScoring = await tableExists('icu_scoring_outputs');
@@ -1919,6 +1939,7 @@ try {
   await seedMigrationToolkitTables();
   await seedSiemExportTables();
   await seedIcuChartDepthTables();
+  await seedPerfusionSignoffs();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
