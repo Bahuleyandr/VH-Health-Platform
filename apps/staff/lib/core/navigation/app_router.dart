@@ -84,6 +84,7 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 // Notifications
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/audit/screens/audit_logs_screen.dart';
+import '../../features/safety/screens/resus_documentation_screen.dart';
 import '../../features/safety/screens/safety_center_screen.dart';
 import '../../features/diagnostics/screens/staff_diagnostics_screen.dart';
 
@@ -880,6 +881,15 @@ final GoRouter appRouter = GoRouter(
           name: 'safety-center',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: SafetyCenterScreen()),
+        ),
+        GoRoute(
+          path: '/safety/resus/:eventId',
+          name: 'resus-documentation',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: ResusDocumentationScreen(
+              eventId: int.tryParse(state.pathParameters['eventId'] ?? '') ?? 0,
+            ),
+          ),
         ),
         GoRoute(
           path: '/audit-logs',
