@@ -6,6 +6,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/prehospital_handover_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/states/success_toast.dart';
@@ -36,7 +37,10 @@ class _HandoverScreenState extends State<HandoverScreen>
   String _urgency = 'Normal';
   bool _submitting = false;
   List<Map<String, dynamic>> _recentNotes = [];
+  List<Map<String, dynamic>> _prehospitalHandovers = [];
   bool _loadingNotes = true;
+  bool _loadingPrehospital = true;
+  int? _acceptingHandoverId;
 
   static const _departments = [
     'General',
@@ -54,11 +58,12 @@ class _HandoverScreenState extends State<HandoverScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     if ((widget.prefillPatientRef ?? '').isNotEmpty) {
       _patientRefController.text = widget.prefillPatientRef!;
     }
     _loadRecentNotes();
+    _loadPrehospitalHandovers();
     _attachRealtime();
   }
 
@@ -68,7 +73,10 @@ class _HandoverScreenState extends State<HandoverScreen>
     _handoverSub = rt.events('staff:handovers').listen((_) {
       _refreshDebounce?.cancel();
       _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
-        if (mounted) _loadRecentNotes();
+        if (mounted) {
+          _loadRecentNotes();
+          _loadPrehospitalHandovers(showLoading: false);
+        }
       });
     });
   }
@@ -105,6 +113,44 @@ class _HandoverScreenState extends State<HandoverScreen>
       // Non-critical — recent notes may just be empty
     } finally {
       if (mounted) setState(() => _loadingNotes = false);
+    }
+  }
+
+  Future<void> _loadPrehospitalHandovers({bool showLoading = true}) async {
+    if (showLoading && mounted) setState(() => _loadingPrehospital = true);
+    try {
+      final handovers =
+          await PrehospitalHandoverApiService.listReadyForAcceptance();
+      if (mounted) setState(() => _prehospitalHandovers = handovers);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _prehospitalHandovers = const []);
+      }
+    } finally {
+      if (mounted) setState(() => _loadingPrehospital = false);
+    }
+  }
+
+  Future<void> _acceptPrehospitalHandover(Map<String, dynamic> handover) async {
+    final id = _handoverId(handover);
+    if (id == null || _acceptingHandoverId != null) return;
+    final s = AppStrings.of(context);
+    setState(() => _acceptingHandoverId = id);
+    try {
+      await PrehospitalHandoverApiService.acceptHandover(
+        handoverId: id,
+        clinicalAttestation: s.handoverAmbulanceAttestation,
+      );
+      if (mounted) {
+        SuccessToast.show(context, s.handoverAmbulanceAccepted);
+        await _loadPrehospitalHandovers(showLoading: false);
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _acceptingHandoverId = null);
     }
   }
 
@@ -155,6 +201,10 @@ class _HandoverScreenState extends State<HandoverScreen>
           tabs: [
             Tab(icon: const Icon(Icons.edit_note), text: s.handoverTabWrite),
             Tab(icon: const Icon(Icons.history), text: s.handoverTabRecent),
+            Tab(
+              icon: const Icon(Icons.local_shipping_outlined),
+              text: s.handoverTabAmbulance,
+            ),
           ],
         ),
       ),
@@ -175,7 +225,7 @@ class _HandoverScreenState extends State<HandoverScreen>
   Widget _buildTabBody() {
     return TabBarView(
       controller: _tabController,
-      children: [_buildWriteTab(), _buildRecentTab()],
+      children: [_buildWriteTab(), _buildRecentTab(), _buildAmbulanceTab()],
     );
   }
 
@@ -424,6 +474,242 @@ class _HandoverScreenState extends State<HandoverScreen>
         },
       ),
     );
+  }
+
+  Widget _buildAmbulanceTab() {
+    final s = AppStrings.of(context);
+    if (_loadingPrehospital) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_prehospitalHandovers.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadPrehospitalHandovers,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(height: MediaQuery.sizeOf(context).height * 0.22),
+            Icon(
+              Icons.local_shipping_outlined,
+              size: 64,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              s.handoverAmbulanceEmptyTitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey, fontSize: 15),
+            ),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                s.handoverAmbulanceEmptyBody,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadPrehospitalHandovers,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: _prehospitalHandovers.length,
+        itemBuilder: (context, index) {
+          final handover = _prehospitalHandovers[index];
+          final id = _handoverId(handover);
+          final accepting = id != null && _acceptingHandoverId == id;
+          final title = _firstText([
+            handover['handover_number'],
+            handover['ambulance_request_number'],
+            handover['presenting_complaint'],
+          ]);
+          final request = _firstText([
+            handover['ambulance_request_number'],
+            handover['ambulance_request_id'],
+          ]);
+          final eta = _firstText([
+            handover['eta_latest_at'],
+            handover['eta_first_at'],
+          ]);
+          final status = _textValue(handover['status']);
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.primaryContainer,
+                        child: Icon(
+                          Icons.emergency_share_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title.isEmpty ? s.handoverTabAmbulance : title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (status.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '${s.handoverAmbulanceStatus}: ${_displayStatus(status)}',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _handoverDetail(
+                    s.handoverAmbulanceRequest,
+                    request,
+                    Icons.confirmation_number_outlined,
+                  ),
+                  _handoverDetail(
+                    s.handoverAmbulancePatient,
+                    _textValue(handover['patient_uid']),
+                    Icons.person_outline,
+                  ),
+                  _handoverDetail(
+                    s.handoverAmbulanceEta,
+                    eta.isEmpty ? '' : _formatTimestamp(eta),
+                    Icons.schedule,
+                  ),
+                  _handoverDetail(
+                    s.handoverAmbulanceScene,
+                    _textValue(handover['scene_observations']),
+                    Icons.health_and_safety_outlined,
+                  ),
+                  _handoverDetail(
+                    s.handoverAmbulanceAllergies,
+                    _textValue(handover['allergies_reported']),
+                    Icons.warning_amber,
+                  ),
+                  _handoverDetail(
+                    s.handoverAmbulanceMeds,
+                    _textValue(handover['medications_reported']),
+                    Icons.medication_outlined,
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.icon(
+                      onPressed: accepting
+                          ? null
+                          : () => _acceptPrehospitalHandover(handover),
+                      icon: accepting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.verified_user_outlined),
+                      label: Text(
+                        accepting
+                            ? s.handoverAmbulanceAccepting
+                            : s.handoverAmbulanceAccept,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _handoverDetail(String label, String value, IconData icon) {
+    if (value.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ExcludeSemantics(child: Icon(icon, size: 18, color: Colors.grey)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$label: ',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  TextSpan(text: value),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int? _handoverId(Map<String, dynamic> row) {
+    final raw = row['id'];
+    if (raw is int) return raw;
+    return int.tryParse(raw?.toString() ?? '');
+  }
+
+  String _firstText(List<Object?> values) {
+    for (final value in values) {
+      final text = _textValue(value);
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+
+  String _displayStatus(String status) {
+    final clean = status.replaceAll('_', ' ').trim();
+    if (clean.isEmpty) return status;
+    return clean[0].toUpperCase() + clean.substring(1);
+  }
+
+  String _textValue(Object? value) {
+    if (value == null) return '';
+    if (value is String) return value.trim();
+    if (value is Iterable) {
+      return value.map(_textValue).where((part) => part.isNotEmpty).join('; ');
+    }
+    if (value is Map) {
+      return value.entries
+          .map((entry) {
+            final text = _textValue(entry.value);
+            return text.isEmpty ? '' : '${entry.key}: $text';
+          })
+          .where((part) => part.isNotEmpty)
+          .join('; ');
+    }
+    return value.toString().trim();
   }
 
   String _formatTimestamp(String ts) {
