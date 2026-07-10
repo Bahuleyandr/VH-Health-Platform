@@ -76,6 +76,17 @@ const MANUAL_SEED_TABLES = new Set([
   // NL-13 P5 perfusion sign-offs require reviewer/timestamp pairs; a minimal
   // draft row must be linked to the generated perfusion record explicitly.
   'perfusion_signoffs',
+  // NL-13 P6 transplant suite: organ enums, non-empty organ arrays, and
+  // clinical chain FKs need a coherent program -> candidate -> review seed.
+  'transplant_program_settings',
+  'transplant_programs',
+  'transplant_candidates',
+  'transplant_waitlist_status_history',
+  'transplant_donor_referrals',
+  'transplant_match_reviews',
+  'transplant_committee_reviews',
+  'transplant_immunosuppression_plans',
+  'transplant_notto_exports',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1772,6 +1783,167 @@ async function seedSiemExportTables() {
   }
 }
 
+async function seedTransplantProgramTables() {
+  if (!(await tableExists('transplant_programs'))) return;
+
+  const refs = await getCoreRefs();
+  if (!refs.patient || !refs.staff) return;
+  const ownerUid = refs.doctor?.uid || refs.staff.uid;
+
+  if (await tableExists('transplant_program_settings')) {
+    await insertIfEmpty('transplant_program_settings', [{
+      tenant_id: DEFAULT_TENANT_ID,
+      enabled: false,
+      acceptance_snapshot: JSON.stringify({ seed: true, suite: 'nl13-p6-transplant' }),
+      owner_evidence_reference: 'seed-transplant-owner-evidence',
+    }]);
+  }
+
+  let program = await first(
+    'transplant_programs',
+    'id, tenant_id',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+  if (!program) {
+    const created = await client.query(
+      `INSERT INTO transplant_programs (
+         tenant_id, organ, service_line, site, program_owner_uid, program_owner_role,
+         status, notto_evidence_owner_uid, notto_evidence_owner_role,
+         notto_evidence_reference, metadata, created_by
+       )
+       VALUES (
+         $1::uuid, 'kidney'::transplant_organ_type, 'Seed transplant service',
+         'Seed transplant site', $2::uuid, 'DOCTOR', 'active', $3::uuid,
+         'TRANSPLANT_COORDINATOR', 'seed-transplant-owner-evidence',
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb, $3::uuid
+       )
+       RETURNING id, tenant_id`,
+      [DEFAULT_TENANT_ID, ownerUid, refs.staff.uid],
+    );
+    program = created.rows[0];
+  }
+
+  let candidate = await first(
+    'transplant_candidates',
+    'id, tenant_id, patient_uid',
+    'tenant_id = $1::uuid',
+    [program.tenant_id || DEFAULT_TENANT_ID],
+  );
+  if (!candidate && await tableExists('transplant_candidates')) {
+    const created = await client.query(
+      `INSERT INTO transplant_candidates (
+         tenant_id, program_id, patient_uid, diagnosis, required_organs,
+         listing_evaluation_status, committee_status, contraindications_summary,
+         metadata, created_by
+       )
+       VALUES (
+         $1::uuid, $2, $3::uuid, 'Seed transplant candidate evaluation',
+         ARRAY['kidney']::transplant_organ_type[], 'committee_review', 'approved',
+         'No seed contraindications recorded',
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb, $4::uuid
+       )
+       RETURNING id, tenant_id, patient_uid`,
+      [program.tenant_id || DEFAULT_TENANT_ID, program.id, refs.patient.uid, refs.staff.uid],
+    );
+    candidate = created.rows[0];
+  }
+
+  if (!candidate) return;
+
+  if (await tableExists('transplant_committee_reviews')) {
+    await insertIfEmpty('transplant_committee_reviews', [{
+      tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
+      program_id: program.id,
+      candidate_id: candidate.id,
+      attendees: JSON.stringify([{ staff_uid: refs.staff.uid, role: 'TRANSPLANT_COORDINATOR' }]),
+      quorum_policy_reference: 'seed-transplant-quorum-policy',
+      decision: 'approved',
+      recommendations: 'Seed committee approval for QA coverage.',
+      affects_candidate: true,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      created_by: refs.staff.uid,
+    }]);
+  }
+
+  if (await tableExists('transplant_waitlist_status_history')) {
+    await insertIfEmpty('transplant_waitlist_status_history', [{
+      tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
+      candidate_id: candidate.id,
+      status: 'listed',
+      reason: 'Seed waitlist status for QA coverage.',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      created_by: refs.staff.uid,
+    }]);
+  }
+
+  let donorReferral = await first(
+    'transplant_donor_referrals',
+    'id, tenant_id',
+    'tenant_id = $1::uuid',
+    [program.tenant_id || DEFAULT_TENANT_ID],
+  );
+  if (!donorReferral && await tableExists('transplant_donor_referrals')) {
+    const created = await client.query(
+      `INSERT INTO transplant_donor_referrals (
+         tenant_id, program_id, donor_type, source, relation_category,
+         screening_summary, documents, status, audit_register, created_by
+       )
+       VALUES (
+         $1::uuid, $2, 'living', 'Seed donor referral', 'related',
+         'Seed transplant donor referral for QA coverage.',
+         '[]'::jsonb, 'screening',
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb, $3::uuid
+       )
+       RETURNING id, tenant_id`,
+      [program.tenant_id || DEFAULT_TENANT_ID, program.id, refs.staff.uid],
+    );
+    donorReferral = created.rows[0];
+  }
+
+  if (donorReferral && await tableExists('transplant_match_reviews')) {
+    await insertIfEmpty('transplant_match_reviews', [{
+      tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
+      candidate_id: candidate.id,
+      donor_referral_id: donorReferral.id,
+      compatibility_summary: 'Seed compatibility review for QA coverage.',
+      crossmatch_documents: JSON.stringify([]),
+      chain_of_custody: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      risk_flags: [],
+      decision: 'pending',
+      created_by: refs.staff.uid,
+    }]);
+  }
+
+  if (await tableExists('transplant_immunosuppression_plans')) {
+    await insertIfEmpty('transplant_immunosuppression_plans', [{
+      tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
+      candidate_id: candidate.id,
+      patient_uid: candidate.patient_uid || refs.patient.uid,
+      regimen_summary: 'Seed immunosuppression regimen for QA coverage.',
+      monitoring_plan: 'Seed monitoring plan for QA coverage.',
+      prescribing_owner_uid: ownerUid,
+      downstream_medication_links: JSON.stringify([]),
+      status: 'draft',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      created_by: refs.staff.uid,
+    }]);
+  }
+
+  if (await tableExists('transplant_notto_exports')) {
+    await insertIfEmpty('transplant_notto_exports', [{
+      tenant_id: program.tenant_id || DEFAULT_TENANT_ID,
+      program_id: program.id,
+      candidate_id: candidate.id,
+      package_metadata: JSON.stringify({ seed: true, export_kind: 'candidate_snapshot' }),
+      owner_reviewed_status: 'pending_owner_review',
+      audit_evidence: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      created_by: refs.staff.uid,
+    }]);
+  }
+}
+
 async function seedPerfusionSignoffs() {
   if (!(await tableExists('perfusion_signoffs')) || await tableCount('perfusion_signoffs')) return;
   const record = await first('perfusion_records', 'id, tenant_id, ot_schedule_id, patient_uid', 'TRUE', []);
@@ -1940,6 +2112,7 @@ try {
   await seedSiemExportTables();
   await seedIcuChartDepthTables();
   await seedPerfusionSignoffs();
+  await seedTransplantProgramTables();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
