@@ -129,6 +129,81 @@ export interface IoSummaryRow {
   entries_logged: number;
 }
 
+export interface IcuChartSummary {
+  manual_flowsheet_count: number;
+  device_vitals_count: number;
+  unverified_device_vitals_count: number;
+  active_line_count: number;
+  active_denominator_device_count: number;
+  ventilation_episode_count: number;
+  weaning_trial_count: number;
+  scoring_output_count: number;
+}
+
+export interface IcuDeviceVital {
+  id: number;
+  recorded_at: string;
+  heart_rate: number | null;
+  systolic_bp: number | null;
+  diastolic_bp: number | null;
+  spo2: number | null;
+  respiratory_rate: number | null;
+  source_device: string | null;
+  device_verified: boolean | null;
+  verified_at: string | null;
+}
+
+export interface IcuVentilationEpisode {
+  id: number;
+  mode: string;
+  oxygen_device: string | null;
+  airway_type: string | null;
+  started_at: string;
+  stopped_at: string | null;
+  stop_reason: string | null;
+}
+
+export interface IcuWeaningTrial {
+  id: number;
+  trial_kind: string;
+  readiness_status: string;
+  outcome: string | null;
+  created_at: string;
+}
+
+export interface IcuLinePresence {
+  id: number;
+  presence_kind: string;
+  display_label: string | null;
+  site: string | null;
+  denominator_device_type: string | null;
+  device_presence_log_id: number | null;
+  started_at: string;
+  stopped_at: string | null;
+}
+
+export interface IcuScoringOutput {
+  id: number;
+  scoring_kind: string;
+  score_value: number | null;
+  score_label: string | null;
+  reference_source: string | null;
+  reference_version: string | null;
+  review_status: string;
+  protocol_available: boolean;
+  order_mutation_performed: boolean;
+  recorded_at: string;
+}
+
+export interface IcuChartView {
+  summary: IcuChartSummary;
+  device_vitals: IcuDeviceVital[];
+  ventilation_episodes: IcuVentilationEpisode[];
+  weaning_trials: IcuWeaningTrial[];
+  line_presence: IcuLinePresence[];
+  scoring_outputs: IcuScoringOutput[];
+}
+
 export function unwrap<T>(r: unknown): T {
   return ((r as { data?: T }).data ?? r) as T;
 }
