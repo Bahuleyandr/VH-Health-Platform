@@ -288,6 +288,7 @@ import infectionControlRoutes from './routes/quality/infectionControlRoutes.js';
 import credentialingRoutes from './routes/staff/credentialingRoutes.js';
 import researchRoutes from './routes/research/researchRoutes.js';
 import oncologyRoutes from './routes/oncology/oncologyRoutes.js';
+import transplantRoutes from './routes/transplant/transplantRoutes.js';
 import dentalRoutes from './routes/clinical/dentalRoutes.js';
 import ophthalmologyRoutes from './routes/clinical/ophthalmologyRoutes.js';
 import physioRoutes from './routes/clinical/physioRoutes.js';
@@ -1051,6 +1052,10 @@ app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICE
 // read/mutate arbitrary patients. Mount the care-team-governed guard (shadow
 // by default → telemetry now, real 403 once the tenant flips to 'enforce').
 app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+
+// Transplant program management (NL-13 P6) stays inert behind a per-tenant
+// owner-evidence flag; service writes enforce transplant clinical privileges.
+app.use('/api/v1/transplant', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('TRANSPLANT_PROGRAM'), transplantRoutes);
 
 // Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
 app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DENTAL'), dentalRoutes);

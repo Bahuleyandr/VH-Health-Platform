@@ -110,6 +110,7 @@ import '../../features/dietary/screens/dietary_screen.dart';
 // Dental
 import '../../features/dental/screens/dental_screen.dart';
 import '../../features/physio/screens/physio_screen.dart';
+import '../../features/transplant/screens/transplant_program_screen.dart';
 
 // Theatre
 import '../../features/cath_lab/screens/cath_lab_screen.dart';
@@ -1000,6 +1001,12 @@ final GoRouter appRouter = GoRouter(
               ),
             );
           },
+        ),
+        GoRoute(
+          path: '/transplant',
+          name: 'transplant-program',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: TransplantProgramScreen()),
         ),
 
         // Theatre

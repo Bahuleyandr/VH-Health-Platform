@@ -774,6 +774,13 @@ class RoleFeatures {
     route: '/physiotherapy',
     color: Color(0xFF2E7D32),
   );
+  static const DashboardFeature _transplantProgram = DashboardFeature(
+    id: 'transplant_program',
+    titleKey: 'role.feature.transplant_program',
+    icon: Icons.health_and_safety_outlined,
+    route: '/transplant',
+    color: Color(0xFF00695C),
+  );
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
@@ -789,6 +796,7 @@ class RoleFeatures {
         _clinicalAiReviewQueue,
         _opAiAssist,
         _ophthalmology,
+        _transplantProgram,
         _patientRecords,
         _patientCommandBoard,
         _referrals,
@@ -1007,6 +1015,7 @@ class RoleFeatures {
         _theatre,
         _ophthalmology,
         _physiotherapy,
+        _transplantProgram,
         _radiology,
         _patientCommandBoard,
         _referrals,
@@ -1045,6 +1054,7 @@ class RoleFeatures {
         _theatre,
         _ophthalmology,
         _physiotherapy,
+        _transplantProgram,
         _radiology,
         _patientCommandBoard,
         _referrals,
@@ -2495,6 +2505,22 @@ class RoleFeatures {
           selectedIcon: Icons.accessibility_new,
           route: '/physiotherapy',
           featureId: 'physiotherapy',
+        ),
+      );
+    }
+
+    if (role == StaffRole.doctor ||
+        role == StaffRole.dutyDoctor ||
+        role == StaffRole.medicalSuperintendent ||
+        role == StaffRole.admin ||
+        role == StaffRole.superAdmin) {
+      items.add(
+        const WorkbenchNavItem(
+          labelKey: 'role.nav.transplant_program',
+          icon: Icons.health_and_safety_outlined,
+          selectedIcon: Icons.health_and_safety,
+          route: '/transplant',
+          featureId: 'transplant_program',
         ),
       );
     }

@@ -1024,8 +1024,10 @@ const HR_PROCESS_OVERRIDES = {
 };
 
 const UI_FEATURES_BY_ROLE = {
-  ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'dental_charting', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals'],
-  SUPER_ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'dental_charting', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals'],
+  ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'dental_charting', 'transplant_program', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals'],
+  SUPER_ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'dental_charting', 'transplant_program', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals'],
+  CMO: ['front_office_workbench', 'appointments', 'dental_charting', 'transplant_program', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'bed_board', 'referrals'],
+  MEDICAL_SUPERINTENDENT: ['front_office_workbench', 'appointments', 'dental_charting', 'transplant_program', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'bed_board', 'referrals'],
   HR_STAFF: ['staff_management', 'organization_hierarchy', 'hr_dashboard', 'leave_approvals', 'staff_directory', 'reports_grievances', 'audit_logs'],
   CNO: ['organization_hierarchy', 'nursing_roster', 'op_nursing_roster', 'op_nursing_dashboard', 'staff_roster', 'patient_command_board', 'bed_board', 'referrals', 'safety_center'],
   RECEPTIONIST: ['front_office_workbench', 'appointments', 'patient_records', 'billing_desk', 'admissions'],
@@ -1041,9 +1043,9 @@ const UI_FEATURES_BY_ROLE = {
   OT_INCHARGE: ['theatre', 'patient_command_board', 'handover', 'staff_roster'],
   CATH_LAB_STAFF: ['cath_lab', 'patient_command_board', 'handover'],
   CATH_LAB_INCHARGE: ['cath_lab', 'patient_command_board', 'handover', 'staff_roster'],
-  DOCTOR: ['front_office_workbench', 'appointments', 'dental_charting', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'referrals'],
-  DUTY_DOCTOR: ['front_office_workbench', 'appointments', 'dental_charting', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'referrals'],
-  CONSULTANT: ['front_office_workbench', 'appointments', 'dental_charting', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'referrals'],
+  DOCTOR: ['front_office_workbench', 'appointments', 'dental_charting', 'transplant_program', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'referrals'],
+  DUTY_DOCTOR: ['front_office_workbench', 'appointments', 'dental_charting', 'transplant_program', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'referrals'],
+  CONSULTANT: ['front_office_workbench', 'appointments', 'dental_charting', 'transplant_program', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'referrals'],
   PHARMACY_STAFF: ['pharmacy_orders', 'pharmacy_roster'],
   PHARMACY_INCHARGE: ['pharmacy_orders', 'pharmacy_roster', 'staff_directory'],
   STORES_PURCHASE_INCHARGE: ['pharmacy_orders', 'staff_directory'],
@@ -1059,6 +1061,7 @@ const STAFF_FEATURE_CATALOG = [
   { id: 'op_nursing_dashboard', title: 'OP Nursing Dashboard', sidebar_label: 'OP Nursing', sidebar_order: 27, capability_group: 'op_flow' },
   { id: 'patient_records', title: 'Patient Records', sidebar_label: 'Patient Records', sidebar_order: 30, capability_group: 'op_flow' },
   { id: 'dental_charting', title: 'Dental Charting', sidebar_label: 'Dental', sidebar_order: 32, capability_group: 'op_flow' },
+  { id: 'transplant_program', title: 'Transplant Program', sidebar_label: 'Transplant', sidebar_order: 33, capability_group: 'ip_flow' },
   { id: 'billing_desk', title: 'Billing Desk', sidebar_label: 'Billing', sidebar_order: 35, capability_group: 'billing' },
   { id: 'patient_command_board', title: 'Patient Command Board', sidebar_label: 'IP Services', sidebar_order: 40, capability_group: 'ip_flow' },
   { id: 'admissions', title: 'IP Admissions', sidebar_label: 'IP Admissions', sidebar_order: 45, capability_group: 'ip_flow' },
