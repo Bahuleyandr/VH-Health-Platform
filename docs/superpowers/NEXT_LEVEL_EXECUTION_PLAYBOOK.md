@@ -210,8 +210,8 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 529–535 | NL14-P3 NICU/PICU | authored; round-3 (extends ICU P1) |
 | 536–541 | NL14-P3 burns/TBSA | authored; round-3 (NL-5 content studio on main) |
 | 542–545 | NL13-P5 CTVS/perfusion seam | authored; round-3 (minimal seam) |
-| — | NL13-P6 transplant program | authored but ⛔ LAUNCH-BLOCKED — NOTTO/organ-scope owner decision required; block assigned at launch |
-| 546+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
+| 546–554 | NL13-P6 transplant program (6 organs, live+deceased) | GATE CLEARED 2026-07-09; authored + launch-ready |
+| 555+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -225,6 +225,8 @@ all §3 gates green · PR with a build ledger (scope, invariants held, migs used
 commands + pass counts, deferrals) · **STOP after the PR** — the coordinator merges.
 
 ## 7. Decision log
+
+- **2026-07-09 — NL13-P6 transplant scope (owner).** Organ scope = **Heart, Liver, Lung, Kidney, small bowel, multivisceral**; donor scope = **both living and deceased**. This clears the spec's hard pre-implementation gate (organ + donor scope). Block **546–554** assigned; NL13-P6 prompt un-gated + launch-ready. Robust-default sub-decisions (standing "most robust/future-proof" directive): transplant privilege keys SEEDED + enforced (credentialing-gated like chemo, N6-5 pattern); NOTTO export format/API, committee quorum values, and allocation boundaries remain OPERATOR-supplied — substrate builds inert + fail-closed, never encoding NOTTO allocation rules from model memory; `transplant_programs.organ` enum carries the six categories with multivisceral as a combined-organ program.
 
 **LOCKED (Wave A, 2026-07-06):** Keycloak-first; no admin JIT ever, no staff JIT until SCIM;
 SUPER_ADMIN local TOTP always; NHCX inert/mock-first until sandbox; LiveKit + embedded TURN,
@@ -317,7 +319,7 @@ parallel-safe may overlap.
 | `nl13-p3-oncology-staging.md` | TNM/AJCC staging, CTCAE toxicity, tumor board | NL-13 spec on main | authored; ROUND-1 (489–494) |
 | `nl13-p4-nuclear-med-radiotherapy.md` | radiotherapy referrals/plans/fractions, nuc-med orders (coordination-only) | NL-13 spec + P3 | authored; round-2 (508–512) |
 | `nl13-p5-ctvs-perfusion.md` | minimal CTVS/perfusion record seam | NL-13 spec on main | authored; round-3 (542–545) |
-| `nl13-p6-transplant.md` | transplant program: candidates/waitlist/committee/NOTTO export | ⛔ NOTTO/organ-scope owner decision | authored; LAUNCH-BLOCKED |
+| `nl13-p6-transplant.md` | transplant program: candidates/waitlist/committee/NOTTO export | gate CLEARED (6 organs, live+deceased) | authored; launch-ready (546–554) |
 | `nl14-p1-icu-flowsheet.md` | ICU chart depth, ventilation/weaning, line/tube/drain → N6-6 denominators | NL-14 spec + NL-7 P1 ✓ | authored; ROUND-1 (495–502) |
 | `nl14-p2-code-blue-resus.md` | durable resuscitation_events + append-only timeline | NL-14 spec + ICU P1 | authored; round-2 (513–517) |
 | `nl14-p2-ed-triage-trauma-mlc.md` | tenant triage-scale policy, trauma activation, surveys, MLC gate | NL-14 spec on main | authored; round-2 (518–523) |

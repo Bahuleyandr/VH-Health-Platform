@@ -4,25 +4,29 @@
 // and ABCDEF daily bundles. All raw-SQL via prisma.$queryRawUnsafe with
 // SPREAD args (per Phase 0.5 convention).
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { scheduleMedications } from './marService.js';
-import {
-  gcsTotal, netBalance, camPositive, bundleComplete, bundlePct,
-} from './icuComputations.js';
+import { closeIcuDeviceAssociationsForAdmission } from './icuChartingService.js';
+import { gcsTotal, netBalance, camPositive, bundleComplete, bundlePct } from './icuComputations.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
-function tenantOr(t) { return requireTenantId(t); }
+function tenantOr(t) {
+  return requireTenantId(t);
+}
 
-function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
+function unwrap(rows) {
+  return Array.isArray(rows) ? rows[0] : rows;
+}
 
 async function assertIcuAdmissionInTenant(tenantId, icuAdmissionId) {
   const id = parseInt(icuAdmissionId, 10);
   if (!Number.isInteger(id)) throw AppError.badRequest('icu_admission_id must be numeric');
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id FROM icu_admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-    id, tenantOr(tenantId),
+    id,
+    tenantOr(tenantId)
   );
   if (!unwrap(rows)) throw AppError.notFound('ICU admission not found');
   return id;
@@ -56,11 +60,16 @@ export async function createAdmission({ tenantId, ...body }) {
             $11, $12, $13, COALESCE($14, 'full_code'), $15, $16::uuid, $17::uuid,
             $18, $19::timestamptz, $20::timestamptz, $21, $22)
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
-    body.patient_uid, body.admission_id || null,
-    body.unit_code, body.bed_no || null,
-    body.admitting_doctor_uid || null, body.admitting_doctor_name || null,
-    body.primary_diagnosis || null, body.reason_for_icu || null,
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    body.patient_uid,
+    body.admission_id || null,
+    body.unit_code,
+    body.bed_no || null,
+    body.admitting_doctor_uid || null,
+    body.admitting_doctor_name || null,
+    body.primary_diagnosis || null,
+    body.reason_for_icu || null,
     body.apache_ii_score || null,
     body.apache_ii_score ? new Date() : null,
     body.sofa_score || null,
@@ -78,15 +87,22 @@ export async function createAdmission({ tenantId, ...body }) {
     // Stage 5 — nullable link back to the ER visit this ICU admission
     // was admitted from (migration 224). Set by createAdmissionFromEr;
     // null for direct ICU admits.
-    body.er_visit_id ? parseInt(body.er_visit_id, 10) : null);
+    body.er_visit_id ? parseInt(body.er_visit_id, 10) : null
+  );
   return unwrap(rows);
 }
 
 export async function listAdmissions({ tenantId, status, unit_code, limit = 100 }) {
   const conds = ['tenant_id = $1::uuid'];
   const args = [tenantOr(tenantId)];
-  if (status) { args.push(status); conds.push(`status = $${args.length}`); }
-  if (unit_code) { args.push(unit_code); conds.push(`unit_code = $${args.length}`); }
+  if (status) {
+    args.push(status);
+    conds.push(`status = $${args.length}`);
+  }
+  if (unit_code) {
+    args.push(unit_code);
+    conds.push(`unit_code = $${args.length}`);
+  }
   const lim = Math.min(parseInt(limit, 10) || 100, 500);
 
   const sql = `
@@ -101,7 +117,9 @@ export async function listAdmissions({ tenantId, status, unit_code, limit = 100 
 export async function getAdmission({ tenantId, id }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM icu_admissions WHERE id = $1 AND tenant_id = $2::uuid`,
-    parseInt(id, 10), tenantOr(tenantId));
+    parseInt(id, 10),
+    tenantOr(tenantId)
+  );
   const row = unwrap(rows);
   if (!row) throw AppError.notFound('ICU admission not found');
   return withNextVitalsDue(row);
@@ -120,18 +138,21 @@ async function withNextVitalsDue(adm) {
     `SELECT recorded_at FROM icu_flowsheet_entries
      WHERE icu_admission_id = $1
      ORDER BY recorded_at DESC LIMIT 1`,
-    adm.id);
+    adm.id
+  );
   const lastRow = unwrap(last);
   const interval = adm.monitoring_interval_minutes;
   const anchor = lastRow?.recorded_at
     ? new Date(lastRow.recorded_at)
-    : (adm.admitted_at ? new Date(adm.admitted_at) : new Date());
+    : adm.admitted_at
+      ? new Date(adm.admitted_at)
+      : new Date();
   const nextDue = new Date(anchor.getTime() + interval * 60_000);
   return {
     ...adm,
     last_vitals_recorded_at: lastRow?.recorded_at ?? null,
     next_vitals_due_at: nextDue.toISOString(),
-    vitals_overdue: nextDue.getTime() < Date.now(),
+    vitals_overdue: nextDue.getTime() < Date.now()
   };
 }
 
@@ -141,7 +162,8 @@ export async function updateMonitoringInterval({ tenantId, id, monitoring_interv
   const minutes = parseInt(monitoring_interval_minutes, 10);
   if (!VALID_MONITORING_INTERVALS.includes(minutes)) {
     throw AppError.badRequest(
-      `monitoring_interval_minutes must be one of ${VALID_MONITORING_INTERVALS.join(', ')}`);
+      `monitoring_interval_minutes must be one of ${VALID_MONITORING_INTERVALS.join(', ')}`
+    );
   }
   const sql = `
     UPDATE icu_admissions
@@ -149,8 +171,7 @@ export async function updateMonitoringInterval({ tenantId, id, monitoring_interv
         updated_at = NOW()
     WHERE id = $2 AND tenant_id = $3::uuid
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
-    minutes, parseInt(id, 10), tenantOr(tenantId));
+  const rows = await prisma.$queryRawUnsafe(sql, minutes, parseInt(id, 10), tenantOr(tenantId));
   const row = unwrap(rows);
   if (!row) throw AppError.notFound('ICU admission not found');
   return withNextVitalsDue(row);
@@ -166,8 +187,13 @@ export async function updateAdmissionCodeStatus({ tenantId, id, code_status, set
         updated_at = NOW()
     WHERE id = $3 AND tenant_id = $4::uuid
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
-    code_status, set_by || null, parseInt(id, 10), tenantOr(tenantId));
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    code_status,
+    set_by || null,
+    parseInt(id, 10),
+    tenantOr(tenantId)
+  );
   const row = unwrap(rows);
   if (!row) throw AppError.notFound('ICU admission not found');
   return row;
@@ -182,7 +208,13 @@ export async function updateAdmissionCodeStatus({ tenantId, id, code_status, set
 // update: an omitted field (`undefined`) is left untouched; an explicit
 // `null` clears the column (NPO order cancelled). Finding:
 // 2026-05-09-emergency-walk-in-nurse-icu-no-npo-patch-route.
-export async function updateAdmissionFasting({ tenantId, id, npo_from, fasting_until, pre_op_status }) {
+export async function updateAdmissionFasting({
+  tenantId,
+  id,
+  npo_from,
+  fasting_until,
+  pre_op_status
+}) {
   const sets = [];
   const args = [];
   if (npo_from !== undefined) {
@@ -199,7 +231,8 @@ export async function updateAdmissionFasting({ tenantId, id, npo_from, fasting_u
   }
   if (!sets.length) {
     throw AppError.badRequest(
-      'At least one of npo_from, fasting_until, pre_op_status must be provided');
+      'At least one of npo_from, fasting_until, pre_op_status must be provided'
+    );
   }
   args.push(parseInt(id, 10));
   args.push(tenantOr(tenantId));
@@ -214,23 +247,44 @@ export async function updateAdmissionFasting({ tenantId, id, npo_from, fasting_u
   return withNextVitalsDue(row);
 }
 
-export async function dischargeAdmission({ tenantId, id, disposition, outcome_notes }) {
-  const sql = `
-    UPDATE icu_admissions
-    SET status = CASE WHEN $1 = 'expired' THEN 'expired'
-                       WHEN $1 = 'transferred_out' THEN 'transferred'
-                       ELSE 'discharged' END,
-        discharged_at = NOW(),
-        discharge_disposition = $1,
-        outcome_notes = $2,
-        updated_at = NOW()
-    WHERE id = $3 AND tenant_id = $4::uuid
-    RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
-    disposition, outcome_notes || null, parseInt(id, 10), tenantOr(tenantId));
-  const row = unwrap(rows);
-  if (!row) throw AppError.notFound('ICU admission not found');
-  return row;
+export async function dischargeAdmission({
+  tenantId,
+  id,
+  disposition,
+  outcome_notes,
+  actorUid = null
+}) {
+  return setTenantTx(tenantOr(tenantId), async tx => {
+    const sql = `
+      UPDATE icu_admissions
+      SET status = CASE WHEN $1 = 'expired' THEN 'expired'
+                         WHEN $1 = 'transferred_out' THEN 'transferred'
+                         ELSE 'discharged' END,
+          discharged_at = NOW(),
+          discharge_disposition = $1,
+          outcome_notes = $2,
+          updated_at = NOW()
+      WHERE id = $3 AND tenant_id = $4::uuid
+      RETURNING *`;
+    const rows = await tx.$queryRawUnsafe(
+      sql,
+      disposition,
+      outcome_notes || null,
+      parseInt(id, 10),
+      tenantOr(tenantId)
+    );
+    const row = unwrap(rows);
+    if (!row) throw AppError.notFound('ICU admission not found');
+    await closeIcuDeviceAssociationsForAdmission({
+      tx,
+      tenantId,
+      icuAdmissionId: row.id,
+      actorUid,
+      reason: disposition === 'transferred_out' ? 'transfer' : 'discharge',
+      stoppedAt: row.discharged_at
+    });
+    return row;
+  });
 }
 
 // Carry the ER visit's active medication orders into the ICU MAR so the
@@ -247,15 +301,13 @@ async function carryErMedicationsToMar(visit) {
     where: {
       encounter_id: visit.encounter_id,
       order_type: 'medication',
-      status: { notIn: ['cancelled', 'discontinued'] },
+      status: { notIn: ['cancelled', 'discontinued'] }
     },
-    select: { id: true, details: true, start_date: true, created_at: true },
+    select: { id: true, details: true, start_date: true, created_at: true }
   });
   const meds = [];
   for (const order of orders) {
-    const d = typeof order.details === 'string'
-      ? JSON.parse(order.details)
-      : (order.details || {});
+    const d = typeof order.details === 'string' ? JSON.parse(order.details) : order.details || {};
     const medication_name = d.medication_name || d.drug_name;
     const dose = d.dose || d.dosage;
     const route = d.route;
@@ -269,7 +321,7 @@ async function carryErMedicationsToMar(visit) {
       dose,
       route,
       scheduled_time: new Date(when).toISOString(),
-      notes: 'Carried over from ER visit on ICU admission',
+      notes: 'Carried over from ER visit on ICU admission'
     });
   }
   if (!meds.length) return [];
@@ -296,12 +348,15 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
     `SELECT id, encounter_id, patient_uid, chief_complaint, attending_doctor_uid
        FROM emergency_visits
       WHERE id = $1 AND tenant_id = $2::uuid`,
-    visitId, tenantOr(tenantId));
+    visitId,
+    tenantOr(tenantId)
+  );
   const visit = unwrap(visitRows);
   if (!visit) throw AppError.notFound('Emergency visit not found');
   if (!visit.patient_uid) {
     throw AppError.badRequest(
-      'Emergency visit has no registered patient — register the patient before ICU admission');
+      'Emergency visit has no registered patient — register the patient before ICU admission'
+    );
   }
 
   // ER context pre-fills; an explicit value in the request body wins.
@@ -313,7 +368,7 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
     patient_uid: visit.patient_uid,
     er_visit_id: visit.id,
     reason_for_icu: body.reason_for_icu || visit.chief_complaint || null,
-    admitting_doctor_uid: body.admitting_doctor_uid || visit.attending_doctor_uid || null,
+    admitting_doctor_uid: body.admitting_doctor_uid || visit.attending_doctor_uid || null
   });
 
   // Phase 1.5 — best-effort MAR carry-over. A handoff failure must not
@@ -330,9 +385,9 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
     er_visit: {
       id: visit.id,
       encounter_id: visit.encounter_id,
-      patient_uid: visit.patient_uid,
+      patient_uid: visit.patient_uid
     },
-    carried_mar,
+    carried_mar
   };
 }
 
@@ -346,7 +401,7 @@ export async function logFlowsheet({ tenantId, icu_admission_id, ...body }) {
 
   const computed = {
     gcs_total: gcsTotal(body.gcs_eye, body.gcs_verbal, body.gcs_motor),
-    net_balance_ml: netBalance(body),
+    net_balance_ml: netBalance(body)
   };
 
   const sql = `
@@ -384,30 +439,56 @@ export async function logFlowsheet({ tenantId, icu_admission_id, ...body }) {
   // (not measured). The same applies to vasopressor rates (a 0 mcg/kg/min
   // entry means the drip is held), oral intake, and other I/O totals.
   // Finding: 2026-05-09-emergency-walk-in-nurse-icu-urine-zero-stored-null.
-  const rows = await prisma.$queryRawUnsafe(sql,
-    admissionId, body.recorded_at || null,
-    body.hr ?? null, body.sbp ?? null, body.dbp ?? null, body.map ?? null,
-    body.cvp ?? null, body.spo2 ?? null, body.rr ?? null,
-    body.temp_c ?? null, body.cap_refill_sec ?? null,
-    body.gcs_eye ?? null, body.gcs_verbal ?? null, body.gcs_motor ?? null,
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    admissionId,
+    body.recorded_at || null,
+    body.hr ?? null,
+    body.sbp ?? null,
+    body.dbp ?? null,
+    body.map ?? null,
+    body.cvp ?? null,
+    body.spo2 ?? null,
+    body.rr ?? null,
+    body.temp_c ?? null,
+    body.cap_refill_sec ?? null,
+    body.gcs_eye ?? null,
+    body.gcs_verbal ?? null,
+    body.gcs_motor ?? null,
     computed.gcs_total,
-    body.pupils_left_size_mm ?? null, body.pupils_right_size_mm ?? null,
+    body.pupils_left_size_mm ?? null,
+    body.pupils_right_size_mm ?? null,
     body.pupils_reactive ?? null,
-    body.vent_mode || null, body.fio2_pct ?? null, body.peep_cmh2o ?? null,
-    body.tidal_volume_ml ?? null, body.resp_rate_set ?? null,
-    body.airway_pressure_peak ?? null, body.airway_pressure_plateau ?? null,
+    body.vent_mode || null,
+    body.fio2_pct ?? null,
+    body.peep_cmh2o ?? null,
+    body.tidal_volume_ml ?? null,
+    body.resp_rate_set ?? null,
+    body.airway_pressure_peak ?? null,
+    body.airway_pressure_plateau ?? null,
     body.pf_ratio ?? null,
-    body.noradrenaline_mcg_kg_min ?? null, body.adrenaline_mcg_kg_min ?? null,
-    body.vasopressin_units_hr ?? null, body.dobutamine_mcg_kg_min ?? null,
-    body.propofol_mcg_kg_min ?? null, body.midazolam_mg_hr ?? null,
-    body.fentanyl_mcg_hr ?? null, body.insulin_units_hr ?? null,
+    body.noradrenaline_mcg_kg_min ?? null,
+    body.adrenaline_mcg_kg_min ?? null,
+    body.vasopressin_units_hr ?? null,
+    body.dobutamine_mcg_kg_min ?? null,
+    body.propofol_mcg_kg_min ?? null,
+    body.midazolam_mg_hr ?? null,
+    body.fentanyl_mcg_hr ?? null,
+    body.insulin_units_hr ?? null,
     body.other_drips ? JSON.stringify(body.other_drips) : null,
-    body.iv_fluids_ml ?? null, body.oral_intake_ml ?? null,
-    body.blood_products_ml ?? null, body.urine_output_ml ?? null,
-    body.drain_output_ml ?? null, body.ng_aspirate_ml ?? null,
+    body.iv_fluids_ml ?? null,
+    body.oral_intake_ml ?? null,
+    body.blood_products_ml ?? null,
+    body.urine_output_ml ?? null,
+    body.drain_output_ml ?? null,
+    body.ng_aspirate_ml ?? null,
     body.stool_count ?? null,
-    computed.net_balance_ml, body.event_note || null,
-    body.recorded_by || null, body.recorded_by_name || null, tenantOr(tenantId));
+    computed.net_balance_ml,
+    body.event_note || null,
+    body.recorded_by || null,
+    body.recorded_by_name || null,
+    tenantOr(tenantId)
+  );
   return unwrap(rows);
 }
 
@@ -420,8 +501,7 @@ export async function listFlowsheet({ tenantId, icu_admission_id, hours = 24 }) 
       AND tenant_id = $2::uuid
       AND recorded_at > NOW() - $3::interval
     ORDER BY recorded_at ASC`;
-  return prisma.$queryRawUnsafe(sql,
-    admissionId, tenantOr(tenantId), `${h} hours`);
+  return prisma.$queryRawUnsafe(sql, admissionId, tenantOr(tenantId), `${h} hours`);
 }
 
 export async function ioSummary({ tenantId, icu_admission_id }) {
@@ -458,23 +538,34 @@ export async function recordAssessment({ tenantId, icu_admission_id, assessment_
     if (body.cam_feature_1 == null || body.cam_feature_2 == null) {
       throw AppError.badRequest('cam_feature_1 and cam_feature_2 required');
     }
-    camPos = camPositive(body.cam_feature_1, body.cam_feature_2,
-      body.cam_feature_3, body.cam_feature_4);
+    camPos = camPositive(
+      body.cam_feature_1,
+      body.cam_feature_2,
+      body.cam_feature_3,
+      body.cam_feature_4
+    );
   }
 
   // SOFA total
   let sofaTotal = null;
   if (assessment_kind === 'sofa') {
-    sofaTotal = (body.sofa_resp || 0) + (body.sofa_coag || 0) +
-      (body.sofa_liver || 0) + (body.sofa_cardio || 0) +
-      (body.sofa_cns || 0) + (body.sofa_renal || 0);
+    sofaTotal =
+      (body.sofa_resp || 0) +
+      (body.sofa_coag || 0) +
+      (body.sofa_liver || 0) +
+      (body.sofa_cardio || 0) +
+      (body.sofa_cns || 0) +
+      (body.sofa_renal || 0);
   }
 
   // CPOT total
   let cpotTotal = null;
   if (assessment_kind === 'cpot') {
-    cpotTotal = (body.cpot_facial || 0) + (body.cpot_movement || 0) +
-      (body.cpot_muscle_tension || 0) + (body.cpot_vent_compliance || 0);
+    cpotTotal =
+      (body.cpot_facial || 0) +
+      (body.cpot_movement || 0) +
+      (body.cpot_muscle_tension || 0) +
+      (body.cpot_vent_compliance || 0);
   }
 
   const sql = `
@@ -492,18 +583,34 @@ export async function recordAssessment({ tenantId, icu_admission_id, assessment_
             $18, $19, $20, $21, $22,
             $23, $24::uuid, $25::uuid)
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
-    admissionId, body.recorded_at || null, assessment_kind,
-    body.rass_score ?? null, body.rass_target ?? null,
-    body.cam_feature_1 ?? null, body.cam_feature_2 ?? null,
-    body.cam_feature_3 ?? null, body.cam_feature_4 ?? null, camPos,
-    body.sofa_resp ?? null, body.sofa_coag ?? null, body.sofa_liver ?? null,
-    body.sofa_cardio ?? null, body.sofa_cns ?? null, body.sofa_renal ?? null,
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    admissionId,
+    body.recorded_at || null,
+    assessment_kind,
+    body.rass_score ?? null,
+    body.rass_target ?? null,
+    body.cam_feature_1 ?? null,
+    body.cam_feature_2 ?? null,
+    body.cam_feature_3 ?? null,
+    body.cam_feature_4 ?? null,
+    camPos,
+    body.sofa_resp ?? null,
+    body.sofa_coag ?? null,
+    body.sofa_liver ?? null,
+    body.sofa_cardio ?? null,
+    body.sofa_cns ?? null,
+    body.sofa_renal ?? null,
     sofaTotal,
-    body.cpot_facial ?? null, body.cpot_movement ?? null,
-    body.cpot_muscle_tension ?? null, body.cpot_vent_compliance ?? null,
+    body.cpot_facial ?? null,
+    body.cpot_movement ?? null,
+    body.cpot_muscle_tension ?? null,
+    body.cpot_vent_compliance ?? null,
     cpotTotal,
-    body.notes || null, body.recorded_by || null, tenantOr(tenantId));
+    body.notes || null,
+    body.recorded_by || null,
+    tenantOr(tenantId)
+  );
   return unwrap(rows);
 }
 
@@ -512,7 +619,10 @@ export async function listAssessments({ tenantId, icu_admission_id, kind, limit 
   const lim = Math.min(parseInt(limit, 10) || 50, 200);
   const args = [admissionId, tenantOr(tenantId)];
   let where = 'icu_admission_id = $1 AND tenant_id = $2::uuid';
-  if (kind) { args.push(kind); where += ` AND assessment_kind = $${args.length}`; }
+  if (kind) {
+    args.push(kind);
+    where += ` AND assessment_kind = $${args.length}`;
+  }
   const sql = `
     SELECT * FROM icu_assessments
     WHERE ${where}
@@ -545,7 +655,7 @@ export async function upsertBundle({ tenantId, icu_admission_id, bundle_date, ..
     e_mobility_level: body.e_mobility_level || null,
     e_mobility_reason_skipped: body.e_mobility_reason_skipped || null,
     f_family_done: Boolean(body.f_family_done),
-    f_family_method: body.f_family_method || null,
+    f_family_method: body.f_family_method || null
   };
 
   const complete = bundleComplete(merged);
@@ -589,16 +699,31 @@ export async function upsertBundle({ tenantId, icu_admission_id, bundle_date, ..
       notes                       = EXCLUDED.notes,
       updated_at                  = NOW()
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
-    admissionId, day,
-    merged.a_awakening_done, merged.a_awakening_reason_skipped,
-    merged.b_breathing_done, merged.b_breathing_reason_skipped, merged.b_breathing_outcome,
-    merged.c_choice_done, merged.c_protocol_followed,
-    merged.d_delirium_assessed, merged.d_delirium_positive, merged.d_delirium_managed,
-    merged.e_mobility_done, merged.e_mobility_level, merged.e_mobility_reason_skipped,
-    merged.f_family_done, merged.f_family_method,
-    complete, pct,
-    body.recorded_by || null, body.notes || null, tenantOr(tenantId));
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    admissionId,
+    day,
+    merged.a_awakening_done,
+    merged.a_awakening_reason_skipped,
+    merged.b_breathing_done,
+    merged.b_breathing_reason_skipped,
+    merged.b_breathing_outcome,
+    merged.c_choice_done,
+    merged.c_protocol_followed,
+    merged.d_delirium_assessed,
+    merged.d_delirium_positive,
+    merged.d_delirium_managed,
+    merged.e_mobility_done,
+    merged.e_mobility_level,
+    merged.e_mobility_reason_skipped,
+    merged.f_family_done,
+    merged.f_family_method,
+    complete,
+    pct,
+    body.recorded_by || null,
+    body.notes || null,
+    tenantOr(tenantId)
+  );
   return unwrap(rows);
 }
 
@@ -607,10 +732,12 @@ export async function getBundle({ tenantId, icu_admission_id, bundle_date }) {
   const sql = `
     SELECT * FROM icu_daily_bundles
     WHERE icu_admission_id = $1 AND tenant_id = $2::uuid AND bundle_date = $3::date`;
-  const rows = await prisma.$queryRawUnsafe(sql,
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
     admissionId,
     tenantOr(tenantId),
-    bundle_date || new Date().toISOString().slice(0, 10));
+    bundle_date || new Date().toISOString().slice(0, 10)
+  );
   return unwrap(rows) || null;
 }
 
@@ -624,6 +751,4 @@ export async function bundle30dCompliance({ tenantId }) {
 
 // Re-export pure-compute helpers (lives in icuComputations.js so unit
 // tests can import them without pulling prisma).
-export {
-  gcsTotal, netBalance, camPositive, bundleComplete, bundlePct,
-} from './icuComputations.js';
+export { gcsTotal, netBalance, camPositive, bundleComplete, bundlePct } from './icuComputations.js';

@@ -13,6 +13,9 @@ You are implementing **NL-14 Phase 3 (NICU/PICU depth)** for the VH Health Platf
 ```
 git fetch github
 git grep -q "NL-14 critical-care and emergency depth design" github/main -- docs/superpowers/specs/2026-07-08-nl14-critical-care-emergency-design.md
+# PREREQUISITE gate — NL14-P1 ICU flowsheet (block 495–502) must be MERGED to main
+# (NICU/PICU views EXTEND its ICU chart substrate, not a separate silo):
+git ls-tree --name-only github/main:apps/backend/src/migrations | grep -qE "^(49[5-9]|50[0-2])_"
 ```
 Exit 0 → proceed. Exit 1 → STOP and report.
 

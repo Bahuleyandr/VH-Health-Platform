@@ -78,6 +78,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   completeWorkflowSla: jest.fn(),
   recordClinicalAuditEvent: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(),
+  recordTimelineEvent: jest.fn(),
   startWorkflowSla: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
