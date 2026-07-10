@@ -114,6 +114,7 @@ import '../../features/transplant/screens/transplant_program_screen.dart';
 
 // Theatre
 import '../../features/cath_lab/screens/cath_lab_screen.dart';
+import '../../features/oncology/screens/oncology_screen.dart';
 import '../../features/theatre/screens/theatre_screen.dart';
 import '../../features/productivity/screens/calculators_screen.dart';
 import '../../features/productivity/screens/order_sets_screen.dart';
@@ -1021,6 +1022,12 @@ final GoRouter appRouter = GoRouter(
           name: 'cath-lab',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: CathLabScreen()),
+        ),
+        GoRoute(
+          path: '/oncology',
+          name: 'oncology',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: OncologyScreen()),
         ),
 
         // Doctor productivity (Sprint 8)

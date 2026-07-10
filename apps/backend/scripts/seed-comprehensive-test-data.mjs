@@ -68,6 +68,14 @@ const MANUAL_SEED_TABLES = new Set([
   'siem_export_targets',
   'siem_export_events',
   'siem_export_delivery_attempts',
+  // NL-14 ICU chart depth rows have clinical review/provenance gates and
+  // exact-one-source links that the generic foreign-key seeder cannot infer.
+  'icu_device_observation_links',
+  'icu_scoring_outputs',
+  'icu_weaning_trials',
+  // NL-13 P5 perfusion sign-offs require reviewer/timestamp pairs; a minimal
+  // draft row must be linked to the generated perfusion record explicitly.
+  'perfusion_signoffs',
   // NL-13 P6 transplant suite: organ enums, non-empty organ arrays, and
   // clinical chain FKs need a coherent program -> candidate -> review seed.
   'transplant_program_settings',
@@ -1936,12 +1944,161 @@ async function seedTransplantProgramTables() {
   }
 }
 
+async function seedPerfusionSignoffs() {
+  if (!(await tableExists('perfusion_signoffs')) || await tableCount('perfusion_signoffs')) return;
+  const record = await first('perfusion_records', 'id, tenant_id, ot_schedule_id, patient_uid', 'TRUE', []);
+  if (!record) return;
+
+  await insertIfEmpty('perfusion_signoffs', [{
+    tenant_id: record.tenant_id || DEFAULT_TENANT_ID,
+    perfusion_record_id: record.id,
+    ot_schedule_id: record.ot_schedule_id,
+    patient_uid: record.patient_uid,
+    status: 'draft',
+    signoff_policy_source_label: 'owner-pending-perfusion-signoff-policy',
+    signoff_policy_source_version: 'pending',
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
+async function seedIcuChartDepthTables() {
+  const hasWeaning = await tableExists('icu_weaning_trials');
+  const hasScoring = await tableExists('icu_scoring_outputs');
+  const hasDeviceLinks = await tableExists('icu_device_observation_links');
+  if (!hasWeaning && !hasScoring && !hasDeviceLinks) return;
+
+  const refs = await getCoreRefs();
+  const icuAdmission = await first(
+    'icu_admissions',
+    'id, tenant_id, admission_id, patient_uid',
+    'TRUE',
+    [],
+  );
+  const reviewerUid = refs.staff?.uid || refs.doctor?.uid;
+  if (!icuAdmission?.id || !icuAdmission.patient_uid || !reviewerUid) return;
+
+  let ventilationEpisode = await first(
+    'icu_ventilation_episodes',
+    'id',
+    'icu_admission_id = $1',
+    [icuAdmission.id],
+  );
+  if (hasWeaning && !ventilationEpisode && await tableExists('icu_ventilation_episodes')) {
+    const created = await client.query(
+      `INSERT INTO icu_ventilation_episodes (
+         tenant_id, icu_admission_id, admission_id, patient_uid, mode, oxygen_device,
+         airway_type, started_at, settings, responsible_clinician_uid,
+         responsible_clinician_name, started_by, metadata
+       )
+       VALUES (
+         $1::uuid, $2, $3, $4::uuid, 'pressure_support', 'ventilator',
+         'ett', '2026-05-04T08:00:00.000Z'::timestamptz,
+         '{"fio2":0.35,"peepCmH2o":5}'::jsonb, $5::uuid,
+         'Seed ICU clinician', $5::uuid,
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id`,
+      [
+        icuAdmission.tenant_id || DEFAULT_TENANT_ID,
+        icuAdmission.id,
+        icuAdmission.admission_id,
+        icuAdmission.patient_uid,
+        reviewerUid,
+      ],
+    );
+    ventilationEpisode = created.rows[0];
+  }
+
+  if (hasWeaning) {
+    await insertIfEmpty('icu_weaning_trials', [{
+      tenant_id: icuAdmission.tenant_id || DEFAULT_TENANT_ID,
+      icu_admission_id: icuAdmission.id,
+      ventilation_episode_id: ventilationEpisode?.id,
+      patient_uid: icuAdmission.patient_uid,
+      trial_kind: 'sbt',
+      readiness_status: 'ready',
+      started_at: new Date('2026-05-04T09:00:00.000Z'),
+      ended_at: new Date('2026-05-04T09:30:00.000Z'),
+      outcome: 'passed',
+      reason: 'Seed spontaneous breathing trial for QA coverage.',
+      criteria_snapshot: JSON.stringify({ fio2: 0.35, peepCmH2o: 5, hemodynamics: 'stable' }),
+      protocol_reference: JSON.stringify({ source: 'nl5_content_studio', version: 'seed-sbt-v1' }),
+      reviewer_uid: reviewerUid,
+      reviewed_at: new Date('2026-05-04T09:35:00.000Z'),
+      recorded_by: reviewerUid,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if (hasScoring) {
+    await insertIfEmpty('icu_scoring_outputs', [{
+      tenant_id: icuAdmission.tenant_id || DEFAULT_TENANT_ID,
+      icu_admission_id: icuAdmission.id,
+      patient_uid: icuAdmission.patient_uid,
+      scoring_kind: 'rass',
+      recorded_at: new Date('2026-05-04T10:00:00.000Z'),
+      input_facts: JSON.stringify({ agitation: 'calm', arousal: 'alert' }),
+      score_value: 0,
+      score_label: 'Alert and calm',
+      output_payload: JSON.stringify({ score: 0, scale: 'RASS' }),
+      reference_source: 'nl5_content_studio',
+      reference_version: 'seed-rass-v1',
+      reviewer_uid: reviewerUid,
+      reviewer_role: 'NURSING_STAFF',
+      reviewed_at: new Date('2026-05-04T10:05:00.000Z'),
+      review_status: 'reviewed',
+      protocol_available: true,
+      order_mutation_performed: false,
+      recorded_by: reviewerUid,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if (!hasDeviceLinks) return;
+
+  let vitalsRow = await first(
+    'vitals_chart',
+    'id, tenant_id, patient_uid',
+    'patient_uid = $1::uuid',
+    [icuAdmission.patient_uid],
+  );
+  if (!vitalsRow) {
+    const created = await client.query(
+      `INSERT INTO vitals_chart (
+         tenant_id, patient_uid, heart_rate, systolic_bp, diastolic_bp,
+         spo2, respiratory_rate, source, device_verified, verified_by,
+         verified_at, recorded_by, recorded_at, notes
+       )
+       VALUES (
+         $1::uuid, $2::uuid, 82, 118, 72, 98, 16, 'device',
+         TRUE, $3::uuid, '2026-05-04T10:10:00.000Z'::timestamptz,
+         $3::uuid, '2026-05-04T10:10:00.000Z'::timestamptz,
+         'Seed ICU device vital for QA coverage.'
+       )
+       RETURNING id, tenant_id, patient_uid`,
+      [icuAdmission.tenant_id || DEFAULT_TENANT_ID, icuAdmission.patient_uid, reviewerUid],
+    );
+    vitalsRow = created.rows[0];
+  }
+
+  await insertIfEmpty('icu_device_observation_links', [{
+    tenant_id: icuAdmission.tenant_id || vitalsRow.tenant_id || DEFAULT_TENANT_ID,
+    icu_admission_id: icuAdmission.id,
+    patient_uid: icuAdmission.patient_uid,
+    link_kind: 'vitals_chart',
+    vitals_chart_id: vitalsRow.id,
+    linked_at: new Date('2026-05-04T10:15:00.000Z'),
+    linked_by: reviewerUid,
+    context: 'seed_coverage',
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
   await seedIdentityProviderTables();
   await seedColdChainTables();
-  await seedTransplantProgramTables();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();
@@ -1953,6 +2110,9 @@ try {
   await seedInfusionChairTables();
   await seedMigrationToolkitTables();
   await seedSiemExportTables();
+  await seedIcuChartDepthTables();
+  await seedPerfusionSignoffs();
+  await seedTransplantProgramTables();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
