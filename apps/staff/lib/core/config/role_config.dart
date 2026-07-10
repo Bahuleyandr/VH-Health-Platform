@@ -753,6 +753,13 @@ class RoleFeatures {
     route: '/cath-lab',
     color: Color(0xFFAD1457),
   );
+  static const DashboardFeature _oncology = DashboardFeature(
+    id: 'oncology',
+    titleKey: 'role.feature.oncology',
+    icon: Icons.biotech_outlined,
+    route: '/oncology',
+    color: Color(0xFF455A64),
+  );
   static const DashboardFeature _radiology = DashboardFeature(
     id: 'radiology',
     titleKey: 'role.feature.radiology',
@@ -789,6 +796,7 @@ class RoleFeatures {
         _clinicalAiReviewQueue,
         _opAiAssist,
         _ophthalmology,
+        _oncology,
         _patientRecords,
         _patientCommandBoard,
         _referrals,
@@ -835,6 +843,7 @@ class RoleFeatures {
         _labBookings,
         _radiology,
         _ophthalmology,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -860,6 +869,7 @@ class RoleFeatures {
         _patientRecords,
         _nursingNotes,
         _handover,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -883,6 +893,7 @@ class RoleFeatures {
         _patientRecords,
         _nursingNotes,
         _handover,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -906,6 +917,7 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _appointments,
         _ophthalmology,
+        _oncology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -929,6 +941,7 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _appointments,
         _ophthalmology,
+        _oncology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -2231,6 +2244,24 @@ class RoleFeatures {
     };
   }
 
+  static bool hasOncology(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.nursingSuperintendent ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge => true,
+      _ => false,
+    };
+  }
+
   static bool hasClinicalInbox(StaffRole role) {
     return switch (role) {
       StaffRole.admin ||
@@ -2531,6 +2562,18 @@ class RoleFeatures {
           selectedIcon: Icons.folder_shared,
           route: '/patient-records',
           featureId: 'patient_records',
+        ),
+      );
+    }
+
+    if (hasOncology(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          labelKey: 'role.nav.oncology',
+          icon: Icons.biotech_outlined,
+          selectedIcon: Icons.biotech,
+          route: '/oncology',
+          featureId: 'oncology',
         ),
       );
     }
