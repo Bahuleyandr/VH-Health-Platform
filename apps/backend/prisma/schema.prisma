@@ -574,38 +574,40 @@ model ambulance_requests {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model anesthesia_records {
-  id                        Int          @id @default(autoincrement())
-  tenant_id                 String       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  id                        Int                  @id @default(autoincrement())
+  tenant_id                 String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   ot_schedule_id            Int
-  patient_uid               String?      @db.Uuid
-  anesthetist               String?      @db.Uuid
-  assistant                 String?      @db.Uuid
-  preop_assessment_complete Boolean      @default(false)
-  asa_grade                 String?      @db.VarChar(8)
-  airway_assessment         Json         @default("{}")
-  preop_meds_held           Json         @default("[]")
-  technique                 String?      @db.VarChar(80)
-  airway_managed            String?      @db.VarChar(40)
-  intubation_grade          String?      @db.VarChar(8)
-  agents_used               Json         @default("[]")
+  patient_uid               String?              @db.Uuid
+  anesthetist               String?              @db.Uuid
+  assistant                 String?              @db.Uuid
+  preop_assessment_complete Boolean              @default(false)
+  asa_grade                 String?              @db.VarChar(8)
+  airway_assessment         Json                 @default("{}")
+  preop_meds_held           Json                 @default("[]")
+  technique                 String?              @db.VarChar(80)
+  airway_managed            String?              @db.VarChar(40)
+  intubation_grade          String?              @db.VarChar(8)
+  agents_used               Json                 @default("[]")
   fluids_in_ml              Int?
-  blood_products_in         Json         @default("[]")
+  blood_products_in         Json                 @default("[]")
   urine_output_ml           Int?
   blood_loss_ml             Int?
-  events                    Json         @default("[]")
+  events                    Json                 @default("[]")
   complications             String?
-  recovery_destination      String?      @db.VarChar(40)
+  recovery_destination      String?              @db.VarChar(40)
   pain_plan                 String?
   ponv_prophylaxis          String?
-  status                    String       @default("draft") @db.VarChar(20)
-  finalized_by              String?      @db.Uuid
-  finalized_at              DateTime?    @db.Timestamptz(6)
+  status                    String               @default("draft") @db.VarChar(20)
+  finalized_by              String?              @db.Uuid
+  finalized_at              DateTime?            @db.Timestamptz(6)
   ai_precheck_generation_id Int?
-  metadata                  Json         @default("{}")
-  created_at                DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime     @default(now()) @db.Timestamptz(6)
-  ot_schedules              ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants                   tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  metadata                  Json                 @default("{}")
+  created_at                DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime             @default(now()) @db.Timestamptz(6)
+  ot_schedules              ot_schedules         @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                   tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ctvs_case_overlays        ctvs_case_overlays[]
+  perfusion_records         perfusion_records[]
 
   @@unique([tenant_id, ot_schedule_id])
   @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_anesthesia_records_tenant_status")
@@ -1369,6 +1371,7 @@ model care_plans {
   physio_assessments      physio_assessments[]
   physio_outcome_scores   physio_outcome_scores[]
   physio_sessions         physio_sessions[]
+  transplant_candidates   transplant_candidates[]
 
   @@index([tenant_id, plan_kind, status], map: "idx_care_plans_kind")
   @@index([tenant_id, patient_uid, status], map: "idx_care_plans_patient_status")
@@ -6895,8 +6898,11 @@ model ot_schedules {
   updated_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
   tenant_id                  String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   anesthesia_records         anesthesia_records[]
+  ctvs_case_overlays         ctvs_case_overlays[]
   intraop_notes              intraop_notes[]
   tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ot_schedules_tenant")
+  perfusion_records          perfusion_records[]
+  perfusion_signoffs         perfusion_signoffs[]
   postop_complication_alerts postop_complication_alerts[]
   postop_notes               postop_notes[]
   preop_checklists           preop_checklists[]
@@ -9816,6 +9822,7 @@ model tenants {
   content_studio_settings                    content_studio_settings?
   credential_document_uploads                credential_document_uploads[]
   credential_expiry_alerts                   credential_expiry_alerts[]
+  ctvs_case_overlays                         ctvs_case_overlays[]
   data_breaches                              data_breaches[]
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
@@ -10049,6 +10056,9 @@ model tenants {
   payslip_queries                            payslip_queries[]
   payslip_query_replies                      payslip_query_replies[]
   payslips                                   payslips[]
+  perfusion_device_links                     perfusion_device_links[]
+  perfusion_records                          perfusion_records[]
+  perfusion_signoffs                         perfusion_signoffs[]
   pharmacy_activity_logs                     pharmacy_activity_logs[]
   pharmacy_catalog                           pharmacy_catalog[]
   pharmacy_expiry_alerts                     pharmacy_expiry_alerts[]
@@ -10159,11 +10169,6 @@ model tenants {
   step_rewards                               step_rewards[]
   step_sessions                              step_sessions[]
   sterilization_loads                        sterilization_loads[]
-  stroke_activations                         stroke_activations[]
-  stroke_nihss_assessments                   stroke_nihss_assessments[]
-  stroke_pathway_events                      stroke_pathway_events[]
-  stroke_pathway_settings                    stroke_pathway_settings?
-  stroke_thrombolysis_decisions              stroke_thrombolysis_decisions[]
   surgical_implants                          surgical_implants[]
   surgical_safety_checklists                 surgical_safety_checklists[]
   tariff_items                               tariff_items[]
@@ -10186,6 +10191,15 @@ model tenants {
   training_evidence_ledger                   training_evidence_ledger[]
   transfusion_reactions                      transfusion_reactions[]
   transfusion_verifications                  transfusion_verifications[]
+  transplant_candidates                      transplant_candidates[]
+  transplant_committee_reviews               transplant_committee_reviews[]
+  transplant_donor_referrals                 transplant_donor_referrals[]
+  transplant_immunosuppression_plans         transplant_immunosuppression_plans[]
+  transplant_match_reviews                   transplant_match_reviews[]
+  transplant_notto_exports                   transplant_notto_exports[]
+  transplant_program_settings                transplant_program_settings?
+  transplant_programs                        transplant_programs[]
+  transplant_waitlist_status_history         transplant_waitlist_status_history[]
   triage_assessments                         triage_assessments[]
   tti_tests                                  tti_tests[]
   tumor_board_cases                          tumor_board_cases[]
@@ -10679,6 +10693,10 @@ model users {
   cath_post_procedure_orders                                                                     cath_post_procedure_orders[]
   cath_procedure_logs                                                                            cath_procedure_logs[]
   chair_bookings                                                                                 chair_bookings[]
+  ctvs_case_overlays_ctvs_case_overlays_created_byTousers                                        ctvs_case_overlays[]                  @relation("ctvs_case_overlays_created_byTousers")
+  ctvs_case_overlays_ctvs_case_overlays_evidence_owner_uidTousers                                ctvs_case_overlays[]                  @relation("ctvs_case_overlays_evidence_owner_uidTousers")
+  ctvs_case_overlays_ctvs_case_overlays_patient_uidTousers                                       ctvs_case_overlays[]                  @relation("ctvs_case_overlays_patient_uidTousers")
+  ctvs_case_overlays_ctvs_case_overlays_updated_byTousers                                        ctvs_case_overlays[]                  @relation("ctvs_case_overlays_updated_byTousers")
   device_patient_associations                                                                    device_patient_associations[]
   device_presence_logs                                                                           device_presence_logs[]
   device_vital_sample_observations                                                               device_vital_sample_observations[]
@@ -10742,6 +10760,18 @@ model users {
   payroll_runs_payroll_runs_generated_byTousers                                                  payroll_runs[]                        @relation("payroll_runs_generated_byTousers")
   payroll_runs_payroll_runs_locked_byTousers                                                     payroll_runs[]                        @relation("payroll_runs_locked_byTousers")
   payslips                                                                                       payslips[]
+  perfusion_device_links_perfusion_device_links_created_byTousers                                perfusion_device_links[]              @relation("perfusion_device_links_created_byTousers")
+  perfusion_device_links_perfusion_device_links_patient_uidTousers                               perfusion_device_links[]              @relation("perfusion_device_links_patient_uidTousers")
+  perfusion_records_perfusion_records_evidence_owner_uidTousers                                  perfusion_records[]                   @relation("perfusion_records_evidence_owner_uidTousers")
+  perfusion_records_perfusion_records_patient_uidTousers                                         perfusion_records[]                   @relation("perfusion_records_patient_uidTousers")
+  perfusion_records_perfusion_records_perfusionist_uidTousers                                    perfusion_records[]                   @relation("perfusion_records_perfusionist_uidTousers")
+  perfusion_records_perfusion_records_recorded_byTousers                                         perfusion_records[]                   @relation("perfusion_records_recorded_byTousers")
+  perfusion_signoffs_perfusion_signoffs_anesthesia_reviewed_byTousers                            perfusion_signoffs[]                  @relation("perfusion_signoffs_anesthesia_reviewed_byTousers")
+  perfusion_signoffs_perfusion_signoffs_evidence_owner_uidTousers                                perfusion_signoffs[]                  @relation("perfusion_signoffs_evidence_owner_uidTousers")
+  perfusion_signoffs_perfusion_signoffs_finalized_byTousers                                      perfusion_signoffs[]                  @relation("perfusion_signoffs_finalized_byTousers")
+  perfusion_signoffs_perfusion_signoffs_patient_uidTousers                                       perfusion_signoffs[]                  @relation("perfusion_signoffs_patient_uidTousers")
+  perfusion_signoffs_perfusion_signoffs_perfusionist_signed_byTousers                            perfusion_signoffs[]                  @relation("perfusion_signoffs_perfusionist_signed_byTousers")
+  perfusion_signoffs_perfusion_signoffs_surgeon_reviewed_byTousers                               perfusion_signoffs[]                  @relation("perfusion_signoffs_surgeon_reviewed_byTousers")
   pharmacy_order_history                                                                         pharmacy_order_history[]
   pharmacy_orders_pharmacy_orders_dispensed_byTousers                                            pharmacy_orders[]                     @relation("pharmacy_orders_dispensed_byTousers")
   pharmacy_orders_pharmacy_orders_patient_idTousers                                              pharmacy_orders[]                     @relation("pharmacy_orders_patient_idTousers")
@@ -10790,10 +10820,6 @@ model users {
   staff_onboarding_tasks                                                                         staff_onboarding_tasks[]
   staff_performance_reviews                                                                      staff_performance_reviews[]
   staff_salary                                                                                   staff_salary?
-  stroke_activations                                                                             stroke_activations[]
-  stroke_nihss_assessments                                                                       stroke_nihss_assessments[]
-  stroke_pathway_events                                                                          stroke_pathway_events[]
-  stroke_thrombolysis_decisions                                                                  stroke_thrombolysis_decisions[]
   guardian_user                                                                                  users?                                @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onUpdate: NoAction, map: "users_guardian_user_fk")
   dependents                                                                                     users[]                               @relation("users_guardian_user_fk")
   tenants                                                                                        tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -14731,42 +14757,38 @@ model staff_access_audit_log {
 /// Canonical encounter lifecycle for OP/IP/ER/procedure clinical work.
 /// Existing appointments/admissions remain the detail source tables.
 model patient_encounters {
-  id                            String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid                   String                          @db.Uuid
-  encounter_type                String                          @default("op") @db.VarChar(40)
-  status                        String                          @default("open") @db.VarChar(30)
-  appointment_id                Int?
-  admission_id                  Int?
-  admission_encounter_id        String?                         @db.Uuid
-  primary_doctor_uid            String?                         @db.Uuid
-  care_team_uids                String[]                        @default([]) @db.Uuid
-  opened_at                     DateTime                        @default(now()) @db.Timestamptz(6)
-  activated_at                  DateTime?                       @db.Timestamptz(6)
-  signed_at                     DateTime?                       @db.Timestamptz(6)
-  signed_by                     String?                         @db.Uuid
-  amended_at                    DateTime?                       @db.Timestamptz(6)
-  amended_by                    String?                         @db.Uuid
-  locked_at                     DateTime?                       @db.Timestamptz(6)
-  locked_by                     String?                         @db.Uuid
-  closed_at                     DateTime?                       @db.Timestamptz(6)
-  created_by                    String?                         @db.Uuid
-  updated_by                    String?                         @db.Uuid
-  status_history                Json                            @default("[]")
-  metadata                      Json                            @default("{}")
-  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
-  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
-  cath_lab_cases                cath_lab_cases[]
-  cath_procedure_logs           cath_procedure_logs[]
-  oncology_diagnoses            oncology_diagnoses[]
-  oncology_staging_records      oncology_staging_records[]
-  oncology_toxicity_events      oncology_toxicity_events[]
-  ophthalmic_biometry           ophthalmic_biometry[]
-  ophthalmic_exams              ophthalmic_exams[]
-  stroke_activations            stroke_activations[]
-  stroke_nihss_assessments      stroke_nihss_assessments[]
-  stroke_pathway_events         stroke_pathway_events[]
-  stroke_thrombolysis_decisions stroke_thrombolysis_decisions[]
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid              String                     @db.Uuid
+  encounter_type           String                     @default("op") @db.VarChar(40)
+  status                   String                     @default("open") @db.VarChar(30)
+  appointment_id           Int?
+  admission_id             Int?
+  admission_encounter_id   String?                    @db.Uuid
+  primary_doctor_uid       String?                    @db.Uuid
+  care_team_uids           String[]                   @default([]) @db.Uuid
+  opened_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  activated_at             DateTime?                  @db.Timestamptz(6)
+  signed_at                DateTime?                  @db.Timestamptz(6)
+  signed_by                String?                    @db.Uuid
+  amended_at               DateTime?                  @db.Timestamptz(6)
+  amended_by               String?                    @db.Uuid
+  locked_at                DateTime?                  @db.Timestamptz(6)
+  locked_by                String?                    @db.Uuid
+  closed_at                DateTime?                  @db.Timestamptz(6)
+  created_by               String?                    @db.Uuid
+  updated_by               String?                    @db.Uuid
+  status_history           Json                       @default("[]")
+  metadata                 Json                       @default("{}")
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  cath_lab_cases           cath_lab_cases[]
+  cath_procedure_logs      cath_procedure_logs[]
+  oncology_diagnoses       oncology_diagnoses[]
+  oncology_staging_records oncology_staging_records[]
+  oncology_toxicity_events oncology_toxicity_events[]
+  ophthalmic_biometry      ophthalmic_biometry[]
+  ophthalmic_exams         ophthalmic_exams[]
 
   @@unique([tenant_id, admission_id], map: "idx_patient_encounters_tenant_admission", where: raw("(admission_id IS NOT NULL)"))
   @@unique([tenant_id, appointment_id], map: "idx_patient_encounters_tenant_appointment", where: raw("(appointment_id IS NOT NULL)"))
@@ -14776,39 +14798,35 @@ model patient_encounters {
 
 /// Append-only canonical patient timeline event stream.
 model clinical_timeline_events {
-  id                            String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid                   String                          @db.Uuid
-  encounter_id                  String?                         @db.Uuid
-  event_type                    String                          @db.VarChar(80)
-  event_subtype                 String?                         @db.VarChar(80)
-  event_status                  String?                         @db.VarChar(40)
-  source_table                  String?                         @db.VarChar(100)
-  source_id                     String?                         @db.VarChar(120)
-  source_uid                    String?                         @db.Uuid
-  resource_type                 String?                         @db.VarChar(80)
-  resource_id                   String?                         @db.VarChar(120)
-  actor_uid                     String?                         @db.Uuid
-  actor_role                    String?                         @db.VarChar(80)
-  occurred_at                   DateTime                        @default(now()) @db.Timestamptz(6)
-  visible_to_patient            Boolean                         @default(false)
-  clinical_summary              String?
-  payload                       Json                            @default("{}")
-  tags                          String[]                        @default([])
-  idempotency_key               String                          @unique @db.VarChar(220)
-  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
-  cath_lab_cases                cath_lab_cases[]
-  cath_post_procedure_orders    cath_post_procedure_orders[]
-  cath_procedure_logs           cath_procedure_logs[]
-  oncology_diagnoses            oncology_diagnoses[]
-  oncology_staging_records      oncology_staging_records[]
-  oncology_toxicity_events      oncology_toxicity_events[]
-  stroke_activations            stroke_activations[]
-  stroke_nihss_assessments      stroke_nihss_assessments[]
-  stroke_pathway_events         stroke_pathway_events[]
-  stroke_thrombolysis_decisions stroke_thrombolysis_decisions[]
-  tumor_board_cases             tumor_board_cases[]
-  tumor_board_recommendations   tumor_board_recommendations[]
+  id                          String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                   String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                 String                        @db.Uuid
+  encounter_id                String?                       @db.Uuid
+  event_type                  String                        @db.VarChar(80)
+  event_subtype               String?                       @db.VarChar(80)
+  event_status                String?                       @db.VarChar(40)
+  source_table                String?                       @db.VarChar(100)
+  source_id                   String?                       @db.VarChar(120)
+  source_uid                  String?                       @db.Uuid
+  resource_type               String?                       @db.VarChar(80)
+  resource_id                 String?                       @db.VarChar(120)
+  actor_uid                   String?                       @db.Uuid
+  actor_role                  String?                       @db.VarChar(80)
+  occurred_at                 DateTime                      @default(now()) @db.Timestamptz(6)
+  visible_to_patient          Boolean                       @default(false)
+  clinical_summary            String?
+  payload                     Json                          @default("{}")
+  tags                        String[]                      @default([])
+  idempotency_key             String                        @unique @db.VarChar(220)
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  cath_lab_cases              cath_lab_cases[]
+  cath_post_procedure_orders  cath_post_procedure_orders[]
+  cath_procedure_logs         cath_procedure_logs[]
+  oncology_diagnoses          oncology_diagnoses[]
+  oncology_staging_records    oncology_staging_records[]
+  oncology_toxicity_events    oncology_toxicity_events[]
+  tumor_board_cases           tumor_board_cases[]
+  tumor_board_recommendations tumor_board_recommendations[]
 
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_timeline_patient_occurred")
   @@index([tenant_id, encounter_id, occurred_at(sort: Desc)], map: "idx_clinical_timeline_encounter_occurred", where: raw("(encounter_id IS NOT NULL)"))
@@ -16149,6 +16167,7 @@ model device_patient_associations {
   device_registry              device_registry                @relation(fields: [device_registry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users                        users                          @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
   icu_device_observation_links icu_device_observation_links[]
+  perfusion_device_links       perfusion_device_links[]
 
   @@unique([tenant_id, device_registry_id, channel], map: "ux_device_patient_assoc_active_channel", where: raw("(ended_at IS NULL)"))
   @@index([tenant_id, patient_uid], map: "idx_device_patient_assoc_active_patient", where: raw("(ended_at IS NULL)"))
@@ -20822,162 +20841,392 @@ model tumor_board_recommendations {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model stroke_activations {
-  id                            BigInt                          @id @default(autoincrement())
-  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  activation_uid                String                          @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  patient_uid                   String                          @db.Uuid
-  encounter_id                  String?                         @db.Uuid
-  activation_source             String                          @db.VarChar(80)
-  last_known_well_at            DateTime?                       @db.Timestamptz(6)
-  arrived_at                    DateTime?                       @db.Timestamptz(6)
-  door_time_at                  DateTime                        @db.Timestamptz(6)
-  activated_at                  DateTime                        @default(now()) @db.Timestamptz(6)
-  team                          Json                            @default("{}")
-  status                        String                          @default("active") @db.VarChar(40)
-  radiology_context_tags        String[]                        @default(["code_stroke"])
-  radiology_signal_codes        String[]                        @default(["STROKE_PROTOCOL"])
-  canonical_timeline_event_id   String?                         @db.Uuid
-  notes                         String?
-  metadata                      Json                            @default("{}")
-  created_by                    String?                         @db.Uuid
-  updated_by                    String?                         @db.Uuid
-  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
-  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
-  patient_encounters            patient_encounters?             @relation(fields: [encounter_id], references: [id], onUpdate: NoAction, map: "fk_stroke_activations_encounter")
-  users                         users                           @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction, map: "fk_stroke_activations_patient")
-  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stroke_activations_tenant")
-  clinical_timeline_events      clinical_timeline_events?       @relation(fields: [canonical_timeline_event_id], references: [id], onUpdate: NoAction, map: "fk_stroke_activations_timeline")
-  stroke_nihss_assessments      stroke_nihss_assessments[]
-  stroke_pathway_events         stroke_pathway_events[]
-  stroke_thrombolysis_decisions stroke_thrombolysis_decisions[]
+model ctvs_case_overlays {
+  id                                                 Int                 @id @default(autoincrement())
+  tenant_id                                          String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ot_schedule_id                                     Int
+  patient_uid                                        String              @db.Uuid
+  anesthesia_record_id                               Int?
+  procedure_category                                 String              @db.VarChar(80)
+  bypass_expected                                    Boolean             @default(false)
+  blood_product_readiness                            Json                @default("{}")
+  implant_device_readiness                           Json                @default("{}")
+  evidence_owner_uid                                 String?             @db.Uuid
+  policy_source_label                                String?             @db.VarChar(180)
+  policy_source_version                              String?             @db.VarChar(80)
+  source_document_refs                               Json                @default("[]")
+  attachment_refs                                    Json                @default("[]")
+  metadata                                           Json                @default("{}")
+  created_by                                         String?             @db.Uuid
+  updated_by                                         String?             @db.Uuid
+  created_at                                         DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                         DateTime            @default(now()) @db.Timestamptz(6)
+  anesthesia_records                                 anesthesia_records? @relation(fields: [anesthesia_record_id], references: [id], onUpdate: NoAction)
+  users_ctvs_case_overlays_created_byTousers         users?              @relation("ctvs_case_overlays_created_byTousers", fields: [created_by], references: [uid], onUpdate: NoAction)
+  users_ctvs_case_overlays_evidence_owner_uidTousers users?              @relation("ctvs_case_overlays_evidence_owner_uidTousers", fields: [evidence_owner_uid], references: [uid], onUpdate: NoAction)
+  ot_schedules                                       ot_schedules        @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_ctvs_case_overlays_patient_uidTousers        users               @relation("ctvs_case_overlays_patient_uidTousers", fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  users_ctvs_case_overlays_updated_byTousers         users?              @relation("ctvs_case_overlays_updated_byTousers", fields: [updated_by], references: [uid], onUpdate: NoAction)
+  tenants                                            tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ctvs_case_overlays_tenant")
+  perfusion_records                                  perfusion_records[]
 
-  @@unique([tenant_id, activation_uid], map: "ux_stroke_activations_uid")
-  @@index([tenant_id, encounter_id], map: "idx_stroke_activations_encounter", where: raw("(encounter_id IS NOT NULL)"))
-  @@index([tenant_id, patient_uid, activated_at(sort: Desc)], map: "idx_stroke_activations_patient")
-  @@index([tenant_id, status, activated_at(sort: Desc)], map: "idx_stroke_activations_status")
+  @@unique([tenant_id, ot_schedule_id])
+  @@index([tenant_id, anesthesia_record_id], map: "idx_ctvs_case_overlays_anesthesia", where: raw("(anesthesia_record_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_ctvs_case_overlays_patient")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model stroke_nihss_assessments {
-  id                          BigInt                    @id @default(autoincrement())
-  tenant_id                   String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  activation_id               BigInt
-  patient_uid                 String                    @db.Uuid
-  encounter_id                String?                   @db.Uuid
-  assessed_at                 DateTime                  @default(now()) @db.Timestamptz(6)
-  assessor_uid                String?                   @db.Uuid
-  item_scores                 Json                      @default("[]")
-  total_score                 Int
-  nihss_source                String?
-  nihss_version               String?
-  source_owner_uid            String?                   @db.Uuid
-  source_attachment_refs      Json                      @default("[]")
-  signoff_status              String                    @default("draft") @db.VarChar(20)
-  signed_off_by               String?                   @db.Uuid
-  signed_off_at               DateTime?                 @db.Timestamptz(6)
-  canonical_timeline_event_id String?                   @db.Uuid
-  metadata                    Json                      @default("{}")
-  created_at                  DateTime                  @default(now()) @db.Timestamptz(6)
-  updated_at                  DateTime                  @default(now()) @db.Timestamptz(6)
-  stroke_activations          stroke_activations        @relation(fields: [activation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_stroke_nihss_activation")
-  patient_encounters          patient_encounters?       @relation(fields: [encounter_id], references: [id], onUpdate: NoAction, map: "fk_stroke_nihss_encounter")
-  users                       users                     @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction, map: "fk_stroke_nihss_patient")
-  tenants                     tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stroke_nihss_tenant")
-  clinical_timeline_events    clinical_timeline_events? @relation(fields: [canonical_timeline_event_id], references: [id], onUpdate: NoAction, map: "fk_stroke_nihss_timeline")
+model perfusion_device_links {
+  id                                              Int                         @id @default(autoincrement())
+  tenant_id                                       String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  perfusion_record_id                             Int
+  device_patient_association_id                   Int
+  patient_uid                                     String                      @db.Uuid
+  vendor_document_ref                             String?
+  vendor_source_label                             String?                     @db.VarChar(180)
+  vendor_source_version                           String?                     @db.VarChar(80)
+  summary_import_status                           String                      @default("pending") @db.VarChar(32)
+  imported_summary                                Json                        @default("{}")
+  attachment_refs                                 Json                        @default("[]")
+  metadata                                        Json                        @default("{}")
+  created_by                                      String?                     @db.Uuid
+  created_at                                      DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                      DateTime                    @default(now()) @db.Timestamptz(6)
+  tenants                                         tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_perfusion_device_links_tenant")
+  users_perfusion_device_links_created_byTousers  users?                      @relation("perfusion_device_links_created_byTousers", fields: [created_by], references: [uid], onUpdate: NoAction)
+  device_patient_associations                     device_patient_associations @relation(fields: [device_patient_association_id], references: [id], onUpdate: NoAction)
+  users_perfusion_device_links_patient_uidTousers users                       @relation("perfusion_device_links_patient_uidTousers", fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  perfusion_records                               perfusion_records           @relation(fields: [perfusion_record_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([tenant_id, activation_id, assessed_at(sort: Desc)], map: "idx_stroke_nihss_activation")
-  @@index([tenant_id, patient_uid, assessed_at(sort: Desc)], map: "idx_stroke_nihss_patient")
+  @@unique([tenant_id, perfusion_record_id, device_patient_association_id])
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_perfusion_device_links_patient")
+  @@index([tenant_id, perfusion_record_id], map: "idx_perfusion_device_links_record")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model stroke_pathway_events {
-  id                          BigInt                    @id @default(autoincrement())
-  tenant_id                   String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  activation_id               BigInt
-  patient_uid                 String                    @db.Uuid
-  encounter_id                String?                   @db.Uuid
-  event_type                  String                    @db.VarChar(40)
-  occurred_at                 DateTime                  @default(now()) @db.Timestamptz(6)
-  radiology_order_id          Int?
-  event_payload               Json                      @default("{}")
-  recorded_by                 String?                   @db.Uuid
-  canonical_timeline_event_id String?                   @db.Uuid
-  metadata                    Json                      @default("{}")
-  created_at                  DateTime                  @default(now()) @db.Timestamptz(6)
-  updated_at                  DateTime                  @default(now()) @db.Timestamptz(6)
-  stroke_activations          stroke_activations        @relation(fields: [activation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_stroke_pathway_events_activation")
-  patient_encounters          patient_encounters?       @relation(fields: [encounter_id], references: [id], onUpdate: NoAction, map: "fk_stroke_pathway_events_encounter")
-  users                       users                     @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction, map: "fk_stroke_pathway_events_patient")
-  tenants                     tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stroke_pathway_events_tenant")
-  clinical_timeline_events    clinical_timeline_events? @relation(fields: [canonical_timeline_event_id], references: [id], onUpdate: NoAction, map: "fk_stroke_pathway_events_timeline")
+model perfusion_records {
+  id                                                Int                      @id @default(autoincrement())
+  tenant_id                                         String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ctvs_case_overlay_id                              Int?
+  ot_schedule_id                                    Int
+  patient_uid                                       String                   @db.Uuid
+  anesthesia_record_id                              Int?
+  perfusionist_uid                                  String?                  @db.Uuid
+  bypass_started_at                                 DateTime?                @db.Timestamptz(6)
+  bypass_ended_at                                   DateTime?                @db.Timestamptz(6)
+  bypass_time_minutes                               Decimal?                 @db.Decimal(8, 2)
+  cross_clamp_started_at                            DateTime?                @db.Timestamptz(6)
+  cross_clamp_ended_at                              DateTime?                @db.Timestamptz(6)
+  cross_clamp_time_minutes                          Decimal?                 @db.Decimal(8, 2)
+  act_baseline_seconds                              Decimal?                 @db.Decimal(8, 2)
+  act_peak_seconds                                  Decimal?                 @db.Decimal(8, 2)
+  act_last_seconds                                  Decimal?                 @db.Decimal(8, 2)
+  temperature_min_c                                 Decimal?                 @db.Decimal(5, 2)
+  temperature_max_c                                 Decimal?                 @db.Decimal(5, 2)
+  act_summary                                       Json                     @default("{}")
+  temperature_summary                               Json                     @default("{}")
+  fluids_products_summary                           Json                     @default("{}")
+  complications                                     String?
+  status                                            String                   @default("recorded") @db.VarChar(24)
+  evidence_owner_uid                                String?                  @db.Uuid
+  record_policy_source_label                        String?                  @db.VarChar(180)
+  record_policy_source_version                      String?                  @db.VarChar(80)
+  source_document_refs                              Json                     @default("[]")
+  attachment_refs                                   Json                     @default("[]")
+  metadata                                          Json                     @default("{}")
+  recorded_by                                       String?                  @db.Uuid
+  created_at                                        DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                                        DateTime                 @default(now()) @db.Timestamptz(6)
+  perfusion_device_links                            perfusion_device_links[]
+  tenants                                           tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_perfusion_records_tenant")
+  anesthesia_records                                anesthesia_records?      @relation(fields: [anesthesia_record_id], references: [id], onUpdate: NoAction)
+  ctvs_case_overlays                                ctvs_case_overlays?      @relation(fields: [ctvs_case_overlay_id], references: [id], onUpdate: NoAction)
+  users_perfusion_records_evidence_owner_uidTousers users?                   @relation("perfusion_records_evidence_owner_uidTousers", fields: [evidence_owner_uid], references: [uid], onUpdate: NoAction)
+  ot_schedules                                      ot_schedules             @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_perfusion_records_patient_uidTousers        users                    @relation("perfusion_records_patient_uidTousers", fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  users_perfusion_records_perfusionist_uidTousers   users?                   @relation("perfusion_records_perfusionist_uidTousers", fields: [perfusionist_uid], references: [uid], onUpdate: NoAction)
+  users_perfusion_records_recorded_byTousers        users?                   @relation("perfusion_records_recorded_byTousers", fields: [recorded_by], references: [uid], onUpdate: NoAction)
+  perfusion_signoffs                                perfusion_signoffs[]
 
-  @@index([tenant_id, activation_id, occurred_at(sort: Desc)], map: "idx_stroke_pathway_events_activation")
-  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_stroke_pathway_events_patient")
-  @@index([tenant_id, event_type, occurred_at(sort: Desc)], map: "idx_stroke_pathway_events_type")
+  @@unique([tenant_id, ot_schedule_id])
+  @@index([tenant_id, ot_schedule_id], map: "idx_perfusion_records_case")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_perfusion_records_patient")
+  @@index([tenant_id, perfusionist_uid, created_at(sort: Desc)], map: "idx_perfusion_records_perfusionist", where: raw("(perfusionist_uid IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model stroke_pathway_settings {
-  tenant_id                             String    @id @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  enabled                               Boolean   @default(false)
-  enabled_at                            DateTime? @db.Timestamptz(6)
-  enabled_by                            String?   @db.Uuid
-  clock_definition_source               String?
-  clock_definition_version              String?
-  clock_definition_attachment_refs      Json      @default("[]")
-  nihss_source                          String?
-  nihss_version                         String?
-  nihss_attachment_refs                 Json      @default("[]")
-  thrombolysis_protocol_source          String?
-  thrombolysis_protocol_version         String?
-  thrombolysis_protocol_attachment_refs Json      @default("[]")
-  thrombolysis_approver_privilege_key   String?   @db.VarChar(120)
-  door_to_ct_target_minutes             Int?
-  door_to_needle_target_minutes         Int?
-  acceptance_snapshot                   Json?
-  metadata                              Json      @default("{}")
-  created_at                            DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at                            DateTime  @default(now()) @db.Timestamptz(6)
-  tenants                               tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stroke_pathway_settings_tenant")
+model perfusion_signoffs {
+  id                                                     Int               @id @default(autoincrement())
+  tenant_id                                              String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  perfusion_record_id                                    Int
+  ot_schedule_id                                         Int
+  patient_uid                                            String            @db.Uuid
+  perfusionist_signed_by                                 String?           @db.Uuid
+  perfusionist_signed_at                                 DateTime?         @db.Timestamptz(6)
+  surgeon_reviewed_by                                    String?           @db.Uuid
+  surgeon_reviewed_at                                    DateTime?         @db.Timestamptz(6)
+  anesthesia_reviewed_by                                 String?           @db.Uuid
+  anesthesia_reviewed_at                                 DateTime?         @db.Timestamptz(6)
+  status                                                 String            @default("draft") @db.VarChar(32)
+  finalized_by                                           String?           @db.Uuid
+  finalized_at                                           DateTime?         @db.Timestamptz(6)
+  evidence_owner_uid                                     String?           @db.Uuid
+  signoff_policy_source_label                            String?           @db.VarChar(180)
+  signoff_policy_source_version                          String?           @db.VarChar(80)
+  source_document_refs                                   Json              @default("[]")
+  attachment_refs                                        Json              @default("[]")
+  metadata                                               Json              @default("{}")
+  created_at                                             DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at                                             DateTime          @default(now()) @db.Timestamptz(6)
+  tenants                                                tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_perfusion_signoffs_tenant")
+  users_perfusion_signoffs_anesthesia_reviewed_byTousers users?            @relation("perfusion_signoffs_anesthesia_reviewed_byTousers", fields: [anesthesia_reviewed_by], references: [uid], onUpdate: NoAction)
+  users_perfusion_signoffs_evidence_owner_uidTousers     users?            @relation("perfusion_signoffs_evidence_owner_uidTousers", fields: [evidence_owner_uid], references: [uid], onUpdate: NoAction)
+  users_perfusion_signoffs_finalized_byTousers           users?            @relation("perfusion_signoffs_finalized_byTousers", fields: [finalized_by], references: [uid], onUpdate: NoAction)
+  ot_schedules                                           ot_schedules      @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_perfusion_signoffs_patient_uidTousers            users             @relation("perfusion_signoffs_patient_uidTousers", fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  perfusion_records                                      perfusion_records @relation(fields: [perfusion_record_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_perfusion_signoffs_perfusionist_signed_byTousers users?            @relation("perfusion_signoffs_perfusionist_signed_byTousers", fields: [perfusionist_signed_by], references: [uid], onUpdate: NoAction)
+  users_perfusion_signoffs_surgeon_reviewed_byTousers    users?            @relation("perfusion_signoffs_surgeon_reviewed_byTousers", fields: [surgeon_reviewed_by], references: [uid], onUpdate: NoAction)
+
+  @@unique([tenant_id, perfusion_record_id])
+  @@index([tenant_id, ot_schedule_id], map: "idx_perfusion_signoffs_case")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_perfusion_signoffs_patient")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model stroke_thrombolysis_decisions {
-  id                           BigInt                    @id @default(autoincrement())
-  tenant_id                    String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  activation_id                BigInt
-  patient_uid                  String                    @db.Uuid
-  encounter_id                 String?                   @db.Uuid
-  decided_at                   DateTime                  @default(now()) @db.Timestamptz(6)
-  decision_status              String                    @default("draft") @db.VarChar(30)
-  eligibility_payload          Json                      @default("{}")
-  contraindication_payload     Json                      @default("{}")
-  dose_payload                 Json                      @default("{}")
-  decision_payload             Json                      @default("{}")
-  protocol_source              String?
-  protocol_version             String?
-  protocol_attachment_refs     Json                      @default("[]")
-  patient_family_documentation Json                      @default("{}")
-  approver_uid                 String?                   @db.Uuid
-  approver_privilege_key       String?                   @db.VarChar(120)
-  approved_at                  DateTime?                 @db.Timestamptz(6)
-  canonical_timeline_event_id  String?                   @db.Uuid
-  metadata                     Json                      @default("{}")
-  created_by                   String?                   @db.Uuid
-  created_at                   DateTime                  @default(now()) @db.Timestamptz(6)
-  updated_at                   DateTime                  @default(now()) @db.Timestamptz(6)
-  stroke_activations           stroke_activations        @relation(fields: [activation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_stroke_thrombolysis_activation")
-  patient_encounters           patient_encounters?       @relation(fields: [encounter_id], references: [id], onUpdate: NoAction, map: "fk_stroke_thrombolysis_encounter")
-  users                        users                     @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction, map: "fk_stroke_thrombolysis_patient")
-  tenants                      tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stroke_thrombolysis_tenant")
-  clinical_timeline_events     clinical_timeline_events? @relation(fields: [canonical_timeline_event_id], references: [id], onUpdate: NoAction, map: "fk_stroke_thrombolysis_timeline")
+model transplant_candidates {
+  id                                 BigInt                               @id @default(autoincrement())
+  tenant_id                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  program_id                         BigInt
+  patient_uid                        String                               @db.Uuid
+  diagnosis                          String
+  required_organs                    transplant_organ_type[]              @default([])
+  listing_evaluation_status          String                               @default("evaluation") @db.VarChar(40)
+  committee_status                   String                               @default("pending") @db.VarChar(40)
+  contraindications_summary          String?
+  related_care_plan_id               Int?
+  metadata                           Json                                 @default("{}")
+  created_by                         String?                              @db.Uuid
+  created_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  care_plans                         care_plans?                          @relation(fields: [related_care_plan_id], references: [id], onUpdate: NoAction, map: "fk_transplant_candidates_care_plan")
+  transplant_programs                transplant_programs                  @relation(fields: [program_id], references: [id], onUpdate: NoAction, map: "fk_transplant_candidates_program")
+  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_candidates_tenant")
+  transplant_committee_reviews       transplant_committee_reviews[]
+  transplant_immunosuppression_plans transplant_immunosuppression_plans[]
+  transplant_match_reviews           transplant_match_reviews[]
+  transplant_notto_exports           transplant_notto_exports[]
+  transplant_waitlist_status_history transplant_waitlist_status_history[]
 
-  @@index([tenant_id, activation_id, decided_at(sort: Desc)], map: "idx_stroke_thrombolysis_activation")
-  @@index([tenant_id, patient_uid, decided_at(sort: Desc)], map: "idx_stroke_thrombolysis_patient")
-  @@index([tenant_id, decision_status, decided_at(sort: Desc)], map: "idx_stroke_thrombolysis_status")
+  @@index([tenant_id, patient_uid, updated_at(sort: Desc)], map: "idx_transplant_candidates_patient")
+  @@index([tenant_id, program_id, listing_evaluation_status, committee_status], map: "idx_transplant_candidates_program_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_committee_reviews {
+  id                                 BigInt                               @id @default(autoincrement())
+  tenant_id                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  program_id                         BigInt
+  candidate_id                       BigInt?
+  review_date                        DateTime                             @default(dbgenerated("CURRENT_DATE")) @db.Date
+  attendees                          Json                                 @default("[]")
+  quorum_policy_reference            String
+  decision                           String                               @default("pending") @db.VarChar(30)
+  recommendations                    String?
+  deferral_reason                    String?
+  affects_candidate                  Boolean                              @default(true)
+  timeline_event_id                  String?                              @db.Uuid
+  audit_event_id                     String?                              @db.Uuid
+  metadata                           Json                                 @default("{}")
+  created_by                         String?                              @db.Uuid
+  created_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  transplant_candidates              transplant_candidates?               @relation(fields: [candidate_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transplant_committee_reviews_candidate")
+  transplant_programs                transplant_programs                  @relation(fields: [program_id], references: [id], onUpdate: NoAction, map: "fk_transplant_committee_reviews_program")
+  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_committee_reviews_tenant")
+  transplant_waitlist_status_history transplant_waitlist_status_history[]
+
+  @@index([tenant_id, candidate_id, review_date(sort: Desc)], map: "idx_transplant_committee_reviews_candidate", where: raw("(candidate_id IS NOT NULL)"))
+  @@index([tenant_id, program_id, review_date(sort: Desc)], map: "idx_transplant_committee_reviews_program")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_donor_referrals {
+  id                       BigInt                     @id @default(autoincrement())
+  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  program_id               BigInt
+  donor_type               String                     @db.VarChar(20)
+  source                   String                     @db.VarChar(160)
+  relation_category        String?                    @db.VarChar(80)
+  screening_summary        String?
+  documents                Json                       @default("[]")
+  status                   String                     @default("received") @db.VarChar(30)
+  audit_register           Json                       @default("{}")
+  created_by               String?                    @db.Uuid
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  transplant_programs      transplant_programs        @relation(fields: [program_id], references: [id], onUpdate: NoAction, map: "fk_transplant_donor_referrals_program")
+  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_donor_referrals_tenant")
+  transplant_match_reviews transplant_match_reviews[]
+
+  @@index([tenant_id, program_id, status, created_at(sort: Desc)], map: "idx_transplant_donor_referrals_program")
+  @@index([tenant_id, donor_type, status], map: "idx_transplant_donor_referrals_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_immunosuppression_plans {
+  id                          BigInt                @id @default(autoincrement())
+  tenant_id                   String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  candidate_id                BigInt
+  patient_uid                 String                @db.Uuid
+  regimen_summary             String
+  monitoring_plan             String
+  prescribing_owner_uid       String                @db.Uuid
+  downstream_medication_links Json                  @default("[]")
+  status                      String                @default("draft") @db.VarChar(30)
+  timeline_event_id           String?               @db.Uuid
+  audit_event_id              String?               @db.Uuid
+  metadata                    Json                  @default("{}")
+  created_by                  String?               @db.Uuid
+  activated_at                DateTime?             @db.Timestamptz(6)
+  created_at                  DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime              @default(now()) @db.Timestamptz(6)
+  transplant_candidates       transplant_candidates @relation(fields: [candidate_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transplant_immunosuppression_candidate")
+  tenants                     tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_immunosuppression_tenant")
+
+  @@index([tenant_id, candidate_id, created_at(sort: Desc)], map: "idx_transplant_immunosuppression_candidate")
+  @@index([tenant_id, patient_uid, status], map: "idx_transplant_immunosuppression_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_match_reviews {
+  id                         BigInt                     @id @default(autoincrement())
+  tenant_id                  String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  candidate_id               BigInt
+  donor_referral_id          BigInt
+  compatibility_summary      String
+  crossmatch_documents       Json                       @default("[]")
+  chain_of_custody           Json                       @default("{}")
+  risk_flags                 String[]                   @default([])
+  decision                   String                     @default("pending") @db.VarChar(30)
+  decision_reason            String?
+  reviewed_by                String?                    @db.Uuid
+  reviewed_at                DateTime?                  @db.Timestamptz(6)
+  timeline_event_id          String?                    @db.Uuid
+  audit_event_id             String?                    @db.Uuid
+  created_by                 String?                    @db.Uuid
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  transplant_candidates      transplant_candidates      @relation(fields: [candidate_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transplant_match_reviews_candidate")
+  transplant_donor_referrals transplant_donor_referrals @relation(fields: [donor_referral_id], references: [id], onUpdate: NoAction, map: "fk_transplant_match_reviews_donor")
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_match_reviews_tenant")
+
+  @@index([tenant_id, candidate_id, created_at(sort: Desc)], map: "idx_transplant_match_reviews_candidate")
+  @@index([tenant_id, donor_referral_id, decision], map: "idx_transplant_match_reviews_donor")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_notto_exports {
+  id                    BigInt                 @id @default(autoincrement())
+  tenant_id             String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  program_id            BigInt
+  candidate_id          BigInt?
+  package_metadata      Json                   @default("{}")
+  owner_reviewed_status String                 @default("draft") @db.VarChar(40)
+  owner_reviewed_by     String?                @db.Uuid
+  owner_reviewed_at     DateTime?              @db.Timestamptz(6)
+  upload_reference_id   String?
+  audit_evidence        Json                   @default("{}")
+  released_at           DateTime?              @db.Timestamptz(6)
+  metadata              Json                   @default("{}")
+  created_by            String?                @db.Uuid
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  transplant_candidates transplant_candidates? @relation(fields: [candidate_id], references: [id], onUpdate: NoAction, map: "fk_transplant_notto_exports_candidate")
+  transplant_programs   transplant_programs    @relation(fields: [program_id], references: [id], onUpdate: NoAction, map: "fk_transplant_notto_exports_program")
+  tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_notto_exports_tenant")
+
+  @@index([tenant_id, program_id, created_at(sort: Desc)], map: "idx_transplant_notto_exports_program")
+  @@index([tenant_id, owner_reviewed_status, created_at(sort: Desc)], map: "idx_transplant_notto_exports_status")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_program_settings {
+  tenant_id                String    @id @db.Uuid
+  enabled                  Boolean   @default(false)
+  enabled_at               DateTime? @db.Timestamptz(6)
+  enabled_by               String?   @db.Uuid
+  acceptance_snapshot      Json?
+  owner_evidence_reference String?
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                  tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model transplant_programs {
+  id                           BigInt                         @id @default(autoincrement())
+  tenant_id                    String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  organ                        transplant_organ_type
+  service_line                 String                         @db.VarChar(120)
+  site                         String                         @db.VarChar(160)
+  program_owner_uid            String?                        @db.Uuid
+  program_owner_role           String?                        @db.VarChar(80)
+  status                       String                         @default("draft") @db.VarChar(30)
+  notto_evidence_owner_uid     String?                        @db.Uuid
+  notto_evidence_owner_role    String?                        @db.VarChar(80)
+  notto_evidence_reference     String?
+  metadata                     Json                           @default("{}")
+  created_by                   String?                        @db.Uuid
+  created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  transplant_candidates        transplant_candidates[]
+  transplant_committee_reviews transplant_committee_reviews[]
+  transplant_donor_referrals   transplant_donor_referrals[]
+  transplant_notto_exports     transplant_notto_exports[]
+  tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_programs_tenant")
+
+  @@index([tenant_id, status, organ], map: "idx_transplant_programs_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_waitlist_status_history {
+  id                           BigInt                        @id @default(autoincrement())
+  tenant_id                    String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  candidate_id                 BigInt
+  status                       String                        @db.VarChar(30)
+  reason                       String?
+  committee_review_id          BigInt?
+  audit_event_id               String?                       @db.Uuid
+  timeline_event_id            String?                       @db.Uuid
+  metadata                     Json                          @default("{}")
+  created_by                   String?                       @db.Uuid
+  created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  transplant_candidates        transplant_candidates         @relation(fields: [candidate_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transplant_waitlist_candidate")
+  transplant_committee_reviews transplant_committee_reviews? @relation(fields: [committee_review_id], references: [id], onUpdate: NoAction, map: "fk_transplant_waitlist_committee_review")
+  tenants                      tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_waitlist_tenant")
+
+  @@index([tenant_id, candidate_id, created_at(sort: Desc)], map: "idx_transplant_waitlist_candidate_time")
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_transplant_waitlist_status")
+}
+
+enum transplant_organ_type {
+  heart
+  liver
+  lung
+  kidney
+  small_bowel
+  multivisceral
 }
