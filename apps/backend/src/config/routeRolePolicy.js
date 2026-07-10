@@ -331,6 +331,12 @@ export const ICU_ROUTE_ROLES = getRolesForCapabilityGroups(['ip_flow', 'emergenc
   exclude: ['ADMISSION_OFFICER', 'IPD_COUNSELLOR'],
 });
 
+export const BURN_ROUTE_ROLES = mergeRoles(
+  ICU_ROUTE_ROLES,
+  THEATRE_ROUTE_ROLES,
+  rolesFrom(['CMO', 'MEDICAL_SUPERINTENDENT', 'MEDICAL_RECORDS', 'QUALITY_OFFICER']),
+);
+
 export const COMPLIANCE_ROUTE_ROLES = mergeRoles(
   NOTIFICATION_AUDIT_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,

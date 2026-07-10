@@ -722,6 +722,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       'orders' => uid.isEmpty ? null : '/emr/orders/$uid?name=$name',
       'timeline' ||
       'emr' => uid.isEmpty ? null : '/emr/timeline/$uid?name=$name',
+      'burn_chart' || 'burns' =>
+        uid.isEmpty
+            ? null
+            : '/emr/burns/$uid?name=$name${admissionId <= 0 ? '' : '&admission_id=$admissionId'}',
       'drug_chart' =>
         admissionId <= 0 ? null : '/drug-chart/$admissionId?name=$name',
       'referral' => admissionId <= 0 ? null : '/referrals/request/$admissionId',
@@ -733,6 +737,25 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
         admissionId <= 0 ? null : '/emr/discharge-hub/$admissionId?name=$name',
       _ => null,
     };
+  }
+
+  void _openBurnChart(Map<String, dynamic> row) {
+    final route = _burnChartRoute(row);
+    if (route == null) return;
+    context.push(route);
+  }
+
+  String? _burnChartRoute(Map<String, dynamic> row) {
+    final patient = _asMap(row['patient']);
+    final uid = _text(patient['uid']);
+    if (uid.isEmpty) return null;
+    final name = Uri.encodeQueryComponent(
+      _text(patient['name'], _focusedPatientLabel),
+    );
+    final admissionId = _int(row['admission_id']);
+    final params = <String>['name=$name'];
+    if (admissionId > 0) params.add('admission_id=$admissionId');
+    return '/emr/burns/$uid?${params.join('&')}';
   }
 
   @override
@@ -1241,6 +1264,16 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                           ),
                           onPressed: () => _openCarePlans(row),
                         ),
+                        ActionChip(
+                          avatar: const Icon(
+                            Icons.local_fire_department_outlined,
+                            size: 16,
+                          ),
+                          label: Text(s.burnCareAction),
+                          onPressed: _burnChartRoute(row) == null
+                              ? null
+                              : () => _openBurnChart(row),
+                        ),
                         if (discharge['initiated'] == true)
                           _statusBadge(
                             _text(
@@ -1329,6 +1362,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       'care_plan' || 'care_plans' => Icons.fact_check_outlined,
       'vitals' => Icons.monitor_heart,
       'handover' => Icons.swap_horiz,
+      'burn_chart' || 'burns' => Icons.local_fire_department_outlined,
       _ => Icons.open_in_new,
     };
   }

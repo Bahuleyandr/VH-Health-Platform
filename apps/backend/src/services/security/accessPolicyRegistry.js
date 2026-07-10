@@ -333,7 +333,9 @@ export function policyCodeForRecordType(recordType = 'PHI') {
   if (normalized === 'PHARMACY_ORDER' || normalized === 'PRESCRIPTION') return ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW;
   if (normalized === 'BCMA' || normalized === 'MED_REC') return ACCESS_POLICY_CODES.PATIENT_MEDICATION_ADMIN_VIEW;
   // Critical care + specialty procedures
-  if (normalized === 'ICU' || normalized === 'DIALYSIS') return ACCESS_POLICY_CODES.PATIENT_CRITICAL_CARE_VIEW;
+  if (normalized === 'ICU' || normalized === 'DIALYSIS' || normalized === 'BURN_CHART') {
+    return ACCESS_POLICY_CODES.PATIENT_CRITICAL_CARE_VIEW;
+  }
   if (normalized === 'BLOOD_BANK') return ACCESS_POLICY_CODES.PATIENT_BLOOD_BANK_VIEW;
   if (normalized === 'OPERATING_THEATRE'
     || normalized === 'ANESTHESIA_CHART'
