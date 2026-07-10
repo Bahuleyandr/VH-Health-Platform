@@ -1,4 +1,4 @@
-import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
+import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { hasActivePrivilege } from '../staff/credentialingService.js';
@@ -21,7 +21,6 @@ export const TRANSPLANT_ACTION_PRIVILEGES = Object.freeze({
 });
 
 const TEXT_MAX = 8000;
-const SHORT_MAX = 255;
 const tenantOr = (tenantId) => requireTenantId(tenantId);
 
 function cleanText(value, max = TEXT_MAX) {
