@@ -113,6 +113,7 @@ import '../../features/physio/screens/physio_screen.dart';
 
 // Theatre
 import '../../features/cath_lab/screens/cath_lab_screen.dart';
+import '../../features/radiation_oncology/screens/radiation_oncology_screen.dart';
 import '../../features/oncology/screens/oncology_screen.dart';
 import '../../features/theatre/screens/theatre_screen.dart';
 import '../../features/productivity/screens/calculators_screen.dart';
@@ -1015,6 +1016,12 @@ final GoRouter appRouter = GoRouter(
           name: 'cath-lab',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: CathLabScreen()),
+        ),
+        GoRoute(
+          path: '/radiation-oncology',
+          name: 'radiation-oncology',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: RadiationOncologyScreen()),
         ),
         GoRoute(
           path: '/oncology',

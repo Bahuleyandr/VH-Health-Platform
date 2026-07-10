@@ -532,6 +532,9 @@ void main() {
       File('lib/features/phone/screens/staff_phone_more_screen.dart'),
       File('lib/features/ward/screens/ward_mode_screen.dart'),
       File('lib/features/cath_lab/screens/cath_lab_screen.dart'),
+      File(
+        'lib/features/radiation_oncology/screens/radiation_oncology_screen.dart',
+      ),
       File('lib/features/audit/screens/audit_logs_screen.dart'),
       File('lib/features/diagnostics/screens/staff_diagnostics_screen.dart'),
       File('lib/features/appointments/screens/appointment_queue_screen.dart'),
@@ -573,6 +576,7 @@ void main() {
       's4.lib.audit_logs.',
       's4.lib.billing_desk.',
       's4.lib.cath_lab.',
+      's4.lib.radiation_oncology.',
       's4.lib.staff_diagnostics.',
       's4.lib.staff_phone_more.',
       's4.lib.staff_query.',

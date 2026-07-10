@@ -256,6 +256,7 @@ import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import cathLabRoutes from './routes/clinical/cathLabRoutes.js';
+import radiationOncologyRoutes from './routes/clinical/radiationOncologyRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
 
 // Inter-staff messaging
@@ -1053,6 +1054,13 @@ app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICE
 // read/mutate arbitrary patients. Mount the care-team-governed guard (shadow
 // by default → telemetry now, real 403 once the tenant flips to 'enforce').
 app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+
+// NL-13 P4 — nuclear-medicine & radiotherapy COORDINATION (integrate-only). Referrals,
+// external plan/fraction references, nuclear-medicine orders + radioisotope administration,
+// and owner-sourced radiation-safety evidence. Ships inert behind a per-tenant flag; stores
+// external references only (never computes plans / drives delivery). Same care-team-governed
+// patient guard as the sibling specialty modules.
+app.use('/api/v1/radiation-oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('RADIATION_ONCOLOGY'), radiationOncologyRoutes);
 
 // Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
 app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DENTAL'), dentalRoutes);
