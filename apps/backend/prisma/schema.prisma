@@ -1371,6 +1371,7 @@ model care_plans {
   physio_assessments      physio_assessments[]
   physio_outcome_scores   physio_outcome_scores[]
   physio_sessions         physio_sessions[]
+  transplant_candidates   transplant_candidates[]
 
   @@index([tenant_id, plan_kind, status], map: "idx_care_plans_kind")
   @@index([tenant_id, patient_uid, status], map: "idx_care_plans_patient_status")
@@ -10190,6 +10191,15 @@ model tenants {
   training_evidence_ledger                   training_evidence_ledger[]
   transfusion_reactions                      transfusion_reactions[]
   transfusion_verifications                  transfusion_verifications[]
+  transplant_candidates                      transplant_candidates[]
+  transplant_committee_reviews               transplant_committee_reviews[]
+  transplant_donor_referrals                 transplant_donor_referrals[]
+  transplant_immunosuppression_plans         transplant_immunosuppression_plans[]
+  transplant_match_reviews                   transplant_match_reviews[]
+  transplant_notto_exports                   transplant_notto_exports[]
+  transplant_program_settings                transplant_program_settings?
+  transplant_programs                        transplant_programs[]
+  transplant_waitlist_status_history         transplant_waitlist_status_history[]
   triage_assessments                         triage_assessments[]
   tti_tests                                  tti_tests[]
   tumor_board_cases                          tumor_board_cases[]
@@ -20984,4 +20994,239 @@ model perfusion_signoffs {
   @@unique([tenant_id, perfusion_record_id])
   @@index([tenant_id, ot_schedule_id], map: "idx_perfusion_signoffs_case")
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_perfusion_signoffs_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_candidates {
+  id                                 BigInt                               @id @default(autoincrement())
+  tenant_id                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  program_id                         BigInt
+  patient_uid                        String                               @db.Uuid
+  diagnosis                          String
+  required_organs                    transplant_organ_type[]              @default([])
+  listing_evaluation_status          String                               @default("evaluation") @db.VarChar(40)
+  committee_status                   String                               @default("pending") @db.VarChar(40)
+  contraindications_summary          String?
+  related_care_plan_id               Int?
+  metadata                           Json                                 @default("{}")
+  created_by                         String?                              @db.Uuid
+  created_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  care_plans                         care_plans?                          @relation(fields: [related_care_plan_id], references: [id], onUpdate: NoAction, map: "fk_transplant_candidates_care_plan")
+  transplant_programs                transplant_programs                  @relation(fields: [program_id], references: [id], onUpdate: NoAction, map: "fk_transplant_candidates_program")
+  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_candidates_tenant")
+  transplant_committee_reviews       transplant_committee_reviews[]
+  transplant_immunosuppression_plans transplant_immunosuppression_plans[]
+  transplant_match_reviews           transplant_match_reviews[]
+  transplant_notto_exports           transplant_notto_exports[]
+  transplant_waitlist_status_history transplant_waitlist_status_history[]
+
+  @@index([tenant_id, patient_uid, updated_at(sort: Desc)], map: "idx_transplant_candidates_patient")
+  @@index([tenant_id, program_id, listing_evaluation_status, committee_status], map: "idx_transplant_candidates_program_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_committee_reviews {
+  id                                 BigInt                               @id @default(autoincrement())
+  tenant_id                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  program_id                         BigInt
+  candidate_id                       BigInt?
+  review_date                        DateTime                             @default(dbgenerated("CURRENT_DATE")) @db.Date
+  attendees                          Json                                 @default("[]")
+  quorum_policy_reference            String
+  decision                           String                               @default("pending") @db.VarChar(30)
+  recommendations                    String?
+  deferral_reason                    String?
+  affects_candidate                  Boolean                              @default(true)
+  timeline_event_id                  String?                              @db.Uuid
+  audit_event_id                     String?                              @db.Uuid
+  metadata                           Json                                 @default("{}")
+  created_by                         String?                              @db.Uuid
+  created_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  transplant_candidates              transplant_candidates?               @relation(fields: [candidate_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transplant_committee_reviews_candidate")
+  transplant_programs                transplant_programs                  @relation(fields: [program_id], references: [id], onUpdate: NoAction, map: "fk_transplant_committee_reviews_program")
+  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_committee_reviews_tenant")
+  transplant_waitlist_status_history transplant_waitlist_status_history[]
+
+  @@index([tenant_id, candidate_id, review_date(sort: Desc)], map: "idx_transplant_committee_reviews_candidate", where: raw("(candidate_id IS NOT NULL)"))
+  @@index([tenant_id, program_id, review_date(sort: Desc)], map: "idx_transplant_committee_reviews_program")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_donor_referrals {
+  id                       BigInt                     @id @default(autoincrement())
+  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  program_id               BigInt
+  donor_type               String                     @db.VarChar(20)
+  source                   String                     @db.VarChar(160)
+  relation_category        String?                    @db.VarChar(80)
+  screening_summary        String?
+  documents                Json                       @default("[]")
+  status                   String                     @default("received") @db.VarChar(30)
+  audit_register           Json                       @default("{}")
+  created_by               String?                    @db.Uuid
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  transplant_programs      transplant_programs        @relation(fields: [program_id], references: [id], onUpdate: NoAction, map: "fk_transplant_donor_referrals_program")
+  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_donor_referrals_tenant")
+  transplant_match_reviews transplant_match_reviews[]
+
+  @@index([tenant_id, program_id, status, created_at(sort: Desc)], map: "idx_transplant_donor_referrals_program")
+  @@index([tenant_id, donor_type, status], map: "idx_transplant_donor_referrals_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_immunosuppression_plans {
+  id                          BigInt                @id @default(autoincrement())
+  tenant_id                   String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  candidate_id                BigInt
+  patient_uid                 String                @db.Uuid
+  regimen_summary             String
+  monitoring_plan             String
+  prescribing_owner_uid       String                @db.Uuid
+  downstream_medication_links Json                  @default("[]")
+  status                      String                @default("draft") @db.VarChar(30)
+  timeline_event_id           String?               @db.Uuid
+  audit_event_id              String?               @db.Uuid
+  metadata                    Json                  @default("{}")
+  created_by                  String?               @db.Uuid
+  activated_at                DateTime?             @db.Timestamptz(6)
+  created_at                  DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime              @default(now()) @db.Timestamptz(6)
+  transplant_candidates       transplant_candidates @relation(fields: [candidate_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transplant_immunosuppression_candidate")
+  tenants                     tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_immunosuppression_tenant")
+
+  @@index([tenant_id, candidate_id, created_at(sort: Desc)], map: "idx_transplant_immunosuppression_candidate")
+  @@index([tenant_id, patient_uid, status], map: "idx_transplant_immunosuppression_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_match_reviews {
+  id                         BigInt                     @id @default(autoincrement())
+  tenant_id                  String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  candidate_id               BigInt
+  donor_referral_id          BigInt
+  compatibility_summary      String
+  crossmatch_documents       Json                       @default("[]")
+  chain_of_custody           Json                       @default("{}")
+  risk_flags                 String[]                   @default([])
+  decision                   String                     @default("pending") @db.VarChar(30)
+  decision_reason            String?
+  reviewed_by                String?                    @db.Uuid
+  reviewed_at                DateTime?                  @db.Timestamptz(6)
+  timeline_event_id          String?                    @db.Uuid
+  audit_event_id             String?                    @db.Uuid
+  created_by                 String?                    @db.Uuid
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  transplant_candidates      transplant_candidates      @relation(fields: [candidate_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transplant_match_reviews_candidate")
+  transplant_donor_referrals transplant_donor_referrals @relation(fields: [donor_referral_id], references: [id], onUpdate: NoAction, map: "fk_transplant_match_reviews_donor")
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_match_reviews_tenant")
+
+  @@index([tenant_id, candidate_id, created_at(sort: Desc)], map: "idx_transplant_match_reviews_candidate")
+  @@index([tenant_id, donor_referral_id, decision], map: "idx_transplant_match_reviews_donor")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_notto_exports {
+  id                    BigInt                 @id @default(autoincrement())
+  tenant_id             String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  program_id            BigInt
+  candidate_id          BigInt?
+  package_metadata      Json                   @default("{}")
+  owner_reviewed_status String                 @default("draft") @db.VarChar(40)
+  owner_reviewed_by     String?                @db.Uuid
+  owner_reviewed_at     DateTime?              @db.Timestamptz(6)
+  upload_reference_id   String?
+  audit_evidence        Json                   @default("{}")
+  released_at           DateTime?              @db.Timestamptz(6)
+  metadata              Json                   @default("{}")
+  created_by            String?                @db.Uuid
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  transplant_candidates transplant_candidates? @relation(fields: [candidate_id], references: [id], onUpdate: NoAction, map: "fk_transplant_notto_exports_candidate")
+  transplant_programs   transplant_programs    @relation(fields: [program_id], references: [id], onUpdate: NoAction, map: "fk_transplant_notto_exports_program")
+  tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_notto_exports_tenant")
+
+  @@index([tenant_id, program_id, created_at(sort: Desc)], map: "idx_transplant_notto_exports_program")
+  @@index([tenant_id, owner_reviewed_status, created_at(sort: Desc)], map: "idx_transplant_notto_exports_status")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_program_settings {
+  tenant_id                String    @id @db.Uuid
+  enabled                  Boolean   @default(false)
+  enabled_at               DateTime? @db.Timestamptz(6)
+  enabled_by               String?   @db.Uuid
+  acceptance_snapshot      Json?
+  owner_evidence_reference String?
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                  tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model transplant_programs {
+  id                           BigInt                         @id @default(autoincrement())
+  tenant_id                    String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  organ                        transplant_organ_type
+  service_line                 String                         @db.VarChar(120)
+  site                         String                         @db.VarChar(160)
+  program_owner_uid            String?                        @db.Uuid
+  program_owner_role           String?                        @db.VarChar(80)
+  status                       String                         @default("draft") @db.VarChar(30)
+  notto_evidence_owner_uid     String?                        @db.Uuid
+  notto_evidence_owner_role    String?                        @db.VarChar(80)
+  notto_evidence_reference     String?
+  metadata                     Json                           @default("{}")
+  created_by                   String?                        @db.Uuid
+  created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  transplant_candidates        transplant_candidates[]
+  transplant_committee_reviews transplant_committee_reviews[]
+  transplant_donor_referrals   transplant_donor_referrals[]
+  transplant_notto_exports     transplant_notto_exports[]
+  tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_programs_tenant")
+
+  @@index([tenant_id, status, organ], map: "idx_transplant_programs_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transplant_waitlist_status_history {
+  id                           BigInt                        @id @default(autoincrement())
+  tenant_id                    String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  candidate_id                 BigInt
+  status                       String                        @db.VarChar(30)
+  reason                       String?
+  committee_review_id          BigInt?
+  audit_event_id               String?                       @db.Uuid
+  timeline_event_id            String?                       @db.Uuid
+  metadata                     Json                          @default("{}")
+  created_by                   String?                       @db.Uuid
+  created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  transplant_candidates        transplant_candidates         @relation(fields: [candidate_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transplant_waitlist_candidate")
+  transplant_committee_reviews transplant_committee_reviews? @relation(fields: [committee_review_id], references: [id], onUpdate: NoAction, map: "fk_transplant_waitlist_committee_review")
+  tenants                      tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transplant_waitlist_tenant")
+
+  @@index([tenant_id, candidate_id, created_at(sort: Desc)], map: "idx_transplant_waitlist_candidate_time")
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_transplant_waitlist_status")
+}
+
+enum transplant_organ_type {
+  heart
+  liver
+  lung
+  kidney
+  small_bowel
+  multivisceral
 }
