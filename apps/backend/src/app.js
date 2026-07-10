@@ -101,6 +101,7 @@ import {
   RECORD_ROUTE_ROLES,
   STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES,
   STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
+  STROKE_ROUTE_ROLES,
   TECHNICAL_ADMIN_ROUTE_ROLES,
   THEATRE_ROUTE_ROLES,
   VIRTUAL_WARD_ROUTE_ROLES,
@@ -252,6 +253,7 @@ import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisa
 import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
 import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
 import icuRoutes from './routes/clinical/icuRoutes.js';
+import strokePathwayRoutes from './routes/clinical/strokePathwayRoutes.js';
 import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
@@ -1264,6 +1266,7 @@ app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patien
 // care-team-governed patient guard (was role + PHI logger only).
 app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
+app.use('/api/v1/stroke-pathway', requireRole(...STROKE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('STROKE_PATHWAY', { careTeamModeGoverned: true }), phiAccessLogger('STROKE_PATHWAY'), strokePathwayRoutes);
 app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ALERTS'), clinicalAlertsRoutes);
 app.use('/api/v1/teleconsult', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('TELECONSULTATION'), teleconsultProvisioningRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);

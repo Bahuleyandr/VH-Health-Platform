@@ -124,6 +124,7 @@ import '../../features/maternity/screens/partograph_view_screen.dart';
 // Radiology
 import '../../features/ophthalmology/screens/ophthalmology_screen.dart';
 import '../../features/radiology/screens/radiology_screen.dart';
+import '../../features/stroke_pathway/screens/stroke_pathway_screen.dart';
 
 // EMR
 import '../../features/emr/screens/admission_screen.dart';
@@ -1082,6 +1083,12 @@ final GoRouter appRouter = GoRouter(
           name: 'radiology',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: RadiologyScreen()),
+        ),
+        GoRoute(
+          path: '/stroke-pathway',
+          name: 'stroke-pathway',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: StrokePathwayScreen()),
         ),
 
         // EMR

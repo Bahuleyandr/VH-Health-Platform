@@ -127,6 +127,8 @@ const MODULES: TierModule[] = [
   },
 ];
 
+export const TIER_D_EMERGENCY_MODULES = MODULES;
+
 export function TierDEmergencyPanel() {
   return (
     <TierGenericPanel

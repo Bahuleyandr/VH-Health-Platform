@@ -111,6 +111,7 @@ const navSections: NavSection[] = [
     minRole: "STAFF", // all clinical staff
     items: [
       { name: "Radiology", href: "/dashboard/radiology" },
+      { name: "Stroke Pathway", href: "/dashboard/stroke-pathway" },
       { name: "Laboratory", href: "/dashboard/lab" },
       { name: "Microbiology", href: "/dashboard/microbiology" },
       { name: "Anesthesia chart", href: "/dashboard/anesthesia-chart" },
