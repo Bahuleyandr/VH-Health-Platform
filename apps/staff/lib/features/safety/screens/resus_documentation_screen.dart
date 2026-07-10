@@ -36,12 +36,7 @@ const _kRoles = <String>[
   'other',
 ];
 
-const _kOutcomes = <String>[
-  'rosc',
-  'death',
-  'transferred',
-  'stopped_futility',
-];
+const _kOutcomes = <String>['rosc', 'death', 'transferred', 'stopped_futility'];
 
 /// Live documentation surface for one durable resuscitation event: header +
 /// append-only timeline entry, team-role/signature capture, end + finalize.
@@ -89,8 +84,7 @@ class _ResusDocumentationScreenState extends State<ResusDocumentationScreen> {
     }
   }
 
-  Map<String, dynamic> get _event =>
-      (_detail?['event'] is Map<String, dynamic>)
+  Map<String, dynamic> get _event => (_detail?['event'] is Map<String, dynamic>)
       ? _detail!['event'] as Map<String, dynamic>
       : const <String, dynamic>{};
 
@@ -407,10 +401,7 @@ class _ResusDocumentationScreenState extends State<ResusDocumentationScreen> {
                 children: [
                   Text(_error!),
                   const SizedBox(height: 10),
-                  FilledButton(
-                    onPressed: _load,
-                    child: Text(s.actionRetry),
-                  ),
+                  FilledButton(onPressed: _load, child: Text(s.actionRetry)),
                 ],
               ),
             )

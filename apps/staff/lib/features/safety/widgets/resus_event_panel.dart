@@ -267,8 +267,7 @@ class _TimelineRow extends StatelessWidget {
     final extras = <String>[
       if (_text(entry['rhythm']).isNotEmpty)
         '${s.lookup('resus.rhythm')}: ${_text(entry['rhythm'])}',
-      if (entry['energy_joules'] != null)
-        '${_num(entry['energy_joules'])} J',
+      if (entry['energy_joules'] != null) '${_num(entry['energy_joules'])} J',
       if (_text(entry['medication_name']).isNotEmpty)
         [
           _text(entry['medication_name']),

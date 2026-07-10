@@ -115,9 +115,10 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
         ),
         // Persisted code-blue/resus history — the durable rows are the source
         // of truth on (re)load; the live WS banner is notification-only.
-        ResusApiService.listRecentEvents(hours: 24, limit: 10).catchError(
-          (_) => <Map<String, dynamic>>[],
-        ),
+        ResusApiService.listRecentEvents(
+          hours: 24,
+          limit: 10,
+        ).catchError((_) => <Map<String, dynamic>>[]),
       ]);
 
       final notifications =

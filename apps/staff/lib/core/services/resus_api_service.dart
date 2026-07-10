@@ -96,7 +96,8 @@ class ResusApiService {
       '/resuscitation/events/$eventId/timeline',
       body: {
         'entry_type': entryType,
-        if (occurredAt != null) 'occurred_at': occurredAt.toUtc().toIso8601String(),
+        if (occurredAt != null)
+          'occurred_at': occurredAt.toUtc().toIso8601String(),
         if (rhythm != null && rhythm.isNotEmpty) 'rhythm': rhythm,
         if (energyJoules != null) 'energy_joules': energyJoules,
         if (medicationName != null && medicationName.isNotEmpty)
