@@ -767,6 +767,13 @@ class RoleFeatures {
     route: '/radiology',
     color: Color(0xFF0277BD),
   );
+  static const DashboardFeature _strokePathway = DashboardFeature(
+    id: 'stroke_pathway',
+    titleKey: 'role.feature.stroke_pathway',
+    icon: Icons.emergency_outlined,
+    route: '/stroke-pathway',
+    color: Color(0xFFC62828),
+  );
   static const DashboardFeature _ophthalmology = DashboardFeature(
     id: 'ophthalmology',
     titleKey: 'role.feature.ophthalmology',
@@ -805,6 +812,7 @@ class RoleFeatures {
         _ophthalmology,
         _transplantProgram,
         _oncology,
+        _strokePathway,
         _patientRecords,
         _patientCommandBoard,
         _referrals,
@@ -850,6 +858,7 @@ class RoleFeatures {
         _investigationResults,
         _labBookings,
         _radiology,
+        _strokePathway,
         _ophthalmology,
         _oncology,
         _patientCommandBoard,
@@ -1030,6 +1039,7 @@ class RoleFeatures {
         _physiotherapy,
         _transplantProgram,
         _radiology,
+        _strokePathway,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -1069,6 +1079,7 @@ class RoleFeatures {
         _physiotherapy,
         _transplantProgram,
         _radiology,
+        _strokePathway,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -1138,6 +1149,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _radiology,
+        _strokePathway,
         _investigationsUpload,
         _investigationResults,
         _leave,

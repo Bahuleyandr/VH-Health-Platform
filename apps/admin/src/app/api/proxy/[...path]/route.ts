@@ -78,6 +78,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/physio",
   "api/v1/productivity",
   "api/v1/staff-messaging",
+  "api/v1/stroke-pathway",
 ];
 
 // Headers that must not be forwarded by proxies
