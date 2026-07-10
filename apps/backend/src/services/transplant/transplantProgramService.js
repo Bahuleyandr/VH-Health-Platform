@@ -235,7 +235,7 @@ async function loadProgram(db, tenantId, programId) {
 
 async function loadCandidate(db, tenantId, candidateId) {
   const rows = await db.$queryRawUnsafe(
-    `SELECT id, tenant_id, program_id, patient_uid, diagnosis, required_organs,
+    `SELECT id, tenant_id, program_id, patient_uid, diagnosis, required_organs::text[] AS required_organs,
             listing_evaluation_status, committee_status, related_care_plan_id
        FROM transplant_candidates
       WHERE id = $1 AND tenant_id = $2::uuid
@@ -386,7 +386,7 @@ export async function createCandidate(programId, {
           related_care_plan_id, metadata, created_by)
        VALUES ($1::uuid, $2, $3::uuid, $4, $5::transplant_organ_type[],
                $6, $7, $8, $9, $10::jsonb, $11::uuid)
-       RETURNING id, tenant_id, program_id, patient_uid, diagnosis, required_organs,
+       RETURNING id, tenant_id, program_id, patient_uid, diagnosis, required_organs::text[] AS required_organs,
                  listing_evaluation_status, committee_status,
                  contraindications_summary, related_care_plan_id, metadata,
                  created_by, created_at, updated_at`,
@@ -909,7 +909,7 @@ export async function getDashboard({ tenantId = null, limit = 100 } = {}) {
       ),
       tx.$queryRawUnsafe(
         `SELECT c.id, c.program_id, c.patient_uid, u.name AS patient_name,
-                c.diagnosis, c.required_organs, c.listing_evaluation_status,
+                c.diagnosis, c.required_organs::text[] AS required_organs, c.listing_evaluation_status,
                 c.committee_status, c.related_care_plan_id, c.updated_at
            FROM transplant_candidates c
            LEFT JOIN users u ON u.uid = c.patient_uid AND u.tenant_id = c.tenant_id
