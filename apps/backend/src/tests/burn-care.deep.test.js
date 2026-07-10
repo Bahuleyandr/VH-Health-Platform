@@ -503,6 +503,16 @@ d('NL-14 P3 burn care service', () => {
     ));
     expect(rows).toHaveLength(0);
 
+    const burnTables = [
+      'burn_charts',
+      'burn_tbsa_references',
+      'burn_wound_regions',
+      'burn_reassessments',
+      'burn_reassessment_media',
+      'burn_fluid_references',
+      'burn_fluid_worksheets',
+      'burn_protocol_content_links',
+    ];
     const posture = await prisma.$queryRawUnsafe(
       `SELECT c.relname, c.relforcerowsecurity, p.policyname
          FROM pg_class c
@@ -511,16 +521,7 @@ d('NL-14 P3 burn care service', () => {
         WHERE n.nspname = 'public'
           AND c.relname = ANY($1::text[])
           AND p.policyname = 'tenant_isolation'`,
-      [
-        'burn_charts',
-        'burn_tbsa_references',
-        'burn_wound_regions',
-        'burn_reassessments',
-        'burn_reassessment_media',
-        'burn_fluid_references',
-        'burn_fluid_worksheets',
-        'burn_protocol_content_links',
-      ],
+      burnTables,
     );
     expect(posture).toHaveLength(8);
     expect(posture.every((row) => row.relforcerowsecurity === true)).toBe(true);
