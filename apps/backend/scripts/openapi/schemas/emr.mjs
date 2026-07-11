@@ -1103,6 +1103,11 @@ export const schemas = {
       notes: { type: 'object', additionalProperties: true },
       discharge: { type: 'object', additionalProperties: true },
       actions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      // Present only when the row has an ACTIVE icu_admissions episode and
+      // the caller is not a minimized-payload role: getIcuChartView shape,
+      // with the NICU/PICU specialty view nested under `nicu` for
+      // NICU/PICU-unit episodes (NL14-P1/P3 board panels).
+      icu_chart: { type: 'object', additionalProperties: true, nullable: true },
     },
   },
 
