@@ -295,25 +295,50 @@ export function buildPinnedDispatcher(addresses) {
  * @param {RequestInit} [fetchOptions] passed through to `fetch` (method, headers, body, signal…)
  * @param {object} [guardOptions] { label, allowlistEnv, allowPrivateEnv }
  */
+const SSRF_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const SSRF_MAX_REDIRECTS = 5;
+
 export async function safeFetch(rawUrl, fetchOptions = {}, guardOptions = {}) {
-  const { url, addresses } = await resolveSafeOutboundTarget(rawUrl, guardOptions);
-  if (!addresses.length) {
-    // IP-literal host (already a verified literal) or the test-private hatch —
-    // no DNS in the loop, nothing to rebind; a plain fetch is safe.
-    return fetch(url, fetchOptions);
+  // Redirects are the SSRF hole (Sol Ultra #31): a validated public host — or an
+  // IP-literal host on the un-pinned plain-fetch branch — could 3xx to an
+  // internal/loopback/metadata target and `fetch`'s automatic redirect follow
+  // would connect there with NO re-validation and NO socket pinning. So force
+  // MANUAL redirect handling (the caller cannot override it) and re-run the full
+  // guard on every hop, pinning each hop's own validated addresses.
+  let current = String(rawUrl);
+  let method = fetchOptions.method;
+  let body = fetchOptions.body;
+
+  for (let hop = 0; hop <= SSRF_MAX_REDIRECTS; hop += 1) {
+    const { url, addresses } = await resolveSafeOutboundTarget(current, guardOptions);
+    const agent = addresses.length ? buildPinnedDispatcher(addresses) : null;
+    const perHop = { ...fetchOptions, method, body, redirect: 'manual' };
+    if (agent) perHop.dispatcher = agent; else delete perHop.dispatcher;
+
+    let response;
+    try {
+      response = await fetch(url, perHop);
+    } catch (err) {
+      if (agent) agent.close().catch(() => agent.destroy().catch(() => {}));
+      throw err;
+    }
+    // Graceful close waits for the in-flight body before freeing the socket.
+    if (agent) agent.close().catch(() => agent.destroy().catch(() => {}));
+
+    if (!SSRF_REDIRECT_STATUSES.has(response.status)) return response;
+    const location = response.headers.get('location');
+    if (!location) return response; // 3xx without Location — hand back as-is.
+
+    // Resolve the next hop relative to the current URL, then loop to re-validate.
+    current = new URL(location, url).toString();
+    // 301/302/303 turn a POST into a bodyless GET (web-compat); 307/308 preserve
+    // method + body.
+    if (response.status !== 307 && response.status !== 308) {
+      method = 'GET';
+      body = undefined;
+    }
   }
-  const agent = buildPinnedDispatcher(addresses);
-  try {
-    const response = await fetch(url, { ...fetchOptions, dispatcher: agent });
-    // Graceful close waits for the in-flight request (incl. the streaming body)
-    // to finish before tearing the socket down, then frees it — no leak, no
-    // truncated body. Fire-and-forget so we don't block returning the response.
-    agent.close().catch(() => agent.destroy().catch(() => {}));
-    return response;
-  } catch (err) {
-    agent.close().catch(() => agent.destroy().catch(() => {}));
-    throw err;
-  }
+  throw AppError.badRequest('Too many redirects on outbound request', 'SSRF_BLOCKED');
 }
 
 export default {
