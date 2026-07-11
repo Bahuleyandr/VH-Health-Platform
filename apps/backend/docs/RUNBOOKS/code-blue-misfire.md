@@ -25,13 +25,19 @@ and next real Code Blue may be ignored.
 
 The backend only fires Code Blue from two paths:
 
-1. `POST /clinical/code-blue` — explicit trigger by authorized staff
-   (role `DOCTOR`, `NURSE`, or `ADMIN`). JWT is required; an audit
-   entry with `user_id`, `patient_id`, `location`, `reason` is created.
+1. `POST /api/v1/resuscitation/events` — explicit trigger by authorized
+   staff (clinical staff roles). JWT is required; the durable
+   `resuscitation_events` row records `triggered_by`, `patient_uid`,
+   ward/bed snapshot, and `reason` (trigger_source `explicit_staff`).
 2. `checkVitalAnomalies()` in `src/utils/clinical/vitalSignMonitor.js`
    detects a CRITICAL-severity vital combination (O2 <85%, HR >180,
    systolic BP <70, etc.) and auto-fires a Code Blue if the patient is
-   flagged as "clinical-alerts-enabled".
+   flagged as "clinical-alerts-enabled" (trigger_source `critical_vital`).
+
+Since NL-14 P2, both paths ALSO persist a durable `resuscitation_events`
+row when the tenant's `resuscitation_settings.enabled` flag is on — the
+WS/FCM push is notification-only and at-most-once; the durable row is
+the source of truth (see §7 for reconciliation).
 
 Both paths go through `emitCodeBlue` in
 `src/utils/websocket/realtimeEmitter.js` which:
@@ -225,6 +231,48 @@ kubectl -n vhhealth exec -it deployment/vhhealth-backend -- \
 
 If the ack rate dropped after the misfire (staff disabling Code Blue
 notifications in panic), raise a training ticket.
+
+### 7. Durable resus-event reconciliation (NL-14 P2)
+
+When `resuscitation_settings.enabled = true` for the tenant, every code-blue
+trigger should have a matching durable `resuscitation_events` row. Reconcile
+the notification you are investigating against the durable record:
+
+```bash
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
+    SELECT id, patient_uid, event_kind, trigger_source,
+           trigger_clinical_alert_id, ward_snapshot, bed_snapshot, reason,
+           status, outcome, started_at, ended_at, last_notified_at, is_drill
+    FROM resuscitation_events
+    ORDER BY started_at DESC
+    LIMIT 10;"
+```
+
+Reconciliation matrix:
+
+- **Durable event exists + notification fired** — normal path. For a
+  confirmed misfire, cancel the event with an audited reason (NEVER delete
+  it): `POST /api/v1/resuscitation/events/:id/cancel-misfire` with
+  `{ "reason": "..." }` sets `status = 'cancelled_misfire'`,
+  `outcome = 'misfire'`, and keeps the full timeline for auditors.
+- **Notification fired but NO durable event** — either the tenant flag is
+  off (expected legacy behaviour: WS-only), or the durable write failed;
+  the backend logs
+  `durable event creation from critical vital failed` at error level —
+  check Sentry/logs and treat a persistent failure as an incident. The WS
+  banner is live-only and carries no authority.
+- **Durable event exists but staff report no notification** — WS/FCM
+  delivery is at-most-once by design; the dashboards re-hydrate from
+  `GET /api/v1/resuscitation/events/recent`, so the durable record is
+  still complete. Check `last_notified_at` (NULL means the fan-out
+  attempt itself failed — see backend logs).
+- **Vital-derived events** — `trigger_clinical_alert_id` links the event to
+  the `clinical_alerts` row (one event per alert, enforced by a unique
+  index), and `resuscitation_device_links` carries the alert/device
+  evidence; walk the same §4 vitals checks from there.
+- **Drills** — `is_drill = true` events intentionally send NO notification
+  and must be excluded from misfire statistics.
 
 ## Post-incident
 

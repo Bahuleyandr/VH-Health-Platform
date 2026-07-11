@@ -258,6 +258,7 @@ import icuRoutes from './routes/clinical/icuRoutes.js';
 import burnRoutes from './routes/clinical/burnRoutes.js';
 import strokePathwayRoutes from './routes/clinical/strokePathwayRoutes.js';
 import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
+import resuscitationRoutes from './routes/clinical/resuscitationRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import cathLabRoutes from './routes/clinical/cathLabRoutes.js';
@@ -1285,6 +1286,10 @@ app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/stroke-pathway', requireRole(...STROKE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('STROKE_PATHWAY', { careTeamModeGoverned: true }), phiAccessLogger('STROKE_PATHWAY'), strokePathwayRoutes);
 app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ALERTS'), clinicalAlertsRoutes);
+// NL-14 P2: durable code-blue/resus documentation. Cross-patient emergency
+// board (no patientAccessGuard — matches the clinical-alerts sibling);
+// writes are fail-closed behind per-tenant resuscitation_settings.enabled.
+app.use('/api/v1/resuscitation', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('RESUSCITATION'), resuscitationRoutes);
 app.use('/api/v1/teleconsult', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('TELECONSULTATION'), teleconsultProvisioningRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);

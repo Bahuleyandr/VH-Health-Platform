@@ -434,10 +434,37 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       // CRITICAL also fans out on staff:code-blue for full-screen staff-app alerts.
       emitVitalAnomaly(alert);
       if (alert.severity === 'CRITICAL' && isCodeBlueVital(alert.vital_name)) {
+        // NL-14 P2: persist the DURABLE resuscitation event first — it is the
+        // source of truth with ward/bed/reason snapshot; the WS push below is
+        // notification-only. Flag-gated per tenant (fail-closed no-op when
+        // disabled) and never-throws, so the alert fan-out is never blocked.
+        // Lazy import keeps the resus module out of this hot path's static
+        // graph (and out of every consumer's mock surface) until a code-blue
+        // vital actually fires.
+        let resusEvent = null;
+        try {
+          const { createEventFromCriticalVital } = await import(
+            '../../services/clinical/resuscitationEventService.js'
+          );
+          resusEvent = await createEventFromCriticalVital({
+            tenantId: criticalPatientTenantId,
+            patientUid: criticalPatientUid,
+            clinicalAlertId,
+            reason: alert.message,
+            recordedBy: alert.recorded_by ? String(alert.recorded_by) : null,
+          });
+        } catch (resusErr) {
+          logger.error(
+            `vitalSignMonitor: durable resus event hook failed (alert=${clinicalAlertId}): ${resusErr?.message}`,
+          );
+        }
         emitCodeBlue({
           patientId: alert.patient_id,
+          bedNumber: resusEvent?.bed_snapshot || null,
+          ward: resusEvent?.ward_snapshot || null,
           triggeredBy: alert.recorded_by,
           reason: alert.message,
+          eventId: resusEvent?.id ?? null,
         });
       }
 
