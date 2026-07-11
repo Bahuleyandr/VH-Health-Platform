@@ -3,10 +3,15 @@
 // Clinical Alerts & Code Blue board. Live via staff:clinical-alerts +
 // staff:code-blue (low-level useRealtimeChannel — no query to invalidate);
 // recent history hydrated once from GET /clinical-alerts/recent.
+//
+// NL-14 P2: code-blue history is hydrated from PERSISTED resuscitation
+// events (GET /resuscitation/events/recent) — with ward/bed/reason context —
+// and re-hydrated whenever the WS channel reconnects. The live banner is a
+// notification surface only; the durable events are the source of truth.
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
@@ -16,12 +21,14 @@ import {
   mergeAlerts,
   alertKey,
   codeBlueKey,
+  resusEventKey,
   CLINICAL_ALERTS_CHANNEL,
   CODE_BLUE_CHANNEL,
   ALERT_FEED_CAP,
   CODE_BLUE_WINDOW_MS,
   type AlertItem,
   type CodeBlueItem,
+  type ResusEventItem,
 } from "./feed";
 
 function unwrapList<T>(r: unknown): T[] {
@@ -53,12 +60,33 @@ export default function ClinicalAlertsPage() {
     staleTime: Infinity, // freshness comes from the WS channels, not polling
   });
 
+  // Persisted code-blue/resus history (durable rows with ward/bed/reason).
+  const { data: resusHistory = [], refetch: refetchResusHistory } = useQuery<ResusEventItem[]>({
+    queryKey: ["resuscitation", "recent"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/resuscitation/events/recent?hours=8&limit=50");
+      return unwrapList<ResusEventItem>(r);
+    },
+    staleTime: Infinity, // re-hydrated on WS reconnect below, not by polling
+  });
+
   const alertsRt = useRealtimeChannel<AlertItem>(CLINICAL_ALERTS_CHANNEL, {
     onEvent: (m) => setLiveAlerts((p) => [m.data as AlertItem, ...p].slice(0, ALERT_FEED_CAP)),
   });
   useRealtimeChannel<CodeBlueItem>(CODE_BLUE_CHANNEL, {
     onEvent: (m) => setCodeBlues((p) => [m.data as CodeBlueItem, ...p].slice(0, 50)),
   });
+
+  // Reconnect hydration: whenever the realtime channel (re)subscribes, pull
+  // the persisted events — anything broadcast while offline is recovered from
+  // the durable table, never from the live-only banner.
+  const wasSubscribed = useRef(false);
+  useEffect(() => {
+    if (alertsRt.subscribed && !wasSubscribed.current) {
+      void refetchResusHistory();
+    }
+    wasSubscribed.current = alertsRt.subscribed;
+  }, [alertsRt.subscribed, refetchResusHistory]);
 
   const feed = mergeAlerts(history, liveAlerts);
 
@@ -125,6 +153,52 @@ export default function ClinicalAlertsPage() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {resusHistory.length > 0 && (
+        <div data-testid="code-blue-history" className="rounded-lg border border-border overflow-hidden">
+          <div className="bg-muted/40 px-3 py-2 text-sm font-semibold text-muted-foreground">
+            Code Blue history (persisted events)
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-muted/20 text-muted-foreground">
+              <tr>
+                <th className="text-left p-3">Started</th>
+                <th className="text-left p-3">Kind</th>
+                <th className="text-left p-3">Ward</th>
+                <th className="text-left p-3">Bed</th>
+                <th className="text-left p-3">Reason</th>
+                <th className="text-left p-3">Trigger</th>
+                <th className="text-left p-3">Status</th>
+                <th className="text-left p-3">Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resusHistory.map((e) => (
+                <tr key={resusEventKey(e)} className="border-t border-border">
+                  <td className="p-3 whitespace-nowrap text-xs">{fmtTime(e.started_at)}</td>
+                  <td className="p-3">{(e.event_kind ?? "—").replace(/_/g, " ")}</td>
+                  <td className="p-3">{e.ward_snapshot ?? "—"}</td>
+                  <td className="p-3">{e.bed_snapshot ?? "—"}</td>
+                  <td className="p-3 text-muted-foreground">{e.reason ?? "—"}</td>
+                  <td className="p-3">{(e.trigger_source ?? "—").replace(/_/g, " ")}</td>
+                  <td className="p-3">
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                        e.status === "active"
+                          ? "bg-rose-200 text-rose-900"
+                          : "bg-slate-200 text-slate-800"
+                      }`}
+                    >
+                      {(e.status ?? "—").replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="p-3">{(e.outcome ?? "—").replace(/_/g, " ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

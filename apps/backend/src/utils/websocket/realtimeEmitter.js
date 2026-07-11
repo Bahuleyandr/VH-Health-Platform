@@ -27,8 +27,15 @@ export function emitVitalAnomaly(alert) {
   }
 }
 
-/** Code Blue — cardiac arrest / rapid-response push. */
-export function emitCodeBlue({ patientId, bedNumber, ward, triggeredBy, reason }) {
+/**
+ * Code Blue — cardiac arrest / rapid-response push.
+ *
+ * NOTIFICATION-ONLY and at-most-once (NL-14 P2): when a durable
+ * resuscitation_events row exists, `eventId` carries its id so clients can
+ * deep-link, but WS delivery is never the source of truth — dashboards
+ * hydrate persisted events via GET /api/v1/resuscitation/events/recent.
+ */
+export function emitCodeBlue({ patientId, bedNumber, ward, triggeredBy, reason, eventId = null }) {
   const payload = {
     kind: 'code-blue',
     patientId: String(patientId),
@@ -36,6 +43,7 @@ export function emitCodeBlue({ patientId, bedNumber, ward, triggeredBy, reason }
     ward: ward || null,
     triggeredBy: triggeredBy ? String(triggeredBy) : null,
     reason: reason || null,
+    eventId: eventId == null ? null : Number(eventId),
     at: new Date().toISOString(),
   };
   try {
@@ -80,6 +88,7 @@ async function _fanOutCodeBlueFcm(payload) {
         bedNumber: payload.bedNumber || '',
         ward: payload.ward || '',
         reason: payload.reason || '',
+        eventId: payload.eventId == null ? '' : String(payload.eventId),
         at: payload.at,
       },
     });

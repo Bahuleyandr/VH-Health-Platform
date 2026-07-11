@@ -23,8 +23,31 @@ export type CodeBlueItem = {
   ward: string | null;
   triggeredBy: string | null;
   reason: string | null;
+  eventId?: number | null;
   at: string;
 };
+
+// Persisted resuscitation event (NL-14 P2) — the durable source of truth the
+// dashboard hydrates on load/reconnect. Unlike the live-only banner, these
+// rows keep ward/bed/reason context.
+export type ResusEventItem = {
+  id: number;
+  patient_uid: string | null;
+  event_kind: string | null;
+  trigger_source: string | null;
+  ward_snapshot: string | null;
+  bed_snapshot: string | null;
+  reason: string | null;
+  is_drill?: boolean;
+  started_at: string;
+  ended_at: string | null;
+  outcome: string | null;
+  status: string | null;
+};
+
+export function resusEventKey(e: ResusEventItem): string {
+  return `resus:${e.id}`;
+}
 
 // Stable de-dup key: prefer the DB id (history rows); live WS events have no
 // id, so fall back to a patient|vital|at composite.

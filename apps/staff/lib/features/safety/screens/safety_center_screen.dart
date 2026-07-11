@@ -5,9 +5,11 @@ import 'package:intl/intl.dart';
 import '../../../core/providers/notification_provider.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/resus_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
+import '../widgets/resus_event_panel.dart';
 
 @visibleForTesting
 String safetyOwnerForAlert(NotificationItem item) {
@@ -89,6 +91,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
   List<NotificationItem> _criticalAlerts = const [];
   List<Map<String, dynamic>> _dischargeItems = const [];
   List<Map<String, dynamic>> _housekeepingTasks = const [];
+  List<Map<String, dynamic>> _resusEvents = const [];
 
   @override
   void initState() {
@@ -110,6 +113,12 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
         HrApiService.getMyHousekeepingRequests().catchError(
           (_) => <String, dynamic>{},
         ),
+        // Persisted code-blue/resus history — the durable rows are the source
+        // of truth on (re)load; the live WS banner is notification-only.
+        ResusApiService.listRecentEvents(
+          hours: 24,
+          limit: 10,
+        ).catchError((_) => <Map<String, dynamic>>[]),
       ]);
 
       final notifications =
@@ -138,6 +147,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
         _criticalAlerts = notifications;
         _dischargeItems = discharges;
         _housekeepingTasks = assigned;
+        _resusEvents = _asMapList(results[3]);
       });
     } catch (e) {
       if (!mounted) return;
@@ -250,6 +260,8 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
                 children: [
                   _buildSummary(s),
                   const SizedBox(height: 14),
+                  _buildResusHistory(theme, s),
+                  const SizedBox(height: 14),
                   _buildCriticalAlerts(theme, s),
                   const SizedBox(height: 14),
                   _buildDischargeReadiness(theme, s),
@@ -296,6 +308,51 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildResusHistory(ThemeData theme, AppStrings s) {
+    final items = _resusEvents.take(8).toList(growable: false);
+    return _SafetySection(
+      title: s.lookup('resus.history_title'),
+      subtitle: s.lookup('resus.history_subtitle'),
+      icon: Icons.emergency_outlined,
+      empty: s.lookup('resus.history_empty'),
+      actionLabel: s.actionRefresh,
+      onAction: _load,
+      children: items.map((event) {
+        final status = _text(event['status']);
+        final id = int.tryParse(_text(event['id']));
+        return _SafetyRow(
+          icon: Icons.monitor_heart_outlined,
+          color: status == 'active'
+              ? AppTheme.errorOnSurface
+              : AppTheme.textSecondary,
+          title: [
+            resusEnumLabel(s, 'event_kind', _text(event['event_kind'])),
+            if (_text(event['ward_snapshot']).isNotEmpty)
+              '${s.lookup('resus.ward')} ${_text(event['ward_snapshot'])}',
+            if (_text(event['bed_snapshot']).isNotEmpty)
+              '${s.lookup('resus.bed')} ${_text(event['bed_snapshot'])}',
+          ].join(' · '),
+          subtitle: [
+            resusEnumLabel(s, 'status', status),
+            if (_text(event['outcome']).isNotEmpty)
+              resusEnumLabel(s, 'outcome', _text(event['outcome'])),
+            if (_text(event['reason']).isNotEmpty) _text(event['reason']),
+          ].join(' - '),
+          meta: _time(event['started_at']),
+          actions: [
+            if (id != null)
+              FilledButton.tonalIcon(
+                onPressed: () =>
+                    context.push('/safety/resus/$id').then((_) => _load()),
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: Text(s.lookup('resus.open_record')),
+              ),
+          ],
+        );
+      }).toList(),
     );
   }
 

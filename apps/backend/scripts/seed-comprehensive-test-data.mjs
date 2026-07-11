@@ -89,6 +89,16 @@ const MANUAL_SEED_TABLES = new Set([
   'transplant_notto_exports',
   // NL-14 ED evidence requires exactly one source pointer; seed below.
   'ed_encounter_evidence',
+  // NL-14 P2 resuscitation rows carry status/finalize/content CHECK gates,
+  // an append-only trigger, and MAR/device link invariants the generic
+  // seeder cannot satisfy.
+  'resuscitation_settings',
+  'resuscitation_events',
+  'resuscitation_event_timeline',
+  'resuscitation_team_roles',
+  'resuscitation_medication_links',
+  'resuscitation_device_links',
+  'resuscitation_qa_reviews',
   // NL-14 P3 NICU/PICU rows carry per-kind payload CHECKs (typed feed/
   // fluid/jaundice events) and an owner-approval reference gate on score
   // outputs that the generic seeder cannot satisfy.
@@ -1927,6 +1937,180 @@ async function seedNicuPicuChartTables() {
   }]);
 }
 
+async function seedResuscitationTables() {
+  if (!(await tableExists('resuscitation_events'))) return;
+
+  const refs = await getCoreRefs();
+  const patientUid = refs.patient?.uid;
+  const leaderUid = refs.staff?.uid || refs.doctor?.uid;
+  const recorderUid = refs.secondStaff?.uid || leaderUid;
+  if (!patientUid || !leaderUid) return;
+
+  await insertIfEmpty('resuscitation_settings', [{
+    tenant_id: DEFAULT_TENANT_ID,
+    enabled: true,
+    charting_policy: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    trigger_policy: JSON.stringify({ seed: true }),
+    policy_source: 'operator_supplied',
+    enabled_at: new Date('2026-05-04T08:00:00.000Z'),
+    enabled_by: leaderUid,
+    acceptance_snapshot: JSON.stringify({ seed: true, accepted_by: 'seed-comprehensive-test-data' }),
+  }]);
+
+  let event = await first('resuscitation_events', 'id, tenant_id, patient_uid', 'TRUE', []);
+  if (!event) {
+    const created = await client.query(
+      `INSERT INTO resuscitation_events (
+         tenant_id, patient_uid, event_kind, trigger_source, triggered_by,
+         ward_snapshot, bed_snapshot, reason, started_at, ended_at, outcome,
+         status, team_leader_uid, team_leader_name, recorder_uid, recorder_name,
+         post_event_note_status, created_by, metadata
+       )
+       VALUES (
+         $1::uuid, $2::uuid, 'code_blue', 'explicit_staff', $3::uuid,
+         'ICU-A', 'B1', 'Seed code blue for QA coverage.',
+         '2026-05-04T11:00:00.000Z'::timestamptz,
+         '2026-05-04T11:25:00.000Z'::timestamptz, 'rosc',
+         'ended', $3::uuid, 'Seed team leader', $4::uuid, 'Seed recorder',
+         'draft', $3::uuid,
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id, tenant_id, patient_uid`,
+      [DEFAULT_TENANT_ID, patientUid, leaderUid, recorderUid],
+    );
+    event = created.rows[0];
+  }
+
+  await insertIfEmpty('resuscitation_event_timeline', [
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      patient_uid: event.patient_uid,
+      seq: 1,
+      entry_type: 'compressions_started',
+      occurred_at: new Date('2026-05-04T11:00:30.000Z'),
+      details: JSON.stringify({ seed: true }),
+      recorded_by: recorderUid,
+    },
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      patient_uid: event.patient_uid,
+      seq: 2,
+      entry_type: 'shock',
+      occurred_at: new Date('2026-05-04T11:02:00.000Z'),
+      rhythm: 'vf',
+      energy_joules: 200,
+      details: JSON.stringify({ seed: true, waveform: 'biphasic' }),
+      recorded_by: recorderUid,
+    },
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      patient_uid: event.patient_uid,
+      seq: 3,
+      entry_type: 'medication',
+      occurred_at: new Date('2026-05-04T11:03:00.000Z'),
+      medication_name: 'Adrenaline (epinephrine)',
+      dose: '1 mg',
+      route: 'IV',
+      details: JSON.stringify({ seed: true }),
+      recorded_by: recorderUid,
+    },
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      patient_uid: event.patient_uid,
+      seq: 4,
+      entry_type: 'rosc',
+      occurred_at: new Date('2026-05-04T11:24:00.000Z'),
+      details: JSON.stringify({ seed: true }),
+      recorded_by: recorderUid,
+    },
+  ]);
+
+  const medEntry = await first(
+    'resuscitation_event_timeline',
+    'id',
+    "resuscitation_event_id = $1 AND entry_type = 'medication'",
+    [event.id],
+  );
+  await insertIfEmpty('resuscitation_medication_links', [{
+    tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+    resuscitation_event_id: event.id,
+    timeline_entry_id: medEntry?.id,
+    patient_uid: event.patient_uid,
+    link_kind: 'unlinked_emergency',
+    medication_kind: 'medication',
+    medication_name: 'Adrenaline (epinephrine)',
+    dose: '1 mg',
+    route: 'IV',
+    reconciliation_status: 'pending_mar_reconciliation',
+    recorded_by: recorderUid,
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+
+  await insertIfEmpty('resuscitation_team_roles', [
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      patient_uid: event.patient_uid,
+      staff_uid: leaderUid,
+      staff_name: 'Seed team leader',
+      role: 'team_leader',
+      joined_at: new Date('2026-05-04T11:00:00.000Z'),
+      signed_at: new Date('2026-05-04T11:30:00.000Z'),
+      signature_method: 'app_confirmation',
+      signature_evidence: JSON.stringify({ seed: true }),
+      assigned_by: leaderUid,
+      metadata: JSON.stringify({ seed: true }),
+    },
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      patient_uid: event.patient_uid,
+      staff_uid: recorderUid,
+      staff_name: 'Seed recorder',
+      role: 'recorder',
+      joined_at: new Date('2026-05-04T11:00:00.000Z'),
+      signed_at: new Date('2026-05-04T11:30:00.000Z'),
+      signature_method: 'app_confirmation',
+      signature_evidence: JSON.stringify({ seed: true }),
+      assigned_by: leaderUid,
+      metadata: JSON.stringify({ seed: true }),
+    },
+  ]);
+
+  const alertRow = await first('clinical_alerts', 'id', 'TRUE', []);
+  await insertIfEmpty('resuscitation_device_links', [{
+    tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+    resuscitation_event_id: event.id,
+    patient_uid: event.patient_uid,
+    link_kind: alertRow ? 'clinical_alert' : 'defibrillator',
+    clinical_alert_id: alertRow?.id,
+    evidence: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    linked_by: recorderUid,
+    linked_at: new Date('2026-05-04T11:02:30.000Z'),
+  }]);
+
+  await insertIfEmpty('resuscitation_qa_reviews', [{
+    tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+    resuscitation_event_id: event.id,
+    patient_uid: event.patient_uid,
+    review_status: 'draft',
+    template_source: 'operator_supplied',
+    template_version: 'seed-qa-v1',
+    template_snapshot: JSON.stringify({ seed: true, questions: ['timeliness', 'documentation'] }),
+    evidence_owner_uid: leaderUid,
+    responses: JSON.stringify({ timeliness: 'seed answer' }),
+    findings: 'Seed QA review for coverage.',
+    action_items: JSON.stringify([]),
+    debrief_held_at: new Date('2026-05-04T12:00:00.000Z'),
+    debrief_lead_uid: leaderUid,
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
 async function seedEdEncounterEvidence() {
   if (!(await tableExists('ed_encounter_evidence')) || await tableCount('ed_encounter_evidence')) return;
 
@@ -2284,6 +2468,7 @@ try {
   await seedPerfusionSignoffs();
   await seedTransplantProgramTables();
   await seedEdEncounterEvidence();
+  await seedResuscitationTables();
   await seedNicuPicuChartTables();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
