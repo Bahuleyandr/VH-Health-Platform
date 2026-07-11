@@ -367,8 +367,8 @@ function semanticValue(column, table, index, ctx, maxLength) {
       return new Date('2026-05-04T09:00:00.000Z');
     }
   }
-  if (name.includes('lat')) return 13.02936;
-  if (name.includes('lng') || name.includes('lon')) return 80.24409;
+  if (/(^|_)(lat|latitude)($|_)/.test(name)) return 13.02936;
+  if (/(^|_)(lng|lon|longitude)($|_)/.test(name)) return 80.24409;
   if (name === 'volume_ml') return 450;
   if (name.includes('amount') || name.includes('cost') || name.includes('rate') || name.includes('score')) return 1;
   if (name.includes('count') || name.includes('total') || name.includes('units') || name.includes('minutes')) return 1;

@@ -7,12 +7,14 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/stemi_pathway_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../services/cath_lab_api_service.dart';
+import '../widgets/cath_case_reports_panel.dart';
 
 typedef CathLabCaseLoader =
     Future<List<CathLabCaseSummary>> Function(DateTime date);
@@ -21,6 +23,7 @@ typedef StemiActivationAcknowledger = Future<void> Function(int activationId);
 typedef CathLabRealtimeEventStreamFactory =
     Stream<RealtimeEvent> Function(String channel);
 typedef CathLabClock = DateTime Function();
+typedef CathLabRoleLoader = Future<String> Function();
 
 class CathLabScreen extends StatefulWidget {
   const CathLabScreen({
@@ -31,6 +34,8 @@ class CathLabScreen extends StatefulWidget {
     this.realtimeEvents,
     this.now,
     this.currentStaffUid,
+    this.loadRole,
+    this.reportDependencies = const CathReportDependencies(),
   });
 
   final CathLabCaseLoader? loadCases;
@@ -39,6 +44,8 @@ class CathLabScreen extends StatefulWidget {
   final CathLabRealtimeEventStreamFactory? realtimeEvents;
   final CathLabClock? now;
   final String? currentStaffUid;
+  final CathLabRoleLoader? loadRole;
+  final CathReportDependencies reportDependencies;
 
   @override
   State<CathLabScreen> createState() => _CathLabScreenState();
@@ -59,6 +66,7 @@ class _CathLabScreenState extends State<CathLabScreen>
   Timer? _stemiRefreshDebounce;
   Timer? _clockTicker;
   String? _currentStaffUid;
+  String _role = '';
 
   String get _dateLabel => DateFormat('dd MMM yyyy').format(_selectedDate);
   DateTime get _now => widget.now?.call() ?? DateTime.now();
@@ -66,7 +74,7 @@ class _CathLabScreenState extends State<CathLabScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _loadCases();
     unawaited(_loadStemiActivations());
     _currentStaffUid = widget.currentStaffUid;
@@ -75,6 +83,7 @@ class _CathLabScreenState extends State<CathLabScreen>
     _clockTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _stemiActivations.isNotEmpty) setState(() {});
     });
+    _loadRole();
   }
 
   @override
@@ -229,6 +238,17 @@ class _CathLabScreenState extends State<CathLabScreen>
     ]);
   }
 
+  Future<void> _loadRole() async {
+    try {
+      final loader = widget.loadRole ?? AuthService.getRole;
+      final role = await loader();
+      if (mounted) setState(() => _role = role);
+    } catch (_) {
+      // The backend remains the authority. An unavailable local role only
+      // suppresses privileged actions until the next screen load.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -262,6 +282,7 @@ class _CathLabScreenState extends State<CathLabScreen>
             Tab(text: s.lookup('s4.lib.cath_lab.tab.procedure')),
             Tab(text: s.lookup('s4.lib.cath_lab.tab.dose')),
             Tab(text: s.lookup('s4.lib.cath_lab.tab.post_orders')),
+            Tab(text: s.lookup('s4.lib.cath_lab.tab.reports')),
           ],
         ),
       ),
@@ -273,6 +294,7 @@ class _CathLabScreenState extends State<CathLabScreen>
           _buildBody(_buildProcedureTab),
           _buildBody(_buildDoseTab),
           _buildBody(_buildPostOrdersTab),
+          _buildBody(_buildReportsTab),
         ],
       ),
     );
@@ -394,6 +416,19 @@ class _CathLabScreenState extends State<CathLabScreen>
         countKey: 's4.lib.cath_lab.post_orders_count',
         count: cases[index].activePostOrderCount,
         emptyKey: 's4.lib.cath_lab.post_orders_pending',
+      ),
+    );
+  }
+
+  Widget _buildReportsTab(List<CathLabCaseSummary> cases) {
+    if (cases.isEmpty) return _emptyState(Icons.description_outlined);
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: cases.length,
+      itemBuilder: (context, index) => CathCaseReportsPanel(
+        cathCase: cases[index],
+        role: _role,
+        dependencies: widget.reportDependencies,
       ),
     );
   }
@@ -833,6 +868,13 @@ class _CathLabCaseCard extends StatelessWidget {
                   icon: Icons.priority_high_outlined,
                   label: _urgencyLabel(s, cathCase.urgency),
                 ),
+                if (cathCase.reportTatMinutes != null)
+                  _InfoPill(
+                    icon: Icons.timer_outlined,
+                    label: s.format('s4.dynamic.cath_lab.report.tat', {
+                      'minutes': cathCase.reportTatMinutes,
+                    }),
+                  ),
               ],
             ),
           ],

@@ -4,6 +4,8 @@
  * When a new role is added, update the group here and it propagates everywhere.
  */
 
+import { normalizeRole as normalizeCanonicalRole } from './roles.js';
+
 // Individual role constants (re-exported for convenience)
 export const ROLES = {
   PATIENT: 'PATIENT',
@@ -20,6 +22,7 @@ export const ROLES = {
   OT_INCHARGE: 'OT_INCHARGE',
   CATH_LAB_STAFF: 'CATH_LAB_STAFF',
   CATH_LAB_INCHARGE: 'CATH_LAB_INCHARGE',
+  TECHNICIAN: 'TECHNICIAN',
   PHARMACY_STAFF: 'PHARMACY_STAFF',
   PHARMACY_INCHARGE: 'PHARMACY_INCHARGE',
   STORES_PURCHASE_INCHARGE: 'STORES_PURCHASE_INCHARGE',
@@ -173,6 +176,7 @@ export const ALL_STAFF_ROLES = [
   ROLES.HOUSEKEEPING_INCHARGE,
   ROLES.MAINTENANCE,
   ROLES.BIOMEDICAL_STAFF,
+  ROLES.TECHNICIAN,
   ROLES.RECEPTIONIST,
   ROLES.RECEPTION_INCHARGE,
   ROLES.MEDICAL_RECORDS,
@@ -255,6 +259,46 @@ export const canSignOffLabResults = role => PATHOLOGIST_SIGN_ROLES.includes(role
 // unsigned rather than being finalised by an operator role.
 export const RADIOLOGY_REPORT_SIGN_ROLES = [ROLES.RADIOLOGIST];
 export const canSignRadiologyReport = role => RADIOLOGY_REPORT_SIGN_ROLES.includes(role);
+
+// Cath reporting has three deliberately separate gates. Report reads include
+// both image viewers and report editors so transcription staff can reopen their
+// drafts; image resolution itself stays on the narrower owner-approved list.
+export const CATH_REPORT_VIEWER_ROLES = [
+  ...DOCTOR_TIERS,
+  'SENIOR_DOCTOR',
+  ROLES.CATH_LAB_INCHARGE,
+  ROLES.CATH_LAB_STAFF,
+  ROLES.NURSING_STAFF,
+  ROLES.TECHNICIAN,
+  ROLES.ADMIN,
+  'SUPER_ADMIN',
+];
+export const CATH_REPORT_EDIT_ROLES = [
+  ...DOCTOR_TIERS,
+  'SENIOR_DOCTOR',
+  ROLES.RECEPTIONIST,
+  ROLES.CATH_LAB_INCHARGE,
+];
+export const CATH_REPORT_SIGN_ROLES = [...DOCTOR_TIERS, 'SENIOR_DOCTOR'];
+export const CATH_REPORT_READ_ROLES = [
+  ...new Set([...CATH_REPORT_VIEWER_ROLES, ...CATH_REPORT_EDIT_ROLES]),
+];
+export const CATH_LAB_WORKFLOW_ROLES = [
+  ...DOCTOR_TIERS,
+  'SENIOR_DOCTOR',
+  ROLES.CATH_LAB_STAFF,
+  ROLES.CATH_LAB_INCHARGE,
+  ROLES.NURSING_STAFF,
+  ROLES.ADMIN,
+  'SUPER_ADMIN',
+];
+
+const normalizedRole = role => normalizeCanonicalRole(String(role || '').trim()) || '';
+export const canViewCathReport = role => CATH_REPORT_READ_ROLES.includes(normalizedRole(role));
+export const canEditCathReport = role => CATH_REPORT_EDIT_ROLES.includes(normalizedRole(role));
+export const canSignCathReport = role => CATH_REPORT_SIGN_ROLES.includes(normalizedRole(role));
+export const canOpenCathViewer = role => CATH_REPORT_VIEWER_ROLES.includes(normalizedRole(role));
+export const canUseCathWorkflow = role => CATH_LAB_WORKFLOW_ROLES.includes(normalizedRole(role));
 
 // Anatomic pathology/cytology report sign-off is a pathologist act. Keep this
 // deliberately narrower than PATHOLOGIST_SIGN_ROLES, which includes lab

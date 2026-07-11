@@ -45,9 +45,23 @@ export const PHARMACY_SUPPLY_ROUTE_ROLES = getRolesForCapabilityGroups('supply_c
 export const THEATRE_ROUTE_ROLES = getRolesForCapabilityGroups('theatre', {
   include: ['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'NURSING_STAFF'],
 });
-export const CATH_LAB_ROUTE_ROLES = getRolesForCapabilityGroups('cath_lab', {
-  include: ['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'NURSING_STAFF'],
-});
+export const CATH_LAB_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups('cath_lab', {
+    include: [
+      'DOCTOR',
+      'DUTY_DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'RESIDENT',
+      'SENIOR_DOCTOR',
+      'NURSING_STAFF',
+      'RECEPTIONIST',
+    ],
+  }),
+  // TECHNICIAN is an owner-approved cath-image role that predates a dedicated
+  // role-policy graph entry. Keep it explicit at the route boundary.
+  ['TECHNICIAN'],
+);
 export const HOUSEKEEPING_ROUTE_ROLES = getRolesForCapabilityGroups('housekeeping');
 export const NOTIFICATION_AUDIT_ROUTE_ROLES = getRolesForCapabilityGroups('notifications_audit');
 

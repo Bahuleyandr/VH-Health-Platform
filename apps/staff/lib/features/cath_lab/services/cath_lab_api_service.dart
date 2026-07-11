@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:intl/intl.dart';
 
 import '../../../core/services/api_client.dart';
+import '../models/cath_report_models.dart';
 
 class CathLabCaseSummary {
   const CathLabCaseSummary({
@@ -18,6 +21,8 @@ class CathLabCaseSummary {
     required this.doseRecordCount,
     required this.activePostOrderCount,
     required this.deviceLinkCount,
+    this.signedReportCount = 0,
+    this.reportTatMinutes,
   });
 
   final int id;
@@ -34,6 +39,8 @@ class CathLabCaseSummary {
   final int doseRecordCount;
   final int activePostOrderCount;
   final int deviceLinkCount;
+  final int signedReportCount;
+  final int? reportTatMinutes;
 
   double get readinessProgress {
     if (readinessTotal <= 0) return 0;
@@ -59,6 +66,8 @@ class CathLabCaseSummary {
       doseRecordCount: _asInt(json['dose_record_count']) ?? 0,
       activePostOrderCount: _asInt(json['active_post_order_count']) ?? 0,
       deviceLinkCount: _asInt(json['device_link_count']) ?? 0,
+      signedReportCount: _asInt(json['signed_report_count']) ?? 0,
+      reportTatMinutes: _asInt(json['report_tat_minutes']),
     );
   }
 
@@ -106,5 +115,150 @@ class CathLabApiService {
           (raw) => CathLabCaseSummary.fromJson(Map<String, dynamic>.from(raw)),
         )
         .toList();
+  }
+
+  static Future<List<CathReportTemplate>> fetchReportTemplates({
+    String? reportType,
+  }) async {
+    final response = await ApiClient.get(
+      '/cath-lab/report-templates',
+      queryParameters: {
+        if (reportType != null && reportType.trim().isNotEmpty)
+          'report_type': reportType.trim(),
+      },
+    );
+    final data = _successfulData(
+      response,
+      'Failed to load Cath Lab report templates',
+    );
+    return _mapList(
+      data['templates'],
+    ).map(CathReportTemplate.fromJson).toList(growable: false);
+  }
+
+  static Future<List<CathProcedureReport>> fetchReportsForCase(
+    int caseId,
+  ) async {
+    final response = await ApiClient.get('/cath-lab/cases/$caseId/reports');
+    final data = _successfulData(response, 'Failed to load Cath Lab reports');
+    return _mapList(
+      data['reports'],
+    ).map(CathProcedureReport.fromJson).toList(growable: false);
+  }
+
+  static Future<CathProcedureReport> fetchReport(int reportId) async {
+    final response = await ApiClient.get('/cath-lab/reports/$reportId');
+    return _reportFromResponse(response, 'Failed to load Cath Lab report');
+  }
+
+  static Future<CathProcedureReport> createReport(
+    int caseId,
+    CathReportDraft draft,
+  ) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/reports',
+      body: draft.toJson(),
+    );
+    return _reportFromResponse(response, 'Failed to create Cath Lab report');
+  }
+
+  static Future<CathProcedureReport> updateReport(
+    int reportId,
+    CathReportDraft draft,
+  ) async {
+    final response = await ApiClient.patch(
+      '/cath-lab/reports/$reportId',
+      body: draft.toJson(),
+    );
+    return _reportFromResponse(response, 'Failed to update Cath Lab report');
+  }
+
+  static Future<CathProcedureReport> markReportPreliminary(int reportId) async {
+    final response = await ApiClient.post(
+      '/cath-lab/reports/$reportId/preliminary',
+      body: const {},
+    );
+    return _reportFromResponse(
+      response,
+      'Failed to mark Cath Lab report preliminary',
+    );
+  }
+
+  static Future<CathProcedureReport> signReport(int reportId) async {
+    final response = await ApiClient.post(
+      '/cath-lab/reports/$reportId/sign',
+      body: const {},
+    );
+    return _reportFromResponse(response, 'Failed to sign Cath Lab report');
+  }
+
+  static Future<CathReportAddendum> addReportAddendum(
+    int reportId,
+    CathReportAddendumDraft draft,
+  ) async {
+    final response = await ApiClient.post(
+      '/cath-lab/reports/$reportId/addenda',
+      body: draft.toJson(),
+    );
+    final data = _successfulData(
+      response,
+      'Failed to add Cath Lab report addendum',
+    );
+    final raw = data['addendum'];
+    if (raw is! Map) {
+      throw Exception('Cath Lab addendum response was malformed');
+    }
+    return CathReportAddendum.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  static Future<CathViewerLink> fetchViewerLink(int caseId) async {
+    final response = await ApiClient.get('/cath-lab/cases/$caseId/viewer-link');
+    final data = _successfulData(
+      response,
+      'Failed to resolve Cath Lab viewer link',
+    );
+    return CathViewerLink.fromJson(data);
+  }
+
+  static Future<Uint8List> downloadReportPdf(int reportId) async {
+    final response = await ApiClient.getBytes(
+      '/cath-lab/reports/$reportId/pdf',
+      timeout: const Duration(seconds: 30),
+    );
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    }
+    final parsed = ApiResponse.parse(response.statusCode, response.body);
+    throw Exception(
+      parsed.failureMessage('Cath Lab report PDF download failed'),
+    );
+  }
+
+  static Map<String, dynamic> _successfulData(
+    ApiResponse response,
+    String fallback,
+  ) {
+    if (!response.isSuccess) {
+      throw Exception(response.failureMessage(fallback));
+    }
+    return response.dataAsMap();
+  }
+
+  static CathProcedureReport _reportFromResponse(
+    ApiResponse response,
+    String fallback,
+  ) {
+    final data = _successfulData(response, fallback);
+    final raw = data['report'];
+    if (raw is! Map) throw Exception('Cath Lab report response was malformed');
+    return CathProcedureReport.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  static List<Map<String, dynamic>> _mapList(Object? value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
   }
 }

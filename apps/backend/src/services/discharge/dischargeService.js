@@ -137,6 +137,7 @@ const REQUIRED_SIGN_SECTION_KEYS = new Set([
   'procedure',
   'procedure_performed',
   'procedures_performed',
+  'cath_lab_procedures',
   // Take-home medication block (all naming variants).
   ...DISCHARGE_MED_SECTION_KEYS,
 ]);
@@ -212,9 +213,282 @@ const AUTO_SECTION_KEYS = new Set([
 const AUTO_BANNER =
   '[Auto-populated from visit data — review and edit before sign-off]';
 
+const DISCHARGE_COMPOSE_WORKFLOW_KEY = 'discharge_summary_compose';
+const CATH_COMPOSE_SECTION_KEY = 'cath_lab_procedures';
+const CATH_COMPOSE_SECTION_SOURCE = 'signed_cath_procedure_reports';
+const CATH_COMPOSE_SYNC_POLICY = 'compose_snapshot_only';
+
 function isAutoPopulatableKey(key) {
   const k = String(key || '').toLowerCase();
   return AUTO_SECTION_KEYS.has(k) || DISCHARGE_MED_SECTION_KEYS.has(k);
+}
+
+function plainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function cathComposeSectionFromResult(composeResult) {
+  const result = plainObject(composeResult);
+  const sourceSnapshot = plainObject(result.cath_reporting_source_snapshot);
+  if (sourceSnapshot.post_issue_sync !== false) return null;
+
+  const signedIds = new Set(
+    (Array.isArray(sourceSnapshot.signed_report_ids)
+      ? sourceSnapshot.signed_report_ids
+      : [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  );
+  if (signedIds.size > 0) {
+    const section = (Array.isArray(result.builder_sections) ? result.builder_sections : [])
+      .find((candidate) => String(candidate?.section_key || '').toLowerCase()
+        === CATH_COMPOSE_SECTION_KEY);
+    if (!section
+        || section.source !== CATH_COMPOSE_SECTION_SOURCE
+        || section.sync_policy !== CATH_COMPOSE_SYNC_POLICY
+        || section.clinician_editable !== true) {
+      return null;
+    }
+
+    const reports = plainObject(section.structured_data).reports;
+    if (!Array.isArray(reports) || reports.length === 0) return null;
+    const reportIds = reports
+      .map((report) => Number(report?.report_id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (reportIds.length !== reports.length
+        || new Set(reportIds).size !== signedIds.size
+        || reportIds.some((id) => !signedIds.has(id))
+        || reports.some((report) => !report?.signer?.signed_at)) {
+      return null;
+    }
+
+    const body = textValue(section.body);
+    if (!body) return null;
+    return {
+      section_key: CATH_COMPOSE_SECTION_KEY,
+      section_title: textValue(section.section_title) || 'Cath Lab Procedures',
+      body,
+      snapshot_kind: 'signed',
+      signed_report_ids: reportIds,
+      pending_procedure_log_ids: [],
+      source_snapshot_at: sourceSnapshot.captured_at || section.source_snapshot_at || null,
+    };
+  }
+
+  const pendingIds = (Array.isArray(sourceSnapshot.pending_procedure_log_ids)
+    ? sourceSnapshot.pending_procedure_log_ids
+    : [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  const warnings = cathComposeWarningsFromResult(result);
+  if (pendingIds.length === 0 || warnings.length === 0) return null;
+  const pendingLines = warnings.flatMap((warning) =>
+    (Array.isArray(warning.pending_procedures) ? warning.pending_procedures : [])
+      .map((procedure) => {
+        const procedureId = Number(procedure?.procedure_log_id);
+        if (!pendingIds.includes(procedureId)) return null;
+        const label = textValue(procedure?.procedure_type) || 'Cath-lab procedure';
+        const date = textValue(procedure?.procedure_date);
+        return `- ${label}${date ? ` — ${date}` : ''} (procedure log ${procedureId})`;
+      })
+      .filter(Boolean));
+  return {
+    section_key: CATH_COMPOSE_SECTION_KEY,
+    section_title: 'Cath Lab Procedures',
+    body: '[PLACEHOLDER — cath report pending; a signed report is required before discharge summary sign-off]\n\n'
+      + (pendingLines.length ? pendingLines.join('\n') : warnings.map((warning) => warning.message).join('\n')),
+    snapshot_kind: 'pending',
+    signed_report_ids: [],
+    pending_procedure_log_ids: pendingIds,
+    source_snapshot_at: sourceSnapshot.captured_at || null,
+  };
+}
+
+function cathComposeWarningsFromResult(composeResult) {
+  const result = plainObject(composeResult);
+  const pendingIds = new Set(
+    (Array.isArray(result.cath_reporting_source_snapshot?.pending_procedure_log_ids)
+      ? result.cath_reporting_source_snapshot.pending_procedure_log_ids
+      : [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  );
+  return (Array.isArray(result.completeness_warnings) ? result.completeness_warnings : [])
+    .filter((warning) => warning?.code === 'CATH_REPORT_PENDING')
+    .map((warning) => ({
+      ...warning,
+      pending_procedures: (Array.isArray(warning.pending_procedures)
+        ? warning.pending_procedures
+        : [])
+        .filter((procedure) => pendingIds.has(Number(procedure?.procedure_log_id))),
+    }));
+}
+
+async function latestCompletedComposeResult({ db = prisma, tenantId, admissionId }) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT result
+       FROM clinical_ai_workflow_runs
+      WHERE tenant_id = $1::uuid
+        AND admission_id = $2::int
+        AND workflow_key = $3
+        AND status = 'completed'
+        AND result IS NOT NULL
+      ORDER BY completed_at DESC NULLS LAST, id DESC
+      LIMIT 1`,
+    tenantId,
+    Number(admissionId),
+    DISCHARGE_COMPOSE_WORKFLOW_KEY,
+  );
+  return rows[0]?.result || null;
+}
+
+/**
+ * Copy the compose-time cath snapshot into the migration-159 summary builder.
+ * A later compose may refresh only an unedited pre-signoff section; clinician
+ * edits and every signed/delivered summary remain frozen.
+ */
+export async function materializeDischargeComposeSections({
+  tenantId,
+  admissionId,
+  summaryId = null,
+  composeResult = null,
+  actorUid = null,
+}) {
+  const scopedTenantId = requireTenantId(tenantId);
+  const parsedAdmissionId = Number(admissionId);
+  if (!Number.isInteger(parsedAdmissionId) || parsedAdmissionId <= 0) {
+    throw AppError.badRequest('admissionId must be a positive integer', 'INVALID_ADMISSION_ID');
+  }
+
+  return setTenantTx(scopedTenantId, async (tx) => {
+    const completedResult = composeResult || await latestCompletedComposeResult({
+      db: tx,
+      tenantId: scopedTenantId,
+      admissionId: parsedAdmissionId,
+    });
+    const cathSection = cathComposeSectionFromResult(completedResult);
+    if (!cathSection) {
+      return { materialized: false, reason: 'no_safe_cath_snapshot' };
+    }
+
+    const summaries = await tx.$queryRawUnsafe(
+      `SELECT id, status
+         FROM discharge_summaries
+        WHERE tenant_id = $1::uuid
+          AND admission_id = $2::int
+          AND ($3::int IS NULL OR id = $3::int)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        FOR UPDATE`,
+      scopedTenantId,
+      parsedAdmissionId,
+      summaryId == null ? null : Number(summaryId),
+    );
+    if (!summaries.length) {
+      return { materialized: false, reason: 'discharge_summary_missing' };
+    }
+    const summary = summaries[0];
+    if (!['draft', 'ready_for_signoff'].includes(String(summary.status))) {
+      return {
+        materialized: false,
+        reason: 'discharge_summary_immutable',
+        discharge_summary_id: Number(summary.id),
+      };
+    }
+
+    const existingRows = await tx.$queryRawUnsafe(
+      `SELECT id, body, edited_at
+         FROM discharge_summary_sections
+        WHERE discharge_summary_id = $1::int
+          AND section_key = $2
+        LIMIT 1
+        FOR UPDATE`,
+      Number(summary.id),
+      cathSection.section_key,
+    );
+    const existing = existingRows[0] || null;
+    if (existing?.edited_at) {
+      return {
+        materialized: false,
+        reason: 'clinician_edit_preserved',
+        discharge_summary_id: Number(summary.id),
+      };
+    }
+    if (existing && textValue(existing.body) === cathSection.body) {
+      return {
+        materialized: false,
+        reason: 'section_already_current',
+        discharge_summary_id: Number(summary.id),
+      };
+    }
+
+    let operation = 'inserted';
+    if (existing) {
+      await tx.$executeRawUnsafe(
+        `UPDATE discharge_summary_sections
+            SET section_title = $1, body = $2
+          WHERE id = $3::int AND edited_at IS NULL`,
+        cathSection.section_title,
+        cathSection.body,
+        Number(existing.id),
+      );
+      operation = 'updated';
+    } else {
+      const inserted = await tx.$queryRawUnsafe(
+        `INSERT INTO discharge_summary_sections
+           (discharge_summary_id, section_key, section_title, display_order, body)
+         SELECT $1::int, $2, $3,
+                COALESCE(MAX(display_order), 0) + 1,
+                $4
+           FROM discharge_summary_sections
+          WHERE discharge_summary_id = $1::int
+         ON CONFLICT (discharge_summary_id, section_key) DO NOTHING
+         RETURNING id`,
+        Number(summary.id),
+        cathSection.section_key,
+        cathSection.section_title,
+        cathSection.body,
+      );
+      if (!inserted.length) {
+        return {
+          materialized: false,
+          reason: 'section_race_preserved',
+          discharge_summary_id: Number(summary.id),
+        };
+      }
+    }
+
+    await tx.$executeRawUnsafe(
+      `UPDATE discharge_summaries
+          SET updated_at = NOW()
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(summary.id),
+      scopedTenantId,
+    );
+    await appendDischargeAudit({
+      tenantId: scopedTenantId,
+      id: summary.id,
+      action: 'DISCHARGE_SUMMARY_COMPOSE_SECTION_MATERIALIZED',
+      actorUid,
+      db: tx,
+      metadata: {
+        admission_id: parsedAdmissionId,
+        section_key: cathSection.section_key,
+        operation,
+        snapshot_kind: cathSection.snapshot_kind,
+        signed_report_ids: cathSection.signed_report_ids,
+        pending_procedure_log_ids: cathSection.pending_procedure_log_ids,
+        source_snapshot_at: cathSection.source_snapshot_at,
+        post_issue_sync: false,
+      },
+    });
+    return {
+      materialized: true,
+      discharge_summary_id: Number(summary.id),
+      section_key: cathSection.section_key,
+      operation,
+    };
+  });
 }
 
 async function appendDischargeAudit({
@@ -630,6 +904,20 @@ export async function createDraft({
     );
   }
 
+  // A compose run can finish before the migration-159 builder draft is
+  // created. Consume only the latest completed workflow result here so a
+  // governance-paused/failed run cannot leak into the patient document.
+  // The sibling compose path calls the same materializer for the inverse
+  // ordering (builder first, compose second).
+  if (admission_id) {
+    await materializeDischargeComposeSections({
+      tenantId,
+      admissionId: admission_id,
+      summaryId: summary.id,
+      actorUid: created_by,
+    });
+  }
+
   return getOne({ tenantId, id: summary.id });
 }
 
@@ -647,7 +935,16 @@ export async function getOne({ tenantId, id }) {
       ORDER BY display_order, id`,
     rows[0].id,
   );
-  return { ...rows[0], sections };
+  let completenessWarnings = [];
+  if (rows[0].admission_id
+      && ['draft', 'ready_for_signoff'].includes(String(rows[0].status))) {
+    const composeResult = await latestCompletedComposeResult({
+      tenantId,
+      admissionId: rows[0].admission_id,
+    });
+    completenessWarnings = cathComposeWarningsFromResult(composeResult);
+  }
+  return { ...rows[0], sections, completeness_warnings: completenessWarnings };
 }
 
 const PRINTABLE_DISCHARGE_SUMMARY_STATUSES = new Set(['signed', 'delivered']);

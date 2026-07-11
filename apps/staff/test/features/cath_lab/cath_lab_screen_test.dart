@@ -5,7 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
+import 'package:vhhealth_staff/features/cath_lab/models/cath_report_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/services/cath_lab_api_service.dart';
+import 'package:vhhealth_staff/features/cath_lab/widgets/cath_case_reports_panel.dart';
 
 void main() {
   test('CathLabCaseSummary parses backend counters defensively', () {
@@ -24,6 +26,8 @@ void main() {
       'dose_record_count': 1,
       'active_post_order_count': '2',
       'device_link_count': 1,
+      'signed_report_count': '1',
+      'report_tat_minutes': '24',
     });
 
     expect(parsed.id, 42);
@@ -31,6 +35,8 @@ void main() {
     expect(parsed.readinessComplete, isTrue);
     expect(parsed.procedureCount, 1);
     expect(parsed.activePostOrderCount, 2);
+    expect(parsed.signedReportCount, 1);
+    expect(parsed.reportTatMinutes, 24);
   });
 
   test(
@@ -412,4 +418,55 @@ Map<String, dynamic> _stemiPayload(List<String> ruleCodes) {
       },
     ],
   };
+  testWidgets('reports tab expands a case-level report list', (tester) async {
+    const cathCase = CathLabCaseSummary(
+      id: 42,
+      patientUid: '11111111-1111-4111-8111-111111111111',
+      patientName: 'Asha Rao',
+      requestedProcedure: 'Primary PCI',
+      status: 'completed',
+      urgency: 'emergency',
+      labRoom: 'CL-1',
+      plannedStartAt: null,
+      readinessTotal: 8,
+      readinessCleared: 8,
+      procedureCount: 1,
+      doseRecordCount: 1,
+      activePostOrderCount: 0,
+      deviceLinkCount: 1,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CathLabScreen(
+          loadCases: (_) async => const [cathCase],
+          loadRole: () async => 'DOCTOR',
+          reportDependencies: CathReportDependencies(
+            loadReports: (_) async => const [
+              CathProcedureReport(
+                id: 91,
+                caseId: 42,
+                patientUid: '11111111-1111-4111-8111-111111111111',
+                reportType: 'ptca',
+                status: 'preliminary',
+                narrativeSections: {'findings': 'Successful PCI to LAD'},
+                codedFields: {'stent_count': 1},
+              ),
+            ],
+            loadViewerLink: (_) async =>
+                const CathViewerLink(status: 'pacs_not_configured'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Reports'));
+    await tester.tap(find.text('Reports'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-report-expand-42')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Preliminary'), findsOneWidget);
+    expect(find.text('Successful PCI to LAD'), findsOneWidget);
+  });
 }
