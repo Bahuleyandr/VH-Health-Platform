@@ -35,6 +35,13 @@ jest.unstable_mockModule('../../services/staff/credentialingService.js', () => (
   privilegeKey: privilegeKeyMock
 }));
 
+// NL-13 P1e: keep this suite's graph tight — completion emission is
+// best-effort and covered by cathQuickWinsService.test.js.
+const emitCathFollowUpsMock = jest.fn(async () => ({ created: [], skipped: [] }));
+jest.unstable_mockModule('../../services/clinical/cathQuickWinsService.js', () => ({
+  emitCathProcedureCompletionFollowUps: emitCathFollowUpsMock
+}));
+
 const {
   READINESS_TYPES,
   addContrastRadiationRecord,
