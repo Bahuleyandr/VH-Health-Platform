@@ -14,6 +14,7 @@ import * as pharmacy from '../../../scripts/openapi/schemas/pharmacy.mjs';
 import * as users from '../../../scripts/openapi/schemas/users.mjs';
 import * as config from '../../../scripts/openapi/schemas/config.mjs';
 import * as portal from '../../../scripts/openapi/schemas/portal.mjs';
+import * as cathConsumables from '../../../scripts/openapi/schemas/cathConsumables.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -28,7 +29,8 @@ const MODULES = [
   pharmacy,
   users,
   config,
-  portal
+  portal,
+  cathConsumables
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +65,43 @@ describe('OpenAPI contract overlays (static gate)', () => {
     ajv.addSchema(ajvReadySpec(spec), 'openapi.json');
     for (const name of Object.keys(spec.components.schemas)) {
       expect(ajv.getSchema(`openapi.json#/components/schemas/${name}`)).toBeTruthy();
+    }
+  });
+
+  it('models BIGINT billing source references as safe integers or decimal strings', () => {
+    const expectBigIntWire = (schema) => {
+      expect(schema.oneOf).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'integer',
+          maximum: Number.MAX_SAFE_INTEGER,
+        }),
+        expect.objectContaining({ type: 'string', pattern: '^[1-9][0-9]*$' }),
+      ]));
+    };
+    for (const schemaName of ['InvoiceItem', 'NonPayableLine', 'AddInvoiceItemRequest']) {
+      expectBigIntWire(spec.components.schemas[schemaName].properties.source_ref_id);
+    }
+    expectBigIntWire(
+      spec.components.schemas.CathConsumableBillingLineReference.properties.source_id,
+    );
+
+    const cathBigIntFields = {
+      CathConsumableCatalogItem: ['id'],
+      CathConsumableCatalogUpsertRequest: ['id'],
+      CathCaseConsumableUsage: [
+        'id',
+        'case_id',
+        'procedure_log_id',
+        'catalog_item_id',
+        'implant_record_id',
+      ],
+      CathConsumableUnbilledUsageItem: ['usage_id', 'case_id', 'procedure_log_id'],
+      CathCaseConsumableUsageCreateRequest: ['catalog_item_id', 'procedure_log_id'],
+    };
+    for (const [schemaName, fieldNames] of Object.entries(cathBigIntFields)) {
+      for (const fieldName of fieldNames) {
+        expectBigIntWire(spec.components.schemas[schemaName].properties[fieldName]);
+      }
     }
   });
 });

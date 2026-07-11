@@ -395,6 +395,30 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   stemi_activations: {
     activation_source: 'prehospital_handover',
   },
+  // migs 563-565: keep the generic cath usage row on the non-batch,
+  // non-implant branch while satisfying its tenant-composite references.
+  cath_consumable_catalog: {
+    tenant_id: (ctx) => ctx.tenantId,
+    inventory_item_id: async () => firstValue('pharmacy_inventory_items', 'id'),
+  },
+  cath_case_consumable_usage: {
+    tenant_id: (ctx) => ctx.tenantId,
+    case_id: async () => firstValue('cath_lab_cases', 'id'),
+    procedure_log_id: null,
+    catalog_item_id: async () => firstValue('cath_consumable_catalog', 'id'),
+    patient_uid: async () => firstValue('cath_lab_cases', 'patient_uid'),
+    inventory_batch_id: null,
+    batch_tracked: false,
+    is_implant: false,
+    inventory_movement_id: null,
+    timeline_event_id: null,
+    audit_event_id: null,
+  },
+  surgical_implants: {
+    tenant_id: (ctx) => ctx.tenantId,
+    cath_case_id: null,
+    cath_usage_id: null,
+  },
 };
 
 function seedOverrideFor(table, columnName) {
@@ -449,6 +473,15 @@ async function rowForTable(table, columns, metadata, ctx, index, relaxed = false
     const hasDefault = column.column_default !== null;
     const isGenerated = column.is_identity === 'YES' || column.is_generated !== 'NEVER';
     if (isGenerated) continue;
+
+    const tableOverrides = TABLE_COLUMN_SEED_OVERRIDES[table];
+    if (tableOverrides && Object.hasOwn(tableOverrides, column.column_name)) {
+      const override = tableOverrides[column.column_name];
+      row[column.column_name] = typeof override === 'function'
+        ? await override(ctx)
+        : override;
+      continue;
+    }
 
     const required = column.is_nullable === 'NO' && !hasDefault;
     const fk = metadata.fkByTableColumn.get(`${table}.${column.column_name}`);

@@ -120,15 +120,15 @@ router.get('/batches', requireInventoryRead, wrap(async (req) => inv.listBatches
 
 // ── Stock movements ───────────────────────────────────────────────────
 router.post('/movements', requireInventoryMaintain, wrap(async (req) => inv.recordMovement({
-  tenantId: inv.tenantOf(req),
   ...req.body,
+  tenantId: inv.tenantOf(req),
   performed_by: req.user?.uid,
 })));
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
 router.post('/controlled-dispense', requireControlledDispense, wrap(async (req) => inv.dispenseControlled({
-  tenantId: inv.tenantOf(req),
   ...req.body,
+  tenantId: inv.tenantOf(req),
   performed_by: req.user?.uid,
   performed_by_name: req.body.performed_by_name || req.user?.name || null,
 })));

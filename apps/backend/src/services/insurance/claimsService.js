@@ -1070,11 +1070,25 @@ const FINAL_CASHLESS_TRACEABLE_SOURCE_TYPES = new Set([
   'room_day',
   'discharge_consult',
   'theatre_case',
+  'dialysis_session',
+  'cath_procedure_log',
+  'cath_consumable_usage',
   'admission_package',
   'package',
 ]);
 
 const FINAL_CASHLESS_SOURCE_ID_OPTIONAL = new Set(['admission_package', 'package']);
+
+function normalizeBigIntForResponse(value) {
+  if (typeof value !== 'bigint') return value;
+  if (
+    value >= BigInt(Number.MIN_SAFE_INTEGER)
+    && value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return Number(value);
+  }
+  return value.toString();
+}
 
 async function assertFinalCashlessInvoiceLinesTraceable(invoiceId) {
   const rows = await prisma.$queryRawUnsafe(
@@ -1099,7 +1113,7 @@ async function assertFinalCashlessInvoiceLinesTraceable(invoiceId) {
     id: Number(row.id),
     description: String(row.description || '').slice(0, 120),
     source_ref_type: row.source_ref_type || null,
-    source_ref_id: row.source_ref_id == null ? null : Number(row.source_ref_id),
+    source_ref_id: normalizeBigIntForResponse(row.source_ref_id),
   }));
   throw AppError.badRequest(
     `Final cashless claim invoice ${invoiceId} has ${untraceable.length} untraceable billable line(s). ` +
@@ -2237,3 +2251,7 @@ export async function getClaimBundle({ tenantId, id }) {
   );
   return { claim: { ...claim, warnings }, documents: docs, correspondence: corr };
 }
+
+export const __testing__ = {
+  assertFinalCashlessInvoiceLinesTraceable,
+};

@@ -20,7 +20,7 @@
 // convention). All money is stored in *_minor (paise) so quantities
 // and money never lose precision.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -131,9 +131,54 @@ export async function listBatches({ tenantId, item_id, expiring_in_days, status 
 
 // ── Stock movements ───────────────────────────────────────────────────
 
+async function existingCathUsageMovement(
+  db,
+  { tenantId, inventoryItemId, inventoryBatchId, referenceId },
+) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+            quantity_delta, reference_type, reference_id, performed_by, notes,
+            created_at
+       FROM pharmacy_stock_movements
+      WHERE tenant_id = $1::uuid
+        AND inventory_item_id = $2::int
+        AND inventory_batch_id IS NOT DISTINCT FROM $3::int
+        AND reference_type = 'cath_consumable_usage'
+        AND reference_id = $4
+      LIMIT 1`,
+    tenantId,
+    inventoryItemId,
+    inventoryBatchId,
+    referenceId,
+  );
+  return rows[0] || null;
+}
+
+function replayedMovementResult(movement, { movementKind, delta, increasing, decreasing }) {
+  if (
+    movement.movement_kind !== movementKind
+    || Number(movement.quantity_delta) !== delta
+  ) {
+    throw AppError.conflict(
+      'Existing cath consumable stock movement does not match the documented usage',
+      'CATH_INVENTORY_MOVEMENT_REPLAY_CONFLICT',
+    );
+  }
+  return {
+    movement,
+    increasing,
+    decreasing,
+    idempotent_replay: true,
+  };
+}
+
 export async function recordMovement({
   tenantId, inventory_item_id, inventory_batch_id, movement_kind,
   quantity, reference_type, reference_id, notes, performed_by,
+  require_usable_batch = false,
+  expected_batch_number = null,
+  expected_lot_number = null,
+  expected_expiry_date = null,
 }) {
   if (!VALID_MOVEMENTS.includes(movement_kind)) {
     throw AppError.badRequest(`Invalid movement_kind. Allowed: ${VALID_MOVEMENTS.join(', ')}`);
@@ -144,48 +189,156 @@ export async function recordMovement({
   const decreasing = ['issue', 'transfer_out', 'dispose', 'expire', 'recall', 'adjust_decrease'].includes(movement_kind);
   const increasing = ['receive', 'transfer_in', 'return', 'adjust_increase'].includes(movement_kind);
   const delta = decreasing ? -Math.abs(Number(quantity)) : Math.abs(Number(quantity));
+  const inventoryItemId = Number(inventory_item_id);
+  const inventoryBatchId = inventory_batch_id ? Number(inventory_batch_id) : null;
+  const cathUsageReplay = reference_type === 'cath_consumable_usage'
+    && reference_id !== null
+    && reference_id !== undefined
+    && String(reference_id).trim() !== '';
+  const cathReferenceId = cathUsageReplay ? String(reference_id).trim() : null;
 
-  // Adjust the chosen batch's remaining_quantity if a batch is given.
-  if (inventory_batch_id) {
-    const batches = await prisma.$queryRawUnsafe(
-      `SELECT id, remaining_quantity, status
-         FROM pharmacy_inventory_batches
-        WHERE id = $1::int AND tenant_id = $2::uuid`,
-      Number(inventory_batch_id), tenantId,
+  return setTenantTx(tenantId, async (tx) => {
+    // Lock the exact tenant/item batch before checking and decrementing it so
+    // concurrent issues cannot both consume the same remaining quantity.
+    if (inventoryBatchId) {
+      const batches = await tx.$queryRawUnsafe(
+        `SELECT id, inventory_item_id, batch_number, lot_number, expiry_date,
+                remaining_quantity, status,
+                (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+           FROM pharmacy_inventory_batches
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid
+            AND inventory_item_id = $3::int
+          FOR UPDATE`,
+        inventoryBatchId,
+        tenantId,
+        inventoryItemId,
+      );
+      if (!batches.length) throw AppError.notFound('Batch not found');
+      const batch = batches[0];
+      if (cathUsageReplay) {
+        const existing = await existingCathUsageMovement(tx, {
+          tenantId,
+          inventoryItemId,
+          inventoryBatchId,
+          referenceId: cathReferenceId,
+        });
+        if (existing) {
+          return replayedMovementResult(existing, {
+            movementKind: movement_kind,
+            delta,
+            increasing,
+            decreasing,
+          });
+        }
+      }
+      const actualExpiry = batch.expiry_date instanceof Date
+        ? batch.expiry_date.toISOString().slice(0, 10)
+        : String(batch.expiry_date || '').slice(0, 10);
+      const expectedBatch = String(expected_batch_number || '').trim();
+      const expectedLot = String(expected_lot_number || '').trim();
+      const expectedExpiry = expected_expiry_date instanceof Date
+        ? expected_expiry_date.toISOString().slice(0, 10)
+        : String(expected_expiry_date || '').slice(0, 10);
+      if (
+        (expectedBatch && expectedBatch !== String(batch.batch_number || '').trim())
+        || (expectedLot && expectedLot !== String(batch.lot_number || '').trim())
+        || (expectedExpiry && expectedExpiry !== actualExpiry)
+      ) {
+        throw AppError.badRequest(
+          'Inventory batch lineage does not match the documented batch/lot/expiry',
+          'INVENTORY_BATCH_LINEAGE_MISMATCH',
+        );
+      }
+      if (require_usable_batch && decreasing && batch.status !== 'in_stock') {
+        throw AppError.badRequest(
+          `Inventory batch is not available for issue (status: ${batch.status})`,
+          'INVENTORY_BATCH_UNAVAILABLE',
+        );
+      }
+      if (require_usable_batch && decreasing && batch.is_expired) {
+        throw AppError.badRequest(
+          'Inventory batch is expired and cannot be issued',
+          'INVENTORY_BATCH_EXPIRED',
+        );
+      }
+      if (decreasing && Number(batch.remaining_quantity) + delta < 0) {
+        throw AppError.badRequest(
+          `Insufficient stock. Available: ${batch.remaining_quantity}`,
+          'INVENTORY_INSUFFICIENT_STOCK',
+        );
+      }
+    } else if (cathUsageReplay) {
+      const existing = await existingCathUsageMovement(tx, {
+        tenantId,
+        inventoryItemId,
+        inventoryBatchId: null,
+        referenceId: cathReferenceId,
+      });
+      if (existing) {
+        return replayedMovementResult(existing, {
+          movementKind: movement_kind,
+          delta,
+          increasing,
+          decreasing,
+        });
+      }
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_stock_movements
+         (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+        quantity_delta, reference_type, reference_id, performed_by, notes)
+       VALUES ($1::uuid, $2::int, $3, $4, $5::numeric, $6, $7, $8::uuid, $9)
+       ${cathUsageReplay ? 'ON CONFLICT DO NOTHING' : ''}
+       RETURNING *`,
+      tenantId,
+      inventoryItemId,
+      inventoryBatchId,
+      movement_kind,
+      delta,
+      reference_type || null,
+      reference_id || null,
+      performed_by ? String(performed_by) : null,
+      notes || null,
     );
-    if (!batches.length) throw AppError.notFound('Batch not found');
-    if (decreasing && Number(batches[0].remaining_quantity) + delta < 0) {
-      throw AppError.badRequest(
-        `Insufficient stock. Available: ${batches[0].remaining_quantity}`,
+    if (cathUsageReplay && !rows[0]) {
+      const existing = await existingCathUsageMovement(tx, {
+        tenantId,
+        inventoryItemId,
+        inventoryBatchId,
+        referenceId: cathReferenceId,
+      });
+      if (!existing) {
+        throw AppError.conflict(
+          'Cath consumable stock movement replay could not be resolved',
+          'CATH_INVENTORY_MOVEMENT_REPLAY_RACE',
+        );
+      }
+      return replayedMovementResult(existing, {
+        movementKind: movement_kind,
+        delta,
+        increasing,
+        decreasing,
+      });
+    }
+    if (inventoryBatchId) {
+      await tx.$executeRawUnsafe(
+        `UPDATE pharmacy_inventory_batches
+            SET remaining_quantity = remaining_quantity + $1::numeric,
+                status = CASE WHEN remaining_quantity + $1::numeric <= 0 THEN 'depleted' ELSE status END,
+                updated_at = NOW()
+          WHERE id = $2::int
+            AND tenant_id = $3::uuid
+            AND inventory_item_id = $4::int`,
+        delta,
+        inventoryBatchId,
+        tenantId,
+        inventoryItemId,
       );
     }
-    await prisma.$executeRawUnsafe(
-      `UPDATE pharmacy_inventory_batches
-          SET remaining_quantity = remaining_quantity + $1::numeric,
-              status = CASE WHEN remaining_quantity + $1::numeric <= 0 THEN 'depleted' ELSE status END,
-              updated_at = NOW()
-        WHERE id = $2::int`,
-      delta, Number(inventory_batch_id),
-    );
-  }
-
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_stock_movements
-       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-        quantity_delta, reference_type, reference_id, performed_by, notes)
-     VALUES ($1::uuid, $2::int, $3, $4, $5::numeric, $6, $7, $8::uuid, $9)
-     RETURNING *`,
-    tenantId,
-    Number(inventory_item_id),
-    inventory_batch_id ? Number(inventory_batch_id) : null,
-    movement_kind,
-    delta,
-    reference_type || null,
-    reference_id || null,
-    performed_by ? String(performed_by) : null,
-    notes || null,
-  );
-  return { movement: rows[0], increasing, decreasing };
+    return { movement: rows[0], increasing, decreasing };
+  });
 }
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────

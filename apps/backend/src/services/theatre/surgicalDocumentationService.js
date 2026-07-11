@@ -92,6 +92,21 @@ function normalizeId(value, label = 'id') {
   return parsed;
 }
 
+function normalizeBigIntId(value, label) {
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+    throw AppError.badRequest(`${label} must be sent as a decimal string above the JavaScript safe-integer range`);
+  }
+  const text = String(value ?? '').trim();
+  if (!/^[0-9]+$/.test(text)) {
+    throw AppError.badRequest(`${label} must be a positive integer`);
+  }
+  const parsed = BigInt(text);
+  if (parsed <= 0n || parsed > 9_223_372_036_854_775_807n) {
+    throw AppError.badRequest(`${label} must be a positive integer`);
+  }
+  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : text;
+}
+
 function maybeUuid(value, label = 'uid') {
   if (value === null || value === undefined || value === '') return null;
   const text = String(value).trim();
@@ -1093,13 +1108,33 @@ export async function getAnesthesiaRecord({ tenantId = null, otScheduleId } = {}
 // 5. surgical_implants
 // ---------------------------------------------------------------------------
 
-const IMPLANT_RETURNING = `id, tenant_id, ot_schedule_id, patient_uid,
+const IMPLANT_RETURNING = `id, tenant_id, ot_schedule_id, cath_case_id, cath_usage_id, patient_uid,
   implant_type, manufacturer, brand_name, product_name,
   reference_number, lot_number, serial_number, udi, gudid_di,
   size, side, expiry_date, sterilization_lot,
   implanted_by, implanted_at, removal_date, removal_reason,
   status, recall_reference, notes,
   metadata, created_at, updated_at`;
+
+function normalizeBigIntIdForResponse(value) {
+  if (typeof value !== 'bigint') return value;
+  if (
+    value >= BigInt(Number.MIN_SAFE_INTEGER)
+    && value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return Number(value);
+  }
+  return value.toString();
+}
+
+function normalizeImplantForResponse(implant) {
+  if (!implant) return implant;
+  return {
+    ...implant,
+    cath_case_id: normalizeBigIntIdForResponse(implant.cath_case_id),
+    cath_usage_id: normalizeBigIntIdForResponse(implant.cath_usage_id),
+  };
+}
 
 export async function recordImplant({
   tenantId = null,
@@ -1194,7 +1229,7 @@ export async function recordImplant({
           status: implant.status,
         },
       });
-      return implant;
+      return normalizeImplantForResponse(implant);
     });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
@@ -1205,6 +1240,8 @@ export async function recordImplant({
 export async function listImplants({
   tenantId = null,
   otScheduleId = null,
+  cathCaseId = null,
+  cathUsageId = null,
   patientUid = null,
   status = null,
   manufacturer = null,
@@ -1217,6 +1254,14 @@ export async function listImplants({
   if (otScheduleId) {
     params.push(normalizeId(otScheduleId, 'ot_schedule_id'));
     filters.push(`ot_schedule_id = $${params.length}`);
+  }
+  if (cathCaseId) {
+    params.push(normalizeBigIntId(cathCaseId, 'cath_case_id'));
+    filters.push(`cath_case_id = $${params.length}`);
+  }
+  if (cathUsageId) {
+    params.push(normalizeBigIntId(cathUsageId, 'cath_usage_id'));
+    filters.push(`cath_usage_id = $${params.length}`);
   }
   if (patientUid) {
     params.push(maybeUuid(patientUid, 'patient_uid'));
@@ -1243,7 +1288,7 @@ export async function listImplants({
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
     );
-    return { implants: rows, count: rows.length };
+    return { implants: rows.map(normalizeImplantForResponse), count: rows.length };
   } catch (err) {
     if (isMissingSchemaError(err)) return { implants: [], count: 0 };
     throw err;
@@ -1271,7 +1316,7 @@ export async function recordImplantRemoval({
     implantId, tid,
   );
   if (!rows[0]) throw AppError.notFound('Implant not found or not in_situ');
-  return rows[0];
+  return normalizeImplantForResponse(rows[0]);
 }
 
 // ---------------------------------------------------------------------------

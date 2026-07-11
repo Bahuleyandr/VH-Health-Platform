@@ -95,6 +95,7 @@ router.get('/inventory-items', async (req, res, next) => {
       facilityId: req.query.facility_id || null,
       status: req.query.status || null,
       isNarcotic: req.query.is_narcotic != null ? req.query.is_narcotic === 'true' : null,
+      q: req.query.q || null,
       limit: req.query.limit,
     });
     return success(res, result, 'Inventory items retrieved');

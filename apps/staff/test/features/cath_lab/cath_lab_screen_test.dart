@@ -10,6 +10,21 @@ import 'package:vhhealth_staff/features/cath_lab/services/cath_lab_api_service.d
 import 'package:vhhealth_staff/features/cath_lab/widgets/cath_case_reports_panel.dart';
 
 void main() {
+  test('consumable capture role gate matches the backend workflow gate', () {
+    expect(cathConsumablesCanAddForRole('DOCTOR'), isTrue);
+    expect(cathConsumablesCanAddForRole('CATHLAB_STAFF'), isTrue);
+    expect(cathConsumablesCanAddForRole('NURSING_STAFF'), isTrue);
+    expect(cathConsumablesCanAddForRole('ADMIN'), isTrue);
+    expect(cathConsumablesCanAddForRole('RECEPTIONIST'), isFalse);
+    expect(cathConsumablesCanAddForRole('TECHNICIAN'), isFalse);
+    expect(cathConsumablesCanAddForCaseStatus('scheduled'), isFalse);
+    expect(cathConsumablesCanAddForCaseStatus('readiness_pending'), isFalse);
+    expect(cathConsumablesCanAddForCaseStatus('ready'), isTrue);
+    expect(cathConsumablesCanAddForCaseStatus('in_progress'), isTrue);
+    expect(cathConsumablesCanAddForCaseStatus('completed'), isTrue);
+    expect(cathConsumablesCanAddForCaseStatus('cancelled'), isTrue);
+  });
+
   test('CathLabCaseSummary parses backend counters defensively', () {
     final parsed = CathLabCaseSummary.fromJson({
       'id': '42',
