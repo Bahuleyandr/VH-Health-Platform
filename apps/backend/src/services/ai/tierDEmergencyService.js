@@ -221,18 +221,48 @@ export async function generateEmergencyVisitSummary({
 // 5. Ambulance handover summary
 // ---------------------------------------------------------------------------
 export async function generateAmbulanceHandoverSummary({
-  tenantId = null, ambulanceRequestId,
+  tenantId = null, ambulanceRequestId, prehospitalHandoverId = null,
   generatedBy = null, req = null,
 } = {}) {
   const ambId = normalizeId(ambulanceRequestId, 'ambulance_request_id');
   const amb = (await safeQuery(
-    `SELECT id, patient_uid, dispatched_at, scene_arrived_at, hospital_arrived_at,
-            status, dispatch_kind, scene_observations, en_route_interventions,
-            chief_complaint, vitals_on_pickup
-     FROM ambulance_requests WHERE id = $1 LIMIT 1`,
-    [ambId],
+    `SELECT id, tenant_id, patient_uid, dispatched_at, on_scene_at AS scene_arrived_at,
+            arrived_at AS hospital_arrived_at, status, request_kind AS dispatch_kind,
+            presenting_complaint AS chief_complaint, priority, destination,
+            ambulance_unit_id, driver_name, attendant_name, metadata
+       FROM ambulance_requests
+      WHERE id = $1
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    [ambId, maybeUuid(tenantId, 'tenant_id')],
   ))[0];
   if (!amb) throw AppError.notFound('Ambulance request not found');
+
+  const handoverId = prehospitalHandoverId ? normalizeId(prehospitalHandoverId, 'prehospital_handover_id') : null;
+  const handovers = await safeQuery(
+    `SELECT id, handover_number, emergency_visit_id, patient_uid, status,
+            pickup_context, scene_observations, allergies_reported,
+            medications_reported, eta_first_at, eta_latest_at,
+            eta_change_reason, presenting_complaint, sbar, created_at, updated_at
+       FROM prehospital_handovers
+      WHERE ambulance_request_id = $1
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+        AND ($3::bigint IS NULL OR id = $3::bigint)
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [ambId, maybeUuid(tenantId, 'tenant_id'), handoverId],
+  );
+  const handover = handovers[0] || null;
+  const handoverEvents = handover ? await safeQuery(
+    `SELECT id, event_type, event_at, source_type, summary,
+            observation, intervention, vital_signs, external_reference
+       FROM prehospital_handover_events
+      WHERE handover_id = $1::bigint
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      ORDER BY event_at ASC, id ASC
+      LIMIT 25`,
+    [handover.id, maybeUuid(tenantId, 'tenant_id')],
+  ) : [];
 
   return runExplainerPipeline({
     moduleKey: 'ambulance_handover_summary',
@@ -240,23 +270,58 @@ export async function generateAmbulanceHandoverSummary({
     systemPrompt: [
       'You are an ED triage scribe. Draft an SBAR-style ambulance → ED handover from the ambulance_request row.',
       'Output: explanation_summary, sbar (object with situation, background, assessment, recommendation), critical_gaps (array — what info is missing).',
-      'Quote scene_observations / en_route_interventions verbatim. Do not invent vitals or interventions.',
+      'Use ONLY the supplied ambulance_request, prehospital_handover, and prehospital_handover_events rows.',
+      'Do not invent vitals, observations, allergies, medications, or interventions. If a field is absent, put it in critical_gaps.',
+      'This is a draft only: it cannot finalize or accept the handover.',
     ].join('\n'),
     userPromptPayload: {
       dispatched_at: amb.dispatched_at, scene_arrived_at: amb.scene_arrived_at,
       hospital_arrived_at: amb.hospital_arrived_at,
-      dispatch_kind: amb.dispatch_kind, status: amb.status,
+      dispatch_kind: amb.dispatch_kind, status: amb.status, priority: amb.priority,
+      destination: amb.destination, ambulance_unit_id: amb.ambulance_unit_id,
       chief_complaint: amb.chief_complaint,
-      vitals_on_pickup: amb.vitals_on_pickup,
-      scene_observations: amb.scene_observations,
-      en_route_interventions: amb.en_route_interventions,
+      prehospital_handover: handover ? {
+        id: handover.id,
+        handover_number: handover.handover_number,
+        status: handover.status,
+        pickup_context: handover.pickup_context,
+        scene_observations: handover.scene_observations,
+        allergies_reported: handover.allergies_reported,
+        medications_reported: handover.medications_reported,
+        eta_first_at: handover.eta_first_at,
+        eta_latest_at: handover.eta_latest_at,
+        eta_change_reason: handover.eta_change_reason,
+        presenting_complaint: handover.presenting_complaint,
+        sbar: handover.sbar,
+      } : null,
+      prehospital_handover_events: handoverEvents,
     },
-    contextForDefenses: { ambulance_request: amb },
-    citations: [{
-      source_type: 'ambulance_request', source_id: String(amb.id),
-      label: `Ambulance request #${amb.id}`, timestamp: amb.dispatched_at,
-    }],
-    metadata: { ambulance_request_id: ambId },
+    contextForDefenses: {
+      ambulance_request: amb,
+      prehospital_handover: handover,
+      prehospital_handover_events: handoverEvents,
+    },
+    citations: [
+      {
+        source_type: 'ambulance_request', source_id: String(amb.id),
+        label: `Ambulance request #${amb.id}`, timestamp: amb.dispatched_at,
+      },
+      ...(handover ? [{
+        source_type: 'prehospital_handover', source_id: String(handover.id),
+        label: `Pre-hospital handover ${handover.handover_number}`, timestamp: handover.created_at,
+      }] : []),
+      ...handoverEvents.slice(0, 8).map((event) => ({
+        source_type: 'prehospital_handover_event',
+        source_id: String(event.id),
+        label: `${event.event_type}: ${String(event.summary || '').slice(0, 80)}`,
+        timestamp: event.event_at,
+      })),
+    ],
+    metadata: {
+      ambulance_request_id: ambId,
+      prehospital_handover_id: handover?.id || null,
+      supplied_event_count: handoverEvents.length,
+    },
     generatedBy, req,
   });
 }

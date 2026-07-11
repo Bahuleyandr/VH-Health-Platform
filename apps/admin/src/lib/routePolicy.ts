@@ -190,6 +190,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   icu: { minRank: STAFF },
   oncology: { minRank: STAFF },
   "radiation-oncology": { minRank: STAFF },
+  "stroke-pathway": { minRank: STAFF },
+  transplant: { minRank: STAFF },
   "clinical-alerts": { minRank: STAFF },
   dialysis: { minRank: STAFF },
   immunisations: { minRank: STAFF },

@@ -1,0 +1,689 @@
+import 'package:flutter/material.dart';
+
+import '../../../core/services/ed_trauma_api_service.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
+
+class EdTraumaWorkbenchScreen extends StatefulWidget {
+  const EdTraumaWorkbenchScreen({super.key});
+
+  @override
+  State<EdTraumaWorkbenchScreen> createState() =>
+      _EdTraumaWorkbenchScreenState();
+}
+
+class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
+  final _activationNumber = TextEditingController();
+  final _visitId = TextEditingController();
+  final _patientUid = TextEditingController();
+  final _activationReason = TextEditingController();
+  final _teamLeaderUid = TextEditingController();
+  final _roleCode = TextEditingController(text: 'team_leader');
+
+  final _surveyActivationId = TextEditingController();
+  final _surveyVisitId = TextEditingController();
+  final _airway = TextEditingController();
+  final _breathing = TextEditingController();
+  final _circulation = TextEditingController();
+  final _disability = TextEditingController();
+  final _exposure = TextEditingController();
+  final _citation = TextEditingController(text: 'clinician_exam');
+
+  final _mlcId = TextEditingController();
+  final _mlcVisitId = TextEditingController();
+  final _allegedHistory = TextEditingController();
+  final _injuryDescription = TextEditingController();
+  final _certificateSignerUid = TextEditingController();
+
+  final _evidenceVisitId = TextEditingController();
+  final _vitalsChartId = TextEditingController();
+  final _deviceObservationId = TextEditingController();
+
+  String _activationLevel = 'full';
+  String _surveyKind = 'primary';
+  String _evidenceKind = 'vital_snapshot';
+  bool _surveyComplete = false;
+  bool _injuryDiagramComplete = false;
+  bool _policeNotificationComplete = false;
+  bool _chainOfCustodyComplete = false;
+  bool _loading = true;
+  String? _error;
+  String? _message;
+  Map<String, dynamic>? _policy;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPolicy();
+  }
+
+  @override
+  void dispose() {
+    for (final controller in [
+      _activationNumber,
+      _visitId,
+      _patientUid,
+      _activationReason,
+      _teamLeaderUid,
+      _roleCode,
+      _surveyActivationId,
+      _surveyVisitId,
+      _airway,
+      _breathing,
+      _circulation,
+      _disability,
+      _exposure,
+      _citation,
+      _mlcId,
+      _mlcVisitId,
+      _allegedHistory,
+      _injuryDescription,
+      _certificateSignerUid,
+      _evidenceVisitId,
+      _vitalsChartId,
+      _deviceObservationId,
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _loadPolicy() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final policy = await EdTraumaApiService.getPolicy();
+      if (!mounted) return;
+      setState(() => _policy = policy);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _submitActivation() async {
+    final strings = AppStrings.of(context);
+    await _submit(() async {
+      final body = _stripNulls({
+        'activation_number': _text(_activationNumber),
+        'emergency_visit_id': _intText(_visitId),
+        'patient_uid': _text(_patientUid),
+        'activation_reason': _text(_activationReason),
+        'activation_level': _activationLevel,
+        'team_leader_uid': _text(_teamLeaderUid),
+        'team_roles': [
+          if (_text(_roleCode).isNotEmpty)
+            {'role_code': _text(_roleCode), 'staff_uid': _text(_teamLeaderUid)},
+        ],
+      });
+      final row = await EdTraumaApiService.createTraumaActivation(body);
+      if (!mounted) return;
+      _surveyActivationId.text = '${row['id'] ?? ''}';
+      _message = strings.lookup('ed_trauma.activation_saved');
+    });
+  }
+
+  Future<void> _submitSurvey() async {
+    final strings = AppStrings.of(context);
+    await _submit(() async {
+      final body = _stripNulls({
+        'trauma_activation_id': _intText(_surveyActivationId),
+        'emergency_visit_id': _intText(_surveyVisitId),
+        'survey_kind': _surveyKind,
+        'airway': _text(_airway),
+        'breathing': _text(_breathing),
+        'circulation': _text(_circulation),
+        'disability': _text(_disability),
+        'exposure': _text(_exposure),
+        'source_citations': [
+          if (_text(_citation).isNotEmpty) {'source': _text(_citation)},
+        ],
+        'completion_status': _surveyComplete ? 'complete' : 'draft',
+      });
+      await EdTraumaApiService.recordTraumaSurvey(body);
+      if (!mounted) return;
+      _message = strings.lookup('ed_trauma.survey_saved');
+    });
+  }
+
+  Future<void> _submitMlc() async {
+    final strings = AppStrings.of(context);
+    await _submit(() async {
+      final mlcRecordId = int.tryParse(_text(_mlcId));
+      if (mlcRecordId == null) {
+        throw Exception(strings.lookup('ed_trauma.mlc_id_required'));
+      }
+      final body = _stripNulls({
+        'emergency_visit_id': _intText(_mlcVisitId),
+        'alleged_history': _text(_allegedHistory),
+        'injury_description': _text(_injuryDescription),
+        'injury_diagram_complete': _injuryDiagramComplete,
+        'police_notification_complete': _policeNotificationComplete,
+        'certificate_signer_uid': _text(_certificateSignerUid),
+        'chain_of_custody_complete': _chainOfCustodyComplete,
+        'closure_requirements': {'human_signoff': true},
+        'completeness_status': 'complete',
+      });
+      await EdTraumaApiService.reviewMlcCompleteness(mlcRecordId, body);
+      if (!mounted) return;
+      _message = strings.lookup('ed_trauma.mlc_saved');
+    });
+  }
+
+  Future<void> _submitEvidence() async {
+    final strings = AppStrings.of(context);
+    await _submit(() async {
+      final body = _stripNulls({
+        'emergency_visit_id': _intText(_evidenceVisitId),
+        'evidence_kind': _evidenceKind,
+        'vitals_chart_id': _evidenceKind == 'vital_snapshot'
+            ? _intText(_vitalsChartId)
+            : null,
+        'device_vital_sample_observation_id':
+            _evidenceKind == 'device_observation'
+            ? _intText(_deviceObservationId)
+            : null,
+      });
+      await EdTraumaApiService.linkEncounterEvidence(body);
+      if (!mounted) return;
+      _message = strings.lookup('ed_trauma.evidence_saved');
+    });
+  }
+
+  Future<void> _submit(Future<void> Function() fn) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _message = null;
+    });
+    try {
+      await fn();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _text(TextEditingController controller) => controller.text.trim();
+
+  int? _intText(TextEditingController controller) =>
+      int.tryParse(controller.text.trim());
+
+  Map<String, dynamic> _stripNulls(Map<String, dynamic> input) {
+    return Map.fromEntries(
+      input.entries.where((entry) {
+        final value = entry.value;
+        if (value == null) return false;
+        if (value is String && value.trim().isEmpty) return false;
+        return true;
+      }),
+    );
+  }
+
+  String _cleanError(Object e) =>
+      e.toString().replaceFirst('Exception: ', '').trim();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final policyScale = _policy?['canonical_triage_scale']?.toString();
+    final active = _policy?['active'] == true && policyScale != null;
+    return Scaffold(
+      appBar: AppBar(
+        leading: const NavigationBackAction(),
+        title: Text(s.lookup('ed_trauma.title')),
+        actions: [
+          IconButton(
+            tooltip: s.actionRefresh,
+            onPressed: _loading ? null : _loadPolicy,
+            icon: const Icon(Icons.refresh),
+          ),
+          const LogoutAction(),
+        ],
+      ),
+      body: _loading && _policy == null
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadPolicy,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                children: [
+                  _PolicyBanner(active: active, scale: policyScale),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    _MessageBanner(message: _error!, isError: true),
+                  ],
+                  if (_message != null) ...[
+                    const SizedBox(height: 12),
+                    _MessageBanner(message: _message!, isError: false),
+                  ],
+                  const SizedBox(height: 14),
+                  _Section(
+                    title: s.lookup('ed_trauma.activation'),
+                    icon: Icons.emergency_share_outlined,
+                    children: [
+                      _TextField(
+                        controller: _activationNumber,
+                        label: s.lookup('ed_trauma.activation_number'),
+                      ),
+                      _TextField(
+                        controller: _visitId,
+                        label: s.lookup('ed_trauma.ed_visit_id'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      _TextField(
+                        controller: _patientUid,
+                        label: s.lookup('ed_trauma.patient_uid'),
+                      ),
+                      _TextField(
+                        controller: _activationReason,
+                        label: s.lookup('ed_trauma.reason'),
+                        maxLines: 2,
+                      ),
+                      _SelectField(
+                        label: s.lookup('ed_trauma.level'),
+                        value: _activationLevel,
+                        values: const [
+                          'standby',
+                          'partial',
+                          'full',
+                          'mass_casualty',
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _activationLevel = value),
+                      ),
+                      _TextField(
+                        controller: _teamLeaderUid,
+                        label: s.lookup('ed_trauma.team_leader_uid'),
+                      ),
+                      _TextField(
+                        controller: _roleCode,
+                        label: s.lookup('ed_trauma.role_code'),
+                      ),
+                      _SubmitButton(
+                        label: s.lookup('ed_trauma.save_activation'),
+                        busy: _loading,
+                        onPressed: _submitActivation,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _Section(
+                    title: s.lookup('ed_trauma.survey'),
+                    icon: Icons.fact_check_outlined,
+                    children: [
+                      _TextField(
+                        controller: _surveyActivationId,
+                        label: s.lookup('ed_trauma.activation_id'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      _TextField(
+                        controller: _surveyVisitId,
+                        label: s.lookup('ed_trauma.ed_visit_id'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      _SelectField(
+                        label: s.lookup('ed_trauma.survey_kind'),
+                        value: _surveyKind,
+                        values: const ['primary', 'secondary', 'reassessment'],
+                        onChanged: (value) =>
+                            setState(() => _surveyKind = value),
+                      ),
+                      _TextField(
+                        controller: _airway,
+                        label: s.lookup('ed_trauma.airway'),
+                      ),
+                      _TextField(
+                        controller: _breathing,
+                        label: s.lookup('ed_trauma.breathing'),
+                      ),
+                      _TextField(
+                        controller: _circulation,
+                        label: s.lookup('ed_trauma.circulation'),
+                      ),
+                      _TextField(
+                        controller: _disability,
+                        label: s.lookup('ed_trauma.disability'),
+                      ),
+                      _TextField(
+                        controller: _exposure,
+                        label: s.lookup('ed_trauma.exposure'),
+                      ),
+                      _TextField(
+                        controller: _citation,
+                        label: s.lookup('ed_trauma.source_citation'),
+                      ),
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _surveyComplete,
+                        onChanged: (value) =>
+                            setState(() => _surveyComplete = value ?? false),
+                        title: Text(s.lookup('ed_trauma.mark_complete')),
+                      ),
+                      _SubmitButton(
+                        label: s.lookup('ed_trauma.save_survey'),
+                        busy: _loading,
+                        onPressed: _submitSurvey,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _Section(
+                    title: s.lookup('ed_trauma.mlc'),
+                    icon: Icons.gavel_outlined,
+                    children: [
+                      _TextField(
+                        controller: _mlcId,
+                        label: s.lookup('ed_trauma.mlc_record_id'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      _TextField(
+                        controller: _mlcVisitId,
+                        label: s.lookup('ed_trauma.ed_visit_id'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      _TextField(
+                        controller: _allegedHistory,
+                        label: s.lookup('ed_trauma.alleged_history'),
+                        maxLines: 2,
+                      ),
+                      _TextField(
+                        controller: _injuryDescription,
+                        label: s.lookup('ed_trauma.injury_description'),
+                        maxLines: 2,
+                      ),
+                      _TextField(
+                        controller: _certificateSignerUid,
+                        label: s.lookup('ed_trauma.signer_uid'),
+                      ),
+                      _CheckTile(
+                        value: _injuryDiagramComplete,
+                        label: s.lookup('ed_trauma.injury_diagram_complete'),
+                        onChanged: (value) =>
+                            setState(() => _injuryDiagramComplete = value),
+                      ),
+                      _CheckTile(
+                        value: _policeNotificationComplete,
+                        label: s.lookup('ed_trauma.police_complete'),
+                        onChanged: (value) =>
+                            setState(() => _policeNotificationComplete = value),
+                      ),
+                      _CheckTile(
+                        value: _chainOfCustodyComplete,
+                        label: s.lookup('ed_trauma.custody_complete'),
+                        onChanged: (value) =>
+                            setState(() => _chainOfCustodyComplete = value),
+                      ),
+                      _SubmitButton(
+                        label: s.lookup('ed_trauma.save_mlc'),
+                        busy: _loading,
+                        onPressed: _submitMlc,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _Section(
+                    title: s.lookup('ed_trauma.evidence'),
+                    icon: Icons.monitor_heart_outlined,
+                    children: [
+                      _TextField(
+                        controller: _evidenceVisitId,
+                        label: s.lookup('ed_trauma.ed_visit_id'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      _SelectField(
+                        label: s.lookup('ed_trauma.evidence_kind'),
+                        value: _evidenceKind,
+                        values: const ['vital_snapshot', 'device_observation'],
+                        onChanged: (value) =>
+                            setState(() => _evidenceKind = value),
+                      ),
+                      if (_evidenceKind == 'vital_snapshot')
+                        _TextField(
+                          controller: _vitalsChartId,
+                          label: s.lookup('ed_trauma.vitals_chart_id'),
+                          keyboardType: TextInputType.number,
+                        )
+                      else
+                        _TextField(
+                          controller: _deviceObservationId,
+                          label: s.lookup('ed_trauma.device_observation_id'),
+                          keyboardType: TextInputType.number,
+                        ),
+                      _SubmitButton(
+                        label: s.lookup('ed_trauma.save_evidence'),
+                        busy: _loading,
+                        onPressed: _submitEvidence,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _PolicyBanner extends StatelessWidget {
+  final bool active;
+  final String? scale;
+
+  const _PolicyBanner({required this.active, required this.scale});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (active ? AppTheme.successOnSurface : AppTheme.warningOnSurface)
+            .withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: active ? AppTheme.successOnSurface : AppTheme.warningOnSurface,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            active ? Icons.verified_outlined : Icons.lock_clock_outlined,
+            color: active
+                ? AppTheme.successOnSurface
+                : AppTheme.warningOnSurface,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              active
+                  ? s.format('ed_trauma.policy_active', {
+                      'scale': scale?.toUpperCase() ?? '',
+                    })
+                  : s.lookup('ed_trauma.policy_inactive'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageBanner extends StatelessWidget {
+  final String message;
+  final bool isError;
+
+  const _MessageBanner({required this.message, required this.isError});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isError ? AppTheme.errorOnSurface : AppTheme.successOnSurface;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Text(message, style: TextStyle(color: color)),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+
+  const _Section({
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.cardSurface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: AppTheme.primaryBlue),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...children.expand((child) => [child, const SizedBox(height: 10)]),
+        ],
+      ),
+    );
+  }
+}
+
+class _TextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final int maxLines;
+  final TextInputType? keyboardType;
+
+  const _TextField({
+    required this.controller,
+    required this.label,
+    this.maxLines = 1,
+    this.keyboardType,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+    );
+  }
+}
+
+class _SelectField extends StatelessWidget {
+  final String label;
+  final String value;
+  final List<String> values;
+  final ValueChanged<String> onChanged;
+
+  const _SelectField({
+    required this.label,
+    required this.value,
+    required this.values,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+      items: values
+          .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+          .toList(),
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+    );
+  }
+}
+
+class _CheckTile extends StatelessWidget {
+  final bool value;
+  final String label;
+  final ValueChanged<bool> onChanged;
+
+  const _CheckTile({
+    required this.value,
+    required this.label,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CheckboxListTile(
+      contentPadding: EdgeInsets.zero,
+      value: value,
+      onChanged: (next) => onChanged(next ?? false),
+      title: Text(label),
+    );
+  }
+}
+
+class _SubmitButton extends StatelessWidget {
+  final String label;
+  final bool busy;
+  final VoidCallback onPressed;
+
+  const _SubmitButton({
+    required this.label,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: busy ? null : onPressed,
+      icon: busy
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.save_outlined),
+      label: Text(label),
+    );
+  }
+}
