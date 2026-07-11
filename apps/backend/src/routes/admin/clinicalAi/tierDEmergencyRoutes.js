@@ -81,6 +81,7 @@ router.post('/ambulance-handover-summaries', async (req, res, next) => {
   try {
     const result = await generateAmbulanceHandoverSummary({
       tenantId: req.tenantId, ambulanceRequestId: req.body?.ambulance_request_id,
+      prehospitalHandoverId: req.body?.prehospital_handover_id,
       generatedBy: req.user?.uid || null, req,
     });
     return auditAndReturn(req, res, 'CLINICAL_AI_AMBULANCE_HANDOVER_GENERATED', result, 'Ambulance handover drafted');

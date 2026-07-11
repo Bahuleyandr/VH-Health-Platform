@@ -102,6 +102,7 @@ import {
   RECORD_ROUTE_ROLES,
   STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES,
   STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
+  STROKE_ROUTE_ROLES,
   TECHNICAL_ADMIN_ROUTE_ROLES,
   THEATRE_ROUTE_ROLES,
   VIRTUAL_WARD_ROUTE_ROLES,
@@ -245,6 +246,7 @@ import dietaryRoutes from './routes/dietary/dietaryRoutes.js';
 import theatreRoutes from './routes/theatre/theatreRoutes.js';
 import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
 import anesthesiaChartRoutes from './routes/theatre/anesthesiaChartRoutes.js';
+import ctvsPerfusionRoutes from './routes/theatre/ctvsPerfusionRoutes.js';
 import surgicalDocumentationRoutes from './routes/admin/surgicalDocumentationRoutes.js';
 import cssdRoutes from './routes/cssd/cssdRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
@@ -254,6 +256,7 @@ import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
 import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
 import icuRoutes from './routes/clinical/icuRoutes.js';
 import burnRoutes from './routes/clinical/burnRoutes.js';
+import strokePathwayRoutes from './routes/clinical/strokePathwayRoutes.js';
 import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
@@ -292,6 +295,7 @@ import infectionControlRoutes from './routes/quality/infectionControlRoutes.js';
 import credentialingRoutes from './routes/staff/credentialingRoutes.js';
 import researchRoutes from './routes/research/researchRoutes.js';
 import oncologyRoutes from './routes/oncology/oncologyRoutes.js';
+import transplantRoutes from './routes/transplant/transplantRoutes.js';
 import dentalRoutes from './routes/clinical/dentalRoutes.js';
 import ophthalmologyRoutes from './routes/clinical/ophthalmologyRoutes.js';
 import physioRoutes from './routes/clinical/physioRoutes.js';
@@ -1057,6 +1061,10 @@ app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICE
 // by default → telemetry now, real 403 once the tenant flips to 'enforce').
 app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
 
+// Transplant program management (NL-13 P6) stays inert behind a per-tenant
+// owner-evidence flag; service writes enforce transplant clinical privileges.
+app.use('/api/v1/transplant', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('TRANSPLANT_PROGRAM'), transplantRoutes);
+
 // Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
 app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DENTAL'), dentalRoutes);
 
@@ -1242,6 +1250,7 @@ app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGua
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), orBoardRoutes);
 app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ANESTHESIA_CHART', { careTeamModeGoverned: true }), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/ctvs', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CTVS_PERFUSION', { careTeamModeGoverned: true }), phiAccessLogger('CTVS_PERFUSION'), ctvsPerfusionRoutes);
 app.use('/api/v1/cssd', requireRole(...CSSD_ROUTE_ROLES), sanitizeAllBodyStrings, cssdRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
@@ -1267,6 +1276,7 @@ app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patien
 // care-team-governed patient guard (was role + PHI logger only).
 app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
+app.use('/api/v1/stroke-pathway', requireRole(...STROKE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('STROKE_PATHWAY', { careTeamModeGoverned: true }), phiAccessLogger('STROKE_PATHWAY'), strokePathwayRoutes);
 app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ALERTS'), clinicalAlertsRoutes);
 app.use('/api/v1/teleconsult', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('TELECONSULTATION'), teleconsultProvisioningRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);

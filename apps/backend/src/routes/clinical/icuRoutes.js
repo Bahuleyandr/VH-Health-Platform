@@ -4,6 +4,7 @@ import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as icu from '../../services/clinical/icuService.js';
 import * as icuChart from '../../services/clinical/icuChartingService.js';
+import * as nicuChart from '../../services/clinical/nicuPicuChartingService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -363,6 +364,319 @@ router.post(
     emitIcuBoardEvent('device-observation-link', { admissionId: Number(req.params.id), tenantId });
     return row;
   })
+);
+
+// ── NL-14 P3: NICU/PICU specialty views over the ICU chart substrate ──
+
+router.get(
+  '/nicu-chart-settings',
+  requireStaffOrAdmin,
+  wrap(async req => nicuChart.getNicuChartSettings({ tenantId: tenantOf(req) }))
+);
+
+router.put(
+  '/nicu-chart-settings',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.setNicuChartSettings({
+      tenantId: tenantOf(req),
+      actorUid: req.user?.uid,
+      ...req.body
+    })
+  )
+);
+
+router.get(
+  '/admissions/:id/nicu-chart',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.getNicuPicuChartView({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id,
+      hours: req.query.hours,
+      at: req.query.at
+    })
+  )
+);
+
+router.get(
+  '/admissions/:id/feed-fluid',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.listFeedFluidEntries({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id,
+      kind: req.query.kind,
+      hours: req.query.hours,
+      at: req.query.at
+    })
+  )
+);
+
+router.post(
+  '/admissions/:id/feed-fluid',
+  requireStaffOrAdmin,
+  wrap(async req => {
+    const tenantId = tenantOf(req);
+    const row = await nicuChart.recordFeedFluidEntry({
+      tenantId,
+      icuAdmissionId: req.params.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      ...req.body
+    });
+    emitIcuBoardEvent('nicu-feed-fluid', { admissionId: Number(req.params.id), tenantId });
+    return row;
+  })
+);
+
+router.get(
+  '/admissions/:id/feed-fluid/balance',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.getFeedFluidBalance({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id,
+      hours: req.query.hours,
+      at: req.query.at
+    })
+  )
+);
+
+router.get(
+  '/admissions/:id/respiratory-support',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.listRespiratorySupportObservations({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id,
+      hours: req.query.hours,
+      at: req.query.at
+    })
+  )
+);
+
+router.post(
+  '/admissions/:id/respiratory-support',
+  requireStaffOrAdmin,
+  wrap(async req => {
+    const tenantId = tenantOf(req);
+    const row = await nicuChart.recordRespiratorySupportObservation({
+      tenantId,
+      icuAdmissionId: req.params.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      ...req.body
+    });
+    emitIcuBoardEvent('nicu-respiratory-support', {
+      admissionId: Number(req.params.id),
+      tenantId
+    });
+    return row;
+  })
+);
+
+router.get(
+  '/admissions/:id/cardioresp-events',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.listCardiorespiratoryEvents({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id,
+      hours: req.query.hours,
+      at: req.query.at
+    })
+  )
+);
+
+router.post(
+  '/admissions/:id/cardioresp-events',
+  requireStaffOrAdmin,
+  wrap(async req => {
+    const tenantId = tenantOf(req);
+    const row = await nicuChart.recordCardiorespiratoryEvent({
+      tenantId,
+      icuAdmissionId: req.params.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      ...req.body
+    });
+    emitIcuBoardEvent('nicu-cardioresp-event', { admissionId: Number(req.params.id), tenantId });
+    return row;
+  })
+);
+
+router.get(
+  '/admissions/:id/jaundice-phototherapy',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.listJaundicePhototherapyEvents({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id,
+      hours: req.query.hours,
+      at: req.query.at
+    })
+  )
+);
+
+router.post(
+  '/admissions/:id/jaundice-phototherapy',
+  requireStaffOrAdmin,
+  wrap(async req => {
+    const tenantId = tenantOf(req);
+    const row = await nicuChart.recordJaundicePhototherapyEvent({
+      tenantId,
+      icuAdmissionId: req.params.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      ...req.body
+    });
+    emitIcuBoardEvent('nicu-jaundice-phototherapy', {
+      admissionId: Number(req.params.id),
+      tenantId
+    });
+    return row;
+  })
+);
+
+router.get(
+  '/admissions/:id/thermal-observations',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.listThermalObservations({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id,
+      hours: req.query.hours,
+      at: req.query.at
+    })
+  )
+);
+
+router.post(
+  '/admissions/:id/thermal-observations',
+  requireStaffOrAdmin,
+  wrap(async req => {
+    const tenantId = tenantOf(req);
+    const row = await nicuChart.recordThermalObservation({
+      tenantId,
+      icuAdmissionId: req.params.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      ...req.body
+    });
+    emitIcuBoardEvent('nicu-thermal-observation', {
+      admissionId: Number(req.params.id),
+      tenantId
+    });
+    return row;
+  })
+);
+
+// Clinician review of device-sourced NICU rows (unverified → verified).
+router.patch(
+  '/nicu/:resource/:id/verify',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.verifyNicuObservation({
+      tenantId: tenantOf(req),
+      resource: req.params.resource,
+      id: req.params.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role
+    })
+  )
+);
+
+router.get(
+  '/admissions/:id/newborn-context',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.getNewbornContext({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id
+    })
+  )
+);
+
+router.post(
+  '/admissions/:id/newborn-link',
+  requireStaffOrAdmin,
+  wrap(async req => {
+    const tenantId = tenantOf(req);
+    const row = await nicuChart.linkNewbornToAdmission({
+      tenantId,
+      icuAdmissionId: req.params.id,
+      newbornId: req.body.newborn_id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      metadata: req.body.metadata
+    });
+    emitIcuBoardEvent('nicu-newborn-link', { admissionId: Number(req.params.id), tenantId });
+    return row;
+  })
+);
+
+router.get(
+  '/nicu-score-definitions',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.listScoreDefinitions({
+      tenantId: tenantOf(req),
+      includeInactive: req.query.include_inactive === 'true'
+    })
+  )
+);
+
+router.put(
+  '/nicu-score-definitions',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.upsertScoreDefinition({
+      tenantId: tenantOf(req),
+      actorUid: req.user?.uid,
+      ...req.body
+    })
+  )
+);
+
+router.get(
+  '/admissions/:id/nicu-scores',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.listScoreOutputs({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id,
+      scoreKind: req.query.score_kind
+    })
+  )
+);
+
+router.post(
+  '/admissions/:id/nicu-scores',
+  requireStaffOrAdmin,
+  wrap(async req => {
+    const tenantId = tenantOf(req);
+    const row = await nicuChart.recordScoreOutput({
+      tenantId,
+      icuAdmissionId: req.params.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      ...req.body
+    });
+    emitIcuBoardEvent('nicu-score-output', { admissionId: Number(req.params.id), tenantId });
+    return row;
+  })
+);
+
+router.get(
+  '/admissions/:id/growth-snapshot',
+  requireStaffOrAdmin,
+  wrap(async req =>
+    nicuChart.getGrowthSnapshot({
+      tenantId: tenantOf(req),
+      icuAdmissionId: req.params.id
+    })
+  )
 );
 
 // Flowsheet

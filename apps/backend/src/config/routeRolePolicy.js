@@ -348,6 +348,24 @@ export const DIALYSIS_ROUTE_ROLES = mergeRoles(
   rolesFrom(['DOCTOR']),
 );
 
+export const STROKE_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'emergency', 'diagnostics', 'specialty_services']),
+  rolesFrom([
+    'DOCTOR',
+    'DUTY_DOCTOR',
+    'CONSULTANT',
+    'JUNIOR_DOCTOR',
+    'RESIDENT',
+    'NURSING_STAFF',
+    'IP_STAFF_NURSE',
+    'OP_STAFF_NURSE',
+    'RADIOLOGY_STAFF',
+    'CMO',
+    'MEDICAL_SUPERINTENDENT',
+    'EMERGENCY_RESPONDER',
+  ]),
+);
+
 export const CSSD_ROUTE_ROLES = mergeRoles(
   THEATRE_ROUTE_ROLES,
   getRolesForCapabilityGroups(['supply_chain', 'notifications_audit']),

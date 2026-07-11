@@ -6,7 +6,17 @@
 import express from 'express';
 
 import { success } from '../../utils/responseHelper.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { emitEdBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
+import {
+  acceptPrehospitalHandover,
+  appendPrehospitalTimelineEvent,
+  createPrehospitalHandover,
+  getPrehospitalHandover,
+  linkPrehospitalDevice,
+  listPrehospitalHandovers,
+  recordPartnerSuppliedPayload,
+} from '../../services/ed/ambulancePrehospitalService.js';
 import {
   certifyMlcRecord,
   createAmbulanceRequest,
@@ -22,8 +32,49 @@ import {
   transitionAmbulanceRequest,
   transitionEmergencyVisit,
 } from '../../services/ed/edOperationsService.js';
+import {
+  addTraumaTimelineEvent,
+  createTraumaActivation,
+  getTenantEdPolicy,
+  linkEdEncounterEvidence,
+  listTraumaActivations,
+  recordTraumaSurvey,
+  upsertMlcCompletenessReview,
+  upsertTenantEdPolicy,
+} from '../../services/ed/edTraumaMlcService.js';
 
 const router = express.Router();
+
+// Tenant ED policy
+router.get('/policy', async (req, res, next) => {
+  try {
+    const row = await getTenantEdPolicy({ tenantId: req.tenantId });
+    return success(res, row, 'Tenant ED policy retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.put('/policy', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await upsertTenantEdPolicy({
+      tenantId: req.tenantId,
+      canonicalTriageScale: b.canonical_triage_scale,
+      active: b.active,
+      alternativeScaleMappings: b.alternative_scale_mappings,
+      traumaRegistryParticipation: b.trauma_registry_participation,
+      registryExportEnabled: b.registry_export_enabled,
+      evidenceOwnerUid: b.evidence_owner_uid,
+      clinicalGovernanceOwnerUid: b.clinical_governance_owner_uid,
+      reviewerUid: b.reviewer_uid || req.user?.uid || null,
+      reviewedAt: b.reviewed_at,
+      activatedBy: b.activated_by || req.user?.uid || null,
+      activatedAt: b.activated_at,
+      policyVersion: b.policy_version,
+      sourceMetadata: b.source_metadata,
+    });
+    return success(res, row, 'Tenant ED policy saved');
+  } catch (err) { return next(err); }
+});
 
 // Emergency visits
 router.post('/visits', async (req, res, next) => {
@@ -118,6 +169,120 @@ router.get('/triage-assessments', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
+// Trauma activation / surveys / timeline
+router.post('/trauma-activations', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await createTraumaActivation({
+      tenantId: req.tenantId,
+      activationNumber: b.activation_number,
+      emergencyVisitId: b.emergency_visit_id,
+      admissionId: b.admission_id,
+      patientUid: b.patient_uid,
+      activationReason: b.activation_reason,
+      activationLevel: b.activation_level,
+      activatedAt: b.activated_at,
+      activatedByUid: b.activated_by_uid || req.user?.uid || null,
+      teamLeaderUid: b.team_leader_uid,
+      expectedArrivalAt: b.expected_arrival_at,
+      patientArrivedAt: b.patient_arrived_at,
+      bloodBankAlertedAt: b.blood_bank_alerted_at,
+      bloodBankAlertedByUid: b.blood_bank_alerted_by_uid || req.user?.uid || null,
+      radiologyAlertedAt: b.radiology_alerted_at,
+      radiologyAlertedByUid: b.radiology_alerted_by_uid || req.user?.uid || null,
+      otAlertedAt: b.ot_alerted_at,
+      otAlertedByUid: b.ot_alerted_by_uid || req.user?.uid || null,
+      registryParticipation: b.registry_participation,
+      registryReviewerUid: b.registry_reviewer_uid,
+      registryReviewedAt: b.registry_reviewed_at,
+      registryExportStatus: b.registry_export_status,
+      teamRoles: b.team_roles,
+      sourceMetadata: b.source_metadata,
+    });
+    return success(res, row, 'Trauma activation created', 201);
+  } catch (err) { return next(err); }
+});
+
+router.get('/trauma-activations', async (req, res, next) => {
+  try {
+    const result = await listTraumaActivations({
+      tenantId: req.tenantId,
+      status: req.query.status || null,
+      emergencyVisitId: req.query.emergency_visit_id || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Trauma activations retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.post('/trauma-surveys', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await recordTraumaSurvey({
+      tenantId: req.tenantId,
+      traumaActivationId: b.trauma_activation_id,
+      emergencyVisitId: b.emergency_visit_id,
+      patientUid: b.patient_uid,
+      surveyKind: b.survey_kind,
+      assessedAt: b.assessed_at,
+      assessedByUid: b.assessed_by_uid || req.user?.uid || null,
+      responsibleClinicianUid: b.responsible_clinician_uid || req.user?.uid || null,
+      airway: b.airway,
+      breathing: b.breathing,
+      circulation: b.circulation,
+      disability: b.disability,
+      exposure: b.exposure,
+      fastImaging: b.fast_imaging,
+      interventions: b.interventions,
+      reassessmentDueAt: b.reassessment_due_at,
+      sourceCitations: b.source_citations,
+      completionStatus: b.completion_status,
+    });
+    return success(res, row, 'Trauma survey recorded', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/trauma-timeline', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await addTraumaTimelineEvent({
+      tenantId: req.tenantId,
+      traumaActivationId: b.trauma_activation_id,
+      emergencyVisitId: b.emergency_visit_id,
+      patientUid: b.patient_uid,
+      occurredAt: b.occurred_at,
+      eventType: b.event_type,
+      eventLabel: b.event_label,
+      interventionDetails: b.intervention_details,
+      performedByUid: b.performed_by_uid || req.user?.uid || null,
+      sourceCitations: b.source_citations,
+      createdByUid: req.user?.uid || null,
+    });
+    return success(res, row, 'Trauma timeline event appended', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/encounter-evidence', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await linkEdEncounterEvidence({
+      tenantId: req.tenantId,
+      emergencyVisitId: b.emergency_visit_id,
+      patientUid: b.patient_uid,
+      evidenceKind: b.evidence_kind,
+      vitalsChartId: b.vitals_chart_id,
+      deviceVitalSampleObservationId: b.device_vital_sample_observation_id,
+      deviceRegistryId: b.device_registry_id,
+      observedAt: b.observed_at,
+      verified: b.verified,
+      linkedByUid: b.linked_by_uid || req.user?.uid || null,
+      notes: b.notes,
+      metadata: b.metadata,
+    });
+    return success(res, row, 'ED encounter evidence linked', 201);
+  } catch (err) { return next(err); }
+});
+
 // Ambulance requests
 router.post('/ambulance-requests', async (req, res, next) => {
   try {
@@ -164,6 +329,145 @@ router.patch('/ambulance-requests/:id/transition', async (req, res, next) => {
       attendantName: b.attendant_name,
     });
     return success(res, row, 'Ambulance request transitioned');
+  } catch (err) { return next(err); }
+});
+
+// Pre-hospital handover seam (NL-14 P2/P3). The parent /api/v1/ed mount
+// supplies ED clinical RBAC + PHI logging; this guard adds patient-context ABAC
+// when the handover request carries a patient_uid.
+router.use('/prehospital', patientAccessGuard('PREHOSPITAL_HANDOVER', { careTeamModeGoverned: true }));
+
+router.post('/prehospital/handovers', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await createPrehospitalHandover({
+      tenantId: req.tenantId,
+      ambulanceRequestId: b.ambulance_request_id,
+      emergencyVisitId: b.emergency_visit_id,
+      createEmergencyVisit: b.create_ed_visit,
+      handoverNumber: b.handover_number,
+      patientUid: b.patient_uid,
+      pickupContext: b.pickup_context,
+      sceneObservations: b.scene_observations,
+      allergiesReported: b.allergies_reported,
+      medicationsReported: b.medications_reported,
+      etaFirstAt: b.eta_first_at,
+      etaLatestAt: b.eta_latest_at,
+      etaChangeReason: b.eta_change_reason,
+      presentingComplaint: b.presenting_complaint,
+      sbar: b.sbar,
+      partnerConfigId: b.partner_config_id,
+      status: b.status,
+      manualEntry: b.manual_entry,
+      sourceType: b.source_type,
+      metadata: b.metadata,
+      createdBy: req.user?.uid || null,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
+    });
+    return success(res, row, 'Pre-hospital handover created', 201);
+  } catch (err) { return next(err); }
+});
+
+router.get('/prehospital/handovers', async (req, res, next) => {
+  try {
+    const result = await listPrehospitalHandovers({
+      tenantId: req.tenantId,
+      status: req.query.status || null,
+      openOnly: String(req.query.open_only || '').toLowerCase() === 'true',
+      ambulanceRequestId: req.query.ambulance_request_id || null,
+      emergencyVisitId: req.query.emergency_visit_id || null,
+      patientUid: req.query.patient_uid || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Pre-hospital handovers retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.post('/prehospital/handovers/:id/timeline', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await appendPrehospitalTimelineEvent({
+      tenantId: req.tenantId,
+      handoverId: req.params.id,
+      eventType: b.event_type,
+      eventAt: b.event_at,
+      recordedBy: b.recorded_by || req.user?.uid || null,
+      sourceType: b.source_type,
+      summary: b.summary,
+      observation: b.observation,
+      intervention: b.intervention,
+      vitalSigns: b.vital_signs,
+      externalReference: b.external_reference,
+      metadata: b.metadata,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
+    });
+    return success(res, row, 'Pre-hospital timeline event recorded', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/prehospital/handovers/:id/acceptances', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await acceptPrehospitalHandover({
+      tenantId: req.tenantId,
+      handoverId: req.params.id,
+      acceptedByUid: b.accepted_by_uid || req.user?.uid || null,
+      acceptedByRole: b.accepted_by_role || req.user?.role || req.user?.roles?.[0] || null,
+      acceptanceRole: b.acceptance_role,
+      signatureMethod: b.signature_method,
+      signatureText: b.signature_text,
+      handoverSignedAt: b.handover_signed_at,
+      clinicalAttestation: b.clinical_attestation,
+      metadata: b.metadata,
+    });
+    return success(res, row, 'Pre-hospital handover accepted', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/prehospital/handovers/:id/device-links', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await linkPrehospitalDevice({
+      tenantId: req.tenantId,
+      handoverId: req.params.id,
+      devicePatientAssociationId: b.device_patient_association_id,
+      deviceRegistryId: b.device_registry_id,
+      linkStatus: b.link_status,
+      verificationStatus: b.verification_status,
+      sourceSystem: b.source_system,
+      verifiedByUid: b.verified_by_uid || req.user?.uid || null,
+      verifiedAt: b.verified_at,
+      notes: b.notes,
+      metadata: b.metadata,
+      createdBy: req.user?.uid || null,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
+    });
+    return success(res, row, 'Pre-hospital device link recorded', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/prehospital/partner-payloads', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await recordPartnerSuppliedPayload({
+      tenantId: req.tenantId,
+      handoverId: b.handover_id,
+      deviceLinkId: b.device_link_id,
+      payload: b.payload,
+      receivedBy: req.user?.uid || null,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
+    });
+    return success(res, row, 'Partner pre-hospital payload recorded', 201);
+  } catch (err) { return next(err); }
+});
+
+router.get('/prehospital/handovers/:id', async (req, res, next) => {
+  try {
+    const result = await getPrehospitalHandover({
+      tenantId: req.tenantId,
+      handoverId: req.params.id,
+    });
+    return success(res, result, 'Pre-hospital handover retrieved');
   } catch (err) { return next(err); }
 });
 
@@ -224,6 +528,31 @@ router.patch('/mlc-records/:id/certify', async (req, res, next) => {
       certifiedByUid: req.user?.uid || req.body?.certified_by_uid,
     });
     return success(res, row, 'MLC record certified');
+  } catch (err) { return next(err); }
+});
+
+router.put('/mlc-records/:id/completeness', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await upsertMlcCompletenessReview({
+      tenantId: req.tenantId,
+      mlcRecordId: req.params.id,
+      emergencyVisitId: b.emergency_visit_id,
+      patientUid: b.patient_uid,
+      allegedHistory: b.alleged_history,
+      injuryDescription: b.injury_description,
+      injuryDiagramComplete: b.injury_diagram_complete,
+      policeNotificationComplete: b.police_notification_complete,
+      certificateSignerUid: b.certificate_signer_uid,
+      chainOfCustodyComplete: b.chain_of_custody_complete,
+      closureRequirements: b.closure_requirements,
+      assistantPrefillOutputId: b.assistant_prefill_output_id,
+      assistantPrefillMetadata: b.assistant_prefill_metadata,
+      reviewedByUid: b.reviewed_by_uid || req.user?.uid || null,
+      reviewedAt: b.reviewed_at,
+      completenessStatus: b.completeness_status,
+    });
+    return success(res, row, 'MLC completeness reviewed');
   } catch (err) { return next(err); }
 });
 
