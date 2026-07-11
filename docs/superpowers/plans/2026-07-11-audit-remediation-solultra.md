@@ -24,7 +24,8 @@ Findings #2 SMART cross-patient write, #3 prescriber doctor_id-from-body, #8 TPA
 - [x] #11 split `/prescriptions/all` onto staff-only `ePrescriptionListAllRoutes` (no PATIENT) + regression guard (commit a25c511a1).
 - [x] #13 pharmacy-order ownership gate via `callerMayAccessPrescription` (commit f4c729138). ★ Did NOT add the signed/locked gate — walk-in OPD orders from an unsigned Rx (existing flow; would break prescription-deep + real OPD).
 - [ ] #3 prescriber `doctor_id`-from-body — ⚠ nuanced: ePrescriptionCreateRoutes includes non-doctor creators (ADMIN); naive `doctorId=actorId` breaks assisted prescribing. Sharp part = run controlled-drug privilege on the AUTHENTICATED actor, not the body doctor; model on-behalf-of as an explicit delegation. Needs care.
-- [ ] #2 SMART · #8 TPA-enh · #38 Tier-C AI · HR #30/#36 · Wave-E signer authority — pending.
+- [x] #2 FHIR SMART cross-patient write — addressedPatientUid binds writes to body + rejects selector conflict (commit pushed).
+- [ ] #8 TPA-enh · #38 Tier-C AI · HR #30/#36 · Wave-E signer authority — pending.
 - [ ] #3 derive prescriber from `req.user` for DOCTOR; controlled-drug privilege evaluated on authenticated actor.
 - [ ] #13 verify pharmacy-order prescription belongs to the ordering patient.
 - [ ] #2 reject conflicting SMART `?patient=` vs body `subject.reference`; bind write patient to the token context.
