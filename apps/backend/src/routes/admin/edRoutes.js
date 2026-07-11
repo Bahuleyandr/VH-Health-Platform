@@ -391,7 +391,7 @@ router.post('/prehospital/handovers/:id/timeline', async (req, res, next) => {
       handoverId: req.params.id,
       eventType: b.event_type,
       eventAt: b.event_at,
-      recordedBy: b.recorded_by || req.user?.uid || null,
+      recordedBy: req.user?.uid || null, // Sol Ultra ambulance-H2: recorder is the authenticated actor, not a body value
       sourceType: b.source_type,
       summary: b.summary,
       observation: b.observation,
@@ -411,8 +411,10 @@ router.post('/prehospital/handovers/:id/acceptances', async (req, res, next) => 
     const row = await acceptPrehospitalHandover({
       tenantId: req.tenantId,
       handoverId: req.params.id,
-      acceptedByUid: b.accepted_by_uid || req.user?.uid || null,
-      acceptedByRole: b.accepted_by_role || req.user?.role || req.user?.roles?.[0] || null,
+      // Sol Ultra ambulance-H2: the receiving-clinician acceptance signature is
+      // the authenticated actor's — not a caller-supplied accepted_by uid/role.
+      acceptedByUid: req.user?.uid || null,
+      acceptedByRole: req.user?.role || req.user?.roles?.[0] || null,
       acceptanceRole: b.acceptance_role,
       signatureMethod: b.signature_method,
       signatureText: b.signature_text,
@@ -435,7 +437,7 @@ router.post('/prehospital/handovers/:id/device-links', async (req, res, next) =>
       linkStatus: b.link_status,
       verificationStatus: b.verification_status,
       sourceSystem: b.source_system,
-      verifiedByUid: b.verified_by_uid || req.user?.uid || null,
+      verifiedByUid: req.user?.uid || null, // Sol Ultra ambulance-H2: device-link verifier is the authenticated actor
       verifiedAt: b.verified_at,
       notes: b.notes,
       metadata: b.metadata,
