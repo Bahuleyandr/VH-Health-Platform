@@ -179,9 +179,9 @@ router.put(
   requireStaffOrAdmin,
   wrap(async req =>
     icuChart.setChartSettings({
+      ...req.body,
       tenantId: tenantOf(req),
-      actorUid: req.user?.uid,
-      ...req.body
+      actorUid: req.user?.uid
     })
   )
 );
@@ -216,11 +216,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.createVentilationEpisode({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('ventilation', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -262,11 +262,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.recordWeaningTrial({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('weaning-trial', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -291,11 +291,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.startLinePresence({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('line-presence', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -338,11 +338,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.recordScoringOutput({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('scoring-output', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -355,11 +355,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.linkDeviceObservation({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('device-observation-link', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -379,9 +379,9 @@ router.put(
   requireStaffOrAdmin,
   wrap(async req =>
     nicuChart.setNicuChartSettings({
+      ...req.body,
       tenantId: tenantOf(req),
-      actorUid: req.user?.uid,
-      ...req.body
+      actorUid: req.user?.uid
     })
   )
 );
@@ -419,11 +419,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordFeedFluidEntry({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('nicu-feed-fluid', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -462,11 +462,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordRespiratorySupportObservation({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('nicu-respiratory-support', {
       admissionId: Number(req.params.id),
@@ -495,11 +495,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordCardiorespiratoryEvent({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('nicu-cardioresp-event', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -525,11 +525,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordJaundicePhototherapyEvent({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('nicu-jaundice-phototherapy', {
       admissionId: Number(req.params.id),
@@ -558,11 +558,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordThermalObservation({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('nicu-thermal-observation', {
       admissionId: Number(req.params.id),
@@ -632,9 +632,9 @@ router.put(
   requireStaffOrAdmin,
   wrap(async req =>
     nicuChart.upsertScoreDefinition({
+      ...req.body,
       tenantId: tenantOf(req),
-      actorUid: req.user?.uid,
-      ...req.body
+      actorUid: req.user?.uid
     })
   )
 );
@@ -657,11 +657,11 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordScoreOutput({
+      ...req.body,
       tenantId,
       icuAdmissionId: req.params.id,
       actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      ...req.body
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('nicu-score-output', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -686,10 +686,10 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.logFlowsheet({
+      ...req.body,
       tenantId,
       icu_admission_id: req.params.id,
-      recorded_by: req.user?.uid,
-      ...req.body
+      recorded_by: req.user?.uid
     });
     emitIcuBoardEvent('flowsheet', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -721,10 +721,10 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.recordAssessment({
+      ...req.body,
       tenantId,
       icu_admission_id: req.params.id,
-      recorded_by: req.user?.uid,
-      ...req.body
+      recorded_by: req.user?.uid
     });
     emitIcuBoardEvent('assessment', { admissionId: Number(req.params.id), tenantId });
     return row;
@@ -751,10 +751,10 @@ router.post(
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.upsertBundle({
+      ...req.body,
       tenantId,
       icu_admission_id: req.params.id,
-      recorded_by: req.user?.uid,
-      ...req.body
+      recorded_by: req.user?.uid
     });
     emitIcuBoardEvent('bundle', { admissionId: Number(req.params.id), tenantId });
     return row;

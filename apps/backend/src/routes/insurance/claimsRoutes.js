@@ -43,9 +43,9 @@ function requireStaffOrAdmin(req, res, next) {
 // ── Policies ─────────────────────────────────────────────────────────
 router.post('/policies', requireStaffOrAdmin, wrap(async (req) =>
   claims.upsertPolicy({
+    ...req.body,
     tenantId: tenantOf(req),
     created_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -87,9 +87,9 @@ router.get('/packages/:id', requireStaffOrAdmin, wrap(async (req) =>
 // ── Pre-authorization ────────────────────────────────────────────────
 router.post('/preauth', requireStaffOrAdmin, wrap(async (req) =>
   claims.createPreauth({
+    ...req.body,
     tenantId: tenantOf(req),
     created_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -119,19 +119,19 @@ router.post('/preauth/:id/submit', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/preauth/:id/response', requireStaffOrAdmin, wrap(async (req) =>
   claims.recordPreauthResponse({
+    ...req.body,
     tenantId: tenantOf(req),
     preauth_id: req.params.id,
     recorded_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
 // ── Claims ───────────────────────────────────────────────────────────
 router.post('/claims', requireStaffOrAdmin, wrap(async (req) =>
   claims.createClaim({
+    ...req.body,
     tenantId: tenantOf(req),
     created_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -234,17 +234,17 @@ router.get('/enhancement-justification-template', requireStaffOrAdmin, wrap(asyn
 // ── Documents + correspondence ──────────────────────────────────────
 router.post('/documents', requireStaffOrAdmin, wrap(async (req) =>
   claims.attachDocument({
+    ...req.body,
     tenantId: tenantOf(req),
     uploaded_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
 router.post('/correspondence', requireStaffOrAdmin, wrap(async (req) =>
   claims.logCorrespondence({
+    ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 

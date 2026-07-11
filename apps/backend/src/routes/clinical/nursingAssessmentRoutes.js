@@ -44,9 +44,9 @@ router.post('/score', requireStaffOrAdmin, wrap(async (req) => {
 
 router.post('/', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordAssessment({
+    ...req.body,
     tenantId: tenantOf(req),
     assessed_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 

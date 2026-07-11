@@ -66,9 +66,9 @@ async function ensurePregnancyAccess(req, res, pregnancyId) {
 // ── Pregnancy ────────────────────────────────────────────────────────
 router.post('/pregnancies', requireStaffOrAdmin, wrap(async (req) =>
   mat.createPregnancy({
+    ...req.body,
     tenantId: tenantOf(req),
     created_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -85,18 +85,18 @@ router.get('/pregnancies/:id', requireStaffOrAdmin, wrap(async (req) =>
 
 router.patch('/pregnancies/:id', requireStaffOrAdmin, wrap(async (req) =>
   mat.updatePregnancy({
+    ...req.body,
     tenantId: tenantOf(req),
     id: req.params.id,
-    ...req.body,
   }),
 ));
 
 // ── ANC visits ───────────────────────────────────────────────────────
 router.post('/anc-visits', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordAncVisit({
+    ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -110,8 +110,8 @@ router.get('/anc-visits/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(async
 // ── Labor admission ──────────────────────────────────────────────────
 router.post('/labor-admissions', requireStaffOrAdmin, wrap(async (req) =>
   mat.admitToLabor({
-    tenantId: tenantOf(req),
     ...req.body,
+    tenantId: tenantOf(req),
   }),
 ));
 
@@ -129,9 +129,9 @@ router.get('/labor-admissions/:id', requireStaffOrAdmin, wrap(async (req) =>
 // ── Partograph ───────────────────────────────────────────────────────
 router.post('/partograph', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordPartographEntry({
+    ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -145,8 +145,8 @@ router.get('/partograph/labor/:laborId', requireStaffOrAdmin, wrap(async (req) =
 // ── Delivery summary ────────────────────────────────────────────────
 router.post('/deliveries', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordDelivery({
-    tenantId: tenantOf(req),
     ...req.body,
+    tenantId: tenantOf(req),
   }),
 ));
 
@@ -157,9 +157,9 @@ router.get('/deliveries/:id', requireStaffOrAdmin, wrap(async (req) =>
 // ── Newborn record + Apgar ──────────────────────────────────────────
 router.post('/newborns', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordNewborn({
+    ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -176,19 +176,19 @@ router.get('/newborns/:id', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/newborns/:id/apgar', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordApgar({
+    ...req.body,
     tenantId: tenantOf(req),
     newborn_id: req.params.id,
     recorded_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
 // ── Postnatal visits ────────────────────────────────────────────────
 router.post('/postnatal-visits', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordPostnatalVisit({
+    ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -223,10 +223,10 @@ router.get('/newborns/:id/immunisations', requireStaffOrAdmin, wrap(async (req) 
 
 router.patch('/immunisations/:id/record', requireStaffOrAdmin, wrap(async (req) =>
   immun.recordDose({
+    ...req.body,
     tenantId: tenantOf(req),
     immunisation_id: req.params.id,
     given_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -301,9 +301,9 @@ router.get('/timeline/patient/:patientUid', requireStaffAdminOrSelfPatient, wrap
 // Supplements
 router.post('/supplements', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordSupplement({
+    ...req.body,
     tenantId: tenantOf(req),
     prescribed_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 
@@ -330,8 +330,8 @@ router.post('/fetal-kicks', requireStaffAdminOrPatient, wrap(async (req, res) =>
     ? req.user?.uid
     : (req.body.recorded_by ?? req.user?.uid);
   return mat.recordFetalKick({
-    tenantId: tenantOf(req),
     ...req.body,
+    tenantId: tenantOf(req),
     recorded_by: recordedBy,
   });
 }));

@@ -76,10 +76,10 @@ router.put('/settings', requireAdmin, wrap(async req =>
 // (post-commit, best-effort) the realtime notification.
 router.post('/events', requireStaffOrAdmin, wrap(async (req, res) => {
   const row = await resus.createResuscitationEvent({
+    ...req.body,
     tenantId: tenantOf(req),
     actorUid: req.user?.uid,
-    actorRole: req.user?.role,
-    ...req.body
+    actorRole: req.user?.role
   });
   return success(res, row, 'Resuscitation event created', 201);
 }));
@@ -101,11 +101,11 @@ router.get('/events/:id', requireStaffOrAdmin, wrap(async req =>
 // Append-only timeline (immutable rows; corrections are new entries)
 router.post('/events/:id/timeline', requireStaffOrAdmin, wrap(async (req, res) => {
   const row = await resus.appendTimelineEntry({
+    ...req.body,
     tenantId: tenantOf(req),
     eventId: req.params.id,
     actorUid: req.user?.uid,
-    actorRole: req.user?.role,
-    ...req.body
+    actorRole: req.user?.role
   });
   return success(res, row, 'Timeline entry appended', 201);
 }));
@@ -113,11 +113,11 @@ router.post('/events/:id/timeline', requireStaffOrAdmin, wrap(async (req, res) =
 // Team roles + signature capture
 router.post('/events/:id/roles', requireStaffOrAdmin, wrap(async req =>
   resus.upsertTeamRole({
+    ...req.body,
     tenantId: tenantOf(req),
     eventId: req.params.id,
     actorUid: req.user?.uid,
-    actorRole: req.user?.role,
-    ...req.body
+    actorRole: req.user?.role
   })));
 
 router.post('/events/:id/end', requireStaffOrAdmin, wrap(async req =>
@@ -153,11 +153,11 @@ router.post('/events/:id/cancel-misfire', requireStaffOrAdmin, wrap(async req =>
 // Post-event QA / debrief (fail-closed until governance supplies a template)
 router.put('/events/:id/qa-review', requireStaffOrAdmin, wrap(async req =>
   resus.upsertQaReview({
+    ...req.body,
     tenantId: tenantOf(req),
     eventId: req.params.id,
     actorUid: req.user?.uid,
-    actorRole: req.user?.role,
-    ...req.body
+    actorRole: req.user?.role
   })));
 
 export default router;

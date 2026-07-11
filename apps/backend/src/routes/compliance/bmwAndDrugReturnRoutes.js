@@ -39,7 +39,8 @@ function requireStaffOrAdmin(req, res, next) {
 
 router.post('/bmw/log', requireStaffOrAdmin, wrap(async (req) =>
   bmw.createWasteLog({
-    tenantId: tenantOf(req), created_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), created_by: req.user?.uid,
   })));
 
 router.get('/bmw/log', requireStaffOrAdmin, wrap(async (req) =>
@@ -59,7 +60,8 @@ router.get('/bmw/annual', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/drug-returns/batches', requireStaffOrAdmin, wrap(async (req) =>
   drug.createBatch({
-    tenantId: tenantOf(req), initiated_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), initiated_by: req.user?.uid,
   })));
 
 router.get('/drug-returns/batches', requireStaffOrAdmin, wrap(async (req) =>
@@ -73,13 +75,13 @@ router.get('/drug-returns/batches/:id', requireStaffOrAdmin, wrap(async (req) =>
   drug.getBatch({ tenantId: tenantOf(req), id: req.params.id })));
 
 router.post('/drug-returns/batches/:id/lines', requireStaffOrAdmin, wrap(async (req) =>
-  drug.addLine({ tenantId: tenantOf(req), batch_id: req.params.id, ...req.body })));
+  drug.addLine({ ...req.body, tenantId: tenantOf(req), batch_id: req.params.id })));
 
 router.post('/drug-returns/batches/:id/transition', requireStaffOrAdmin, wrap(async (req) =>
   drug.transition({
+    ...req.body,
     tenantId: tenantOf(req), id: req.params.id,
     set_by: req.user?.uid,
-    ...req.body,
   })));
 
 export default router;

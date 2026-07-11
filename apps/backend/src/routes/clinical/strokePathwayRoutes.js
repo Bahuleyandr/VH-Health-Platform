@@ -90,10 +90,10 @@ router.get('/activations', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/activations', requireStaffOrAdmin, wrap(async (req) =>
   createActivation({
+    ...req.body,
     tenantId: tenantOf(req),
     actorUid: actorOf(req),
     actorRole: actorRoleOf(req),
-    ...req.body,
   })));
 
 router.get('/activations/:id', requireStaffOrAdmin, wrap(async (req) =>
@@ -111,29 +111,29 @@ router.patch('/activations/:id/status', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/activations/:id/nihss', requireStaffOrAdmin, wrap(async (req) =>
   recordNihssAssessment({
+    ...req.body,
     tenantId: tenantOf(req),
     activationId: req.params.id,
     actorUid: actorOf(req),
     actorRole: actorRoleOf(req),
-    ...req.body,
   })));
 
 router.post('/activations/:id/thrombolysis', requireStaffOrAdmin, wrap(async (req) =>
   recordThrombolysisDecision({
+    ...req.body,
     tenantId: tenantOf(req),
     activationId: req.params.id,
     actorUid: actorOf(req),
     actorRole: actorRoleOf(req),
-    ...req.body,
   })));
 
 router.post('/activations/:id/events', requireStaffOrAdmin, wrap(async (req) =>
   recordPathwayEvent({
+    ...req.body,
     tenantId: tenantOf(req),
     activationId: req.params.id,
     actorUid: actorOf(req),
     actorRole: actorRoleOf(req),
-    ...req.body,
   })));
 
 export default router;

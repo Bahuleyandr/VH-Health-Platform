@@ -38,7 +38,7 @@ function requireStaffOrAdmin(req, res, next) {
 // Orders
 router.post('/orders', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
-  const row = await micro.createOrder({ tenantId, ordered_by: req.user?.uid, ...req.body });
+  const row = await micro.createOrder({ ...req.body, tenantId, ordered_by: req.user?.uid });
   emitMicroEvent('order-created', { tenantId });
   return row;
 }));
@@ -59,7 +59,8 @@ router.get('/orders/:id', requireStaffOrAdmin, wrap(async (req) =>
 router.post('/orders/:id/transition', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await micro.transitionOrder({
-    tenantId, id: req.params.id, finalised_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId, id: req.params.id, finalised_by: req.user?.uid,
   });
   emitMicroEvent('order-transition', { tenantId });
   return row;
@@ -68,7 +69,7 @@ router.post('/orders/:id/transition', requireStaffOrAdmin, wrap(async (req) => {
 // Isolates
 router.post('/orders/:id/isolates', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
-  const row = await micro.addIsolate({ tenantId, order_id: req.params.id, ...req.body });
+  const row = await micro.addIsolate({ ...req.body, tenantId, order_id: req.params.id });
   emitMicroEvent('isolate-added', { tenantId });
   return row;
 }));
@@ -76,7 +77,7 @@ router.post('/orders/:id/isolates', requireStaffOrAdmin, wrap(async (req) => {
 // Sensitivities
 router.post('/isolates/:id/sensitivities', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
-  const row = await micro.addSensitivity({ tenantId, isolate_id: req.params.id, ...req.body });
+  const row = await micro.addSensitivity({ ...req.body, tenantId, isolate_id: req.params.id });
   emitMicroEvent('sensitivity-added', { tenantId });
   return row;
 }));

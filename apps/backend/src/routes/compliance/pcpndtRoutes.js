@@ -47,7 +47,7 @@ router.get('/machines', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 router.post('/machines', requireAdmin, wrap(async (req) =>
-  pcpndt.upsertMachine({ tenantId: tenantOf(req), ...req.body }),
+  pcpndt.upsertMachine({ ...req.body, tenantId: tenantOf(req) }),
 ));
 
 // Sonologists
@@ -58,18 +58,20 @@ router.get('/sonologists', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 router.post('/sonologists', requireAdmin, wrap(async (req) =>
-  pcpndt.upsertSonologist({ tenantId: tenantOf(req), ...req.body }),
+  pcpndt.upsertSonologist({ ...req.body, tenantId: tenantOf(req) }),
 ));
 router.patch('/sonologists/:id', requireAdmin, wrap(async (req) =>
   pcpndt.upsertSonologist({
-    tenantId: tenantOf(req), id: req.params.id, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), id: req.params.id,
   }),
 ));
 
 // Form F
 router.post('/form-f', requireStaffOrAdmin, wrap(async (req) =>
   pcpndt.createFormF({
-    tenantId: tenantOf(req), created_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), created_by: req.user?.uid,
   }),
 ));
 router.get('/form-f', requireStaffOrAdmin, wrap(async (req) =>
