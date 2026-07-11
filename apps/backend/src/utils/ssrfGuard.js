@@ -55,12 +55,59 @@ function isBlockedIpv4(ip) {
   });
 }
 
+// Expand an IPv6 literal (incl. `::` compression and a trailing dotted-decimal
+// IPv4) into its 8 16-bit groups. Returns null for a malformed literal.
+function ipv6ToGroups(ip) {
+  let s = String(ip).toLowerCase().trim();
+  // Fold a trailing dotted-decimal IPv4 (::ffff:127.0.0.1) into two hextets so
+  // the whole address is uniform hex before splitting.
+  const dotted = s.match(/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (dotted) {
+    const b = dotted.slice(1).map((n) => Number.parseInt(n, 10));
+    if (b.some((n) => n > 255)) return null;
+    s = s.slice(0, dotted.index)
+      + (((b[0] << 8) | b[1]).toString(16)) + ':' + (((b[2] << 8) | b[3]).toString(16));
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 ? (halves[1] ? halves[1].split(':') : []) : null;
+  let groups;
+  if (tail === null) {
+    groups = head;
+  } else {
+    const missing = 8 - head.length - tail.length;
+    if (missing < 0) return null;
+    groups = [...head, ...Array(missing).fill('0'), ...tail];
+  }
+  if (groups.length !== 8) return null;
+  const nums = groups.map((g) => (g === '' ? 0 : Number.parseInt(g, 16)));
+  if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 0xffff)) return null;
+  return nums;
+}
+
+// The embedded IPv4 (dotted string) of a v4-mapped (::ffff:0:0/96) or NAT64
+// well-known (64:ff9b::/96) IPv6 address — regardless of hex-vs-dotted spelling
+// — else null. Sol Ultra #35: Node canonicalizes ::ffff:127.0.0.1 to the HEX
+// form ::ffff:7f00:1, which the old dotted-only regex missed, so a loopback /
+// RFC1918 / metadata target sailed through as an "opaque public IPv6".
+function embeddedIpv4(ip) {
+  const g = ipv6ToGroups(ip);
+  if (!g) return null;
+  const zeroHi = g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0;
+  const isV4Mapped = zeroHi && g[4] === 0 && g[5] === 0xffff;        // ::ffff:0:0/96
+  const isNat64 = g[0] === 0x64 && g[1] === 0xff9b
+    && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0;         // 64:ff9b::/96
+  if (!isV4Mapped && !isNat64) return null;
+  return [g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff].join('.');
+}
+
 function isBlockedIpv6(ip) {
-  const lower = ip.toLowerCase();
-  // v4-mapped / v4-translated (::ffff:a.b.c.d, 64:ff9b::a.b.c.d) — check the
-  // embedded IPv4.
-  const v4Match = lower.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (v4Match) return isBlockedIpv4(v4Match[1]);
+  const lower = String(ip).toLowerCase();
+  // v4-mapped / NAT64 embedded IPv4 — normalize (dotted OR hex) and apply the
+  // IPv4 policy (Sol Ultra #35).
+  const v4 = embeddedIpv4(lower);
+  if (v4) return isBlockedIpv4(v4);
   if (lower === '::' || lower === '::1') return true;        // unspecified / loopback
   if (/^fe[89ab]/.test(lower)) return true;                  // link-local fe80::/10
   if (/^f[cd]/.test(lower)) return true;                     // ULA fc00::/7
