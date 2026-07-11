@@ -323,6 +323,68 @@ void main() {
       expect(find.byKey(const ValueKey('stemi-activation-77')), findsOneWidget);
     },
   );
+
+  testWidgets('reports tab expands a case-level report list', (tester) async {
+    const cathCase = CathLabCaseSummary(
+      id: 42,
+      patientUid: '11111111-1111-4111-8111-111111111111',
+      patientName: 'Asha Rao',
+      requestedProcedure: 'Primary PCI',
+      status: 'completed',
+      urgency: 'emergency',
+      labRoom: 'CL-1',
+      plannedStartAt: null,
+      readinessTotal: 8,
+      readinessCleared: 8,
+      procedureCount: 1,
+      doseRecordCount: 1,
+      activePostOrderCount: 0,
+      deviceLinkCount: 1,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CathLabScreen(
+          loadCases: (_) async => const [cathCase],
+          loadRole: () async => 'DOCTOR',
+          // The merged workbench also boots the STEMI strip; inject inert
+          // sources so this test exercises only the reports surface. The
+          // 1s clock ticker makes pumpAndSettle time out — use discrete
+          // pumps like the STEMI tests above.
+          currentStaffUid: 'staff-1',
+          loadStemiActivations: () async => const [],
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+          reportDependencies: CathReportDependencies(
+            loadReports: (_) async => const [
+              CathProcedureReport(
+                id: 91,
+                caseId: 42,
+                patientUid: '11111111-1111-4111-8111-111111111111',
+                reportType: 'ptca',
+                status: 'preliminary',
+                narrativeSections: {'findings': 'Successful PCI to LAD'},
+                codedFields: {'stent_count': 1},
+              ),
+            ],
+            loadViewerLink: (_) async =>
+                const CathViewerLink(status: 'pacs_not_configured'),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('Reports'));
+    await tester.tap(find.text('Reports'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.byKey(const ValueKey('cath-report-expand-42')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.text('Preliminary'), findsOneWidget);
+    expect(find.text('Successful PCI to LAD'), findsOneWidget);
+  });
 }
 
 StemiActivationSummary _stemiActivation({
@@ -418,55 +480,4 @@ Map<String, dynamic> _stemiPayload(List<String> ruleCodes) {
       },
     ],
   };
-  testWidgets('reports tab expands a case-level report list', (tester) async {
-    const cathCase = CathLabCaseSummary(
-      id: 42,
-      patientUid: '11111111-1111-4111-8111-111111111111',
-      patientName: 'Asha Rao',
-      requestedProcedure: 'Primary PCI',
-      status: 'completed',
-      urgency: 'emergency',
-      labRoom: 'CL-1',
-      plannedStartAt: null,
-      readinessTotal: 8,
-      readinessCleared: 8,
-      procedureCount: 1,
-      doseRecordCount: 1,
-      activePostOrderCount: 0,
-      deviceLinkCount: 1,
-    );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: CathLabScreen(
-          loadCases: (_) async => const [cathCase],
-          loadRole: () async => 'DOCTOR',
-          reportDependencies: CathReportDependencies(
-            loadReports: (_) async => const [
-              CathProcedureReport(
-                id: 91,
-                caseId: 42,
-                patientUid: '11111111-1111-4111-8111-111111111111',
-                reportType: 'ptca',
-                status: 'preliminary',
-                narrativeSections: {'findings': 'Successful PCI to LAD'},
-                codedFields: {'stent_count': 1},
-              ),
-            ],
-            loadViewerLink: (_) async =>
-                const CathViewerLink(status: 'pacs_not_configured'),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.text('Reports'));
-    await tester.tap(find.text('Reports'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('cath-report-expand-42')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Preliminary'), findsOneWidget);
-    expect(find.text('Successful PCI to LAD'), findsOneWidget);
-  });
 }
