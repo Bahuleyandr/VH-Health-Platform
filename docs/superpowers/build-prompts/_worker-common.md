@@ -43,6 +43,16 @@ history — PR #427). Your worktree is your world.
   Commit `prisma/schema.prisma` TOGETHER with the `.sql`. Then
   `node apps/backend/scripts/check-phi-tenant-id.mjs` and
   `node apps/backend/scripts/check-schema-drift.mjs`.
+- **★ Comprehensive-seed proof (2026-07-11, learned from #552/#553 red CI): before opening
+  your PR, run `DATABASE_URL=<your scratch> VH_ALLOW_NON_TEST_DATA_SEED=true
+  node apps/backend/scripts/seed-comprehensive-test-data.mjs` against your own scratch DB
+  (after migrations) and require `"failed": []` in the summary.** The generic seeder walks
+  EVERY table: conditional CHECK constraints, newly-nullable columns, and append-only
+  triggers combined with `ON DELETE SET NULL` references all break backend CI + smoke even
+  when your own suites are green. Satisfy constraints via `TABLE_COLUMN_SEED_OVERRIDES`
+  inside that script (commit in the same PR), and never pair a blanket append-only trigger
+  with SET-NULL FKs — permit the FK-nulling shape (mig-559 pattern) or drop the FKs
+  (mig-514 pattern).
 - New PHI tables: copy the mig-356 RLS boilerplate exactly (tenant_id UUID NOT NULL with the
   GUC-aware default, ENABLE + FORCE ROW LEVEL SECURITY, `tenant_isolation` policy, FK to
   tenants). Service writes go through `setTenant`/`setTenantTx` with EXPLICIT tenant_id on

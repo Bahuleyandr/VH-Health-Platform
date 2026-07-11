@@ -143,6 +143,25 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   strings (`{Heart,Liver}`), not JS arrays — cast `::text[]` at every SQL exit (SELECT and
   RETURNING). Caught live on transplant `required_organs` (#541 smoke).
 
+- **Comprehensive-seeder constraint law.** The generic seeder (`seed-comprehensive-test-data.mjs`)
+  walks EVERY table; new tables with conditional CHECK constraints or newly-nullable columns
+  break backend CI + smoke even when the PR's own suites are green. Two live instances:
+  #552 (`template_version` matched the `lat` substring heuristic → latitude fed to an integer;
+  heuristics are now word-boundary) and #553 (mig-562's nullable SLA clocks + the stemi
+  door-clock CHECK → six-table cascade, uuid columns receiving the seeder's `1` FK fallback).
+  LAW: every PR adding tables/constraints runs the seeder against its own scratch DB pre-PR
+  and requires `"failed": []`; constraint-aware fixes go in `TABLE_COLUMN_SEED_OVERRIDES`
+  (same PR). Kickoff lines + _worker-common.md now carry this.
+- **Append-only triggers must permit their own SET-NULL FK actions.** A blanket UPDATE/DELETE
+  trigger on a table carrying `ON DELETE SET NULL` references makes those integrity actions
+  impossible — any parent delete dies inside the trigger. Manifested on #553 only after the
+  seeder began seeding stemi_pathway_events: the seeded row's audit reference blocked
+  document-integrity.deep's chain reset → 3 failures in BOTH backend runners; invisible to the
+  worker because their branch's seeder never seeded the table. Either keep FKs off append-only
+  tables entirely (resus mig-514 pattern) or allow exactly the FK-nulling shape — reference
+  columns → NULL with every other column byte-identical via `to_jsonb` equality (stemi
+  mig-559 pattern).
+
 ## 4. Coordinator verification method (specs AND build PRs)
 
 1. **Scope-cleanliness first**: `gh pr view N --json files,additions,deletions` — only the
@@ -238,11 +257,11 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 536–541 | NL14-P3 burns/TBSA | **on main** (#546, used 536–540; 541 unused gap — do not reuse) |
 | 542–545 | NL13-P5 CTVS/perfusion seam | **on main** (#540) |
 | 546–554 | NL13-P6 transplant program (6 organs, live+deceased) | **on main** (#541) |
-| 555–557 | NL13-P1b cath-lab reporting (owner access model 2026-07-11) | authored; launch-ready |
-| 558–562 | NL13-P1c code-STEMI pathway (stroke-pathway mirror) | authored; launch-ready |
-| 563–566 | NL13-P1d cath consumables/implants + billing hook | authored; gated on P1b merge |
-| 567–568 | NL13-P1e cath quick wins (readiness evidence, order sets, follow-up loops) | authored; gated on P1b merge |
-| 569–571 | NL13-P1f cath scheduling + dose/complication registries | authored; gated on P1b merge |
+| 555–557 | NL13-P1b cath-lab reporting (owner access model 2026-07-11) | **on main** (#552) |
+| 558–562 | NL13-P1c code-STEMI pathway (stroke-pathway mirror) | **on main** (#553) |
+| 563–566 | NL13-P1d cath consumables/implants + billing hook | GATE OPEN (P1b on main); kickoff handed 2026-07-11 |
+| 567–568 | NL13-P1e cath quick wins (readiness evidence, order sets, follow-up loops) | GATE OPEN (P1b on main); kickoff handed 2026-07-11 |
+| 569–571 | NL13-P1f cath scheduling + dose/complication registries | GATE OPEN (P1b on main); kickoff handed 2026-07-11 |
 | 572+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
@@ -305,12 +324,15 @@ edge + deploy · IdP pilot tenant · cluster activation items from earlier progr
   #544, code-blue #545, burns #546, ambulance #547, nuclear-med #548 (+ Trivy c-ares fix #549).
   Content verified per §4; coordinator fixed defects on-branch (route-policy + enum-array `::text[]`
   on #541, five proxy-allowlist entries, dart-format rolls).
-- **Cath enhancement tranche (owner asks 2026-07-11)** — P1b–P1f authored (blocks 555–571; §5/§7/§9).
+- **Cath enhancement tranche (owner asks 2026-07-11)** — **P1b MERGED #552 + P1c MERGED #553** (2026-07-11;
+  coordinator fixes on both: P1b seeder lat word-boundary; P1c seeder overrides + mig-559
+  append-only/SET-NULL allowance + P1b×P1c workbench union). P1d/P1e/P1f **GATES OPEN**,
+  kickoff lines handed (with pre-PR seed-proof addendum). Originally: P1b–P1f authored (blocks 555–571; §5/§7/§9).
   Launch order: **P1b + P1c in parallel NOW**; **P1d / P1e / P1f gate on P1b merged** (their start
   gates grep migs 555–557) because they extend the same cathLabService/staff workbench. Deferred
   pending hardware/operator: intra-procedure hemodynamics (NL-7 rails), tele-review (LiveKit).
-- **Small coordinator item deferred:** NICU command-board seam follow-up PR (noted during #544
-  verification).
+- **NICU command-board seam — DONE #551**: getPatientCommandBoard rows now carry `icu_chart`
+  (with nested `nicu` view); both #535/#544 board panels were dead without it.
 
 ## 9. Build-prompt library index (`docs/superpowers/build-prompts/`)
 
@@ -353,11 +375,11 @@ parallel-safe may overlap.
 | `golive-readiness-kickoff.md` | `docs/GO_LIVE_RUNBOOK.md` — sequenced activation runbook | Week-3 of the month plan (or on demand) | READY (design) |
 | `indigenous-drugkb-kickoff.md` | indigenous drug-KB program design spec | — | **MERGED** #463 |
 | `nl13-p1-cath-lab.md` | cath-lab cases/readiness/procedure/dose/orders/device-links | NL-13 spec on main | **MERGED** #536 (482–488) |
-| `nl13-p1b-cath-reporting.md` | templated Angio/PTCA/PPI reports, sign-off+addenda, DICOM viewer links, owner access model | P1 on main ✓ | authored; launch-ready (555–557) |
-| `nl13-p1c-stemi-pathway.md` | code-STEMI activation, team fan-out, door-to-ECG/lab/balloon SLAs, cath-case link | stroke pathway (503–507) + cath P1 on main ✓ | authored; launch-ready (558–562) |
-| `nl13-p1d-cath-consumables.md` | per-case consumable/implant usage, batch/expiry, inventory decrement, billing hook | **P1b merged** + cath P1 | authored; gated (563–566) |
-| `nl13-p1e-cath-quickwins.md` | live readiness evidence (crossmatch/e-sign), pre/post order sets, post-PCI loops | **P1b merged** + cath P1 | authored; gated (567–568) |
-| `nl13-p1f-cath-scheduling-registry.md` | cath rooms on Scheduling 2.0, dose rollups, complication registry → cockpit/BI | **P1b merged** + Scheduling 2.0 | authored; gated (569–571) |
+| `nl13-p1b-cath-reporting.md` | templated Angio/PTCA/PPI reports, sign-off+addenda, DICOM viewer links, owner access model | P1 on main ✓ | **MERGED** #552 (555–557) |
+| `nl13-p1c-stemi-pathway.md` | code-STEMI activation, team fan-out, door-to-ECG/lab/balloon SLAs, cath-case link | stroke pathway (503–507) + cath P1 on main ✓ | **MERGED** #553 (558–562) |
+| `nl13-p1d-cath-consumables.md` | per-case consumable/implant usage, batch/expiry, inventory decrement, billing hook | P1b on main ✓ | GATE OPEN; kickoff handed (563–566) |
+| `nl13-p1e-cath-quickwins.md` | live readiness evidence (crossmatch/e-sign), pre/post order sets, post-PCI loops | P1b on main ✓ | GATE OPEN; kickoff handed (567–568) |
+| `nl13-p1f-cath-scheduling-registry.md` | cath rooms on Scheduling 2.0, dose rollups, complication registry → cockpit/BI | P1b on main ✓ + Scheduling 2.0 | GATE OPEN; kickoff handed (569–571) |
 | `nl13-p2-stroke.md` | code-stroke activation, NIHSS, thrombolysis, pathway SLA | NL-13 spec on main | **MERGED** #542 (503–507) |
 | `nl13-p3-oncology-staging.md` | TNM/AJCC staging, CTCAE toxicity, tumor board | NL-13 spec on main | **MERGED** #539 (489–492; 493–494 unused gaps) |
 | `nl13-p4-nuclear-med-radiotherapy.md` | radiotherapy referrals/plans/fractions, nuc-med orders (coordination-only) | NL-13 spec + P3 | **MERGED** #548 (508–512) |
