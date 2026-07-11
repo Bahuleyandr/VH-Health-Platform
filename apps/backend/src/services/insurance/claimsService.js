@@ -272,6 +272,13 @@ export async function createPreauth({
   if (!expected_cost || Number(expected_cost) <= 0) {
     throw AppError.badRequest('expected_cost must be > 0');
   }
+  // Sol Ultra #15: bind the referenced policy / admission / parent pre-auth to
+  // this tenant + patient before creating the pre-auth (parent_preauth_id points
+  // at insurance_preauth, i.e. the preauthId ref in the shared checker).
+  await assertClaimReferencesBelongToPatient({
+    tenantId, patientUid: patient_uid, policyId: policy_id,
+    admissionId: admission_id, preauthId: parent_preauth_id,
+  });
 
   const preauth_number = await nextSeq('insurance_preauth_counter', 'PA', tenantId);
 
@@ -1187,6 +1194,38 @@ async function assertIssuedFinalCashlessInvoice({
   return invoice;
 }
 
+// Sol Ultra #1/#15: a claim/preauth carried caller-supplied policy_id,
+// preauth_id, admission_id and parent_claim_id straight into the INSERT with no
+// check that those objects belong to the same tenant AND the same patient. A
+// biller could therefore bind a claim to another patient's policy/admission
+// (intra-tenant financial-integrity), or reference another tenant's ids. Verify
+// each referenced object resolves within the tenant and shares the patient.
+// Table names are fixed literals here (never request data) — safe to inline.
+async function assertClaimReferencesBelongToPatient({
+  tenantId, patientUid, policyId = null, preauthId = null,
+  admissionId = null, parentClaimId = null,
+}) {
+  const refs = [
+    ['insurance_policies', policyId, 'policy_id'],
+    ['insurance_preauth', preauthId, 'preauth_id'],
+    ['admissions', admissionId, 'admission_id'],
+    ['tpa_claims', parentClaimId, 'parent_claim_id'],
+  ];
+  for (const [table, id, label] of refs) {
+    if (id == null) continue;
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT patient_uid FROM ${table} WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+      Number(id), tenantId,
+    );
+    if (!rows.length) {
+      throw AppError.badRequest(`${label} not found in this tenant`, 'CLAIM_REFERENCE_INVALID');
+    }
+    if (patientUid && rows[0].patient_uid && String(rows[0].patient_uid) !== String(patientUid)) {
+      throw AppError.forbidden(`${label} belongs to a different patient`, 'CLAIM_REFERENCE_PATIENT_MISMATCH');
+    }
+  }
+}
+
 export async function createClaim({
   tenantId, policy_id, preauth_id, invoice_id, patient_uid, admission_id,
   claim_type = 'cashless', total_billed, patient_copay = 0,
@@ -1195,6 +1234,10 @@ export async function createClaim({
 }) {
   if (!policy_id) throw AppError.badRequest('policy_id is required');
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  await assertClaimReferencesBelongToPatient({
+    tenantId, patientUid: patient_uid, policyId: policy_id, preauthId: preauth_id,
+    admissionId: admission_id, parentClaimId: parent_claim_id,
+  });
   if (!total_billed || Number(total_billed) <= 0) {
     throw AppError.badRequest('total_billed must be > 0');
   }
