@@ -38,14 +38,19 @@ Findings #6 enumeration, #14 lifecycle tampering. Scope breach list/detail/updat
 ## WS5 — HR approval authorization
 Findings #30 replacement final approval, #36 overtime approval. Require HR/manager capability (not any staff) for final approve/reject.
 
-## WS6 — Auth/session hardening
+## WS6 — Auth/session hardening  ▶ IN PROGRESS
 Findings #17 refresh-as-access (token-kind claim check), #19 partial logout (revoke both tokens), #21 SUPER_ADMIN MFA first-enroll replay (single-use setup state), #27 OTP/PIN bypass session tracking, #29 Redis-miss bypasses durable revocation (fail-closed to DB).
+- [x] #17 jwtMiddleware rejects `type:'refresh'` as an access bearer (commit d4e61e76a).
+- [x] #19 logout calls `revokeAllUserTokens(uid)` — sibling refresh revoked too (tradeoff: all-session logout). 
+- [ ] #21 MFA first-enroll replay · #27 OTP/PIN session tracking · #29 Redis-miss fail-closed.
 
 ## WS7 — SCIM cross-provider ownership  (#5)
 Bind SCIM create/replace to the authenticated provider; reject taking over an identity owned by another provider/externalId.
 
-## WS8 — Integration trust: ABDM/HL7/consent/SSRF/device
+## WS8 — Integration trust: ABDM/HL7/consent/SSRF/device  ▶ IN PROGRESS
 Findings #18 ABDM legacy secret (CAN-007 residual), #23 HL7 legacy secret (CAN-021 residual), #33 consent-field binding, #31/#35 SSRF IP-literal/IPv6-hex (CAN-027 residual), #25 MLLP frame cap, #34 device cleartext (TLS), #37 control-ID DoS, #26 downtime dedicated token (CAN-054, doc/set). Legacy-secret paths latent under single-tenant — add tenant-equality on per-tenant-secret path + document the deliberate legacy path.
+- [x] #35 SSRF hex IPv4-mapped IPv6 bypass fixed in `ssrfGuard.js` (commit d4e61e76a).
+- [ ] #31 IP-literal redirect · #18/#23 legacy-secret tenant-equality · #33 consent-field binding · #25/#34/#37 device gateway · #26 downtime token.
 
 ## WS9 — Supply-chain / CI-CD
 Findings #7 release tag bypasses main review, #20 mutable-tag digest rebind, #22 ArgoCD project cluster-RBAC, #24 Forgejo actions signing-key exposure, #28 image-name/namespace verify bypass, #32 Kyverno audit-mode. Gate release on main-ancestry; immutable digest pin; tighten Argo project; scope action secrets; Kyverno enforce.
