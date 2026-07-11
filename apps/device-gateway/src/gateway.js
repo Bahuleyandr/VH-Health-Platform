@@ -17,11 +17,15 @@ import {
 } from './metrics.js';
 
 export class GatewayRuntime {
-  constructor({ spoolDir, backendClient, maxSpoolBytes = 50 * 1024 * 1024, controlIdTtlMs = 24 * 60 * 60 * 1000 }) {
+  constructor({
+    spoolDir, backendClient, maxSpoolBytes = 50 * 1024 * 1024,
+    controlIdTtlMs = 24 * 60 * 60 * 1000, maxControlIds = 100000,
+  }) {
     this.spoolDir = spoolDir;
     this.backendClient = backendClient;
     this.maxSpoolBytes = maxSpoolBytes;
     this.controlIdTtlMs = controlIdTtlMs;
+    this.maxControlIds = maxControlIds;
     this.spools = new Map();
     this.controlIds = new Map();
   }
@@ -44,6 +48,14 @@ export class GatewayRuntime {
     for (const [seenKey, expires] of this.controlIds.entries()) {
       if (expires < now) this.controlIds.delete(seenKey);
     }
+    // Bound the dedup map so a flood of unique control ids can't exhaust gateway
+    // memory even inside the TTL window (Sol Ultra #37). Map preserves insertion
+    // order, so evicting keys().next() drops the oldest-inserted entry.
+    while (this.controlIds.size >= this.maxControlIds) {
+      const oldest = this.controlIds.keys().next().value;
+      if (oldest === undefined) break;
+      this.controlIds.delete(oldest);
+    }
     if (this.controlIds.has(key)) return true;
     this.controlIds.set(key, now + this.controlIdTtlMs);
     return false;
@@ -58,15 +70,20 @@ export class GatewayRuntime {
         mllpMessagesReceived.inc({ source, status: 'malformed' });
         return { ackCode: 'AE', ack: ack(message, 'AE', 'Malformed HL7 MSH') };
       }
-      if (this.rememberControlId(source, meta.controlId)) {
-        mllpMessagesReceived.inc({ source, status: 'accepted' });
-        return { ackCode: 'AA', duplicate: true, ack: ack(message, 'AA', 'Duplicate control ID') };
-      }
+      // Resolve the device BEFORE recording control-id state, and key the dedup
+      // by the RESOLVED device — an unauthenticated/unresolved peer must not be
+      // able to seed dedup state (suppress a real device's later message) or grow
+      // the map with spoofed source ids (Sol Ultra #37).
       const resolution = await this.backendClient.resolveDevice({
         source_ip: sourceIp,
         device_code: source,
         channel,
       });
+      const deviceKey = resolution.device?.device_code || source;
+      if (this.rememberControlId(deviceKey, meta.controlId)) {
+        mllpMessagesReceived.inc({ source, status: 'accepted' });
+        return { ackCode: 'AA', duplicate: true, ack: ack(message, 'AA', 'Duplicate control ID') };
+      }
       const entry = await this.spool(source).append({
         message,
         device_code: resolution.device?.device_code || source,
