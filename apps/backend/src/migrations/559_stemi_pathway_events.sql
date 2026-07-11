@@ -69,6 +69,29 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  -- Append-only for clinical content, but the table carries four
+  -- ON DELETE SET NULL references (encounter, SLA instance, canonical
+  -- timeline/audit events). A blanket UPDATE block makes those integrity
+  -- actions impossible — any parent delete (e.g. the audit-chain test
+  -- reset) dies inside this trigger. Permit ONLY the FK-nulling shape:
+  -- reference columns may transition to NULL, every other column must be
+  -- byte-identical. DELETE and all content mutation stay blocked;
+  -- corrections are new events.
+  IF TG_OP = 'UPDATE'
+     AND (NEW.encounter_id IS NULL OR NEW.encounter_id = OLD.encounter_id)
+     AND (NEW.workflow_sla_instance_id IS NULL
+          OR NEW.workflow_sla_instance_id = OLD.workflow_sla_instance_id)
+     AND (NEW.canonical_timeline_event_id IS NULL
+          OR NEW.canonical_timeline_event_id = OLD.canonical_timeline_event_id)
+     AND (NEW.canonical_audit_event_id IS NULL
+          OR NEW.canonical_audit_event_id = OLD.canonical_audit_event_id)
+     AND (to_jsonb(NEW) - 'encounter_id' - 'workflow_sla_instance_id'
+            - 'canonical_timeline_event_id' - 'canonical_audit_event_id')
+       = (to_jsonb(OLD) - 'encounter_id' - 'workflow_sla_instance_id'
+            - 'canonical_timeline_event_id' - 'canonical_audit_event_id')
+  THEN
+    RETURN NEW;
+  END IF;
   RAISE EXCEPTION
     'stemi_pathway_events is append-only: % is not allowed (record a new event instead)',
     TG_OP
