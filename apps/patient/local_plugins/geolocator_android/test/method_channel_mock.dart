@@ -18,8 +18,10 @@ class MethodChannelMock {
   final MethodChannel methodChannel;
   final log = <MethodCall>[];
 
-  MethodChannelMock({required String channelName, required this.methods})
-    : methodChannel = MethodChannel(channelName) {
+  MethodChannelMock({
+    required String channelName,
+    required this.methods,
+  }) : methodChannel = MethodChannel(channelName) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(methodChannel, _handler);
   }
