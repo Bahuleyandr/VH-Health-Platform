@@ -212,7 +212,11 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 542–545 | NL13-P5 CTVS/perfusion seam | authored; round-3 (minimal seam) |
 | 546–554 | NL13-P6 transplant program (6 organs, live+deceased) | GATE CLEARED 2026-07-09; authored + launch-ready |
 | 555–557 | NL13-P1b cath-lab reporting (owner access model 2026-07-11) | authored; launch-ready |
-| 558+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
+| 558–562 | NL13-P1c code-STEMI pathway (stroke-pathway mirror) | authored; launch-ready |
+| 563–566 | NL13-P1d cath consumables/implants + billing hook | authored; gated on P1b merge |
+| 567–568 | NL13-P1e cath quick wins (readiness evidence, order sets, follow-up loops) | authored; gated on P1b merge |
+| 569–571 | NL13-P1f cath scheduling + dose/complication registries | authored; gated on P1b merge |
+| 572+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -226,6 +230,8 @@ all §3 gates green · PR with a build ledger (scope, invariants held, migs used
 commands + pass counts, deferrals) · **STOP after the PR** — the coordinator merges.
 
 ## 7. Decision log
+
+- **2026-07-11 — Cath enhancement tranche authored in one go (owner).** P1b–P1f authored as one prompt tranche (blocks 555–571) instead of serially: P1b cath reporting, P1c code-STEMI pathway, P1d consumables/implants+billing, P1e quick-win integrations, P1f scheduling+registries. Sequencing: **P1b + P1c launch immediately in parallel**; **P1d/P1e/P1f gate on P1b merged to main** (their start gates grep migs 555–557) because they extend the same cathLabService/staff workbench; coordinator resolves residual workbench overlaps at roll. Deferred (hardware/operator-gated): live intra-procedure hemodynamics (NL-7 device rails) + tele-review (LiveKit).
 
 - **2026-07-11 — Cath imaging + reporting access model (owner).** DICOM/viewer access = doctor family + CATH_LAB_INCHARGE + CATH_LAB_STAFF + NURSING_STAFF + TECHNICIAN + ADMIN/SUPER_ADMIN only. Report draft/edit = doctor family + RECEPTIONIST (transcription) + CATH_LAB_INCHARGE. Report SIGN = doctors only, tightened via the mig-488 cath credentialing privilege (`cath_report_signing`, flipped from paused) to credentialed cardiologists/vascular surgeons/CTVS — specialty enforced by CREDENTIAL not role key. Full audit on report view/edit/sign/addendum + every viewer-link resolution. Encoded in `nl13-p1b-cath-reporting.md` (block 555–557). ADDENDUM (same day): discharge summaries auto-incorporate SIGNED cath reports via the dischargeComposeService compose graph — signed-only, clinician-editable section, pending-report completeness warning, issued summaries never retro-edited. Context: cath DICOM viewing rides the merged-but-operator-gated Orthanc+OHIF stack (docs/RADIOLOGY_PACS.md); pacsService deep links; cath_device_links angiography_accession seam.
 
@@ -319,6 +325,10 @@ parallel-safe may overlap.
 | `indigenous-drugkb-kickoff.md` | indigenous drug-KB program design spec | — | **MERGED** #463 |
 | `nl13-p1-cath-lab.md` | cath-lab cases/readiness/procedure/dose/orders/device-links | NL-13 spec on main | authored; ROUND-1 (482–488) |
 | `nl13-p1b-cath-reporting.md` | templated Angio/PTCA/PPI reports, sign-off+addenda, DICOM viewer links, owner access model | P1 on main ✓ | authored; launch-ready (555–557) |
+| `nl13-p1c-stemi-pathway.md` | code-STEMI activation, team fan-out, door-to-ECG/lab/balloon SLAs, cath-case link | stroke pathway (503–507) + cath P1 on main ✓ | authored; launch-ready (558–562) |
+| `nl13-p1d-cath-consumables.md` | per-case consumable/implant usage, batch/expiry, inventory decrement, billing hook | **P1b merged** + cath P1 | authored; gated (563–566) |
+| `nl13-p1e-cath-quickwins.md` | live readiness evidence (crossmatch/e-sign), pre/post order sets, post-PCI loops | **P1b merged** + cath P1 | authored; gated (567–568) |
+| `nl13-p1f-cath-scheduling-registry.md` | cath rooms on Scheduling 2.0, dose rollups, complication registry → cockpit/BI | **P1b merged** + Scheduling 2.0 | authored; gated (569–571) |
 | `nl13-p2-stroke.md` | code-stroke activation, NIHSS, thrombolysis, pathway SLA | NL-13 spec on main | authored; round-2 (503–507) |
 | `nl13-p3-oncology-staging.md` | TNM/AJCC staging, CTCAE toxicity, tumor board | NL-13 spec on main | authored; ROUND-1 (489–494) |
 | `nl13-p4-nuclear-med-radiotherapy.md` | radiotherapy referrals/plans/fractions, nuc-med orders (coordination-only) | NL-13 spec + P3 | authored; round-2 (508–512) |
