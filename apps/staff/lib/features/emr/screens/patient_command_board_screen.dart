@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/icu_chart_depth_panel.dart';
+import '../widgets/nicu_picu_chart_panel.dart';
 import '../widgets/patient_summary_sheet.dart';
 
 @visibleForTesting
@@ -1266,6 +1267,12 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                     if (IcuChartDepthPanel.hasRenderableData(icuChart)) ...[
                       const SizedBox(height: 10),
                       IcuChartDepthPanel(chart: icuChart),
+                    ],
+                    if (NicuPicuChartPanel.hasRenderableData(
+                      _asMap(icuChart['nicu']),
+                    )) ...[
+                      const SizedBox(height: 10),
+                      NicuPicuChartPanel(nicu: _asMap(icuChart['nicu'])),
                     ],
                     const SizedBox(height: 10),
                     Wrap(

@@ -7143,6 +7143,23 @@ class AppStrings {
           "order mutation flagged",
       's4.lib.patient_command_board.decision_support_only':
           "decision support only",
+      's4.lib.patient_command_board.nicu_chart': "NICU/PICU chart",
+      's4.lib.patient_command_board.nicu_feeds': "feeds",
+      's4.lib.patient_command_board.nicu_abd_events': "apnea/brady/desat",
+      's4.lib.patient_command_board.nicu_phototherapy': "phototherapy",
+      's4.lib.patient_command_board.nicu_fluid_balance': "Fluid balance",
+      's4.lib.patient_command_board.nicu_respiratory': "Respiratory",
+      's4.lib.patient_command_board.nicu_thermal': "Thermal care",
+      's4.lib.patient_command_board.nicu_jaundice': "Jaundice",
+      's4.lib.patient_command_board.nicu_newborn': "Newborn",
+      's4.lib.patient_command_board.nicu_no_newborn_link':
+          "No newborn record linked",
+      's4.lib.patient_command_board.nicu_growth': "Growth",
+      's4.lib.patient_command_board.nicu_not_charted':
+          "Not charted in this window",
+      's4.lib.patient_command_board.nicu_score_unavailable':
+          "Score unavailable",
+      's4.lib.patient_command_board.nicu_apgar': "APGAR",
       's4.lib.patient_notes_list.addendum': "Addendum",
       's4.lib.patient_context_chip.clear_patient_context':
           "Clear patient context",
@@ -12520,6 +12537,23 @@ class AppStrings {
           "ऑर्डर बदलाव चिह्नित",
       's4.lib.patient_command_board.decision_support_only':
           "केवल निर्णय सहायता",
+      's4.lib.patient_command_board.nicu_chart': "NICU/PICU चार्ट",
+      's4.lib.patient_command_board.nicu_feeds': "फ़ीड",
+      's4.lib.patient_command_board.nicu_abd_events': "एपनिया/ब्रैडी/डीसैट",
+      's4.lib.patient_command_board.nicu_phototherapy': "फोटोथेरेपी",
+      's4.lib.patient_command_board.nicu_fluid_balance': "द्रव संतुलन",
+      's4.lib.patient_command_board.nicu_respiratory': "श्वसन सहायता",
+      's4.lib.patient_command_board.nicu_thermal': "तापीय देखभाल",
+      's4.lib.patient_command_board.nicu_jaundice': "पीलिया",
+      's4.lib.patient_command_board.nicu_newborn': "नवजात",
+      's4.lib.patient_command_board.nicu_no_newborn_link':
+          "कोई नवजात रिकॉर्ड लिंक नहीं है",
+      's4.lib.patient_command_board.nicu_growth': "वृद्धि",
+      's4.lib.patient_command_board.nicu_not_charted':
+          "इस अवधि में चार्ट नहीं किया गया",
+      's4.lib.patient_command_board.nicu_score_unavailable':
+          "स्कोर उपलब्ध नहीं",
+      's4.lib.patient_command_board.nicu_apgar': "APGAR",
       // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
       's4.lib.patient_notes_list.addendum': "परिशिष्ट",
       's4.lib.patient_context_chip.clear_patient_context': "स्पष्ट रोगी संदर्भ",
@@ -18517,6 +18551,24 @@ class AppStrings {
           "ஆர்டர் மாற்றம் குறிக்கப்பட்டது",
       's4.lib.patient_command_board.decision_support_only':
           "முடிவு ஆதரவு மட்டும்",
+      's4.lib.patient_command_board.nicu_chart': "NICU/PICU சார்ட்",
+      's4.lib.patient_command_board.nicu_feeds': "உணவூட்டங்கள்",
+      // REVIEW: AI first-pass NL-14 P3 NICU sweep - Tamil clinical wording needs clinician review.
+      's4.lib.patient_command_board.nicu_abd_events': "அப்னியா/பிராடி/டீசாட்",
+      's4.lib.patient_command_board.nicu_phototherapy': "ஒளி சிகிச்சை",
+      's4.lib.patient_command_board.nicu_fluid_balance': "திரவ சமநிலை",
+      's4.lib.patient_command_board.nicu_respiratory': "சுவாச ஆதரவு",
+      's4.lib.patient_command_board.nicu_thermal': "வெப்பப் பராமரிப்பு",
+      's4.lib.patient_command_board.nicu_jaundice': "மஞ்சள் காமாலை",
+      's4.lib.patient_command_board.nicu_newborn': "பிறந்த குழந்தை",
+      's4.lib.patient_command_board.nicu_no_newborn_link':
+          "பிறப்புப் பதிவு இணைக்கப்படவில்லை",
+      's4.lib.patient_command_board.nicu_growth': "வளர்ச்சி",
+      's4.lib.patient_command_board.nicu_not_charted':
+          "இந்த இடைவெளியில் பதிவு இல்லை",
+      's4.lib.patient_command_board.nicu_score_unavailable':
+          "மதிப்பெண் கிடைக்கவில்லை",
+      's4.lib.patient_command_board.nicu_apgar': "APGAR",
       // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
       's4.lib.patient_notes_list.addendum': "சேர்க்கை",
       's4.lib.patient_context_chip.clear_patient_context':
@@ -24510,6 +24562,23 @@ class AppStrings {
           "ఆర్డర్ మార్పు గుర్తించబడింది",
       's4.lib.patient_command_board.decision_support_only':
           "నిర్ణయ సహాయం మాత్రమే",
+      's4.lib.patient_command_board.nicu_chart': "NICU/PICU చార్ట్",
+      's4.lib.patient_command_board.nicu_feeds': "ఫీడ్స్",
+      // REVIEW: AI first-pass NL-14 P3 NICU sweep - Telugu clinical wording needs clinician review.
+      's4.lib.patient_command_board.nicu_abd_events': "అప్నియా/బ్రాడీ/డీశాట్",
+      's4.lib.patient_command_board.nicu_phototherapy': "ఫోటోథెరపీ",
+      's4.lib.patient_command_board.nicu_fluid_balance': "ద్రవ సమతుల్యత",
+      's4.lib.patient_command_board.nicu_respiratory': "శ్వాస మద్దతు",
+      's4.lib.patient_command_board.nicu_thermal': "థర్మల్ సంరక్షణ",
+      's4.lib.patient_command_board.nicu_jaundice': "కామెర్లు",
+      's4.lib.patient_command_board.nicu_newborn': "నవజాత శిశువు",
+      's4.lib.patient_command_board.nicu_no_newborn_link':
+          "నవజాత రికార్డు లింక్ కాలేదు",
+      's4.lib.patient_command_board.nicu_growth': "పెరుగుదల",
+      's4.lib.patient_command_board.nicu_not_charted': "ఈ వ్యవధిలో నమోదు లేదు",
+      's4.lib.patient_command_board.nicu_score_unavailable':
+          "స్కోరు అందుబాటులో లేదు",
+      's4.lib.patient_command_board.nicu_apgar': "APGAR",
       // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
       's4.lib.patient_notes_list.addendum': "అనుబంధం",
       's4.lib.patient_context_chip.clear_patient_context':
@@ -26812,6 +26881,23 @@ class AppStrings {
           'ഓർഡർ മാറ്റം അടയാളപ്പെടുത്തി',
       's4.lib.patient_command_board.decision_support_only':
           'തീരുമാന സഹായം മാത്രം',
+      's4.lib.patient_command_board.nicu_chart': 'NICU/PICU ചാർട്ട്',
+      's4.lib.patient_command_board.nicu_feeds': 'ഫീഡുകൾ',
+      // REVIEW: AI first-pass NL-14 P3 NICU sweep - Malayalam clinical wording needs clinician review.
+      's4.lib.patient_command_board.nicu_abd_events': 'അപ്നിയ/ബ്രാഡി/ഡീസാറ്റ്',
+      's4.lib.patient_command_board.nicu_phototherapy': 'ഫോട്ടോതെറാപ്പി',
+      's4.lib.patient_command_board.nicu_fluid_balance': 'ദ്രാവക സന്തുലനം',
+      's4.lib.patient_command_board.nicu_respiratory': 'ശ്വസന പിന്തുണ',
+      's4.lib.patient_command_board.nicu_thermal': 'താപ പരിചരണം',
+      's4.lib.patient_command_board.nicu_jaundice': 'മഞ്ഞപ്പിത്തം',
+      's4.lib.patient_command_board.nicu_newborn': 'നവജാതശിശു',
+      's4.lib.patient_command_board.nicu_no_newborn_link':
+          'നവജാത രേഖ ബന്ധിപ്പിച്ചിട്ടില്ല',
+      's4.lib.patient_command_board.nicu_growth': 'വളർച്ച',
+      's4.lib.patient_command_board.nicu_not_charted':
+          'ഈ കാലയളവിൽ രേഖപ്പെടുത്തിയിട്ടില്ല',
+      's4.lib.patient_command_board.nicu_score_unavailable': 'സ്കോർ ലഭ്യമല്ല',
+      's4.lib.patient_command_board.nicu_apgar': 'APGAR',
       'summary.title': 'രോഗി സംഗ്രഹം',
       'summary.tooltip': 'രോഗി സംഗ്രഹം',
       'summary.admitted_bed': 'അഡ്മിറ്റ് · ബെഡ് {bed}',

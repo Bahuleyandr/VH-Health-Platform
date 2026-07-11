@@ -89,6 +89,12 @@ const MANUAL_SEED_TABLES = new Set([
   'transplant_notto_exports',
   // NL-14 ED evidence requires exactly one source pointer; seed below.
   'ed_encounter_evidence',
+  // NL-14 P3 NICU/PICU rows carry per-kind payload CHECKs (typed feed/
+  // fluid/jaundice events) and an owner-approval reference gate on score
+  // outputs that the generic seeder cannot satisfy.
+  'nicu_feed_fluid_entries',
+  'nicu_jaundice_phototherapy_events',
+  'nicu_picu_scoring_outputs',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1785,6 +1791,142 @@ async function seedSiemExportTables() {
   }
 }
 
+async function seedNicuPicuChartTables() {
+  const hasFeedFluid = await tableExists('nicu_feed_fluid_entries');
+  const hasJaundice = await tableExists('nicu_jaundice_phototherapy_events');
+  const hasScoring = await tableExists('nicu_picu_scoring_outputs');
+  if (!hasFeedFluid && !hasJaundice && !hasScoring) return;
+
+  const refs = await getCoreRefs();
+  const icuAdmission = await first(
+    'icu_admissions',
+    'id, tenant_id, admission_id, patient_uid',
+    'TRUE',
+    [],
+  );
+  const reviewerUid = refs.staff?.uid || refs.doctor?.uid;
+  if (!icuAdmission?.id || !icuAdmission.patient_uid || !reviewerUid) return;
+  const tenantId = icuAdmission.tenant_id || DEFAULT_TENANT_ID;
+  const seedMeta = JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' });
+
+  if (hasFeedFluid) {
+    await insertIfEmpty('nicu_feed_fluid_entries', [
+      {
+        tenant_id: tenantId,
+        icu_admission_id: icuAdmission.id,
+        admission_id: icuAdmission.admission_id,
+        patient_uid: icuAdmission.patient_uid,
+        entry_kind: 'weight',
+        recorded_at: new Date('2026-05-04T06:00:00.000Z'),
+        weight_grams: 1500,
+        recorded_by: reviewerUid,
+        notes: 'Seed NICU weight-of-day anchor for QA coverage.',
+        metadata: seedMeta,
+      },
+      {
+        tenant_id: tenantId,
+        icu_admission_id: icuAdmission.id,
+        admission_id: icuAdmission.admission_id,
+        patient_uid: icuAdmission.patient_uid,
+        entry_kind: 'feed',
+        recorded_at: new Date('2026-05-04T08:00:00.000Z'),
+        feed_type: 'expressed_breast_milk',
+        feed_route: 'og_tube',
+        volume_ml: 30,
+        duration_minutes: 20,
+        recorded_by: reviewerUid,
+        metadata: seedMeta,
+      },
+      {
+        tenant_id: tenantId,
+        icu_admission_id: icuAdmission.id,
+        admission_id: icuAdmission.admission_id,
+        patient_uid: icuAdmission.patient_uid,
+        entry_kind: 'fluid_output',
+        recorded_at: new Date('2026-05-04T09:00:00.000Z'),
+        output_kind: 'urine',
+        output_volume_ml: 12,
+        diaper_weight_based: true,
+        recorded_by: reviewerUid,
+        metadata: seedMeta,
+      },
+    ]);
+  }
+
+  if (hasJaundice) {
+    await insertIfEmpty('nicu_jaundice_phototherapy_events', [{
+      tenant_id: tenantId,
+      icu_admission_id: icuAdmission.id,
+      patient_uid: icuAdmission.patient_uid,
+      event_kind: 'bilirubin_measurement',
+      occurred_at: new Date('2026-05-04T10:00:00.000Z'),
+      bilirubin_total_mgdl: 11.4,
+      bilirubin_direct_mgdl: 0.6,
+      measurement_method: 'serum',
+      threshold_reference_source: 'nl5_content_studio',
+      threshold_reference_version: 'seed-tsb-v1',
+      recorded_by: reviewerUid,
+      notes: 'Seed bilirubin measurement for QA coverage.',
+      metadata: seedMeta,
+    }]);
+  }
+
+  if (!hasScoring) return;
+
+  // Score outputs fail closed without an owner-approved definition row, so
+  // the seed provides its own reference-complete (inactive) definition and
+  // stamps the output from it — mirroring the service's provenance rule.
+  let definition = await first(
+    'nicu_picu_score_definitions',
+    'id, reference_source, reference_version',
+    'reference_source IS NOT NULL AND reference_version IS NOT NULL',
+    [],
+  );
+  if (!definition && await tableExists('nicu_picu_score_definitions')) {
+    const created = await client.query(
+      `INSERT INTO nicu_picu_score_definitions (
+         tenant_id, score_kind, display_name, description, age_scope, source,
+         reference_source, reference_version, approved_by, approved_at,
+         active, metadata
+       )
+       VALUES (
+         $1::uuid, 'crib_ii', 'CRIB-II (seed)',
+         'Seed owner-approval evidence row for QA coverage.', 'neonatal',
+         'operator_supplied', 'Seed owner-approved CRIB-II reference',
+         'seed-crib2-v1', $2::uuid, NOW(), FALSE,
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id, reference_source, reference_version`,
+      [tenantId, reviewerUid],
+    );
+    definition = created.rows[0];
+  }
+  if (!definition?.id) return;
+
+  await insertIfEmpty('nicu_picu_scoring_outputs', [{
+    tenant_id: tenantId,
+    icu_admission_id: icuAdmission.id,
+    patient_uid: icuAdmission.patient_uid,
+    score_definition_id: definition.id,
+    score_kind: 'crib_ii',
+    recorded_at: new Date('2026-05-04T11:00:00.000Z'),
+    input_facts: JSON.stringify({ gestational_age_weeks: 31.5, birth_weight_g: 1500 }),
+    score_value: 7,
+    score_label: 'CRIB-II 7',
+    output_payload: JSON.stringify({ score: 7, scale: 'CRIB-II' }),
+    reference_source: definition.reference_source,
+    reference_version: definition.reference_version,
+    reviewer_uid: reviewerUid,
+    reviewer_role: 'NURSING_STAFF',
+    reviewed_at: new Date('2026-05-04T11:05:00.000Z'),
+    review_status: 'reviewed',
+    score_available: true,
+    order_mutation_performed: false,
+    recorded_by: reviewerUid,
+    metadata: seedMeta,
+  }]);
+}
+
 async function seedEdEncounterEvidence() {
   if (!(await tableExists('ed_encounter_evidence')) || await tableCount('ed_encounter_evidence')) return;
 
@@ -2142,6 +2284,7 @@ try {
   await seedPerfusionSignoffs();
   await seedTransplantProgramTables();
   await seedEdEncounterEvidence();
+  await seedNicuPicuChartTables();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
