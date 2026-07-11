@@ -20,11 +20,15 @@ const prismaMock = {
   diagnoses: { findMany: jest.fn() },
   discharge_consults: { findMany: jest.fn() },
   discharge_summaries: { findMany: jest.fn() },
+  icu_admissions: { findMany: jest.fn() },
   infection_cases: { findMany: jest.fn() },
   isolation_orders: { findMany: jest.fn() },
   patient_allergies: { findMany: jest.fn() },
   users: { findMany: jest.fn() },
 };
+
+const getIcuChartViewMock = jest.fn();
+const getNicuPicuChartViewMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
@@ -35,6 +39,13 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../services/patient/patientIdentifierService.js', () => ({
   getHospitalNumberMap: jest.fn(async () => new Map()),
+}));
+jest.unstable_mockModule('../../services/clinical/icuChartingService.js', () => ({
+  getIcuChartView: getIcuChartViewMock,
+}));
+jest.unstable_mockModule('../../services/clinical/nicuPicuChartingService.js', () => ({
+  getNicuPicuChartView: getNicuPicuChartViewMock,
+  NICU_PICU_UNITS: ['NICU', 'PICU'],
 }));
 
 const patientCommandBoardService = await import('../../services/emr/patientCommandBoardService.js');
@@ -50,6 +61,13 @@ beforeEach(() => {
     }
   }
   prismaMock.admissions.count.mockResolvedValue(46);
+  getIcuChartViewMock.mockReset();
+  getIcuChartViewMock.mockResolvedValue({ summary: { device_vitals_count: 0 } });
+  getNicuPicuChartViewMock.mockReset();
+  getNicuPicuChartViewMock.mockResolvedValue({
+    summary: { device_vitals_count: 0 },
+    nicu: { summary: { feed_fluid_entry_count: 0 } },
+  });
 });
 
 describe('patientCommandBoardService', () => {
@@ -571,5 +589,129 @@ describe('patientCommandBoardService', () => {
       status: 'hidden',
       source: 'minimized',
     }));
+  });
+});
+
+describe('icu_chart enrichment (NL14-P1/P3 command-board seam)', () => {
+  const PATIENT_UID = '30000000-0000-4000-8000-000000000007';
+  const admissionRow = (overrides = {}) => ({
+    id: 7,
+    tenant_id: TENANT,
+    encounter_id: null,
+    patient_uid: PATIENT_UID,
+    admitting_doctor: DOCTOR_UID,
+    attending_doctor: DOCTOR_UID,
+    ward: 'NICU',
+    bed_id: null,
+    bed_number: 'N1',
+    status: 'admitted',
+    admission_type: 'IPD',
+    priority: 'routine',
+    allergies: [],
+    admitted_at: new Date('2026-07-01T08:00:00.000Z'),
+    ...overrides,
+  });
+  const icuRow = (overrides = {}) => ({
+    id: 501,
+    admission_id: 7,
+    patient_uid: PATIENT_UID,
+    unit_code: 'NICU',
+    tenant_id: TENANT,
+    admitted_at: new Date('2026-07-01T09:00:00.000Z'),
+    ...overrides,
+  });
+  const board = (actor = {}) =>
+    patientCommandBoardService.default.getPatientCommandBoard(
+      {},
+      { uid: DOCTOR_UID, role: 'CONSULTANT', tenantId: TENANT, ...actor },
+    );
+
+  it('attaches the NICU/PICU chart view for rows with an active NICU episode', async () => {
+    prismaMock.admissions.findMany.mockResolvedValueOnce([admissionRow()]);
+    prismaMock.icu_admissions.findMany.mockResolvedValueOnce([icuRow()]);
+    getNicuPicuChartViewMock.mockResolvedValueOnce({
+      summary: { device_vitals_count: 2 },
+      nicu: { summary: { feed_fluid_entry_count: 3 } },
+    });
+
+    const result = await board();
+
+    expect(prismaMock.icu_admissions.findMany).toHaveBeenCalledTimes(1);
+    const icuWhere = prismaMock.icu_admissions.findMany.mock.calls[0][0].where;
+    expect(icuWhere.status).toBe('active');
+    expect(JSON.stringify(icuWhere)).toContain(TENANT);
+    expect(getNicuPicuChartViewMock).toHaveBeenCalledWith({ tenantId: TENANT, icuAdmissionId: 501 });
+    expect(getIcuChartViewMock).not.toHaveBeenCalled();
+    expect(result.rows[0].icu_chart.nicu.summary.feed_fluid_entry_count).toBe(3);
+  });
+
+  it('attaches the plain ICU chart view for non-NICU units', async () => {
+    prismaMock.admissions.findMany.mockResolvedValueOnce([admissionRow({ ward: 'ICU' })]);
+    prismaMock.icu_admissions.findMany.mockResolvedValueOnce([icuRow({ unit_code: 'ICU' })]);
+    getIcuChartViewMock.mockResolvedValueOnce({ summary: { device_vitals_count: 5 } });
+
+    const result = await board();
+
+    expect(getIcuChartViewMock).toHaveBeenCalledWith({ tenantId: TENANT, icuAdmissionId: 501 });
+    expect(getNicuPicuChartViewMock).not.toHaveBeenCalled();
+    expect(result.rows[0].icu_chart.summary.device_vitals_count).toBe(5);
+    expect(result.rows[0].icu_chart.nicu).toBeUndefined();
+  });
+
+  it('falls back to patient_uid matching for legacy unlinked icu_admissions', async () => {
+    prismaMock.admissions.findMany.mockResolvedValueOnce([admissionRow()]);
+    prismaMock.icu_admissions.findMany.mockResolvedValueOnce([
+      icuRow({ admission_id: null, unit_code: 'PICU' }),
+    ]);
+
+    const result = await board();
+
+    expect(getNicuPicuChartViewMock).toHaveBeenCalledWith({ tenantId: TENANT, icuAdmissionId: 501 });
+    expect(result.rows[0].icu_chart).toBeDefined();
+  });
+
+  it('leaves rows without an active ICU episode unenriched', async () => {
+    prismaMock.admissions.findMany.mockResolvedValueOnce([admissionRow()]);
+
+    const result = await board();
+
+    expect(getIcuChartViewMock).not.toHaveBeenCalled();
+    expect(getNicuPicuChartViewMock).not.toHaveBeenCalled();
+    expect('icu_chart' in result.rows[0]).toBe(false);
+  });
+
+  it('keeps the board alive when a chart view fails', async () => {
+    prismaMock.admissions.findMany.mockResolvedValueOnce([
+      admissionRow(),
+      admissionRow({ id: 8, patient_uid: '30000000-0000-4000-8000-000000000008', ward: 'ICU' }),
+    ]);
+    prismaMock.icu_admissions.findMany.mockResolvedValueOnce([
+      icuRow(),
+      icuRow({
+        id: 502,
+        admission_id: 8,
+        patient_uid: '30000000-0000-4000-8000-000000000008',
+        unit_code: 'ICU',
+      }),
+    ]);
+    getNicuPicuChartViewMock.mockRejectedValueOnce(new Error('chart exploded'));
+    getIcuChartViewMock.mockResolvedValueOnce({ summary: { device_vitals_count: 1 } });
+
+    const result = await board();
+
+    expect(result.rows).toHaveLength(2);
+    const failedRow = result.rows.find((row) => row.admission_id === 7);
+    const okRow = result.rows.find((row) => row.admission_id === 8);
+    expect('icu_chart' in failedRow).toBe(false);
+    expect(okRow.icu_chart.summary.device_vitals_count).toBe(1);
+  });
+
+  it('skips enrichment entirely for minimized-payload roles', async () => {
+    prismaMock.admissions.findMany.mockResolvedValueOnce([admissionRow()]);
+
+    const result = await board({ uid: HOUSEKEEPING_UID, role: 'HOUSEKEEPING_STAFF' });
+
+    expect(prismaMock.icu_admissions.findMany).not.toHaveBeenCalled();
+    expect('icu_chart' in result.rows[0]).toBe(false);
   });
 });
