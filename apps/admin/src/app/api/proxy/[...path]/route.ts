@@ -54,6 +54,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/consent",
   "api/v1/dietary",
   "api/v1/abdm",
+  "api/v1/resuscitation",
   "api/v1/radiology",
   "api/v1/radiation-oncology",
   "api/v1/pathology",
