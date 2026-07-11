@@ -948,7 +948,7 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
 });
 
 describe('AuthService.logout', () => {
-  it('blacklists the token and writes a logout auth_log', async () => {
+  it('blacklists the token, revokes the whole user session, and writes a logout auth_log', async () => {
     mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+919998887776', jti: 'jti-1', exp: 9999999999 });
     mockPrisma.auth_logs.create.mockResolvedValue({});
 
@@ -956,6 +956,10 @@ describe('AuthService.logout', () => {
 
     expect(res).toEqual({ phone: '+919998887776' });
     expect(mockBlacklistToken).toHaveBeenCalledWith('jti-1', 9999999999, 'logout');
+    // Sol Ultra #19: login mints an access + a sibling refresh JWT with no shared
+    // session-family id, so blacklisting only the presented token leaves the
+    // sibling usable. Logout must revoke every token for this identity.
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('u1');
     expect(mockPrisma.auth_logs.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'logout', success: true }) }),
     );
