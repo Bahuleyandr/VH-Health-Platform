@@ -447,6 +447,7 @@ model admissions {
   tenants                         tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admissions_tenant")
   advance_deposits                advance_deposits[]
   attendant_passes                attendant_passes[]
+  burn_charts                     burn_charts[]
   device_presence_logs            device_presence_logs[]
   discharge_consults              discharge_consults[]
   hai_cases                       hai_cases[]
@@ -4942,6 +4943,7 @@ model emergency_visits {
   updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
   encounter_id                  String                          @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   admissions                    admissions[]                    @relation("AdmissionFromErVisit")
+  burn_charts                   burn_charts[]
   ed_encounter_evidence         ed_encounter_evidence[]
   ed_injury_diagram_attachments ed_injury_diagram_attachments[]
   tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -6662,6 +6664,7 @@ model mlc_records {
   created_by                    String?                         @db.Uuid
   created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
   updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  burn_charts                   burn_charts[]
   ed_injury_diagram_attachments ed_injury_diagram_attachments[]
   mlc_completeness_audit_events mlc_completeness_audit_events[]
   mlc_completeness_reviews      mlc_completeness_reviews[]
@@ -9706,6 +9709,14 @@ model tenants {
   bookable_resources                         bookable_resources[]
   bulk_operation_logs                        bulk_operation_logs[]
   bulk_revision_jobs                         bulk_revision_jobs[]
+  burn_charts                                burn_charts[]
+  burn_fluid_references                      burn_fluid_references[]
+  burn_fluid_worksheets                      burn_fluid_worksheets[]
+  burn_protocol_content_links                burn_protocol_content_links[]
+  burn_reassessment_media                    burn_reassessment_media[]
+  burn_reassessments                         burn_reassessments[]
+  burn_tbsa_references                       burn_tbsa_references[]
+  burn_wound_regions                         burn_wound_regions[]
   care_plan_activities                       care_plan_activities[]
   care_plan_goals                            care_plan_goals[]
   care_plan_review_log                       care_plan_review_log[]
@@ -11705,6 +11716,9 @@ model clinical_order_sets {
   superseded_by                   Int?
   source                          String                            @default("authored") @db.VarChar(20)
   import_batch_id                 BigInt?
+  burn_fluid_references           burn_fluid_references[]
+  burn_fluid_worksheets           burn_fluid_worksheets[]
+  burn_protocol_content_links     burn_protocol_content_links[]
   clinical_order_set_applications clinical_order_set_applications[]
   clinical_order_set_items        clinical_order_set_items[]
   order_set_import_batches        order_set_import_batches?         @relation(fields: [import_batch_id], references: [id], onUpdate: NoAction, map: "fk_clinical_order_sets_import_batch")
@@ -22235,6 +22249,258 @@ model prehospital_handovers {
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_prehospital_handovers_patient")
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_prehospital_handovers_status")
   @@index([tenant_id, emergency_visit_id], map: "idx_prehospital_handovers_visit", where: raw("(emergency_visit_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model burn_charts {
+  id                          BigInt                        @id @default(autoincrement())
+  tenant_id                   String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                 String                        @db.Uuid
+  emergency_visit_id          Int?
+  admission_id                Int?
+  mlc_record_id               Int?
+  encounter_id                String?                       @db.Uuid
+  mechanism                   String                        @db.VarChar(120)
+  injury_at                   DateTime?                     @db.Timestamptz(6)
+  presentation_at             DateTime?                     @db.Timestamptz(6)
+  first_aid                   String?
+  inhalation_risk             Boolean                       @default(false)
+  circumferential_burns       Boolean                       @default(false)
+  comorbid_risks              String[]                      @default([])
+  wound_summary               Json                          @default("[]")
+  status                      String                        @default("draft") @db.VarChar(30)
+  recorded_by                 String?                       @db.Uuid
+  recorded_at                 DateTime                      @default(now()) @db.Timestamptz(6)
+  reviewed_by                 String?                       @db.Uuid
+  reviewed_at                 DateTime?                     @db.Timestamptz(6)
+  governance_owner_uid        String?                       @db.Uuid
+  governance_owner_role       String?                       @db.VarChar(80)
+  reviewer_signoff_uid        String?                       @db.Uuid
+  reviewer_signoff_at         DateTime?                     @db.Timestamptz(6)
+  metadata                    Json                          @default("{}")
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  admissions                  admissions?                   @relation(fields: [admission_id], references: [id], onUpdate: NoAction)
+  emergency_visits            emergency_visits?             @relation(fields: [emergency_visit_id], references: [id], onUpdate: NoAction)
+  mlc_records                 mlc_records?                  @relation(fields: [mlc_record_id], references: [id], onUpdate: NoAction)
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_burn_charts_tenant")
+  burn_fluid_worksheets       burn_fluid_worksheets[]
+  burn_protocol_content_links burn_protocol_content_links[]
+  burn_reassessment_media     burn_reassessment_media[]
+  burn_reassessments          burn_reassessments[]
+  burn_wound_regions          burn_wound_regions[]
+
+  @@index([tenant_id, admission_id], map: "idx_burn_charts_admission", where: raw("(admission_id IS NOT NULL)"))
+  @@index([tenant_id, emergency_visit_id], map: "idx_burn_charts_emergency_visit", where: raw("(emergency_visit_id IS NOT NULL)"))
+  @@index([tenant_id, mlc_record_id], map: "idx_burn_charts_mlc", where: raw("(mlc_record_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_burn_charts_tenant_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model burn_fluid_references {
+  id                    BigInt                  @id @default(autoincrement())
+  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  reference_key         String                  @db.VarChar(120)
+  title                 String                  @db.VarChar(255)
+  version               Int                     @default(1)
+  source                String?
+  content_order_set_id  Int?
+  evidence_owner_uid    String?                 @db.Uuid
+  evidence_source_uri   String?
+  governance_owner_uid  String?                 @db.Uuid
+  reviewer_signoff_uid  String?                 @db.Uuid
+  reviewer_signoff_at   DateTime?               @db.Timestamptz(6)
+  status                String                  @default("draft") @db.VarChar(30)
+  active                Boolean                 @default(false)
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  clinical_order_sets   clinical_order_sets?    @relation(fields: [content_order_set_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_burn_fluid_references_tenant")
+  burn_fluid_worksheets burn_fluid_worksheets[]
+
+  @@unique([tenant_id, reference_key], map: "uniq_burn_fluid_references_active", where: raw("(active = true)"))
+  @@unique([tenant_id, reference_key, version], map: "uniq_burn_fluid_references_version")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model burn_fluid_worksheets {
+  id                    BigInt                @id @default(autoincrement())
+  tenant_id             String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  burn_chart_id         BigInt
+  patient_uid           String                @db.Uuid
+  weight_kg             Decimal?              @db.Decimal(6, 2)
+  tbsa_percent          Decimal?              @db.Decimal(5, 2)
+  protocol_reference_id BigInt
+  content_order_set_id  Int
+  worksheet_inputs      Json                  @default("{}")
+  clinician_decisions   Json
+  decision_summary      String?
+  protocol_unavailable  Boolean               @default(false)
+  recorded_by           String?               @db.Uuid
+  recorded_at           DateTime              @default(now()) @db.Timestamptz(6)
+  reviewed_by           String?               @db.Uuid
+  reviewed_at           DateTime?             @db.Timestamptz(6)
+  metadata              Json                  @default("{}")
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime              @default(now()) @db.Timestamptz(6)
+  burn_charts           burn_charts           @relation(fields: [burn_chart_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  clinical_order_sets   clinical_order_sets   @relation(fields: [content_order_set_id], references: [id], onUpdate: NoAction)
+  burn_fluid_references burn_fluid_references @relation(fields: [protocol_reference_id], references: [id], onUpdate: NoAction)
+  tenants               tenants               @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_burn_fluid_worksheets_tenant")
+
+  @@index([tenant_id, burn_chart_id, recorded_at(sort: Desc)], map: "idx_burn_fluid_worksheets_chart")
+  @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_burn_fluid_worksheets_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model burn_protocol_content_links {
+  id                   BigInt              @id @default(autoincrement())
+  tenant_id            String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  burn_chart_id        BigInt
+  patient_uid          String              @db.Uuid
+  protocol_kind        String              @db.VarChar(40)
+  content_order_set_id Int
+  family_key           String              @db.VarChar(160)
+  content_version      Int
+  link_status          String              @default("available") @db.VarChar(30)
+  evidence_owner_uid   String?             @db.Uuid
+  governance_owner_uid String?             @db.Uuid
+  reviewer_signoff_uid String?             @db.Uuid
+  reviewer_signoff_at  DateTime?           @db.Timestamptz(6)
+  linked_by            String?             @db.Uuid
+  linked_at            DateTime            @default(now()) @db.Timestamptz(6)
+  metadata             Json                @default("{}")
+  created_at           DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime            @default(now()) @db.Timestamptz(6)
+  burn_charts          burn_charts         @relation(fields: [burn_chart_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  clinical_order_sets  clinical_order_sets @relation(fields: [content_order_set_id], references: [id], onUpdate: NoAction)
+  tenants              tenants             @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_burn_protocol_content_links_tenant")
+
+  @@unique([tenant_id, burn_chart_id, protocol_kind], map: "uniq_burn_protocol_content_links_kind", where: raw("((link_status)::text = 'available'::text)"))
+  @@index([tenant_id, content_order_set_id], map: "idx_burn_protocol_content_links_content")
+  @@index([tenant_id, patient_uid, linked_at(sort: Desc)], map: "idx_burn_protocol_content_links_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model burn_reassessment_media {
+  id                 BigInt             @id @default(autoincrement())
+  tenant_id          String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  reassessment_id    BigInt
+  burn_chart_id      BigInt
+  patient_uid        String             @db.Uuid
+  media_storage_key  String
+  media_sha256_hash  String?            @db.VarChar(64)
+  mime_type          String?            @db.VarChar(120)
+  file_size_bytes    BigInt?
+  captured_at        DateTime?          @db.Timestamptz(6)
+  captured_by        String?            @db.Uuid
+  consent_confirmed  Boolean            @default(false)
+  media_kind         String             @default("photo") @db.VarChar(30)
+  metadata           Json               @default("{}")
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  burn_charts        burn_charts        @relation(fields: [burn_chart_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  burn_reassessments burn_reassessments @relation(fields: [reassessment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_burn_reassessment_media_tenant")
+
+  @@index([tenant_id, burn_chart_id, created_at(sort: Desc)], map: "idx_burn_reassessment_media_chart")
+  @@index([tenant_id, reassessment_id], map: "idx_burn_reassessment_media_reassessment")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model burn_reassessments {
+  id                      BigInt                    @id @default(autoincrement())
+  tenant_id               String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  burn_chart_id           BigInt
+  patient_uid             String                    @db.Uuid
+  reassessed_at           DateTime                  @default(now()) @db.Timestamptz(6)
+  reassessed_by           String?                   @db.Uuid
+  wound_status            String?                   @db.VarChar(80)
+  pain_score              Int?
+  infection_concern       Boolean                   @default(false)
+  perfusion_concern       Boolean                   @default(false)
+  procedure_notes         String?
+  serial_assessment       Json                      @default("{}")
+  metadata                Json                      @default("{}")
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  burn_reassessment_media burn_reassessment_media[]
+  burn_charts             burn_charts               @relation(fields: [burn_chart_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                 tenants                   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_burn_reassessments_tenant")
+
+  @@index([tenant_id, burn_chart_id, reassessed_at(sort: Desc)], map: "idx_burn_reassessments_chart")
+  @@index([tenant_id, patient_uid, reassessed_at(sort: Desc)], map: "idx_burn_reassessments_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model burn_tbsa_references {
+  id                   BigInt               @id @default(autoincrement())
+  tenant_id            String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  reference_key        String               @db.VarChar(120)
+  title                String               @db.VarChar(255)
+  version              Int                  @default(1)
+  source               String?
+  age_template_key     String?              @db.VarChar(80)
+  age_min_months       Int?
+  age_max_months       Int?
+  region_weights       Json
+  evidence_owner_uid   String?              @db.Uuid
+  evidence_source_uri  String?
+  governance_owner_uid String?              @db.Uuid
+  reviewer_signoff_uid String?              @db.Uuid
+  reviewer_signoff_at  DateTime?            @db.Timestamptz(6)
+  status               String               @default("draft") @db.VarChar(30)
+  active               Boolean              @default(false)
+  metadata             Json                 @default("{}")
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime             @default(now()) @db.Timestamptz(6)
+  tenants              tenants              @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_burn_tbsa_references_tenant")
+  burn_wound_regions   burn_wound_regions[]
+
+  @@unique([tenant_id, reference_key], map: "uniq_burn_tbsa_references_active", where: raw("(active = true)"))
+  @@unique([tenant_id, reference_key, version], map: "uniq_burn_tbsa_references_version")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model burn_wound_regions {
+  id                         BigInt                @id @default(autoincrement())
+  tenant_id                  String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  burn_chart_id              BigInt
+  patient_uid                String                @db.Uuid
+  body_region_code           String                @db.VarChar(80)
+  body_region_label          String                @db.VarChar(160)
+  side                       String?               @db.VarChar(20)
+  surface                    String?               @db.VarChar(40)
+  depth                      String                @db.VarChar(40)
+  area_percent               Decimal               @db.Decimal(5, 2)
+  reference_id               BigInt?
+  reference_key              String?               @db.VarChar(120)
+  reference_version          Int?
+  age_template_key           String?               @db.VarChar(80)
+  clinician_override_percent Decimal?              @db.Decimal(5, 2)
+  override_reason            String?
+  override_by                String?               @db.Uuid
+  override_at                DateTime?             @db.Timestamptz(6)
+  decision_support_payload   Json                  @default("{}")
+  recorded_by                String?               @db.Uuid
+  recorded_at                DateTime              @default(now()) @db.Timestamptz(6)
+  metadata                   Json                  @default("{}")
+  created_at                 DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime              @default(now()) @db.Timestamptz(6)
+  burn_charts                burn_charts           @relation(fields: [burn_chart_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  burn_tbsa_references       burn_tbsa_references? @relation(fields: [reference_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  tenants                    tenants               @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_burn_wound_regions_tenant")
+
+  @@index([tenant_id, burn_chart_id, recorded_at(sort: Desc)], map: "idx_burn_wound_regions_chart")
+  @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_burn_wound_regions_patient")
 }
 
 enum transplant_organ_type {

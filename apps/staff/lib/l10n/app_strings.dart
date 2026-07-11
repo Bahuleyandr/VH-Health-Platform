@@ -1295,6 +1295,63 @@ class AppStrings {
   String get ordersTitlePrefix => _t('orders.title_prefix');
   String get vitalsChartTitlePrefix => _t('vitals_chart.title_prefix');
 
+  // ── Burn care ─────────────────────────────────────────────────────
+  String get burnCareAction => _t('burn_care.action');
+  String get burnCareAdmissionId => _t('burn_care.admission_id');
+  String get burnCareAreaPercent => _t('burn_care.area_percent');
+  String get burnCareChartNotOpen => _t('burn_care.chart_not_open');
+  String burnCareChartNumber(int id) =>
+      _t('burn_care.chart_number').replaceAll('{id}', '$id');
+  String get burnCareChartSaved => _t('burn_care.chart_saved');
+  String get burnCareChartSection => _t('burn_care.chart_section');
+  String get burnCareCircumferential => _t('burn_care.circumferential');
+  String get burnCareContextRequired => _t('burn_care.context_required');
+  String get burnCareCouldNotSave => _t('burn_care.could_not_save');
+  String get burnCareDepth => _t('burn_care.depth');
+  String get burnCareDepthDeepPartial => _t('burn_care.depth.deep_partial');
+  String get burnCareDepthFull => _t('burn_care.depth.full');
+  String get burnCareDepthMixed => _t('burn_care.depth.mixed');
+  String get burnCareDepthPartial => _t('burn_care.depth.partial');
+  String get burnCareDepthSuperficial => _t('burn_care.depth.superficial');
+  String get burnCareDepthUnknown => _t('burn_care.depth.unknown');
+  String burnCareDraftTbsa(String value) =>
+      _t('burn_care.draft_tbsa').replaceAll('{value}', value);
+  String get burnCareEmergencyVisitId => _t('burn_care.emergency_visit_id');
+  String get burnCareFirstAid => _t('burn_care.first_aid');
+  String get burnCareInhalationRisk => _t('burn_care.inhalation_risk');
+  String get burnCareMechanism => _t('burn_care.mechanism');
+  String get burnCareMechanismRequired => _t('burn_care.mechanism_required');
+  String get burnCareMlcRecordId => _t('burn_care.mlc_record_id');
+  String get burnCareOpenChart => _t('burn_care.open_chart');
+  String get burnCareOpenChartFirst => _t('burn_care.open_chart_first');
+  String get burnCareOverridePercent => _t('burn_care.override_percent');
+  String get burnCareOverrideReason => _t('burn_care.override_reason');
+  String get burnCareReferenceKey => _t('burn_care.reference_key');
+  String get burnCareReferenceRequired => _t('burn_care.reference_required');
+  String get burnCareRegionAnteriorTrunk =>
+      _t('burn_care.region.anterior_trunk');
+  String get burnCareRegionCode => _t('burn_care.region_code');
+  String get burnCareRegionHeadNeck => _t('burn_care.region.head_neck');
+  String get burnCareRegionLabel => _t('burn_care.region_label');
+  String get burnCareRegionLeftArm => _t('burn_care.region.left_arm');
+  String get burnCareRegionLeftLeg => _t('burn_care.region.left_leg');
+  String get burnCareRegionPerineum => _t('burn_care.region.perineum');
+  String get burnCareRegionPosteriorTrunk =>
+      _t('burn_care.region.posterior_trunk');
+  String get burnCareRegionRequired => _t('burn_care.region_required');
+  String get burnCareRegionRightArm => _t('burn_care.region.right_arm');
+  String get burnCareRegionRightLeg => _t('burn_care.region.right_leg');
+  String get burnCareRemoveRegion => _t('burn_care.remove_region');
+  String get burnCareSaveTbsa => _t('burn_care.save_tbsa');
+  String get burnCareSaving => _t('burn_care.saving');
+  String burnCareSavedTbsa(String value) =>
+      _t('burn_care.saved_tbsa').replaceAll('{value}', value);
+  String get burnCareTbsaSaved => _t('burn_care.tbsa_saved');
+  String get burnCareTbsaSection => _t('burn_care.tbsa_section');
+  String get burnCareTitle => _t('burn_care.title');
+  String burnCareTitleWithName(String name) =>
+      '${_t('burn_care.title')} - $name';
+
   // ── Clinical inbox ────────────────────────────────────────────────
   String get clinicalInboxTitle => _t('clinical_inbox.title');
   String get clinicalInboxEmpty => _t('clinical_inbox.empty');
@@ -4332,6 +4389,56 @@ class AppStrings {
       'clinical_notes.save_note': 'Save Note',
       'clinical_notes.created_success': 'Note created successfully',
       'clinical_notes.create_failed_prefix': 'Failed to create note:',
+      // Burn care
+      'burn_care.action': 'Burn chart',
+      'burn_care.admission_id': 'Admission ID',
+      'burn_care.area_percent': 'Area %',
+      'burn_care.chart_not_open': 'Chart not opened',
+      'burn_care.chart_number': 'Burn chart #{id}',
+      'burn_care.chart_saved': 'Burn chart saved',
+      'burn_care.chart_section': 'Burn chart link',
+      'burn_care.circumferential': 'Circumferential burns',
+      'burn_care.context_required':
+          'Link an emergency visit, admission, or burn MLC before saving.',
+      'burn_care.could_not_save': 'Could not save burn chart',
+      'burn_care.depth': 'Depth',
+      'burn_care.depth.deep_partial': 'Deep partial',
+      'burn_care.depth.full': 'Full thickness',
+      'burn_care.depth.mixed': 'Mixed',
+      'burn_care.depth.partial': 'Partial thickness',
+      'burn_care.depth.superficial': 'Superficial',
+      'burn_care.depth.unknown': 'Unknown',
+      'burn_care.draft_tbsa': 'Draft TBSA {value}%',
+      'burn_care.emergency_visit_id': 'ED visit ID',
+      'burn_care.first_aid': 'First aid',
+      'burn_care.inhalation_risk': 'Inhalation risk',
+      'burn_care.mechanism': 'Mechanism',
+      'burn_care.mechanism_required': 'Mechanism is required',
+      'burn_care.mlc_record_id': 'MLC record ID',
+      'burn_care.open_chart': 'Save chart',
+      'burn_care.open_chart_first': 'Save the burn chart before TBSA.',
+      'burn_care.override_percent': 'Override %',
+      'burn_care.override_reason': 'Override reason',
+      'burn_care.reference_key': 'Approved TBSA reference key',
+      'burn_care.reference_required': 'TBSA reference key is required',
+      'burn_care.region.anterior_trunk': 'Anterior trunk',
+      'burn_care.region.head_neck': 'Head and neck',
+      'burn_care.region.left_arm': 'Left arm',
+      'burn_care.region.left_leg': 'Left leg',
+      'burn_care.region.perineum': 'Perineum',
+      'burn_care.region.posterior_trunk': 'Posterior trunk',
+      'burn_care.region.right_arm': 'Right arm',
+      'burn_care.region.right_leg': 'Right leg',
+      'burn_care.region_code': 'Region code',
+      'burn_care.region_label': 'Region label',
+      'burn_care.region_required': 'Add at least one TBSA region',
+      'burn_care.remove_region': 'Remove region',
+      'burn_care.save_tbsa': 'Save TBSA',
+      'burn_care.saved_tbsa': 'Saved TBSA {value}%',
+      'burn_care.saving': 'Saving...',
+      'burn_care.tbsa_saved': 'TBSA regions saved',
+      'burn_care.tbsa_section': 'TBSA body map',
+      'burn_care.title': 'Burn Chart',
       // ── Payroll ───────────────────────────────────────────────────
       'payroll.payslip.title': 'My Payslips',
       'payroll.payslip.banner_tax': 'Annual Tax Summary (Form 16)',
@@ -9770,6 +9877,56 @@ class AppStrings {
       // REVIEW: clinical-action confirmation
       'clinical_notes.created_success': 'नोट सफलतापूर्वक बनाया गया',
       'clinical_notes.create_failed_prefix': 'नोट बनाने में विफल:',
+      // Burn care - REVIEW: clinical first pass
+      'burn_care.action': 'बर्न चार्ट',
+      'burn_care.admission_id': 'Admission ID',
+      'burn_care.area_percent': 'Area %',
+      'burn_care.chart_not_open': 'चार्ट नहीं खोला गया',
+      'burn_care.chart_number': 'बर्न चार्ट #{id}',
+      'burn_care.chart_saved': 'बर्न चार्ट सहेजा गया',
+      'burn_care.chart_section': 'बर्न चार्ट लिंक',
+      'burn_care.circumferential': 'Circumferential burns',
+      'burn_care.context_required':
+          'सहेजने से पहले ED visit, admission, या burn MLC लिंक करें.',
+      'burn_care.could_not_save': 'बर्न चार्ट सहेजा नहीं जा सका',
+      'burn_care.depth': 'गहराई',
+      'burn_care.depth.deep_partial': 'Deep partial',
+      'burn_care.depth.full': 'Full thickness',
+      'burn_care.depth.mixed': 'Mixed',
+      'burn_care.depth.partial': 'Partial thickness',
+      'burn_care.depth.superficial': 'Superficial',
+      'burn_care.depth.unknown': 'Unknown',
+      'burn_care.draft_tbsa': 'Draft TBSA {value}%',
+      'burn_care.emergency_visit_id': 'ED visit ID',
+      'burn_care.first_aid': 'प्राथमिक उपचार',
+      'burn_care.inhalation_risk': 'Inhalation risk',
+      'burn_care.mechanism': 'Mechanism',
+      'burn_care.mechanism_required': 'Mechanism आवश्यक है',
+      'burn_care.mlc_record_id': 'MLC record ID',
+      'burn_care.open_chart': 'चार्ट सहेजें',
+      'burn_care.open_chart_first': 'TBSA से पहले बर्न चार्ट सहेजें.',
+      'burn_care.override_percent': 'Override %',
+      'burn_care.override_reason': 'Override reason',
+      'burn_care.reference_key': 'Approved TBSA reference key',
+      'burn_care.reference_required': 'TBSA reference key आवश्यक है',
+      'burn_care.region.anterior_trunk': 'Anterior trunk',
+      'burn_care.region.head_neck': 'Head and neck',
+      'burn_care.region.left_arm': 'Left arm',
+      'burn_care.region.left_leg': 'Left leg',
+      'burn_care.region.perineum': 'Perineum',
+      'burn_care.region.posterior_trunk': 'Posterior trunk',
+      'burn_care.region.right_arm': 'Right arm',
+      'burn_care.region.right_leg': 'Right leg',
+      'burn_care.region_code': 'Region code',
+      'burn_care.region_label': 'Region label',
+      'burn_care.region_required': 'कम से कम एक TBSA region जोड़ें',
+      'burn_care.remove_region': 'Region हटाएँ',
+      'burn_care.save_tbsa': 'TBSA सहेजें',
+      'burn_care.saved_tbsa': 'Saved TBSA {value}%',
+      'burn_care.saving': 'सहेज रहा है...',
+      'burn_care.tbsa_saved': 'TBSA regions सहेजे गए',
+      'burn_care.tbsa_section': 'TBSA body map',
+      'burn_care.title': 'Burn Chart',
       // ── Payroll ───────────────────────────────────────────────────
       'payroll.payslip.title': 'मेरी वेतन-पर्चियाँ',
       'payroll.payslip.banner_tax': 'वार्षिक कर सारांश (फॉर्म 16)',
@@ -15275,6 +15432,57 @@ class AppStrings {
       // REVIEW: clinical-action confirmation
       'clinical_notes.created_success': 'குறிப்பு வெற்றிகரமாக உருவாக்கப்பட்டது',
       'clinical_notes.create_failed_prefix': 'குறிப்பை உருவாக்க முடியவில்லை:',
+      // Burn care - REVIEW: clinical first pass
+      'burn_care.action': 'தீக்காய அட்டவணை',
+      'burn_care.admission_id': 'Admission ID',
+      'burn_care.area_percent': 'Area %',
+      'burn_care.chart_not_open': 'அட்டவணை திறக்கப்படவில்லை',
+      'burn_care.chart_number': 'தீக்காய அட்டவணை #{id}',
+      'burn_care.chart_saved': 'தீக்காய அட்டவணை சேமிக்கப்பட்டது',
+      'burn_care.chart_section': 'தீக்காய அட்டவணை இணைப்பு',
+      'burn_care.circumferential': 'Circumferential burns',
+      'burn_care.context_required':
+          'சேமிப்பதற்கு முன் ED visit, admission, அல்லது burn MLC இணைக்கவும்.',
+      'burn_care.could_not_save': 'தீக்காய அட்டவணையை சேமிக்க முடியவில்லை',
+      'burn_care.depth': 'ஆழம்',
+      'burn_care.depth.deep_partial': 'Deep partial',
+      'burn_care.depth.full': 'Full thickness',
+      'burn_care.depth.mixed': 'Mixed',
+      'burn_care.depth.partial': 'Partial thickness',
+      'burn_care.depth.superficial': 'Superficial',
+      'burn_care.depth.unknown': 'Unknown',
+      'burn_care.draft_tbsa': 'Draft TBSA {value}%',
+      'burn_care.emergency_visit_id': 'ED visit ID',
+      'burn_care.first_aid': 'முதலுதவி',
+      'burn_care.inhalation_risk': 'Inhalation risk',
+      'burn_care.mechanism': 'Mechanism',
+      'burn_care.mechanism_required': 'Mechanism தேவை',
+      'burn_care.mlc_record_id': 'MLC record ID',
+      'burn_care.open_chart': 'அட்டவணை சேமி',
+      'burn_care.open_chart_first':
+          'TBSAக்கு முன் தீக்காய அட்டவணையை சேமிக்கவும்.',
+      'burn_care.override_percent': 'Override %',
+      'burn_care.override_reason': 'Override reason',
+      'burn_care.reference_key': 'Approved TBSA reference key',
+      'burn_care.reference_required': 'TBSA reference key தேவை',
+      'burn_care.region.anterior_trunk': 'Anterior trunk',
+      'burn_care.region.head_neck': 'Head and neck',
+      'burn_care.region.left_arm': 'Left arm',
+      'burn_care.region.left_leg': 'Left leg',
+      'burn_care.region.perineum': 'Perineum',
+      'burn_care.region.posterior_trunk': 'Posterior trunk',
+      'burn_care.region.right_arm': 'Right arm',
+      'burn_care.region.right_leg': 'Right leg',
+      'burn_care.region_code': 'Region code',
+      'burn_care.region_label': 'Region label',
+      'burn_care.region_required': 'குறைந்தது ஒரு TBSA region சேர்க்கவும்',
+      'burn_care.remove_region': 'Region அகற்று',
+      'burn_care.save_tbsa': 'TBSA சேமி',
+      'burn_care.saved_tbsa': 'Saved TBSA {value}%',
+      'burn_care.saving': 'சேமிக்கிறது...',
+      'burn_care.tbsa_saved': 'TBSA regions சேமிக்கப்பட்டது',
+      'burn_care.tbsa_section': 'TBSA body map',
+      'burn_care.title': 'Burn Chart',
       // Payroll
       // REVIEW: financial / payroll wording
       'payroll.payslip.title': 'என் சம்பளப் பட்டியல்கள்',
@@ -21357,6 +21565,56 @@ class AppStrings {
       // REVIEW: clinical-action confirmation
       'clinical_notes.created_success': 'నోట్ విజయవంతంగా సృష్టించబడింది',
       'clinical_notes.create_failed_prefix': 'నోట్ సృష్టించడంలో విఫలమైంది:',
+      // Burn care - REVIEW: clinical first pass
+      'burn_care.action': 'బర్న్ చార్ట్',
+      'burn_care.admission_id': 'Admission ID',
+      'burn_care.area_percent': 'Area %',
+      'burn_care.chart_not_open': 'చార్ట్ తెరవలేదు',
+      'burn_care.chart_number': 'బర్న్ చార్ట్ #{id}',
+      'burn_care.chart_saved': 'బర్న్ చార్ట్ సేవ్ అయ్యింది',
+      'burn_care.chart_section': 'బర్న్ చార్ట్ లింక్',
+      'burn_care.circumferential': 'Circumferential burns',
+      'burn_care.context_required':
+          'సేవ్ చేసే ముందు ED visit, admission, లేదా burn MLC లింక్ చేయండి.',
+      'burn_care.could_not_save': 'బర్న్ చార్ట్ సేవ్ చేయలేకపోయాం',
+      'burn_care.depth': 'లోతు',
+      'burn_care.depth.deep_partial': 'Deep partial',
+      'burn_care.depth.full': 'Full thickness',
+      'burn_care.depth.mixed': 'Mixed',
+      'burn_care.depth.partial': 'Partial thickness',
+      'burn_care.depth.superficial': 'Superficial',
+      'burn_care.depth.unknown': 'Unknown',
+      'burn_care.draft_tbsa': 'Draft TBSA {value}%',
+      'burn_care.emergency_visit_id': 'ED visit ID',
+      'burn_care.first_aid': 'ప్రథమ చికిత్స',
+      'burn_care.inhalation_risk': 'Inhalation risk',
+      'burn_care.mechanism': 'Mechanism',
+      'burn_care.mechanism_required': 'Mechanism అవసరం',
+      'burn_care.mlc_record_id': 'MLC record ID',
+      'burn_care.open_chart': 'చార్ట్ సేవ్',
+      'burn_care.open_chart_first': 'TBSAకు ముందు బర్న్ చార్ట్ సేవ్ చేయండి.',
+      'burn_care.override_percent': 'Override %',
+      'burn_care.override_reason': 'Override reason',
+      'burn_care.reference_key': 'Approved TBSA reference key',
+      'burn_care.reference_required': 'TBSA reference key అవసరం',
+      'burn_care.region.anterior_trunk': 'Anterior trunk',
+      'burn_care.region.head_neck': 'Head and neck',
+      'burn_care.region.left_arm': 'Left arm',
+      'burn_care.region.left_leg': 'Left leg',
+      'burn_care.region.perineum': 'Perineum',
+      'burn_care.region.posterior_trunk': 'Posterior trunk',
+      'burn_care.region.right_arm': 'Right arm',
+      'burn_care.region.right_leg': 'Right leg',
+      'burn_care.region_code': 'Region code',
+      'burn_care.region_label': 'Region label',
+      'burn_care.region_required': 'కనీసం ఒక TBSA region జోడించండి',
+      'burn_care.remove_region': 'Region తొలగించు',
+      'burn_care.save_tbsa': 'TBSA సేవ్',
+      'burn_care.saved_tbsa': 'Saved TBSA {value}%',
+      'burn_care.saving': 'సేవ్ చేస్తోంది...',
+      'burn_care.tbsa_saved': 'TBSA regions సేవ్ అయ్యాయి',
+      'burn_care.tbsa_section': 'TBSA body map',
+      'burn_care.title': 'Burn Chart',
       // Payroll
       // REVIEW: financial / payroll wording
       'payroll.payslip.title': 'నా జీతం స్లిప్‌లు',

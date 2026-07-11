@@ -131,6 +131,7 @@ import '../../features/stroke_pathway/screens/stroke_pathway_screen.dart';
 // EMR
 import '../../features/emr/screens/admission_screen.dart';
 import '../../features/emr/screens/admission_case_sheet_screen.dart';
+import '../../features/emr/screens/burn_chart_screen.dart';
 import '../../features/emr/screens/patient_command_board_screen.dart';
 import '../../features/emr/screens/clinical_notes_screen.dart';
 import '../../features/emr/screens/patient_timeline_screen.dart';
@@ -1221,6 +1222,24 @@ final GoRouter appRouter = GoRouter(
             final name = state.uri.queryParameters['name'];
             return NoTransitionPage(
               child: VitalsChartScreen(patientUid: uid, patientName: name),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/emr/burns/:uid',
+          name: 'emr-burns',
+          pageBuilder: (context, state) {
+            final uid = state.pathParameters['uid']!;
+            final q = state.uri.queryParameters;
+            int? intParam(String key) => int.tryParse(q[key] ?? '');
+            return NoTransitionPage(
+              child: BurnChartScreen(
+                patientUid: uid,
+                patientName: q['name'],
+                admissionId: intParam('admission_id'),
+                emergencyVisitId: intParam('emergency_visit_id'),
+                mlcRecordId: intParam('mlc_record_id'),
+              ),
             );
           },
         ),

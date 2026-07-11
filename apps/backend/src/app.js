@@ -66,6 +66,7 @@ import {
   BILLING_ROUTE_ROLES,
   BILLING_V2_ROUTE_ROLES,
   BLOOD_BANK_ROUTE_ROLES,
+  BURN_ROUTE_ROLES,
   CATH_LAB_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
   CLINICAL_ASSESSMENT_ROUTE_ROLES,
@@ -254,6 +255,7 @@ import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisa
 import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
 import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
 import icuRoutes from './routes/clinical/icuRoutes.js';
+import burnRoutes from './routes/clinical/burnRoutes.js';
 import strokePathwayRoutes from './routes/clinical/strokePathwayRoutes.js';
 import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
@@ -946,6 +948,7 @@ app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllB
 // (cross-patient PHI) or mutate/disable escalation rules. The full task surface
 // stays ADMIN-only at /api/v1/admin/workflow.
 app.use('/api/v1/clinical-inbox', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalInboxRoutes);
+app.use('/api/v1/burns', requireRole(...BURN_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('BURN_CHART', { careTeamModeGoverned: true }), phiAccessLogger('BURN_CHART'), burnRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing
