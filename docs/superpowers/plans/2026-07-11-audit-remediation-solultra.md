@@ -22,6 +22,9 @@ Systemic finding (LD-RRB-01, NICU/PICU, ambulance): `{ tenantId, actorUid, ...re
 Findings #2 SMART cross-patient write, #3 prescriber doctor_id-from-body, #8 TPA-enhancement, #9/#12 OR-board (no guard), #11 PATIENT-role bulk-Rx, #13 pharmacy-order owner, #38 Tier-C AI unscoped; Wave-E caller-asserted signer (LD-RRB-02 resus record forgery, LD-RRB-03 radiation gate default-off, LD-RRB-05 burn signatures, LD-RRB-07 radiation delivery/approval, NICU score/verify forgery, ambulance H1/H2/H3).
 - [x] #9/#12 added `patientAccessGuard('OPERATING_THEATRE',{careTeamModeGoverned})` + `phiAccessLogger` to the `orBoardRoutes` mount (commit a25c511a1). Residual: actor-bind scheduleSurgery (spoofable audit) — still TODO.
 - [x] #11 split `/prescriptions/all` onto staff-only `ePrescriptionListAllRoutes` (no PATIENT) + regression guard (commit a25c511a1).
+- [x] #13 pharmacy-order ownership gate via `callerMayAccessPrescription` (commit f4c729138). ★ Did NOT add the signed/locked gate — walk-in OPD orders from an unsigned Rx (existing flow; would break prescription-deep + real OPD).
+- [ ] #3 prescriber `doctor_id`-from-body — ⚠ nuanced: ePrescriptionCreateRoutes includes non-doctor creators (ADMIN); naive `doctorId=actorId` breaks assisted prescribing. Sharp part = run controlled-drug privilege on the AUTHENTICATED actor, not the body doctor; model on-behalf-of as an explicit delegation. Needs care.
+- [ ] #2 SMART · #8 TPA-enh · #38 Tier-C AI · HR #30/#36 · Wave-E signer authority — pending.
 - [ ] #3 derive prescriber from `req.user` for DOCTOR; controlled-drug privilege evaluated on authenticated actor.
 - [ ] #13 verify pharmacy-order prescription belongs to the ordering patient.
 - [ ] #2 reject conflicting SMART `?patient=` vs body `subject.reference`; bind write patient to the token context.
