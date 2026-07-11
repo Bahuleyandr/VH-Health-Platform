@@ -172,7 +172,13 @@ void main() {
       expect(ids, isNot(contains('investigation_results')));
       expect(ids, isNot(contains('front_office_workbench')));
       expect(ids, isNot(contains('queue')));
-      expect(ids, isNot(contains('cath_lab')));
+      expect(ids, contains('cath_lab'));
+      expect(
+        RoleFeatures.getFeaturesForRole(
+          StaffRole.dutyDoctor,
+        ).map((feature) => feature.id),
+        contains('cath_lab'),
+      );
       expect(ids, isNot(contains('theatre')));
       expect(ids, isNot(contains('radiology')));
       expect(ids, isNot(contains('blood_bank')));
@@ -181,10 +187,13 @@ void main() {
     });
 
     test(
-      'generic/IP nurses get ward tools, not OP appointment or front-office access',
+      'generic/IP nurses get scoped ward tools and only generic nurses reach cath imaging',
       () {
         final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
         final ids = feats.map((f) => f.id).toSet();
+        final ipIds = RoleFeatures.getFeaturesForRole(
+          StaffRole.ipStaffNurse,
+        ).map((f) => f.id).toSet();
         final handover = feats.singleWhere((f) => f.id == 'handover');
         expect(ids, isNot(contains('front_office_workbench')));
         expect(ids, isNot(contains('appointments')));
@@ -198,6 +207,8 @@ void main() {
         expect(handover.titleKey, 'role.feature.handover');
         expect(strings.lookup(handover.titleKey), 'Shift Handover');
         expect(ids, contains('clinical_ai_review_queue'));
+        expect(ids, contains('cath_lab'));
+        expect(ipIds, isNot(contains('cath_lab')));
         expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
       },
     );
@@ -415,6 +426,7 @@ void main() {
           containsAll([
             'front_office_workbench',
             'billing_desk',
+            'cath_lab',
             'appointments',
             'admissions',
           ]),
@@ -428,6 +440,7 @@ void main() {
             'admissions',
           ]),
         );
+        expect(inchargeIds, isNot(contains('cath_lab')));
       },
     );
 

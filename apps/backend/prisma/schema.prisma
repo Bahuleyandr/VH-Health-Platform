@@ -9739,6 +9739,9 @@ model tenants {
   cath_lab_readiness_checks                  cath_lab_readiness_checks[]
   cath_post_procedure_orders                 cath_post_procedure_orders[]
   cath_procedure_logs                        cath_procedure_logs[]
+  cath_procedure_reports                     cath_procedure_reports[]
+  cath_report_addenda                        cath_report_addenda[]
+  cath_report_templates                      cath_report_templates[]
   cds_alerts                                 cds_alerts[]
   chair_bookings                             chair_bookings[]
   chat_session_messages                      chat_session_messages[]
@@ -10766,6 +10769,8 @@ model users {
   cath_lab_cases                                                                                 cath_lab_cases[]
   cath_post_procedure_orders                                                                     cath_post_procedure_orders[]
   cath_procedure_logs                                                                            cath_procedure_logs[]
+  cath_procedure_reports                                                                         cath_procedure_reports[]
+  cath_report_addenda                                                                            cath_report_addenda[]
   chair_bookings                                                                                 chair_bookings[]
   ctvs_case_overlays_ctvs_case_overlays_created_byTousers                                        ctvs_case_overlays[]                    @relation("ctvs_case_overlays_created_byTousers")
   ctvs_case_overlays_ctvs_case_overlays_evidence_owner_uidTousers                                ctvs_case_overlays[]                    @relation("ctvs_case_overlays_evidence_owner_uidTousers")
@@ -14904,6 +14909,8 @@ model patient_encounters {
   updated_at                          DateTime                              @default(now()) @db.Timestamptz(6)
   cath_lab_cases                      cath_lab_cases[]
   cath_procedure_logs                 cath_procedure_logs[]
+  cath_procedure_reports              cath_procedure_reports[]
+  cath_report_addenda                 cath_report_addenda[]
   nuclear_medicine_orders             nuclear_medicine_orders[]
   oncology_diagnoses                  oncology_diagnoses[]
   oncology_staging_records            oncology_staging_records[]
@@ -20668,6 +20675,8 @@ model cath_lab_cases {
   cath_lab_readiness_checks       cath_lab_readiness_checks[]
   cath_post_procedure_orders      cath_post_procedure_orders[]
   cath_procedure_logs             cath_procedure_logs[]
+  cath_procedure_reports          cath_procedure_reports[]
+  cath_report_addenda             cath_report_addenda[]
 
   @@index([tenant_id, encounter_id], map: "idx_cath_lab_cases_encounter", where: raw("(encounter_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid, planned_start_at(sort: Desc)], map: "idx_cath_lab_cases_patient")
@@ -20768,9 +20777,11 @@ model cath_procedure_logs {
   users                           users                             @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
   clinical_timeline_events        clinical_timeline_events?         @relation(fields: [timeline_event_id], references: [id], onUpdate: NoAction)
   tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_procedure_logs_tenant")
+  cath_procedure_reports          cath_procedure_reports[]
 
   @@index([tenant_id, case_id, created_at(sort: Desc)], map: "idx_cath_procedure_logs_case")
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_cath_procedure_logs_patient")
+  @@index([tenant_id, case_id, ended_at(sort: Desc)], map: "idx_cath_procedure_logs_case_end", where: raw("(ended_at IS NOT NULL)"))
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -23014,6 +23025,102 @@ model resuscitation_team_roles {
 
   @@unique([tenant_id, resuscitation_event_id, staff_uid, role], map: "ux_resuscitation_team_roles_member")
   @@index([tenant_id, resuscitation_event_id, joined_at], map: "idx_resuscitation_team_roles_event")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_procedure_reports {
+  id                     BigInt                @id @default(autoincrement())
+  tenant_id              String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_id                BigInt
+  procedure_log_id       BigInt?
+  patient_uid            String                @db.Uuid
+  encounter_id           String?               @db.Uuid
+  report_type            String                @db.VarChar(40)
+  template_id            BigInt
+  template_version       Int
+  narrative_sections     Json                  @default("[]")
+  coded_fields           Json                  @default("{}")
+  findings_summary       String?
+  status                 String                @default("draft") @db.VarChar(20)
+  viewer_study_accession String?               @db.VarChar(160)
+  preliminary_by         String?               @db.Uuid
+  preliminary_at         DateTime?             @db.Timestamptz(6)
+  signed_by              String?               @db.Uuid
+  signed_at              DateTime?             @db.Timestamptz(6)
+  created_by             String?               @db.Uuid
+  updated_by             String?               @db.Uuid
+  created_at             DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime              @default(now()) @db.Timestamptz(6)
+  metadata               Json                  @default("{}")
+  cath_lab_cases         cath_lab_cases        @relation(fields: [case_id], references: [id], onUpdate: NoAction)
+  patient_encounters     patient_encounters?   @relation(fields: [encounter_id], references: [id], onUpdate: NoAction)
+  users                  users                 @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  cath_procedure_logs    cath_procedure_logs?  @relation(fields: [procedure_log_id], references: [id], onUpdate: NoAction)
+  cath_report_templates  cath_report_templates @relation(fields: [template_id], references: [id], onUpdate: NoAction)
+  tenants                tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_procedure_reports_tenant")
+  cath_report_addenda    cath_report_addenda[]
+
+  @@unique([tenant_id, procedure_log_id, report_type], map: "ux_cath_procedure_reports_signed_procedure_type", where: raw("(((status)::text = 'signed'::text) AND (procedure_log_id IS NOT NULL))"))
+  @@index([tenant_id, case_id, created_at(sort: Desc)], map: "idx_cath_procedure_reports_case")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_cath_procedure_reports_patient")
+  @@index([tenant_id, case_id, signed_at(sort: Desc)], map: "idx_cath_procedure_reports_signed_tat", where: raw("((status)::text = 'signed'::text)"))
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_cath_procedure_reports_status")
+  @@index([tenant_id, template_id, template_version], map: "idx_cath_procedure_reports_template")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_report_addenda {
+  id                     BigInt                 @id @default(autoincrement())
+  tenant_id              String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  report_id              BigInt
+  case_id                BigInt
+  patient_uid            String                 @db.Uuid
+  encounter_id           String?                @db.Uuid
+  author_uid             String                 @db.Uuid
+  reason                 String
+  narrative              String
+  created_at             DateTime               @default(now()) @db.Timestamptz(6)
+  metadata               Json                   @default("{}")
+  cath_lab_cases         cath_lab_cases         @relation(fields: [case_id], references: [id], onUpdate: NoAction)
+  patient_encounters     patient_encounters?    @relation(fields: [encounter_id], references: [id], onUpdate: NoAction)
+  users                  users                  @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  cath_procedure_reports cath_procedure_reports @relation(fields: [report_id], references: [id], onUpdate: NoAction)
+  tenants                tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_report_addenda_tenant")
+
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_cath_report_addenda_patient")
+  @@index([tenant_id, report_id, created_at, id], map: "idx_cath_report_addenda_report")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_report_templates {
+  id                          BigInt                   @id @default(autoincrement())
+  tenant_id                   String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  template_code               String                   @db.VarChar(80)
+  name                        String                   @db.VarChar(160)
+  report_type                 String                   @db.VarChar(40)
+  sections                    Json                     @default("[]")
+  coded_fields_schema         Json                     @default("{}")
+  version                     Int                      @default(1)
+  is_active                   Boolean                  @default(true)
+  supersedes_template_id      BigInt?
+  superseded_at               DateTime?                @db.Timestamptz(6)
+  superseded_by               String?                  @db.Uuid
+  created_by                  String?                  @db.Uuid
+  created_at                  DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                 @default(now()) @db.Timestamptz(6)
+  metadata                    Json                     @default("{}")
+  cath_procedure_reports      cath_procedure_reports[]
+  cath_report_templates       cath_report_templates?   @relation("cath_report_templatesTocath_report_templates", fields: [supersedes_template_id], references: [id], onUpdate: NoAction)
+  other_cath_report_templates cath_report_templates[]  @relation("cath_report_templatesTocath_report_templates")
+  tenants                     tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_report_templates_tenant")
+
+  @@unique([tenant_id, template_code], map: "ux_cath_report_templates_active", where: raw("(is_active = true)"))
+  @@unique([tenant_id, template_code, version], map: "ux_cath_report_templates_version")
+  @@index([tenant_id, report_type, name, version(sort: Desc)], map: "idx_cath_report_templates_lookup", where: raw("(is_active = true)"))
+  @@index([tenant_id, supersedes_template_id], map: "idx_cath_report_templates_supersedes", where: raw("(supersedes_template_id IS NOT NULL)"))
 }
 
 enum transplant_organ_type {

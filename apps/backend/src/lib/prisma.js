@@ -472,9 +472,9 @@ function pickTenantClient({ readOnly = false } = {}) {
  *     237/238/239/272/304) covers owned tables, and the runtime role is
  *     belt-and-braces for any future unforced table.
  */
-function runTenantScopedTransaction(client, gucValue, fn) {
+function runTenantScopedTransaction(client, gucValue, fn, transactionOptions = undefined) {
   const testRole = tenantRlsRuntimeRole();
-  return client.$transaction(async (tx) => {
+  const transaction = async (tx) => {
     if (testRole) {
       // Identifier injection is gated to env config — never user input.
       await tx.$executeRawUnsafe(`SET LOCAL ROLE ${testRole}`);
@@ -484,7 +484,10 @@ function runTenantScopedTransaction(client, gucValue, fn) {
       gucValue,
     );
     return fn(tx);
-  });
+  };
+  return transactionOptions
+    ? client.$transaction(transaction, transactionOptions)
+    : client.$transaction(transaction);
 }
 
 /**
@@ -518,8 +521,13 @@ function runTenantScopedTransaction(client, gucValue, fn) {
  * @param {boolean} [options.superAdmin=false] set GUC to 'bypass' (cross-tenant).
  * @param {boolean} [options.readOnly=false] route to the read replica when
  *   DATABASE_READ_URL is configured; primary otherwise (no-op when unset).
+ * @param {string} [options.isolationLevel] Prisma transaction isolation level.
  */
-export async function setTenantTx(tenantId, fn, { superAdmin = false, readOnly = false } = {}) {
+export async function setTenantTx(
+  tenantId,
+  fn,
+  { superAdmin = false, readOnly = false, isolationLevel = undefined } = {},
+) {
   if (!superAdmin && !tenantId) {
     throw new Error('setTenantTx requires tenantId (or { superAdmin: true } to bypass)');
   }
@@ -532,7 +540,12 @@ export async function setTenantTx(tenantId, fn, { superAdmin = false, readOnly =
   // `await setTenantTx(...)`) see no inSetTenant flag and behave normally.
   return runInTenantContext(
     superAdmin ? null : tenantId,
-    () => runTenantScopedTransaction(client, gucValue, fn),
+    () => runTenantScopedTransaction(
+      client,
+      gucValue,
+      fn,
+      isolationLevel ? { isolationLevel } : undefined,
+    ),
     { superAdmin, inSetTenant: true },
   );
 }

@@ -2,20 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../services/cath_lab_api_service.dart';
+import '../widgets/cath_case_reports_panel.dart';
 
 typedef CathLabCaseLoader =
     Future<List<CathLabCaseSummary>> Function(DateTime date);
+typedef CathLabRoleLoader = Future<String> Function();
 
 class CathLabScreen extends StatefulWidget {
-  const CathLabScreen({super.key, this.loadCases});
+  const CathLabScreen({
+    super.key,
+    this.loadCases,
+    this.loadRole,
+    this.reportDependencies = const CathReportDependencies(),
+  });
 
   final CathLabCaseLoader? loadCases;
+  final CathLabRoleLoader? loadRole;
+  final CathReportDependencies reportDependencies;
 
   @override
   State<CathLabScreen> createState() => _CathLabScreenState();
@@ -28,14 +38,16 @@ class _CathLabScreenState extends State<CathLabScreen>
   bool _loading = true;
   String? _error;
   List<CathLabCaseSummary> _cases = const [];
+  String _role = '';
 
   String get _dateLabel => DateFormat('dd MMM yyyy').format(_selectedDate);
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _loadCases();
+    _loadRole();
   }
 
   @override
@@ -83,6 +95,17 @@ class _CathLabScreenState extends State<CathLabScreen>
 
   Future<void> _refreshCases() => _loadCases(showLoading: false);
 
+  Future<void> _loadRole() async {
+    try {
+      final loader = widget.loadRole ?? AuthService.getRole;
+      final role = await loader();
+      if (mounted) setState(() => _role = role);
+    } catch (_) {
+      // The backend remains the authority. An unavailable local role only
+      // suppresses privileged actions until the next screen load.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -116,6 +139,7 @@ class _CathLabScreenState extends State<CathLabScreen>
             Tab(text: s.lookup('s4.lib.cath_lab.tab.procedure')),
             Tab(text: s.lookup('s4.lib.cath_lab.tab.dose')),
             Tab(text: s.lookup('s4.lib.cath_lab.tab.post_orders')),
+            Tab(text: s.lookup('s4.lib.cath_lab.tab.reports')),
           ],
         ),
       ),
@@ -127,6 +151,7 @@ class _CathLabScreenState extends State<CathLabScreen>
           _buildBody(_buildProcedureTab),
           _buildBody(_buildDoseTab),
           _buildBody(_buildPostOrdersTab),
+          _buildBody(_buildReportsTab),
         ],
       ),
     );
@@ -209,6 +234,19 @@ class _CathLabScreenState extends State<CathLabScreen>
     );
   }
 
+  Widget _buildReportsTab(List<CathLabCaseSummary> cases) {
+    if (cases.isEmpty) return _emptyState(Icons.description_outlined);
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: cases.length,
+      itemBuilder: (context, index) => CathCaseReportsPanel(
+        cathCase: cases[index],
+        role: _role,
+        dependencies: widget.reportDependencies,
+      ),
+    );
+  }
+
   Widget _emptyState(IconData icon) {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -285,6 +323,13 @@ class _CathLabCaseCard extends StatelessWidget {
                   icon: Icons.priority_high_outlined,
                   label: _urgencyLabel(s, cathCase.urgency),
                 ),
+                if (cathCase.reportTatMinutes != null)
+                  _InfoPill(
+                    icon: Icons.timer_outlined,
+                    label: s.format('s4.dynamic.cath_lab.report.tat', {
+                      'minutes': cathCase.reportTatMinutes,
+                    }),
+                  ),
               ],
             ),
           ],

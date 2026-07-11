@@ -8,6 +8,10 @@
 import {
   ROLES,
   CLINICAL_ROLES,
+  CATH_REPORT_EDIT_ROLES,
+  CATH_REPORT_READ_ROLES,
+  CATH_REPORT_SIGN_ROLES,
+  CATH_REPORT_VIEWER_ROLES,
   DISCHARGE_SUMMARY_SIGN_ROLES,
   DOCTOR_TIERS,
   MACHINE_ROLES,
@@ -18,6 +22,10 @@ import {
   canAccessCathLab,
   canAccessOT,
   canAccessRadiology,
+  canEditCathReport,
+  canOpenCathViewer,
+  canSignCathReport,
+  canViewCathReport,
   canDispatchAmbulance,
   canManageAiGovernance,
   canManageClaims,
@@ -164,6 +172,60 @@ describe('Discharge summary signing', () => {
     expect(canSignDischargeSummary('NURSING_STAFF')).toBe(false);
     expect(canSignDischargeSummary('COUNSELLOR')).toBe(false);
     expect(canSignDischargeSummary('CARE_COORDINATOR')).toBe(false);
+  });
+});
+
+describe('NL-13 P1b cath reporting role matrices', () => {
+  it('keeps report editing on doctor-family, transcription, and cath incharge roles', () => {
+    expect(CATH_REPORT_EDIT_ROLES).toEqual(expect.arrayContaining([
+      'DOCTOR',
+      'SENIOR_DOCTOR',
+      'RECEPTIONIST',
+      'CATH_LAB_INCHARGE',
+    ]));
+    expect(canEditCathReport('RECEPTIONIST')).toBe(true);
+    expect(canEditCathReport('CONSULTANT_PHYSICIAN')).toBe(true);
+    expect(canEditCathReport('CATH_LAB_IN_CHARGE')).toBe(true);
+    expect(canEditCathReport('CATH_LAB_STAFF')).toBe(false);
+    expect(canEditCathReport('TECHNICIAN')).toBe(false);
+  });
+
+  it('keeps signing on doctor-family roles only', () => {
+    expect(CATH_REPORT_SIGN_ROLES).toEqual(expect.arrayContaining([
+      'DOCTOR',
+      'SENIOR_DOCTOR',
+      'CONSULTANT',
+      'RESIDENT',
+    ]));
+    expect(canSignCathReport('SENIOR_DOCTOR')).toBe(true);
+    expect(canSignCathReport('DUTY_MEDICAL_OFFICER')).toBe(true);
+    expect(canSignCathReport('RECEPTIONIST')).toBe(false);
+    expect(canSignCathReport('CATH_LAB_INCHARGE')).toBe(false);
+  });
+
+  it('keeps image resolution on the owner-approved viewer matrix', () => {
+    expect(CATH_REPORT_VIEWER_ROLES).toEqual(expect.arrayContaining([
+      'SENIOR_DOCTOR',
+      'CATH_LAB_INCHARGE',
+      'CATH_LAB_STAFF',
+      'NURSING_STAFF',
+      'TECHNICIAN',
+      'ADMIN',
+      'SUPER_ADMIN',
+    ]));
+    expect(canOpenCathViewer('TECHNICIAN')).toBe(true);
+    expect(canOpenCathViewer('CATH_LAB_TECHNICIAN')).toBe(true);
+    expect(canOpenCathViewer('RECEPTIONIST')).toBe(false);
+  });
+
+  it('lets both editors and viewers read reports without widening viewer links', () => {
+    expect(CATH_REPORT_READ_ROLES).toEqual(expect.arrayContaining([
+      'RECEPTIONIST',
+      'TECHNICIAN',
+      'NURSING_STAFF',
+    ]));
+    expect(canViewCathReport('RECEPTIONIST')).toBe(true);
+    expect(canViewCathReport('TECHNICIAN')).toBe(true);
   });
 });
 

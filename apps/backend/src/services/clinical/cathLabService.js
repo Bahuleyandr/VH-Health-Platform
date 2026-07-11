@@ -436,6 +436,14 @@ export async function listCases({ tenantId, date = null, status = null, limit = 
             c.urgency, c.lab_room, c.status, c.planned_start_at, c.planned_end_at,
             c.actual_start_at, c.actual_end_at, c.team, c.sla_rule_code,
             c.sla_instance_id, c.created_at, c.updated_at,
+            report_tat.procedure_to_signed_minutes AS report_tat_minutes,
+            (
+              SELECT COUNT(*)::int
+                FROM cath_procedure_reports report_count
+               WHERE report_count.tenant_id = c.tenant_id
+                 AND report_count.case_id = c.id
+                 AND report_count.status = 'signed'
+            ) AS signed_report_count,
             (
               SELECT COUNT(*)::int
                 FROM cath_lab_readiness_checks r
@@ -478,6 +486,15 @@ export async function listCases({ tenantId, date = null, status = null, limit = 
        LEFT JOIN users u
          ON u.uid = c.patient_uid
         AND u.tenant_id = c.tenant_id
+       LEFT JOIN LATERAL (
+         SELECT tat.procedure_to_signed_minutes
+           FROM cath_report_tat_metrics tat
+          WHERE tat.tenant_id = c.tenant_id
+            AND tat.case_id = c.id
+            AND tat.signed_at IS NOT NULL
+          ORDER BY tat.signed_at DESC, tat.report_id DESC
+          LIMIT 1
+       ) report_tat ON TRUE
       WHERE ${clauses.join(' AND ')}
       ORDER BY c.planned_start_at NULLS LAST, c.created_at DESC
       LIMIT $${params.length + 1}::int`,
