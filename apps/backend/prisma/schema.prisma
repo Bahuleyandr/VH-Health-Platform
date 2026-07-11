@@ -4956,6 +4956,7 @@ model emergency_visits {
   mlc_records                   mlc_records[]
   prehospital_handovers         prehospital_handovers[]
   resuscitation_events          resuscitation_events[]
+  stemi_activations             stemi_activations[]
   trauma_activations            trauma_activations[]
   trauma_survey_records         trauma_survey_records[]
   trauma_timeline_events        trauma_timeline_events[]
@@ -6762,6 +6763,7 @@ model notification_outbox {
   analytics_exec_digest_deliveries analytics_exec_digest_deliveries[]
   engagement_campaign_recipients   engagement_campaign_recipients[]
   tenants                          tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_outbox_tenant")
+  stemi_team_notifications         stemi_team_notifications[]
 
   @@index([created_at])
   @@index([status, retry_count])
@@ -10229,6 +10231,10 @@ model tenants {
   staff_shift_roster_request_audit           staff_shift_roster_request_audit[]
   staff_shift_roster_requests                staff_shift_roster_requests[]
   staff_shifts                               staff_shifts[]
+  stemi_activations                          stemi_activations[]
+  stemi_pathway_events                       stemi_pathway_events[]
+  stemi_pathway_settings                     stemi_pathway_settings?
+  stemi_team_notifications                   stemi_team_notifications[]
   step_profiles                              step_profiles[]
   step_rewards                               step_rewards[]
   step_sessions                              step_sessions[]
@@ -10919,6 +10925,10 @@ model users {
   staff_onboarding_tasks                                                                         staff_onboarding_tasks[]
   staff_performance_reviews                                                                      staff_performance_reviews[]
   staff_salary                                                                                   staff_salary?
+  stemi_activations                                                                              stemi_activations[]
+  stemi_pathway_events                                                                           stemi_pathway_events[]
+  stemi_team_notifications_stemi_team_notifications_staff_idTousers                              stemi_team_notifications[]              @relation("stemi_team_notifications_staff_idTousers")
+  stemi_team_notifications_stemi_team_notifications_staff_uidTousers                             stemi_team_notifications[]              @relation("stemi_team_notifications_staff_uidTousers")
   stroke_activations                                                                             stroke_activations[]
   stroke_nihss_assessments                                                                       stroke_nihss_assessments[]
   stroke_pathway_events                                                                          stroke_pathway_events[]
@@ -14915,6 +14925,8 @@ model patient_encounters {
   radiotherapy_fraction_schedules     radiotherapy_fraction_schedules[]
   radiotherapy_plan_refs              radiotherapy_plan_refs[]
   resuscitation_events                resuscitation_events[]
+  stemi_activations                   stemi_activations[]
+  stemi_pathway_events                stemi_pathway_events[]
   stroke_activations                  stroke_activations[]
   stroke_nihss_assessments            stroke_nihss_assessments[]
   stroke_pathway_events               stroke_pathway_events[]
@@ -14962,6 +14974,9 @@ model clinical_timeline_events {
   radioisotope_administration_records radioisotope_administration_records[]
   radiotherapy_fraction_schedules     radiotherapy_fraction_schedules[]
   radiotherapy_plan_refs              radiotherapy_plan_refs[]
+  stemi_activations                   stemi_activations[]
+  stemi_pathway_events                stemi_pathway_events[]
+  stemi_team_notifications            stemi_team_notifications[]
   stroke_activations                  stroke_activations[]
   stroke_nihss_assessments            stroke_nihss_assessments[]
   stroke_pathway_events               stroke_pathway_events[]
@@ -15012,6 +15027,9 @@ model clinical_audit_events {
   mlc_completeness_reviews      mlc_completeness_reviews[]
   oncology_registry_exports     oncology_registry_exports[]
   radiation_safety_evidence     radiation_safety_evidence[]
+  stemi_activations             stemi_activations[]
+  stemi_pathway_events          stemi_pathway_events[]
+  stemi_team_notifications      stemi_team_notifications[]
   trauma_activations            trauma_activations[]
   trauma_survey_records         trauma_survey_records[]
   trauma_timeline_events        trauma_timeline_events[]
@@ -15079,8 +15097,8 @@ model workflow_sla_instances {
   source_uid             String?                  @db.Uuid
   status                 String                   @default("active") @db.VarChar(40)
   priority               String                   @default("normal") @db.VarChar(30)
-  started_at             DateTime                 @default(now()) @db.Timestamptz(6)
-  due_at                 DateTime                 @db.Timestamptz(6)
+  started_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  due_at                 DateTime?                @db.Timestamptz(6)
   completed_at           DateTime?                @db.Timestamptz(6)
   breached_at            DateTime?                @db.Timestamptz(6)
   escalated_at           DateTime?                @db.Timestamptz(6)
@@ -15092,10 +15110,13 @@ model workflow_sla_instances {
   cath_lab_cases         cath_lab_cases[]
   cold_chain_excursions  cold_chain_excursions[]
   porter_transport_tasks porter_transport_tasks[]
+  stemi_pathway_events   stemi_pathway_events[]
 
   @@unique([tenant_id, rule_code, source_table, source_id], map: "idx_workflow_sla_instances_source", where: raw("((source_table IS NOT NULL) AND (source_id IS NOT NULL))"))
   @@index([tenant_id, status, due_at], map: "idx_workflow_sla_instances_due")
   @@index([tenant_id, patient_uid, started_at(sort: Desc)], map: "idx_workflow_sla_instances_patient", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([tenant_id, rule_code, created_at(sort: Desc)], map: "idx_workflow_sla_instances_clock_start_pending", where: raw("(((source_table)::text = 'stemi_activations'::text) AND ((rule_code)::text = ANY ((ARRAY['stemi_door_to_ecg'::character varying, 'stemi_door_to_lab'::character varying, 'stemi_door_to_balloon'::character varying])::text[])) AND (started_at IS NULL) AND (metadata @> '{\"clock_start_pending\": true}'::jsonb))"))
+  @@index([tenant_id, rule_code, started_at(sort: Desc)], map: "idx_workflow_sla_instances_targets_pending", where: raw("(((source_table)::text = 'stemi_activations'::text) AND ((rule_code)::text = ANY ((ARRAY['stemi_door_to_ecg'::character varying, 'stemi_door_to_lab'::character varying, 'stemi_door_to_balloon'::character varying])::text[])) AND (due_at IS NULL) AND (metadata @> '{\"targets_pending\": true}'::jsonb))"))
 }
 
 model medication_safety_reviews {
@@ -20668,6 +20689,7 @@ model cath_lab_cases {
   cath_lab_readiness_checks       cath_lab_readiness_checks[]
   cath_post_procedure_orders      cath_post_procedure_orders[]
   cath_procedure_logs             cath_procedure_logs[]
+  stemi_activations               stemi_activations[]
 
   @@index([tenant_id, encounter_id], map: "idx_cath_lab_cases_encounter", where: raw("(encounter_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid, planned_start_at(sort: Desc)], map: "idx_cath_lab_cases_patient")
@@ -22293,6 +22315,7 @@ model prehospital_handovers {
   emergency_visits                 emergency_visits?                  @relation(fields: [emergency_visit_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_handovers_emergency_visit")
   ambulance_partner_fleet_configs  ambulance_partner_fleet_configs?   @relation(fields: [partner_config_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_handovers_partner_config")
   tenants                          tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_prehospital_handovers_tenant")
+  stemi_activations                stemi_activations[]
 
   @@unique([tenant_id, ambulance_request_id], map: "ux_prehospital_handovers_ambulance_request")
   @@unique([tenant_id, handover_number], map: "ux_prehospital_handovers_number")
@@ -23014,6 +23037,154 @@ model resuscitation_team_roles {
 
   @@unique([tenant_id, resuscitation_event_id, staff_uid, role], map: "ux_resuscitation_team_roles_member")
   @@index([tenant_id, resuscitation_event_id, joined_at], map: "idx_resuscitation_team_roles_event")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model stemi_activations {
+  id                          BigInt                     @id @default(autoincrement())
+  tenant_id                   String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  activation_uid              String                     @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patient_uid                 String                     @db.Uuid
+  encounter_id                String?                    @db.Uuid
+  emergency_visit_id          Int?
+  prehospital_handover_id     BigInt?
+  cath_case_id                BigInt?
+  activation_source           String                     @db.VarChar(40)
+  symptom_onset_at            DateTime?                  @db.Timestamptz(6)
+  last_known_well_at          DateTime?                  @db.Timestamptz(6)
+  first_medical_contact_at    DateTime?                  @db.Timestamptz(6)
+  door_time_at                DateTime?                  @db.Timestamptz(6)
+  ecg_at                      DateTime?                  @db.Timestamptz(6)
+  activated_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  lab_notified_at             DateTime?                  @db.Timestamptz(6)
+  in_lab_at                   DateTime?                  @db.Timestamptz(6)
+  device_deployed_at          DateTime?                  @db.Timestamptz(6)
+  completed_at                DateTime?                  @db.Timestamptz(6)
+  stood_down_at               DateTime?                  @db.Timestamptz(6)
+  team                        Json                       @default("{\"members\": []}")
+  status                      String                     @default("activated") @db.VarChar(32)
+  stand_down_reason           String?
+  activation_criteria         Json                       @default("{}")
+  owner_target_minutes        Json                       @default("{}")
+  clock_metadata              Json                       @default("{}")
+  canonical_timeline_event_id String?                    @db.Uuid
+  canonical_audit_event_id    String?                    @db.Uuid
+  metadata                    Json                       @default("{}")
+  created_by                  String?                    @db.Uuid
+  updated_by                  String?                    @db.Uuid
+  created_at                  DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                   @default(now()) @db.Timestamptz(6)
+  clinical_audit_events       clinical_audit_events?     @relation(fields: [canonical_audit_event_id], references: [id], onUpdate: NoAction, map: "fk_stemi_activations_audit")
+  cath_lab_cases              cath_lab_cases?            @relation(fields: [cath_case_id], references: [id], onUpdate: NoAction, map: "fk_stemi_activations_cath_case")
+  emergency_visits            emergency_visits?          @relation(fields: [emergency_visit_id], references: [id], onUpdate: NoAction, map: "fk_stemi_activations_emergency_visit")
+  patient_encounters          patient_encounters?        @relation(fields: [encounter_id], references: [id], onUpdate: NoAction, map: "fk_stemi_activations_encounter")
+  users                       users                      @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction, map: "fk_stemi_activations_patient")
+  prehospital_handovers       prehospital_handovers?     @relation(fields: [prehospital_handover_id], references: [id], onUpdate: NoAction, map: "fk_stemi_activations_prehospital_handover")
+  tenants                     tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stemi_activations_tenant")
+  clinical_timeline_events    clinical_timeline_events?  @relation(fields: [canonical_timeline_event_id], references: [id], onUpdate: NoAction, map: "fk_stemi_activations_timeline")
+  stemi_pathway_events        stemi_pathway_events[]
+  stemi_team_notifications    stemi_team_notifications[]
+
+  @@unique([tenant_id, activation_uid], map: "ux_stemi_activations_uid")
+  @@unique([tenant_id, patient_uid], map: "ux_stemi_activations_one_active_patient", where: raw("((status)::text <> ALL ((ARRAY['completed'::character varying, 'stood_down'::character varying])::text[]))"))
+  @@index([tenant_id, status, activated_at(sort: Desc)], map: "idx_stemi_activations_active", where: raw("((status)::text <> ALL ((ARRAY['completed'::character varying, 'stood_down'::character varying])::text[]))"))
+  @@index([tenant_id, cath_case_id], map: "idx_stemi_activations_cath_case", where: raw("(cath_case_id IS NOT NULL)"))
+  @@index([tenant_id, emergency_visit_id], map: "idx_stemi_activations_emergency_visit", where: raw("(emergency_visit_id IS NOT NULL)"))
+  @@index([tenant_id, encounter_id], map: "idx_stemi_activations_encounter", where: raw("(encounter_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, activated_at(sort: Desc)], map: "idx_stemi_activations_patient")
+  @@index([tenant_id, prehospital_handover_id], map: "idx_stemi_activations_prehospital_handover", where: raw("(prehospital_handover_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model stemi_pathway_events {
+  id                          String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                   String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  activation_id               BigInt
+  patient_uid                 String                    @db.Uuid
+  encounter_id                String?                   @db.Uuid
+  sequence_number             Int
+  event_type                  String                    @db.VarChar(40)
+  occurred_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  workflow_sla_instance_id    String?                   @db.Uuid
+  event_payload               Json                      @default("{}")
+  recorded_by                 String?                   @db.Uuid
+  canonical_timeline_event_id String?                   @db.Uuid
+  canonical_audit_event_id    String?                   @db.Uuid
+  metadata                    Json                      @default("{}")
+  created_at                  DateTime                  @default(now()) @db.Timestamptz(6)
+  stemi_activations           stemi_activations         @relation(fields: [activation_id], references: [id], onUpdate: NoAction, map: "fk_stemi_pathway_events_activation")
+  clinical_audit_events       clinical_audit_events?    @relation(fields: [canonical_audit_event_id], references: [id], onUpdate: NoAction, map: "fk_stemi_pathway_events_audit")
+  patient_encounters          patient_encounters?       @relation(fields: [encounter_id], references: [id], onUpdate: NoAction, map: "fk_stemi_pathway_events_encounter")
+  users                       users                     @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction, map: "fk_stemi_pathway_events_patient")
+  workflow_sla_instances      workflow_sla_instances?   @relation(fields: [workflow_sla_instance_id], references: [id], onUpdate: NoAction, map: "fk_stemi_pathway_events_sla")
+  tenants                     tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stemi_pathway_events_tenant")
+  clinical_timeline_events    clinical_timeline_events? @relation(fields: [canonical_timeline_event_id], references: [id], onUpdate: NoAction, map: "fk_stemi_pathway_events_timeline")
+
+  @@unique([tenant_id, activation_id, sequence_number], map: "ux_stemi_pathway_events_sequence")
+  @@index([tenant_id, activation_id, occurred_at, sequence_number], map: "idx_stemi_pathway_events_activation")
+  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_stemi_pathway_events_patient")
+  @@index([tenant_id, workflow_sla_instance_id], map: "idx_stemi_pathway_events_sla", where: raw("(workflow_sla_instance_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model stemi_pathway_settings {
+  tenant_id                        String    @id @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  enabled                          Boolean   @default(false)
+  enabled_at                       DateTime? @db.Timestamptz(6)
+  enabled_by                       String?   @db.Uuid
+  clock_definition_source          String?
+  clock_definition_version         String?
+  clock_definition_attachment_refs Json      @default("[]")
+  activation_criteria_source       String?
+  activation_criteria_version      String?
+  activation_criteria              Json      @default("{}")
+  door_to_ecg_target_minutes       Int?
+  door_to_lab_target_minutes       Int?
+  door_to_balloon_target_minutes   Int?
+  notification_role_codes          String[]  @default(["CATH_LAB_INCHARGE", "CATH_LAB_STAFF"])
+  acceptance_snapshot              Json?
+  metadata                         Json      @default("{}")
+  created_at                       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stemi_pathway_settings_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model stemi_team_notifications {
+  id                                              BigInt                    @id @default(autoincrement())
+  tenant_id                                       String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  activation_id                                   BigInt
+  staff_id                                        Int?
+  staff_uid                                       String                    @db.Uuid
+  role_code                                       String?                   @db.VarChar(80)
+  assignment_source                               String                    @default("on_call_role") @db.VarChar(32)
+  notification_status                             String                    @default("pending") @db.VarChar(24)
+  notification_outbox_id                          Int?
+  notified_at                                     DateTime?                 @db.Timestamptz(6)
+  acknowledged_by_uid                             String?                   @db.Uuid
+  acknowledged_at                                 DateTime?                 @db.Timestamptz(6)
+  acknowledgement_note                            String?
+  notification_payload                            Json                      @default("{}")
+  canonical_timeline_event_id                     String?                   @db.Uuid
+  canonical_audit_event_id                        String?                   @db.Uuid
+  created_at                                      DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                                      DateTime                  @default(now()) @db.Timestamptz(6)
+  stemi_activations                               stemi_activations         @relation(fields: [activation_id], references: [id], onUpdate: NoAction, map: "fk_stemi_team_notifications_activation")
+  clinical_audit_events                           clinical_audit_events?    @relation(fields: [canonical_audit_event_id], references: [id], onUpdate: NoAction, map: "fk_stemi_team_notifications_audit")
+  notification_outbox                             notification_outbox?      @relation(fields: [notification_outbox_id], references: [id], onUpdate: NoAction, map: "fk_stemi_team_notifications_outbox")
+  users_stemi_team_notifications_staff_idTousers  users?                    @relation("stemi_team_notifications_staff_idTousers", fields: [staff_id], references: [id], onUpdate: NoAction, map: "fk_stemi_team_notifications_staff")
+  users_stemi_team_notifications_staff_uidTousers users                     @relation("stemi_team_notifications_staff_uidTousers", fields: [staff_uid], references: [uid], onUpdate: NoAction, map: "fk_stemi_team_notifications_staff_uid")
+  tenants                                         tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stemi_team_notifications_tenant")
+  clinical_timeline_events                        clinical_timeline_events? @relation(fields: [canonical_timeline_event_id], references: [id], onUpdate: NoAction, map: "fk_stemi_team_notifications_timeline")
+
+  @@unique([tenant_id, activation_id, staff_uid], map: "ux_stemi_team_notifications_member")
+  @@index([tenant_id, activation_id, notification_status, created_at], map: "idx_stemi_team_notifications_activation")
+  @@index([notification_outbox_id], map: "idx_stemi_team_notifications_outbox", where: raw("(notification_outbox_id IS NOT NULL)"))
+  @@index([tenant_id, staff_uid, notification_status, created_at(sort: Desc)], map: "idx_stemi_team_notifications_staff")
 }
 
 enum transplant_organ_type {

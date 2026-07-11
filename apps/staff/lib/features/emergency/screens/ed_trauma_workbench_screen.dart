@@ -1,12 +1,24 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/services/ed_trauma_api_service.dart';
+import '../../../core/services/stemi_pathway_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
+typedef EdPolicyLoader = Future<Map<String, dynamic>> Function();
+typedef StemiActivationCreator =
+    Future<Map<String, dynamic>> Function(Map<String, dynamic> body);
+
 class EdTraumaWorkbenchScreen extends StatefulWidget {
-  const EdTraumaWorkbenchScreen({super.key});
+  const EdTraumaWorkbenchScreen({
+    super.key,
+    this.loadPolicy,
+    this.createStemiActivation,
+  });
+
+  final EdPolicyLoader? loadPolicy;
+  final StemiActivationCreator? createStemiActivation;
 
   @override
   State<EdTraumaWorkbenchScreen> createState() =>
@@ -14,6 +26,8 @@ class EdTraumaWorkbenchScreen extends StatefulWidget {
 }
 
 class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
+  final _stemiVisitId = TextEditingController();
+  final _stemiPatientUid = TextEditingController();
   final _activationNumber = TextEditingController();
   final _visitId = TextEditingController();
   final _patientUid = TextEditingController();
@@ -61,6 +75,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
   @override
   void dispose() {
     for (final controller in [
+      _stemiVisitId,
+      _stemiPatientUid,
       _activationNumber,
       _visitId,
       _patientUid,
@@ -95,7 +111,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
       _error = null;
     });
     try {
-      final policy = await EdTraumaApiService.getPolicy();
+      final loader = widget.loadPolicy ?? EdTraumaApiService.getPolicy;
+      final policy = await loader();
       if (!mounted) return;
       setState(() => _policy = policy);
     } catch (e) {
@@ -104,6 +121,38 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _submitStemiActivation() async {
+    final strings = AppStrings.of(context);
+    await _submit(() async {
+      final patientUid = _text(_stemiPatientUid);
+      if (patientUid.isEmpty) {
+        throw Exception(strings.lookup('ed_trauma.stemi.patient_required'));
+      }
+      final emergencyVisitId = _intText(_stemiVisitId);
+      if (emergencyVisitId == null) {
+        throw Exception(strings.lookup('ed_trauma.stemi.visit_required'));
+      }
+      final creator =
+          widget.createStemiActivation ??
+          StemiPathwayApiService.createActivation;
+      try {
+        await creator({
+          'patient_uid': patientUid,
+          'emergency_visit_id': emergencyVisitId,
+          'activation_source': 'clinician',
+        });
+      } on StemiPathwayApiException {
+        throw Exception(strings.lookup('ed_trauma.stemi.activation_failed'));
+      }
+      if (!mounted) return;
+      final message = strings.lookup('ed_trauma.stemi.activated');
+      _message = message;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    });
   }
 
   Future<void> _submitActivation() async {
@@ -264,6 +313,31 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
                     const SizedBox(height: 12),
                     _MessageBanner(message: _message!, isError: false),
                   ],
+                  const SizedBox(height: 14),
+                  _Section(
+                    title: s.lookup('ed_trauma.stemi.title'),
+                    icon: Icons.monitor_heart_outlined,
+                    children: [
+                      _TextField(
+                        fieldKey: const ValueKey('stemi-ed-visit-id'),
+                        controller: _stemiVisitId,
+                        label: s.lookup('ed_trauma.ed_visit_id'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      _TextField(
+                        fieldKey: const ValueKey('stemi-patient-uid'),
+                        controller: _stemiPatientUid,
+                        label: s.lookup('ed_trauma.patient_uid'),
+                      ),
+                      _SubmitButton(
+                        key: const ValueKey('code-stemi-activate'),
+                        label: s.lookup('ed_trauma.stemi.activate'),
+                        icon: Icons.monitor_heart_outlined,
+                        busy: _loading,
+                        onPressed: _submitStemiActivation,
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 14),
                   _Section(
                     title: s.lookup('ed_trauma.activation'),
@@ -582,12 +656,14 @@ class _Section extends StatelessWidget {
 }
 
 class _TextField extends StatelessWidget {
+  final Key? fieldKey;
   final TextEditingController controller;
   final String label;
   final int maxLines;
   final TextInputType? keyboardType;
 
   const _TextField({
+    this.fieldKey,
     required this.controller,
     required this.label,
     this.maxLines = 1,
@@ -597,6 +673,7 @@ class _TextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TextField(
+      key: fieldKey,
       controller: controller,
       maxLines: maxLines,
       keyboardType: keyboardType,
@@ -663,11 +740,14 @@ class _CheckTile extends StatelessWidget {
 
 class _SubmitButton extends StatelessWidget {
   final String label;
+  final IconData icon;
   final bool busy;
   final VoidCallback onPressed;
 
   const _SubmitButton({
+    super.key,
     required this.label,
+    this.icon = Icons.save_outlined,
     required this.busy,
     required this.onPressed,
   });
@@ -682,7 +762,7 @@ class _SubmitButton extends StatelessWidget {
               height: 16,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.save_outlined),
+          : Icon(icon),
       label: Text(label),
     );
   }

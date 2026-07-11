@@ -366,6 +366,20 @@ export const STROKE_ROUTE_ROLES = mergeRoles(
   ]),
 );
 
+export const STEMI_ROUTE_ROLES = mergeRoles(
+  STROKE_ROUTE_ROLES,
+  CATH_LAB_ROUTE_ROLES,
+  rolesFrom([
+    'ANESTHETIST',
+    'ANAESTHETIST',
+    'CNO',
+    'NURSING_SUPERINTENDENT',
+    'OP_INCHARGE',
+    'OT_NURSE',
+    'OT_INCHARGE',
+  ]),
+);
+
 export const CSSD_ROUTE_ROLES = mergeRoles(
   THEATRE_ROUTE_ROLES,
   getRolesForCapabilityGroups(['supply_chain', 'notifications_audit']),

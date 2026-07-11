@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/core/providers/theme_provider.dart';
+import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
+import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
 import 'package:vhhealth_staff/features/investigations/screens/lab_bookings_screen.dart';
 import 'package:vhhealth_staff/features/theatre/screens/theatre_screen.dart';
 
@@ -177,4 +179,56 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     expect(loads, 2);
   });
+
+  testWidgets(
+    'Cath board subscribes to staff:code-stemi and debounces durable reloads',
+    (tester) async {
+      var channelName = '';
+      var cancelled = false;
+      var loads = 0;
+      final controller = StreamController<RealtimeEvent>.broadcast(
+        onCancel: () => cancelled = true,
+      );
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CathLabScreen(
+            currentStaffUid: 'staff-1',
+            loadCases: (_) async => const [],
+            loadStemiActivations: () async {
+              loads += 1;
+              return const <StemiActivationSummary>[];
+            },
+            realtimeEvents: (channel) {
+              channelName = channel;
+              return controller.stream;
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(channelName, 'staff:code-stemi');
+      expect(loads, 1);
+
+      controller.add(_event('staff:code-stemi', 'activated'));
+      controller.add(_event('staff:code-stemi', 'team-notified'));
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(loads, 1);
+
+      await tester.pump(const Duration(milliseconds: 2));
+      await tester.pump();
+      expect(loads, 2);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(cancelled, isTrue);
+
+      controller.add(_event('staff:code-stemi', 'acknowledged'));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(loads, 2);
+    },
+  );
 }

@@ -532,6 +532,7 @@ void main() {
       File('lib/features/phone/screens/staff_phone_more_screen.dart'),
       File('lib/features/ward/screens/ward_mode_screen.dart'),
       File('lib/features/cath_lab/screens/cath_lab_screen.dart'),
+      File('lib/features/emergency/screens/ed_trauma_workbench_screen.dart'),
       File(
         'lib/features/radiation_oncology/screens/radiation_oncology_screen.dart',
       ),
@@ -568,6 +569,7 @@ void main() {
     ];
     final allowedPrefixes = [
       'action.',
+      'ed_trauma.',
       'leave.',
       'profile.',
       'role.feature.',
@@ -606,6 +608,56 @@ void main() {
       _missingLocaleEntries(keys),
       isEmpty,
       reason: 'S4 operational copy keys must have en/hi/ta/te entries.',
+    );
+  });
+
+  test('Code STEMI copy has entries in all five staff locales', () {
+    const keys = <String>{
+      'ed_trauma.stemi.title',
+      'ed_trauma.stemi.activate',
+      'ed_trauma.stemi.activated',
+      'ed_trauma.stemi.activation_failed',
+      'ed_trauma.stemi.patient_required',
+      'ed_trauma.stemi.visit_required',
+      's4.lib.cath_lab.stemi.incoming',
+      's4.lib.cath_lab.stemi.empty',
+      's4.lib.cath_lab.stemi.load_failed',
+      's4.lib.cath_lab.stemi.stale',
+      's4.lib.cath_lab.stemi.activated_at',
+      's4.lib.cath_lab.stemi.cath_case',
+      's4.lib.cath_lab.stemi.targets_pending',
+      's4.lib.cath_lab.stemi.door_time_pending',
+      's4.lib.cath_lab.stemi.team',
+      's4.lib.cath_lab.stemi.team_empty',
+      's4.lib.cath_lab.stemi.ack',
+      's4.lib.cath_lab.stemi.acknowledging',
+      's4.lib.cath_lab.stemi.acknowledged',
+      's4.lib.cath_lab.stemi.pending',
+      's4.lib.cath_lab.stemi.ack_failed',
+      's4.lib.cath_lab.stemi.ack_refresh_failed',
+      's4.lib.cath_lab.stemi.clock_unavailable',
+      's4.lib.cath_lab.stemi.clock.door_to_ecg',
+      's4.lib.cath_lab.stemi.clock.door_to_lab',
+      's4.lib.cath_lab.stemi.clock.door_to_balloon',
+      's4.lib.cath_lab.stemi.status.activated',
+      's4.lib.cath_lab.stemi.status.lab_notified',
+      's4.lib.cath_lab.stemi.status.in_lab',
+      's4.lib.cath_lab.stemi.status.device_deployed',
+      's4.lib.cath_lab.stemi.status.completed',
+      's4.lib.cath_lab.stemi.status.stood_down',
+      's4.lib.cath_lab.stemi.sla.active',
+      's4.lib.cath_lab.stemi.sla.completed',
+      's4.lib.cath_lab.stemi.sla.breached',
+      's4.lib.cath_lab.stemi.sla.escalated',
+      's4.lib.cath_lab.stemi.sla.cancelled',
+      'role.display.cath_lab_staff',
+      'role.display.cath_lab_incharge',
+    };
+
+    expect(
+      _missingLocaleEntries(keys, requiredLocales: 5),
+      isEmpty,
+      reason: 'Code STEMI keys must have en/hi/ta/te/ml entries.',
     );
   });
 
@@ -1453,15 +1505,18 @@ Set<String> _appStringPrefixedTokensFrom(String source, List<String> prefixes) {
   return keys;
 }
 
-List<String> _missingLocaleEntries(Set<String> keys) {
+List<String> _missingLocaleEntries(
+  Set<String> keys, {
+  int requiredLocales = 4,
+}) {
   final appStringsSource = File('lib/l10n/app_strings.dart').readAsStringSync();
   final missingKeys = <String>[];
   for (final key in keys) {
     final occurrences = RegExp(
       "'${RegExp.escape(key)}'",
     ).allMatches(appStringsSource);
-    if (occurrences.length < 4) {
-      missingKeys.add('$key (${occurrences.length}/4 locales)');
+    if (occurrences.length < requiredLocales) {
+      missingKeys.add('$key (${occurrences.length}/$requiredLocales locales)');
     }
   }
   missingKeys.sort();

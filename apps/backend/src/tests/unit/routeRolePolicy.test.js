@@ -157,6 +157,21 @@ describe('routeRolePolicy', () => {
     ]));
   });
 
+  it('keeps the STEMI pathway visible to ED, cath-lab, theatre, and nursing leadership roles', () => {
+    expect(routePolicy.STEMI_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'DOCTOR',
+      'NURSING_STAFF',
+      'CATH_LAB_STAFF',
+      'CATH_LAB_INCHARGE',
+      'OT_NURSE',
+      'OT_INCHARGE',
+      'ANESTHETIST',
+      'ANAESTHETIST',
+      'CNO',
+      'NURSING_SUPERINTENDENT',
+    ]));
+  });
+
   it('keeps Staff app fallback role enum values registered in backend policy', () => {
     const staffRolePath = path.resolve(process.cwd(), '../staff/lib/core/config/role_config.dart');
     const source = fs.readFileSync(staffRolePath, 'utf8');

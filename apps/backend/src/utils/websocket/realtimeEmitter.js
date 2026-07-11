@@ -59,6 +59,33 @@ export function emitCodeBlue({ patientId, bedNumber, ward, triggeredBy, reason, 
   );
 }
 
+/** Code-STEMI board invalidation; persisted pathway rows remain the source of truth. */
+export function emitCodeStemi({ kind = 'activation-updated', tenantId, activation = {} } = {}) {
+  if (!tenantId) {
+    logger.warn('emitCodeStemi skipped: tenantId is required');
+    return;
+  }
+  const wireValue = (value) => {
+    if (value === null || value === undefined) return null;
+    return typeof value === 'bigint' ? value.toString() : value;
+  };
+  try {
+    broadcast('staff:code-stemi', {
+      kind: 'code-stemi',
+      eventKind: kind,
+      activationId: wireValue(activation?.id),
+      patientUid: wireValue(activation?.patient_uid),
+      emergencyVisitId: wireValue(activation?.emergency_visit_id),
+      cathCaseId: wireValue(activation?.cath_case_id),
+      status: activation?.status ?? null,
+      activatedAt: activation?.activated_at ?? null,
+      at: new Date().toISOString(),
+    }, { tenantId });
+  } catch (err) {
+    logger.warn('emitCodeStemi failed:', err.message);
+  }
+}
+
 async function _fanOutCodeBlueFcm(payload) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT device_token FROM staff_devices
