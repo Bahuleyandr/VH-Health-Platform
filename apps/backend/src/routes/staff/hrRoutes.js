@@ -58,6 +58,13 @@ const guardPayslipView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROL
   resourceIdParam: 'id',
   requireTarget: true,
 });
+// Sol Ultra #30/#36: overtime + replacement APPROVAL are manager/HR actions, but
+// this chart-side HR mount registered them with no authority guard (any staff in
+// the block could approve). The people-ops mount (staffAdminRoutes) already gates
+// these exact handlers with STAFF_LEAVE_WRITE — apply the same capability here.
+const guardHrApprovalCollection = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_LEAVE_WRITE, {
+  allowNoTarget: true,
+});
 
 wrapAutoRBAC(router, 'staffHRRoutes', {
   get: [
@@ -138,11 +145,11 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     // Replacement requests
     ['/replacement/request', replacementController.requestReplacement],
     ['/replacement/:id/respond', replacementController.respondToReplacement],
-    ['/replacement/:id/hr-approve', replacementController.hrApproveReplacement],
+    ['/replacement/:id/hr-approve', guardHrApprovalCollection, replacementController.hrApproveReplacement],
 
     // Overtime
     ['/overtime/request', overtimeController.requestOvertime],
-    ['/overtime/:id/approve', overtimeController.approveOvertime],
+    ['/overtime/:id/approve', guardHrApprovalCollection, overtimeController.approveOvertime],
 
     // Incident Reports (staff submit)
     ['/incidents/submit', incidentController.submitIncident],
