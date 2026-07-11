@@ -6122,6 +6122,15 @@ class AppStrings {
       's4.calculators.option.sex.male': "Male",
       's4.calculators.option.sex.female': "Female",
       's4.lib.cath_lab.cath_lab': "Cath Lab",
+      's4.lib.radiation_oncology.title': "Nuclear Med & Radiotherapy",
+      's4.lib.radiation_oncology.subtitle':
+          "Radiotherapy & nuclear-medicine coordination",
+      's4.lib.radiation_oncology.no_referrals':
+          "No radiation-oncology referrals",
+      's4.lib.radiation_oncology.unknown_patient': "Unknown patient",
+      's4.lib.radiation_oncology.plan_refs_count': "{count} plan reference(s)",
+      's4.lib.radiation_oncology.nuclear_orders_count':
+          "{count} nuclear order(s)",
       's4.lib.cath_lab.equipment': "Equipment",
       's4.lib.cath_lab.no_cases': "No Cath Lab cases",
       's4.lib.cath_lab.not_assigned': "Not assigned",
@@ -11573,6 +11582,15 @@ class AppStrings {
       's4.calculators.option.sex.male': "पुरुष",
       's4.calculators.option.sex.female': "महिला",
       's4.lib.cath_lab.cath_lab': "कैथ लैब",
+      's4.lib.radiation_oncology.title': "न्यूक्लियर मेड और रेडियोथेरेपी",
+      's4.lib.radiation_oncology.subtitle':
+          "रेडियोथेरेपी और न्यूक्लियर-मेडिसिन समन्वय",
+      's4.lib.radiation_oncology.no_referrals':
+          "कोई रेडिएशन-ऑन्कोलॉजी रेफरल नहीं",
+      's4.lib.radiation_oncology.unknown_patient': "अज्ञात रोगी",
+      's4.lib.radiation_oncology.plan_refs_count': "{count} प्लान संदर्भ",
+      's4.lib.radiation_oncology.nuclear_orders_count':
+          "{count} न्यूक्लियर ऑर्डर",
       's4.lib.cath_lab.equipment': "उपकरण",
       's4.lib.cath_lab.no_cases': "कोई कैथ लैब केस नहीं",
       's4.lib.cath_lab.not_assigned': "असाइन नहीं किया गया",
@@ -17595,6 +17613,16 @@ class AppStrings {
       's4.calculators.option.sex.male': "ஆண்",
       's4.calculators.option.sex.female': "பெண்",
       's4.lib.cath_lab.cath_lab': "கேத் லேப்",
+      's4.lib.radiation_oncology.title':
+          "நியூக்ளியர் மெட் & கதிர்வீச்சு சிகிச்சை",
+      's4.lib.radiation_oncology.subtitle':
+          "கதிர்வீச்சு சிகிச்சை & நியூக்ளியர்-மருத்துவ ஒருங்கிணைப்பு",
+      's4.lib.radiation_oncology.no_referrals':
+          "கதிர்வீச்சு-புற்றுநோயியல் பரிந்துரைகள் இல்லை",
+      's4.lib.radiation_oncology.unknown_patient': "அறியப்படாத நோயாளி",
+      's4.lib.radiation_oncology.plan_refs_count': "{count} திட்ட குறிப்புகள்",
+      's4.lib.radiation_oncology.nuclear_orders_count':
+          "{count} நியூக்ளியர் ஆர்டர்கள்",
       's4.lib.cath_lab.equipment': "உபகரணம்",
       's4.lib.cath_lab.no_cases': "கேத் லேப் வழக்குகள் இல்லை",
       's4.lib.cath_lab.not_assigned': "ஒதுக்கப்படவில்லை",
@@ -23695,6 +23723,16 @@ class AppStrings {
       's4.calculators.option.sex.male': "పురుషుడు",
       's4.calculators.option.sex.female': "స్త్రీ",
       's4.lib.cath_lab.cath_lab': "క్యాథ్ ల్యాబ్",
+      's4.lib.radiation_oncology.title': "న్యూక్లియర్ మెడ్ & రేడియోథెరపీ",
+      's4.lib.radiation_oncology.subtitle':
+          "రేడియోథెరపీ & న్యూక్లియర్-మెడిసిన్ సమన్వయం",
+      's4.lib.radiation_oncology.no_referrals':
+          "రేడియేషన్-ఆంకాలజీ రెఫరల్స్ లేవు",
+      's4.lib.radiation_oncology.unknown_patient': "తెలియని రోగి",
+      's4.lib.radiation_oncology.plan_refs_count':
+          "{count} ప్లాన్ రిఫరెన్స్‌లు",
+      's4.lib.radiation_oncology.nuclear_orders_count':
+          "{count} న్యూక్లియర్ ఆర్డర్‌లు",
       's4.lib.cath_lab.equipment': "పరికరాలు",
       's4.lib.cath_lab.no_cases': "క్యాథ్ ల్యాబ్ కేసులు లేవు",
       's4.lib.cath_lab.not_assigned': "కేటాయించబడలేదు",
@@ -26492,6 +26530,15 @@ class AppStrings {
       's4.lib.ophthalmology.biometry': 'Biometry',
       's4.lib.ophthalmology.attachments': 'ഇമേജിംഗ് അറ്റാച്ച്മെന്റുകൾ',
       's4.lib.cath_lab.cath_lab': 'കാത്ത് ലാബ്',
+      's4.lib.radiation_oncology.title': 'ന്യൂക്ലിയർ മെഡ് & റേഡിയോതെറാപ്പി',
+      's4.lib.radiation_oncology.subtitle':
+          'റേഡിയോതെറാപ്പി & ന്യൂക്ലിയർ-മെഡിസിൻ ഏകോപനം',
+      's4.lib.radiation_oncology.no_referrals':
+          'റേഡിയേഷൻ-ഓങ്കോളജി റഫറലുകൾ ഇല്ല',
+      's4.lib.radiation_oncology.unknown_patient': 'അജ്ഞാത രോഗി',
+      's4.lib.radiation_oncology.plan_refs_count': '{count} പ്ലാൻ റഫറൻസുകൾ',
+      's4.lib.radiation_oncology.nuclear_orders_count':
+          '{count} ന്യൂക്ലിയർ ഓർഡറുകൾ',
       's4.lib.cath_lab.equipment': 'ഉപകരണങ്ങൾ',
       's4.lib.cath_lab.no_cases': 'കാത്ത് ലാബ് കേസുകൾ ഇല്ല',
       's4.lib.cath_lab.not_assigned': 'നിയോഗിച്ചിട്ടില്ല',
