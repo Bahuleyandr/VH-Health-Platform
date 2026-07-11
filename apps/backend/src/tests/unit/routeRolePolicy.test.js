@@ -92,6 +92,9 @@ describe('routeRolePolicy', () => {
     expect(routePolicy.CATH_LAB_ROUTE_ROLES).toEqual(expect.arrayContaining([
       'CATH_LAB_STAFF',
       'CATH_LAB_INCHARGE',
+      'SENIOR_DOCTOR',
+      'RECEPTIONIST',
+      'TECHNICIAN',
     ]));
   });
 
