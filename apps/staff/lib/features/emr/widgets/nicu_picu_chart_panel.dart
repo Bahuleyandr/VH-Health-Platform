@@ -144,10 +144,9 @@ class NicuPicuChartPanel extends StatelessWidget {
                     's4.lib.patient_command_board.nicu_not_charted',
                   )
                 : _compactJoin([
-                    _text(latestThermal['care_environment']).replaceAll(
-                      '_',
-                      ' ',
-                    ),
+                    _text(
+                      latestThermal['care_environment'],
+                    ).replaceAll('_', ' '),
                     if (_text(latestThermal['skin_temperature_c']).isNotEmpty)
                       'skin ${_text(latestThermal['skin_temperature_c'])}°C',
                     if (_text(latestThermal['humidity_pct']).isNotEmpty)
