@@ -211,7 +211,8 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 536–541 | NL14-P3 burns/TBSA | authored; round-3 (NL-5 content studio on main) |
 | 542–545 | NL13-P5 CTVS/perfusion seam | authored; round-3 (minimal seam) |
 | 546–554 | NL13-P6 transplant program (6 organs, live+deceased) | GATE CLEARED 2026-07-09; authored + launch-ready |
-| 555+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
+| 555–557 | NL13-P1b cath-lab reporting (owner access model 2026-07-11) | authored; launch-ready |
+| 558+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -225,6 +226,8 @@ all §3 gates green · PR with a build ledger (scope, invariants held, migs used
 commands + pass counts, deferrals) · **STOP after the PR** — the coordinator merges.
 
 ## 7. Decision log
+
+- **2026-07-11 — Cath imaging + reporting access model (owner).** DICOM/viewer access = doctor family + CATH_LAB_INCHARGE + CATH_LAB_STAFF + NURSING_STAFF + TECHNICIAN + ADMIN/SUPER_ADMIN only. Report draft/edit = doctor family + RECEPTIONIST (transcription) + CATH_LAB_INCHARGE. Report SIGN = doctors only, tightened via the mig-488 cath credentialing privilege (`cath_report_signing`, flipped from paused) to credentialed cardiologists/vascular surgeons/CTVS — specialty enforced by CREDENTIAL not role key. Full audit on report view/edit/sign/addendum + every viewer-link resolution. Encoded in `nl13-p1b-cath-reporting.md` (block 555–557). Context: cath DICOM viewing rides the merged-but-operator-gated Orthanc+OHIF stack (docs/RADIOLOGY_PACS.md); pacsService deep links; cath_device_links angiography_accession seam.
 
 - **2026-07-09 — NL13-P6 transplant scope (owner).** Organ scope = **Heart, Liver, Lung, Kidney, small bowel, multivisceral**; donor scope = **both living and deceased**. This clears the spec's hard pre-implementation gate (organ + donor scope). Block **546–554** assigned; NL13-P6 prompt un-gated + launch-ready. Robust-default sub-decisions (standing "most robust/future-proof" directive): transplant privilege keys SEEDED + enforced (credentialing-gated like chemo, N6-5 pattern); NOTTO export format/API, committee quorum values, and allocation boundaries remain OPERATOR-supplied — substrate builds inert + fail-closed, never encoding NOTTO allocation rules from model memory; `transplant_programs.organ` enum carries the six categories with multivisceral as a combined-organ program.
 
@@ -315,6 +318,7 @@ parallel-safe may overlap.
 | `golive-readiness-kickoff.md` | `docs/GO_LIVE_RUNBOOK.md` — sequenced activation runbook | Week-3 of the month plan (or on demand) | READY (design) |
 | `indigenous-drugkb-kickoff.md` | indigenous drug-KB program design spec | — | **MERGED** #463 |
 | `nl13-p1-cath-lab.md` | cath-lab cases/readiness/procedure/dose/orders/device-links | NL-13 spec on main | authored; ROUND-1 (482–488) |
+| `nl13-p1b-cath-reporting.md` | templated Angio/PTCA/PPI reports, sign-off+addenda, DICOM viewer links, owner access model | P1 on main ✓ | authored; launch-ready (555–557) |
 | `nl13-p2-stroke.md` | code-stroke activation, NIHSS, thrombolysis, pathway SLA | NL-13 spec on main | authored; round-2 (503–507) |
 | `nl13-p3-oncology-staging.md` | TNM/AJCC staging, CTCAE toxicity, tumor board | NL-13 spec on main | authored; ROUND-1 (489–494) |
 | `nl13-p4-nuclear-med-radiotherapy.md` | radiotherapy referrals/plans/fractions, nuc-med orders (coordination-only) | NL-13 spec + P3 | authored; round-2 (508–512) |
