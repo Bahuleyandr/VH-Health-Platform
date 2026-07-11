@@ -18,10 +18,10 @@ Systemic finding (LD-RRB-01, NICU/PICU, ambulance): `{ tenantId, actorUid, ...re
 - [x] AST codemod moved `...req.body` to front of 117 object literals across 21 route files; server fields now assigned last and win.
 - [x] eslint --fix clean; guardrail GREEN.
 
-## WS2 — Clinical patient-relationship & actor/signer authority  ▶ NEXT
+## WS2 — Clinical patient-relationship & actor/signer authority  ▶ IN PROGRESS
 Findings #2 SMART cross-patient write, #3 prescriber doctor_id-from-body, #8 TPA-enhancement, #9/#12 OR-board (no guard), #11 PATIENT-role bulk-Rx, #13 pharmacy-order owner, #38 Tier-C AI unscoped; Wave-E caller-asserted signer (LD-RRB-02 resus record forgery, LD-RRB-03 radiation gate default-off, LD-RRB-05 burn signatures, LD-RRB-07 radiation delivery/approval, NICU score/verify forgery, ambulance H1/H2/H3).
-- [ ] #9/#12 add `patientAccessGuard('OPERATING_THEATRE',{careTeamModeGoverned})` + `phiAccessLogger` to the `orBoardRoutes` mount (app.js:1259); actor-bind scheduleSurgery.
-- [ ] #11 remove PATIENT from bulk-prescription route RBAC (rbacConfig).
+- [x] #9/#12 added `patientAccessGuard('OPERATING_THEATRE',{careTeamModeGoverned})` + `phiAccessLogger` to the `orBoardRoutes` mount (commit a25c511a1). Residual: actor-bind scheduleSurgery (spoofable audit) — still TODO.
+- [x] #11 split `/prescriptions/all` onto staff-only `ePrescriptionListAllRoutes` (no PATIENT) + regression guard (commit a25c511a1).
 - [ ] #3 derive prescriber from `req.user` for DOCTOR; controlled-drug privilege evaluated on authenticated actor.
 - [ ] #13 verify pharmacy-order prescription belongs to the ordering patient.
 - [ ] #2 reject conflicting SMART `?patient=` vs body `subject.reference`; bind write patient to the token context.
