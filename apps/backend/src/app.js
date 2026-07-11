@@ -102,6 +102,7 @@ import {
   RECORD_ROUTE_ROLES,
   STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES,
   STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
+  STEMI_ROUTE_ROLES,
   STROKE_ROUTE_ROLES,
   TECHNICAL_ADMIN_ROUTE_ROLES,
   THEATRE_ROUTE_ROLES,
@@ -257,6 +258,7 @@ import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.j
 import icuRoutes from './routes/clinical/icuRoutes.js';
 import burnRoutes from './routes/clinical/burnRoutes.js';
 import strokePathwayRoutes from './routes/clinical/strokePathwayRoutes.js';
+import stemiPathwayRoutes from './routes/clinical/stemiPathwayRoutes.js';
 import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
 import resuscitationRoutes from './routes/clinical/resuscitationRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
@@ -1285,6 +1287,7 @@ app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patien
 app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/stroke-pathway', requireRole(...STROKE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('STROKE_PATHWAY', { careTeamModeGoverned: true }), phiAccessLogger('STROKE_PATHWAY'), strokePathwayRoutes);
+app.use('/api/v1/stemi-pathway', requireRole(...STEMI_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('STEMI_PATHWAY', { careTeamModeGoverned: true }), phiAccessLogger('STEMI_PATHWAY'), stemiPathwayRoutes);
 app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ALERTS'), clinicalAlertsRoutes);
 // NL-14 P2: durable code-blue/resus documentation. Cross-patient emergency
 // board (no patientAccessGuard — matches the clinical-alerts sibling);

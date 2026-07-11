@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
+import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
 import 'package:vhhealth_staff/features/cath_lab/models/cath_report_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/services/cath_lab_api_service.dart';
@@ -35,12 +39,99 @@ void main() {
     expect(parsed.reportTatMinutes, 24);
   });
 
+  test(
+    'StemiActivationSummary parses clocks, Cath case, and team ack rows',
+    () {
+      final parsed = StemiActivationSummary.fromJson({
+        'id': '77',
+        'patient_uid': '11111111-1111-4111-8111-111111111111',
+        'cath_case_id': '42',
+        'activation_source': 'clinician',
+        'status': 'lab_notified',
+        'activated_at': '2026-07-11T10:00:00.000Z',
+        'metadata': {'targets_pending': true},
+        'sla_instances': [
+          {
+            'rule_code': 'stemi_door_to_ecg',
+            'status': 'completed',
+            'started_at': '2026-07-11T10:00:00.000Z',
+            'completed_at': '2026-07-11T10:05:00.000Z',
+          },
+          {
+            'rule_code': 'stemi_door_to_lab',
+            'status': 'active',
+            'metadata': {'clock_start_pending': true},
+          },
+          {
+            'rule_code': 'stemi_door_to_balloon',
+            'status': 'active',
+            'metadata': {'targets_pending': true},
+          },
+        ],
+        'team_acknowledgements': [
+          {
+            'id': '8',
+            'activation_id': 77,
+            'staff_uid': 'staff-1',
+            'role_code': 'CATH_LAB_STAFF',
+            'notification_status': 'notified',
+          },
+        ],
+      });
+
+      expect(parsed.id, 77);
+      expect(parsed.cathLabCaseId, 42);
+      expect(parsed.targetsPending, isTrue);
+      expect(parsed.slaFor('stemi_door_to_lab')!.clockStartPending, isTrue);
+      expect(
+        parsed
+            .slaFor('stemi_door_to_ecg')!
+            .elapsedAt(DateTime.utc(2026, 7, 11, 10, 10)),
+        const Duration(minutes: 5),
+      );
+      expect(parsed.acknowledgementFor('STAFF-1')!.isAcknowledged, isFalse);
+    },
+  );
+
+  test('STEMI payload rejects a successful malformed envelope', () {
+    expect(
+      () => parseStemiActivationPayload({'count': 0}),
+      throwsA(isA<StemiPathwayApiException>()),
+    );
+  });
+
+  test('STEMI payload rejects missing, duplicate, and extra clocks', () {
+    for (final ruleCodes in <List<String>>[
+      ['stemi_door_to_ecg', 'stemi_door_to_balloon'],
+      [
+        'stemi_door_to_ecg',
+        'stemi_door_to_lab',
+        'stemi_door_to_balloon',
+        'stemi_door_to_balloon',
+      ],
+      [
+        'stemi_door_to_ecg',
+        'stemi_door_to_lab',
+        'stemi_door_to_balloon',
+        'owner_defined_clock',
+      ],
+    ]) {
+      expect(
+        () => parseStemiActivationPayload(_stemiPayload(ruleCodes)),
+        throwsA(isA<StemiPathwayApiException>()),
+      );
+    }
+  });
+
   testWidgets('cath-lab screen renders the case worklist and stage tabs', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          currentStaffUid: 'staff-1',
+          loadStemiActivations: () async => const [],
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadCases: (_) async => [
             const CathLabCaseSummary(
               id: 42,
@@ -88,12 +179,150 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(home: CathLabScreen(loadCases: (_) async => const [])),
+      MaterialApp(
+        home: CathLabScreen(
+          currentStaffUid: 'staff-1',
+          loadCases: (_) async => const [],
+          loadStemiActivations: () async => const [],
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+        ),
+      ),
     );
     await tester.pump();
 
     expect(find.text('No Cath Lab cases'), findsOneWidget);
   });
+
+  testWidgets('incoming STEMI card shows clocks and durable ack roster', (
+    tester,
+  ) async {
+    final releaseAck = Completer<void>();
+    var acknowledgeCalls = 0;
+    var acknowledged = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CathLabScreen(
+          currentStaffUid: 'staff-1',
+          now: () => DateTime.utc(2026, 7, 11, 10, 10, 30),
+          loadCases: (_) async => const [],
+          loadStemiActivations: () async => [
+            _stemiActivation(acknowledged: acknowledged),
+          ],
+          acknowledgeStemiActivation: (_) async {
+            acknowledgeCalls += 1;
+            await releaseAck.future;
+            acknowledged = true;
+          },
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Incoming Code STEMI activations'), findsOneWidget);
+    expect(find.text('Door-to-ECG'), findsOneWidget);
+    expect(find.text('Door-to-lab'), findsOneWidget);
+    expect(find.text('Door-to-balloon'), findsOneWidget);
+    expect(find.text('00:05:00'), findsOneWidget);
+    expect(find.text('00:10:30'), findsNWidgets(2));
+    expect(find.text('Targets pending'), findsNWidgets(2));
+    expect(find.textContaining('Cath Lab Staff'), findsOneWidget);
+    expect(find.textContaining('Cath Lab Incharge'), findsOneWidget);
+    expect(find.text('Pending'), findsNWidgets(2));
+
+    final acknowledge = find.byKey(const ValueKey('stemi-ack-77'));
+    await tester.ensureVisible(acknowledge);
+    await tester.tap(acknowledge);
+    await tester.pump();
+    await tester.tap(acknowledge, warnIfMissed: false);
+    await tester.pump();
+    expect(acknowledgeCalls, 1);
+
+    releaseAck.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Acknowledged'), findsOneWidget);
+    expect(find.byKey(const ValueKey('stemi-ack-77')), findsNothing);
+  });
+
+  testWidgets('prehospital STEMI clocks wait for door time without running', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CathLabScreen(
+          currentStaffUid: 'staff-1',
+          now: () => DateTime.utc(2026, 7, 11, 10, 10, 30),
+          loadCases: (_) async => const [],
+          loadStemiActivations: () async => [
+            _stemiActivation(acknowledged: false, clockStartPending: true),
+          ],
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Door time pending'), findsNWidgets(3));
+    expect(find.text('--:--:--'), findsNWidgets(3));
+
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text('Door time pending'), findsNWidgets(3));
+    expect(find.text('--:--:--'), findsNWidgets(3));
+  });
+
+  testWidgets(
+    'failed ACK hydration keeps cards visibly stale and reports the saved ACK',
+    (tester) async {
+      var loads = 0;
+      var acknowledgeCalls = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CathLabScreen(
+            currentStaffUid: 'staff-1',
+            loadCases: (_) async => const [],
+            loadStemiActivations: () async {
+              loads += 1;
+              if (loads == 1) {
+                return [_stemiActivation(acknowledged: false)];
+              }
+              throw Exception('synthetic refresh failure');
+            },
+            acknowledgeStemiActivation: (_) async {
+              acknowledgeCalls += 1;
+            },
+            realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final acknowledge = find.byKey(const ValueKey('stemi-ack-77'));
+      await tester.ensureVisible(acknowledge);
+      await tester.tap(acknowledge);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(acknowledgeCalls, 1);
+      expect(
+        find.text('Activation data may be out of date. Refresh failed'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Acknowledgement saved, but activation status could not be refreshed',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('stemi-activation-77')), findsOneWidget);
+    },
+  );
 
   testWidgets('reports tab expands a case-level report list', (tester) async {
     const cathCase = CathLabCaseSummary(
@@ -117,6 +346,13 @@ void main() {
         home: CathLabScreen(
           loadCases: (_) async => const [cathCase],
           loadRole: () async => 'DOCTOR',
+          // The merged workbench also boots the STEMI strip; inject inert
+          // sources so this test exercises only the reports surface. The
+          // 1s clock ticker makes pumpAndSettle time out — use discrete
+          // pumps like the STEMI tests above.
+          currentStaffUid: 'staff-1',
+          loadStemiActivations: () async => const [],
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           reportDependencies: CathReportDependencies(
             loadReports: (_) async => const [
               CathProcedureReport(
@@ -135,15 +371,113 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     await tester.ensureVisible(find.text('Reports'));
     await tester.tap(find.text('Reports'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
     await tester.tap(find.byKey(const ValueKey('cath-report-expand-42')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
 
     expect(find.text('Preliminary'), findsOneWidget);
     expect(find.text('Successful PCI to LAD'), findsOneWidget);
   });
+}
+
+StemiActivationSummary _stemiActivation({
+  required bool acknowledged,
+  bool clockStartPending = false,
+}) {
+  final startedAt = DateTime.utc(2026, 7, 11, 10);
+  return StemiActivationSummary(
+    id: 77,
+    patientUid: '11111111-1111-4111-8111-111111111111',
+    patientName: 'Asha Rao',
+    emergencyVisitId: 14,
+    cathLabCaseId: 42,
+    activationSource: 'clinician',
+    status: 'lab_notified',
+    activatedAt: startedAt,
+    targetsPending: false,
+    slaInstances: [
+      StemiSlaClock(
+        ruleCode: 'stemi_door_to_ecg',
+        status: 'completed',
+        startedAt: clockStartPending ? null : startedAt,
+        dueAt: null,
+        completedAt: clockStartPending
+            ? null
+            : startedAt.add(const Duration(minutes: 5)),
+        breachedAt: null,
+        targetsPending: false,
+        clockStartPending: clockStartPending,
+      ),
+      StemiSlaClock(
+        ruleCode: 'stemi_door_to_lab',
+        status: 'active',
+        startedAt: clockStartPending ? null : startedAt,
+        dueAt: null,
+        completedAt: null,
+        breachedAt: null,
+        targetsPending: !clockStartPending,
+        clockStartPending: clockStartPending,
+      ),
+      StemiSlaClock(
+        ruleCode: 'stemi_door_to_balloon',
+        status: 'active',
+        startedAt: clockStartPending ? null : startedAt,
+        dueAt: null,
+        completedAt: null,
+        breachedAt: null,
+        targetsPending: !clockStartPending,
+        clockStartPending: clockStartPending,
+      ),
+    ],
+    teamAcknowledgements: [
+      StemiTeamAcknowledgement(
+        id: '8',
+        activationId: 77,
+        staffUid: 'staff-1',
+        staffName: '',
+        roleCode: 'CATH_LAB_STAFF',
+        notificationStatus: acknowledged ? 'acknowledged' : 'notified',
+        notifiedAt: startedAt,
+        acknowledgedAt: acknowledged
+            ? startedAt.add(const Duration(minutes: 2))
+            : null,
+      ),
+      StemiTeamAcknowledgement(
+        id: '9',
+        activationId: 77,
+        staffUid: 'staff-2',
+        staffName: '',
+        roleCode: 'CATH_LAB_INCHARGE',
+        notificationStatus: 'notified',
+        notifiedAt: startedAt,
+        acknowledgedAt: null,
+      ),
+    ],
+  );
+}
+
+Map<String, dynamic> _stemiPayload(List<String> ruleCodes) {
+  return {
+    'activations': [
+      {
+        'id': 77,
+        'patient_uid': '11111111-1111-4111-8111-111111111111',
+        'activation_source': 'clinician',
+        'status': 'lab_notified',
+        'activated_at': '2026-07-11T10:00:00.000Z',
+        'sla_instances': [
+          for (final ruleCode in ruleCodes)
+            {'rule_code': ruleCode, 'status': 'active'},
+        ],
+        'team_acknowledgements': const [],
+      },
+    ],
+  };
 }

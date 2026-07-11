@@ -376,7 +376,38 @@ function semanticValue(column, table, index, ctx, maxLength) {
   return undefined;
 }
 
+// Constraint-aware per-table overrides for columns the generic heuristics
+// cannot satisfy: conditional CHECKs that tie one column's validity to
+// another column's value. rowForTable also consults this map so a NULLABLE
+// override column is still filled (the generic walk skips nullable non-FK
+// columns). Keep entries minimal and tied to the migration that needs them.
+const TABLE_COLUMN_SEED_OVERRIDES = {
+  // mig 562: started_at/due_at became nullable, but NULL is legal only for
+  // stemi-sourced rows carrying explicit *_pending metadata — the generic
+  // row must supply both clocks or every SLA-linked dependent cascades.
+  workflow_sla_instances: {
+    started_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    due_at: () => new Date('2026-05-04T10:00:00.000Z'),
+  },
+  // mig 558: stemi_activations_door_clock requires door_time_at unless the
+  // activation is a prehospital handover; pick the source whose branch the
+  // generic row satisfies without coordinating three clock columns.
+  stemi_activations: {
+    activation_source: 'prehospital_handover',
+  },
+};
+
+function seedOverrideFor(table, columnName) {
+  return TABLE_COLUMN_SEED_OVERRIDES[table]?.[columnName];
+}
+
 function primitiveValue(column, table, index, ctx, checksByTable) {
+  const override = seedOverrideFor(table, column.column_name);
+  if (override !== undefined) {
+    const value = typeof override === 'function' ? override() : override;
+    return typeof value === 'string' ? clip(value, column.character_maximum_length) : value;
+  }
+
   const checked = checkedValue(checksByTable, table, column);
   if (checked) return clip(checked, column.character_maximum_length);
 
@@ -421,14 +452,15 @@ async function rowForTable(table, columns, metadata, ctx, index, relaxed = false
 
     const required = column.is_nullable === 'NO' && !hasDefault;
     const fk = metadata.fkByTableColumn.get(`${table}.${column.column_name}`);
-    if (!required && !fk) continue;
+    const hasOverride = seedOverrideFor(table, column.column_name) !== undefined;
+    if (!required && !fk && !hasOverride) continue;
 
     if (fk) {
       row[column.column_name] = await fkValue(fk, ctx);
       continue;
     }
 
-    if (required || relaxed) {
+    if (required || relaxed || hasOverride) {
       row[column.column_name] = primitiveValue(column, table, index, ctx, metadata.checksByTable);
     }
   }

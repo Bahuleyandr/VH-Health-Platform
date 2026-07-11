@@ -3,8 +3,9 @@
 // Channel taxonomy for the real-time clinical fabric.
 // See docs/ROADMAP.md Phase 3A — all subscribers are authorized here.
 
+import { STEMI_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { isAdmin, isClinical, isStaff } from '../roleHelpers.js';
-import { SUPER_ADMIN, normalizeRole } from '../roles.js';
+import { hasRole, SUPER_ADMIN, normalizeRole } from '../roles.js';
 
 /**
  * Channel naming convention:
@@ -58,6 +59,12 @@ export function authorizeChannel(channel, user) {
       : { allowed: false, reason: 'Clinical-only channel' };
   }
 
+  if (channel === 'staff:code-stemi') {
+    return hasRole(user.role, STEMI_ROUTE_ROLES)
+      ? { allowed: true }
+      : { allowed: false, reason: 'Code-STEMI staff-only channel' };
+  }
+
   if (channel.startsWith('staff:')) {
     return isStaff(user.role)
       ? { allowed: true }
@@ -84,6 +91,7 @@ export function authorizeChannel(channel, user) {
 export const CHANNEL_CATALOG = Object.freeze({
   'staff:clinical-alerts':   { description: 'Vital-sign anomalies (WARNING + CRITICAL)', roles: 'staff' },
   'staff:code-blue':          { description: 'Code Blue / cardiac arrest emergency push', roles: 'staff' },
+  'staff:code-stemi':         { description: 'Code-STEMI pathway activation and milestone push', roles: 'staff' },
   'staff:beds':               { description: 'Bed occupancy + admission/discharge events', roles: 'staff' },
   'staff:handovers':          { description: 'New nurse-handover notes', roles: 'staff' },
   'staff:appointments':       { description: 'Appointment + queue status changes (staff view)', roles: 'staff' },
