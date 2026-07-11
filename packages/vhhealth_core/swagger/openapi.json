@@ -9267,6 +9267,11 @@
               "type": "object",
               "additionalProperties": true
             }
+          },
+          "icu_chart": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           }
         }
       },

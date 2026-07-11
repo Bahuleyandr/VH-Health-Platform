@@ -36,7 +36,7 @@ import {
   normaliseSex
 } from './growthPercentileService.js';
 
-const NICU_PICU_UNITS = ['NICU', 'PICU'];
+export const NICU_PICU_UNITS = ['NICU', 'PICU'];
 
 const PARENTERAL_FEED_TYPES = ['tpn', 'iv_fluid', 'medication_volume'];
 

@@ -1,6 +1,9 @@
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { getHospitalNumberMap } from '../patient/patientIdentifierService.js';
 import { normalizeRole as normalizePlatformRole } from '../../utils/roles.js';
+import { getIcuChartView } from '../clinical/icuChartingService.js';
+import { getNicuPicuChartView, NICU_PICU_UNITS } from '../clinical/nicuPicuChartingService.js';
 import {
   ACTIVE_ADMISSION_STATUSES,
   applyInpatientAdmissionScope,
@@ -10,6 +13,11 @@ import {
 } from './inpatientScopeService.js';
 
 const CLOSED_ORDER_STATUSES = ['completed', 'cancelled', 'canceled', 'discontinued', 'stopped'];
+
+// icu_chart enrichment bounds: ICU/NICU beds are few, but a hostile page of
+// admissions must never fan out into hundreds of chart-view transactions.
+const ICU_CHART_ENRICH_LIMIT = 40;
+const ICU_CHART_ENRICH_CONCURRENCY = 4;
 
 const DOCTOR_BOARD_ROLES = new Set([
   'DOCTOR',
@@ -560,6 +568,80 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
       : [],
   ]);
 
+  // NL14-P1/P3 command-board seam: attach the ICU chart-depth payload (with
+  // the NICU/PICU specialty view nested under `nicu` when the unit is
+  // NICU/PICU) to rows backed by an ACTIVE icu_admissions row. The staff
+  // board renders IcuChartDepthPanel / NicuPicuChartPanel from
+  // row.icu_chart; #535/#544 wired those panels expecting this key.
+  // Best-effort: a chart-view failure logs and leaves the row unenriched —
+  // the board itself must never fail because a chart read did. Minimized
+  // (location-only) payload roles get no clinical chart data.
+  const icuChartByAdmissionId = new Map();
+  if (!shouldMinimizePayload(role) && admissions.length) {
+    try {
+      const icuRows = await prisma.icu_admissions.findMany({
+        where: {
+          status: 'active',
+          ...(tenantId ? { tenant_id: tenantId } : {}),
+          OR: [
+            { admission_id: { in: admissionIds } },
+            ...(patientUids.length
+              ? [{ admission_id: null, patient_uid: { in: patientUids } }]
+              : []),
+          ],
+        },
+        select: {
+          id: true,
+          admission_id: true,
+          patient_uid: true,
+          unit_code: true,
+          tenant_id: true,
+          admitted_at: true,
+        },
+        orderBy: { admitted_at: 'desc' },
+      });
+      const icuByAdmissionId = new Map();
+      const icuByPatientUid = new Map();
+      for (const icuRow of icuRows) {
+        if (icuRow.admission_id != null) {
+          if (!icuByAdmissionId.has(icuRow.admission_id)) {
+            icuByAdmissionId.set(icuRow.admission_id, icuRow);
+          }
+        } else if (icuRow.patient_uid && !icuByPatientUid.has(icuRow.patient_uid)) {
+          // Legacy icu_admissions created without an admissions link: fall
+          // back to the patient — an active admission plus an active ICU
+          // stay for the same patient is the same episode.
+          icuByPatientUid.set(icuRow.patient_uid, icuRow);
+        }
+      }
+      const targets = [];
+      for (const admission of admissions) {
+        const icuRow = icuByAdmissionId.get(admission.id)
+          || (admission.patient_uid ? icuByPatientUid.get(admission.patient_uid) : null);
+        if (icuRow) targets.push({ boardAdmissionId: admission.id, icuRow });
+      }
+      const capped = targets.slice(0, ICU_CHART_ENRICH_LIMIT);
+      for (let i = 0; i < capped.length; i += ICU_CHART_ENRICH_CONCURRENCY) {
+        const chunk = capped.slice(i, i + ICU_CHART_ENRICH_CONCURRENCY);
+        await Promise.all(chunk.map(async ({ boardAdmissionId, icuRow }) => {
+          try {
+            const isNicuUnit = NICU_PICU_UNITS.includes(String(icuRow.unit_code || '').toUpperCase());
+            const view = isNicuUnit
+              ? await getNicuPicuChartView({ tenantId: icuRow.tenant_id, icuAdmissionId: icuRow.id })
+              : await getIcuChartView({ tenantId: icuRow.tenant_id, icuAdmissionId: icuRow.id });
+            icuChartByAdmissionId.set(boardAdmissionId, view);
+          } catch (err) {
+            logger.warn(
+              `command-board icu_chart enrichment skipped for icu_admission ${icuRow.id}: ${err.message}`,
+            );
+          }
+        }));
+      }
+    } catch (err) {
+      logger.warn(`command-board icu_chart enrichment unavailable: ${err.message}`);
+    }
+  }
+
   const byUid = (rows, key = 'patient_uid') => rows.reduce((acc, row) => {
     const value = row[key];
     if (!value) return acc;
@@ -754,6 +836,9 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           }
         : discharge,
       actions: minimizePayload ? [] : actionsForRole(role, admission),
+      ...(icuChartByAdmissionId.has(admission.id)
+        ? { icu_chart: icuChartByAdmissionId.get(admission.id) }
+        : {}),
     };
     return row;
   }).sort(rowSort);
