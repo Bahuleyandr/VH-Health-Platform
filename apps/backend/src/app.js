@@ -33,7 +33,7 @@ import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
 import { patientAccessGuardForPaths, phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
-import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
+import { patientAccessGuard, patientAccessGuardForResource, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import fhirPatientContext, { requireFhirSearchPatientContext } from './middleware/fhirPatientContext.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import {
@@ -1338,6 +1338,20 @@ app.use('/api/v1/insurance', requireRole(...BILLING_ROUTE_ROLES), insuranceClaim
 app.use(
   '/api/v1/admissions/:admissionId/tpa-enhancement',
   requireRole(...BILLING_V2_ROUTE_ROLES),
+  // Sol Ultra #8: this clinician-facing enhancement surface is keyed off the
+  // :admissionId path param, so a plain patientAccessGuard would see no
+  // patient_uid and pass. Resolve the admission -> patient and run the care-team
+  // relationship decision (a foreign/unrelated admission 403s in enforce mode).
+  patientAccessGuardForResource('INSURANCE_PREAUTH', {
+    resourceType: 'admission',
+    idParam: 'admissionId',
+    careTeamModeGoverned: true,
+    // When the admission id doesn't resolve to a patient (e.g. the chart surface
+    // operates on preauth.admission_id without an admissions FK), defer to the
+    // route's own ownership/existence check (404) instead of a hard 403 — the
+    // care-team relationship is enforced whenever the admission DOES resolve.
+    allowNoPatientResource: true,
+  }),
   phiAccessLogger('INSURANCE_PREAUTH'),
   admissionEnhancementRoutes,
 );
