@@ -83,7 +83,9 @@ void main() {
     };
 
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: NicuPicuChartPanel(nicu: nicu))),
+      MaterialApp(
+        home: Scaffold(body: NicuPicuChartPanel(nicu: nicu)),
+      ),
     );
 
     expect(find.text('NICU/PICU chart'), findsOneWidget);
@@ -126,7 +128,9 @@ void main() {
     };
 
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: NicuPicuChartPanel(nicu: nicu))),
+      MaterialApp(
+        home: Scaffold(body: NicuPicuChartPanel(nicu: nicu)),
+      ),
     );
 
     expect(find.textContaining('SNAPPE_II'), findsOneWidget);

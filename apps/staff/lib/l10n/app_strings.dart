@@ -24575,8 +24575,7 @@ class AppStrings {
       's4.lib.patient_command_board.nicu_no_newborn_link':
           "నవజాత రికార్డు లింక్ కాలేదు",
       's4.lib.patient_command_board.nicu_growth': "పెరుగుదల",
-      's4.lib.patient_command_board.nicu_not_charted':
-          "ఈ వ్యవధిలో నమోదు లేదు",
+      's4.lib.patient_command_board.nicu_not_charted': "ఈ వ్యవధిలో నమోదు లేదు",
       's4.lib.patient_command_board.nicu_score_unavailable':
           "స్కోరు అందుబాటులో లేదు",
       's4.lib.patient_command_board.nicu_apgar': "APGAR",
@@ -26897,8 +26896,7 @@ class AppStrings {
       's4.lib.patient_command_board.nicu_growth': 'വളർച്ച',
       's4.lib.patient_command_board.nicu_not_charted':
           'ഈ കാലയളവിൽ രേഖപ്പെടുത്തിയിട്ടില്ല',
-      's4.lib.patient_command_board.nicu_score_unavailable':
-          'സ്കോർ ലഭ്യമല്ല',
+      's4.lib.patient_command_board.nicu_score_unavailable': 'സ്കോർ ലഭ്യമല്ല',
       's4.lib.patient_command_board.nicu_apgar': 'APGAR',
       'summary.title': 'രോഗി സംഗ്രഹം',
       'summary.tooltip': 'രോഗി സംഗ്രഹം',
