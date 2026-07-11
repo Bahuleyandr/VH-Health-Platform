@@ -388,7 +388,9 @@ describe('nicuPicuChartingService', () => {
       expect(insert[0]).toMatch(/FALSE/);
     });
 
-    it('requires reviewer_uid for available score outputs', async () => {
+    it('requires an authenticated reviewer for available score outputs (Sol Ultra Wave-E)', async () => {
+      // The reviewer is now bound to the authenticated actor, not a caller-
+      // supplied reviewer_uid — so with no actorUid the sign-off is rejected.
       queryRawMock
         .mockResolvedValueOnce(SETTINGS_ENABLED)
         .mockResolvedValueOnce([admission()])
@@ -400,9 +402,9 @@ describe('nicuPicuChartingService', () => {
         recordScoreOutput({
           tenantId: TENANT,
           icuAdmissionId: 21,
-          actorUid: ACTOR,
           score_kind: 'pews',
           score_value: 3
+          // no actorUid → no authenticated reviewer
         })
       ).rejects.toMatchObject({ statusCode: 400, code: 'NICU_SCORE_REVIEWER_REQUIRED' });
     });
