@@ -32,8 +32,8 @@ Findings #2 SMART cross-patient write, #3 prescriber doctor_id-from-body, #8 TPA
 ## WS3 — Insurance/billing object-graph binding
 Findings #1 claim, #4 policy, #15 preauth, #16 revenue-cycle 837. Validate referenced policy/preauth/admission/parent belong to same tenant+patient before INSERT; add tenant predicates to revenue-cycle queries + 837 export.
 
-## WS4 — Compliance breach registry tenant scoping
-Findings #6 enumeration, #14 lifecycle tampering. Scope breach list/detail/update by tenant; restrict cross-tenant registry to SUPER_ADMIN; notifyAdminsOfBreach tenant-scoped.
+## WS4 — Compliance breach registry tenant scoping  ⚠ NEEDS DECISION + MIGRATION
+Findings #6 enumeration, #14 lifecycle tampering. ★ Verified: `data_breaches` has NO `tenant_id` column — every query in `breachService.js` is global, and `notifyAdminsOfBreach` selects ALL ADMIN/SUPER_ADMIN. Proper fix needs a **migration** (add `tenant_id` + RLS + backfill) + threading tenantId through 8 service fns + routes, AND a **tenancy-model decision**: is the breach registry (a) per-tenant (each tenant's compliance officer manages their own — needs tenant_id scoping) or (b) a platform-level registry only SUPER_ADMIN touches (restrict the mount, no migration)? Under single-tenant this is LATENT. Do NOT blind-restrict the mount to SUPER_ADMIN — may lock the current operating admin out of legitimate breach management.
 
 ## WS5 — HR approval authorization
 Findings #30 replacement final approval, #36 overtime approval. Require HR/manager capability (not any staff) for final approve/reject.
