@@ -89,8 +89,142 @@ class CathLabCaseSummary {
   }
 }
 
+class CathScheduleBooking {
+  const CathScheduleBooking({
+    required this.linkId,
+    required this.caseId,
+    required this.resourceName,
+    required this.patientName,
+    required this.requestedProcedure,
+    required this.caseStatus,
+    required this.urgency,
+    required this.softConflict,
+    required this.conflictingEmergencyCaseIds,
+    this.startsAt,
+    this.endsAt,
+  });
+
+  final int linkId;
+  final int caseId;
+  final String resourceName;
+  final String patientName;
+  final String requestedProcedure;
+  final String caseStatus;
+  final String urgency;
+  final bool softConflict;
+  final List<int> conflictingEmergencyCaseIds;
+  final DateTime? startsAt;
+  final DateTime? endsAt;
+
+  factory CathScheduleBooking.fromJson(Map<String, dynamic> json) {
+    return CathScheduleBooking(
+      linkId: CathLabCaseSummary._asInt(json['link_id']) ?? 0,
+      caseId: CathLabCaseSummary._asInt(json['case_id']) ?? 0,
+      resourceName: CathLabCaseSummary._text(json['resource_name']),
+      patientName: CathLabCaseSummary._text(json['patient_name']),
+      requestedProcedure: CathLabCaseSummary._text(json['requested_procedure']),
+      caseStatus: CathLabCaseSummary._text(
+        json['case_status'],
+        fallback: 'scheduled',
+      ),
+      urgency: CathLabCaseSummary._text(json['urgency'], fallback: 'routine'),
+      softConflict: json['soft_conflict'] == true,
+      conflictingEmergencyCaseIds: json['conflicting_emergency_case_ids'] is List
+          ? (json['conflicting_emergency_case_ids'] as List)
+                .map((id) => CathLabCaseSummary._asInt(id))
+                .whereType<int>()
+                .toList()
+          : const [],
+      startsAt: CathLabCaseSummary._date(json['starts_at']),
+      endsAt: CathLabCaseSummary._date(json['ends_at']),
+    );
+  }
+}
+
+class CathScheduleEmergency {
+  const CathScheduleEmergency({
+    required this.caseId,
+    required this.status,
+    required this.requestedProcedure,
+    required this.patientName,
+    this.startedAt,
+  });
+
+  final int caseId;
+  final String status;
+  final String requestedProcedure;
+  final String patientName;
+  final DateTime? startedAt;
+
+  factory CathScheduleEmergency.fromJson(Map<String, dynamic> json) {
+    return CathScheduleEmergency(
+      caseId: CathLabCaseSummary._asInt(json['id']) ?? 0,
+      status: CathLabCaseSummary._text(json['status'], fallback: 'in_progress'),
+      requestedProcedure: CathLabCaseSummary._text(json['requested_procedure']),
+      patientName: CathLabCaseSummary._text(json['patient_name']),
+      startedAt: CathLabCaseSummary._date(
+        json['actual_start_at'] ?? json['planned_start_at'] ?? json['created_at'],
+      ),
+    );
+  }
+}
+
+class CathScheduleStrip {
+  const CathScheduleStrip({
+    required this.date,
+    required this.bookings,
+    required this.emergencies,
+    required this.hasSoftConflict,
+  });
+
+  final String date;
+  final List<CathScheduleBooking> bookings;
+  final List<CathScheduleEmergency> emergencies;
+  final bool hasSoftConflict;
+
+  factory CathScheduleStrip.fromJson(Map<String, dynamic> json) {
+    return CathScheduleStrip(
+      date: CathLabCaseSummary._text(json['date']),
+      bookings: json['bookings'] is List
+          ? (json['bookings'] as List)
+                .whereType<Map>()
+                .map(
+                  (raw) => CathScheduleBooking.fromJson(
+                    Map<String, dynamic>.from(raw),
+                  ),
+                )
+                .toList()
+          : const [],
+      emergencies: json['emergencies'] is List
+          ? (json['emergencies'] as List)
+                .whereType<Map>()
+                .map(
+                  (raw) => CathScheduleEmergency.fromJson(
+                    Map<String, dynamic>.from(raw),
+                  ),
+                )
+                .toList()
+          : const [],
+      hasSoftConflict: json['has_soft_conflict'] == true,
+    );
+  }
+}
+
 class CathLabApiService {
   CathLabApiService._();
+
+  static Future<CathScheduleStrip> fetchScheduleStrip(DateTime date) async {
+    final response = await ApiClient.get(
+      '/cath-lab/schedule',
+      queryParameters: {'date': DateFormat('yyyy-MM-dd').format(date)},
+    );
+    if (!response.isSuccess) {
+      throw Exception(
+        response.failureMessage('Failed to load Cath Lab room schedule'),
+      );
+    }
+    return CathScheduleStrip.fromJson(response.dataAsMap());
+  }
 
   static Future<List<CathLabCaseSummary>> fetchCasesForDate(
     DateTime date,

@@ -52537,6 +52537,33 @@
         ]
       }
     },
+    "/api/v1/cath-lab/cases/{id}/complications": {
+      "post": {
+        "operationId": "post_api_v1_cath_lab_cases_by_id_complications",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/cath-lab/cases/{id}/contrast-radiation": {
       "post": {
         "operationId": "post_api_v1_cath_lab_cases_by_id_contrast_radiation",
@@ -52675,6 +52702,85 @@
     "/api/v1/cath-lab/cases/{id}/readiness": {
       "post": {
         "operationId": "post_api_v1_cath_lab_cases_by_id_readiness",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cath-lab/cases/{id}/schedule": {
+      "get": {
+        "operationId": "get_api_v1_cath_lab_cases_by_id_schedule",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_cath_lab_cases_by_id_schedule",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cath-lab/cases/{id}/schedule/cancel": {
+      "post": {
+        "operationId": "post_api_v1_cath_lab_cases_by_id_schedule_cancel",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -52928,6 +53034,23 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/cath-lab/schedule": {
+      "get": {
+        "operationId": "get_api_v1_cath_lab_schedule",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/cds-services": {
@@ -89908,6 +90031,99 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/quality/cath/complication-registry": {
+      "get": {
+        "operationId": "get_api_v1_quality_cath_complication_registry",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/cath/complication-registry/{id}/review": {
+      "post": {
+        "operationId": "post_api_v1_quality_cath_complication_registry_by_id_review",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/quality/cath/dose-rollup": {
+      "get": {
+        "operationId": "get_api_v1_quality_cath_dose_rollup",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/cath/dose-settings": {
+      "get": {
+        "operationId": "get_api_v1_quality_cath_dose_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_quality_cath_dose_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/quality/dashboard": {

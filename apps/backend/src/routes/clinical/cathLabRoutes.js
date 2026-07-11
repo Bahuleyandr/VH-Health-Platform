@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import cathSchedulingRoutes from './cathSchedulingRoutes.js';
 import logger from '../../logging/logger.js';
 import {
   addContrastRadiationRecord,
@@ -39,6 +40,10 @@ import {
 } from '../../utils/roleHelpers.js';
 
 const router = Router();
+
+// NL13-P1f: scheduling strip + case booking + manual complication entries
+// (same /api/v1/cath-lab family; role guards live inside the subrouter).
+router.use('/', cathSchedulingRoutes);
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);

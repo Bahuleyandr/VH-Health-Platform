@@ -14,6 +14,11 @@ const MANUAL_SEED_TABLES = new Set([
   'provider_availability_templates',
   'appointment_slot_holds',
   'resource_bookings',
+  // NL13-P1f: the link row must reference the REAL seeded booking/room/case —
+  // resource_bookings itself is manually seeded AFTER the generic walk, so the
+  // generic pass would have no parent to point at. Seeded alongside it in
+  // seedPillarDWorkflowTables below.
+  'cath_case_schedule_links',
   'chemo_protocol_drugs',
   'chemo_cycles',
   'dental_tooth_findings',
@@ -1232,6 +1237,21 @@ async function seedPillarDWorkflowTables() {
       booked_for_type: 'other',
       status: 'booked',
       notes: 'Seed booking for QA coverage',
+    }]);
+  }
+
+  // NL13-P1f: cath case ↔ booking link needs the real seeded parents (the
+  // partial unique indexes allow exactly one active link per case/booking).
+  const cathCase = await first('cath_lab_cases', 'id');
+  const booking = await first('resource_bookings', 'id, resource_id');
+  if (cathCase && booking?.resource_id) {
+    await insertIfEmpty('cath_case_schedule_links', [{
+      tenant_id: DEFAULT_TENANT_ID,
+      case_id: cathCase.id,
+      resource_booking_id: booking.id,
+      resource_id: booking.resource_id,
+      status: 'active',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
     }]);
   }
 

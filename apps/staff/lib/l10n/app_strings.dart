@@ -6214,6 +6214,12 @@ class AppStrings {
           "{count} nuclear order(s)",
       's4.lib.cath_lab.equipment': "Equipment",
       's4.lib.cath_lab.no_cases': "No Cath Lab cases",
+      's4.lib.cath_lab.strip.title': "Room schedule",
+      's4.lib.cath_lab.strip.no_bookings': "No room bookings for this date",
+      's4.lib.cath_lab.strip.load_failed': "Couldn't load the room schedule",
+      's4.lib.cath_lab.strip.soft_conflict': "May shift — emergency in lab",
+      's4.lib.cath_lab.strip.emergency_banner':
+          "Emergency case in progress — booked slots may shift",
       's4.lib.cath_lab.not_assigned': "Not assigned",
       's4.lib.cath_lab.not_configured': "Not configured",
       's4.lib.cath_lab.pending_checklist': "Pending checklist",
@@ -11839,6 +11845,12 @@ class AppStrings {
           "{count} न्यूक्लियर ऑर्डर",
       's4.lib.cath_lab.equipment': "उपकरण",
       's4.lib.cath_lab.no_cases': "कोई कैथ लैब केस नहीं",
+      's4.lib.cath_lab.strip.title': "रूम शेड्यूल",
+      's4.lib.cath_lab.strip.no_bookings': "इस तारीख के लिए कोई रूम बुकिंग नहीं",
+      's4.lib.cath_lab.strip.load_failed': "रूम शेड्यूल लोड नहीं हो सका",
+      's4.lib.cath_lab.strip.soft_conflict': "खिसक सकता है — लैब में आपातकाल",
+      's4.lib.cath_lab.strip.emergency_banner':
+          "आपातकालीन केस चल रहा है — बुक किए गए स्लॉट खिसक सकते हैं",
       's4.lib.cath_lab.not_assigned': "असाइन नहीं किया गया",
       's4.lib.cath_lab.not_configured': "कॉन्फ़िगर नहीं किया गया",
       's4.lib.cath_lab.pending_checklist': "चेकलिस्ट लंबित",
@@ -18037,6 +18049,13 @@ class AppStrings {
           "{count} நியூக்ளியர் ஆர்டர்கள்",
       's4.lib.cath_lab.equipment': "உபகரணம்",
       's4.lib.cath_lab.no_cases': "கேத் லேப் வழக்குகள் இல்லை",
+      's4.lib.cath_lab.strip.title': "அறை அட்டவணை",
+      's4.lib.cath_lab.strip.no_bookings':
+          "இந்த தேதிக்கு அறை முன்பதிவுகள் இல்லை",
+      's4.lib.cath_lab.strip.load_failed': "அறை அட்டவணையை ஏற்ற முடியவில்லை",
+      's4.lib.cath_lab.strip.soft_conflict': "மாறக்கூடும் — லேபில் அவசரநிலை",
+      's4.lib.cath_lab.strip.emergency_banner':
+          "அவசர வழக்கு நடைபெறுகிறது — முன்பதிவு செய்த நேரங்கள் மாறக்கூடும்",
       's4.lib.cath_lab.not_assigned': "ஒதுக்கப்படவில்லை",
       's4.lib.cath_lab.not_configured': "அமைக்கப்படவில்லை",
       's4.lib.cath_lab.pending_checklist': "சரிபார்ப்பு பட்டியல் நிலுவையில்",
@@ -24314,6 +24333,12 @@ class AppStrings {
           "{count} న్యూక్లియర్ ఆర్డర్‌లు",
       's4.lib.cath_lab.equipment': "పరికరాలు",
       's4.lib.cath_lab.no_cases': "క్యాథ్ ల్యాబ్ కేసులు లేవు",
+      's4.lib.cath_lab.strip.title': "గది షెడ్యూల్",
+      's4.lib.cath_lab.strip.no_bookings': "ఈ తేదీకి గది బుకింగ్‌లు లేవు",
+      's4.lib.cath_lab.strip.load_failed': "గది షెడ్యూల్ లోడ్ కాలేదు",
+      's4.lib.cath_lab.strip.soft_conflict': "మారవచ్చు — ల్యాబ్‌లో అత్యవసరం",
+      's4.lib.cath_lab.strip.emergency_banner':
+          "అత్యవసర కేసు కొనసాగుతోంది — బుక్ చేసిన స్లాట్‌లు మారవచ్చు",
       's4.lib.cath_lab.not_assigned': "కేటాయించబడలేదు",
       's4.lib.cath_lab.not_configured': "కాన్ఫిగర్ చేయబడలేదు",
       's4.lib.cath_lab.pending_checklist': "చెక్‌లిస్ట్ పెండింగ్‌లో ఉంది",
@@ -27292,6 +27317,15 @@ class AppStrings {
           '{count} ന്യൂക്ലിയർ ഓർഡറുകൾ',
       's4.lib.cath_lab.equipment': 'ഉപകരണങ്ങൾ',
       's4.lib.cath_lab.no_cases': 'കാത്ത് ലാബ് കേസുകൾ ഇല്ല',
+      's4.lib.cath_lab.strip.title': 'റൂം ഷെഡ്യൂൾ',
+      's4.lib.cath_lab.strip.no_bookings':
+          'ഈ തീയതിക്ക് റൂം ബുക്കിംഗുകൾ ഇല്ല',
+      's4.lib.cath_lab.strip.load_failed':
+          'റൂം ഷെഡ്യൂൾ ലോഡ് ചെയ്യാനായില്ല',
+      's4.lib.cath_lab.strip.soft_conflict':
+          'മാറിയേക്കാം — ലാബിൽ അടിയന്തരം',
+      's4.lib.cath_lab.strip.emergency_banner':
+          'അടിയന്തര കേസ് നടക്കുന്നു — ബുക്ക് ചെയ്ത സ്ലോട്ടുകൾ മാറിയേക്കാം',
       's4.lib.cath_lab.not_assigned': 'നിയോഗിച്ചിട്ടില്ല',
       's4.lib.cath_lab.not_configured': 'ക്രമീകരിച്ചിട്ടില്ല',
       's4.lib.cath_lab.pending_checklist': 'ചെക്ക്ലിസ്റ്റ് ബാക്കി',
