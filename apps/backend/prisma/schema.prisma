@@ -537,36 +537,38 @@ model allergies {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model ambulance_requests {
-  id                      Int       @id @default(autoincrement())
-  tenant_id               String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  facility_id             Int?
-  request_number          String    @db.VarChar(80)
-  request_kind            String    @default("pickup") @db.VarChar(40)
-  priority                String    @default("medium") @db.VarChar(20)
-  caller_name             String?   @db.VarChar(255)
-  caller_phone            String?   @db.VarChar(40)
-  patient_uid             String?   @db.Uuid
-  patient_name            String?   @db.VarChar(255)
-  pickup_address          String?
-  pickup_geo_lat          Decimal?  @db.Decimal(10, 6)
-  pickup_geo_lng          Decimal?  @db.Decimal(10, 6)
-  destination             String?   @db.VarChar(255)
-  destination_facility_id Int?
-  ambulance_unit_id       String?   @db.VarChar(80)
-  driver_name             String?   @db.VarChar(255)
-  attendant_name          String?   @db.VarChar(255)
-  status                  String    @default("requested") @db.VarChar(20)
-  requested_at            DateTime  @default(now()) @db.Timestamptz(6)
-  dispatched_at           DateTime? @db.Timestamptz(6)
-  on_scene_at             DateTime? @db.Timestamptz(6)
-  arrived_at              DateTime? @db.Timestamptz(6)
-  cancelled_reason        String?
-  presenting_complaint    String?
-  metadata                Json      @default("{}")
-  created_by              String?   @db.Uuid
-  created_at              DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime  @default(now()) @db.Timestamptz(6)
-  tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                       Int                        @id @default(autoincrement())
+  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id              Int?
+  request_number           String                     @db.VarChar(80)
+  request_kind             String                     @default("pickup") @db.VarChar(40)
+  priority                 String                     @default("medium") @db.VarChar(20)
+  caller_name              String?                    @db.VarChar(255)
+  caller_phone             String?                    @db.VarChar(40)
+  patient_uid              String?                    @db.Uuid
+  patient_name             String?                    @db.VarChar(255)
+  pickup_address           String?
+  pickup_geo_lat           Decimal?                   @db.Decimal(10, 6)
+  pickup_geo_lng           Decimal?                   @db.Decimal(10, 6)
+  destination              String?                    @db.VarChar(255)
+  destination_facility_id  Int?
+  ambulance_unit_id        String?                    @db.VarChar(80)
+  driver_name              String?                    @db.VarChar(255)
+  attendant_name           String?                    @db.VarChar(255)
+  status                   String                     @default("requested") @db.VarChar(20)
+  requested_at             DateTime                   @default(now()) @db.Timestamptz(6)
+  dispatched_at            DateTime?                  @db.Timestamptz(6)
+  on_scene_at              DateTime?                  @db.Timestamptz(6)
+  arrived_at               DateTime?                  @db.Timestamptz(6)
+  cancelled_reason         String?
+  presenting_complaint     String?
+  metadata                 Json                       @default("{}")
+  created_by               String?                    @db.Uuid
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prehospital_device_links prehospital_device_links[]
+  prehospital_handovers    prehospital_handovers[]
 
   @@unique([tenant_id, request_number])
   @@index([tenant_id, status, requested_at(sort: Desc)], map: "idx_ambulance_tenant_status")
@@ -4945,6 +4947,7 @@ model emergency_visits {
   tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   mlc_completeness_reviews      mlc_completeness_reviews[]
   mlc_records                   mlc_records[]
+  prehospital_handovers         prehospital_handovers[]
   trauma_activations            trauma_activations[]
   trauma_survey_records         trauma_survey_records[]
   trauma_timeline_events        trauma_timeline_events[]
@@ -9649,6 +9652,7 @@ model tenants {
   admissions                                 admissions[]
   advance_deductions                         advance_deductions[]
   allergies                                  allergies[]
+  ambulance_partner_fleet_configs            ambulance_partner_fleet_configs[]
   ambulance_requests                         ambulance_requests[]
   analytics_benchmark_pack_exports           analytics_benchmark_pack_exports[]
   analytics_exec_digest_deliveries           analytics_exec_digest_deliveries[]
@@ -10109,6 +10113,10 @@ model tenants {
   porter_transport_zones                     porter_transport_zones[]
   postop_complication_alerts                 postop_complication_alerts[]
   postop_notes                               postop_notes[]
+  prehospital_device_links                   prehospital_device_links[]
+  prehospital_handover_acceptances           prehospital_handover_acceptances[]
+  prehospital_handover_events                prehospital_handover_events[]
+  prehospital_handovers                      prehospital_handovers[]
   preop_checklists                           preop_checklists[]
   prescription_safety_overrides              prescription_safety_overrides[]
   prescriptions                              prescriptions[]
@@ -16251,6 +16259,7 @@ model device_patient_associations {
   users                        users                          @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
   icu_device_observation_links icu_device_observation_links[]
   perfusion_device_links       perfusion_device_links[]
+  prehospital_device_links     prehospital_device_links[]
 
   @@unique([tenant_id, device_registry_id, channel], map: "ux_device_patient_assoc_active_channel", where: raw("(ended_at IS NULL)"))
   @@index([tenant_id, patient_uid], map: "idx_device_patient_assoc_active_patient", where: raw("(ended_at IS NULL)"))
@@ -16301,6 +16310,7 @@ model device_registry {
   nicu_jaundice_phototherapy_events     nicu_jaundice_phototherapy_events[]
   nicu_respiratory_support_observations nicu_respiratory_support_observations[]
   nicu_thermal_environment_observations nicu_thermal_environment_observations[]
+  prehospital_device_links              prehospital_device_links[]
 
   @@unique([tenant_id, device_code], map: "ux_device_registry_tenant_code")
   @@index([tenant_id, last_seen_at], map: "idx_device_registry_last_seen", where: raw("((status)::text = 'active'::text)"))
@@ -22073,6 +22083,158 @@ model nicu_thermal_environment_observations {
   users                            users                             @relation(fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenant_id, icu_admission_id, observed_at(sort: Desc)], map: "idx_nicu_thermal_admission")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ambulance_partner_fleet_configs {
+  id                       BigInt                  @id @default(autoincrement())
+  tenant_id                String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  partner_code             String                  @db.VarChar(80)
+  partner_name             String                  @db.VarChar(255)
+  fleet_scope              String                  @default("manual_first") @db.VarChar(40)
+  integration_mode         String                  @default("manual_only") @db.VarChar(40)
+  status                   String                  @default("inert") @db.VarChar(24)
+  consent_boundary         Json                    @default("{}")
+  evidence_owner_uid       String?                 @db.Uuid
+  evidence_owner_role      String?                 @db.VarChar(80)
+  evidence_source_metadata Json                    @default("{}")
+  reviewer_uid             String?                 @db.Uuid
+  reviewer_role            String?                 @db.VarChar(80)
+  reviewed_at              DateTime?               @db.Timestamptz(6)
+  reviewer_signoff_note    String?
+  version                  Int                     @default(1)
+  effective_from           DateTime?               @db.Timestamptz(6)
+  effective_to             DateTime?               @db.Timestamptz(6)
+  metadata                 Json                    @default("{}")
+  created_by               String?                 @db.Uuid
+  created_at               DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                @default(now()) @db.Timestamptz(6)
+  tenants                  tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ambulance_partner_fleet_configs_tenant")
+  prehospital_handovers    prehospital_handovers[]
+
+  @@unique([tenant_id, partner_code], map: "ux_ambulance_partner_config_code")
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_ambulance_partner_config_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model prehospital_device_links {
+  id                            BigInt                       @id @default(autoincrement())
+  tenant_id                     String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  handover_id                   BigInt
+  ambulance_request_id          Int?
+  patient_uid                   String                       @db.Uuid
+  device_patient_association_id Int?
+  device_registry_id            Int?
+  link_status                   String                       @default("unverified") @db.VarChar(32)
+  verification_status           String                       @default("unverified") @db.VarChar(32)
+  source_system                 String                       @default("nl7") @db.VarChar(80)
+  verified_by_uid               String?                      @db.Uuid
+  verified_at                   DateTime?                    @db.Timestamptz(6)
+  notes                         String?
+  metadata                      Json                         @default("{}")
+  created_by                    String?                      @db.Uuid
+  created_at                    DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                     @default(now()) @db.Timestamptz(6)
+  ambulance_requests            ambulance_requests?          @relation(fields: [ambulance_request_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_device_links_ambulance_request")
+  device_patient_associations   device_patient_associations? @relation(fields: [device_patient_association_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_device_links_device_patient_association")
+  device_registry               device_registry?             @relation(fields: [device_registry_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_device_links_device_registry")
+  prehospital_handovers         prehospital_handovers        @relation(fields: [handover_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_device_links_handover")
+  tenants                       tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_prehospital_device_links_tenant")
+
+  @@index([tenant_id, handover_id, created_at(sort: Desc)], map: "idx_prehospital_device_links_handover")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_prehospital_device_links_patient")
+  @@index([tenant_id, verification_status, link_status], map: "idx_prehospital_device_links_verified", where: raw("((verification_status)::text = 'verified'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model prehospital_handover_acceptances {
+  id                    BigInt                @id @default(autoincrement())
+  tenant_id             String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  handover_id           BigInt
+  accepted_by_uid       String                @db.Uuid
+  accepted_by_role      String?               @db.VarChar(80)
+  acceptance_role       String                @default("receiving_nurse") @db.VarChar(40)
+  accepted_at           DateTime              @default(now()) @db.Timestamptz(6)
+  signature_method      String                @default("typed") @db.VarChar(40)
+  signature_text        String?
+  handover_signed_at    DateTime              @default(now()) @db.Timestamptz(6)
+  clinical_attestation  String?
+  metadata              Json                  @default("{}")
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  prehospital_handovers prehospital_handovers @relation(fields: [handover_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_handover_acceptances_handover")
+  tenants               tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_prehospital_handover_acceptances_tenant")
+
+  @@unique([tenant_id, handover_id, acceptance_role], map: "ux_prehospital_handover_acceptance_role")
+  @@index([tenant_id, accepted_by_uid, accepted_at(sort: Desc)], map: "idx_prehospital_handover_acceptances_actor")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model prehospital_handover_events {
+  id                    BigInt                @id @default(autoincrement())
+  tenant_id             String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  handover_id           BigInt
+  event_type            String                @db.VarChar(40)
+  event_at              DateTime              @default(now()) @db.Timestamptz(6)
+  recorded_by           String?               @db.Uuid
+  source_type           String                @default("manual") @db.VarChar(32)
+  summary               String
+  observation           Json                  @default("{}")
+  intervention          Json                  @default("{}")
+  vital_signs           Json                  @default("{}")
+  external_reference    String?               @db.VarChar(160)
+  metadata              Json                  @default("{}")
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  prehospital_handovers prehospital_handovers @relation(fields: [handover_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_handover_events_handover")
+  tenants               tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_prehospital_handover_events_tenant")
+
+  @@index([tenant_id, handover_id, event_at, id], map: "idx_prehospital_handover_events_handover")
+  @@index([tenant_id, event_type, event_at(sort: Desc)], map: "idx_prehospital_handover_events_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model prehospital_handovers {
+  id                               BigInt                             @id @default(autoincrement())
+  tenant_id                        String                             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  handover_number                  String                             @db.VarChar(100)
+  ambulance_request_id             Int
+  emergency_visit_id               Int?
+  partner_config_id                BigInt?
+  patient_uid                      String                             @db.Uuid
+  status                           String                             @default("ready_for_acceptance") @db.VarChar(32)
+  manual_entry                     Boolean                            @default(true)
+  source_type                      String                             @default("manual") @db.VarChar(32)
+  pickup_context                   String?
+  scene_observations               String?
+  allergies_reported               String?
+  medications_reported             String?
+  eta_first_at                     DateTime?                          @db.Timestamptz(6)
+  eta_latest_at                    DateTime?                          @db.Timestamptz(6)
+  eta_change_reason                String?
+  presenting_complaint             String?
+  sbar                             Json                               @default("{}")
+  metadata                         Json                               @default("{}")
+  created_by                       String?                            @db.Uuid
+  updated_by                       String?                            @db.Uuid
+  created_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  prehospital_device_links         prehospital_device_links[]
+  prehospital_handover_acceptances prehospital_handover_acceptances[]
+  prehospital_handover_events      prehospital_handover_events[]
+  ambulance_requests               ambulance_requests                 @relation(fields: [ambulance_request_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_handovers_ambulance_request")
+  emergency_visits                 emergency_visits?                  @relation(fields: [emergency_visit_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_handovers_emergency_visit")
+  ambulance_partner_fleet_configs  ambulance_partner_fleet_configs?   @relation(fields: [partner_config_id], references: [id], onUpdate: NoAction, map: "fk_prehospital_handovers_partner_config")
+  tenants                          tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_prehospital_handovers_tenant")
+
+  @@unique([tenant_id, ambulance_request_id], map: "ux_prehospital_handovers_ambulance_request")
+  @@unique([tenant_id, handover_number], map: "ux_prehospital_handovers_number")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_prehospital_handovers_patient")
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_prehospital_handovers_status")
+  @@index([tenant_id, emergency_visit_id], map: "idx_prehospital_handovers_visit", where: raw("(emergency_visit_id IS NOT NULL)"))
 }
 
 enum transplant_organ_type {

@@ -777,7 +777,23 @@ class AppStrings {
   String get nursingNotesTypeOther => _t('nursing_notes.type.other');
 
   // ── Handover ───────────────────────────────────────────────────────
+  String get handoverAmbulanceAccept => _t('handover.ambulance.accept');
+  String get handoverAmbulanceAccepted => _t('handover.ambulance.accepted');
+  String get handoverAmbulanceAccepting => _t('handover.ambulance.accepting');
+  String get handoverAmbulanceAllergies => _t('handover.ambulance.allergies');
+  String get handoverAmbulanceAttestation =>
+      _t('handover.ambulance.attestation');
+  String get handoverAmbulanceEmptyBody => _t('handover.ambulance.empty_body');
+  String get handoverAmbulanceEmptyTitle =>
+      _t('handover.ambulance.empty_title');
+  String get handoverAmbulanceEta => _t('handover.ambulance.eta');
+  String get handoverAmbulanceMeds => _t('handover.ambulance.meds');
+  String get handoverAmbulancePatient => _t('handover.ambulance.patient');
+  String get handoverAmbulanceRequest => _t('handover.ambulance.request');
+  String get handoverAmbulanceScene => _t('handover.ambulance.scene');
+  String get handoverAmbulanceStatus => _t('handover.ambulance.status');
   String get handoverTitle => _t('handover.title');
+  String get handoverTabAmbulance => _t('handover.tab.ambulance');
   String get handoverTabWrite => _t('handover.tab.write');
   String get handoverTabRecent => _t('handover.tab.recent');
   String get handoverDepartmentLabel => _t('handover.department_label');
@@ -3764,8 +3780,24 @@ class AppStrings {
       'nursing_notes.type.other': 'Other',
       // Handover
       'handover.title': 'Handover Notes',
+      'handover.tab.ambulance': 'Ambulance',
       'handover.tab.write': 'Write',
       'handover.tab.recent': 'Recent',
+      'handover.ambulance.accept': 'Accept',
+      'handover.ambulance.accepted': 'Ambulance handover accepted',
+      'handover.ambulance.accepting': 'Accepting...',
+      'handover.ambulance.allergies': 'Allergies',
+      'handover.ambulance.attestation':
+          'Clinical details reviewed at ED handover acceptance.',
+      'handover.ambulance.empty_body':
+          'Ready ambulance handovers will appear here.',
+      'handover.ambulance.empty_title': 'No ambulance handovers waiting',
+      'handover.ambulance.eta': 'ETA',
+      'handover.ambulance.meds': 'Medications',
+      'handover.ambulance.patient': 'Patient',
+      'handover.ambulance.request': 'Request',
+      'handover.ambulance.scene': 'Scene',
+      'handover.ambulance.status': 'Status',
       'handover.department_label': 'Department',
       'handover.urgency_label': 'Urgency',
       'handover.notes_label': 'Handover Notes',
@@ -9179,8 +9211,25 @@ class AppStrings {
       'nursing_notes.type.other': 'अन्य',
       // Handover
       'handover.title': 'हैंडओवर नोट्स',
+      'handover.tab.ambulance': 'एम्बुलेंस',
       'handover.tab.write': 'लिखें',
       'handover.tab.recent': 'हाल के',
+      'handover.ambulance.accept': 'स्वीकार करें',
+      'handover.ambulance.accepted': 'एम्बुलेंस हैंडओवर स्वीकार किया गया',
+      'handover.ambulance.accepting': 'स्वीकार कर रहा है...',
+      'handover.ambulance.allergies': 'एलर्जी',
+      'handover.ambulance.attestation':
+          'ED हैंडओवर स्वीकार करते समय क्लिनिकल विवरणों की समीक्षा की गई।',
+      'handover.ambulance.empty_body':
+          'तैयार एम्बुलेंस हैंडओवर यहाँ दिखाई देंगे।',
+      'handover.ambulance.empty_title':
+          'कोई एम्बुलेंस हैंडओवर प्रतीक्षा में नहीं',
+      'handover.ambulance.eta': 'ETA',
+      'handover.ambulance.meds': 'दवाएं',
+      'handover.ambulance.patient': 'मरीज़',
+      'handover.ambulance.request': 'अनुरोध',
+      'handover.ambulance.scene': 'घटनास्थल',
+      'handover.ambulance.status': 'स्थिति',
       'handover.department_label': 'विभाग',
       'handover.urgency_label': 'अत्यावश्यकता',
       'handover.notes_label': 'हैंडओवर नोट्स',
@@ -14614,8 +14663,25 @@ class AppStrings {
       'nursing_notes.type.other': 'மற்றவை',
       // Handover - REVIEW
       'handover.title': 'கையளிப்பு குறிப்புகள்',
+      'handover.tab.ambulance': 'ஆம்புலன்ஸ்',
       'handover.tab.write': 'எழுது',
       'handover.tab.recent': 'சமீபத்திய',
+      'handover.ambulance.accept': 'ஏற்கவும்',
+      'handover.ambulance.accepted': 'ஆம்புலன்ஸ் கையளிப்பு ஏற்கப்பட்டது',
+      'handover.ambulance.accepting': 'ஏற்கிறது...',
+      'handover.ambulance.allergies': 'ஒவ்வாமைகள்',
+      'handover.ambulance.attestation':
+          'ED கையளிப்பு ஏற்பின் போது மருத்துவ விவரங்கள் மதிப்பாய்வு செய்யப்பட்டன.',
+      'handover.ambulance.empty_body':
+          'தயாரான ஆம்புலன்ஸ் கையளிப்புகள் இங்கே தோன்றும்.',
+      'handover.ambulance.empty_title':
+          'காத்திருக்கும் ஆம்புலன்ஸ் கையளிப்புகள் இல்லை',
+      'handover.ambulance.eta': 'ETA',
+      'handover.ambulance.meds': 'மருந்துகள்',
+      'handover.ambulance.patient': 'நோயாளி',
+      'handover.ambulance.request': 'கோரிக்கை',
+      'handover.ambulance.scene': 'நிகழ்விடம்',
+      'handover.ambulance.status': 'நிலை',
       'handover.department_label': 'துறை',
       'handover.urgency_label': 'அவசரம்',
       'handover.notes_label': 'கையளிப்பு குறிப்புகள்',
@@ -20693,8 +20759,25 @@ class AppStrings {
       'nursing_notes.type.other': 'ఇతర',
       // Handover - REVIEW
       'handover.title': 'హ్యాండోవర్ గమనికలు',
+      'handover.tab.ambulance': 'అంబులెన్స్',
       'handover.tab.write': 'రాయి',
       'handover.tab.recent': 'ఇటీవలి',
+      'handover.ambulance.accept': 'అంగీకరించు',
+      'handover.ambulance.accepted': 'అంబులెన్స్ హ్యాండోవర్ అంగీకరించబడింది',
+      'handover.ambulance.accepting': 'అంగీకరిస్తోంది...',
+      'handover.ambulance.allergies': 'అలర్జీలు',
+      'handover.ambulance.attestation':
+          'ED హ్యాండోవర్ అంగీకరణ సమయంలో క్లినికల్ వివరాలు సమీక్షించబడ్డాయి.',
+      'handover.ambulance.empty_body':
+          'సిద్ధమైన అంబులెన్స్ హ్యాండోవర్‌లు ఇక్కడ కనిపిస్తాయి.',
+      'handover.ambulance.empty_title':
+          'వేచి ఉన్న అంబులెన్స్ హ్యాండోవర్‌లు లేవు',
+      'handover.ambulance.eta': 'ETA',
+      'handover.ambulance.meds': 'ఔషధాలు',
+      'handover.ambulance.patient': 'రోగి',
+      'handover.ambulance.request': 'అభ్యర్థన',
+      'handover.ambulance.scene': 'సంఘటనా స్థలం',
+      'handover.ambulance.status': 'స్థితి',
       'handover.department_label': 'విభాగం',
       'handover.urgency_label': 'తక్షణత',
       'handover.notes_label': 'హ్యాండోవర్ గమనికలు',
@@ -26539,8 +26622,25 @@ class AppStrings {
       'nursing_notes.type.emergency_note': 'അടിയന്തിര കുറിപ്പ്',
       'nursing_notes.type.other': 'മറ്റുള്ളവ',
       'handover.title': 'കൈമാറ്റ കുറിപ്പുകൾ',
+      'handover.tab.ambulance': 'ആംബുലൻസ്',
       'handover.tab.write': 'എഴുതുക',
       'handover.tab.recent': 'സമീപകാലം',
+      'handover.ambulance.accept': 'സ്വീകരിക്കുക',
+      'handover.ambulance.accepted': 'ആംബുലൻസ് കൈമാറ്റം സ്വീകരിച്ചു',
+      'handover.ambulance.accepting': 'സ്വീകരിക്കുന്നു...',
+      'handover.ambulance.allergies': 'അലർജികൾ',
+      'handover.ambulance.attestation':
+          'ED കൈമാറ്റം സ്വീകരിക്കുമ്പോൾ ക്ലിനിക്കൽ വിവരങ്ങൾ പരിശോധിച്ചു.',
+      'handover.ambulance.empty_body':
+          'തയ്യാറായ ആംബുലൻസ് കൈമാറ്റങ്ങൾ ഇവിടെ കാണാം.',
+      'handover.ambulance.empty_title':
+          'കാത്തിരിക്കുന്ന ആംബുലൻസ് കൈമാറ്റങ്ങളില്ല',
+      'handover.ambulance.eta': 'ETA',
+      'handover.ambulance.meds': 'മരുന്നുകൾ',
+      'handover.ambulance.patient': 'രോഗി',
+      'handover.ambulance.request': 'അഭ്യർത്ഥന',
+      'handover.ambulance.scene': 'സംഭവസ്ഥലം',
+      'handover.ambulance.status': 'സ്ഥിതി',
       'handover.department_label': 'വിഭാഗം',
       'handover.urgency_label': 'അടിയന്തിരത',
       'handover.notes_label': 'കൈമാറ്റ കുറിപ്പുകൾ',

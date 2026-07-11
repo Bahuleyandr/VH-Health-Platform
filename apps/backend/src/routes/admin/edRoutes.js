@@ -6,7 +6,17 @@
 import express from 'express';
 
 import { success } from '../../utils/responseHelper.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { emitEdBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
+import {
+  acceptPrehospitalHandover,
+  appendPrehospitalTimelineEvent,
+  createPrehospitalHandover,
+  getPrehospitalHandover,
+  linkPrehospitalDevice,
+  listPrehospitalHandovers,
+  recordPartnerSuppliedPayload,
+} from '../../services/ed/ambulancePrehospitalService.js';
 import {
   certifyMlcRecord,
   createAmbulanceRequest,
@@ -319,6 +329,145 @@ router.patch('/ambulance-requests/:id/transition', async (req, res, next) => {
       attendantName: b.attendant_name,
     });
     return success(res, row, 'Ambulance request transitioned');
+  } catch (err) { return next(err); }
+});
+
+// Pre-hospital handover seam (NL-14 P2/P3). The parent /api/v1/ed mount
+// supplies ED clinical RBAC + PHI logging; this guard adds patient-context ABAC
+// when the handover request carries a patient_uid.
+router.use('/prehospital', patientAccessGuard('PREHOSPITAL_HANDOVER', { careTeamModeGoverned: true }));
+
+router.post('/prehospital/handovers', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await createPrehospitalHandover({
+      tenantId: req.tenantId,
+      ambulanceRequestId: b.ambulance_request_id,
+      emergencyVisitId: b.emergency_visit_id,
+      createEmergencyVisit: b.create_ed_visit,
+      handoverNumber: b.handover_number,
+      patientUid: b.patient_uid,
+      pickupContext: b.pickup_context,
+      sceneObservations: b.scene_observations,
+      allergiesReported: b.allergies_reported,
+      medicationsReported: b.medications_reported,
+      etaFirstAt: b.eta_first_at,
+      etaLatestAt: b.eta_latest_at,
+      etaChangeReason: b.eta_change_reason,
+      presentingComplaint: b.presenting_complaint,
+      sbar: b.sbar,
+      partnerConfigId: b.partner_config_id,
+      status: b.status,
+      manualEntry: b.manual_entry,
+      sourceType: b.source_type,
+      metadata: b.metadata,
+      createdBy: req.user?.uid || null,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
+    });
+    return success(res, row, 'Pre-hospital handover created', 201);
+  } catch (err) { return next(err); }
+});
+
+router.get('/prehospital/handovers', async (req, res, next) => {
+  try {
+    const result = await listPrehospitalHandovers({
+      tenantId: req.tenantId,
+      status: req.query.status || null,
+      openOnly: String(req.query.open_only || '').toLowerCase() === 'true',
+      ambulanceRequestId: req.query.ambulance_request_id || null,
+      emergencyVisitId: req.query.emergency_visit_id || null,
+      patientUid: req.query.patient_uid || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Pre-hospital handovers retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.post('/prehospital/handovers/:id/timeline', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await appendPrehospitalTimelineEvent({
+      tenantId: req.tenantId,
+      handoverId: req.params.id,
+      eventType: b.event_type,
+      eventAt: b.event_at,
+      recordedBy: b.recorded_by || req.user?.uid || null,
+      sourceType: b.source_type,
+      summary: b.summary,
+      observation: b.observation,
+      intervention: b.intervention,
+      vitalSigns: b.vital_signs,
+      externalReference: b.external_reference,
+      metadata: b.metadata,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
+    });
+    return success(res, row, 'Pre-hospital timeline event recorded', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/prehospital/handovers/:id/acceptances', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await acceptPrehospitalHandover({
+      tenantId: req.tenantId,
+      handoverId: req.params.id,
+      acceptedByUid: b.accepted_by_uid || req.user?.uid || null,
+      acceptedByRole: b.accepted_by_role || req.user?.role || req.user?.roles?.[0] || null,
+      acceptanceRole: b.acceptance_role,
+      signatureMethod: b.signature_method,
+      signatureText: b.signature_text,
+      handoverSignedAt: b.handover_signed_at,
+      clinicalAttestation: b.clinical_attestation,
+      metadata: b.metadata,
+    });
+    return success(res, row, 'Pre-hospital handover accepted', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/prehospital/handovers/:id/device-links', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await linkPrehospitalDevice({
+      tenantId: req.tenantId,
+      handoverId: req.params.id,
+      devicePatientAssociationId: b.device_patient_association_id,
+      deviceRegistryId: b.device_registry_id,
+      linkStatus: b.link_status,
+      verificationStatus: b.verification_status,
+      sourceSystem: b.source_system,
+      verifiedByUid: b.verified_by_uid || req.user?.uid || null,
+      verifiedAt: b.verified_at,
+      notes: b.notes,
+      metadata: b.metadata,
+      createdBy: req.user?.uid || null,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
+    });
+    return success(res, row, 'Pre-hospital device link recorded', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/prehospital/partner-payloads', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await recordPartnerSuppliedPayload({
+      tenantId: req.tenantId,
+      handoverId: b.handover_id,
+      deviceLinkId: b.device_link_id,
+      payload: b.payload,
+      receivedBy: req.user?.uid || null,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
+    });
+    return success(res, row, 'Partner pre-hospital payload recorded', 201);
+  } catch (err) { return next(err); }
+});
+
+router.get('/prehospital/handovers/:id', async (req, res, next) => {
+  try {
+    const result = await getPrehospitalHandover({
+      tenantId: req.tenantId,
+      handoverId: req.params.id,
+    });
+    return success(res, result, 'Pre-hospital handover retrieved');
   } catch (err) { return next(err); }
 });
 
