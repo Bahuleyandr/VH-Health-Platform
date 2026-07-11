@@ -909,6 +909,18 @@ export async function upsertTeamRole({
     assertEventOpen(event);
 
     const signNow = body.sign === true;
+    // Sol Ultra LD-RRB-02: a signature attests the NAMED staff member's own
+    // presence/action, and this path stamped signed_at for any caller-supplied
+    // staff_uid — so an unrelated actor could forge another clinician's
+    // resuscitation signature. Assigning a team role for someone else stays
+    // allowed; SIGNING is self-only (an on-behalf-of flow would need explicit
+    // verified delegation, not a body flag).
+    if (signNow && String(body.staff_uid) !== String(actorUid || '')) {
+      throw AppError.forbidden(
+        'You may only sign your own resuscitation participation',
+        'RESUS_SIGN_NOT_SELF',
+      );
+    }
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO resuscitation_team_roles
          (tenant_id, resuscitation_event_id, patient_uid, staff_uid, staff_name,
@@ -1167,12 +1179,18 @@ export async function upsertQaReview({
       'RESUS_QA_TEMPLATE_UNAVAILABLE'
     );
   }
-  if (requestedStatus === 'signed_off' && !body.reviewer_uid) {
+  // Sol Ultra LD-RRB-02: a QA sign-off attests the REVIEWER's own decision, so
+  // bind it to the authenticated actor rather than a caller-supplied
+  // reviewer_uid (which let an actor sign off under another clinician's id).
+  if (requestedStatus === 'signed_off' && !actorUid) {
     throw AppError.conflict(
-      'QA review sign-off requires a named reviewer',
+      'QA review sign-off requires an authenticated reviewer',
       'RESUS_QA_REVIEWER_REQUIRED'
     );
   }
+  const reviewerUid = requestedStatus === 'signed_off'
+    ? actorUid
+    : (body.reviewer_uid || null);
 
   return setTenantTx(tenant, async tx => {
     const event = await assertEvent(tx, tenant, eventId);
@@ -1227,7 +1245,7 @@ export async function upsertQaReview({
       json(body.action_items, []),
       body.debrief_held_at || null,
       body.debrief_lead_uid || null,
-      body.reviewer_uid || null,
+      reviewerUid,
       json(body.metadata)
     );
     const row = rows[0];
