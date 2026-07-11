@@ -11846,7 +11846,8 @@ class AppStrings {
       's4.lib.cath_lab.equipment': "उपकरण",
       's4.lib.cath_lab.no_cases': "कोई कैथ लैब केस नहीं",
       's4.lib.cath_lab.strip.title': "रूम शेड्यूल",
-      's4.lib.cath_lab.strip.no_bookings': "इस तारीख के लिए कोई रूम बुकिंग नहीं",
+      's4.lib.cath_lab.strip.no_bookings':
+          "इस तारीख के लिए कोई रूम बुकिंग नहीं",
       's4.lib.cath_lab.strip.load_failed': "रूम शेड्यूल लोड नहीं हो सका",
       's4.lib.cath_lab.strip.soft_conflict': "खिसक सकता है — लैब में आपातकाल",
       's4.lib.cath_lab.strip.emergency_banner':
@@ -27318,12 +27319,9 @@ class AppStrings {
       's4.lib.cath_lab.equipment': 'ഉപകരണങ്ങൾ',
       's4.lib.cath_lab.no_cases': 'കാത്ത് ലാബ് കേസുകൾ ഇല്ല',
       's4.lib.cath_lab.strip.title': 'റൂം ഷെഡ്യൂൾ',
-      's4.lib.cath_lab.strip.no_bookings':
-          'ഈ തീയതിക്ക് റൂം ബുക്കിംഗുകൾ ഇല്ല',
-      's4.lib.cath_lab.strip.load_failed':
-          'റൂം ഷെഡ്യൂൾ ലോഡ് ചെയ്യാനായില്ല',
-      's4.lib.cath_lab.strip.soft_conflict':
-          'മാറിയേക്കാം — ലാബിൽ അടിയന്തരം',
+      's4.lib.cath_lab.strip.no_bookings': 'ഈ തീയതിക്ക് റൂം ബുക്കിംഗുകൾ ഇല്ല',
+      's4.lib.cath_lab.strip.load_failed': 'റൂം ഷെഡ്യൂൾ ലോഡ് ചെയ്യാനായില്ല',
+      's4.lib.cath_lab.strip.soft_conflict': 'മാറിയേക്കാം — ലാബിൽ അടിയന്തരം',
       's4.lib.cath_lab.strip.emergency_banner':
           'അടിയന്തര കേസ് നടക്കുന്നു — ബുക്ക് ചെയ്ത സ്ലോട്ടുകൾ മാറിയേക്കാം',
       's4.lib.cath_lab.not_assigned': 'നിയോഗിച്ചിട്ടില്ല',

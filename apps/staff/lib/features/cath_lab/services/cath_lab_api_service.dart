@@ -129,7 +129,8 @@ class CathScheduleBooking {
       ),
       urgency: CathLabCaseSummary._text(json['urgency'], fallback: 'routine'),
       softConflict: json['soft_conflict'] == true,
-      conflictingEmergencyCaseIds: json['conflicting_emergency_case_ids'] is List
+      conflictingEmergencyCaseIds:
+          json['conflicting_emergency_case_ids'] is List
           ? (json['conflicting_emergency_case_ids'] as List)
                 .map((id) => CathLabCaseSummary._asInt(id))
                 .whereType<int>()
@@ -163,7 +164,9 @@ class CathScheduleEmergency {
       requestedProcedure: CathLabCaseSummary._text(json['requested_procedure']),
       patientName: CathLabCaseSummary._text(json['patient_name']),
       startedAt: CathLabCaseSummary._date(
-        json['actual_start_at'] ?? json['planned_start_at'] ?? json['created_at'],
+        json['actual_start_at'] ??
+            json['planned_start_at'] ??
+            json['created_at'],
       ),
     );
   }

@@ -255,9 +255,10 @@ class _BookingRow extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  [booking.patientName, booking.requestedProcedure]
-                      .where((part) => part.isNotEmpty)
-                      .join(' · '),
+                  [
+                    booking.patientName,
+                    booking.requestedProcedure,
+                  ].where((part) => part.isNotEmpty).join(' · '),
                   style: theme.textTheme.bodySmall,
                 ),
               ],
