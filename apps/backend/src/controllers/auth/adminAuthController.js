@@ -389,10 +389,18 @@ export const mfaVerifySetup = async (req, res) => {
       return error(res, 'Invalid authenticator code', HTTP_STATUS.UNAUTHORIZED);
     }
 
-    await prisma.admins.update({
-      where: { uid: String(adminId) },
+    // Sol Ultra #21: the totp_enabled pre-check above is TOCTOU — a concurrent
+    // or replayed setup-confirm could both pass it and the second write would
+    // overwrite the first-enrolled factor. Make the false->true transition
+    // atomic by putting the state predicate INTO the write; a lost race /
+    // replay updates 0 rows and is rejected before any session is issued.
+    const enabled = await prisma.admins.updateMany({
+      where: { uid: String(adminId), totp_enabled: false },
       data: { totp_enabled: true, totp_enrolled_at: new Date() },
     });
+    if (enabled.count !== 1) {
+      return error(res, 'MFA is already enabled.', HTTP_STATUS.CONFLICT);
+    }
 
     logger.info('Admin MFA enabled', { adminId });
     return success(res, { enabled: true }, 'MFA enabled');
