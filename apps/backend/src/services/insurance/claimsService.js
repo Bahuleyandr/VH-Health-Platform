@@ -141,7 +141,15 @@ async function assertTpaChildParentInTenant({ tenantId, claim_id, preauth_id }) 
  * placeholder row for unrecognised insurers.
  */
 async function resolvePayerId(tenantId, { payer_id, payer_code, insurer_code, insurer_name }) {
-  if (payer_id) return Number(payer_id);
+  if (payer_id) {
+    // Sol Ultra #4: a directly-supplied payer_id must still belong to this
+    // tenant — never bind a policy to another tenant's payer master. Falls
+    // through to null (→ 'OTHER' placeholder or unset) when it isn't ours.
+    const owned = await prisma.payers.findFirst({
+      where: { id: Number(payer_id), tenant_id: tenantId }, select: { id: true },
+    });
+    return owned?.id ?? null;
+  }
   const code = (payer_code || insurer_code || '').trim();
   if (code) {
     const row = await prisma.payers.findFirst({
@@ -169,7 +177,13 @@ async function resolvePayerId(tenantId, { payer_id, payer_code, insurer_code, in
  * tpa_code, or fuzzy display_name.
  */
 async function resolveTpaId(tenantId, { tpa_id, tpa_code, tpa_name }) {
-  if (tpa_id) return Number(tpa_id);
+  if (tpa_id) {
+    // Sol Ultra #4: verify a directly-supplied tpa_id belongs to this tenant.
+    const owned = await prisma.tpas.findFirst({
+      where: { id: Number(tpa_id), tenant_id: tenantId }, select: { id: true },
+    });
+    return owned?.id ?? null;
+  }
   const code = (tpa_code || '').trim();
   if (code) {
     const row = await prisma.tpas.findFirst({
