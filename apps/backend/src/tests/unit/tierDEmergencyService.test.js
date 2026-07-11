@@ -149,13 +149,32 @@ describe('ambulance_handover_summary', () => {
       id: 1, patient_uid: PATIENT, dispatched_at: '2026-05-01T08:00',
       chief_complaint: 'MVC', dispatch_kind: 'emergency',
     }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 12, handover_number: 'PH-AMB-1', patient_uid: PATIENT,
+      status: 'draft', scene_observations: 'GCS 14, left leg pain',
+      allergies_reported: 'NKDA', medications_reported: 'IV fluids started',
+      created_at: '2026-05-01T08:05',
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 91, event_type: 'vital', event_at: '2026-05-01T08:06',
+      source_type: 'manual', summary: 'BP 100/64',
+      observation: {}, intervention: {}, vital_signs: { bp: '100/64' },
+    }]);
     getModuleMock.mockResolvedValue(defaultModule('ambulance_handover_summary'));
     queryUnsafeMock.mockResolvedValueOnce([{ id: 500 }]);
     queryUnsafeMock.mockResolvedValueOnce([]);
     const out = await generateAmbulanceHandoverSummary({
-      tenantId: TENANT, ambulanceRequestId: 1,
+      tenantId: TENANT, ambulanceRequestId: 1, prehospitalHandoverId: 12,
     });
     expect(out.module_key).toBe('ambulance_handover_summary');
+    const prompt = JSON.parse(generateClinicalTextMock.mock.calls[0][0].userPrompt);
+    expect(prompt.prehospital_handover.handover_number).toBe('PH-AMB-1');
+    expect(prompt.prehospital_handover_events).toHaveLength(1);
+    expect(out.source_citations.map((c) => c.source_type)).toEqual([
+      'ambulance_request',
+      'prehospital_handover',
+      'prehospital_handover_event',
+    ]);
   });
 });
 

@@ -1251,6 +1251,68 @@ class MedicalApiService {
     );
   }
 
+  /// GET /burns/charts — burn charts for one patient/context.
+  static Future<Map<String, dynamic>> getBurnCharts({
+    String? patientUid,
+    int? emergencyVisitId,
+    int? admissionId,
+    int? mlcRecordId,
+    int limit = 20,
+  }) async {
+    return _get(
+      '/burns/charts',
+      query: {
+        if (patientUid != null && patientUid.trim().isNotEmpty)
+          'patient_uid': patientUid.trim(),
+        if (emergencyVisitId != null && emergencyVisitId > 0)
+          'emergency_visit_id': emergencyVisitId.toString(),
+        if (admissionId != null && admissionId > 0)
+          'admission_id': admissionId.toString(),
+        if (mlcRecordId != null && mlcRecordId > 0)
+          'mlc_record_id': mlcRecordId.toString(),
+        'limit': limit.toString(),
+      },
+    );
+  }
+
+  /// POST /burns/charts — open a burn chart linked to ED/IP/MLC context.
+  static Future<Map<String, dynamic>> createBurnChart({
+    required String mechanism,
+    String? patientUid,
+    int? emergencyVisitId,
+    int? admissionId,
+    int? mlcRecordId,
+    String? firstAid,
+    bool inhalationRisk = false,
+    bool circumferentialBurns = false,
+  }) async {
+    return _post('/burns/charts', {
+      'mechanism': mechanism,
+      if (patientUid != null && patientUid.trim().isNotEmpty)
+        'patient_uid': patientUid.trim(),
+      if (emergencyVisitId != null && emergencyVisitId > 0)
+        'emergency_visit_id': emergencyVisitId,
+      if (admissionId != null && admissionId > 0) 'admission_id': admissionId,
+      if (mlcRecordId != null && mlcRecordId > 0) 'mlc_record_id': mlcRecordId,
+      if (firstAid != null && firstAid.trim().isNotEmpty)
+        'first_aid': firstAid.trim(),
+      'inhalation_risk': inhalationRisk,
+      'circumferential_burns': circumferentialBurns,
+    });
+  }
+
+  /// POST /burns/charts/:id/tbsa-regions — save TBSA body-map regions.
+  static Future<Map<String, dynamic>> recordBurnTbsaRegions({
+    required int burnChartId,
+    required String referenceKey,
+    required List<Map<String, dynamic>> regions,
+  }) async {
+    return _post('/burns/charts/$burnChartId/tbsa-regions', {
+      'reference_key': referenceKey,
+      'regions': regions,
+    });
+  }
+
   // ─── EMR: Clinical Notes ──────────────────────────────────────────────────
 
   /// POST /emr/notes — create a clinical note

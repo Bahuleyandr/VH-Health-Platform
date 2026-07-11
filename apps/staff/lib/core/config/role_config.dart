@@ -389,6 +389,13 @@ class RoleFeatures {
     route: '/front-office',
     color: Color(0xFF1565C0),
   );
+  static const DashboardFeature _edTraumaWorkbench = DashboardFeature(
+    id: 'ed_trauma_workbench',
+    titleKey: 'role.feature.ed_trauma_workbench',
+    icon: Icons.emergency_share_outlined,
+    route: '/ed-trauma',
+    color: Color(0xFFC62828),
+  );
   static const DashboardFeature _billingDesk = DashboardFeature(
     id: 'billing_desk',
     titleKey: 'role.feature.billing_desk',
@@ -753,12 +760,26 @@ class RoleFeatures {
     route: '/cath-lab',
     color: Color(0xFFAD1457),
   );
+  static const DashboardFeature _oncology = DashboardFeature(
+    id: 'oncology',
+    titleKey: 'role.feature.oncology',
+    icon: Icons.biotech_outlined,
+    route: '/oncology',
+    color: Color(0xFF455A64),
+  );
   static const DashboardFeature _radiology = DashboardFeature(
     id: 'radiology',
     titleKey: 'role.feature.radiology',
     icon: Icons.biotech,
     route: '/radiology',
     color: Color(0xFF0277BD),
+  );
+  static const DashboardFeature _strokePathway = DashboardFeature(
+    id: 'stroke_pathway',
+    titleKey: 'role.feature.stroke_pathway',
+    icon: Icons.emergency_outlined,
+    route: '/stroke-pathway',
+    color: Color(0xFFC62828),
   );
   static const DashboardFeature _ophthalmology = DashboardFeature(
     id: 'ophthalmology',
@@ -774,6 +795,13 @@ class RoleFeatures {
     route: '/physiotherapy',
     color: Color(0xFF2E7D32),
   );
+  static const DashboardFeature _transplantProgram = DashboardFeature(
+    id: 'transplant_program',
+    titleKey: 'role.feature.transplant_program',
+    icon: Icons.health_and_safety_outlined,
+    route: '/transplant',
+    color: Color(0xFF00695C),
+  );
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
@@ -783,12 +811,16 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         if (role == StaffRole.dutyDoctor) _nursingRoster,
+        _edTraumaWorkbench,
         _opDoctorWorkspace,
         _dentalCharting,
         _clinicalInbox,
         _clinicalAiReviewQueue,
         _opAiAssist,
         _ophthalmology,
+        _transplantProgram,
+        _oncology,
+        _strokePathway,
         _patientRecords,
         _patientCommandBoard,
         _referrals,
@@ -807,6 +839,7 @@ class RoleFeatures {
         _dutyPreference,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _edTraumaWorkbench,
         _patientRecords,
         _investigationResults,
         _theatre,
@@ -827,6 +860,7 @@ class RoleFeatures {
         _dutyPreference,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _edTraumaWorkbench,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -834,7 +868,9 @@ class RoleFeatures {
         _investigationResults,
         _labBookings,
         _radiology,
+        _strokePathway,
         _ophthalmology,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -857,9 +893,11 @@ class RoleFeatures {
         _opNursingRoster,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _edTraumaWorkbench,
         _patientRecords,
         _nursingNotes,
         _handover,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -880,9 +918,11 @@ class RoleFeatures {
         _opNursingRoster,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _edTraumaWorkbench,
         _patientRecords,
         _nursingNotes,
         _handover,
+        _oncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -903,9 +943,11 @@ class RoleFeatures {
         _opNursingDashboard,
         _dentalCharting,
         _clinicalInbox,
+        _edTraumaWorkbench,
         _frontOfficeWorkbench,
         _appointments,
         _ophthalmology,
+        _oncology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -926,9 +968,11 @@ class RoleFeatures {
         _opNursingDashboard,
         _dentalCharting,
         _clinicalInbox,
+        _edTraumaWorkbench,
         _frontOfficeWorkbench,
         _appointments,
         _ophthalmology,
+        _oncology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -946,6 +990,7 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _clinicalInbox,
+        _edTraumaWorkbench,
         _theatre,
         _patientRecords,
         _investigationResults,
@@ -992,6 +1037,7 @@ class RoleFeatures {
         _schedule,
         _staffRosterHub,
         _frontOfficeWorkbench,
+        _edTraumaWorkbench,
         _appointments,
         _admissions,
         _opDoctorWorkspace,
@@ -1007,7 +1053,9 @@ class RoleFeatures {
         _theatre,
         _ophthalmology,
         _physiotherapy,
+        _transplantProgram,
         _radiology,
+        _strokePathway,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -1028,6 +1076,7 @@ class RoleFeatures {
         _schedule,
         _staffRosterHub,
         _frontOfficeWorkbench,
+        _edTraumaWorkbench,
         _billingDesk,
         _appointments,
         _admissions,
@@ -1045,7 +1094,9 @@ class RoleFeatures {
         _theatre,
         _ophthalmology,
         _physiotherapy,
+        _transplantProgram,
         _radiology,
+        _strokePathway,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -1115,6 +1166,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _radiology,
+        _strokePathway,
         _investigationsUpload,
         _investigationResults,
         _leave,
@@ -1229,8 +1281,16 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
-      StaffRole.driver || StaffRole.security || StaffRole.emergencyResponder =>
-        [_schedule, _dutyPreference, _messaging, _profile, _settings],
+      StaffRole.driver ||
+      StaffRole.security ||
+      StaffRole.emergencyResponder => [
+        _schedule,
+        _dutyPreference,
+        if (role == StaffRole.emergencyResponder) _edTraumaWorkbench,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.maintenance => [
         _schedule,
         _dutyPreference,
@@ -2025,9 +2085,41 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.driver ||
-      StaffRole.security ||
       StaffRole.emergencyResponder => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+          ),
+          labelKey: 'role.nav.home',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.build_outlined),
+            activeIcon: Icon(Icons.emergency_share),
+          ),
+          labelKey: 'role.nav.work',
+          route: '/ed-trauma',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+          ),
+          labelKey: 'role.nav.messages',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+          ),
+          labelKey: 'role.nav.profile',
+          route: '/profile',
+        ),
+      ],
+      StaffRole.driver || StaffRole.security => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -2225,6 +2317,24 @@ class RoleFeatures {
       StaffRole.medicalSuperintendent ||
       StaffRole.doctor ||
       StaffRole.dutyDoctor ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge => true,
+      _ => false,
+    };
+  }
+
+  static bool hasOncology(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.nursingSuperintendent ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge ||
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge => true,
       _ => false,
@@ -2499,6 +2609,22 @@ class RoleFeatures {
       );
     }
 
+    if (role == StaffRole.doctor ||
+        role == StaffRole.dutyDoctor ||
+        role == StaffRole.medicalSuperintendent ||
+        role == StaffRole.admin ||
+        role == StaffRole.superAdmin) {
+      items.add(
+        const WorkbenchNavItem(
+          labelKey: 'role.nav.transplant_program',
+          icon: Icons.health_and_safety_outlined,
+          selectedIcon: Icons.health_and_safety,
+          route: '/transplant',
+          featureId: 'transplant_program',
+        ),
+      );
+    }
+
     if (hasIpAdmissionAccess(role)) {
       items.add(
         const WorkbenchNavItem(
@@ -2531,6 +2657,18 @@ class RoleFeatures {
           selectedIcon: Icons.folder_shared,
           route: '/patient-records',
           featureId: 'patient_records',
+        ),
+      );
+    }
+
+    if (hasOncology(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          labelKey: 'role.nav.oncology',
+          icon: Icons.biotech_outlined,
+          selectedIcon: Icons.biotech,
+          route: '/oncology',
+          featureId: 'oncology',
         ),
       );
     }

@@ -13,7 +13,7 @@ RUN npx prisma generate
 # ---- Production Stage ----
 FROM ${NODE_IMAGE} AS production
 
-RUN apk upgrade --no-cache libcrypto3 libssl3 && \
+RUN apk upgrade --no-cache libcrypto3 libssl3 c-ares && \
     apk add --no-cache curl poppler-utils tesseract-ocr tesseract-ocr-data-eng
 
 WORKDIR /app

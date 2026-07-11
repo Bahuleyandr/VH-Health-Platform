@@ -33,6 +33,15 @@ interface EdVisit {
   is_mlc: boolean;
 }
 
+interface EdPolicy {
+  canonical_triage_scale: "esi" | "ats" | "ctas" | "manchester" | null;
+  active: boolean;
+  trauma_registry_participation: string | null;
+  registry_export_enabled: boolean;
+  reviewed_at: string | null;
+  policy_version: string | null;
+}
+
 const STATUS_ORDER: string[] = [
   "arriving",
   "in_triage",
@@ -68,6 +77,36 @@ const PRIORITY_COLOURS: Record<string, string> = {
   manchester_yellow: "bg-amber-100 text-amber-800 border-amber-300",
   manchester_green: "bg-emerald-100 text-emerald-800 border-emerald-300",
   manchester_blue: "bg-blue-100 text-blue-800 border-blue-300",
+  ats_1: "bg-rose-200 text-rose-900 border-rose-400",
+  ats_2: "bg-rose-100 text-rose-800 border-rose-300",
+  ats_3: "bg-amber-100 text-amber-800 border-amber-300",
+  ats_4: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  ats_5: "bg-slate-100 text-slate-700 border-slate-300",
+  ctas_1: "bg-rose-200 text-rose-900 border-rose-400",
+  ctas_2: "bg-rose-100 text-rose-800 border-rose-300",
+  ctas_3: "bg-amber-100 text-amber-800 border-amber-300",
+  ctas_4: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  ctas_5: "bg-slate-100 text-slate-700 border-slate-300",
+};
+
+const TRIAGE_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  esi: [1, 2, 3, 4, 5].map((n) => ({ value: `esi_${n}`, label: `ESI ${n}` })),
+  ats: [1, 2, 3, 4, 5].map((n) => ({ value: `ats_${n}`, label: `ATS ${n}` })),
+  ctas: [1, 2, 3, 4, 5].map((n) => ({ value: `ctas_${n}`, label: `CTAS ${n}` })),
+  manchester: [
+    ["manchester_red", "Manchester Red"],
+    ["manchester_orange", "Manchester Orange"],
+    ["manchester_yellow", "Manchester Yellow"],
+    ["manchester_green", "Manchester Green"],
+    ["manchester_blue", "Manchester Blue"],
+  ].map(([value, label]) => ({ value, label })),
+};
+
+const SCALE_LABELS: Record<string, string> = {
+  esi: "ESI",
+  ats: "ATS",
+  ctas: "CTAS",
+  manchester: "Manchester",
 };
 
 function unwrapList<T>(r: unknown): T[] {
@@ -78,6 +117,12 @@ function unwrapList<T>(r: unknown): T[] {
     if (Array.isArray(inner)) return inner as T[];
   }
   return [];
+}
+
+function unwrapObject<T>(r: unknown): T | null {
+  const data = (r as { data?: unknown }).data ?? r;
+  if (!data || Array.isArray(data) || typeof data !== "object") return null;
+  return data as T;
 }
 
 function fmtTime(s: string | null): string {
@@ -108,6 +153,7 @@ export default function EdTrackerPage() {
   const qc = useQueryClient();
   const [editVisit, setEditVisit] = useState<EdVisit | null>(null);
   const [showRegister, setShowRegister] = useState(false);
+  const [policyScale, setPolicyScale] = useState<"esi" | "ats" | "ctas" | "manchester">("esi");
 
   const { connected, subscribed, lastEventAt } = useRealtimeInvalidation("staff:ed-board", [["ed"]]);
 
@@ -126,6 +172,16 @@ export default function EdTrackerPage() {
     refetchInterval: edRefetchMs(subscribed),
   });
 
+  const { data: policy = null } = useQuery<EdPolicy | null>({
+    queryKey: ["ed", "policy"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/admin/ed/policy");
+      const row = unwrapObject<EdPolicy>(r);
+      if (row?.canonical_triage_scale) setPolicyScale(row.canonical_triage_scale);
+      return row;
+    },
+  });
+
   const transitionMut = useMutation({
     mutationFn: async (vars: { id: number; status: string }) =>
       fetchAdminAPI(`/admin/ed/visits/${vars.id}/transition`, {
@@ -142,6 +198,24 @@ export default function EdTrackerPage() {
         body: { triage_priority: vars.priority },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ed"] }),
+  });
+
+  const policyMut = useMutation({
+    mutationFn: async () =>
+      fetchAdminAPI("/admin/ed/policy", {
+        method: "PUT",
+        body: {
+          canonical_triage_scale: policyScale,
+          active: true,
+          trauma_registry_participation:
+            policy?.trauma_registry_participation ?? "internal_only",
+          registry_export_enabled: false,
+          reviewed_at: new Date().toISOString(),
+          policy_version: policy?.policy_version ?? "nl14-p2",
+          source_metadata: { source: "admin_ed_tracker" },
+        },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["ed", "policy"] }),
   });
 
   // KPI strip values.
@@ -264,6 +338,47 @@ export default function EdTrackerPage() {
         </div>
       )}
 
+      <div className="border border-border bg-card rounded-lg p-4 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              ED triage policy
+            </p>
+            <h2 className="text-base font-semibold text-foreground mt-1">
+              {policy?.active && policy.canonical_triage_scale
+                ? `${SCALE_LABELS[policy.canonical_triage_scale]} active`
+                : "No active canonical scale"}
+            </h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              {policy?.reviewed_at
+                ? `Reviewed ${new Date(policy.reviewed_at).toLocaleString()}`
+                : "Activation requires a reviewed tenant policy."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <select
+              value={policyScale}
+              onChange={(e) =>
+                setPolicyScale(e.target.value as typeof policyScale)
+              }
+              className="border border-border rounded-md px-3 py-2 text-sm bg-background"
+            >
+              <option value="esi">ESI</option>
+              <option value="ats">ATS</option>
+              <option value="ctas">CTAS</option>
+              <option value="manchester">Manchester</option>
+            </select>
+            <button
+              onClick={() => policyMut.mutate()}
+              disabled={policyMut.isPending}
+              className="px-3 py-2 rounded-md bg-foreground text-background text-sm disabled:opacity-40"
+            >
+              {policyMut.isPending ? "Saving…" : "Activate scale"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* KPI strip */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
@@ -342,6 +457,7 @@ export default function EdTrackerPage() {
           onPriority={(p) =>
             priorityMut.mutate({ id: editVisit.id, priority: p })
           }
+          policyScale={policy?.active ? policy.canonical_triage_scale : null}
           busy={transitionMut.isPending || priorityMut.isPending}
         />
       )}
@@ -410,14 +526,17 @@ function VisitModal({
   onClose,
   onTransition,
   onPriority,
+  policyScale,
   busy,
 }: {
   visit: EdVisit;
   onClose: () => void;
   onTransition: (status: string) => void;
   onPriority: (priority: string) => void;
+  policyScale: EdPolicy["canonical_triage_scale"];
   busy: boolean;
 }) {
+  const priorityOptions = policyScale ? TRIAGE_OPTIONS[policyScale] ?? [] : [];
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-card rounded-lg shadow-lg w-full max-w-xl">
@@ -473,21 +592,27 @@ function VisitModal({
 
           <div>
             <p className="text-xs text-muted-foreground mb-2">
-              Set priority (ESI)
+              Set priority
             </p>
             <div className="flex flex-wrap gap-1">
-              {["esi_1", "esi_2", "esi_3", "esi_4", "esi_5"].map((p) => (
-                <button
-                  key={p}
-                  onClick={() => onPriority(p)}
-                  disabled={busy}
-                  className={`px-2 py-1 rounded border text-xs ${
-                    PRIORITY_COLOURS[p]
-                  } disabled:opacity-40`}
-                >
-                  {p.toUpperCase()}
-                </button>
-              ))}
+              {priorityOptions.length === 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  Activate the tenant ED policy first.
+                </span>
+              ) : (
+                priorityOptions.map((p) => (
+                  <button
+                    key={p.value}
+                    onClick={() => onPriority(p.value)}
+                    disabled={busy}
+                    className={`px-2 py-1 rounded border text-xs ${
+                      PRIORITY_COLOURS[p.value]
+                    } disabled:opacity-40`}
+                  >
+                    {p.label}
+                  </button>
+                ))
+              )}
             </div>
           </div>
 

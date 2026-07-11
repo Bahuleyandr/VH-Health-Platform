@@ -61,7 +61,7 @@ RUN --mount=type=secret,id=sentry_auth_token,required=false \
 # ---- Runner Stage ----
 FROM ${NODE_IMAGE} AS runner
 
-RUN apk upgrade --no-cache libcrypto3 libssl3 && \
+RUN apk upgrade --no-cache libcrypto3 libssl3 c-ares && \
     apk add --no-cache curl && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
