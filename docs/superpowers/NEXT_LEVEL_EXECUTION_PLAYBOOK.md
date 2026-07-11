@@ -116,6 +116,33 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   merges only on zero-non-green AND `mergeable == MERGEABLE`; fetch main with an explicit
   refspec (`git fetch github +refs/heads/main:refs/remotes/github/main`) right before rolling.
 
+- **Prisma-CDN outage playbook.** `binaries.prisma.sh` down breaks THREE ways: (a) `prisma db pull`
+  on a fresh worktree silently no-ops → the chain validates schema.prisma model count and aborts;
+  fix = `PRISMA_SCHEMA_ENGINE_BINARY=<main-checkout engine>` + copy `node_modules/@prisma/engines`;
+  (b) `npm install` during the outage leaves a BROKEN generated client (postinstall generate fails;
+  `openapi:generate` later throws `PrismaClient` module errors) → copy `node_modules/.prisma` +
+  `node_modules/@prisma/client` from the main checkout; (c) `npx prisma generate` can stall FOREVER
+  on Windows → always `timeout 120 npx prisma generate || echo skip` (the client is coordinator-local;
+  services use raw SQL) and let `openapi:generate` be the real judge. (#540 half-regen, #548 hang,
+  #545 broken client — 2026-07-10/11.)
+- **Push-verification law.** Never claim a push landed: after `git push`, compare
+  `git ls-remote github refs/heads/<branch>` against local HEAD and print PUSH-VERIFIED /
+  PUSH-MISSING. A hung chain plus a stale PR page produced a false "GitHub has it" on #548.
+- **Dart-format law for rolls.** Git auto-merge of Dart yields non-canonical formatting; every roll
+  runs `node scripts/dart-format-check.mjs` and fixes with TARGETED `dart format <file>` — never
+  format `apps/patient/local_plugins/**` (outside CI scope; an over-broad format touched 9 foreign
+  files on the #544 roll and had to be reverted).
+- **Proxy-allowlist law.** Every new admin page family calling `api/v1/<family>` through the generic
+  proxy needs an `ALLOWED_PATH_PREFIXES` entry in `apps/admin/src/app/api/proxy/[...path]/route.ts`
+  (+ the `/dashboard/<segment>` routePolicy entry) or smoke greets you with 403s — five incidents
+  (physio, infection-control, transplant, stroke, resuscitation; radiation-oncology pre-empted).
+  Scan method: enumerate `fetchAdminAPI(` calls in the PR's new pages — `fetchAdminAPI` does NOT
+  prefix `api/v1/`, so literal greps miss the family, and TS generics (`fetchAdminAPI<{...}>(`)
+  break naive regexes.
+- **Enum-array wire law.** Prisma `$queryRaw` returns custom-enum ARRAY columns as PG literal
+  strings (`{Heart,Liver}`), not JS arrays — cast `::text[]` at every SQL exit (SELECT and
+  RETURNING). Caught live on transplant `required_organs` (#541 smoke).
+
 ## 4. Coordinator verification method (specs AND build PRs)
 
 1. **Scope-cleanliness first**: `gh pr view N --json files,additions,deletions` — only the
@@ -198,19 +225,19 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 473–474 | N6-14 linen (WAVE B COMPLETE) | **on main** (#518) |
 | 475–477 | NL11-S11 interface engine P1 (gate S10 **on main** #513) | launched 2026-07-08 (round 10) |
 | 478–481 | NL8-P4 scheduling optimization | **on main** (#528) |
-| **Wave E — NL-13/NL-14 (authored 2026-07-09, prompts in build-prompts/; launch per readiness)** | | |
-| 482–488 | NL13-P1 cath-lab workflow | authored; ROUND-1 launch-ready |
-| 489–494 | NL13-P3 oncology staging/CTCAE/tumor-board | authored; ROUND-1 launch-ready |
-| 495–502 | NL14-P1 ICU flowsheet depth | authored; ROUND-1 launch-ready (NL-7 P1 on main) |
-| 503–507 | NL13-P2 stroke pathway | authored; round-2 |
-| 508–512 | NL13-P4 nuclear-med/radiotherapy | authored; round-2 (after P3 oncology) |
-| 513–517 | NL14-P2 code-blue/resuscitation | authored; round-2 (after ICU P1 data model) |
-| 518–523 | NL14-P2 ED triage/trauma/MLC | authored; round-2 |
-| 524–528 | NL14 ambulance/pre-hospital | authored; round-3 (manual-first) |
-| 529–535 | NL14-P3 NICU/PICU | authored; round-3 (extends ICU P1) |
-| 536–541 | NL14-P3 burns/TBSA | authored; round-3 (NL-5 content studio on main) |
-| 542–545 | NL13-P5 CTVS/perfusion seam | authored; round-3 (minimal seam) |
-| 546–554 | NL13-P6 transplant program (6 organs, live+deceased) | GATE CLEARED 2026-07-09; authored + launch-ready |
+| **Wave E — NL-13/NL-14 (authored 2026-07-09; ALL 12 BUILD PRs MERGED 2026-07-11)** | | |
+| 482–488 | NL13-P1 cath-lab workflow | **on main** (#536) |
+| 489–494 | NL13-P3 oncology staging/CTCAE/tumor-board | **on main** (#539, used 489–492; 493–494 unused gaps — do not reuse) |
+| 495–502 | NL14-P1 ICU flowsheet depth | **on main** (#535) |
+| 503–507 | NL13-P2 stroke pathway | **on main** (#542) |
+| 508–512 | NL13-P4 nuclear-med/radiotherapy | **on main** (#548) |
+| 513–517 | NL14-P2 code-blue/resuscitation | **on main** (#545) |
+| 518–523 | NL14-P2 ED triage/trauma/MLC | **on main** (#543) |
+| 524–528 | NL14 ambulance/pre-hospital | **on main** (#547) |
+| 529–535 | NL14-P3 NICU/PICU | **on main** (#544) |
+| 536–541 | NL14-P3 burns/TBSA | **on main** (#546, used 536–540; 541 unused gap — do not reuse) |
+| 542–545 | NL13-P5 CTVS/perfusion seam | **on main** (#540) |
+| 546–554 | NL13-P6 transplant program (6 organs, live+deceased) | **on main** (#541) |
 | 555–557 | NL13-P1b cath-lab reporting (owner access model 2026-07-11) | authored; launch-ready |
 | 558–562 | NL13-P1c code-STEMI pathway (stroke-pathway mirror) | authored; launch-ready |
 | 563–566 | NL13-P1d cath consumables/implants + billing hook | authored; gated on P1b merge |
@@ -273,15 +300,17 @@ edge + deploy · IdP pilot tenant · cluster activation items from earlier progr
 
 ## 8. In-flight tracker (update on takeover)
 
-- **NL-1 P4 SAML** — DONE (verified+merged #452 `4e864c16`). Historical: branch `feat/nl1-p4-saml` (Codex worktree
-  `D:/Dev/_codex/worktrees/VH-Health-Platform-nl1-p4-saml`), mig 368. Verify the PR per NL-1
-  spec `specs/2026-07-05-nl1-enterprise-identity-design.md` §12 P4: both signing modes accepted
-  and unsigned rejected; audience/recipient/ACS mismatch rejected; replay cache works
-  multi-replica; tenant A/B metadata mix-up rejected; `jwtMiddleware` still rejects SAML
-  artifacts (VH JWTs only); encrypted-assertion support where configured; migration slot 368;
-  patient surface untouched. Then roll → CI → squash-merge → sync.
-- **NL-5 P1 / NL-7 P1 / N6-1** — launched 2026-07-07 (branch names + reservations in §5;
-  prompt copies in `build-prompts/`). Verify each against its spec section + ledger.
+- **Wave E (NL-13/NL-14) — COMPLETE 2026-07-11.** All 12 build PRs merged: ICU #535, cath P1 #536,
+  oncology #539, CTVS/perfusion #540, transplant #541, stroke #542, ED/trauma/MLC #543, NICU/PICU
+  #544, code-blue #545, burns #546, ambulance #547, nuclear-med #548 (+ Trivy c-ares fix #549).
+  Content verified per §4; coordinator fixed defects on-branch (route-policy + enum-array `::text[]`
+  on #541, five proxy-allowlist entries, dart-format rolls).
+- **Cath enhancement tranche (owner asks 2026-07-11)** — P1b–P1f authored (blocks 555–571; §5/§7/§9).
+  Launch order: **P1b + P1c in parallel NOW**; **P1d / P1e / P1f gate on P1b merged** (their start
+  gates grep migs 555–557) because they extend the same cathLabService/staff workbench. Deferred
+  pending hardware/operator: intra-procedure hemodynamics (NL-7 rails), tele-review (LiveKit).
+- **Small coordinator item deferred:** NICU command-board seam follow-up PR (noted during #544
+  verification).
 
 ## 9. Build-prompt library index (`docs/superpowers/build-prompts/`)
 
@@ -323,23 +352,23 @@ parallel-safe may overlap.
 | `wave-e-nl14-kickoff.md` | NL-14 critical-care/ED depth **survey+design** | same | READY (design) |
 | `golive-readiness-kickoff.md` | `docs/GO_LIVE_RUNBOOK.md` — sequenced activation runbook | Week-3 of the month plan (or on demand) | READY (design) |
 | `indigenous-drugkb-kickoff.md` | indigenous drug-KB program design spec | — | **MERGED** #463 |
-| `nl13-p1-cath-lab.md` | cath-lab cases/readiness/procedure/dose/orders/device-links | NL-13 spec on main | authored; ROUND-1 (482–488) |
+| `nl13-p1-cath-lab.md` | cath-lab cases/readiness/procedure/dose/orders/device-links | NL-13 spec on main | **MERGED** #536 (482–488) |
 | `nl13-p1b-cath-reporting.md` | templated Angio/PTCA/PPI reports, sign-off+addenda, DICOM viewer links, owner access model | P1 on main ✓ | authored; launch-ready (555–557) |
 | `nl13-p1c-stemi-pathway.md` | code-STEMI activation, team fan-out, door-to-ECG/lab/balloon SLAs, cath-case link | stroke pathway (503–507) + cath P1 on main ✓ | authored; launch-ready (558–562) |
 | `nl13-p1d-cath-consumables.md` | per-case consumable/implant usage, batch/expiry, inventory decrement, billing hook | **P1b merged** + cath P1 | authored; gated (563–566) |
 | `nl13-p1e-cath-quickwins.md` | live readiness evidence (crossmatch/e-sign), pre/post order sets, post-PCI loops | **P1b merged** + cath P1 | authored; gated (567–568) |
 | `nl13-p1f-cath-scheduling-registry.md` | cath rooms on Scheduling 2.0, dose rollups, complication registry → cockpit/BI | **P1b merged** + Scheduling 2.0 | authored; gated (569–571) |
-| `nl13-p2-stroke.md` | code-stroke activation, NIHSS, thrombolysis, pathway SLA | NL-13 spec on main | authored; round-2 (503–507) |
-| `nl13-p3-oncology-staging.md` | TNM/AJCC staging, CTCAE toxicity, tumor board | NL-13 spec on main | authored; ROUND-1 (489–494) |
-| `nl13-p4-nuclear-med-radiotherapy.md` | radiotherapy referrals/plans/fractions, nuc-med orders (coordination-only) | NL-13 spec + P3 | authored; round-2 (508–512) |
-| `nl13-p5-ctvs-perfusion.md` | minimal CTVS/perfusion record seam | NL-13 spec on main | authored; round-3 (542–545) |
-| `nl13-p6-transplant.md` | transplant program: candidates/waitlist/committee/NOTTO export | gate CLEARED (6 organs, live+deceased) | authored; launch-ready (546–554) |
-| `nl14-p1-icu-flowsheet.md` | ICU chart depth, ventilation/weaning, line/tube/drain → N6-6 denominators | NL-14 spec + NL-7 P1 ✓ | authored; ROUND-1 (495–502) |
-| `nl14-p2-code-blue-resus.md` | durable resuscitation_events + append-only timeline | NL-14 spec + ICU P1 | authored; round-2 (513–517) |
-| `nl14-p2-ed-triage-trauma-mlc.md` | tenant triage-scale policy, trauma activation, surveys, MLC gate | NL-14 spec on main | authored; round-2 (518–523) |
-| `nl14-p2p3-ambulance-prehospital.md` | pre-hospital handover (manual-first), acceptance signatures | NL-14 spec on main | authored; round-3 (524–528) |
-| `nl14-p3-nicu-picu.md` | NICU/PICU feeds-fluids, neonatal scoring, phototherapy (extends ICU P1) | NL-14 spec + ICU P1 + NL-5 peds ✓ | authored; round-3 (529–535) |
-| `nl14-p3-burns.md` | burn chart, TBSA region map, content-governed fluid worksheet | NL-14 spec + NL-5 content studio ✓ | authored; round-3 (536–541) |
+| `nl13-p2-stroke.md` | code-stroke activation, NIHSS, thrombolysis, pathway SLA | NL-13 spec on main | **MERGED** #542 (503–507) |
+| `nl13-p3-oncology-staging.md` | TNM/AJCC staging, CTCAE toxicity, tumor board | NL-13 spec on main | **MERGED** #539 (489–492; 493–494 unused gaps) |
+| `nl13-p4-nuclear-med-radiotherapy.md` | radiotherapy referrals/plans/fractions, nuc-med orders (coordination-only) | NL-13 spec + P3 | **MERGED** #548 (508–512) |
+| `nl13-p5-ctvs-perfusion.md` | minimal CTVS/perfusion record seam | NL-13 spec on main | **MERGED** #540 (542–545) |
+| `nl13-p6-transplant.md` | transplant program: candidates/waitlist/committee/NOTTO export | gate CLEARED (6 organs, live+deceased) | **MERGED** #541 (546–554) |
+| `nl14-p1-icu-flowsheet.md` | ICU chart depth, ventilation/weaning, line/tube/drain → N6-6 denominators | NL-14 spec + NL-7 P1 ✓ | **MERGED** #535 (495–502) |
+| `nl14-p2-code-blue-resus.md` | durable resuscitation_events + append-only timeline | NL-14 spec + ICU P1 | **MERGED** #545 (513–517) |
+| `nl14-p2-ed-triage-trauma-mlc.md` | tenant triage-scale policy, trauma activation, surveys, MLC gate | NL-14 spec on main | **MERGED** #543 (518–523) |
+| `nl14-p2p3-ambulance-prehospital.md` | pre-hospital handover (manual-first), acceptance signatures | NL-14 spec on main | **MERGED** #547 (524–528) |
+| `nl14-p3-nicu-picu.md` | NICU/PICU feeds-fluids, neonatal scoring, phototherapy (extends ICU P1) | NL-14 spec + ICU P1 + NL-5 peds ✓ | **MERGED** #544 (529–535) |
+| `nl14-p3-burns.md` | burn chart, TBSA region map, content-governed fluid worksheet | NL-14 spec + NL-5 content studio ✓ | **MERGED** #546 (536–540; 541 unused gap) |
 
 Wave C/D kickoffs produce SPECS, not code — after each spec merges, run loop steps 2–4 to
 generate that program's build prompts (model them on the NL-5/6/7 ones here).
