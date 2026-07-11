@@ -199,13 +199,27 @@ export async function startGateway({ listeners, runtime, metricsPort = 9108, col
       const labels = { listener: listener.name };
       mllpConnectionsActive.inc(labels);
       socket.on('data', async (chunk) => {
-        for (const message of reader.push(chunk)) {
-          const result = await runtime.acceptFrame({
-            listener: listener.name,
-            sourceIp: socket.remoteAddress?.replace(/^::ffff:/, '') || '',
-            message,
-          });
-          socket.write(frameMessage(result.ack));
+        let messages;
+        try {
+          messages = reader.push(chunk);
+        } catch {
+          // Frame exceeded the size bound (Sol Ultra #25) — an abusive/unbounded
+          // peer. Drop the connection rather than keep buffering.
+          socket.destroy();
+          return;
+        }
+        for (const message of messages) {
+          try {
+            const result = await runtime.acceptFrame({
+              listener: listener.name,
+              sourceIp: socket.remoteAddress?.replace(/^::ffff:/, '') || '',
+              message,
+            });
+            socket.write(frameMessage(result.ack));
+          } catch {
+            // Per-frame processing failure must not take down the listener or
+            // surface as an unhandled rejection; the frame is spooled/dropped.
+          }
         }
       });
       socket.on('close', () => mllpConnectionsActive.dec(labels));
