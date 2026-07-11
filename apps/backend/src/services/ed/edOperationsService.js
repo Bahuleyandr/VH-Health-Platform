@@ -13,9 +13,15 @@
  * always the authoritative one.
  */
 
-import prisma from '../../lib/prisma.js';
+import { randomUUID } from 'node:crypto';
+
+import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  assertActiveTriageScale,
+  assertMlcReadyForCertification,
+} from './edTraumaMlcService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -331,6 +337,7 @@ export async function setVisitTriagePriority({
   const tid = resolveTenantId({ tenantId });
   const visitId = normalizeId(id, 'emergency_visit id');
   const cleanPriority = normalizeEnum(triagePriority, TRIAGE_PRIORITIES, 'triage_priority', { required: true });
+  await setTenant(tid, (tx) => assertActiveTriageScale({ tenantId: tid, triagePriority: cleanPriority, client: tx }));
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE emergency_visits
      SET triage_priority = $1, updated_at = NOW()
@@ -444,6 +451,9 @@ export async function recordTriageAssessment({
   const tid = resolveTenantId({ tenantId });
   const cleanLevel = safeText(level, 40);
   if (!cleanLevel) throw AppError.badRequest('level is required');
+  const cleanAssessmentKind = normalizeEnum(assessmentKind, TRIAGE_KINDS, 'assessment_kind') || 'esi';
+  const cleanPainScore = normalizeInt(painScore, 'pain_score', { min: 0, max: 10 });
+  await setTenant(tid, (tx) => assertActiveTriageScale({ tenantId: tid, assessmentKind: cleanAssessmentKind, client: tx }));
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO triage_assessments
@@ -462,13 +472,13 @@ export async function recordTriageAssessment({
       tid,
       emergencyVisitId ? normalizeId(emergencyVisitId, 'emergency_visit_id') : null,
       maybeUuid(patientUid, 'patient_uid'),
-      normalizeEnum(assessmentKind, TRIAGE_KINDS, 'assessment_kind') || 'esi',
+      cleanAssessmentKind,
       normalizeTimestamp(assessedAt, 'assessed_at'),
       maybeUuid(assessedByUid, 'assessed_by_uid'),
       cleanLevel,
       safeText(presentingComplaint),
       JSON.stringify(normalizeJsonObject(vitals, 'vitals')),
-      normalizeInt(painScore, 'pain_score', { min: 0, max: 10 }),
+      cleanPainScore,
       normalizeBoolean(airwayConcern, false),
       normalizeBoolean(breathingConcern, false),
       normalizeBoolean(circulationConcern, false),
@@ -871,15 +881,79 @@ export async function certifyMlcRecord({
   const mlcId = normalizeId(id, 'mlc_record id');
   const certifiedBy = maybeUuid(certifiedByUid, 'certified_by_uid');
   if (!certifiedBy) throw AppError.badRequest('certified_by_uid is required');
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE mlc_records
-     SET status = 'certified', certified_by_uid = $1::uuid, certified_at = NOW(), updated_at = NOW()
-     WHERE id = $2 AND tenant_id = $3::uuid AND status IN ('open', 'pending_certification')
-     RETURNING ${MLC_RETURNING}`,
-    certifiedBy, mlcId, tid,
-  );
-  if (!rows[0]) throw AppError.notFound('MLC record not found or already certified/closed');
-  return rows[0];
+  return setTenantTx(tid, async (tx) => {
+    const readiness = await assertMlcReadyForCertification({
+      tenantId: tid,
+      mlcRecordId: mlcId,
+      client: tx,
+    });
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE mlc_records
+       SET status = 'certified', certified_by_uid = $1::uuid, certified_at = NOW(), updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3::uuid AND status IN ('open', 'pending_certification')
+       RETURNING ${MLC_RETURNING}`,
+      certifiedBy, mlcId, tid,
+    );
+    if (!rows[0]) throw AppError.notFound('MLC record not found or already certified/closed');
+    const certified = rows[0];
+    await tx.$queryRawUnsafe(
+      `UPDATE mlc_completeness_reviews
+       SET completeness_status = 'certified',
+           certification_blocked = false,
+           updated_at = NOW()
+       WHERE tenant_id = $1::uuid AND mlc_record_id = $2`,
+      tid, mlcId,
+    );
+    await tx.$queryRawUnsafe(
+      `INSERT INTO mlc_completeness_audit_events
+         (tenant_id, mlc_completeness_review_id, mlc_record_id, patient_uid,
+          action, actor_uid, after_state, metadata)
+       VALUES ($1::uuid, $2, $3, $4::uuid, 'certified', $5::uuid, $6::jsonb, $7::jsonb)`,
+      tid,
+      readiness.id,
+      mlcId,
+      certified.patient_uid,
+      certifiedBy,
+      JSON.stringify(certified),
+      JSON.stringify({ certified_by_uid: certifiedBy }),
+    );
+    const timelineRows = certified.patient_uid ? await tx.$queryRawUnsafe(
+      `INSERT INTO clinical_timeline_events
+         (tenant_id, patient_uid, event_type, event_subtype, event_status,
+          source_table, source_id, resource_type, resource_id, actor_uid,
+          occurred_at, visible_to_patient, clinical_summary, payload, tags,
+          idempotency_key)
+       VALUES ($1::uuid, $2::uuid, 'mlc_certified', $3, 'completed',
+         'mlc_records', $4, 'MLC_RECORD', $4, $5::uuid,
+         NOW(), false, $6, $7::jsonb, $8::text[], $9)
+       RETURNING id`,
+      tid,
+      certified.patient_uid,
+      certified.mlc_kind,
+      String(mlcId),
+      certifiedBy,
+      'MLC record certified after completeness gate',
+      JSON.stringify({ mlc_number: certified.mlc_number }),
+      ['nl14', 'ed', 'mlc'],
+      `mlc_records:${mlcId}:certified:${randomUUID()}`,
+    ) : [];
+    await tx.$queryRawUnsafe(
+      `INSERT INTO clinical_audit_events
+         (tenant_id, patient_uid, action, action_status, actor_uid,
+          resource_type, resource_table, resource_id, after_state, metadata,
+          idempotency_key)
+       VALUES ($1::uuid, $2::uuid, 'MLC_RECORD_CERTIFIED', 'success', $3::uuid,
+         'MLC_RECORD', 'mlc_records', $4, $5::jsonb, $6::jsonb, $7)`,
+      tid,
+      certified.patient_uid,
+      certifiedBy,
+      String(mlcId),
+      JSON.stringify(certified),
+      JSON.stringify({ timeline_event_id: timelineRows[0]?.id || null }),
+      `mlc_records:${mlcId}:audit:${randomUUID()}`,
+    );
+    return certified;
+  });
 }
 
 export async function listMlcRecords({

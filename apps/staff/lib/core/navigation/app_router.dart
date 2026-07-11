@@ -84,6 +84,7 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 // Notifications
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/audit/screens/audit_logs_screen.dart';
+import '../../features/emergency/screens/ed_trauma_workbench_screen.dart';
 import '../../features/safety/screens/safety_center_screen.dart';
 import '../../features/diagnostics/screens/staff_diagnostics_screen.dart';
 
@@ -110,6 +111,7 @@ import '../../features/dietary/screens/dietary_screen.dart';
 // Dental
 import '../../features/dental/screens/dental_screen.dart';
 import '../../features/physio/screens/physio_screen.dart';
+import '../../features/transplant/screens/transplant_program_screen.dart';
 
 // Theatre
 import '../../features/cath_lab/screens/cath_lab_screen.dart';
@@ -124,6 +126,7 @@ import '../../features/maternity/screens/partograph_view_screen.dart';
 // Radiology
 import '../../features/ophthalmology/screens/ophthalmology_screen.dart';
 import '../../features/radiology/screens/radiology_screen.dart';
+import '../../features/stroke_pathway/screens/stroke_pathway_screen.dart';
 
 // EMR
 import '../../features/emr/screens/admission_screen.dart';
@@ -433,6 +436,12 @@ final GoRouter appRouter = GoRouter(
           name: 'ward-mode',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: WardModeScreen()),
+        ),
+        GoRoute(
+          path: '/ed-trauma',
+          name: 'ed-trauma',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: EdTraumaWorkbenchScreen()),
         ),
 
         // Doctor
@@ -1002,6 +1011,12 @@ final GoRouter appRouter = GoRouter(
             );
           },
         ),
+        GoRoute(
+          path: '/transplant',
+          name: 'transplant-program',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: TransplantProgramScreen()),
+        ),
 
         // Theatre
         GoRoute(
@@ -1082,6 +1097,12 @@ final GoRouter appRouter = GoRouter(
           name: 'radiology',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: RadiologyScreen()),
+        ),
+        GoRoute(
+          path: '/stroke-pathway',
+          name: 'stroke-pathway',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: StrokePathwayScreen()),
         ),
 
         // EMR

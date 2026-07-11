@@ -32,8 +32,49 @@ import {
   transitionAmbulanceRequest,
   transitionEmergencyVisit,
 } from '../../services/ed/edOperationsService.js';
+import {
+  addTraumaTimelineEvent,
+  createTraumaActivation,
+  getTenantEdPolicy,
+  linkEdEncounterEvidence,
+  listTraumaActivations,
+  recordTraumaSurvey,
+  upsertMlcCompletenessReview,
+  upsertTenantEdPolicy,
+} from '../../services/ed/edTraumaMlcService.js';
 
 const router = express.Router();
+
+// Tenant ED policy
+router.get('/policy', async (req, res, next) => {
+  try {
+    const row = await getTenantEdPolicy({ tenantId: req.tenantId });
+    return success(res, row, 'Tenant ED policy retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.put('/policy', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await upsertTenantEdPolicy({
+      tenantId: req.tenantId,
+      canonicalTriageScale: b.canonical_triage_scale,
+      active: b.active,
+      alternativeScaleMappings: b.alternative_scale_mappings,
+      traumaRegistryParticipation: b.trauma_registry_participation,
+      registryExportEnabled: b.registry_export_enabled,
+      evidenceOwnerUid: b.evidence_owner_uid,
+      clinicalGovernanceOwnerUid: b.clinical_governance_owner_uid,
+      reviewerUid: b.reviewer_uid || req.user?.uid || null,
+      reviewedAt: b.reviewed_at,
+      activatedBy: b.activated_by || req.user?.uid || null,
+      activatedAt: b.activated_at,
+      policyVersion: b.policy_version,
+      sourceMetadata: b.source_metadata,
+    });
+    return success(res, row, 'Tenant ED policy saved');
+  } catch (err) { return next(err); }
+});
 
 // Emergency visits
 router.post('/visits', async (req, res, next) => {
@@ -125,6 +166,120 @@ router.get('/triage-assessments', async (req, res, next) => {
       limit: req.query.limit,
     });
     return success(res, result, 'Triage assessments retrieved');
+  } catch (err) { return next(err); }
+});
+
+// Trauma activation / surveys / timeline
+router.post('/trauma-activations', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await createTraumaActivation({
+      tenantId: req.tenantId,
+      activationNumber: b.activation_number,
+      emergencyVisitId: b.emergency_visit_id,
+      admissionId: b.admission_id,
+      patientUid: b.patient_uid,
+      activationReason: b.activation_reason,
+      activationLevel: b.activation_level,
+      activatedAt: b.activated_at,
+      activatedByUid: b.activated_by_uid || req.user?.uid || null,
+      teamLeaderUid: b.team_leader_uid,
+      expectedArrivalAt: b.expected_arrival_at,
+      patientArrivedAt: b.patient_arrived_at,
+      bloodBankAlertedAt: b.blood_bank_alerted_at,
+      bloodBankAlertedByUid: b.blood_bank_alerted_by_uid || req.user?.uid || null,
+      radiologyAlertedAt: b.radiology_alerted_at,
+      radiologyAlertedByUid: b.radiology_alerted_by_uid || req.user?.uid || null,
+      otAlertedAt: b.ot_alerted_at,
+      otAlertedByUid: b.ot_alerted_by_uid || req.user?.uid || null,
+      registryParticipation: b.registry_participation,
+      registryReviewerUid: b.registry_reviewer_uid,
+      registryReviewedAt: b.registry_reviewed_at,
+      registryExportStatus: b.registry_export_status,
+      teamRoles: b.team_roles,
+      sourceMetadata: b.source_metadata,
+    });
+    return success(res, row, 'Trauma activation created', 201);
+  } catch (err) { return next(err); }
+});
+
+router.get('/trauma-activations', async (req, res, next) => {
+  try {
+    const result = await listTraumaActivations({
+      tenantId: req.tenantId,
+      status: req.query.status || null,
+      emergencyVisitId: req.query.emergency_visit_id || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Trauma activations retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.post('/trauma-surveys', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await recordTraumaSurvey({
+      tenantId: req.tenantId,
+      traumaActivationId: b.trauma_activation_id,
+      emergencyVisitId: b.emergency_visit_id,
+      patientUid: b.patient_uid,
+      surveyKind: b.survey_kind,
+      assessedAt: b.assessed_at,
+      assessedByUid: b.assessed_by_uid || req.user?.uid || null,
+      responsibleClinicianUid: b.responsible_clinician_uid || req.user?.uid || null,
+      airway: b.airway,
+      breathing: b.breathing,
+      circulation: b.circulation,
+      disability: b.disability,
+      exposure: b.exposure,
+      fastImaging: b.fast_imaging,
+      interventions: b.interventions,
+      reassessmentDueAt: b.reassessment_due_at,
+      sourceCitations: b.source_citations,
+      completionStatus: b.completion_status,
+    });
+    return success(res, row, 'Trauma survey recorded', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/trauma-timeline', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await addTraumaTimelineEvent({
+      tenantId: req.tenantId,
+      traumaActivationId: b.trauma_activation_id,
+      emergencyVisitId: b.emergency_visit_id,
+      patientUid: b.patient_uid,
+      occurredAt: b.occurred_at,
+      eventType: b.event_type,
+      eventLabel: b.event_label,
+      interventionDetails: b.intervention_details,
+      performedByUid: b.performed_by_uid || req.user?.uid || null,
+      sourceCitations: b.source_citations,
+      createdByUid: req.user?.uid || null,
+    });
+    return success(res, row, 'Trauma timeline event appended', 201);
+  } catch (err) { return next(err); }
+});
+
+router.post('/encounter-evidence', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await linkEdEncounterEvidence({
+      tenantId: req.tenantId,
+      emergencyVisitId: b.emergency_visit_id,
+      patientUid: b.patient_uid,
+      evidenceKind: b.evidence_kind,
+      vitalsChartId: b.vitals_chart_id,
+      deviceVitalSampleObservationId: b.device_vital_sample_observation_id,
+      deviceRegistryId: b.device_registry_id,
+      observedAt: b.observed_at,
+      verified: b.verified,
+      linkedByUid: b.linked_by_uid || req.user?.uid || null,
+      notes: b.notes,
+      metadata: b.metadata,
+    });
+    return success(res, row, 'ED encounter evidence linked', 201);
   } catch (err) { return next(err); }
 });
 
@@ -373,6 +528,31 @@ router.patch('/mlc-records/:id/certify', async (req, res, next) => {
       certifiedByUid: req.user?.uid || req.body?.certified_by_uid,
     });
     return success(res, row, 'MLC record certified');
+  } catch (err) { return next(err); }
+});
+
+router.put('/mlc-records/:id/completeness', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await upsertMlcCompletenessReview({
+      tenantId: req.tenantId,
+      mlcRecordId: req.params.id,
+      emergencyVisitId: b.emergency_visit_id,
+      patientUid: b.patient_uid,
+      allegedHistory: b.alleged_history,
+      injuryDescription: b.injury_description,
+      injuryDiagramComplete: b.injury_diagram_complete,
+      policeNotificationComplete: b.police_notification_complete,
+      certificateSignerUid: b.certificate_signer_uid,
+      chainOfCustodyComplete: b.chain_of_custody_complete,
+      closureRequirements: b.closure_requirements,
+      assistantPrefillOutputId: b.assistant_prefill_output_id,
+      assistantPrefillMetadata: b.assistant_prefill_metadata,
+      reviewedByUid: b.reviewed_by_uid || req.user?.uid || null,
+      reviewedAt: b.reviewed_at,
+      completenessStatus: b.completeness_status,
+    });
+    return success(res, row, 'MLC completeness reviewed');
   } catch (err) { return next(err); }
 });
 

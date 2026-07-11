@@ -37,6 +37,7 @@ const navigation: NavItem[] = [
   { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
   { name: 'Queue Displays', href: '/dashboard/queue-displays', minRole: 'STAFF' },
   { name: 'Oncology', href: '/dashboard/oncology', minRole: 'STAFF' },
+  { name: 'Transplant', href: '/dashboard/transplant', minRole: 'STAFF' },
   { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
   { name: 'Reporting', href: '/dashboard/reporting', minRole: 'HR' },
   { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
