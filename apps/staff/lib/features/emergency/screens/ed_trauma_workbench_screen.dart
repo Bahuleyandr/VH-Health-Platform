@@ -623,33 +623,35 @@ class _Section extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
+    return Material(
+      color: AppTheme.cardSurface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.divider),
+        side: BorderSide(color: AppTheme.divider),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: AppTheme.primaryBlue),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: AppTheme.primaryBlue),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...children.expand((child) => [child, const SizedBox(height: 10)]),
-        ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...children.expand((child) => [child, const SizedBox(height: 10)]),
+          ],
+        ),
       ),
     );
   }
