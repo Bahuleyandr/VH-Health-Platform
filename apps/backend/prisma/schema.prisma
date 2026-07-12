@@ -8305,6 +8305,7 @@ model bookable_resources {
   capacity                          Int                                 @default(1)
   updated_at                        DateTime                            @default(now()) @db.Timestamptz(6)
   tenants                           tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookable_resources_tenant")
+  cath_case_schedule_links          cath_case_schedule_links[]
   provider_availability_templates   provider_availability_templates[]
   resource_bookings                 resource_bookings[]
   scheduling_resource_compatibility scheduling_resource_compatibility[]
@@ -8314,20 +8315,21 @@ model bookable_resources {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model resource_bookings {
-  id                 Int                @id @default(autoincrement())
-  tenant_id          String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  resource_id        Int
-  starts_at          DateTime           @db.Timestamptz(6)
-  ends_at            DateTime           @db.Timestamptz(6)
-  booked_for_type    String             @default("other") @db.VarChar(30)
-  booked_for_id      String?            @db.VarChar(60)
-  patient_uid        String?            @db.Uuid
-  booked_by          String?            @db.Uuid
-  status             String             @default("booked") @db.VarChar(20)
-  notes              String?            @db.VarChar(300)
-  created_at         DateTime           @default(now()) @db.Timestamptz(6)
-  tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_resource_bookings_tenant")
-  bookable_resources bookable_resources @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                       Int                        @id @default(autoincrement())
+  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  resource_id              Int
+  starts_at                DateTime                   @db.Timestamptz(6)
+  ends_at                  DateTime                   @db.Timestamptz(6)
+  booked_for_type          String                     @default("other") @db.VarChar(30)
+  booked_for_id            String?                    @db.VarChar(60)
+  patient_uid              String?                    @db.Uuid
+  booked_by                String?                    @db.Uuid
+  status                   String                     @default("booked") @db.VarChar(20)
+  notes                    String?                    @db.VarChar(300)
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  cath_case_schedule_links cath_case_schedule_links[]
+  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_resource_bookings_tenant")
+  bookable_resources       bookable_resources         @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([resource_id, starts_at, ends_at], map: "idx_resource_bookings_resource_time", where: raw("((status)::text = 'booked'::text)"))
 }
@@ -9752,10 +9754,13 @@ model tenants {
   care_team_status_history                   care_team_status_history[]
   care_teams                                 care_teams[]
   cath_case_consumable_usage                 cath_case_consumable_usage[]
+  cath_case_schedule_links                   cath_case_schedule_links[]
+  cath_complication_registry                 cath_complication_registry[]
   cath_consumable_catalog                    cath_consumable_catalog[]
   cath_consumables_billing_settings          cath_consumables_billing_settings?
   cath_contrast_radiation_records            cath_contrast_radiation_records[]
   cath_device_links                          cath_device_links[]
+  cath_dose_alert_settings                   cath_dose_alert_settings?
   cath_hemodynamic_summaries                 cath_hemodynamic_summaries[]
   cath_lab_cases                             cath_lab_cases[]
   cath_lab_readiness_checks                  cath_lab_readiness_checks[]
@@ -10790,6 +10795,7 @@ model users {
   biomed_work_order_updates                                                                      biomed_work_order_updates[]
   biomed_work_orders                                                                             biomed_work_orders[]
   cath_case_consumable_usage                                                                     cath_case_consumable_usage[]
+  cath_complication_registry                                                                     cath_complication_registry[]
   cath_contrast_radiation_records                                                                cath_contrast_radiation_records[]
   cath_device_links                                                                              cath_device_links[]
   cath_hemodynamic_summaries                                                                     cath_hemodynamic_summaries[]
@@ -14994,6 +15000,7 @@ model clinical_timeline_events {
   created_at                                                                                                  DateTime                              @default(now()) @db.Timestamptz(6)
   cath_case_consumable_usage_cath_case_consumable_usage_timeline_event_idToclinical_timeline_events           cath_case_consumable_usage[]          @relation("cath_case_consumable_usage_timeline_event_idToclinical_timeline_events")
   cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_timeline_event_idToclinical_timeline_events cath_case_consumable_usage[]          @relation("cath_case_consumable_usage_tenant_id_timeline_event_idToclinical_timeline_events")
+  cath_complication_registry                                                                                  cath_complication_registry[]
   cath_lab_cases                                                                                              cath_lab_cases[]
   cath_post_procedure_orders                                                                                  cath_post_procedure_orders[]
   cath_procedure_logs                                                                                         cath_procedure_logs[]
@@ -15055,6 +15062,7 @@ model clinical_audit_events {
   chain_hash                                                                                            String?                         @db.Char(64)
   cath_case_consumable_usage_cath_case_consumable_usage_audit_event_idToclinical_audit_events           cath_case_consumable_usage[]    @relation("cath_case_consumable_usage_audit_event_idToclinical_audit_events")
   cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events cath_case_consumable_usage[]    @relation("cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events")
+  cath_complication_registry                                                                            cath_complication_registry[]
   cath_lab_cases                                                                                        cath_lab_cases[]
   cath_post_procedure_orders                                                                            cath_post_procedure_orders[]
   cath_procedure_logs                                                                                   cath_procedure_logs[]
@@ -20715,6 +20723,8 @@ model cath_lab_cases {
   metadata                                                                                            Json                              @default("{}")
   cath_case_consumable_usage_cath_case_consumable_usage_case_idTocath_lab_cases                       cath_case_consumable_usage[]      @relation("cath_case_consumable_usage_case_idTocath_lab_cases")
   cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_case_id_patient_uidTocath_lab_cases cath_case_consumable_usage[]      @relation("cath_case_consumable_usage_tenant_id_case_id_patient_uidTocath_lab_cases")
+  cath_case_schedule_links                                                                            cath_case_schedule_links[]
+  cath_complication_registry                                                                          cath_complication_registry[]
   cath_contrast_radiation_records                                                                     cath_contrast_radiation_records[]
   cath_device_links                                                                                   cath_device_links[]
   cath_hemodynamic_summaries                                                                          cath_hemodynamic_summaries[]
@@ -20825,6 +20835,7 @@ model cath_procedure_logs {
   metadata                                                                                                                  Json                              @default("{}")
   cath_case_consumable_usage_cath_case_consumable_usage_procedure_log_idTocath_procedure_logs                               cath_case_consumable_usage[]      @relation("cath_case_consumable_usage_procedure_log_idTocath_procedure_logs")
   cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_procedure_log_id_case_id_patient_uidTocath_procedure_logs cath_case_consumable_usage[]      @relation("cath_case_consumable_usage_tenant_id_procedure_log_id_case_id_patient_uidTocath_procedure_logs")
+  cath_complication_registry                                                                                                cath_complication_registry[]
   cath_contrast_radiation_records                                                                                           cath_contrast_radiation_records[]
   cath_device_links                                                                                                         cath_device_links[]
   cath_hemodynamic_summaries                                                                                                cath_hemodynamic_summaries[]
@@ -23329,6 +23340,85 @@ model cath_report_templates {
   @@unique([tenant_id, template_code, version], map: "ux_cath_report_templates_version")
   @@index([tenant_id, report_type, name, version(sort: Desc)], map: "idx_cath_report_templates_lookup", where: raw("(is_active = true)"))
   @@index([tenant_id, supersedes_template_id], map: "idx_cath_report_templates_supersedes", where: raw("(supersedes_template_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_case_schedule_links {
+  id                  BigInt             @id @default(autoincrement())
+  tenant_id           String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_id             BigInt
+  resource_booking_id Int
+  resource_id         Int
+  status              String             @default("active") @db.VarChar(20)
+  linked_by           String?            @db.Uuid
+  cancelled_by        String?            @db.Uuid
+  cancelled_at        DateTime?          @db.Timestamptz(6)
+  cancel_reason       String?
+  created_at          DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime           @default(now()) @db.Timestamptz(6)
+  metadata            Json               @default("{}")
+  cath_lab_cases      cath_lab_cases     @relation(fields: [case_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  resource_bookings   resource_bookings  @relation(fields: [resource_booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  bookable_resources  bookable_resources @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_case_schedule_links_tenant")
+
+  @@unique([tenant_id, resource_booking_id], map: "uq_cath_case_schedule_links_active_booking", where: raw("((status)::text = 'active'::text)"))
+  @@unique([tenant_id, case_id], map: "uq_cath_case_schedule_links_active_case", where: raw("((status)::text = 'active'::text)"))
+  @@index([tenant_id, resource_id, created_at(sort: Desc)], map: "idx_cath_case_schedule_links_resource")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_complication_registry {
+  id                       BigInt                    @id @default(autoincrement())
+  tenant_id                String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_id                  BigInt
+  procedure_log_id         BigInt?
+  patient_uid              String                    @db.Uuid
+  complication_code        String?                   @db.VarChar(80)
+  complication_category    String                    @default("uncategorised") @db.VarChar(80)
+  description              String?
+  severity                 String                    @default("unspecified") @db.VarChar(30)
+  outcome                  String?                   @db.VarChar(30)
+  review_status            String                    @default("open") @db.VarChar(30)
+  review_notes             String?
+  reviewed_by              String?                   @db.Uuid
+  reviewed_at              DateTime?                 @db.Timestamptz(6)
+  occurred_at              DateTime?                 @db.Timestamptz(6)
+  source                   String                    @default("procedure_log") @db.VarChar(30)
+  reported_by              String?                   @db.Uuid
+  timeline_event_id        String?                   @db.Uuid
+  audit_event_id           String?                   @db.Uuid
+  created_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  metadata                 Json                      @default("{}")
+  clinical_audit_events    clinical_audit_events?    @relation(fields: [audit_event_id], references: [id], onUpdate: NoAction)
+  cath_lab_cases           cath_lab_cases            @relation(fields: [case_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                    users                     @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  cath_procedure_logs      cath_procedure_logs?      @relation(fields: [procedure_log_id], references: [id], onUpdate: NoAction)
+  clinical_timeline_events clinical_timeline_events? @relation(fields: [timeline_event_id], references: [id], onUpdate: NoAction)
+  tenants                  tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_complication_registry_tenant")
+
+  @@index([tenant_id, case_id, created_at(sort: Desc)], map: "idx_cath_complication_registry_case")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_cath_complication_registry_patient")
+  @@index([tenant_id, review_status, occurred_at(sort: Desc)], map: "idx_cath_complication_registry_review")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_dose_alert_settings {
+  tenant_id                String    @id @db.Uuid
+  fluoro_time_alert_min    Decimal?  @db.Decimal(10, 2)
+  dap_alert_gy_cm2         Decimal?  @db.Decimal(12, 3)
+  air_kerma_alert_mgy      Decimal?  @db.Decimal(12, 3)
+  contrast_volume_alert_ml Decimal?  @db.Decimal(10, 2)
+  notes                    String?
+  configured_by            String?   @db.Uuid
+  configured_at            DateTime? @db.Timestamptz(6)
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                  tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

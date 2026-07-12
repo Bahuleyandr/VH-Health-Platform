@@ -6,6 +6,11 @@ const recordCanonicalClinicalEventMock = jest.fn(async () => ({
   timeline: { id: '44444444-4444-4444-8444-444444444444' },
   audit: { id: '55555555-5555-4555-8555-555555555555' }
 }));
+// NL13-P1f: cathLabService now reaches cathSchedulingRegistryService, which
+// imports the audit-only recorder — the module mock must export it too.
+const recordClinicalAuditEventMock = jest.fn(async () => ({
+  id: '66666666-6666-4666-8666-666666666666'
+}));
 const startWorkflowSlaMock = jest.fn();
 const completeWorkflowSlaMock = jest.fn();
 const assertPrivilegeForGateMock = jest.fn(async () => ({ allowed: true }));
@@ -39,6 +44,7 @@ jest.unstable_mockModule('../../services/pharmacySupply/pharmacySupplyService.js
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   completeWorkflowSla: completeWorkflowSlaMock,
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+  recordClinicalAuditEvent: recordClinicalAuditEventMock,
   startWorkflowSla: startWorkflowSlaMock
 }));
 

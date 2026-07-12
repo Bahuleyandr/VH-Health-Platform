@@ -16,11 +16,14 @@ import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../services/cath_lab_api_service.dart';
 import '../widgets/cath_case_reports_panel.dart';
+import '../widgets/cath_schedule_strip.dart';
 import '../widgets/cath_case_consumables_panel.dart';
 import '../widgets/cath_quick_wins_panel.dart';
 
 typedef CathLabCaseLoader =
     Future<List<CathLabCaseSummary>> Function(DateTime date);
+typedef CathScheduleStripLoader =
+    Future<CathScheduleStrip> Function(DateTime date);
 typedef StemiActivationLoader = Future<List<StemiActivationSummary>> Function();
 typedef StemiActivationAcknowledger = Future<void> Function(int activationId);
 typedef CathLabRealtimeEventStreamFactory =
@@ -55,6 +58,7 @@ class CathLabScreen extends StatefulWidget {
   const CathLabScreen({
     super.key,
     this.loadCases,
+    this.loadScheduleStrip,
     this.loadStemiActivations,
     this.acknowledgeStemiActivation,
     this.realtimeEvents,
@@ -67,6 +71,7 @@ class CathLabScreen extends StatefulWidget {
   });
 
   final CathLabCaseLoader? loadCases;
+  final CathScheduleStripLoader? loadScheduleStrip;
   final StemiActivationLoader? loadStemiActivations;
   final StemiActivationAcknowledger? acknowledgeStemiActivation;
   final CathLabRealtimeEventStreamFactory? realtimeEvents;
@@ -355,6 +360,13 @@ class _CathLabScreenState extends State<CathLabScreen>
             acknowledgingIds: _acknowledgingStemiIds,
             onRetry: () => _loadStemiActivations(),
             onAcknowledge: _acknowledgeStemi,
+          ),
+          const SizedBox(height: 12),
+          // NL13-P1f: booked room slots from the Scheduling 2.0 rails.
+          CathScheduleStripSection(
+            key: ValueKey('cath-strip-$_dateLabel'),
+            date: _selectedDate,
+            loadStrip: widget.loadScheduleStrip,
           ),
           const SizedBox(height: 20),
           Text(

@@ -18,6 +18,7 @@ import {
   isGateEnabled,
   privilegeKey
 } from '../staff/credentialingService.js';
+import { deriveComplicationRegistryRows } from './cathSchedulingRegistryService.js';
 
 const tenantOr = value => requireTenantId(value);
 
@@ -885,6 +886,22 @@ export async function recordProcedureLog(caseId, input = {}, context = {}) {
       procedure.id,
       event?.timeline?.id || null,
       event?.audit?.id || null
+    );
+    // NL13-P1f: structured complication-registry rows derive atomically from
+    // the log's complications JSONB (same tx — registry, timeline, audit land
+    // together or not at all).
+    await deriveComplicationRegistryRows(
+      tx,
+      {
+        tenantId,
+        caseId: cathCase.id,
+        procedureLogId: procedure.id,
+        patientUid: procedure.patient_uid,
+        encounterId: procedure.encounter_id,
+        complications: normalizeJson(input.complications, 'complications', []),
+        occurredAt: procedure.ended_at || procedure.started_at || null
+      },
+      context
     );
     return normalizeDbValue(procedure);
   });

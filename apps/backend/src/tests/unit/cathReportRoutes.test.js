@@ -67,6 +67,10 @@ jest.unstable_mockModule('../../services/clinical/cathQuickWinsService.js', () =
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // NL13-P1f: cathLabRoutes now mounts cathSchedulingRoutes, whose service
+  // chain (cathSchedulingRegistryService + schedulingOptimizationService)
+  // imports requireTenantId at module load.
+  requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
 }));
 
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
