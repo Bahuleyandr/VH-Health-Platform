@@ -17,15 +17,28 @@ export interface BreachNotification {
   updated_at?: string;
 }
 
+// Row shape of GET /compliance/audit/search — the explicit column list in
+// apps/backend/src/routes/compliance/auditSearchRoutes.js (audit_log table).
 export interface AuditSearchResult {
   id: number;
+  user_id?: string | null;
+  user_name?: string | null;
+  user_role?: string | null;
+  ip_address?: string | null;
+  method?: string | null;
+  path?: string | null;
+  module?: string | null;
   action: string;
-  user_id?: string;
-  resource_type?: string;
-  resource_id?: string;
-  ip_address?: string;
-  details?: string;
-  timestamp: string;
+  resource?: string | null;
+  resource_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  query_params?: Record<string, unknown> | null;
+  request_summary?: string | null;
+  status_code?: number | null;
+  response_time_ms?: number | null;
+  success?: boolean | null;
+  user_agent?: string | null;
+  created_at: string;
 }
 
 export interface ReportBreachPayload {
