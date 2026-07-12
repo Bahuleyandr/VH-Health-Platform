@@ -51,7 +51,12 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # Pinned to match _reusable-flutter-workspace.yml — the floating
+          # `stable` channel drifted ahead of the hosted jobs and started
+          # failing tests on framework assertions the pinned toolchain
+          # doesn't ship yet (first hit: ListTile background assert, run
+          # 29172318678). Bump both files together.
+          flutter-version: 3.41.9
           cache: true
 
       - uses: actions/setup-java@v4
