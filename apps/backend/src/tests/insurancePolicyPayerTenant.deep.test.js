@@ -13,6 +13,11 @@ let payerA;
 let payerB;
 
 beforeAll(async () => {
+  // Self-sufficient second tenant: in full-suite order another suite seeds
+  // it, but a scoped or reshuffled run must not depend on that.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'payer-bind-b', 'Payer Bind B')
+     ON CONFLICT (id) DO NOTHING`, TENANT_B);
   await prisma.$executeRawUnsafe(
     `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
      VALUES ($1::uuid, '9000044401', 'Policy payer test', 'PATIENT', true, NOW())

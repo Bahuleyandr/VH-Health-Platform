@@ -21,6 +21,20 @@ const PATIENT_UID = 'f4444444-4444-4444-8444-dddddddd4401';
 
 const createdClaimIds = [];
 const createdInvoiceIds = [];
+const createdAdmissionIds = [];
+
+// Sol Ultra #15 binds a claim's admission to a real tenant-scoped row, so
+// fabricated admission ids now (correctly) reject at createClaim.
+async function seedAdmission() {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO admissions (tenant_id, patient_uid, status, admitted_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'admitted', NOW(), NOW())
+     RETURNING id`,
+    TENANT, PATIENT_UID,
+  );
+  createdAdmissionIds.push(rows[0].id);
+  return rows[0].id;
+}
 let policyId;
 
 async function seedIssuedInvoice({ total, admissionId }) {
@@ -58,6 +72,9 @@ describe('TPA claim packet auto-assembly at submit (9746f26c)', () => {
     for (const id of createdInvoiceIds) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = $1::int`, id).catch(() => {});
     }
+    for (const id of createdAdmissionIds) {
+      await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE id = $1::int`, id).catch(() => {});
+    }
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
@@ -65,7 +82,7 @@ describe('TPA claim packet auto-assembly at submit (9746f26c)', () => {
   });
 
   it('auto-assembles discharge_summary + final_bill so a cashless final claim can submit with no pre-attached docs', async () => {
-    const admissionId = 940100 + (Date.now() % 10000);
+    const admissionId = await seedAdmission();
     const invoiceId = await seedIssuedInvoice({ total: 50000, admissionId });
     const claim = await claims.createClaim({
       tenantId: TENANT, policy_id: policyId, patient_uid: PATIENT_UID,
@@ -100,7 +117,7 @@ describe('TPA claim packet auto-assembly at submit (9746f26c)', () => {
   });
 
   it('is idempotent — a pre-attached discharge_summary is not duplicated', async () => {
-    const admissionId = 950100 + (Date.now() % 10000);
+    const admissionId = await seedAdmission();
     const invoiceId = await seedIssuedInvoice({ total: 32000, admissionId });
     const claim = await claims.createClaim({
       tenantId: TENANT, policy_id: policyId, patient_uid: PATIENT_UID,
