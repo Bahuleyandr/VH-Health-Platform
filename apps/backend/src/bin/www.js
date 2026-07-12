@@ -30,6 +30,7 @@ import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
 import { initWebSocket, initWsFanout, closeWsFanout } from '../utils/websocket/wsServer.js';
 import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
 import { collectTeleconsultOpsMetrics } from '../observability/teleconsultOpsMetrics.js';
+import { logPrivilegeGateStates } from '../config/privilegeGates.js';
 
 
 
@@ -109,6 +110,10 @@ async function onListening() {
   const addr = server.address();
   const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
   logger.info(`VH Health Backend running on ${bind}`);
+
+  // Boot summary of credential-gate enforcement state, so a mistyped gate flag
+  // can't silently leave a clinical privilege gate disabled unnoticed.
+  logPrivilegeGateStates(logger);
 
   // Initialize WebSocket server
   initWebSocket(server);

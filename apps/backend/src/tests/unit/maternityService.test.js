@@ -13,10 +13,28 @@ import {
   recordApgar,
   recordPostnatalVisit,
   setSupplementReminder,
+  obgynLabourWardGateConfig,
 } from '../../services/maternity/maternityService.js';
 
 const T = '00000000-0000-4000-8000-000000000001';
 const P = '11111111-1111-4111-8111-111111111111';
+
+describe('obgynLabourWardGateConfig (credential-hardening)', () => {
+  const originalEnv = { ...process.env };
+  afterEach(() => { process.env = { ...originalEnv }; });
+
+  it('is inert by default with the canonical privilege key', () => {
+    delete process.env.OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED;
+    delete process.env.OBGYN_LABOUR_WARD_PRIVILEGE_KEY;
+    expect(obgynLabourWardGateConfig()).toEqual({ key: 'obgyn_labour_ward_access', enabled: false });
+  });
+
+  it('honours the env enable flag and key override', () => {
+    process.env.OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED = 'true';
+    process.env.OBGYN_LABOUR_WARD_PRIVILEGE_KEY = 'OBGyn Labour Ward Access';
+    expect(obgynLabourWardGateConfig()).toEqual({ key: 'obgyn_labour_ward_access', enabled: true });
+  });
+});
 
 describe('createPregnancy validation', () => {
   it('rejects missing patient_uid', async () => {

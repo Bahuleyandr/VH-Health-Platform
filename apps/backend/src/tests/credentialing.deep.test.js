@@ -11,6 +11,9 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 let staffUid;
 let patientUid;
+// A second, independent approver identity (authClient uses a fixed uid per
+// token, so a genuine two-person approval needs a distinct uid override).
+const APPROVER_UID = '550e8400-e29b-41d4-a716-4466554400aa';
 
 function datePlus(days) {
   const date = new Date();
@@ -85,12 +88,14 @@ d('Credentialing & privileging — deep round-trip (roadmap D3)', () => {
     }
   });
 
-  test('records registration + privilege; doctors cannot self-manage', async () => {
+  test('privileges flow only through request → approval; direct add is blocked; doctors cannot self-manage', async () => {
+    // A rank-and-file doctor cannot manage credentials at all.
     const doctor = await authClient('DOCTOR')
       .post('/api/v1/credentials')
       .send({ staff_uid: staffUid, credential_type: 'privilege', name: 'CHEMO_ADMINISTER' });
     expect(doctor.status).toBe(403);
 
+    // Ordinary evidence (registration) is direct-entry by an admin.
     const reg = await authClient('ADMIN')
       .post('/api/v1/credentials')
       .send({
@@ -99,16 +104,23 @@ d('Credentialing & privileging — deep round-trip (roadmap D3)', () => {
       });
     expect(reg.status).toBe(201);
 
-    const priv = await authClient('ADMIN')
+    // A PRIVILEGE cannot be recorded directly — it must go through approval.
+    const directPriv = await authClient('ADMIN')
       .post('/api/v1/credentials')
       .send({ staff_uid: staffUid, credential_type: 'privilege', name: 'CHEMO_ADMINISTER', valid_until: '2030-01-01' });
-    expect(priv.status).toBe(201);
-    expect(priv.body.data.credential.name).toBe('chemo_administration');
+    expect(directPriv.status).toBe(400);
+    expect(JSON.stringify(directPriv.body)).toContain('CRED_PRIVILEGE_REQUIRES_APPROVAL');
 
-    const dup = await authClient('ADMIN')
-      .post('/api/v1/credentials')
-      .send({ staff_uid: staffUid, credential_type: 'privilege', name: 'CHEMO_ADMINISTER' });
-    expect(dup.status).toBe(409);
+    // Two-person grant: requested by one manager, approved by a DIFFERENT person.
+    const request = await authClient('ADMIN')
+      .post('/api/v1/credentials/privilege-requests')
+      .send({ staff_uid: staffUid, privilege: 'CHEMO_ADMINISTER', valid_until: '2030-01-01' });
+    expect(request.status).toBe(201);
+    const approve = await authClient('MEDICAL_SUPERINTENDENT', { uid: APPROVER_UID })
+      .post(`/api/v1/credentials/approvals/${request.body.data.approval.id}/decide`)
+      .send({ decision: 'approved' });
+    expect(approve.status).toBe(200);
+    expect((await hasActivePrivilege(staffUid, 'chemo_administer')).allowed).toBe(true);
   });
 
   test('privilege check: held, case-insensitive, not-held, revoked', async () => {
@@ -130,6 +142,40 @@ d('Credentialing & privileging — deep round-trip (roadmap D3)', () => {
     expect((await hasActivePrivilege(staffUid, 'CHEMO_ADMINISTER')).allowed).toBe(false);
   });
 
+  test('two-person integrity: self-approval blocked; privilege cannot be re-activated via status change', async () => {
+    const req = await authClient('ADMIN')
+      .post('/api/v1/credentials/privilege-requests')
+      .send({ staff_uid: staffUid, privilege: 'anesthesia_finalize', valid_until: '2030-01-01' });
+    expect(req.status).toBe(201);
+
+    // The SAME person who requested cannot approve it.
+    const selfApprove = await authClient('ADMIN')
+      .post(`/api/v1/credentials/approvals/${req.body.data.approval.id}/decide`)
+      .send({ decision: 'approved' });
+    expect(selfApprove.status).toBe(403);
+    expect(JSON.stringify(selfApprove.body)).toContain('CRED_SELF_APPROVAL_FORBIDDEN');
+
+    // An independent approver can (the approval stays pending after the block).
+    const approve = await authClient('CMO', { uid: APPROVER_UID })
+      .post(`/api/v1/credentials/approvals/${req.body.data.approval.id}/decide`)
+      .send({ decision: 'approved' });
+    expect(approve.status).toBe(200);
+
+    // The privilege may be suspended, but NOT re-activated via a status change.
+    const list = await authClient('ADMIN').get(`/api/v1/credentials/staff/${staffUid}`);
+    const anesPriv = list.body.data.credentials.find((c) => c.name === 'anesthesia_finalize');
+    expect(anesPriv).toBeDefined();
+    const suspend = await authClient('ADMIN')
+      .patch(`/api/v1/credentials/${anesPriv.id}/status`)
+      .send({ status: 'suspended' });
+    expect(suspend.status).toBe(200);
+    const reactivate = await authClient('ADMIN')
+      .patch(`/api/v1/credentials/${anesPriv.id}/status`)
+      .send({ status: 'active' });
+    expect(reactivate.status).toBe(403);
+    expect(JSON.stringify(reactivate.body)).toContain('CRED_PRIVILEGE_ACTIVATION_VIA_APPROVAL');
+  });
+
   test('expiry radar lists the registration expiring within 60 days', async () => {
     const res = await authClient('ADMIN').get('/api/v1/credentials/expiring').query({ days: 60 });
     expect(res.status).toBe(200);
@@ -148,7 +194,7 @@ d('Credentialing & privileging — deep round-trip (roadmap D3)', () => {
       });
     expect(request.status).toBe(201);
 
-    const approval = await authClient('ADMIN')
+    const approval = await authClient('MEDICAL_SUPERINTENDENT', { uid: APPROVER_UID })
       .post(`/api/v1/credentials/approvals/${request.body.data.approval.id}/decide`)
       .send({ decision: 'approved' });
     expect(approval.status).toBe(200);

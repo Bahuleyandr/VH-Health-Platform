@@ -19,10 +19,48 @@ import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  assertPrivilegeForGate,
+  isGateEnabled,
+  privilegeKey,
+} from '../staff/credentialingService.js';
 
 export { istDateString };
 
 const tenantOr = (tenantId) => requireTenantId(tenantId);
+
+// ── OBGyn labour-ward credential gate (credential-hardening 2026-07-13) ──────
+// The responsible obstetrician for a labour-ward act (attending_obstetrician on
+// admission, delivered_by on a delivery) must hold an active
+// `obgyn_labour_ward_access` privilege. This mirrors theatre gating on the
+// surgeon: the check is on the CLINICIAN PERFORMING the act, not whoever typed
+// the record — so there is no admin bypass (an admin recording a delivery does
+// not change who delivered it). Additive + env-flagged (default OFF): nothing
+// changes until an operator enables it after credentialing the obstetricians.
+export function obgynLabourWardGateConfig() {
+  return {
+    key: privilegeKey(process.env.OBGYN_LABOUR_WARD_PRIVILEGE_KEY || 'obgyn_labour_ward_access'),
+    enabled: isGateEnabled('OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED'),
+  };
+}
+
+async function assertObgynLabourWardPrivilege(responsibleUid, tenantId, gate) {
+  const cfg = obgynLabourWardGateConfig();
+  if (!cfg.enabled) return;
+  if (!responsibleUid) {
+    throw AppError.badRequest(
+      'A responsible obstetrician must be named for this labour-ward act while the OBGyn credential gate is enabled.',
+      'OBGYN_RESPONSIBLE_OBSTETRICIAN_REQUIRED',
+    );
+  }
+  await assertPrivilegeForGate({
+    staffUid: String(responsibleUid),
+    privilegeName: cfg.key,
+    tenantId,
+    gate,
+    enabled: true,
+  });
+}
 
 // ── Pregnancy episode ────────────────────────────────────────────────
 
@@ -1354,6 +1392,7 @@ export async function admitToLabor({
   if (admission_id) {
     await assertAdmissionInTenant(tid, admission_id, pregnancy.patient_uid);
   }
+  await assertObgynLabourWardPrivilege(attending_obstetrician, tid, 'maternity_labor_admission');
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_labor_admissions
@@ -1541,6 +1580,7 @@ export async function recordDelivery({
       throw AppError.forbidden('Labor admission belongs to a different pregnancy');
     }
   }
+  await assertObgynLabourWardPrivilege(delivered_by, tid, 'maternity_delivery');
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_deliveries

@@ -329,11 +329,13 @@ describe('Worker P credentialing authorization', () => {
   it('requires staff to exist in the caller tenant before adding credentials', async () => {
     queryRawUnsafeMock.mockResolvedValueOnce([]);
 
+    // Non-privilege evidence still goes through addCredential (privileges are
+    // approval-only). This exercises the staff-in-tenant guard.
     await expect(credentialingService.addCredential({
       tenantId: TENANT_ID,
       staffUid: STAFF_UID,
-      credentialType: 'privilege',
-      name: 'OT_OPERATE',
+      credentialType: 'registration',
+      name: 'State Medical Council Registration',
     }, { actorUid: OTHER_STAFF_UID })).rejects.toMatchObject({
       statusCode: 404,
       code: 'CRED_STAFF_NOT_FOUND',

@@ -265,22 +265,29 @@ export async function upsertPrivilegeCatalog({
 export async function addCredential({
   staffUid, credentialType, name, issuingBody = null, registrationNumber = null,
   validFrom = null, validUntil = null, documentRef = null, notes = null,
-  tenantId = null, privilegeCatalogId = null, metadata = null,
+  tenantId = null, metadata = null,
 } = {}, context = {}) {
   const tid = tenantOr(tenantId);
   if (!staffUid) throw AppError.badRequest('staff_uid required', 'CRED_STAFF_REQUIRED');
   if (!TYPES.includes(credentialType)) {
     throw AppError.badRequest(`credential_type must be one of ${TYPES.join(', ')}`, 'CRED_BAD_TYPE');
   }
+  // Two-person credentialing: a privilege (the thing clinical gates check) may
+  // NOT be recorded directly as an active grant. It must flow through
+  // requestPrivilegeGrant → decidePrivilegeApproval so a second, independent
+  // approver signs it off. Ordinary evidence (registration, qualification,
+  // training, immunization) is still direct-entry.
+  if (credentialType === 'privilege') {
+    throw AppError.badRequest(
+      'Privileges cannot be recorded directly. Submit a privilege request (POST /credentials/privilege-requests) and have an independent approver decide it.',
+      'CRED_PRIVILEGE_REQUIRES_APPROVAL',
+    );
+  }
   await assertStaffInTenant(staffUid, tid);
-  const catalog = credentialType === 'privilege'
-    ? await resolveCatalog({ tenantId: tid, privilegeCatalogId, name, required: true })
-    : null;
-  const cleanName = catalog?.privilege_key || cleanText(name, 200);
+  const cleanName = cleanText(name, 200);
   if (!cleanName) throw AppError.badRequest('name required', 'CRED_NAME_REQUIRED');
-  const renewalDueAt = catalog && validUntil
-    ? new Date(new Date(validUntil).getTime() - catalog.review_cadence_days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    : null;
+  // Non-privilege evidence has no catalog-driven renewal cadence.
+  const renewalDueAt = null;
 
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -295,7 +302,7 @@ export async function addCredential({
       cleanText(registrationNumber, 120), normalizeDate(validFrom, 'valid_from'),
       normalizeDate(validUntil, 'valid_until'), cleanText(documentRef, 255),
       cleanText(notes, 400), maybeUuid(context.actorUid, 'actorUid'),
-      catalog?.id || null, catalog?.review_cadence_days || null, renewalDueAt,
+      null, null, renewalDueAt,
       JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
     );
     return rows[0];
@@ -378,6 +385,28 @@ export async function decidePrivilegeApproval({
     if (!approvals[0]) throw AppError.notFound('Privilege approval not found');
     if (approvals[0].status !== 'pending') {
       throw AppError.conflict('Privilege approval is no longer pending');
+    }
+    // Two-person integrity: the approver must be a different person from the
+    // requester, and cannot approve a grant made out to themselves.
+    if (cleanDecision === 'approved') {
+      const meta = approvals[0].metadata && typeof approvals[0].metadata === 'object'
+        ? approvals[0].metadata
+        : (() => { try { return JSON.parse(approvals[0].metadata || '{}'); } catch { return {}; } })();
+      const approver = actorUid ? String(actorUid) : null;
+      const requestedBy = meta.requested_by ? String(meta.requested_by) : null;
+      const granteeUid = meta.staff_uid ? String(meta.staff_uid) : null;
+      if (approver && requestedBy && approver === requestedBy) {
+        throw AppError.forbidden(
+          'You cannot approve a privilege grant you requested — an independent approver is required.',
+          'CRED_SELF_APPROVAL_FORBIDDEN',
+        );
+      }
+      if (approver && granteeUid && approver === granteeUid) {
+        throw AppError.forbidden(
+          'You cannot approve a privilege grant made out to yourself.',
+          'CRED_SELF_GRANT_APPROVAL_FORBIDDEN',
+        );
+      }
     }
     const credentialId = normalizeId(approvals[0].subject_resource_id, 'subject_resource_id');
     const approvalRows = await tx.$queryRawUnsafe(
@@ -472,12 +501,28 @@ export async function updateCredentialStatus(id, { status, notes = null, tenantI
   if (!CREDENTIAL_STATUSES.includes(status)) {
     throw AppError.badRequest('status must be active|suspended|revoked', 'CRED_BAD_STATUS');
   }
+  const tid = tenantOr(tenantId);
+  const credId = normalizeId(id);
+  // Two-person credentialing: this endpoint may suspend or revoke a privilege,
+  // but it must NOT be a back door to activating one — that only happens through
+  // an independently-approved grant (decidePrivilegeApproval).
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, credential_type FROM staff_credentials WHERE id = $1 AND tenant_id = $2::uuid`,
+    credId, tid,
+  );
+  if (!existing.length) throw AppError.notFound('Credential not found');
+  if (existing[0].credential_type === 'privilege' && status === 'active') {
+    throw AppError.forbidden(
+      'A privilege cannot be activated through a status change. Activate it via an independently-approved privilege request; this endpoint may only suspend or revoke.',
+      'CRED_PRIVILEGE_ACTIVATION_VIA_APPROVAL',
+    );
+  }
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE staff_credentials SET
        status = $2, notes = COALESCE($3, notes),
        verified_by = $4::uuid, verified_at = NOW(), updated_at = NOW()
      WHERE id = $1 AND tenant_id = $5::uuid RETURNING *`,
-    normalizeId(id), status, cleanText(notes, 400), maybeUuid(context.actorUid, 'actorUid'), tenantOr(tenantId),
+    credId, status, cleanText(notes, 400), maybeUuid(context.actorUid, 'actorUid'), tid,
   );
   if (!rows.length) throw AppError.notFound('Credential not found');
   return rows[0];
