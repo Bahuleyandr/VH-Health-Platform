@@ -46,7 +46,7 @@ metadata:
     vhhealth.app/drill-date: "${DRILL_DATE}"     # filled by operator
 spec:
   description: "DR restore drill — temporary, DELETE after drill"
-  imageName: ghcr.io/cloudnative-pg/postgresql:17.2-1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.2-standard-bookworm
   instances: 1
   # Single instance for the drill — we need data verification, not HA.
   # Do NOT promote to primary; access is read-only via kubectl exec.

@@ -33,7 +33,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   description: "VH Health primary PostgreSQL cluster (3 instances, 1 sync)"
-  imageName: ghcr.io/cloudnative-pg/postgresql:17.2-1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.2-standard-bookworm
   instances: 3
   minSyncReplicas: 1
   maxSyncReplicas: 1
@@ -69,14 +69,20 @@ spec:
   # SUPERUSER against the application DB at initdb — so it lands BEFORE the
   # PreSync migration Job and that Job's `db:ensure-pgvector` becomes a safe
   # idempotent no-op. The ONLY residual to confirm is image-level: the
-  # ghcr.io/cloudnative-pg/postgresql:17.2-1 image must actually SHIP the pgvector
+  # ghcr.io/cloudnative-pg/postgresql:18.2-standard-bookworm image must actually SHIP the pgvector
   # shared library (the .so), or `CREATE EXTENSION vector` fails for everyone —
   # even the superuser — with "could not open extension control file". Verify on
   # first bring-up: `kubectl cnpg psql vhhealth-pg -- -c "SELECT 1 FROM
   # pg_available_extensions WHERE name='vector'"` must return a row (this is what
   # ensure-pgvector-extension.mjs probes too). If it does NOT, switch imageName to
   # a pgvector-bearing image (e.g. a custom build or ghcr.io/cloudnative-pg/
-  # postgresql:17.2-NN with pgvector) before the first sync.
+  # postgresql:18.2-* with pgvector) before the first sync.
+  #
+  # MAJOR UPGRADE (17 -> 18, owner decision 2026-07-12): on an EXISTING cluster
+  # this imageName bump triggers CNPG's declarative offline major upgrade
+  # (pg_upgrade; requires operator >= 1.26, a completed backup, and a downtime
+  # window). On first bring-up it simply bootstraps 18. Do NOT sync this to a
+  # running 17 cluster without the runbook step.
   #
   # OPERATOR: with enableSuperuserAccess:false the operator no longer manages a
   # `postgres` superuser password; the vhhealth-pg-superuser Secret becomes

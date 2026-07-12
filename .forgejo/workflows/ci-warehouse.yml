@@ -30,7 +30,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_USER: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -48,7 +48,7 @@ jobs:
 
       - uses: https://data.forgejo.org/actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '26.5.0'
           cache: npm
           cache-dependency-path: apps/backend/package-lock.json
 

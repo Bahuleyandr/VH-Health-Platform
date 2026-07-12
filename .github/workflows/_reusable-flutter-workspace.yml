@@ -36,7 +36,7 @@ jobs:
           # formatter drifts with each Dart release and silently re-breaks the
           # format check; 3.41.9 matches the workspace's declared SDK (root
           # pubspec `sdk: ^3.8.0`, see CLAUDE.md) and the local dev toolchain.
-          flutter-version: 3.41.9
+          flutter-version: 3.44.0
           cache: true
 
       - name: Print versions

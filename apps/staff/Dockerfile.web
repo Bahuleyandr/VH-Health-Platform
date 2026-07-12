@@ -19,7 +19,7 @@
 # different VH_BASE_URL — this Dockerfile is the LAN variant.
 
 ARG FLUTTER_VERSION=3.41.7
-ARG FLUTTER_IMAGE=ghcr.io/cirruslabs/flutter:3.41.7@sha256:644e3cea0a8440ce75804b67ceab77b16a87b39d9e9d89b07aceca7a98af1aa3
+ARG FLUTTER_IMAGE=ghcr.io/cirruslabs/flutter:3.44.0@sha256:46691e311715845de03a3ba4753a475476936805b29431b1f00f1816981033f8
 ARG NGINX_IMAGE=nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
 
 # ---- Stage 1: Flutter build ------------------------------------------
