@@ -21,6 +21,7 @@ import { jest } from '@jest/globals';
 import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
+import { AppError } from '../../utils/AppError.js';
 
 // --- mocks (must precede the dynamic imports) -----------------------------
 jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
@@ -147,9 +148,70 @@ describe('POST /abdm/consent/on-notify', () => {
       consentId: 'cr-9',
       purpose: { code: 'CAREMGT' },
       patient: { id: 'abha@sbx' },
+      hip: { id: 'TEST_HIP' },
+      hiu: { id: 'HIU-TEST' },
+      consentManager: { id: 'CM-TEST' },
       hiTypes: ['Prescription'],
+      permission: {
+        dateRange: { from: '2026-01-01', to: '2026-12-31' },
+        dataEraseAt: '2027-01-01',
+      },
     };
     const signature = 'Zm9vYmFyc2lnbmF0dXJl';
+
+    const res = await request(buildApp())
+      .post('/consent/on-notify')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-cm-id', 'CM-TEST')
+      .send({
+        notification: {
+          consentRequestId: 'cr-9',
+          purpose: { code: 'CAREMGT' },
+          hiTypes: ['Prescription'],
+          patient: { id: 'abha@sbx' },
+          hip: { id: 'TEST_HIP' },
+          hiu: { id: 'HIU-TEST' },
+          consentManager: { id: 'CM-TEST' },
+          permission: {
+            dateRange: { from: '2026-01-01', to: '2026-12-31' },
+            dataEraseAt: '2027-01-01',
+          },
+          consentDetail,
+          signature,
+        },
+      });
+
+    expect(res.status).toBe(202);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const arg = spy.mock.calls[0][0];
+    expect(arg).toMatchObject({
+      consentRequestId: 'cr-9',
+      purpose: 'CAREMGT',
+      hiTypes: ['Prescription'],
+      patient: { id: 'abha@sbx' },
+      hip: { id: 'TEST_HIP' },
+      authenticatedHipId: 'TEST_HIP',
+      authenticatedConsentManagerId: 'CM-TEST',
+      hiu: { id: 'HIU-TEST' },
+      consentManager: { id: 'CM-TEST' },
+      dateRange: { from: '2026-01-01', to: '2026-12-31' },
+      expiry: '2027-01-01',
+      consentArtefact: consentDetail,
+      signature,
+    });
+    expect(spy.mock.calls[0][1]).toEqual({
+      callbackTenantId: expect.any(String),
+      strict: false,
+    });
+  });
+
+  it('surfaces the consent binding mismatch machine code', async () => {
+    jest.spyOn(abdmService, 'handleConsentRequest').mockRejectedValue(
+      AppError.forbidden(
+        'Consent artefact does not match the notification wrapper',
+        'ABDM_CONSENT_BINDING_MISMATCH',
+      ),
+    );
 
     const res = await request(buildApp())
       .post('/consent/on-notify')
@@ -159,15 +221,12 @@ describe('POST /abdm/consent/on-notify', () => {
           consentRequestId: 'cr-9',
           purpose: { code: 'CAREMGT' },
           patient: { id: 'abha@sbx' },
-          consentDetail,
-          signature,
+          consentDetail: { consentId: 'different-consent' },
+          signature: 'Zm9vYmFyc2lnbmF0dXJl',
         },
       });
 
-    expect(res.status).toBe(202);
-    expect(spy).toHaveBeenCalledTimes(1);
-    const arg = spy.mock.calls[0][0];
-    expect(arg.consentArtefact).toEqual(consentDetail);
-    expect(arg.signature).toBe(signature);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('ABDM_CONSENT_BINDING_MISMATCH');
   });
 });

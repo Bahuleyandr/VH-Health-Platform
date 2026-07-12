@@ -32,6 +32,138 @@ function consentManagerId() {
   return process.env.ABDM_CM_ID || (ABDM_CONFIG.enabled ? null : 'sbx');
 }
 
+const CONSENT_ARTEFACT_REPLAY_NAMESPACE = 'abdm-consent-artefact-sha256';
+
+function normalizeConsentText(value) {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
+
+function normalizeConsentTimestamp(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeConsentHiTypes(value) {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const normalized = value.map(normalizeConsentText);
+  return normalized.some((item) => !item) ? null : normalized;
+}
+
+function canonicalConsentHiTypes(value) {
+  return [...new Set(value)].sort((left, right) => left.localeCompare(right));
+}
+
+function consentBindingMismatch(fields) {
+  return AppError.forbidden(
+    'Consent artefact does not match the notification wrapper',
+    'ABDM_CONSENT_BINDING_MISMATCH',
+    { fields: [...new Set(fields)] },
+  );
+}
+
+function projectVerifiedConsent(payload) {
+  const invalidFields = [];
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw consentBindingMismatch(['artefact']);
+  }
+
+  const projection = {
+    consentId: normalizeConsentText(payload.consentId),
+    patientAbha: normalizeConsentText(payload.patient?.id),
+    hipId: normalizeConsentText(payload.hip?.id),
+    hiuId: normalizeConsentText(payload.hiu?.id),
+    consentManagerId: normalizeConsentText(payload.consentManager?.id),
+    purpose: normalizeConsentText(payload.purpose?.code ?? payload.purpose),
+    hiTypes: normalizeConsentHiTypes(payload.hiTypes),
+    dateFrom: normalizeConsentTimestamp(payload.permission?.dateRange?.from),
+    dateTo: normalizeConsentTimestamp(payload.permission?.dateRange?.to),
+    expiryDate: normalizeConsentTimestamp(payload.permission?.dataEraseAt),
+    requesterName: normalizeConsentText(payload.requester?.name),
+  };
+
+  const requiredScalars = [
+    ['consentId', projection.consentId],
+    ['patient.id', projection.patientAbha],
+    ['hip.id', projection.hipId],
+    ['hiu.id', projection.hiuId],
+    ['consentManager.id', projection.consentManagerId],
+    ['purpose', projection.purpose],
+  ];
+  for (const [field, value] of requiredScalars) {
+    if (!value) invalidFields.push(field);
+  }
+  if (!projection.hiTypes) invalidFields.push('hiTypes');
+  if (!projection.dateFrom) invalidFields.push('dateRange.from');
+  if (!projection.dateTo) invalidFields.push('dateRange.to');
+  if (!projection.expiryDate) invalidFields.push('expiry');
+
+  if (invalidFields.length > 0) {
+    throw consentBindingMismatch(invalidFields);
+  }
+  return projection;
+}
+
+function assertConsentWrapperBinding(wrapper, verified) {
+  const mismatches = [];
+
+  const compareText = (field, outerValue, verifiedValue, { required = false } = {}) => {
+    if (outerValue === undefined || outerValue === null || outerValue === '') {
+      if (required) mismatches.push(field);
+      return;
+    }
+    if (normalizeConsentText(outerValue) !== verifiedValue) mismatches.push(field);
+  };
+  const compareTimestamp = (field, outerValue, verifiedValue, { required = false } = {}) => {
+    if (outerValue === undefined || outerValue === null || outerValue === '') {
+      if (required) mismatches.push(field);
+      return;
+    }
+    const normalized = normalizeConsentTimestamp(outerValue);
+    if (!normalized || normalized.getTime() !== verifiedValue.getTime()) mismatches.push(field);
+  };
+
+  const required = { required: true };
+  compareText('consentId', wrapper.consentRequestId, verified.consentId, required);
+  compareText('patient.id', wrapper.patient?.id, verified.patientAbha, required);
+  compareText('hip.id', wrapper.hip?.id, verified.hipId, required);
+  compareText('hip.id', wrapper.authenticatedHipId, verified.hipId, required);
+  compareText('hiu.id', wrapper.hiu?.id, verified.hiuId, required);
+  compareText('purpose', wrapper.purpose?.code ?? wrapper.purpose, verified.purpose, required);
+  compareText(
+    'consentManager.id',
+    wrapper.consentManager?.id,
+    verified.consentManagerId,
+    required,
+  );
+  compareText(
+    'consentManager.id',
+    wrapper.authenticatedConsentManagerId,
+    verified.consentManagerId,
+  );
+
+  const configuredConsentManagerId = normalizeConsentText(process.env.ABDM_CM_ID);
+  if (configuredConsentManagerId) {
+    compareText('consentManager.id', configuredConsentManagerId, verified.consentManagerId);
+  }
+
+  const normalizedWrapperHiTypes = normalizeConsentHiTypes(wrapper.hiTypes);
+  if (!normalizedWrapperHiTypes || JSON.stringify(canonicalConsentHiTypes(normalizedWrapperHiTypes))
+    !== JSON.stringify(canonicalConsentHiTypes(verified.hiTypes))) {
+    mismatches.push('hiTypes');
+  }
+
+  compareTimestamp('dateRange.from', wrapper.dateRange?.from, verified.dateFrom, required);
+  compareTimestamp('dateRange.to', wrapper.dateRange?.to, verified.dateTo, required);
+  compareTimestamp('expiry', wrapper.expiry, verified.expiryDate, required);
+
+  if (mismatches.length > 0) {
+    throw consentBindingMismatch(mismatches);
+  }
+}
+
 function requireTenantId(tenantId) {
   if (!tenantId) {
     throw AppError.forbidden('Tenant context is required for ABDM operations', 'ABDM_TENANT_REQUIRED');
@@ -338,7 +470,7 @@ class ABDMService {
         'ABDM consent-artefact signature verification is DISABLED — set ABDM_VERIFY_CONSENT_ARTEFACT=true and ABDM_CM_PUBLIC_KEY before production',
         { consentRequestId },
       );
-      return;
+      return null;
     }
     const publicKey = consentManagerPublicKey();
     if (!publicKey) {
@@ -353,13 +485,21 @@ class ABDMService {
         'ABDM_CONSENT_UNSIGNED',
       );
     }
-    const payload = typeof consentArtefact === 'string'
-      ? consentArtefact
-      : JSON.stringify(consentArtefact);
+    let serializedPayload;
+    try {
+      serializedPayload = typeof consentArtefact === 'string'
+        ? consentArtefact
+        : JSON.stringify(consentArtefact);
+    } catch (_err) {
+      throw consentBindingMismatch(['artefact']);
+    }
+    if (!serializedPayload) {
+      throw consentBindingMismatch(['artefact']);
+    }
     let verified = false;
     try {
       const verifier = crypto.createVerify('RSA-SHA256');
-      verifier.update(payload);
+      verifier.update(serializedPayload);
       verifier.end();
       // This is a Node crypto `Verify` object — the algorithm is already pinned
       // at createVerify('RSA-SHA256') above, and the arg order here is the crypto
@@ -384,15 +524,32 @@ class ABDMService {
         'ABDM_CONSENT_SIG_INVALID',
       );
     }
+
+    let verifiedPayload;
+    try {
+      verifiedPayload = JSON.parse(serializedPayload);
+    } catch (_err) {
+      throw consentBindingMismatch(['artefact']);
+    }
+
+    return {
+      payload: verifiedPayload,
+      rawPayload: serializedPayload,
+      sha256: crypto.createHash('sha256').update(serializedPayload).digest('hex'),
+    };
   }
 
-  async handleConsentRequest(consentRequest) {
+  async handleConsentRequest(consentRequest, { callbackTenantId = null, strict = false } = {}) {
     const {
       consentRequestId,
       purpose,
       hiTypes,
       patient,
+      hip,
       hiu,
+      consentManager,
+      authenticatedHipId,
+      authenticatedConsentManagerId,
       requester,
       dateRange,
       expiry,
@@ -400,21 +557,60 @@ class ABDMService {
       signature,
     } = consentRequest;
 
-    if (!consentRequestId || !purpose || !patient?.id) {
-      throw AppError.badRequest('Invalid consent request payload', 'INVALID_CONSENT_REQUEST');
-    }
-
-    // Validate purpose
-    if (!ABDM_CONFIG.PURPOSES.includes(purpose)) {
-      throw AppError.badRequest(`Invalid consent purpose: ${purpose}`, 'INVALID_PURPOSE');
-    }
-
     // Verify the CM-signed consent artefact BEFORE trusting any of the
     // notification body (#3). When the operator has supplied the CM public key
     // + enabled verification, a missing/invalid signature is rejected; when
     // verification is not configured we proceed but record that the chain is
     // operator-gated (never hardcode a sandbox trust in prod).
-    this._verifyConsentArtefact({ consentRequestId, consentArtefact, signature });
+    const verification = this._verifyConsentArtefact({
+      consentRequestId,
+      consentArtefact,
+      signature,
+    });
+
+    let authoritative;
+    if (verification) {
+      authoritative = projectVerifiedConsent(verification.payload);
+      assertConsentWrapperBinding({
+        consentRequestId,
+        purpose,
+        hiTypes,
+        patient,
+        hip,
+        hiu,
+        consentManager,
+        authenticatedHipId,
+        authenticatedConsentManagerId,
+        dateRange,
+        expiry,
+      }, authoritative);
+    } else {
+      if (!consentRequestId || !purpose || !patient?.id) {
+        throw AppError.badRequest('Invalid consent request payload', 'INVALID_CONSENT_REQUEST');
+      }
+      authoritative = {
+        consentId: consentRequestId,
+        patientAbha: patient.id,
+        hipId: ABDM_CONFIG.hipId || null,
+        hiuId: hiu?.id || null,
+        consentManagerId: consentManager?.id || consentManagerId(),
+        purpose,
+        hiTypes: hiTypes || [],
+        dateFrom: dateRange?.from ? new Date(dateRange.from) : null,
+        dateTo: dateRange?.to ? new Date(dateRange.to) : null,
+        expiryDate: expiry
+          ? new Date(expiry)
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        requesterName: requester?.name || null,
+      };
+    }
+
+    if (!ABDM_CONFIG.PURPOSES.includes(authoritative.purpose)) {
+      throw AppError.badRequest(
+        `Invalid consent purpose: ${authoritative.purpose}`,
+        'INVALID_PURPOSE',
+      );
+    }
 
     // Resolve the patient AND their tenant from the ABHA. ABHA numbers are a
     // national id, so the same person can be registered at facilities in more
@@ -422,45 +618,77 @@ class ABDMService {
     // it; if it spans MULTIPLE tenants we cannot deterministically pick one
     // from the (tenant-less) ABDM notification, so we reject rather than
     // silently leak into the default tenant.
-    const { patientUid, tenantId } = await this._resolvePatientTenantByAbha(patient.id);
+    const { patientUid, tenantId } = await this._resolvePatientTenantByAbha(authoritative.patientAbha);
+    if (strict && (!callbackTenantId || String(callbackTenantId) !== String(tenantId))) {
+      throw consentBindingMismatch(['tenant']);
+    }
 
     // Everything below runs scoped to the patient's tenant so the abdm_consents
     // insert is RLS-checked into THAT tenant (the GUC-reading column default
     // resolves to it) and the duplicate probe only sees that tenant's rows.
     return setTenant(tenantId, async (tx) => {
+      if (verification) {
+        const replayClaim = await tx.$queryRawUnsafe(
+          `INSERT INTO interop_replay_guard (namespace, request_id, expires_at)
+           VALUES ($1, $2, 'infinity'::timestamptz)
+           ON CONFLICT (namespace, request_id) DO NOTHING
+           RETURNING id`,
+          CONSENT_ARTEFACT_REPLAY_NAMESPACE,
+          verification.sha256,
+        );
+        if (replayClaim.length === 0) {
+          throw AppError.conflict(
+            'Consent artefact has already been used',
+            'ABDM_CONSENT_ARTEFACT_REUSED',
+          );
+        }
+      }
+
       const existing = await tx.$queryRawUnsafe(
         `SELECT id FROM abdm_consents WHERE consent_id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-        consentRequestId, tenantId,
+        authoritative.consentId, tenantId,
       );
       if (existing.length > 0) {
         throw AppError.conflict('Consent request already exists', 'DUPLICATE_CONSENT');
       }
 
-      const expiryDate = expiry ? new Date(expiry) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // default 30 days
+      const artefactEvidence = verification
+        ? JSON.stringify({
+          verification: {
+            signatureVerified: true,
+            artefactHash: verification.sha256,
+            patientAbha: authoritative.patientAbha,
+            consentManagerId: authoritative.consentManagerId,
+          },
+        })
+        : null;
 
       const result = await tx.$queryRawUnsafe(
         `INSERT INTO abdm_consents
           (consent_id, patient_uid, tenant_id, hip_id, hiu_id, purpose, hi_types,
-           date_range_from, date_range_to, expiry_date, status, requester_name, created_at)
-         VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, 'REQUESTED', $11, NOW())
+           date_range_from, date_range_to, expiry_date, status, requester_name,
+           consent_artifact, created_at)
+         VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
+                 'REQUESTED', $11, $12::jsonb, NOW())
          RETURNING id, consent_id, patient_uid, purpose, hi_types, status, expiry_date, requester_name, created_at`,
-        consentRequestId,
+        authoritative.consentId,
         patientUid,
         tenantId,
-        ABDM_CONFIG.hipId || null,
-        hiu?.id || null,
-        purpose,
-        hiTypes || [],
-        dateRange?.from ? new Date(dateRange.from) : null,
-        dateRange?.to ? new Date(dateRange.to) : null,
-        expiryDate,
-        requester?.name || null,
+        authoritative.hipId,
+        authoritative.hiuId,
+        authoritative.purpose,
+        authoritative.hiTypes,
+        authoritative.dateFrom,
+        authoritative.dateTo,
+        authoritative.expiryDate,
+        authoritative.requesterName,
+        artefactEvidence,
       );
 
       logger.info('ABDM consent request created', {
-        consentId: consentRequestId,
+        consentId: authoritative.consentId,
         patientUid,
-        purpose,
+        purpose: authoritative.purpose,
       });
 
       return result[0];
@@ -494,15 +722,17 @@ class ABDMService {
     }
 
     // Build consent artifact
+    const verifiedPatientAbha = consent.consent_artifact?.verification?.patientAbha;
+    const verifiedConsentManagerId = consent.consent_artifact?.verification?.consentManagerId;
     const consentArtifact = {
       schemaVersion: '1.0',
       consentId,
       createdAt: new Date().toISOString(),
       purpose: { code: consent.purpose },
-      patient: { id: consent.patient_abha },
+      patient: { id: verifiedPatientAbha || consent.patient_abha },
       hip: { id: consent.hip_id || ABDM_CONFIG.hipId },
       hiu: { id: consent.hiu_id },
-      consentManager: { id: consentManagerId() },
+      consentManager: { id: verifiedConsentManagerId || consentManagerId() },
       hiTypes: consent.hi_types,
       permission: {
         accessMode: 'VIEW',
@@ -516,9 +746,16 @@ class ABDMService {
 
     const result = await prisma.$queryRawUnsafe(
       `UPDATE abdm_consents
-       SET status = 'GRANTED', granted_at = NOW(), consent_artifact = $1
+       SET status = 'GRANTED', granted_at = NOW(),
+           consent_artifact = jsonb_set(
+             COALESCE(consent_artifact, '{}'::jsonb),
+             '{grantedPayload}',
+             $1::jsonb,
+             true
+           )
        WHERE consent_id = $2
-       RETURNING id, consent_id, patient_uid, purpose, status, granted_at, consent_artifact`,
+       RETURNING id, consent_id, patient_uid, purpose, status, granted_at,
+                 $1::jsonb AS consent_artifact`,
       JSON.stringify(consentArtifact), consentId
     );
 
@@ -1031,7 +1268,7 @@ class ABDMService {
     const result = await prisma.$queryRawUnsafe(
       `SELECT c.id, c.consent_id, c.patient_uid, c.hip_id, c.hiu_id, c.purpose,
               c.hi_types, c.date_range_from, c.date_range_to, c.expiry_date,
-              c.status, c.requester_name, c.granted_at, c.revoked_at,
+               c.status, c.requester_name, c.consent_artifact, c.granted_at, c.revoked_at,
               u.abha_number AS patient_abha
        FROM abdm_consents c
        LEFT JOIN users u ON u.uid = c.patient_uid

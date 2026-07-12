@@ -139,7 +139,14 @@ callbackRouter.post('/consent/on-notify', async (req, res, next) => {
       purpose: notification.purpose?.code || notification.purpose,
       hiTypes: notification.hiTypes || notification.hi_types || [],
       patient: notification.patient || {},
+      hip: notification.hip || {},
       hiu: notification.hiu || {},
+      consentManager:
+        notification.consentManager
+        || notification.consent?.consentManager
+        || {},
+      authenticatedHipId: req.headers['x-hip-id'] || null,
+      authenticatedConsentManagerId: req.headers['x-cm-id'] || null,
       requester: notification.requester || {},
       dateRange: notification.permission?.dateRange || notification.dateRange || {},
       expiry: notification.permission?.dataEraseAt || notification.expiry,
@@ -163,12 +170,18 @@ callbackRouter.post('/consent/on-notify', async (req, res, next) => {
         || null,
     };
 
-    const consent = await abdmService.handleConsentRequest(consentRequest);
+    const consent = await abdmService.handleConsentRequest(consentRequest, {
+      callbackTenantId: req.tenantId,
+      strict: req.abdmStrictTenant,
+    });
 
     return success(res, { consentId: consent.consent_id }, 'Consent request received', 202);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return error(res, err.message, err.statusCode, {
+        ...(err.details || {}),
+        topLevel: { code: err.code },
+      });
     }
     logger.error('Failed to handle ABDM consent notification', { error: err.message });
     next(err);
