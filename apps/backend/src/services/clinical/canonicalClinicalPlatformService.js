@@ -561,6 +561,16 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
 
 export async function recordCanonicalClinicalEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
+  const patientIdentityProvided = input.patientUid != null || input.patient_uid != null;
+  const atomicPatientWrite = options.db != null
+    && patientIdentityProvided
+    && options.allowPartial !== true;
+  const requireTimeline = atomicPatientWrite
+    || options.strict === true
+    || options.requireTimeline === true;
+  const requireAudit = atomicPatientWrite
+    || options.strict === true
+    || options.requireAudit === true;
   const resourceTable = input.resourceTable || input.resource_table || input.sourceTable || input.source_table;
   const resourceId = input.resourceId || input.resource_id || input.sourceId || input.source_id;
   const timeline = await recordTimelineEvent({
@@ -569,6 +579,11 @@ export async function recordCanonicalClinicalEvent(input = {}, options = {}) {
     sourceId: input.sourceId || resourceId,
     idempotencyKey: input.timelineIdempotencyKey || input.timeline_idempotency_key,
   }, { db });
+  if (requireTimeline && !timeline) {
+    const error = new Error('Canonical clinical timeline event was not recorded');
+    error.code = 'CANONICAL_TIMELINE_REQUIRED';
+    throw error;
+  }
   const audit = await recordClinicalAuditEvent({
     ...input,
     action: input.action || input.eventType || input.event_type,
@@ -576,6 +591,11 @@ export async function recordCanonicalClinicalEvent(input = {}, options = {}) {
     resourceId,
     idempotencyKey: input.auditIdempotencyKey || input.audit_idempotency_key,
   }, { db });
+  if (requireAudit && !audit) {
+    const error = new Error('Canonical clinical audit event was not recorded');
+    error.code = 'CANONICAL_AUDIT_REQUIRED';
+    throw error;
+  }
   return { timeline, audit };
 }
 

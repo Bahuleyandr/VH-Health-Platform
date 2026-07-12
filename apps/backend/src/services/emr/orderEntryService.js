@@ -1111,6 +1111,7 @@ async function materializeInvestigationForClinicalOrder(order) {
     collection_deadline_at: details.collection_deadline_at ?? null,
     fasting_required: details.fasting_required ?? null,
     fasting_instructions: firstText(details.fasting_instructions),
+    tenantId: order.tenant_id,
   };
 
   try {

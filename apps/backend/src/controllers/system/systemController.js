@@ -19,7 +19,9 @@ const DEFAULT_SETTINGS = {
   notificationsEnabled: true,
   smsEnabled: true,
   emailEnabled: false,
-  auditLogRetentionDays: 90,
+  // Display fallback only. Enforcement uses tenant data_retention_policies;
+  // migration 576 raises the searchable request/operational baseline to 365d.
+  auditLogRetentionDays: 365,
   sessionTimeoutMinutes: 60,
   maxLoginAttempts: 5,
 };

@@ -944,6 +944,7 @@ model attendance_logs {
   @@index([tenant_id], map: "idx_attendance_logs_tenant_id")
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model audit_log {
   id                  Int       @id @default(autoincrement())
   uid                 String?   @db.Uuid
@@ -978,8 +979,13 @@ model audit_log {
   @@index([user_id])
   @@index([device_type, created_at(sort: Desc)], map: "idx_audit_log_device_type_created", where: raw("(device_type IS NOT NULL)"))
   @@index([tenant_id], map: "idx_audit_log_tenant_id")
+  @@index([tenant_id, actor_uid, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_log_tenant_actor_time", where: raw("(actor_uid IS NOT NULL)"))
+  @@index([tenant_id, resource, resource_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_log_tenant_resource_time", where: raw("(resource IS NOT NULL)"))
+  @@index([tenant_id, user_role, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_log_tenant_role_time", where: raw("(user_role IS NOT NULL)"))
+  @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_log_tenant_time_id")
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model audit_logs {
   id                  Int      @id @default(autoincrement())
   uid                 String?  @db.Uuid
@@ -1003,6 +1009,10 @@ model audit_logs {
   @@index([uid])
   @@index([actor_uid, created_at(sort: Desc)], map: "idx_audit_logs_acting_as", where: raw("(acting_as_dependent = true)"))
   @@index([tenant_id], map: "idx_audit_logs_tenant_id")
+  @@index([tenant_id, uid, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_logs_tenant_actor_time", where: raw("(uid IS NOT NULL)"))
+  @@index([tenant_id, resource, resource_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_logs_tenant_resource_time", where: raw("(resource IS NOT NULL)"))
+  @@index([tenant_id, role, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_logs_tenant_role_time", where: raw("(role IS NOT NULL)"))
+  @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_logs_tenant_time_id")
 }
 
 model auth_logs {
@@ -4167,6 +4177,7 @@ model clinical_notes {
   @@index([tenant_id], map: "idx_clinical_notes_tenant_id")
   @@index([appointment_id, created_at(sort: Desc)], map: "idx_clinical_notes_appointment", where: raw("(appointment_id IS NOT NULL)"))
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_clinical_notes_immunisation_review", where: raw("((note_type)::text = 'immunisation_review'::text)"))
+  @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_clinical_notes_audit_completeness")
 }
 
 model clinical_nursing_ambient_sessions {
@@ -4242,6 +4253,7 @@ model clinical_orders {
   @@index([status], map: "idx_clinical_orders_status")
   @@index([tenant_id], map: "idx_clinical_orders_tenant_id")
   @@index([cancelled_by], map: "idx_clinical_orders_cancelled", where: raw("(cancelled_by IS NOT NULL)"))
+  @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_clinical_orders_audit_completeness")
 }
 
 model clinical_protocols {
@@ -4919,6 +4931,8 @@ model e_prescriptions {
   @@index([signed_at(sort: Desc)], map: "idx_e_prescriptions_signed_at", where: raw("(signed_at IS NOT NULL)"))
   @@index([doctor_uid], map: "idx_eprescriptions_doctor_uid", where: raw("(doctor_uid IS NOT NULL)"))
   @@index([patient_uid], map: "idx_eprescriptions_patient_uid", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_e_prescriptions_audit_completeness", where: raw("(created_at IS NOT NULL)"))
+  @@index([tenant_id, updated_at(sort: Desc), id(sort: Desc)], map: "idx_e_prescriptions_audit_completeness_legacy", where: raw("((created_at IS NULL) AND (updated_at IS NOT NULL))"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -5613,6 +5627,9 @@ model hipaa_access_log {
   @@index([actor_uid, accessed_at(sort: Desc)], map: "idx_hipaa_access_log_acting_as", where: raw("(acting_as_dependent = true)"))
   @@index([device_type, accessed_at(sort: Desc)], map: "idx_hipaa_access_log_device_type_accessed", where: raw("(device_type IS NOT NULL)"))
   @@index([patient_id, accessed_at(sort: Desc)], map: "idx_hipaa_access_patient_time", where: raw("(patient_id IS NOT NULL)"))
+  @@index([tenant_id, accessed_by, accessed_at(sort: Desc), id(sort: Desc)], map: "idx_hipaa_access_tenant_actor_time", where: raw("(accessed_by IS NOT NULL)"))
+  @@index([tenant_id, patient_id, accessed_at(sort: Desc), id(sort: Desc)], map: "idx_hipaa_access_tenant_patient_time", where: raw("(patient_id IS NOT NULL)"))
+  @@index([tenant_id, accessed_at(sort: Desc), id(sort: Desc)], map: "idx_hipaa_access_tenant_time_id")
 }
 
 model hospitals {
@@ -6207,6 +6224,8 @@ model investigations {
   @@index([sample_rejected_at], map: "idx_investigations_sample_rejected_at", where: raw("(sample_rejected_at IS NOT NULL)"))
   @@index([tenant_id, patient_uid], map: "idx_investigations_tenant_patient")
   @@index([collection_scanned_patient_uid, patient_scanned_at(sort: Desc)], map: "idx_investigations_specimen_patient_scan", where: raw("(collection_scanned_patient_uid IS NOT NULL)"))
+  @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_investigations_audit_completeness", where: raw("(created_at IS NOT NULL)"))
+  @@index([tenant_id, requested_at(sort: Desc), id(sort: Desc)], map: "idx_investigations_audit_completeness_legacy", where: raw("(created_at IS NULL)"))
 }
 
 model investment_declarations {
@@ -14835,6 +14854,8 @@ model patient_access_audit_log {
   @@index([tenant_id, access_decision, created_at(sort: Desc)], map: "idx_patient_access_audit_decision_time")
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_patient_access_audit_patient_time")
   @@index([tenant_id, actor_uid, created_at(sort: Desc)], map: "idx_patient_access_audit_actor_time", where: raw("(actor_uid IS NOT NULL)"))
+  @@index([tenant_id, action, created_at(sort: Desc), id(sort: Desc)], map: "idx_patient_access_audit_action_time", where: raw("(action IS NOT NULL)"))
+  @@index([tenant_id, request_id], map: "idx_patient_access_audit_request_id", where: raw("(request_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -15083,6 +15104,11 @@ model clinical_audit_events {
   @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time", where: raw("(actor_uid IS NOT NULL)"))
   @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource", where: raw("((resource_table IS NOT NULL) AND (resource_id IS NOT NULL))"))
   @@index([tenant_id, chain_seq], map: "idx_clinical_audit_events_chain")
+  @@index([tenant_id, request_id], map: "idx_clinical_audit_request_id", where: raw("(request_id IS NOT NULL)"))
+  @@index([tenant_id, action, occurred_at(sort: Desc), id(sort: Desc)], map: "idx_clinical_audit_tenant_action_time")
+  @@index([tenant_id, encounter_id, occurred_at(sort: Desc), id(sort: Desc)], map: "idx_clinical_audit_tenant_encounter_time", where: raw("(encounter_id IS NOT NULL)"))
+  @@index([tenant_id, action_status, occurred_at(sort: Desc), id(sort: Desc)], map: "idx_clinical_audit_tenant_outcome_time")
+  @@index([tenant_id, resource_type, resource_id, occurred_at(sort: Desc), id(sort: Desc)], map: "idx_clinical_audit_tenant_resource_time", where: raw("(resource_type IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

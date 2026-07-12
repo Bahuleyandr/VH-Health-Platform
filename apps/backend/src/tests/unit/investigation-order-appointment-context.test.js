@@ -2,10 +2,10 @@ import { jest } from '@jest/globals';
 
 const prismaMock = {
   users: {
-    findUnique: jest.fn(),
+    findFirst: jest.fn(),
   },
   appointments: {
-    findUnique: jest.fn(),
+    findFirst: jest.fn(),
   },
   investigations: {
     create: jest.fn(),
@@ -24,6 +24,11 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   pickTenantClient: () => prismaMock,
 }));
 
+const recordCanonicalClinicalEventMock = jest.fn();
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+}));
+
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
     info: jest.fn(),
@@ -38,16 +43,18 @@ const { createInvestigationOrder } = await import(
 
 const DOCTOR_UID = '11111111-1111-4111-8111-111111111111';
 const PATIENT_UID = '22222222-2222-4222-8222-222222222222';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   jest.clearAllMocks();
-  prismaMock.users.findUnique.mockResolvedValue({
+  prismaMock.users.findFirst.mockResolvedValue({
     id: 17,
     uid: PATIENT_UID,
     name: 'OP Investigation Patient',
     phone: '+911234567890',
+    tenant_id: TENANT_ID,
   });
-  prismaMock.appointments.findUnique.mockResolvedValue({
+  prismaMock.appointments.findFirst.mockResolvedValue({
     id: 44,
     patient_id: 17,
     doctor_id: 9,
@@ -61,6 +68,10 @@ beforeEach(() => {
     ...data,
   }));
   prismaMock.notifications.create.mockResolvedValue({ id: 1 });
+  recordCanonicalClinicalEventMock.mockResolvedValue({
+    timeline: { id: 'timeline-1' },
+    audit: { id: 'audit-1' },
+  });
 });
 
 describe('createInvestigationOrder appointment context', () => {
@@ -71,10 +82,11 @@ describe('createInvestigationOrder appointment context', () => {
       doctor_uid: DOCTOR_UID,
       test_name: 'ECG',
       type: 'CARDIOLOGY',
+      tenantId: TENANT_ID,
     });
 
-    expect(prismaMock.appointments.findUnique).toHaveBeenCalledWith({
-      where: { id: 44 },
+    expect(prismaMock.appointments.findFirst).toHaveBeenCalledWith({
+      where: { id: 44, tenant_id: TENANT_ID },
       select: { id: true, patient_id: true, doctor_id: true, status: true },
     });
     expect(prismaMock.investigations.create).toHaveBeenCalledWith(
@@ -99,18 +111,19 @@ describe('createInvestigationOrder appointment context', () => {
       doctor_uid: DOCTOR_UID,
       test_name: 'ECG',
       type: 'CARDIOLOGY',
+      tenantId: TENANT_ID,
     })).rejects.toMatchObject({
       message: 'INVALID_APPOINTMENT_ID',
       statusCode: 400,
       code: 'INVALID_APPOINTMENT_ID',
     });
 
-    expect(prismaMock.appointments.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.appointments.findFirst).not.toHaveBeenCalled();
     expect(prismaMock.investigations.create).not.toHaveBeenCalled();
   });
 
   it('rejects appointment ids that belong to a different patient', async () => {
-    prismaMock.appointments.findUnique.mockResolvedValueOnce({
+    prismaMock.appointments.findFirst.mockResolvedValueOnce({
       id: 44,
       patient_id: 999,
       doctor_id: 9,
@@ -123,6 +136,7 @@ describe('createInvestigationOrder appointment context', () => {
       doctor_uid: DOCTOR_UID,
       test_name: 'ECG',
       type: 'CARDIOLOGY',
+      tenantId: TENANT_ID,
     })).rejects.toMatchObject({
       message: 'APPOINTMENT_PATIENT_MISMATCH',
       statusCode: 400,
@@ -130,5 +144,18 @@ describe('createInvestigationOrder appointment context', () => {
     });
 
     expect(prismaMock.investigations.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects the investigation transaction when canonical persistence returns null', async () => {
+    recordCanonicalClinicalEventMock.mockResolvedValueOnce({ timeline: null, audit: null });
+
+    await expect(createInvestigationOrder({
+      patient_id: 17,
+      appointment_id: 44,
+      doctor_uid: DOCTOR_UID,
+      test_name: 'ECG',
+      type: 'CARDIOLOGY',
+      tenantId: TENANT_ID,
+    })).rejects.toMatchObject({ code: 'INVESTIGATION_CANONICAL_EVENT_REQUIRED' });
   });
 });

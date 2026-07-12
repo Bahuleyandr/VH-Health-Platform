@@ -1,417 +1,319 @@
 "use client";
 
-// Clinical Audit tab — the first admin surface over the backend's unified
-// audit feed (GET /api/v1/admin/audit/unified), which UNIONs three sinks into
-// one normalized, tenant-scoped stream:
-//   - audit_log            → source "request"        (HTTP request audit)
-//   - clinical_audit_events → source "clinical"      (in-transaction clinical actions)
-//   - patient_access_audit_log → source "patient_access" (allow/deny/break-glass)
-//
-// The endpoint returns no total count, so next-page availability is inferred
-// from a full page of rows (rows.length === PAGE_SIZE).
-
-import React, { FormEvent, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ChevronDown,
+  CalendarClock,
+  ChevronLeft,
   ChevronRight,
-  ClipboardList,
-  Search,
-  SearchX,
+  Download,
+  FileClock,
+  ListFilter,
+  ShieldCheck,
+  Stethoscope,
+  UserRoundSearch,
+  Users,
 } from "lucide-react";
-import { fetchAdminAPI } from "@/lib/api/core";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { exportCsvText } from "@/lib/exportToCsv";
 import type {
-  UnifiedAuditResponse,
-  UnifiedAuditRow,
-  UnifiedAuditSource,
+  AuditEvent,
+  AuditWorkspaceFilters,
+  AuditWorkspaceView,
 } from "../auditTypes";
-import { fmtTime, truncate } from "./auditHelpers";
+import {
+  exportAuditEvents,
+  listAuditEvents,
+} from "../auditWorkspaceApi";
+import { AuditEventDetailPanel } from "./AuditEventDetailPanel";
+import { AuditEventTable } from "./AuditEventTable";
+import { AuditHealthPanel } from "./AuditHealthPanel";
+import { AuditWorkspaceFiltersPanel } from "./AuditWorkspaceFilters";
 
-const PAGE_SIZE = 25;
-
-interface UnifiedAuditFilters {
-  source: string;
-  action: string;
-  actor_uid: string;
-  patient_uid: string;
-  from: string;
-  to: string;
-}
-
-const EMPTY_FILTERS: UnifiedAuditFilters = {
-  source: "",
-  action: "",
+const EMPTY_FILTERS: AuditWorkspaceFilters = {
   actor_uid: "",
+  actor_role: "",
   patient_uid: "",
+  department_id: "",
+  action: "",
+  resource_type: "",
+  outcome: "",
+  encounter_id: "",
+  admission_id: "",
   from: "",
   to: "",
+  source: "",
 };
 
-// Source legs exactly as the controller names them.
-const SOURCE_META: Record<UnifiedAuditSource, { label: string; chip: string }> =
-  {
-    request: {
-      label: "HTTP",
-      chip: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-300",
-    },
-    clinical: {
-      label: "Clinical",
-      chip: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
-    },
-    patient_access: {
-      label: "Access",
-      chip: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300",
-    },
-  };
+const VIEWS: Array<{
+  id: AuditWorkspaceView;
+  label: string;
+  icon: typeof ListFilter;
+}> = [
+  { id: "all", label: "All events", icon: ListFilter },
+  { id: "staff", label: "Staff activity", icon: Users },
+  { id: "doctor", label: "Doctor activity", icon: Stethoscope },
+  { id: "patient", label: "Patient audit", icon: UserRoundSearch },
+  { id: "time", label: "Date / time", icon: CalendarClock },
+  { id: "health", label: "Audit health", icon: ShieldCheck },
+];
 
-function sourceChip(source: UnifiedAuditRow["source"]) {
-  const meta = SOURCE_META[source] ?? {
-    label: source,
-    chip: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
+function filtersForView(
+  view: AuditWorkspaceView,
+  current: AuditWorkspaceFilters,
+): AuditWorkspaceFilters {
+  if (view === "doctor") return { ...current, actor_role: "DOCTOR_GROUP" };
+  if (view === "staff") return { ...current, actor_role: "STAFF_GROUP" };
+  if (["DOCTOR_GROUP", "STAFF_GROUP"].includes(current.actor_role)) {
+    return { ...current, actor_role: "" };
+  }
+  return current;
+}
+
+function toApiInstant(value: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
+}
+
+function apiFilters(filters: AuditWorkspaceFilters): AuditWorkspaceFilters {
+  return {
+    ...filters,
+    actor_uid: filters.actor_uid.trim(),
+    patient_uid: filters.patient_uid.trim(),
+    department_id: filters.department_id.trim(),
+    action: filters.action.trim(),
+    resource_type: filters.resource_type.trim(),
+    encounter_id: filters.encounter_id.trim(),
+    admission_id: filters.admission_id.trim(),
+    from: toApiInstant(filters.from),
+    to: toApiInstant(filters.to),
   };
+}
+
+function outcomeIsFlagged(outcome: string | null): boolean {
+  const normalized = (outcome ?? "").toLowerCase();
+  return ["failure", "failed", "denied", "error", "blocked"].includes(normalized);
+}
+
+function MetricCard({ label, value, detail }: { label: string; value: number; detail: string }) {
   return (
-    <span
-      className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${meta.chip}`}
-    >
-      {meta.label}
-    </span>
+    <div className="rounded-lg border border-gray-200 bg-card px-4 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <p className="text-2xl font-semibold tabular-nums text-gray-900 dark:text-white">
+        {value.toLocaleString()}
+      </p>
+      <p className="mt-0.5 text-xs font-medium text-gray-600 dark:text-gray-300">{label}</p>
+      <p className="mt-0.5 text-[11px] text-gray-400">{detail}</p>
+    </div>
   );
 }
-
-// action_status differs per leg: request → success/failure, clinical → the
-// event's action_status, patient_access → the access decision.
-function statusPill(status: string | null) {
-  const s = (status ?? "").toLowerCase();
-  const cls = ["success", "allowed", "allow", "granted"].includes(s)
-    ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-    : ["failure", "failed", "denied", "deny", "error", "blocked"].includes(s)
-      ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
-      : s.includes("break")
-        ? "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300"
-        : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300";
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${cls}`}>
-      {status || "—"}
-    </span>
-  );
-}
-
-function buildQuery(filters: UnifiedAuditFilters, page: number): string {
-  const params = new URLSearchParams();
-  if (filters.source) params.set("source", filters.source);
-  if (filters.action.trim()) params.set("action", filters.action.trim());
-  if (filters.actor_uid.trim()) params.set("actor_uid", filters.actor_uid.trim());
-  if (filters.patient_uid.trim())
-    params.set("patient_uid", filters.patient_uid.trim());
-  if (filters.from) params.set("from", filters.from);
-  if (filters.to) params.set("to", filters.to);
-  params.set("limit", String(PAGE_SIZE));
-  params.set("offset", String(page * PAGE_SIZE));
-  return params.toString();
-}
-
-const inputClass =
-  "input-sm border rounded px-2 py-1.5 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200";
 
 export function ClinicalAuditTab() {
-  const [draft, setDraft] = useState<UnifiedAuditFilters>(EMPTY_FILTERS);
-  const [submitted, setSubmitted] = useState<UnifiedAuditFilters | null>(null);
-  const [page, setPage] = useState(0);
-  // Ids can collide across the three sinks, so the expand key includes the source.
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [view, setView] = useState<AuditWorkspaceView>("all");
+  const [draft, setDraft] = useState<AuditWorkspaceFilters>(EMPTY_FILTERS);
+  const [submitted, setSubmitted] = useState<AuditWorkspaceFilters>(EMPTY_FILTERS);
+  const [displayTimezone, setDisplayTimezone] = useState("Asia/Kolkata");
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([]);
+  const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
-  const queryString = submitted === null ? null : buildQuery(submitted, page);
-
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["admin-unified-audit", queryString],
-    queryFn: () =>
-      fetchAdminAPI<UnifiedAuditResponse>(
-        `/admin/audit/unified?${queryString ?? ""}`,
-      ),
-    enabled: queryString !== null,
+  const submittedApiFilters = useMemo(() => apiFilters(submitted), [submitted]);
+  const eventsQuery = useQuery({
+    queryKey: ["admin-audit-events", submittedApiFilters, cursor],
+    queryFn: () => listAuditEvents(submittedApiFilters, cursor),
+    enabled: view !== "health",
+    placeholderData: (previous) => previous,
   });
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setPage(0);
-    setExpandedKey(null);
+  const changeView = (nextView: AuditWorkspaceView) => {
+    const nextFilters = filtersForView(nextView, draft);
+    setView(nextView);
+    setDraft(nextFilters);
+    setSubmitted(nextFilters);
+    setCursor(undefined);
+    setCursorHistory([]);
+    setSelectedEvent(null);
+    setExportError(null);
+  };
+
+  const changeFilter = (field: keyof AuditWorkspaceFilters, value: string) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const submitFilters = () => {
     setSubmitted({ ...draft });
+    setCursor(undefined);
+    setCursorHistory([]);
+    setSelectedEvent(null);
   };
 
-  const goToPage = (next: number) => {
-    setPage(next);
-    setExpandedKey(null);
+  const resetFilters = () => {
+    const next = filtersForView(view, EMPTY_FILTERS);
+    setDraft(next);
+    setSubmitted(next);
+    setCursor(undefined);
+    setCursorHistory([]);
+    setSelectedEvent(null);
   };
 
-  const setDraftField =
-    (field: keyof UnifiedAuditFilters) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setDraft((d) => ({ ...d, [field]: e.target.value }));
+  const nextPage = () => {
+    const nextCursor = eventsQuery.data?.pagination.next_cursor;
+    if (!nextCursor) return;
+    setCursorHistory((history) => [...history, cursor]);
+    setCursor(nextCursor);
+    setSelectedEvent(null);
+  };
 
-  const rows = data?.logs ?? [];
-  const hasNextPage = rows.length === PAGE_SIZE;
+  const previousPage = () => {
+    if (cursorHistory.length === 0) return;
+    const previousCursor = cursorHistory[cursorHistory.length - 1];
+    setCursorHistory((history) => history.slice(0, -1));
+    setCursor(previousCursor);
+    setSelectedEvent(null);
+  };
+
+  const exportCurrentFilters = async () => {
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const csv = await exportAuditEvents(submittedApiFilters);
+      exportCsvText(
+        `vh-health-audit-${new Date().toISOString().slice(0, 10)}.csv`,
+        csv,
+      );
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Audit export failed");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const events = eventsQuery.data?.events ?? [];
+  const uniqueActors = new Set(events.map((event) => event.actor_uid).filter(Boolean)).size;
+  const uniquePatients = new Set(events.map((event) => event.patient_uid).filter(Boolean)).size;
+  const flaggedEvents = events.filter((event) => outcomeIsFlagged(event.outcome)).length;
 
   return (
     <div className="space-y-4">
-      {/* Filter bar */}
-      <form
-        aria-label="Clinical audit filters"
-        onSubmit={handleSubmit}
-        className="bg-card dark:bg-gray-800 rounded-lg p-4 shadow-sm"
-      >
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-          <select
-            aria-label="Filter by audit source"
-            className={inputClass}
-            value={draft.source}
-            onChange={setDraftField("source")}
-          >
-            <option value="">All sources</option>
-            <option value="request">HTTP requests</option>
-            <option value="clinical">Clinical actions</option>
-            <option value="patient_access">Access decisions</option>
-          </select>
-
-          <input
-            type="text"
-            aria-label="Filter by patient UID"
-            placeholder="Patient UID"
-            className={inputClass}
-            value={draft.patient_uid}
-            onChange={setDraftField("patient_uid")}
-          />
-
-          <input
-            type="text"
-            aria-label="Filter by actor UID"
-            placeholder="Actor UID"
-            className={inputClass}
-            value={draft.actor_uid}
-            onChange={setDraftField("actor_uid")}
-          />
-
-          <input
-            type="text"
-            aria-label="Filter by action"
-            placeholder="Action contains…"
-            className={inputClass}
-            value={draft.action}
-            onChange={setDraftField("action")}
-          />
-
-          <input
-            type="date"
-            aria-label="Events from date"
-            className={inputClass}
-            value={draft.from}
-            onChange={setDraftField("from")}
-          />
-
-          <input
-            type="date"
-            aria-label="Events to date"
-            className={inputClass}
-            value={draft.to}
-            onChange={setDraftField("to")}
-          />
-
-          <button
-            type="submit"
-            className="flex items-center justify-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
-          >
-            <Search className="h-4 w-4" />
-            Search
-          </button>
+      <div className="overflow-x-auto border-b border-gray-200 dark:border-gray-700">
+        <div className="flex min-w-max gap-1" role="tablist" aria-label="Audit workspace views">
+          {VIEWS.map((item) => {
+            const Icon = item.icon;
+            const active = item.id === view;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => changeView(item.id)}
+                className={`inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition ${active ? "border-blue-600 text-blue-700 dark:text-blue-300" : "border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </button>
+            );
+          })}
         </div>
-      </form>
+      </div>
 
-      {submitted === null ? (
-        <div className="bg-card dark:bg-gray-800 rounded-lg shadow-sm">
-          <EmptyState
-            icon={<ClipboardList className="h-10 w-10 text-muted-foreground" />}
-            title="Search the unified clinical audit feed"
-            description="One tenant-scoped stream across HTTP request audit, in-transaction clinical actions, and patient-access decisions. Set filters and press Search."
-          />
-        </div>
-      ) : isLoading ? (
-        <LoadingSpinner label="Loading unified audit events…" />
-      ) : error ? (
-        <div
-          role="alert"
-          className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm"
-        >
-          {error.message}
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="bg-card dark:bg-gray-800 rounded-lg shadow-sm">
-          <EmptyState
-            icon={<SearchX className="h-10 w-10 text-muted-foreground" />}
-            title="No audit events found"
-            description="No unified audit events match the current filters. Widen the date range or clear a filter and search again."
-          />
-        </div>
+      {view === "health" ? (
+        <AuditHealthPanel />
       ) : (
         <>
-          {/* Pagination (the endpoint returns no total — a full page implies more) */}
-          <div className="flex items-center justify-between text-sm text-gray-500">
-            <span>
-              Page {page + 1} · {rows.length} event{rows.length === 1 ? "" : "s"}
-              {hasNextPage ? " · more available" : ""}
-            </span>
-            <div className="flex gap-2">
+          <AuditWorkspaceFiltersPanel
+            view={view}
+            filters={draft}
+            displayTimezone={displayTimezone}
+            onTimezoneChange={setDisplayTimezone}
+            onChange={changeFilter}
+            onSubmit={submitFilters}
+            onReset={resetFilters}
+          />
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <MetricCard label="Events on this page" value={events.length} detail={`Cursor page ${cursorHistory.length + 1}`} />
+            <MetricCard label="Staff represented" value={uniqueActors} detail="Unique attributed actor UIDs" />
+            <MetricCard label="Patients represented" value={uniquePatients} detail="Unique patient UIDs" />
+            <MetricCard label="Failed or denied" value={flaggedEvents} detail="Visible outcomes needing review" />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <FileClock className="h-4 w-4" />
+              Page {cursorHistory.length + 1} · newest matching events first
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={page === 0}
-                onClick={() => goToPage(page - 1)}
-                className="px-3 py-1 rounded border text-sm disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-700"
+                onClick={() => void exportCurrentFilters()}
+                disabled={isExporting}
+                className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
-                ← Prev
+                <Download className="h-4 w-4" />
+                {isExporting ? "Preparing export…" : "Export filtered CSV"}
               </button>
               <button
                 type="button"
-                disabled={!hasNextPage}
-                onClick={() => goToPage(page + 1)}
-                className="px-3 py-1 rounded border text-sm disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-700"
+                aria-label="Previous audit page"
+                disabled={cursorHistory.length === 0 || eventsQuery.isFetching}
+                onClick={previousPage}
+                className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-40 dark:border-gray-600"
               >
-                Next →
+                <ChevronLeft className="h-4 w-4" /> Previous
+              </button>
+              <button
+                type="button"
+                aria-label="Next audit page"
+                disabled={!eventsQuery.data?.pagination.has_more || !eventsQuery.data.pagination.next_cursor || eventsQuery.isFetching}
+                onClick={nextPage}
+                className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-40 dark:border-gray-600"
+              >
+                Next <ChevronRight className="h-4 w-4" />
               </button>
             </div>
           </div>
 
-          {/* Results table */}
-          <div className="bg-card dark:bg-gray-800 rounded-lg shadow-sm overflow-x-auto">
-            <table className="w-full text-sm min-w-[960px]">
-              <thead className="bg-gray-50 dark:bg-gray-700 text-xs text-gray-500 dark:text-gray-400 uppercase">
-                <tr>
-                  <th className="text-left px-3 py-2">Time</th>
-                  <th className="text-left px-3 py-2">Source</th>
-                  <th className="text-left px-3 py-2">Actor</th>
-                  <th className="text-left px-3 py-2">Patient</th>
-                  <th className="text-left px-3 py-2">Action</th>
-                  <th className="text-left px-3 py-2">Status</th>
-                  <th className="text-left px-3 py-2">Summary</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const key = `${row.source}-${row.id}`;
-                  const expanded = expandedKey === key;
-                  return (
-                    <React.Fragment key={key}>
-                      <tr
-                        className="border-b dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                        onClick={() => setExpandedKey(expanded ? null : key)}
-                      >
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">
-                          <div className="flex items-center gap-1">
-                            {expanded ? (
-                              <ChevronDown className="h-3 w-3" />
-                            ) : (
-                              <ChevronRight className="h-3 w-3" />
-                            )}
-                            {fmtTime(row.occurred_at)}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2">{sourceChip(row.source)}</td>
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-gray-800 dark:text-gray-200 truncate max-w-[140px]">
-                            {row.actor_uid || "—"}
-                          </div>
-                          {row.actor_role && (
-                            <div className="text-xs text-gray-400">
-                              {row.actor_role}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs font-mono text-gray-600 dark:text-gray-400">
-                            {row.patient_uid || "—"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span
-                            className="text-xs text-gray-600 dark:text-gray-400"
-                            title={row.action ?? ""}
-                          >
-                            {truncate(row.action, 32)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          {statusPill(row.action_status)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span
-                            className="text-xs text-gray-500 dark:text-gray-400"
-                            title={row.summary ?? ""}
-                          >
-                            {truncate(row.summary, 48)}
-                          </span>
-                        </td>
-                      </tr>
-                      {expanded && (
-                        <tr className="bg-gray-50 dark:bg-gray-900/40">
-                          <td colSpan={7} className="px-4 py-3">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                              <div>
-                                <span className="font-semibold text-gray-600 dark:text-gray-400">
-                                  Event ID:{" "}
-                                </span>
-                                <span className="font-mono">{row.id}</span>
-                              </div>
-                              <div>
-                                <span className="font-semibold text-gray-600 dark:text-gray-400">
-                                  Resource:{" "}
-                                </span>
-                                <span>{row.resource_type || "—"}</span>
-                                {row.resource_table && (
-                                  <>
-                                    {" · "}
-                                    <span className="font-mono">
-                                      {row.resource_table}
-                                    </span>
-                                  </>
-                                )}
-                                {row.resource_id && (
-                                  <>
-                                    {" · #"}
-                                    <span className="font-mono">
-                                      {row.resource_id}
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                              <div>
-                                <span className="font-semibold text-gray-600 dark:text-gray-400">
-                                  Tenant:{" "}
-                                </span>
-                                <span className="font-mono">
-                                  {row.tenant_id || "—"}
-                                </span>
-                              </div>
-                              {row.metadata && (
-                                <div className="md:col-span-3">
-                                  <span className="font-semibold text-gray-600 dark:text-gray-400">
-                                    Detail:
-                                  </span>
-                                  <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
-                                    {JSON.stringify(row.metadata, null, 2)}
-                                  </pre>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {exportError ? (
+            <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {exportError}
+            </div>
+          ) : null}
+
+          {eventsQuery.isLoading ? (
+            <LoadingSpinner label="Loading audit events…" />
+          ) : eventsQuery.error ? (
+            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {eventsQuery.error.message}
+            </div>
+          ) : events.length === 0 ? (
+            <div className="rounded-lg border border-gray-200 bg-card shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              <EmptyState
+                icon={<UserRoundSearch className="h-10 w-10 text-muted-foreground" />}
+                title="No audit events found"
+                description="No events match these staff, patient, action, outcome, or date/time filters. Clear a filter and try again."
+              />
+            </div>
+          ) : (
+            <AuditEventTable
+              events={events}
+              displayTimezone={displayTimezone}
+              onSelect={setSelectedEvent}
+            />
+          )}
         </>
       )}
+
+      {selectedEvent ? (
+        <AuditEventDetailPanel
+          event={selectedEvent}
+          displayTimezone={displayTimezone}
+          onClose={() => setSelectedEvent(null)}
+        />
+      ) : null}
     </div>
   );
 }

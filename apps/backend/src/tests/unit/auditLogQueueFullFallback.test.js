@@ -3,7 +3,7 @@
  *
  * The universal audit middleware fires the DB write from a bounded queue
  * (MAX_PENDING_AUDIT_LOGS = 1000). Before this fix, when the queue was full
- * the entry was DROPPED with only a `logger.warn('Audit log queue full, ...')`
+ * the entry was DROPPED with only a warning that was not written to error.log
  * and NO durable file fallback — violating the "audit never lost" guarantee
  * (the DB-error path already file-falls-back; the queue-full path did not).
  *
@@ -93,11 +93,11 @@ describe('auditLogMiddleware queue-full durability', () => {
     // DB write, keeping the counter pinned at the max).
     await new Promise((resolve) => setImmediate(resolve));
 
-    // No queue-full warning yet — we are exactly AT capacity, not over.
-    const dropWarnsBefore = warnMock.mock.calls.filter(
+    // No queue-full alarm yet — we are exactly AT capacity, not over.
+    const dropErrorsBefore = errorMock.mock.calls.filter(
       (c) => typeof c[0] === 'string' && c[0].includes('queue full'),
     );
-    expect(dropWarnsBefore).toHaveLength(0);
+    expect(dropErrorsBefore).toHaveLength(0);
 
     // The 1001st request must be dropped — and MUST hit the file fallback.
     const { req: lastReq, res: lastRes } = makeReqRes(9999);
@@ -106,7 +106,7 @@ describe('auditLogMiddleware queue-full durability', () => {
 
     // The drop happens synchronously inside res.on('finish'); the file
     // fallback is invoked on that same tick.
-    const dropCalls = warnMock.mock.calls.filter(
+    const dropCalls = errorMock.mock.calls.filter(
       (c) => typeof c[0] === 'string' && c[0].toLowerCase().includes('queue full'),
     );
     expect(dropCalls.length).toBeGreaterThanOrEqual(1);

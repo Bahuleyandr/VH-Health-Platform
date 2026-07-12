@@ -279,6 +279,7 @@ export const markInvestigationCollected = async (req, res) => {
       sample_barcode,
       scanned_patient_uid,
       tenantId: req.tenantId || null,
+      actor_role: req.user?.role || null,
     });
 
     await logAudit(req, 'investigation-sample-collected', {
@@ -313,7 +314,9 @@ export const updateInvestigationStatus = async (req, res) => {
       id,
       status,
       notes,
-      userId
+      userId,
+      req.tenantId,
+      req.user?.role || null,
     );
 
     if (!investigation) {
@@ -360,7 +363,8 @@ export const addInvestigationResults = async (req, res) => {
       id,
       { results, interpretation, technician_notes, reviewed_by, re_run, re_run_reason },
       userId,
-      req.tenantId
+      req.tenantId,
+      req.user?.role || null,
     );
 
     if (!investigation) {

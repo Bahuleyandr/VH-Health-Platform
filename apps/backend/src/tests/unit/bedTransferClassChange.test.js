@@ -32,6 +32,7 @@ const queryRawMock = jest.fn();
 const executeRawMock = jest.fn();
 const txMock = jest.fn();
 const setTenantTxMock = jest.fn();
+const recordCanonicalClinicalEventMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
@@ -44,6 +45,13 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+}));
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  completeWorkflowSla: jest.fn(),
+  isSchemaMissing: jest.fn(() => false),
+  recordClinicalAuditEvent: jest.fn(),
+  startWorkflowSla: jest.fn(),
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
 }));
 
 const bedManagementService = (await import('../../services/bed/bedManagementService.js')).default;
@@ -66,6 +74,10 @@ beforeEach(() => {
   // setTenantTx(tenantId, fn) mirrors $transaction but takes a leading tenant arg.
   setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(TX_CLIENT));
   executeRawMock.mockResolvedValue(1);
+  recordCanonicalClinicalEventMock.mockResolvedValue({
+    timeline: { id: 'timeline-1' },
+    audit: { id: 'audit-1' },
+  });
 });
 
 function mockTransferRows({ fromBedType, toBedType, toStatus = 'available' }) {
@@ -89,6 +101,12 @@ function mockTransferRows({ fromBedType, toBedType, toStatus = 'available' }) {
       id: 200, bed_number: 'B2', ward_id: 5, status: 'occupied',
       patient_uid: PATIENT, assigned_at: new Date(),
       created_at: new Date(), updated_at: new Date(), bed_type: toBedType,
+    }])
+    // bed_transfers INSERT ... RETURNING
+    .mockResolvedValueOnce([{
+      id: 500, tenant_id: TENANT, patient_uid: PATIENT, admission_id: 300,
+      from_bed_id: 100, to_bed_id: 200, reason: 'test transfer',
+      transferred_by: 'staff-uid', transferred_at: new Date(),
     }])
     // active device-association ADT cleanup (endActiveAssociationsForPatient)
     .mockResolvedValueOnce([])
@@ -121,6 +139,16 @@ describe('bedManagementService.transferPatient — class-change reconciliation (
     );
     expect(result.to_bed.bed_number).toBe('B2');
     expect(result.class_change).toEqual({ from: 'general', to: 'private', acknowledged: true });
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'bed.transferred',
+        patientUid: PATIENT,
+        actorUid: 'staff-uid',
+        actorRole: 'ADMIN',
+        sourceTable: 'bed_transfers',
+      }),
+      { db: TX_CLIENT },
+    );
     // The admission's room_category was re-stamped to match the new bed type.
     const restampCall = executeRawMock.mock.calls.find((args) =>
       /UPDATE admissions[\s\S]*room_category/i.test(args[0]),
@@ -160,7 +188,7 @@ describe('bedManagementService.transferPatient — class-change reconciliation (
     expect(restampCall[0]).toContain('tenant_id = $6::uuid');
     expect(restampCall[6]).toBe(TENANT);
 
-    const transferInsertCall = executeRawMock.mock.calls.find((args) =>
+    const transferInsertCall = queryRawMock.mock.calls.find((args) =>
       /INSERT INTO bed_transfers \(tenant_id/i.test(args[0]),
     );
     expect(transferInsertCall[1]).toBe(TENANT);
@@ -186,6 +214,17 @@ describe('bedManagementService.transferPatient — class-change reconciliation (
       PATIENT, 200, 'ward change', 'staff-uid', 'ADMIN',
     );
     expect(result.class_change).toBeNull();
+  });
+
+  it('rejects the transfer transaction when canonical persistence returns null', async () => {
+    mockTransferRows({ fromBedType: 'general', toBedType: 'general' });
+    recordCanonicalClinicalEventMock.mockResolvedValueOnce({ timeline: null, audit: null });
+
+    await expect(
+      bedManagementService.transferPatient(
+        PATIENT, 200, 'ward change', 'staff-uid', 'ADMIN', { tenantId: TENANT },
+      ),
+    ).rejects.toMatchObject({ code: 'BED_CANONICAL_EVENT_REQUIRED' });
   });
 
   it('still rejects target bed that is not available (status check)', async () => {

@@ -42,7 +42,7 @@ export default function SystemAuditPage() {
           </span>
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Every API request captured automatically — search, filter, and investigate user activity
+          Review clinical actions, patient access, staff activity, request outcomes, and audit coverage
         </p>
       </div>
 

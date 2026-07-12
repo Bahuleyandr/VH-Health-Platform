@@ -14,12 +14,24 @@ import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchServi
 import { emitBedMarkedReady, emitFinalDischargeCompleted } from '../clinical/canonicalOperationalBridgeService.js';
 import {
   completeWorkflowSla,
+  recordCanonicalClinicalEvent,
   startWorkflowSla,
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { endActiveAssociationsForPatient } from '../devices/deviceAssociationService.js';
 
 function tenantOf(options = {}) {
   return options.tenantId || getCurrentTenantId() || null;
+}
+
+async function recordRequiredBedEvent(input, tx) {
+  const event = await recordCanonicalClinicalEvent(input, { db: tx });
+  if (!event?.timeline?.id || !event?.audit?.id) {
+    throw AppError.internal(
+      'Bed write requires canonical timeline and audit events',
+      'BED_CANONICAL_EVENT_REQUIRED',
+    );
+  }
+  return event;
 }
 
 // Start the canonical bed-cleaning-turnaround SLA, keyed to the BED, INSIDE the
@@ -445,7 +457,7 @@ class BedManagementService {
       }
 
       const admissionRows = await tx.$queryRawUnsafe(
-        `SELECT id, tenant_id, patient_uid, admitted_at, expected_los_days
+        `SELECT id, tenant_id, patient_uid, encounter_id, admitted_at, expected_los_days
            FROM admissions
           WHERE patient_uid = $1::uuid
             AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -578,12 +590,42 @@ class BedManagementService {
       );
 
       // Record transfer
-      await tx.$executeRawUnsafe(
+      const transferRows = await tx.$queryRawUnsafe(
         `INSERT INTO bed_transfers (tenant_id, patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::uuid)`,
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::uuid)
+         RETURNING id, tenant_id, patient_uid, admission_id, from_bed_id, to_bed_id,
+                   reason, transferred_by, transferred_at`,
         admission.tenant_id || fromBed.tenant_id,
         patientUid, admission.id, fromBedId, toBedId, reason, transferredBy
       );
+      const transfer = transferRows[0];
+      await recordRequiredBedEvent({
+        tenantId: transfer.tenant_id,
+        patientUid: transfer.patient_uid,
+        encounterId: admission.encounter_id,
+        eventType: 'bed.transferred',
+        eventStatus: 'transferred',
+        sourceTable: 'bed_transfers',
+        sourceId: transfer.id,
+        resourceType: 'bed_transfer',
+        resourceId: transfer.id,
+        actorUid: transferredBy,
+        actorRole,
+        summary: `Patient transferred from bed ${fromBed.bed_number} to ${toBed.bed_number}`,
+        payload: {
+          admission_id: admission.id,
+          from_bed_id: fromBedId,
+          from_bed_number: fromBed.bed_number,
+          to_bed_id: toBedId,
+          to_bed_number: toBed.bed_number,
+          reason: reason || null,
+          class_change_acknowledged: isUpgrade,
+        },
+        beforeState: { admission, bed: fromBed },
+        afterState: { transfer, bed: newBed[0] },
+        timelineIdempotencyKey: `bed_transfers:${transfer.id}:transferred`,
+        auditIdempotencyKey: `bed_transfers:${transfer.id}:audit:transferred`,
+      }, tx);
       await endActiveAssociationsForPatient({
         tenantId: requireTenantId(tenantId),
         patientUid,

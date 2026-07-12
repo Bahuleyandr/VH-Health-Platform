@@ -100,7 +100,10 @@ export const uploadResult = async (req, res) => {
       uploadedBy
     });
     
-    const result = await uploadInvestigationFile(id, file, uploadedBy);
+    const result = await uploadInvestigationFile(id, file, uploadedBy, {
+      tenantId: access.tenantId,
+      actorRole: req.user?.role,
+    });
     
     await logAudit(req, 'investigation-file-uploaded', {
       investigation_id: id,
@@ -227,7 +230,10 @@ export const removeFile = async (req, res) => {
       return error(res, 'Access denied: Only admin or file uploader can delete files', 403);
     }
     
-    await deleteFile(fileId, deletedBy);
+    await deleteFile(fileId, deletedBy, {
+      tenantId: access.tenantId,
+      actorRole: req.user?.role,
+    });
     
     await logAudit(req, 'investigation-file-deleted', {
       investigation_id: id,

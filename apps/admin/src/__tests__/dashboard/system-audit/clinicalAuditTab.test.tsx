@@ -2,16 +2,189 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import SystemAuditPage from "@/app/(with-auth)/dashboard/system-audit/page";
-import { fetchAdminAPI, getJSON } from "@/lib/api/core";
-import type { UnifiedAuditRow } from "@/app/(with-auth)/dashboard/system-audit/auditTypes";
+import { getJSON } from "@/lib/api/core";
+import { exportCsvText } from "@/lib/exportToCsv";
 
-// Mock the api core module (established repo lesson: mock the data module,
-// never global fetch). `getJSON` keeps the default Live Feed tab quiet;
-// `fetchAdminAPI` is what the Clinical Audit tab calls.
 jest.mock("@/lib/api/core", () => ({
   getJSON: jest.fn(),
   fetchAdminAPI: jest.fn(),
 }));
+
+jest.mock("@/lib/exportToCsv", () => ({
+  exportCsvText: jest.fn(),
+}));
+
+const getJSONMock = getJSON as jest.Mock;
+
+function makeEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    source: "clinical",
+    id: "event-101",
+    occurred_at: "2026-07-10T10:15:00.000Z",
+    recorded_at: "2026-07-10T10:15:01.000Z",
+    actor_uid: "doc-1",
+    actor_name: "Dr Meera Rao",
+    actor_role: "DOCTOR",
+    department_id: "cardiology",
+    patient_uid: "pat-9",
+    patient_name: "Arun Kumar",
+    encounter_id: "enc-1",
+    admission_id: null,
+    action: "prescription.signed",
+    outcome: "success",
+    resource_type: "prescription",
+    resource_id: "555",
+    request_id: "req-1",
+    integrity_status: "verified",
+    summary: "Prescription signed",
+    ...overrides,
+  };
+}
+
+function eventList(
+  events: Array<Record<string, unknown>>,
+  pagination: { next_cursor?: string | null; has_more?: boolean } = {},
+) {
+  return {
+    events,
+    pagination: {
+      next_cursor: pagination.next_cursor ?? null,
+      has_more: pagination.has_more ?? false,
+      limit: 50,
+    },
+  };
+}
+
+const auditHealthWarning = {
+  generated_at: "2026-07-10T10:20:00.000Z",
+  total_events: 120,
+  completeness: { total_events: 120, actor_attributed: 118, patient_attributed: 112, request_correlated: 109 },
+  canonical_write_coverage: { coverage_percent: 98.5 },
+  integrity: {
+    total_events: 120,
+    missing_hash_count: "1",
+    hash_mismatch_count: 0,
+    continuity_break_count: 1,
+    first_problem_seq: 81,
+    first_problem_id: "audit-problem-81",
+    first_missing_hash_id: "audit-missing-17",
+    intact: false,
+  },
+  resource_completeness: [
+    {
+      resource_table: "clinical_notes",
+      resource_rows: 50,
+      audited_resource_rows: 49,
+      orphan_resource_rows: 1,
+      audit_event_count: 76,
+      dangling_audit_events: 2,
+      coverage_percent: 98,
+    },
+    {
+      resource_table: "clinical_orders",
+      resource_rows: 30,
+      audited_resource_rows: 30,
+      orphan_resource_rows: 0,
+      audit_event_count: 44,
+      dangling_audit_events: 0,
+      coverage_percent: 100,
+    },
+  ],
+  anomalies: {
+    denied_attempts: 3,
+    break_glass_accesses: 1,
+    after_hours_accesses: 4,
+    audit_exports: 2,
+    after_hours_timezone: "Asia/Kolkata",
+    after_hours_window: "20:00-07:00",
+    high_patient_access_threshold: 20,
+    high_patient_access_actors: 1,
+    high_patient_access_actor_details: [
+      {
+        actor_uid: "doc-broad-access",
+        actor_role: "DOCTOR",
+        distinct_patient_count: 24,
+        access_event_count: 67,
+      },
+    ],
+  },
+  sources: [
+    {
+      source: "clinical",
+      status: "healthy",
+      event_count: 80,
+      missing_actor_count: 0,
+      missing_request_id_count: 1,
+      latest_event_at: "2026-07-10T10:15:00.000Z",
+    },
+  ],
+};
+
+const auditHealthHealthy = {
+  ...auditHealthWarning,
+  canonical_write_coverage: { coverage_percent: 100 },
+  integrity: {
+    ...auditHealthWarning.integrity,
+    missing_hash_count: 0,
+    continuity_break_count: 0,
+    first_problem_seq: null,
+    first_problem_id: null,
+    first_missing_hash_id: null,
+    intact: true,
+  },
+  resource_completeness: auditHealthWarning.resource_completeness.map((resource) => ({
+    ...resource,
+    audited_resource_rows: resource.resource_rows,
+    orphan_resource_rows: 0,
+    dangling_audit_events: 0,
+    coverage_percent: 100,
+  })),
+  anomalies: {
+    ...auditHealthWarning.anomalies,
+    denied_attempts: 0,
+    break_glass_accesses: 0,
+    after_hours_accesses: 0,
+    high_patient_access_actors: 0,
+    high_patient_access_actor_details: [],
+  },
+  sources: auditHealthWarning.sources.map((source) => ({
+    ...source,
+    missing_actor_count: 0,
+    missing_request_id_count: 0,
+  })),
+};
+
+function installApiMock(
+  firstList = eventList([]),
+  secondList: ReturnType<typeof eventList> | null = null,
+  healthResponse: Record<string, unknown> = auditHealthWarning,
+) {
+  let listCalls = 0;
+  getJSONMock.mockImplementation((path: string) => {
+    if (path === "/api/v1/admin/audit/events") {
+      listCalls += 1;
+      return Promise.resolve(listCalls === 1 || !secondList ? firstList : secondList);
+    }
+    if (path.startsWith("/api/v1/admin/audit/events/")) {
+      return Promise.resolve({
+        event: {
+          ...makeEvent(),
+          before_state: { status: "draft", password: "should-not-render" },
+          after_state: { status: "signed" },
+          metadata: { workflow: "cpoe", authorization: "Bearer secret" },
+        },
+        redactions: ["password", "authorization"],
+      });
+    }
+    if (path === "/api/v1/admin/audit/export") {
+      return Promise.resolve("Time,Actor,Action\r\n2026-07-10,doc-1,prescription.signed");
+    }
+    if (path === "/api/v1/admin/audit/health") {
+      return Promise.resolve(healthResponse);
+    }
+    return Promise.resolve(null);
+  });
+}
 
 function renderPage() {
   const client = new QueryClient({
@@ -24,232 +197,160 @@ function renderPage() {
   );
 }
 
-function openClinicalAuditTab() {
+function openAuditWorkspace() {
   fireEvent.click(screen.getByRole("button", { name: /Clinical Audit/ }));
 }
 
-function makeRow(over: Partial<UnifiedAuditRow> = {}): UnifiedAuditRow {
-  return {
-    source: "clinical",
-    tenant_id: "tenant-1",
-    id: "101",
-    occurred_at: "2026-07-10T10:15:00.000Z",
-    actor_uid: "doc-1",
-    actor_role: "DOCTOR",
-    patient_uid: "pat-9",
-    action: "prescription.signed",
-    action_status: "success",
-    resource_type: "prescription",
-    resource_table: "prescriptions",
-    resource_id: "555",
-    summary: "Prescription signed",
-    metadata: {
-      encounter_id: "enc-1",
-      before_state: { status: "draft" },
-      after_state: { status: "signed" },
-    },
-    ...over,
-  };
-}
-
-function unifiedResponse(logs: UnifiedAuditRow[], offset = 0) {
-  return {
-    logs,
-    limit: 25,
-    offset,
-    filters: {
-      source: null,
-      action: null,
-      actor_uid: null,
-      patient_uid: null,
-      status: null,
-      from: null,
-      to: null,
-      search: null,
-    },
-  };
-}
-
-describe("<SystemAuditPage /> clinical audit tab", () => {
+describe("<SystemAuditPage /> accountability workspace", () => {
   beforeEach(() => {
-    (getJSON as jest.Mock).mockResolvedValue(null);
-    (fetchAdminAPI as jest.Mock).mockResolvedValue(unifiedResponse([]));
+    jest.clearAllMocks();
+    installApiMock();
   });
 
-  it("shows a pre-search hint and does not fetch until a search is submitted", () => {
+  it("loads the cursor event API and presents staff, patient, outcome, and UTC context", async () => {
+    installApiMock(eventList([makeEvent()]));
     renderPage();
-    openClinicalAuditTab();
-
-    expect(
-      screen.getByText(/Search the unified clinical audit feed/i),
-    ).toBeInTheDocument();
-    expect(fetchAdminAPI).not.toHaveBeenCalled();
-  });
-
-  it("queries the unified endpoint with the submitted filters and renders source-labelled rows", async () => {
-    (fetchAdminAPI as jest.Mock).mockResolvedValue(
-      unifiedResponse([
-        makeRow({
-          source: "request",
-          id: "r-1",
-          actor_uid: "admin-7",
-          actor_role: "ADMIN",
-          patient_uid: null,
-          action: "patients.list",
-          action_status: "success",
-          summary: "GET /api/v1/admin/patients",
-          metadata: { method: "GET", path: "/api/v1/admin/patients" },
-        }),
-        makeRow({ source: "clinical", id: "c-1" }),
-        makeRow({
-          source: "patient_access",
-          id: "p-1",
-          actor_uid: "nurse-3",
-          actor_role: "NURSE",
-          patient_uid: "pat-7",
-          action: "patient_record.view",
-          action_status: "denied",
-          summary: "care_team",
-          metadata: { access_source: "care_team", route: "/records/9" },
-        }),
-      ]),
-    );
-
-    renderPage();
-    openClinicalAuditTab();
-
-    fireEvent.change(screen.getByLabelText("Filter by audit source"), {
-      target: { value: "clinical" },
-    });
-    fireEvent.change(screen.getByLabelText("Filter by action"), {
-      target: { value: "prescription" },
-    });
-    fireEvent.change(screen.getByLabelText("Filter by actor UID"), {
-      target: { value: "doc-1" },
-    });
-    fireEvent.change(screen.getByLabelText("Filter by patient UID"), {
-      target: { value: "pat-9" },
-    });
-    fireEvent.change(screen.getByLabelText("Events from date"), {
-      target: { value: "2026-07-01" },
-    });
-    fireEvent.change(screen.getByLabelText("Events to date"), {
-      target: { value: "2026-07-05" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Search$/ }));
+    openAuditWorkspace();
 
     await waitFor(() =>
-      expect(fetchAdminAPI).toHaveBeenCalledWith(
-        "/admin/audit/unified?source=clinical&action=prescription&actor_uid=doc-1&patient_uid=pat-9&from=2026-07-01&to=2026-07-05&limit=25&offset=0",
+      expect(getJSONMock).toHaveBeenCalledWith(
+        "/api/v1/admin/audit/events",
+        expect.objectContaining({ limit: 50 }),
       ),
     );
 
-    // One clearly-labelled source chip per sink
-    await screen.findByText("HTTP");
-    expect(screen.getByText("Clinical")).toBeInTheDocument();
-    expect(screen.getByText("Access")).toBeInTheDocument();
-
-    // Actor (+role), patient, action, status
-    expect(screen.getByText("admin-7")).toBeInTheDocument();
-    expect(screen.getByText("DOCTOR")).toBeInTheDocument();
+    expect(await screen.findByText("Dr Meera Rao")).toBeInTheDocument();
     expect(screen.getByText("pat-9")).toBeInTheDocument();
-    expect(screen.getByText("prescription.signed")).toBeInTheDocument();
-    expect(screen.getByText("denied")).toBeInTheDocument();
+    expect(screen.getByText("A••• K••••")).toBeInTheDocument();
+    expect(screen.getByText(/2026-07-10 10:15:00\.000Z/)).toBeInTheDocument();
+    expect(screen.getByText("success")).toBeInTheDocument();
   });
 
-  it("submits the search from the filter form (Enter key path)", async () => {
+  it("provides dedicated doctor and patient filters with exact ISO date-time bounds", async () => {
     renderPage();
-    openClinicalAuditTab();
+    openAuditWorkspace();
 
+    fireEvent.click(screen.getByRole("tab", { name: "Doctor activity" }));
+    await waitFor(() =>
+      expect(getJSONMock).toHaveBeenCalledWith(
+        "/api/v1/admin/audit/events",
+        expect.objectContaining({ actor_role: "DOCTOR_GROUP" }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Patient audit" }));
     fireEvent.change(screen.getByLabelText("Filter by patient UID"), {
       target: { value: "pat-42" },
     });
-    fireEvent.submit(
-      screen.getByRole("form", { name: /Clinical audit filters/i }),
-    );
+    fireEvent.change(screen.getByLabelText("Events from date and time"), {
+      target: { value: "2026-07-01T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Events to date and time"), {
+      target: { value: "2026-07-01T12:30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
 
     await waitFor(() =>
-      expect(fetchAdminAPI).toHaveBeenCalledWith(
-        "/admin/audit/unified?patient_uid=pat-42&limit=25&offset=0",
+      expect(getJSONMock).toHaveBeenCalledWith(
+        "/api/v1/admin/audit/events",
+        expect.objectContaining({
+          patient_uid: "pat-42",
+          from: new Date("2026-07-01T10:00").toISOString(),
+          to: new Date("2026-07-01T12:30").toISOString(),
+        }),
       ),
     );
   });
 
-  it("expands a row to reveal the event detail", async () => {
-    (fetchAdminAPI as jest.Mock).mockResolvedValue(
-      unifiedResponse([makeRow()]),
+  it("uses opaque cursor pagination instead of an offset", async () => {
+    installApiMock(
+      eventList([makeEvent()], { next_cursor: "opaque-next", has_more: true }),
+      eventList([makeEvent({ id: "event-202", action: "note.signed" })]),
     );
-
     renderPage();
-    openClinicalAuditTab();
-    fireEvent.click(screen.getByRole("button", { name: /^Search$/ }));
+    openAuditWorkspace();
 
-    const actionCell = await screen.findByText("prescription.signed");
-    expect(screen.queryByText(/"after_state"/)).not.toBeInTheDocument();
-
-    fireEvent.click(actionCell);
-
-    expect(await screen.findByText(/"after_state"/)).toBeInTheDocument();
-    expect(screen.getByText(/"signed"/)).toBeInTheDocument();
-    expect(screen.getByText("prescriptions")).toBeInTheDocument();
-    expect(screen.getByText("Prescription signed")).toBeInTheDocument();
-  });
-
-  it("shows the empty state when no events match", async () => {
-    (fetchAdminAPI as jest.Mock).mockResolvedValue(unifiedResponse([]));
-
-    renderPage();
-    openClinicalAuditTab();
-    fireEvent.click(screen.getByRole("button", { name: /^Search$/ }));
-
-    expect(
-      await screen.findByText(/No audit events found/i),
-    ).toBeInTheDocument();
-  });
-
-  it("shows a red error banner with the error message on failure", async () => {
-    (fetchAdminAPI as jest.Mock).mockRejectedValue(
-      new Error("backend exploded"),
-    );
-
-    renderPage();
-    openClinicalAuditTab();
-    fireEvent.click(screen.getByRole("button", { name: /^Search$/ }));
-
-    const message = await screen.findByText("backend exploded");
-    expect(message.closest("div")?.className).toContain("bg-red-50");
-  });
-
-  it("advances pagination via offset and disables Next on a short page", async () => {
-    const fullPage = Array.from({ length: 25 }, (_, i) =>
-      makeRow({ id: `a-${i}`, action: `page.one.${i}` }),
-    );
-    const shortPage = [
-      makeRow({ id: "b-0", action: "page.two.0" }),
-      makeRow({ id: "b-1", action: "page.two.1" }),
-    ];
-    (fetchAdminAPI as jest.Mock)
-      .mockResolvedValueOnce(unifiedResponse(fullPage))
-      .mockResolvedValueOnce(unifiedResponse(shortPage, 25));
-
-    renderPage();
-    openClinicalAuditTab();
-    fireEvent.click(screen.getByRole("button", { name: /^Search$/ }));
-
-    await screen.findByText("page.one.0");
-    const nextButton = screen.getByRole("button", { name: /Next/ });
-    expect(nextButton).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Prev/ })).toBeDisabled();
-
+    const nextButton = await screen.findByRole("button", { name: "Next audit page" });
+    await waitFor(() => expect(nextButton).toBeEnabled());
     fireEvent.click(nextButton);
 
     await waitFor(() =>
-      expect(fetchAdminAPI).toHaveBeenLastCalledWith(
-        "/admin/audit/unified?limit=25&offset=25",
+      expect(getJSONMock).toHaveBeenCalledWith(
+        "/api/v1/admin/audit/events",
+        expect.objectContaining({ cursor: "opaque-next", limit: 50 }),
       ),
     );
-    await screen.findByText("page.two.0");
-    expect(screen.getByRole("button", { name: /Next/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Prev/ })).toBeEnabled();
+    expect(await screen.findByText("note · signed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous audit page" })).toBeEnabled();
+  });
+
+  it("loads a safe event detail and never renders sensitive values", async () => {
+    installApiMock(eventList([makeEvent()]));
+    renderPage();
+    openAuditWorkspace();
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "View details for prescription.signed",
+      }),
+    );
+
+    expect(await screen.findByRole("dialog", { name: "Audit event details" })).toBeInTheDocument();
+    await screen.findByText("cpoe");
+    expect(screen.getAllByText("Redacted in admin view")).toHaveLength(2);
+    expect(screen.queryByText("should-not-render")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bearer secret")).not.toBeInTheDocument();
+  });
+
+  it("shows integrity, canonical resource gaps, and actionable access warnings", async () => {
+    renderPage();
+    openAuditWorkspace();
+    fireEvent.click(screen.getByRole("tab", { name: "Audit health" }));
+
+    expect(await screen.findByText("Audit source status")).toBeInTheDocument();
+    expect(screen.getByText("98.5%")).toBeInTheDocument();
+    expect(screen.getByText("120")).toBeInTheDocument();
+    expect(screen.getByText("Audit health requires attention")).toBeInTheDocument();
+    expect(screen.getByText("Hash chain requires attention")).toBeInTheDocument();
+    expect(screen.getByText("Canonical resource completeness")).toBeInTheDocument();
+    expect(screen.getByText("Clinical Notes")).toBeInTheDocument();
+    expect(screen.getByText("Review gaps")).toBeInTheDocument();
+    expect(screen.getByText(/audit-problem-81/)).toBeInTheDocument();
+    expect(screen.getByText("doc-broad-access")).toBeInTheDocument();
+    expect(screen.getByText("Threshold: 20 distinct patients in the selected window.")).toBeInTheDocument();
+    expect(getJSONMock).toHaveBeenCalledWith("/api/v1/admin/audit/health");
+  });
+
+  it("shows a healthy state when integrity, coverage, and review signals are clear", async () => {
+    installApiMock(eventList([]), null, auditHealthHealthy);
+    renderPage();
+    openAuditWorkspace();
+    fireEvent.click(screen.getByRole("tab", { name: "Audit health" }));
+
+    expect(await screen.findByText("Audit evidence is healthy")).toBeInTheDocument();
+    expect(screen.getByText("Hash chain verified")).toBeInTheDocument();
+    expect(screen.getAllByText("Complete")).toHaveLength(2);
+    expect(screen.queryByText("Audit health requires attention")).not.toBeInTheDocument();
+  });
+
+  it("requests a server-audited CSV export for the current filters", async () => {
+    renderPage();
+    openAuditWorkspace();
+    fireEvent.change(screen.getByLabelText("Filter by staff UID"), {
+      target: { value: "doc-1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export filtered CSV" }));
+
+    await waitFor(() =>
+      expect(getJSONMock).toHaveBeenCalledWith(
+        "/api/v1/admin/audit/export",
+        expect.objectContaining({ actor_uid: "doc-1", limit: 500 }),
+      ),
+    );
+    expect(exportCsvText).toHaveBeenCalledWith(
+      expect.stringMatching(/^vh-health-audit-\d{4}-\d{2}-\d{2}\.csv$/),
+      expect.stringContaining("prescription.signed"),
+    );
   });
 });

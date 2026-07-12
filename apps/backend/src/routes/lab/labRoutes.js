@@ -129,6 +129,8 @@ router.post('/orders', requireOrderingStaff, wrap(async (req) => {
     collection_deadline_at: body.collection_deadline_at,
     fasting_required: body.fasting_required,
     fasting_instructions: body.fasting_instructions,
+    tenantId: req.tenantId,
+    actorRole: req.user?.role || null,
   });
   return result;
 }));
@@ -145,6 +147,7 @@ router.post('/samples/:investigationId/collect', requireStaffOrAdmin, wrap(async
     sample_barcode: req.body?.sample_barcode,
     scanned_patient_uid: req.body?.scanned_patient_uid,
     tenantId: tenantOf(req),
+    actor_role: req.user?.role || null,
   }),
 ));
 
@@ -168,6 +171,7 @@ router.post('/samples/:investigationId/reject', requireStaffOrAdmin, wrap(async 
     rejected_by: req.user?.uid,
     rejection_reason: req.body?.rejection_reason ?? req.body?.reason,
     tenantId: tenantOf(req),
+    actor_role: req.user?.role || null,
   }),
 ));
 

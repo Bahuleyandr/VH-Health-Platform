@@ -44,15 +44,6 @@ function tenantFilter(tenantId) {
   return tenantId ? { tenant_id: tenantId } : {};
 }
 
-async function bestEffortDiagnosisTimelineEvent(label, input) {
-  try {
-    return await recordCanonicalClinicalEvent(input);
-  } catch (err) {
-    logger.warn(`Canonical diagnosis event failed during ${label}: ${err?.message || err}`);
-    return null;
-  }
-}
-
 // Sort comparator matching the pre-ORM SQL `CASE diagnosis_type` ordering:
 // primary → admitting → secondary → other.
 const DIAGNOSIS_TYPE_RANK = { primary: 1, admitting: 2, secondary: 3 };
@@ -71,7 +62,7 @@ export async function addDiagnosis(data) {
   const {
     patient_uid, encounter_id, icd10_code, description,
     diagnosis_type, status, onset_date, severity, diagnosed_by, notes,
-    tenant_id, codings = [],
+    tenant_id, codings = [], actor_role = null,
   } = data;
 
   if (!patient_uid || !description || !diagnosed_by) {
@@ -178,36 +169,40 @@ export async function addDiagnosis(data) {
       ),
       createdBy: diagnosed_by,
     });
-    return { ...row, codings: savedCodings };
+    const created = { ...row, codings: savedCodings };
+    await recordCanonicalClinicalEvent({
+      tenantId: created.tenant_id,
+      patientUid: created.patient_uid,
+      encounterId: created.encounter_id,
+      eventType: 'diagnosis.added',
+      eventSubtype: created.diagnosis_type,
+      eventStatus: created.status || 'active',
+      sourceTable: 'diagnoses',
+      sourceId: created.id,
+      resourceType: 'diagnosis',
+      resourceId: created.id,
+      actorUid: created.diagnosed_by,
+      actorRole: actor_role,
+      summary: 'Diagnosis recorded',
+      payload: {
+        icd10_code: created.icd10_code,
+        diagnosis_type: created.diagnosis_type,
+        severity: created.severity,
+        coding_count: created.codings?.length || 0,
+        codings: created.codings || [],
+      },
+      afterState: {
+        status: created.status,
+        diagnosis_type: created.diagnosis_type,
+        severity: created.severity,
+      },
+      timelineIdempotencyKey: `diagnoses:${created.id}:added`,
+      auditIdempotencyKey: `diagnoses:${created.id}:audit:added`,
+    }, { db: tx, strict: true });
+    return created;
   });
 
   logger.info(`Diagnosis added: id=${created.id}, patient=${patient_uid}, icd10=${normalisedIcd10 ?? 'none'}, type=${created.diagnosis_type}`);
-  await bestEffortDiagnosisTimelineEvent('diagnosis add', {
-    tenantId: created.tenant_id,
-    patientUid: created.patient_uid,
-    encounterId: created.encounter_id,
-    eventType: 'diagnosis.added',
-    eventSubtype: created.diagnosis_type,
-    eventStatus: created.status || 'active',
-    sourceTable: 'diagnoses',
-    sourceId: created.id,
-    resourceType: 'diagnosis',
-    resourceId: created.id,
-    actorUid: created.diagnosed_by,
-    summary: created.description,
-    payload: {
-      icd10_code: created.icd10_code,
-      icd10_description: created.icd10_description,
-      description: created.description,
-      diagnosis_type: created.diagnosis_type,
-      severity: created.severity,
-      notes: created.notes,
-      codings: created.codings || [],
-    },
-    afterState: created,
-    timelineIdempotencyKey: `diagnoses:${created.id}:added`,
-    auditIdempotencyKey: `diagnoses:${created.id}:audit:added`,
-  });
   return created;
 }
 
@@ -223,7 +218,13 @@ export async function addDiagnosis(data) {
  * @param {string} updatedBy - UID of the clinician making the update
  * @returns {Object} Updated diagnosis row
  */
-export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy, { tenantId = null } = {}) {
+export async function updateDiagnosisStatus(
+  id,
+  status,
+  resolvedDate,
+  updatedBy,
+  { tenantId = null, actorRole = null } = {},
+) {
   if (!id || !status || !updatedBy) {
     throw AppError.badRequest('id, status, and updatedBy are required');
   }
@@ -234,7 +235,7 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy,
 
   const existing = await prisma.diagnoses.findUnique({
     where: { id: Number(id) },
-    select: { id: true, status: true, patient_uid: true },
+    select: { id: true, status: true, patient_uid: true, tenant_id: true },
   });
 
   if (!existing) {
@@ -255,26 +256,9 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy,
     ? new Date(resolvedDate ?? new Date().toISOString().slice(0, 10))
     : null;
 
-  const result = tenantId
-    ? await prisma.diagnoses.updateMany({
-      where: { id: Number(id), tenant_id: tenantId },
-      data: {
-        status,
-        resolved_date: resolvedAt,
-      },
-    })
-    : { count: 1 };
-
-  if (tenantId && result.count !== 1) {
-    throw AppError.notFound('Diagnosis not found');
-  }
-
-  const updated = tenantId
-    ? await prisma.diagnoses.findFirst({
-      where: { id: Number(id), tenant_id: tenantId },
-      select: DIAGNOSIS_SELECT,
-    })
-    : await prisma.diagnoses.update({
+  const normalizedTenantId = requireTenantId(tenantId || existing.tenant_id);
+  const updated = await setTenantTx(normalizedTenantId, async (tx) => {
+    const row = await tx.diagnoses.update({
       where: { id: Number(id) },
       data: {
         status,
@@ -282,40 +266,37 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy,
       },
       select: DIAGNOSIS_SELECT,
     });
-
-  if (!updated) {
-    throw AppError.notFound('Diagnosis not found');
-  }
-  updated.codings = await listResourceCodings({ resourceType: 'diagnosis', resourceId: updated.id });
-
-  logger.info(`Diagnosis status updated: id=${id}, old_status=${existing.status}, new_status=${status}, by=${updatedBy}`);
-  await bestEffortDiagnosisTimelineEvent('diagnosis status update', {
-    tenantId: updated.tenant_id,
-    patientUid: updated.patient_uid,
-    encounterId: updated.encounter_id,
-    eventType: 'diagnosis.status_updated',
-    eventSubtype: updated.diagnosis_type,
-    eventStatus: updated.status || status,
-    sourceTable: 'diagnoses',
-    sourceId: updated.id,
-    resourceType: 'diagnosis',
-    resourceId: updated.id,
-    actorUid: updatedBy,
-    summary: `${updated.description} marked ${updated.status}`,
-    payload: {
-      icd10_code: updated.icd10_code,
-      description: updated.description,
-      diagnosis_type: updated.diagnosis_type,
-      previous_status: existing.status,
-      new_status: updated.status,
-      resolved_date: updated.resolved_date,
-      codings: updated.codings || [],
-    },
-    beforeState: { status: existing.status },
-    afterState: { status: updated.status, resolved_date: updated.resolved_date },
-    timelineIdempotencyKey: `diagnoses:${updated.id}:status:${updated.status}:${updated.updated_at?.toISOString?.() || Date.now()}`,
-    auditIdempotencyKey: `diagnoses:${updated.id}:audit:status:${updated.status}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+    await recordCanonicalClinicalEvent({
+      tenantId: row.tenant_id,
+      patientUid: row.patient_uid,
+      encounterId: row.encounter_id,
+      eventType: 'diagnosis.status_updated',
+      eventSubtype: row.diagnosis_type,
+      eventStatus: row.status || status,
+      sourceTable: 'diagnoses',
+      sourceId: row.id,
+      resourceType: 'diagnosis',
+      resourceId: row.id,
+      actorUid: updatedBy,
+      actorRole,
+      summary: `Diagnosis marked ${row.status}`,
+      payload: {
+        icd10_code: row.icd10_code,
+        diagnosis_type: row.diagnosis_type,
+        previous_status: existing.status,
+        new_status: row.status,
+        resolved_date: row.resolved_date,
+      },
+      beforeState: { status: existing.status },
+      afterState: { status: row.status, resolved_date: row.resolved_date },
+      timelineIdempotencyKey: `diagnoses:${row.id}:status:${row.status}:${row.updated_at?.toISOString?.() || Date.now()}`,
+      auditIdempotencyKey: `diagnoses:${row.id}:audit:status:${row.status}:${row.updated_at?.toISOString?.() || Date.now()}`,
+    }, { db: tx, strict: true });
+    return row;
   });
+
+  updated.codings = await listResourceCodings({ resourceType: 'diagnosis', resourceId: updated.id });
+  logger.info(`Diagnosis status updated: id=${id}, old_status=${existing.status}, new_status=${status}, by=${updatedBy}`);
   return updated;
 }
 

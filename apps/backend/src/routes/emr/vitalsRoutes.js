@@ -111,6 +111,7 @@ async function handleVitalsCorrection(req, res, next) {
     const result = await vitalsChartService.correctVitals(vitalsId, {
       ...req.body,
       corrected_by: req.user.uid,
+      actor_role: req.user.role,
       ip_address: req.ip,
       tenantId: req.tenantId,
     });

@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { enrichMedicationsWithComposition } from '../../services/pharmacy/compositionIdentityService.js';
@@ -51,15 +51,6 @@ const PRIVILEGED_PRESCRIPTION_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
 const CONTROLLED_SUBSTANCE_GATE = 'CONTROLLED_SUBSTANCE_REQUIRE_PRESCRIBE_PRIVILEGE';
 const CONTROLLED_SUBSTANCE_RE =
   /\b(controlled|narcotic|opioid|opiate|psychotropic|ndps|schedule\s*(?:ii|iii|iv|v|2|3|4|5))\b/i;
-
-async function bestEffortPrescriptionCanonical(label, fn) {
-  try {
-    return await fn();
-  } catch (err) {
-    logger.warn(`Canonical prescription event failed during ${label}: ${err?.message || err}`);
-    return null;
-  }
-}
 
 // Persisted-only brand-substitution audit for an e-Rx save. Iterates the
 // persisted medications; for each med whose first-selected brand
@@ -456,8 +447,12 @@ function assertPrescriptionSignable(req, rx) {
   return null;
 }
 
-async function loadPrescriptionRow(id) {
-  const rows = await prisma.$queryRawUnsafe(`SELECT * FROM e_prescriptions WHERE id = $1`, id);
+async function loadPrescriptionRow(id, tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM e_prescriptions WHERE id = $1 AND tenant_id = $2::uuid`,
+    id,
+    requireTenantId(tenantId),
+  );
   return rows[0] || null;
 }
 
@@ -1149,51 +1144,112 @@ export const createPrescription = async (req, res) => {
     // Insert prescription.
     // The table has `clinical_notes` (not `notes`); patient_uid + doctor_uid
     // are populated explicitly so downstream uid-based lookups work.
-    const insertResult = await prisma.$queryRawUnsafe(
-      `INSERT INTO e_prescriptions
-        (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
-         diagnosis, clinical_notes, medications,
-         follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by,
-         admission_id, visit_type)
-       VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8::jsonb, $9::date, $10, $11::jsonb, $12, $13,
-               $14, $15)
-       RETURNING id, appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
-                 medications, status, lifecycle_status, revision, signed_at, signed_by, locked_at, locked_by,
-                 created_at,
-                 prescription_number, diagnosis, clinical_notes, vitals,
-                 follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key,
-                 admission_id, visit_type`,
-      appointmentId || null,
-      patientId,
-      doctorId,
-      patientUid,
-      doctorUid,
-      diagnosis || null,
-      clinical_notes || null,
-      JSON.stringify(medications),
-      follow_up_date || null,
-      follow_up_notes || null,
-      vitals ? JSON.stringify(vitals) : null,
-      handwritten_photo_key,
-      created_by,
-      admissionId || null,
-      resolvedVisitType
-    );
-
-    const prescription = insertResult[0];
-    const encounter = appointmentId
-      ? await bestEffortPrescriptionCanonical('prescription encounter ensure', () => ensureEncounterForAppointment({
-        tenantId: req.user?.tenant_id || req.user?.tenantId,
-        appointmentId,
+    const prescriptionTenantId = requireTenantId(rxTenantId);
+    const { prescription, encounter } = await setTenantTx(prescriptionTenantId, async (tx) => {
+      const insertResult = await tx.$queryRawUnsafe(
+        `INSERT INTO e_prescriptions
+          (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
+           diagnosis, clinical_notes, medications,
+           follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by,
+           admission_id, visit_type, tenant_id)
+         VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8::jsonb, $9::date, $10, $11::jsonb, $12, $13,
+                 $14, $15, $16::uuid)
+         RETURNING id, appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
+                   medications, status, lifecycle_status, revision, signed_at, signed_by, locked_at, locked_by,
+                   created_at,
+                   prescription_number, diagnosis, clinical_notes, vitals,
+                   follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key,
+                   admission_id, visit_type, tenant_id`,
+        appointmentId || null,
+        patientId,
+        doctorId,
         patientUid,
         doctorUid,
+        diagnosis || null,
+        clinical_notes || null,
+        JSON.stringify(medications),
+        follow_up_date || null,
+        follow_up_notes || null,
+        vitals ? JSON.stringify(vitals) : null,
+        handwritten_photo_key,
+        created_by,
+        admissionId || null,
+        resolvedVisitType,
+        prescriptionTenantId,
+      );
+
+      const saved = insertResult[0];
+      const linkedEncounter = appointmentId
+        ? await ensureEncounterForAppointment({
+          tenantId: prescriptionTenantId,
+          appointmentId,
+          patientUid,
+          doctorUid,
+          actorUid: req.user?.uid,
+          metadata: {
+            source: 'prescriptions.create',
+            prescription_id: saved.id,
+          },
+        }, { db: tx })
+        : null;
+
+      await recordMedicationSafetyReviews({
+        tenantId: prescriptionTenantId,
+        patientUid,
+        patientId,
+        encounterId: linkedEncounter?.id || null,
+        prescriptionId: saved.id,
+        safety,
+        override,
         actorUid: req.user?.uid,
-        metadata: {
-          source: 'prescriptions.create',
-          prescription_id: prescription.id,
+      }, { db: tx });
+
+      await recordCanonicalClinicalEvent({
+        tenantId: prescriptionTenantId,
+        patientUid,
+        encounterId: linkedEncounter?.id || null,
+        eventType: 'prescription.created',
+        eventStatus: saved.lifecycle_status || saved.status || 'draft',
+        sourceTable: 'e_prescriptions',
+        sourceId: saved.id,
+        resourceType: 'prescription',
+        resourceId: saved.id,
+        actorUid: req.user?.uid,
+        actorRole: req.user?.role,
+        requestId: req.id,
+        summary: `Prescription ${saved.prescription_number} created`,
+        payload: {
+          prescription_number: saved.prescription_number,
+          appointment_id: appointmentId || null,
+          admission_id: admissionId || null,
+          visit_type: resolvedVisitType,
+          medication_count: medications.length,
+          safety_status: safety.safe ? 'passed' : 'overridden',
         },
-      }))
-      : null;
+        afterState: {
+          lifecycle_status: saved.lifecycle_status || saved.status || 'draft',
+          medication_count: medications.length,
+          revision: saved.revision,
+        },
+      }, { db: tx, strict: true });
+
+      if (!safety.safe && override) {
+        await tx.$queryRawUnsafe(
+          `INSERT INTO prescription_safety_overrides
+             (prescription_id, patient_id, doctor_id, blockers, reason, approved_by, created_by)
+           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
+          saved.id,
+          patientId,
+          doctorId,
+          JSON.stringify(safety.blockers),
+          override.reason.trim(),
+          override.approvedBy || null,
+          created_by,
+        );
+      }
+
+      return { prescription: saved, encounter: linkedEncounter };
+    });
 
     logAudit(
       req,
@@ -1216,42 +1272,6 @@ export const createPrescription = async (req, res) => {
       logger.warn(`Prescription create audit failed for ${prescription.id}: ${auditErr.message}`);
     });
 
-    await bestEffortPrescriptionCanonical('prescription safety review', () => recordMedicationSafetyReviews({
-      tenantId: req.user?.tenant_id || req.user?.tenantId,
-      patientUid,
-      patientId,
-      encounterId: encounter?.id || null,
-      prescriptionId: prescription.id,
-      safety,
-      override,
-      actorUid: req.user?.uid,
-    }));
-
-    await bestEffortPrescriptionCanonical('prescription create event', () => recordCanonicalClinicalEvent({
-      tenantId: req.user?.tenant_id || req.user?.tenantId,
-      patientUid,
-      encounterId: encounter?.id || null,
-      eventType: 'prescription.created',
-      eventStatus: prescription.lifecycle_status || prescription.status || 'draft',
-      sourceTable: 'e_prescriptions',
-      sourceId: prescription.id,
-      resourceType: 'prescription',
-      resourceId: prescription.id,
-      actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      summary: `Prescription ${prescription.prescription_number} created`,
-      payload: {
-        prescription_number: prescription.prescription_number,
-        appointment_id: appointmentId || null,
-        admission_id: admissionId || null,
-        visit_type: resolvedVisitType,
-        diagnosis: prescription.diagnosis,
-        medication_count: medications.length,
-        safety,
-      },
-      afterState: prescription,
-    }));
-
     // Persisted-only brand-substitution audit — post-persist, best-effort.
     await auditPrescriptionBrandSubstitutions({
       req,
@@ -1261,26 +1281,6 @@ export const createPrescription = async (req, res) => {
       encounterId: encounter?.id || null,
       prescriptionId: prescription.id,
     });
-
-    // If CDS blockers were overridden, persist the audit row linked to the new Rx.
-    if (!safety.safe && override) {
-      try {
-        await prisma.$queryRawUnsafe(
-          `INSERT INTO prescription_safety_overrides
-             (prescription_id, patient_id, doctor_id, blockers, reason, approved_by, created_by)
-           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
-          prescription.id,
-          patientId,
-          doctorId,
-          JSON.stringify(safety.blockers),
-          override.reason.trim(),
-          override.approvedBy || null,
-          created_by
-        );
-      } catch (auditErr) {
-        logger.error('Failed to persist CDS override audit row:', auditErr.message);
-      }
-    }
 
     // Fetch patient and doctor info for PDF
     const [patientRes, doctorRes] = await Promise.all([
@@ -1479,7 +1479,10 @@ export const updatePrescription = async (req, res) => {
       return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const existing = await loadPrescriptionRow(id);
+    const requestTenantId = requireTenantId(
+      req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId,
+    );
+    const existing = await loadPrescriptionRow(id, requestTenantId);
     if (!existing) return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
 
     const editError = assertPrescriptionEditable(req, existing);
@@ -1497,7 +1500,7 @@ export const updatePrescription = async (req, res) => {
     // safety-then-persist-the-same-array invariant (#7) as the create path.
     // Enrich strips any client composition_id; guarded so a failure keeps the
     // original array for both the safety check and the $3 persist.
-    const rxTenantId = req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null;
+    const rxTenantId = requestTenantId;
     try {
       medications = await enrichMedicationsWithComposition(rxTenantId, medications);
     } catch (enrichErr) {
@@ -1534,48 +1537,106 @@ export const updatePrescription = async (req, res) => {
     const vitals =
       req.body.vitals !== undefined ? parseJsonField(req.body.vitals, null) : existing.vitals;
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE e_prescriptions
-          SET diagnosis=$1,
-              clinical_notes=$2,
-              medications=$3::jsonb,
-              follow_up_date=$4::date,
-              follow_up_notes=$5,
-              vitals=$6::jsonb,
-              revision=COALESCE(revision, 1) + 1,
-              lifecycle_status='draft',
-              updated_at=NOW()
-        WHERE id=$7
-        RETURNING *`,
-      diagnosis || null,
-      clinicalNotes || null,
-      JSON.stringify(medications),
-      followUpDate || null,
-      followUpNotes || null,
-      vitals ? JSON.stringify(vitals) : null,
-      id
-    );
+    const prescriptionTenantId = requireTenantId(rxTenantId || existing.tenant_id);
+    const updated = await setTenantTx(prescriptionTenantId, async (tx) => {
+      const result = await tx.$queryRawUnsafe(
+        `UPDATE e_prescriptions
+            SET diagnosis=$1,
+                clinical_notes=$2,
+                medications=$3::jsonb,
+                follow_up_date=$4::date,
+                follow_up_notes=$5,
+                vitals=$6::jsonb,
+                revision=COALESCE(revision, 1) + 1,
+                lifecycle_status='draft',
+                updated_at=NOW()
+          WHERE id=$7
+            AND tenant_id=$8::uuid
+            AND signed_at IS NULL
+            AND locked_at IS NULL
+            AND COALESCE(pharmacy_opted, FALSE) = FALSE
+            AND pharmacy_order_id IS NULL
+            AND LOWER(COALESCE(status, '')) <> 'pharmacy_linked'
+            AND LOWER(COALESCE(status, '')) NOT IN ('fulfilled', 'cancelled', 'canceled')
+          RETURNING *`,
+        diagnosis || null,
+        clinicalNotes || null,
+        JSON.stringify(medications),
+        followUpDate || null,
+        followUpNotes || null,
+        vitals ? JSON.stringify(vitals) : null,
+        id,
+        prescriptionTenantId,
+      );
 
-    const updated = result[0];
-
-    if (!safety.safe && override) {
-      try {
-        await prisma.$queryRawUnsafe(
+      const saved = result[0];
+      if (!saved) {
+        throw AppError.conflict(
+          'Prescription state changed before the edit could be saved',
+          'PRESCRIPTION_STATE_CHANGED',
+        );
+      }
+      if (!safety.safe && override) {
+        await tx.$queryRawUnsafe(
           `INSERT INTO prescription_safety_overrides
              (prescription_id, patient_id, doctor_id, blockers, reason, approved_by, created_by)
            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
-          updated.id,
-          updated.patient_id,
-          updated.doctor_id,
+          saved.id,
+          saved.patient_id,
+          saved.doctor_id,
           JSON.stringify(safety.blockers),
           override.reason.trim(),
           override.approvedBy || null,
-          req.user?.id || req.user?.userId || null
+          req.user?.id || req.user?.userId || null,
         );
-      } catch (auditErr) {
-        logger.error('Failed to persist edit CDS override audit row:', auditErr.message);
       }
-    }
+
+      await recordMedicationSafetyReviews({
+        tenantId: prescriptionTenantId,
+        patientUid: saved.patient_uid || existing.patient_uid,
+        patientId: saved.patient_id || existing.patient_id,
+        prescriptionId: saved.id,
+        safety,
+        override,
+        actorUid: req.user?.uid,
+      }, { db: tx });
+
+      await recordCanonicalClinicalEvent({
+        tenantId: prescriptionTenantId,
+        patientUid: saved.patient_uid || existing.patient_uid,
+        eventType: 'prescription.edited',
+        eventStatus: saved.lifecycle_status || saved.status || 'draft',
+        sourceTable: 'e_prescriptions',
+        sourceId: saved.id,
+        resourceType: 'prescription',
+        resourceId: saved.id,
+        actorUid: req.user?.uid,
+        actorRole: req.user?.role,
+        requestId: req.id,
+        summary: `Prescription ${saved.prescription_number} edited`,
+        payload: {
+          prescription_number: saved.prescription_number,
+          appointment_id: saved.appointment_id || null,
+          admission_id: saved.admission_id || null,
+          revision: saved.revision,
+          medication_count: medications.length,
+          safety_status: safety.safe ? 'passed' : 'overridden',
+        },
+        beforeState: {
+          lifecycle_status: existing.lifecycle_status || existing.status,
+          revision: existing.revision,
+          medication_count: normalizeMedicationList(existing.medications).length,
+        },
+        afterState: {
+          lifecycle_status: saved.lifecycle_status || saved.status,
+          revision: saved.revision,
+          medication_count: medications.length,
+        },
+        timelineIdempotencyKey: `e_prescriptions:${saved.id}:edited:rev${saved.revision || 1}`,
+        auditIdempotencyKey: `e_prescriptions:${saved.id}:audit:edited:rev${saved.revision || 1}`,
+      }, { db: tx, strict: true });
+      return saved;
+    });
 
     try {
       await regeneratePrescriptionPdf(req, updated);
@@ -1602,42 +1663,6 @@ export const updatePrescription = async (req, res) => {
     ).catch(auditErr => {
       logger.warn(`Prescription edit audit failed for ${updated.id}: ${auditErr.message}`);
     });
-
-    await bestEffortPrescriptionCanonical('prescription edit safety review', () => recordMedicationSafetyReviews({
-      tenantId: req.user?.tenant_id || req.user?.tenantId,
-      patientUid: updated.patient_uid || existing.patient_uid,
-      patientId: updated.patient_id || existing.patient_id,
-      prescriptionId: updated.id,
-      safety,
-      override,
-      actorUid: req.user?.uid,
-    }));
-
-    await bestEffortPrescriptionCanonical('prescription edit event', () => recordCanonicalClinicalEvent({
-      tenantId: req.user?.tenant_id || req.user?.tenantId,
-      patientUid: updated.patient_uid || existing.patient_uid,
-      eventType: 'prescription.edited',
-      eventStatus: updated.lifecycle_status || updated.status || 'draft',
-      sourceTable: 'e_prescriptions',
-      sourceId: updated.id,
-      resourceType: 'prescription',
-      resourceId: updated.id,
-      actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      summary: `Prescription ${updated.prescription_number} edited`,
-      payload: {
-        prescription_number: updated.prescription_number,
-        appointment_id: updated.appointment_id || null,
-        admission_id: updated.admission_id || null,
-        revision: updated.revision,
-        medication_count: medications.length,
-        safety,
-      },
-      beforeState: existing,
-      afterState: updated,
-      timelineIdempotencyKey: `e_prescriptions:${updated.id}:edited:rev${updated.revision || 1}`,
-      auditIdempotencyKey: `e_prescriptions:${updated.id}:audit:edited:rev${updated.revision || 1}`,
-    }));
 
     // Persisted-only brand-substitution audit — post-persist, best-effort.
     await auditPrescriptionBrandSubstitutions({
@@ -1669,40 +1694,94 @@ export const signPrescription = async (req, res) => {
       return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const existing = await loadPrescriptionRow(id);
+    const requestTenantId = requireTenantId(
+      req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId,
+    );
+    const existing = await loadPrescriptionRow(id, requestTenantId);
     if (!existing) return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
 
     const signError = assertPrescriptionSignable(req, existing);
     if (signError) return error(res, signError, HTTP_STATUS.FORBIDDEN);
 
     const actorUid = req.user?.uid || null;
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE e_prescriptions
-          SET signed_at=NOW(),
-              signed_by=$1::uuid,
-              locked_at=NOW(),
-              locked_by=$1::uuid,
-              lifecycle_status='signed',
-              updated_at=NOW()
-        WHERE id=$2
-        RETURNING *`,
-      actorUid,
-      id
-    );
-    const signed = result[0];
-    const encounter = signed.appointment_id
-      ? await bestEffortPrescriptionCanonical('prescription sign encounter ensure', () => ensureEncounterForAppointment({
-        tenantId: req.user?.tenant_id || req.user?.tenantId,
-        appointmentId: signed.appointment_id,
-        patientUid: signed.patient_uid,
-        doctorUid: signed.doctor_uid,
+    const prescriptionTenantId = requestTenantId;
+    const signed = await setTenantTx(prescriptionTenantId, async (tx) => {
+      const result = await tx.$queryRawUnsafe(
+        `UPDATE e_prescriptions
+            SET signed_at=NOW(),
+                signed_by=$1::uuid,
+                locked_at=NOW(),
+                locked_by=$1::uuid,
+                lifecycle_status='signed',
+                updated_at=NOW()
+          WHERE id=$2
+            AND tenant_id=$3::uuid
+            AND signed_at IS NULL
+            AND locked_at IS NULL
+            AND LOWER(COALESCE(lifecycle_status, 'draft')) <> 'signed'
+            AND LOWER(COALESCE(status, '')) NOT IN ('fulfilled', 'cancelled', 'canceled')
+          RETURNING *`,
         actorUid,
-        metadata: {
-          source: 'prescriptions.sign',
-          prescription_id: signed.id,
+        id,
+        prescriptionTenantId,
+      );
+      const saved = result[0];
+      if (!saved) {
+        throw AppError.conflict(
+          'Prescription state changed before it could be signed',
+          'PRESCRIPTION_STATE_CHANGED',
+        );
+      }
+      const encounter = saved.appointment_id
+        ? await ensureEncounterForAppointment({
+          tenantId: prescriptionTenantId,
+          appointmentId: saved.appointment_id,
+          patientUid: saved.patient_uid,
+          doctorUid: saved.doctor_uid,
+          actorUid,
+          metadata: {
+            source: 'prescriptions.sign',
+            prescription_id: saved.id,
+          },
+        }, { db: tx })
+        : null;
+
+      await recordCanonicalClinicalEvent({
+        tenantId: prescriptionTenantId,
+        patientUid: saved.patient_uid || existing.patient_uid,
+        encounterId: encounter?.id || null,
+        eventType: 'prescription.signed',
+        eventStatus: 'signed',
+        sourceTable: 'e_prescriptions',
+        sourceId: saved.id,
+        resourceType: 'prescription',
+        resourceId: saved.id,
+        actorUid,
+        actorRole: req.user?.role,
+        requestId: req.id,
+        summary: `Prescription ${saved.prescription_number} signed`,
+        payload: {
+          prescription_number: saved.prescription_number,
+          appointment_id: saved.appointment_id || null,
+          admission_id: saved.admission_id || null,
+          revision: saved.revision,
+          signed_at: saved.signed_at,
         },
-      }))
-      : null;
+        beforeState: {
+          lifecycle_status: existing.lifecycle_status || existing.status,
+          signed_at: existing.signed_at,
+          locked_at: existing.locked_at,
+        },
+        afterState: {
+          lifecycle_status: saved.lifecycle_status,
+          signed_at: saved.signed_at,
+          locked_at: saved.locked_at,
+        },
+        timelineIdempotencyKey: `e_prescriptions:${saved.id}:signed:${saved.signed_at?.toISOString?.() || 'now'}`,
+        auditIdempotencyKey: `e_prescriptions:${saved.id}:audit:signed:${saved.signed_at?.toISOString?.() || 'now'}`,
+      }, { db: tx, strict: true });
+      return saved;
+    });
 
     logAudit(
       req,
@@ -1723,34 +1802,11 @@ export const signPrescription = async (req, res) => {
       logger.warn(`Prescription sign audit failed for ${signed.id}: ${auditErr.message}`);
     });
 
-    await bestEffortPrescriptionCanonical('prescription sign event', () => recordCanonicalClinicalEvent({
-      tenantId: req.user?.tenant_id || req.user?.tenantId,
-      patientUid: signed.patient_uid || existing.patient_uid,
-      encounterId: encounter?.id || null,
-      eventType: 'prescription.signed',
-      eventStatus: 'signed',
-      sourceTable: 'e_prescriptions',
-      sourceId: signed.id,
-      resourceType: 'prescription',
-      resourceId: signed.id,
-      actorUid,
-      actorRole: req.user?.role,
-      summary: `Prescription ${signed.prescription_number} signed`,
-      payload: {
-        prescription_number: signed.prescription_number,
-        appointment_id: signed.appointment_id || null,
-        admission_id: signed.admission_id || null,
-        revision: signed.revision,
-        signed_at: signed.signed_at,
-      },
-      beforeState: existing,
-      afterState: signed,
-      timelineIdempotencyKey: `e_prescriptions:${signed.id}:signed:${signed.signed_at?.toISOString?.() || 'now'}`,
-      auditIdempotencyKey: `e_prescriptions:${signed.id}:audit:signed:${signed.signed_at?.toISOString?.() || 'now'}`,
-    }));
-
     success(res, signed, 'Prescription signed and locked');
   } catch (err) {
+    if (err instanceof AppError) {
+      return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+    }
     logger.error('Sign prescription error:', err);
     error(res, 'Failed to sign prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

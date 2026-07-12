@@ -105,7 +105,7 @@ describe('C-2 bedService admit/discharge — no bypass (deep)', () => {
       bedId,
       { patient_id: patientId, patient_name: 'C2 Bed Patient', notes: 'chest pain' },
       'DOCTOR',
-      { tenantId: TENANT_ID },
+      { tenantId: TENANT_ID, actorUid: DISCHARGER_UID },
     );
 
     // Bed is fully populated — NOT the half-populated legacy row.
@@ -125,19 +125,46 @@ describe('C-2 bedService admit/discharge — no bypass (deep)', () => {
 
     // bed_transfers admission audit row.
     const xfer = await prisma.$queryRawUnsafe(
-      `SELECT id, reason, from_bed_id, to_bed_id FROM bed_transfers
+      `SELECT id, reason, from_bed_id, to_bed_id, transferred_by FROM bed_transfers
         WHERE patient_uid = $1::uuid AND reason = 'Admission'`,
       PATIENT_UID,
     );
     expect(xfer).toHaveLength(1);
     expect(xfer[0].from_bed_id).toBeNull();
     expect(Number(xfer[0].to_bed_id)).toBe(Number(bedId));
+    expect(String(xfer[0].transferred_by)).toBe(DISCHARGER_UID);
 
     // Canonical admission.created timeline + audit events.
     const tl = await timelineEvents('admission.created');
     expect(tl.length).toBeGreaterThanOrEqual(1);
     const au = await auditEvents('admission.created');
     expect(au.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('saves occupied-bed notes with canonical actor attribution', async () => {
+    const bed = await bedService.updateBedNotes(bedId, 'Observe overnight oxygen needs', {
+      tenantId: TENANT_ID,
+      actorUid: DISCHARGER_UID,
+      actorRole: 'NURSING_STAFF',
+    });
+    expect(bed.notes).toBe('Observe overnight oxygen needs');
+
+    const timeline = await prisma.$queryRawUnsafe(
+      `SELECT actor_uid FROM clinical_timeline_events
+        WHERE patient_uid = $1::uuid AND event_type = 'bed.notes_updated'
+          AND source_table = 'beds' AND source_id = $2`,
+      PATIENT_UID, String(bedId),
+    );
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT actor_uid FROM clinical_audit_events
+        WHERE patient_uid = $1::uuid AND action = 'bed.notes_updated'
+          AND resource_table = 'beds' AND resource_id = $2`,
+      PATIENT_UID, String(bedId),
+    );
+    expect(timeline).toHaveLength(1);
+    expect(audit).toHaveLength(1);
+    expect(String(timeline[0].actor_uid)).toBe(DISCHARGER_UID);
+    expect(String(audit[0].actor_uid)).toBe(DISCHARGER_UID);
   });
 
   it('admit rejects when no patient reference resolves (no half-populated bed)', async () => {

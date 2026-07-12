@@ -10,6 +10,8 @@ const loggerInfoMock = jest.fn();
 const loggerWarnMock = jest.fn();
 const loggerErrorMock = jest.fn();
 const sendStaffNotificationsMock = jest.fn();
+const recordCanonicalClinicalEventMock = jest.fn();
+const completeWorkflowSlaMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -41,6 +43,12 @@ jest.unstable_mockModule('../../services/notification/staffNotificationService.j
   sendStaffNotifications: sendStaffNotificationsMock,
 }));
 
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  completeWorkflowSla: completeWorkflowSlaMock,
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+  startWorkflowSla: jest.fn(),
+}));
+
 const referralService = (await import('../../services/referral/referralService.js')).default;
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -58,6 +66,11 @@ beforeEach(() => {
   loggerWarnMock.mockReset();
   loggerErrorMock.mockReset();
   sendStaffNotificationsMock.mockReset();
+  recordCanonicalClinicalEventMock.mockReset().mockResolvedValue({
+    timeline: { id: 'timeline-1' },
+    audit: { id: 'audit-1' },
+  });
+  completeWorkflowSlaMock.mockReset().mockResolvedValue(null);
 });
 
 describe('referralService specialist referral authorization', () => {
@@ -162,6 +175,50 @@ describe('referralService specialist referral authorization', () => {
     expect(referralsUpdateMock).not.toHaveBeenCalled();
   });
 
+  it('records the specialist response when completing a referral', async () => {
+    referralsFindUniqueMock.mockResolvedValueOnce({
+      id: 18,
+      status: 'accepted',
+      tenant_id: TENANT_ID,
+      patient_uid: '44444444-4444-4444-8444-444444444444',
+      referred_to_doctor: DOCTOR_UID,
+      referred_to_department: 'Cardiology',
+      accepted_by: DOCTOR_UID,
+      performer_id: DOCTOR_UID,
+    });
+    referralsUpdateMock.mockResolvedValueOnce({
+      id: 18,
+      tenant_id: TENANT_ID,
+      patient_uid: '44444444-4444-4444-8444-444444444444',
+      referral_number: 'REF-18',
+      referred_to_department: 'Cardiology',
+      status: 'completed',
+      response_notes: 'ECG reviewed; outpatient follow-up advised',
+      completed_at: new Date('2026-07-13T10:00:00.000Z'),
+    });
+
+    const referral = await referralService.completeReferral(
+      18,
+      'ECG reviewed; outpatient follow-up advised',
+      { actorUid: DOCTOR_UID, actorRole: 'DOCTOR' },
+    );
+
+    expect(referral.status).toBe('completed');
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'referral.completed',
+        actorRole: 'DOCTOR',
+        payload: expect.objectContaining({
+          response_notes: 'ECG reviewed; outpatient follow-up advised',
+        }),
+        afterState: expect.objectContaining({
+          response_notes: 'ECG reviewed; outpatient follow-up advised',
+        }),
+      }),
+      expect.objectContaining({ db: __prismaDefaultMock, strict: true }),
+    );
+  });
+
   it('allows the requesting doctor to decline a still-pending outgoing referral', async () => {
     referralsFindUniqueMock.mockResolvedValueOnce({
       id: 16,
@@ -194,6 +251,18 @@ describe('referralService specialist referral authorization', () => {
         response_notes: 'Recalled by primary doctor',
       }),
     }));
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'referral.declined',
+        payload: expect.objectContaining({
+          response_notes: 'Recalled by primary doctor',
+        }),
+        afterState: expect.objectContaining({
+          response_notes: 'Recalled by primary doctor',
+        }),
+      }),
+      expect.objectContaining({ db: __prismaDefaultMock, strict: true }),
+    );
   });
 
   it('blocks an unrelated doctor from declining another referral', async () => {

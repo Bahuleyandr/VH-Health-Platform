@@ -239,7 +239,7 @@ export async function emitPharmacyOrderEvent({
       tags: ['pharmacy'],
       timelineIdempotencyKey: `pharmacy_orders:${orderId}:${eventType}:${status || 'none'}:${stamp}`,
       auditIdempotencyKey: `pharmacy_orders:${orderId}:audit:${eventType}:${status || 'none'}:${stamp}`,
-    }, { db: client });
+    }, { db: client, strict: runsInCallerTx(db) });
   }, { propagate: runsInCallerTx(db) });
 }
 
@@ -490,7 +490,7 @@ export async function emitDischargeWorkItemCompleted({
       tags: ['discharge'],
       timelineIdempotencyKey: `discharge_consults:${consult.id}:completed`,
       auditIdempotencyKey: `discharge_consults:${consult.id}:audit:completed`,
-    }, { db: client });
+    }, { db: client, strict: runsInCallerTx(db) });
 
     return completeWorkflowSla({
       tenantId: consult.tenant_id || admission.tenant_id,
@@ -535,7 +535,7 @@ export async function emitDischargeDrugsDispensed({
       tags: ['discharge', 'pharmacy'],
       timelineIdempotencyKey: `admissions:${admission.id}:discharge_drugs_dispensed`,
       auditIdempotencyKey: `admissions:${admission.id}:audit:discharge_drugs_dispensed`,
-    }, { db: client }), { propagate: runsInCallerTx(db) });
+    }, { db: client, strict: runsInCallerTx(db) }), { propagate: runsInCallerTx(db) });
 }
 
 export async function emitFinalDischargeCompleted({

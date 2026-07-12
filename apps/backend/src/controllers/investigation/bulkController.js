@@ -2,6 +2,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as bulkService from '../../services/investigation/bulkService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -37,7 +38,9 @@ export const updateStatus = async (req, res) => {
       investigation_ids,
       status,
       notes,
-      updatedBy
+      updatedBy,
+      resolveTenantOrThrow(req),
+      req.user?.role,
     );
     
     await logAudit(req, 'investigation-bulk-status-update', {
@@ -95,7 +98,9 @@ export const cancelInvestigations = async (req, res) => {
     const results = await bulkService.bulkCancel(
       investigation_ids,
       reason,
-      cancelledBy
+      cancelledBy,
+      resolveTenantOrThrow(req),
+      req.user?.role,
     );
     
     await logAudit(req, 'investigation-bulk-cancel', {
@@ -144,7 +149,9 @@ export const assignToTechnician = async (req, res) => {
     const results = await bulkService.bulkAssignTechnician(
       investigation_ids,
       technician_id,
-      assignedBy
+      assignedBy,
+      resolveTenantOrThrow(req),
+      req.user?.role,
     );
     
     await logAudit(req, 'investigation-bulk-assign', {
@@ -201,7 +208,9 @@ export const scheduleInvestigations = async (req, res) => {
       investigation_ids,
       scheduled_date,
       time_slot,
-      scheduledBy
+      scheduledBy,
+      resolveTenantOrThrow(req),
+      req.user?.role,
     );
     
     await logAudit(req, 'investigation-bulk-schedule', {

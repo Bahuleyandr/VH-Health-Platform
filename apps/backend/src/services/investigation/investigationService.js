@@ -4,7 +4,6 @@ import {
   LAB_STAFF_ROLES
 } from '../../config/investigationConfig.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin, isLeadership } from '../../utils/roleHelpers.js';
 import { buildPagination } from '../../utils/listQuery.js';
@@ -39,13 +38,15 @@ function statusFilterForQueue(status) {
   return normalizedStatus;
 }
 
-async function bestEffortInvestigationCanonical(label, fn) {
-  try {
-    return await fn();
-  } catch (err) {
-    logger.warn(`Canonical investigation event failed during ${label}: ${err?.message || err}`);
-    return null;
+async function recordRequiredInvestigationEvent(input, tx) {
+  const event = await recordCanonicalClinicalEvent(input, { db: tx });
+  if (!event?.timeline?.id || !event?.audit?.id) {
+    throw AppError.internal(
+      'Investigation write requires canonical timeline and audit events',
+      'INVESTIGATION_CANONICAL_EVENT_REQUIRED',
+    );
   }
+  return event;
 }
 
 function hasCriticalResultSignal(results) {
@@ -593,7 +594,7 @@ export const getPendingInvestigations = async (filters) => {
 // runtime. Renaming a column in migration without updating schema.prisma
 // would throw a clear PrismaClientKnownRequestError instead of silently
 // running a broken SQL statement.
-export const updateStatus = async (id, status, notes, userId) => {
+export const updateStatus = async (id, status, notes, userId, tenantId = null, actorRole = null) => {
   const validStatuses = Object.values(INVESTIGATION_STATUS);
   const normalizedStatus = status.toUpperCase();
   if (!validStatuses.includes(normalizedStatus)) {
@@ -644,12 +645,19 @@ export const updateStatus = async (id, status, notes, userId) => {
   };
 
   try {
-    const updated = await prisma.investigations.update({
-      where: { id: parseInt(id) },
-      data,
-      select: INVESTIGATION_SELECT,
-    });
-    await bestEffortInvestigationCanonical('investigation status', () => recordCanonicalClinicalEvent({
+    return await setTenantTx(requireTenantId(tenantId), async (tx) => {
+      const existing = await tx.investigations.findFirst({
+        where: { id: parseInt(id), tenant_id: requireTenantId(tenantId) },
+        select: INVESTIGATION_SELECT,
+      });
+      if (!existing) return null;
+      const updated = await tx.investigations.update({
+        where: { id: parseInt(id) },
+        data,
+        select: { ...INVESTIGATION_SELECT, tenant_id: true },
+      });
+      await recordRequiredInvestigationEvent({
+      tenantId: updated.tenant_id,
       patientUid: updated.patient_uid,
       eventType: 'investigation.status_changed',
       eventSubtype: updated.test_type,
@@ -659,6 +667,7 @@ export const updateStatus = async (id, status, notes, userId) => {
       resourceType: 'investigation',
       resourceId: updated.id,
       actorUid: userId || null,
+      actorRole,
       summary: `${updated.test_name} status changed to ${updated.status}`,
       payload: {
         test_name: updated.test_name,
@@ -666,11 +675,13 @@ export const updateStatus = async (id, status, notes, userId) => {
         priority: updated.priority,
         notes,
       },
+      beforeState: existing,
       afterState: updated,
       timelineIdempotencyKey: `investigations:${updated.id}:status:${updated.status}:${updated.updated_at?.toISOString?.() || 'now'}`,
       auditIdempotencyKey: `investigations:${updated.id}:audit:status:${updated.status}:${updated.updated_at?.toISOString?.() || 'now'}`,
-    }));
-    return updated;
+      }, tx);
+      return updated;
+    });
   } catch (err) {
     // Prisma P2025 = record not found. Match the pre-ORM behavior of
     // returning null so callers that check `if (!result)` continue to work.
@@ -743,7 +754,7 @@ function elevatePanicFlags(results) {
 // the per-version re_run_reason to reconstruct the full timeline.
 // Finding:
 // 2026-05-08-lab-walk-in-lab-tech-results-overwrite-no-history.
-export const addResults = async (id, resultData, userId, tenantId = null) => {
+export const addResults = async (id, resultData, userId, tenantId = null, actorRole = null) => {
   const { results, interpretation, reviewed_by, re_run, re_run_reason } = resultData;
 
   const investId = parseInt(id, 10);
@@ -913,8 +924,7 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
         // Notification dispatch is best-effort.
       }
       const critical = hasCriticalResultSignal(updated.results);
-      await bestEffortInvestigationCanonical('investigation result', async () => {
-        await recordCanonicalClinicalEvent({
+      await recordRequiredInvestigationEvent({
           tenantId: requireTenantId(tenantId),
           patientUid: updated.patient_uid,
           eventType: critical ? 'investigation.result_critical' : 'investigation.result_ready',
@@ -925,6 +935,7 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
           resourceType: 'investigation',
           resourceId: updated.id,
           actorUid: reviewed_by || userId || null,
+          actorRole,
           summary: `${updated.test_name} result ${critical ? 'critical' : 'ready'}`,
           payload: {
             test_name: updated.test_name,
@@ -939,8 +950,8 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
           tags: critical ? ['critical'] : [],
           timelineIdempotencyKey: `investigations:${updated.id}:result:v${updated.result_version || 1}`,
           auditIdempotencyKey: `investigations:${updated.id}:audit:result:v${updated.result_version || 1}`,
-        });
-        if (critical) {
+        }, tx);
+      if (critical) {
           // A critical investigation result must get an ACCOUNTABLE, ack-tracked
           // task + escalation tier from minute 0 — exactly like the lab and
           // vitals paths (audit C-3). Previously this branch started the SLA but
@@ -955,7 +966,7 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
           // idempotent (mig-312 open-task index), so it both replaces the bare
           // startWorkflowSla and adds the missing task. resourceType is
           // 'investigations' (the SLA/ack key); source is the human label.
-          await enqueueCriticalResultTask({
+        await enqueueCriticalResultTask({
             tenantId: requireTenantId(tenantId),
             patientUid: updated.patient_uid,
             source: 'investigation',
@@ -967,9 +978,8 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
               ? `${updated.test_name}: ${updated.result_summary}`
               : `${updated.test_name} result is critical — review required.`,
             orderingClinicianUid: updated.requested_by || null,
-          });
-        }
-      });
+        });
+      }
       return updated;
     });
   } catch (err) {
@@ -1025,7 +1035,8 @@ function mintInvestigationBarcode(investigationId) {
 }
 
 export const markSampleCollected = async ({
-  id, collected_by, collected_notes, sample_barcode, scanned_patient_uid, tenantId = null,
+  id, collected_by, collected_notes, sample_barcode, scanned_patient_uid,
+  tenantId = null, actor_role = null,
 }) => {
   const investigationId = parseInt(id, 10);
   if (!Number.isFinite(investigationId) || investigationId <= 0) {
@@ -1039,7 +1050,7 @@ export const markSampleCollected = async ({
   // update would translate to a generic 500; surface the missing-row
   // case explicitly.
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status, patient_uid, sample_barcode
+    `SELECT id, tenant_id, status, patient_uid, test_name, test_type, sample_barcode
        FROM investigations
       WHERE id = $1::int
         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -1076,8 +1087,10 @@ export const markSampleCollected = async ({
     resolvedBarcode = existing[0].sample_barcode || mintInvestigationBarcode(investigationId);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE investigations
+  const effectiveTenantId = requireTenantId(tenantId || existing[0].tenant_id);
+  return setTenantTx(effectiveTenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE investigations
         SET status = 'COLLECTED',
             collected_at = NOW(),
             collected_by = $1::uuid,
@@ -1093,21 +1106,44 @@ export const markSampleCollected = async ({
             updated_at = NOW()
       WHERE id = $4::int
         AND ($5::uuid IS NULL OR tenant_id = $5::uuid)
-      RETURNING id, uid, status, collected_at, collected_by,
+      RETURNING id, uid, tenant_id, patient_uid, test_name, test_type, status, collected_at, collected_by,
                 collected_notes, sample_barcode,
                 collection_scanned_patient_uid, collection_patient_match,
                 patient_scanned_at, tube_scanned_at,
                 sample_rejected_at, sample_rejected_by, sample_rejection_reason`,
-    String(collected_by),
-    collected_notes || null,
-    resolvedBarcode,
-    investigationId,
-    tenantId || null,
-    scannedPatientUid,
-    patientMatch,
-    Boolean(suppliedTubeBarcode),
-  );
-  return rows[0];
+      String(collected_by),
+      collected_notes || null,
+      resolvedBarcode,
+      investigationId,
+      effectiveTenantId,
+      scannedPatientUid,
+      patientMatch,
+      Boolean(suppliedTubeBarcode),
+    );
+    const updated = rows[0];
+    await recordRequiredInvestigationEvent({
+      tenantId: updated.tenant_id,
+      patientUid: updated.patient_uid,
+      eventType: 'investigation.sample_collected',
+      eventSubtype: updated.test_type,
+      eventStatus: updated.status,
+      sourceTable: 'investigations',
+      sourceId: updated.id,
+      resourceType: 'investigation',
+      resourceId: updated.id,
+      actorUid: collected_by,
+      actorRole: actor_role,
+      summary: `${updated.test_name} sample collected`,
+      payload: {
+        sample_barcode: updated.sample_barcode,
+        collected_notes: updated.collected_notes,
+        patient_match: updated.collection_patient_match,
+      },
+      beforeState: existing[0],
+      afterState: updated,
+    }, tx);
+    return updated;
+  });
 };
 
 export const getSampleByBarcode = async ({ barcode, tenantId = null }) => {
@@ -1157,7 +1193,7 @@ export const getSampleByInvestigationId = async ({ id, tenantId = null }) => {
 };
 
 export const rejectSample = async ({
-  id, rejected_by, rejection_reason, tenantId = null,
+  id, rejected_by, rejection_reason, tenantId = null, actor_role = null,
 }) => {
   const investigationId = parseInt(id, 10);
   if (!Number.isFinite(investigationId) || investigationId <= 0) {
@@ -1172,7 +1208,7 @@ export const rejectSample = async ({
   }
 
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status
+    `SELECT id, tenant_id, patient_uid, test_name, test_type, status
        FROM investigations
       WHERE id = $1::int
         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -1185,8 +1221,10 @@ export const rejectSample = async ({
     throw AppError.conflict('Cannot reject a sample after results are completed', 'SAMPLE_ALREADY_COMPLETED');
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE investigations
+  const effectiveTenantId = requireTenantId(tenantId || existing[0].tenant_id);
+  return setTenantTx(effectiveTenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE investigations
         SET status = 'REQUESTED',
             collected_at = NULL,
             collected_by = NULL,
@@ -1198,16 +1236,35 @@ export const rejectSample = async ({
             updated_at = NOW()
       WHERE id = $3::int
         AND ($4::uuid IS NULL OR tenant_id = $4::uuid)
-      RETURNING id, uid, status, collected_at, collected_by,
+      RETURNING id, uid, tenant_id, patient_uid, test_name, test_type, status, collected_at, collected_by,
                 collected_notes, sample_barcode,
                 sample_rejected_at, sample_rejected_by,
                 sample_rejection_reason`,
-    String(rejected_by),
-    reason,
-    investigationId,
-    tenantId || null,
-  );
-  return rows[0];
+      String(rejected_by),
+      reason,
+      investigationId,
+      effectiveTenantId,
+    );
+    const updated = rows[0];
+    await recordRequiredInvestigationEvent({
+      tenantId: updated.tenant_id,
+      patientUid: updated.patient_uid,
+      eventType: 'investigation.sample_rejected',
+      eventSubtype: updated.test_type,
+      eventStatus: updated.status,
+      sourceTable: 'investigations',
+      sourceId: updated.id,
+      resourceType: 'investigation',
+      resourceId: updated.id,
+      actorUid: rejected_by,
+      actorRole: actor_role,
+      summary: `${updated.test_name} sample rejected`,
+      payload: { rejection_reason: reason },
+      beforeState: existing[0],
+      afterState: updated,
+    }, tx);
+    return updated;
+  });
 };
 
 export const canAddResults = (userRole) => {

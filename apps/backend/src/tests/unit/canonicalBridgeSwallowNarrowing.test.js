@@ -114,10 +114,10 @@ describe('canonical operational bridge — safeCanonical narrowing (audit §4 fo
       await expect(emitFinalDischargeCompleted({ db, admission })).rejects.toThrow(/column .* does not exist/i);
     });
 
-    test('emitFinalDischargeCompleted: 42P01 for a canonical table is still tolerated (resolves)', async () => {
+    test('emitFinalDischargeCompleted: missing canonical table aborts a transactional patient write', async () => {
       const db = throwingDb('42P01', 'relation "clinical_timeline_events" does not exist');
       await expect(emitFinalDischargeCompleted({ db, admission }))
-        .resolves.toEqual({ timeline: null, audit: null });
+        .rejects.toMatchObject({ code: 'CANONICAL_TIMELINE_REQUIRED' });
     });
 
     test('emitDischargeWorkflowOpened: 42703 propagates so the tx aborts', async () => {
