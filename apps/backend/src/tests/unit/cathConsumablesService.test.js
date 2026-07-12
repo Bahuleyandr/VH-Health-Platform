@@ -64,6 +64,13 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   startWorkflowSla: jest.fn(),
 }));
 
+// P1f's complication-registry seam joined cathLabService's import graph the
+// same way P1e's follow-up seam did — mock it at the source so its subtree
+// (canonical audit writes, cockpit, BI registration) stays out of these units.
+jest.unstable_mockModule('../../services/clinical/cathSchedulingRegistryService.js', () => ({
+  deriveComplicationRegistryRows: jest.fn(async () => []),
+}));
+
 jest.unstable_mockModule('../../services/staff/credentialingService.js', () => ({
   assertPrivilegeForGate: jest.fn(),
   isGateEnabled: jest.fn(() => false),
