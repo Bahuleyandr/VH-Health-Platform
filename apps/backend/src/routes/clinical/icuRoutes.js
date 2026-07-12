@@ -6,7 +6,7 @@ import * as icu from '../../services/clinical/icuService.js';
 import * as icuChart from '../../services/clinical/icuChartingService.js';
 import * as nicuChart from '../../services/clinical/nicuPicuChartingService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { isAdmin, isStaff, isLeadership } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitIcuBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 
@@ -38,6 +38,17 @@ function wrap(handler) {
 function requireStaffOrAdmin(req, res, next) {
   if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
     return error(res, 'Staff or admin role required', 403);
+  }
+  next();
+}
+
+// Sol Ultra Wave-E (NICU): enabling the tenant-wide NICU/PICU feature, replacing
+// its scoring governance, or activating a decision-support score definition is a
+// clinical-GOVERNANCE action — not something any bedside ICU role should do.
+// Gate those writes to clinical leadership / admin (reads stay staff-level).
+function requireGovernanceAuthority(req, res, next) {
+  if (!isLeadership(req.user?.role) && !isAdmin(req.user?.role)) {
+    return error(res, 'Clinical leadership or admin authority required', 403);
   }
   next();
 }
@@ -376,7 +387,7 @@ router.get(
 
 router.put(
   '/nicu-chart-settings',
-  requireStaffOrAdmin,
+  requireGovernanceAuthority,
   wrap(async req =>
     nicuChart.setNicuChartSettings({
       ...req.body,
@@ -629,7 +640,7 @@ router.get(
 
 router.put(
   '/nicu-score-definitions',
-  requireStaffOrAdmin,
+  requireGovernanceAuthority,
   wrap(async req =>
     nicuChart.upsertScoreDefinition({
       ...req.body,
