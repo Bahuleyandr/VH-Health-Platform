@@ -19,6 +19,50 @@ import { emitCriticalLabAlertAcknowledged } from '../clinical/canonicalOperation
 // (Phase 1.5, apps/backend/CLAUDE.md) — it must NEVER block or fail the lab write.
 import { enqueueCriticalResultTask } from '../results/resultsInboxService.js';
 import { emitLabEvent } from '../../utils/websocket/realtimeEmitter.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+
+// Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+// lab result entry and pathologist sign-off are patient-facing clinical
+// writes, so they persist the lab detail row plus one clinical_timeline_events
+// row and one clinical_audit_events row in the SAME transaction. This helper
+// runs on the transaction client (`tx`, required) and is NOT swallowed — a
+// failure propagates and aborts the lab write so the audit layer can never
+// lag the detail row (recordCanonicalClinicalEvent itself tolerates only a
+// genuinely-absent canonical table, SQLSTATE 42P01). The legacy
+// `investigations` table carries no encounter linkage, so these events attach
+// to the patient timeline with encounter_id=null; the CPOE clinical_orders
+// side of the same order carries the encounter-scoped events.
+async function recordCanonicalLabEvent({
+  tx, tenantId, patientUid, eventType, eventStatus = null,
+  sourceTable = 'lab_results', resourceType = 'lab_result', resourceId,
+  actorUid = null, actorRole = null,
+  summary, payload = {}, afterState = null, occurredAt = null,
+}) {
+  const stamp = occurredAt?.toISOString?.() || new Date().toISOString();
+  return recordCanonicalClinicalEvent({
+    tenantId,
+    patientUid,
+    encounterId: null,
+    eventType,
+    eventSubtype: 'lab',
+    eventStatus,
+    sourceTable,
+    sourceId: String(resourceId),
+    resourceType,
+    resourceId: String(resourceId),
+    actorUid,
+    actorRole,
+    occurredAt,
+    visibleToPatient: false,
+    summary,
+    payload,
+    metadata: payload,
+    afterState,
+    tags: ['lab', 'lab_result'],
+    timelineIdempotencyKey: `${sourceTable}:${resourceId}:${eventType}:${eventStatus || 'none'}:${patientUid}:${stamp}`,
+    auditIdempotencyKey: `${sourceTable}:${resourceId}:audit:${eventType}:${eventStatus || 'none'}:${patientUid}:${stamp}`,
+  }, { db: tx });
+}
 
 function asNumericOrNull(value) {
   if (value == null || value === '') return null;
@@ -411,7 +455,7 @@ export async function detectCriticalsForResults({ tenantId, results }) {
 
 // ── Manual entry path (when an analyzer doesn't speak HL7) ────────────
 
-export async function recordResultManual({ tenantId, performed_by, result }) {
+export async function recordResultManual({ tenantId, performed_by, performed_by_role, result }) {
   const fields = [
     'booking_id', 'investigation_id', 'patient_uid', 'patient_name', 'loinc_code',
     'test_code', 'test_name', 'value_text', 'unit', 'reference_range',
@@ -549,35 +593,67 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   const values = fields.map((f) => sanitised[f] ?? null);
   values.push(numeric, performed_by ? String(performed_by) : null, tenantId);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO lab_results
-      (booking_id, investigation_id, patient_uid, patient_name, loinc_code, test_code,
-       test_name, value_text, unit, reference_range,
-       reference_range_low, reference_range_high,
-       abnormal_flag, status, comments, value_numeric, performed_by_lab, tenant_id)
-     VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
-             $11::numeric, $12::numeric,
-             $13, $14, $15, $16::numeric, $17, $18::uuid)
-     RETURNING *`,
-    ...values,
-  );
-  const created = rows[0];
-
-  if (created.investigation_id != null) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE investigations
-          SET status = 'IN_PROGRESS',
-              result_uploaded_at = COALESCE(result_uploaded_at, NOW()),
-              updated_at = NOW()
-        WHERE id = $1
-          AND tenant_id = $3::uuid
-          AND status = ANY($2::text[])`,
-      created.investigation_id,
-      INVESTIGATION_PRE_RESULT_STATUSES,
-      tenantId,
+  // Phase 1 (apps/backend/CLAUDE.md tx rule): the result INSERT, the linked-
+  // order advance, and the canonical timeline/audit pair commit or roll back
+  // together — the canonical clinical timeline invariant for lab entry.
+  const created = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO lab_results
+        (booking_id, investigation_id, patient_uid, patient_name, loinc_code, test_code,
+         test_name, value_text, unit, reference_range,
+         reference_range_low, reference_range_high,
+         abnormal_flag, status, comments, value_numeric, performed_by_lab, tenant_id)
+       VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
+               $11::numeric, $12::numeric,
+               $13, $14, $15, $16::numeric, $17, $18::uuid)
+       RETURNING *`,
+      ...values,
     );
-  }
+    const inserted = rows[0];
 
+    if (inserted.investigation_id != null) {
+      await tx.$executeRawUnsafe(
+        `UPDATE investigations
+            SET status = 'IN_PROGRESS',
+                result_uploaded_at = COALESCE(result_uploaded_at, NOW()),
+                updated_at = NOW()
+          WHERE id = $1
+            AND tenant_id = $3::uuid
+            AND status = ANY($2::text[])`,
+        inserted.investigation_id,
+        INVESTIGATION_PRE_RESULT_STATUSES,
+        tenantId,
+      );
+    }
+
+    await recordCanonicalLabEvent({
+      tx,
+      tenantId,
+      patientUid: inserted.patient_uid,
+      eventType: 'lab.result_recorded',
+      eventStatus: inserted.status,
+      resourceId: inserted.id,
+      actorUid: performed_by ? String(performed_by) : null,
+      actorRole: performed_by_role || null,
+      occurredAt: inserted.received_at || inserted.created_at || null,
+      summary: `Lab result recorded: ${inserted.test_name}`,
+      afterState: { status: inserted.status },
+      payload: {
+        investigation_id: inserted.investigation_id,
+        booking_id: inserted.booking_id,
+        test_code: inserted.test_code,
+        test_name: inserted.test_name,
+        value_text: inserted.value_text,
+        unit: inserted.unit,
+        abnormal_flag: inserted.abnormal_flag,
+        status: inserted.status,
+      },
+    });
+
+    return inserted;
+  });
+
+  // Phase 1.5 — post-commit; unchanged behaviour.
   const alerts = await detectCriticalsForResults({ tenantId, results: [created] });
 
   // detectCriticalsForResults UPDATEs lab_results.is_critical as a side
@@ -659,30 +735,71 @@ export async function signOffResults({
     );
   }
 
-  // Insert sign-off record.
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO lab_pathologist_signoffs
-      (tenant_id, booking_id, patient_uid, result_ids, signed_off_by,
-       signed_off_by_name, signed_off_by_reg, decision, comments)
-     VALUES ($1::uuid, $2, $3::uuid, $4::int[], $5::uuid, $6, $7, $8, $9)
-     RETURNING *`,
-    tenantId,
-    booking_id ? Number(booking_id) : null,
-    patient_uid || owned[0].patient_uid,
-    ids, String(signed_off_by), signed_off_by_name || null,
-    signed_off_by_reg || null, decision, comments || null,
-  );
+  // Phase 1 — the signoff record, the result stamps, and the canonical
+  // timeline/audit pair (one per distinct patient in the batch) commit or
+  // roll back together (canonical clinical timeline invariant).
+  const signoffRow = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO lab_pathologist_signoffs
+        (tenant_id, booking_id, patient_uid, result_ids, signed_off_by,
+         signed_off_by_name, signed_off_by_reg, decision, comments)
+       VALUES ($1::uuid, $2, $3::uuid, $4::int[], $5::uuid, $6, $7, $8, $9)
+       RETURNING *`,
+      tenantId,
+      booking_id ? Number(booking_id) : null,
+      patient_uid || owned[0].patient_uid,
+      ids, String(signed_off_by), signed_off_by_name || null,
+      signed_off_by_reg || null, decision, comments || null,
+    );
+    const created = rows[0];
 
-  // Stamp signed_off on the result rows.
-  await prisma.$executeRawUnsafe(
-    `UPDATE lab_results
-        SET signed_off_at = NOW(),
-            signed_off_by = $1::uuid,
-            status = CASE WHEN $2 = 'verified' THEN 'final' ELSE status END,
-            updated_at = NOW()
-      WHERE id = ANY($3::int[]) AND tenant_id = $4::uuid`,
-    String(signed_off_by), decision, ids, tenantId,
-  );
+    // Stamp signed_off on the result rows.
+    await tx.$executeRawUnsafe(
+      `UPDATE lab_results
+          SET signed_off_at = NOW(),
+              signed_off_by = $1::uuid,
+              status = CASE WHEN $2 = 'verified' THEN 'final' ELSE status END,
+              updated_at = NOW()
+        WHERE id = ANY($3::int[]) AND tenant_id = $4::uuid`,
+      String(signed_off_by), decision, ids, tenantId,
+    );
+
+    // One canonical event per distinct patient in the batch — timeline
+    // events are patient-scoped, and a multi-patient batch signoff must
+    // land on every affected patient's timeline.
+    const resultIdsByPatient = new Map();
+    for (const row of owned) {
+      const key = String(row.patient_uid);
+      if (!resultIdsByPatient.has(key)) resultIdsByPatient.set(key, []);
+      resultIdsByPatient.get(key).push(row.id);
+    }
+    for (const [signoffPatientUid, patientResultIds] of resultIdsByPatient) {
+      await recordCanonicalLabEvent({
+        tx,
+        tenantId,
+        patientUid: signoffPatientUid,
+        eventType: 'lab.result_signed_off',
+        eventStatus: decision,
+        sourceTable: 'lab_pathologist_signoffs',
+        resourceType: 'lab_signoff',
+        resourceId: created.id,
+        actorUid: String(signed_off_by),
+        actorRole: signed_off_by_role || null,
+        occurredAt: created.signed_at || created.created_at || null,
+        summary: `Pathologist sign-off: ${patientResultIds.length} lab result${patientResultIds.length === 1 ? '' : 's'} ${decision}`,
+        afterState: { decision, result_ids: patientResultIds },
+        payload: {
+          signoff_id: created.id,
+          result_ids: patientResultIds,
+          decision,
+          booking_id: booking_id ? Number(booking_id) : null,
+          comments: comments || null,
+        },
+      });
+    }
+
+    return created;
+  });
   emitLabEvent('result-signed', { tenantId });
 
   // Tell the patient (and the guardian, for a dependent minor) that their
@@ -827,7 +944,7 @@ export async function signOffResults({
     logger.warn(`ORU feed emission failed on signoff (signoff stands): ${feedErr?.message}`);
   }
 
-  return rows[0];
+  return signoffRow;
 }
 
 // ── Critical-alert acknowledgement workflow ───────────────────────────

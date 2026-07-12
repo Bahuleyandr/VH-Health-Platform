@@ -3,10 +3,15 @@ import { jest } from '@jest/globals';
 const queryRawUnsafeMock = jest.fn();
 const executeRawUnsafeMock = jest.fn();
 const emitCriticalLabAlertAcknowledgedMock = jest.fn();
+const recordCanonicalClinicalEventMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
   $executeRawUnsafe: executeRawUnsafeMock,
+  // recordResultManual / signOffResults run their Phase-1 writes (detail row
+  // + canonical pair) inside prisma.$transaction — passthrough to the same
+  // mock client so the call sequences below stay observable.
+  $transaction: async (fn) => fn(__prismaDefaultMock),
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
@@ -15,6 +20,19 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
+}));
+
+// labResultsService emits the canonical timeline/audit pair in-transaction;
+// mock the canonical layer so the raw-call sequences stay lab-SQL-only and
+// the emission itself is assertable. Factory exports the union of names the
+// loaded import graph pulls from this module (ESM mock-graph law).
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+  recordTimelineEvent: jest.fn().mockResolvedValue(null),
+  recordClinicalAuditEvent: jest.fn().mockResolvedValue(null),
+  startWorkflowSla: jest.fn().mockResolvedValue(null),
+  completeWorkflowSla: jest.fn().mockResolvedValue(null),
+  isSchemaMissing: jest.fn(() => false),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -152,6 +170,8 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     queryRawUnsafeMock.mockReset();
     executeRawUnsafeMock.mockReset();
     emitCriticalLabAlertAcknowledgedMock.mockReset();
+    recordCanonicalClinicalEventMock.mockReset();
+    recordCanonicalClinicalEventMock.mockResolvedValue({ timeline: null, audit: null });
     executeRawUnsafeMock.mockResolvedValue(1);
   });
 
@@ -184,6 +204,7 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     const { result } = await recordResultManual({
       tenantId,
       performed_by: 'lab-tech-uid',
+      performed_by_role: 'LAB_TECHNICIAN',
       result: {
         booking_id: 7,
         patient_uid: patientUid,
@@ -194,6 +215,16 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     });
 
     expect(result.investigation_id).toBe(42);
+
+    // Canonical pair emitted in-transaction with actor attribution.
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledTimes(1);
+    const canonicalInput = recordCanonicalClinicalEventMock.mock.calls[0][0];
+    expect(canonicalInput.eventType).toBe('lab.result_recorded');
+    expect(canonicalInput.patientUid).toBe(patientUid);
+    expect(canonicalInput.actorUid).toBe('lab-tech-uid');
+    expect(canonicalInput.actorRole).toBe('LAB_TECHNICIAN');
+    expect(canonicalInput.sourceTable).toBe('lab_results');
+    expect(recordCanonicalClinicalEventMock.mock.calls[0][1]).toMatchObject({ db: __prismaDefaultMock });
 
     // INSERT (call 4 — call 3 is the dup-analyte probe added 2026-05-23)
     // carries investigation_id=42 as $2.
