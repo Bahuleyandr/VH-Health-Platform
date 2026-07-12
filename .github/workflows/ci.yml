@@ -51,7 +51,11 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # Pinned to match _reusable-flutter-workspace.yml — unpinned stable
+          # drifted to 3.44.6 (2026-07-12) and its new ListTile framework
+          # assertion broke this runner on every feature branch while the
+          # hosted per-stack jobs stayed green. Bump BOTH files together.
+          flutter-version: 3.41.9
           cache: true
 
       - uses: actions/setup-java@v4
