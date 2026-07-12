@@ -26,6 +26,7 @@ const {
   snapshotIndicators,
   listSnapshots,
   getFrozenPeriodPack,
+  INDICATOR_CODES,
 } = await import('../../services/quality/nabhIndicatorService.js');
 
 beforeEach(() => {
@@ -58,11 +59,15 @@ describe('NABH indicator tenant authorization', () => {
       tenantId: TENANT,
     });
 
-    expect(pack.indicators).toHaveLength(10);
+    expect(pack.indicators).toHaveLength(INDICATOR_CODES.length);
     expect(pack.indicators.map((indicator) => indicator.code)).toContain('hai_device_rate_per_1000_device_days');
     expect(pack.indicators.map((indicator) => indicator.code)).toContain('patient_satisfaction_positive_pct');
     expect(pack.indicators.map((indicator) => indicator.code)).toContain('rca_completion_pct');
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(12);
+    expect(pack.indicators.map((indicator) => indicator.code)).toContain('cath_dose_outlier_count');
+    // 15 queries for 13 indicators: medication_error + hai_rate issue two
+    // queries each; cath_dose_outlier issues only its settings read here
+    // (empty mock rows → thresholds_pending, fail-closed, no count query).
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(15);
     for (const call of queryRawUnsafeMock.mock.calls) {
       expect(call[0]).toContain('tenant_id = $1::uuid');
       expect(call[1]).toBe(TENANT);
@@ -115,8 +120,10 @@ describe('NABH indicator tenant authorization', () => {
       { tenantId: TENANT, actorUid: ACTOR },
     );
 
-    expect(snapshot.snapshot_saved).toBe(10);
-    const insertCalls = queryRawUnsafeMock.mock.calls.slice(12);
+    expect(snapshot.snapshot_saved).toBe(INDICATOR_CODES.length);
+    // Compute issues 15 reads (see above; the NL13-P1f cath indicators consume
+    // the catch-all mock rows) before the per-indicator snapshot INSERTs.
+    const insertCalls = queryRawUnsafeMock.mock.calls.slice(15);
     for (const call of insertCalls) {
       expect(call[0]).toContain('INSERT INTO nabh_indicator_snapshots');
       expect(call[0]).toContain('(tenant_id, period_start');

@@ -15,12 +15,25 @@ const TEST_NAME = 'D7TEST DialysisPatient';
 const MACHINE = `D7T-MACH-${String(Date.now()).slice(-5)}`;
 const MACHINE_2 = `${MACHINE}-B`;
 const TENANT = '00000000-0000-4000-8000-000000000001';
+const DECOY_TENANT = '00000000-0000-4000-8000-00000000d7b2';
+const DECOY_PATIENT = 'd7000000-0000-4000-8000-00000000b001';
 
 let patientUid;
 let dialysisPatientId;
 let sessionId;
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM billing_invoice_items
+      WHERE invoice_id IN (
+        SELECT id FROM billing_invoices WHERE patient_uid = $1::uuid
+      )`,
+    DECOY_PATIENT,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM billing_invoices WHERE patient_uid = $1::uuid`,
+    DECOY_PATIENT,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM billing_payments
       WHERE invoice_id IN (
@@ -65,6 +78,14 @@ async function cleanup() {
   // clinical_audit_events is append-only — the C4 hash chain must never
   // have holes, so test cleanup deliberately leaves audit rows in place.
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = $1`, TEST_NAME).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM users WHERE uid = $1::uuid`,
+    DECOY_PATIENT,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM tenants WHERE id = $1::uuid`,
+    DECOY_TENANT,
+  ).catch(() => {});
 }
 
 d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)', () => {
@@ -365,6 +386,40 @@ d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)'
     expect(scheduled.status).toBe(200);
     const billableSessionId = scheduled.body.data.id;
 
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name)
+       VALUES ($1::uuid, 'd7-dialysis-billing-decoy', 'D7 Dialysis Billing Decoy')`,
+      DECOY_TENANT,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users
+         (tenant_id, uid, phone, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, '9011776701', 'D7 Billing Decoy Patient',
+          'PATIENT', TRUE, 'active', NOW())`,
+      DECOY_TENANT,
+      DECOY_PATIENT,
+    );
+    const decoyInvoices = await prisma.$queryRawUnsafe(
+      `INSERT INTO billing_invoices
+         (tenant_id, patient_uid, invoice_type, department)
+       VALUES ($1::uuid, $2::uuid, 'OP', 'Dialysis')
+       RETURNING id`,
+      DECOY_TENANT,
+      DECOY_PATIENT,
+    );
+    const decoyInvoiceId = decoyInvoices[0].id;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO billing_invoice_items
+         (invoice_id, description, quantity, unit_price, line_subtotal,
+          line_total, source_ref_type, source_ref_id, tenant_id)
+       VALUES ($1::int, 'Foreign-tenant historical squat', 1, 1, 1, 1,
+               'dialysis_session', $2::bigint, $3::uuid)`,
+      decoyInvoiceId,
+      billableSessionId,
+      DECOY_TENANT,
+    );
+
     const start = await nurse.post(`/api/v1/dialysis/sessions/${billableSessionId}/start`).send({
       pre_weight_kg: 65.0,
     });
@@ -393,17 +448,30 @@ d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)'
       emitted: true,
       unit_price: 2500,
     });
+    expect(complete.body.data.billing_hook.invoice_id).not.toBe(decoyInvoiceId);
     const lines = await prisma.$queryRawUnsafe(
       `SELECT bii.source_ref_type, bii.source_ref_id, bii.line_total, bi.status, bi.department
          FROM billing_invoice_items bii
          JOIN billing_invoices bi ON bi.id = bii.invoice_id
-        WHERE bii.source_ref_type = 'dialysis_session'
-          AND bii.source_ref_id = $1::int`,
+        WHERE bii.tenant_id = $1::uuid
+          AND bii.source_ref_type = 'dialysis_session'
+          AND bii.source_ref_id = $2::bigint`,
+      TENANT,
       billableSessionId,
     );
     expect(lines).toHaveLength(1);
     expect(Number(lines[0].line_total)).toBe(2500);
     expect(lines[0].status).toBe('DRAFT');
     expect(lines[0].department).toBe('Dialysis');
+    const decoyLines = await prisma.$queryRawUnsafe(
+      `SELECT invoice_id
+         FROM billing_invoice_items
+        WHERE tenant_id = $1::uuid
+          AND source_ref_type = 'dialysis_session'
+          AND source_ref_id = $2::bigint`,
+      DECOY_TENANT,
+      billableSessionId,
+    );
+    expect(decoyLines).toEqual([{ invoice_id: decoyInvoiceId }]);
   });
 });

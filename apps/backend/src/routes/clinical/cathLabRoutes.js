@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import cathSchedulingRoutes from './cathSchedulingRoutes.js';
 import logger from '../../logging/logger.js';
 import {
   addContrastRadiationRecord,
@@ -7,11 +8,20 @@ import {
   addPostProcedureOrder,
   createCase,
   getCase,
+  listCatalogBatches,
   listCases,
+  listCaseConsumableUsage,
+  listConsumableCatalog,
+  recordConsumableUsage,
   recordProcedureLog,
   transitionCaseStatus,
   updateReadinessCheck
 } from '../../services/clinical/cathLabService.js';
+import {
+  applyCathOrderSetSlot,
+  getCaseQuickWins,
+  refreshReadinessEvidence
+} from '../../services/clinical/cathQuickWinsService.js';
 import {
   addReportAddendum,
   createReport,
@@ -28,6 +38,7 @@ import {
 import { renderCathReportPdf } from '../../services/documents/cathReportPdfService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import {
@@ -39,6 +50,10 @@ import {
 } from '../../utils/roleHelpers.js';
 
 const router = Router();
+
+// NL13-P1f: scheduling strip + case booking + manual complication entries
+// (same /api/v1/cath-lab family; role guards live inside the subrouter).
+router.use('/', cathSchedulingRoutes);
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -52,7 +67,8 @@ function contextOf(req) {
     actorRoles: Array.isArray(req.user?.roles) ? req.user.roles : [],
     requestId: req.id || null,
     ipAddress: req.ip || null,
-    userAgent: req.get?.('user-agent') || null
+    userAgent: req.get?.('user-agent') || null,
+    idempotencyKey: req.get?.('idempotency-key') || null
   };
 }
 
@@ -114,6 +130,31 @@ router.get('/report-templates', requireReportRead, async (req, res) => {
     return success(res, { templates, count: templates.length }, 'Cath report templates');
   } catch (err) {
     return handleFailure(res, err, 'list report templates');
+  }
+});
+
+router.get('/consumables/catalog', requireReportRead, async (req, res) => {
+  try {
+    const items = await listConsumableCatalog({
+      tenantId: tenantOf(req),
+      q: req.query.q || null,
+      scan: req.query.scan || null,
+      category: req.query.category || null,
+      status: req.query.status || 'active',
+      limit: req.query.limit || 100
+    });
+    return success(res, { items, count: items.length }, 'Cath consumable catalog');
+  } catch (err) {
+    return handleFailure(res, err, 'list consumable catalog');
+  }
+});
+
+router.get('/consumables/catalog/:id/batches', requireReportRead, async (req, res) => {
+  try {
+    const batches = await listCatalogBatches(req.params.id, { tenantId: tenantOf(req) });
+    return success(res, { batches, count: batches.length }, 'Cath consumable batches');
+  } catch (err) {
+    return handleFailure(res, err, 'list consumable batches');
   }
 });
 
@@ -281,6 +322,72 @@ router.get('/cases/:id', requireReportRead, async (req, res) => {
     return success(res, { case: cathCase }, 'Cath-lab case');
   } catch (err) {
     return handleFailure(res, err, 'get case');
+  }
+});
+
+router.get(
+  '/cases/:id/consumables',
+  requireReportRead,
+  async (req, res) => {
+    try {
+      const usage = await listCaseConsumableUsage(req.params.id, { tenantId: tenantOf(req) });
+      return success(res, { usage, count: usage.length }, 'Cath consumable usage');
+    } catch (err) {
+      return handleFailure(res, err, 'list consumable usage');
+    }
+  }
+);
+
+router.post(
+  '/cases/:id/consumables',
+  requireCathWorkflow,
+  requireIdempotencyKey({ required: true, scope: 'cath_consumable_usage' }),
+  async (req, res) => {
+    try {
+      const usage = await recordConsumableUsage(
+        req.params.id,
+        { ...req.body, tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, { usage }, 'Cath consumable usage recorded', HTTP_STATUS.CREATED);
+    } catch (err) {
+      return handleFailure(res, err, 'record consumable usage');
+    }
+  }
+);
+router.get('/cases/:id/quick-wins', requireReportRead, async (req, res) => {
+  try {
+    const quickWins = await getCaseQuickWins(req.params.id, { tenantId: tenantOf(req) });
+    return success(res, { quick_wins: quickWins }, 'Cath-lab quick wins');
+  } catch (err) {
+    return handleFailure(res, err, 'get quick wins');
+  }
+});
+
+router.post('/cases/:id/readiness/evidence/refresh', requireCathWorkflow, async (req, res) => {
+  try {
+    const result = await refreshReadinessEvidence(
+      req.params.id,
+      { tenantId: tenantOf(req) },
+      contextOf(req)
+    );
+    return success(res, result, 'Cath-lab readiness evidence refreshed');
+  } catch (err) {
+    return handleFailure(res, err, 'refresh readiness evidence');
+  }
+});
+
+router.post('/cases/:id/order-sets/:slot/apply', requireCathWorkflow, async (req, res) => {
+  try {
+    const result = await applyCathOrderSetSlot(
+      req.params.id,
+      req.params.slot,
+      { tenantId: tenantOf(req) },
+      contextOf(req)
+    );
+    return success(res, result, 'Cath order set applied', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'apply order set');
   }
 });
 

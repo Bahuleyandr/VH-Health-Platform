@@ -295,6 +295,7 @@ import hl7FeedRoutes from './routes/hl7/hl7FeedRoutes.js';
 import deviceVitalsRoutes from './routes/emr/deviceVitalsRoutes.js';
 import schedulingRoutes from './routes/scheduling/schedulingRoutes.js';
 import nabhRoutes from './routes/quality/nabhRoutes.js';
+import cathQualityRoutes from './routes/quality/cathQualityRoutes.js';
 import infectionControlRoutes from './routes/quality/infectionControlRoutes.js';
 import credentialingRoutes from './routes/staff/credentialingRoutes.js';
 import researchRoutes from './routes/research/researchRoutes.js';
@@ -1042,6 +1043,11 @@ app.use('/api/v1/scheduling', requireRole(...CLINICAL_STAFF_ROLES, 'RECEPTIONIST
 
 // NABH quality indicators (roadmap D4) — computed packs + assessor export.
 app.use('/api/v1/quality/nabh', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), nabhRoutes);
+
+// NL13-P1f cath quality views — dose-audit rollups + complication registry.
+// Rides the existing api/v1/quality admin proxy family; registry rows are
+// patient-linked, so the mount carries PHI access logging.
+app.use('/api/v1/quality/cath', requireRole('ADMIN', ...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), phiAccessLogger('QUALITY'), cathQualityRoutes);
 
 // Infection-control workbench (roadmap D5) — isolation board, ADT contact
 // tracing, antibiogram over existing micro data. Same IC/quality gate as NABH.

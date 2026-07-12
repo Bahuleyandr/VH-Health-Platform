@@ -81,6 +81,48 @@ function normalizeTenantId(tenantId) {
   return tenantId ? String(tenantId) : null;
 }
 
+function normalizeSourceRefId(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+    throw AppError.badRequest(
+      'source_ref_id must be sent as a decimal string above the JavaScript safe-integer range',
+    );
+  }
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) {
+    throw AppError.badRequest('source_ref_id must be an integer when provided');
+  }
+  const parsed = BigInt(text);
+  if (parsed < 1n) {
+    throw AppError.badRequest('source_ref_id must be a positive integer when provided');
+  }
+  if (parsed > 9_223_372_036_854_775_807n) {
+    throw AppError.badRequest('source_ref_id exceeds the supported BIGINT range');
+  }
+  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : text;
+}
+
+function normalizeBigIntForResponse(value) {
+  if (typeof value !== 'bigint') return value;
+  if (
+    value >= BigInt(Number.MIN_SAFE_INTEGER)
+    && value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return Number(value);
+  }
+  return value.toString();
+}
+
+function normalizeBillingItemForResponse(item) {
+  if (!item) return item;
+  const normalized = {
+    ...item,
+    source_ref_id: normalizeBigIntForResponse(item.source_ref_id),
+  };
+  delete normalized.source_ref_active;
+  return normalized;
+}
+
 function appendTenantPredicate(params, tenantId, column = 'tenant_id') {
   const tenant = normalizeTenantId(tenantId);
   if (!tenant) return '';
@@ -200,13 +242,13 @@ export function splitGst({ subtotal, gstRate, patientState, hospitalState }) {
   return { cgst: 0, sgst: 0, igst: taxAmount, lineTotal: toFixed2(taxable + taxAmount) };
 }
 
-async function nextInvoiceNumber(tenantId) {
+async function nextInvoiceNumber(tenantId, db = prisma) {
   // Atomic UPSERT-and-increment on (tenant, fiscal_year). Postgres
   // RETURNING gives us the just-claimed value. If two requests race
   // they take different rows because of the FOR UPDATE on the
   // existing row.
   const fy = fiscalYearOf();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `INSERT INTO billing_invoice_counter (tenant_id, fiscal_year, next_value)
      VALUES ($1::uuid, $2, 2)
      ON CONFLICT (tenant_id, fiscal_year)
@@ -224,8 +266,8 @@ async function nextInvoiceNumber(tenantId) {
   return `INV-${fy}-${padded}`;
 }
 
-async function recomputeInvoiceTotals(invoiceId) {
-  const aggregates = await prisma.$queryRawUnsafe(
+async function recomputeInvoiceTotals(invoiceId, db = prisma, { emitTpaAlert = true } = {}) {
+  const aggregates = await db.$queryRawUnsafe(
     `SELECT
        COALESCE(SUM(line_subtotal), 0)::numeric AS subtotal,
        COALESCE(SUM(cgst_amount), 0)::numeric   AS cgst,
@@ -242,7 +284,7 @@ async function recomputeInvoiceTotals(invoiceId) {
   const igst = Number(a.igst);
   // discount preserved from the existing row; we read it back so we
   // can recompute total + due correctly.
-  const inv = await prisma.$queryRawUnsafe(
+  const inv = await db.$queryRawUnsafe(
     `SELECT discount_amount, amount_paid FROM billing_invoices WHERE id = $1::int`,
     invoiceId,
   );
@@ -252,7 +294,7 @@ async function recomputeInvoiceTotals(invoiceId) {
   const paid = Number(inv[0].amount_paid || 0);
   const due = toFixed2(total - paid);
 
-  await prisma.$executeRawUnsafe(
+  await db.$executeRawUnsafe(
     `UPDATE billing_invoices
         SET subtotal = $1::numeric,
             cgst_amount = $2::numeric,
@@ -271,12 +313,12 @@ async function recomputeInvoiceTotals(invoiceId) {
   // dashboard refresh. Idempotent (won't double-emit while the prior
   // alert is unacknowledged). Errors are caught + logged but never
   // bubble up — the invoice update is authoritative.
-  const meta = await prisma.$queryRawUnsafe(
+  const meta = await db.$queryRawUnsafe(
     `SELECT admission_id, patient_uid, tenant_id
        FROM billing_invoices WHERE id = $1::int`,
     invoiceId,
   );
-  if (meta.length && meta[0].admission_id && meta[0].patient_uid) {
+  if (emitTpaAlert && meta.length && meta[0].admission_id && meta[0].patient_uid) {
     try {
       await maybeEmitTpaCapAlerts({
         admissionId: meta[0].admission_id,
@@ -513,11 +555,11 @@ export async function updateServiceMaster(id, patch) {
  * Finding pattern: closed-admission invoice writes corrupt the
  * settled balance and ripple through TPA reconciliation.
  */
-async function assertAdmissionBillingOpen(admissionId) {
+async function assertAdmissionBillingOpen(admissionId, db = prisma) {
   if (admissionId == null || admissionId === '') return;
   const id = Number(admissionId);
   if (!Number.isInteger(id) || id <= 0) return;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT billing_closed_at FROM admissions WHERE id = $1::int`,
     id,
   );
@@ -534,16 +576,16 @@ export async function createDraftInvoice({
   patient_uid, patient_name, patient_phone, admission_id, doctor_uid,
   department, invoice_type = 'OP', patient_state, hospital_state,
   notes, created_by, tenantId,
-}) {
+}, { db = prisma } = {}) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!VALID_INVOICE_TYPES.includes(invoice_type)) {
     throw AppError.badRequest(`Invalid invoice_type. Allowed: ${VALID_INVOICE_TYPES.join(', ')}`);
   }
   // B-1: enforce billing close before creating against a closed admission.
-  await assertAdmissionBillingOpen(admission_id);
+  await assertAdmissionBillingOpen(admission_id, db);
   const tenant = requireTenantId(normalizeTenantId(tenantId));
-  if (tenantId) await assertPatientInTenant(patient_uid, tenant);
-  const rows = await prisma.$queryRawUnsafe(
+  if (tenantId) await assertPatientInTenant(patient_uid, tenant, db);
+  const rows = await db.$queryRawUnsafe(
     `INSERT INTO billing_invoices
       (patient_uid, patient_name, patient_phone, admission_id, doctor_uid,
        department, invoice_type, patient_state, hospital_state, notes, created_by, tenant_id)
@@ -586,6 +628,8 @@ const VALID_SOURCE_REF_TYPES = new Set([
   'discharge_consult',
   'theatre_case',
   'dialysis_session',
+  'cath_procedure_log',
+  'cath_consumable_usage',
   'admission_package',
   'package',
   'manual',
@@ -597,6 +641,54 @@ const VALID_SOURCE_REF_TYPES = new Set([
 // carry a source_ref_id so the itemised charge is auditable.
 // Finding: 2026-05-20-tpa-insurance-claim-billing-013275c3.
 const SOURCE_REF_ID_OPTIONAL = new Set(['manual', 'package', 'admission_package']);
+
+const TENANT_PATIENT_SOURCE_REF_SQL = Object.freeze({
+  dialysis_session: `SELECT s.id
+    FROM dialysis_sessions s
+    JOIN dialysis_patients p
+      ON p.id = s.dialysis_patient_id
+     AND p.tenant_id = s.tenant_id
+   WHERE s.id = $1::bigint
+     AND s.tenant_id = $2::uuid
+     AND p.patient_uid = $3::uuid
+   LIMIT 1`,
+  cath_procedure_log: `SELECT p.id
+    FROM cath_procedure_logs p
+   WHERE p.id = $1::bigint
+     AND p.tenant_id = $2::uuid
+     AND p.patient_uid = $3::uuid
+   LIMIT 1`,
+  cath_consumable_usage: `SELECT u.id
+    FROM cath_case_consumable_usage u
+   WHERE u.id = $1::bigint
+     AND u.tenant_id = $2::uuid
+     AND u.patient_uid = $3::uuid
+   LIMIT 1`,
+});
+
+async function assertSourceReferenceBelongsToInvoice({
+  sourceRefType,
+  sourceRefId,
+  invoiceTenantId,
+  invoicePatientUid,
+  db = prisma,
+}) {
+  const ownershipSql = TENANT_PATIENT_SOURCE_REF_SQL[sourceRefType];
+  if (!ownershipSql) return;
+  const rows = await db.$queryRawUnsafe(
+    ownershipSql,
+    sourceRefId,
+    invoiceTenantId,
+    String(invoicePatientUid),
+  );
+  if (!rows.length) {
+    throw AppError.badRequest(
+      'Billing source reference does not belong to this invoice patient and tenant',
+      'BILLING_SOURCE_REF_MISMATCH',
+      { source_ref_type: sourceRefType },
+    );
+  }
+}
 
 export async function addInvoiceItem(invoiceId, {
   service_code, description, category, quantity = 1, unit_price, gst_rate, notes,
@@ -618,24 +710,12 @@ export async function addInvoiceItem(invoiceId, {
     unit_price,
     gst_rate,
   };
-  if (service_code) {
-    const sm = await prisma.$queryRawUnsafe(
-      `SELECT description, category, hsn_sac, default_price, gst_rate
-         FROM billing_service_master
-        WHERE code = $1 AND is_active = true
-        LIMIT 1`,
-      service_code,
-    );
-    if (sm.length) {
-      resolved.description = description || sm[0].description;
-      resolved.category = sm[0].category;
-      resolved.hsn_sac = sm[0].hsn_sac;
-      if (resolved.unit_price == null) resolved.unit_price = Number(sm[0].default_price);
-      if (resolved.gst_rate == null) resolved.gst_rate = Number(sm[0].gst_rate);
-    }
+  if (!service_code && !resolved.description) {
+    throw AppError.badRequest('description (or valid service_code) is required');
   }
-  if (!resolved.description) throw AppError.badRequest('description (or valid service_code) is required');
-  if (resolved.unit_price == null) throw AppError.badRequest('unit_price is required for ad-hoc lines');
+  if (!service_code && resolved.unit_price == null) {
+    throw AppError.badRequest('unit_price is required for ad-hoc lines');
+  }
 
   // source_ref_type defaults to 'manual' (cashier-typed line, no source
   // record). Callers that produce a line from a completed lab/order/
@@ -647,12 +727,7 @@ export async function addInvoiceItem(invoiceId, {
       `Invalid source_ref_type "${source_ref_type}". Allowed: ${Array.from(VALID_SOURCE_REF_TYPES).join(', ')}`,
     );
   }
-  const resolvedSourceRefId = source_ref_id != null && source_ref_id !== ''
-    ? Number(source_ref_id)
-    : null;
-  if (resolvedSourceRefId != null && !Number.isInteger(resolvedSourceRefId)) {
-    throw AppError.badRequest('source_ref_id must be an integer when provided');
-  }
+  const resolvedSourceRefId = normalizeSourceRefId(source_ref_id);
   // Source-backed line types must carry the originating record's id so an
   // itemised charge stays auditable back to its room-day / order / event —
   // closing the gap where a ₹65k room_rent line could be pushed against a
@@ -666,45 +741,110 @@ export async function addInvoiceItem(invoiceId, {
     );
   }
 
-  // Read the parent invoice for state-pair (governs CGST+SGST vs IGST)
-  // and admission_id for the billing-close enforcement (B-1).
-  const invoice = await findBillingInvoice(
-    invoiceId,
-    tenantId,
-    'status, patient_state, hospital_state, admission_id',
-  );
-  if (!invoice) throw AppError.notFound('Invoice not found');
-  if (invoice.status !== 'DRAFT') {
-    throw AppError.badRequest('Cannot add items to an issued/voided invoice');
+  let invoiceTenantId = normalizeTenantId(tenantId);
+  if (!invoiceTenantId) {
+    const tenantRow = await findBillingInvoice(invoiceId, null, 'tenant_id');
+    if (!tenantRow) throw AppError.notFound('Invoice not found');
+    invoiceTenantId = normalizeTenantId(tenantRow.tenant_id);
   }
-  await assertAdmissionBillingOpen(invoice.admission_id);
+  invoiceTenantId = requireTenantId(invoiceTenantId);
 
-  const qty = Number(quantity) || 1;
-  const price = Number(resolved.unit_price);
-  const rate = Number(resolved.gst_rate || 0);
-  const lineSub = toFixed2(qty * price);
-  const split = splitGst({
-    subtotal: lineSub,
-    gstRate: rate,
-    patientState: invoice.patient_state,
-    hospitalState: invoice.hospital_state,
+  const mutation = await setTenantTx(invoiceTenantId, async (tx) => {
+    const invoice = await lockBillingInvoice(
+      tx,
+      invoiceId,
+      invoiceTenantId,
+      'status, patient_state, hospital_state, admission_id, patient_uid, tenant_id',
+    );
+    if (!invoice) throw AppError.notFound('Invoice not found');
+    if (invoice.status !== 'DRAFT') {
+      throw AppError.badRequest('Cannot add items to an issued/voided invoice');
+    }
+    await assertAdmissionBillingOpen(invoice.admission_id, tx);
+
+    if (service_code) {
+      const sm = await tx.$queryRawUnsafe(
+        `SELECT description, category, hsn_sac, default_price, gst_rate
+           FROM billing_service_master
+          WHERE code = $1
+            AND tenant_id = $2::uuid
+            AND is_active = true
+          LIMIT 1`,
+        service_code,
+        invoiceTenantId,
+      );
+      if (sm.length) {
+        resolved.description = description || sm[0].description;
+        resolved.category = sm[0].category;
+        resolved.hsn_sac = sm[0].hsn_sac;
+        if (resolved.unit_price == null) resolved.unit_price = Number(sm[0].default_price);
+        if (resolved.gst_rate == null) resolved.gst_rate = Number(sm[0].gst_rate);
+      }
+    }
+    if (!resolved.description) {
+      throw AppError.badRequest('description (or valid service_code) is required');
+    }
+    if (resolved.unit_price == null) {
+      throw AppError.badRequest('unit_price is required for ad-hoc lines');
+    }
+
+    await assertSourceReferenceBelongsToInvoice({
+      sourceRefType: resolvedSourceRefType,
+      sourceRefId: resolvedSourceRefId,
+      invoiceTenantId,
+      invoicePatientUid: invoice.patient_uid,
+      db: tx,
+    });
+
+    const qty = Number(quantity) || 1;
+    const price = Number(resolved.unit_price);
+    const rate = Number(resolved.gst_rate || 0);
+    const lineSub = toFixed2(qty * price);
+    const split = splitGst({
+      subtotal: lineSub,
+      gstRate: rate,
+      patientState: invoice.patient_state,
+      hospitalState: invoice.hospital_state,
+    });
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO billing_invoice_items
+        (invoice_id, service_code, description, category, hsn_sac, quantity,
+         unit_price, gst_rate, line_subtotal, cgst_amount, sgst_amount,
+         igst_amount, line_total, notes, source_ref_type, source_ref_id, tenant_id,
+         source_ref_active)
+       VALUES ($1::int, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric,
+               $9::numeric, $10::numeric, $11::numeric, $12::numeric, $13::numeric, $14, $15, $16,
+               $17::uuid, TRUE)
+       RETURNING *`,
+      Number(invoiceId), service_code || null, resolved.description, resolved.category,
+      resolved.hsn_sac, qty, price, rate, lineSub,
+      split.cgst, split.sgst, split.igst, split.lineTotal, notes || null,
+      resolvedSourceRefType, resolvedSourceRefId, invoiceTenantId,
+    );
+    const totals = await recomputeInvoiceTotals(
+      Number(invoiceId),
+      tx,
+      { emitTpaAlert: false },
+    );
+    return { item: rows[0], invoice, totals };
   });
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO billing_invoice_items
-      (invoice_id, service_code, description, category, hsn_sac, quantity,
-       unit_price, gst_rate, line_subtotal, cgst_amount, sgst_amount,
-       igst_amount, line_total, notes, source_ref_type, source_ref_id)
-     VALUES ($1::int, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric,
-             $9::numeric, $10::numeric, $11::numeric, $12::numeric, $13::numeric, $14, $15, $16)
-     RETURNING *`,
-    Number(invoiceId), service_code || null, resolved.description, resolved.category,
-    resolved.hsn_sac, qty, price, rate, lineSub,
-    split.cgst, split.sgst, split.igst, split.lineTotal, notes || null,
-    resolvedSourceRefType, resolvedSourceRefId,
-  );
-  await recomputeInvoiceTotals(Number(invoiceId));
-  return rows[0];
+  if (mutation.invoice.admission_id && mutation.invoice.patient_uid) {
+    try {
+      await maybeEmitTpaCapAlerts({
+        admissionId: mutation.invoice.admission_id,
+        patientUid: mutation.invoice.patient_uid,
+        tenantId: invoiceTenantId,
+        totalAmount: mutation.totals.total,
+      });
+    } catch (alertErr) {
+      logger.error('Failed to emit TPA cap proximity alert', {
+        invoice_id: invoiceId,
+        error: alertErr.message,
+      });
+    }
+  }
+  return normalizeBillingItemForResponse(mutation.item);
 }
 
 export async function removeInvoiceItem(invoiceId, itemId, { tenantId } = {}) {
@@ -774,22 +914,16 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
   if (inv.status !== 'DRAFT') {
     throw AppError.badRequest(`Invoice is already ${inv.status}`);
   }
-  const items = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*)::int AS c FROM billing_invoice_items WHERE invoice_id = $1::int`,
-    Number(invoiceId),
-  );
-  if (items[0].c === 0) throw AppError.badRequest('Cannot issue an invoice with no items');
-
-  const number = await nextInvoiceNumber(inv.tenant_id);
-  const wiring = await resolveLedgerWiring(requireTenantId(inv.tenant_id));
+  const tenant = requireTenantId(inv.tenant_id);
+  const wiring = await resolveLedgerWiring(tenant);
   // GST compliance: backfill recipient name/phone and (for IP) issuing
   // doctor + department at issue time. These are statutory snapshot
   // fields — a B2C tax invoice with null recipient name is not a valid
   // tax document, and joining at read time loses the value if the
   // patient/admission row changes later. Finding:
   //   2026-05-09-inpatient-admission-billing-invoice-missing-patient-fields
-  // The DRAFT→ISSUED UPDATE, runnable on a plain client (shadow) or a tx (enforce).
-  const doIssueUpdate = (db) => db.$executeRawUnsafe(
+  // The DRAFT→ISSUED update runs under the same row lock as the state recheck.
+  const doIssueUpdate = (db, number) => db.$executeRawUnsafe(
     `UPDATE billing_invoices
         SET invoice_number = $1,
             status = 'ISSUED',
@@ -812,38 +946,52 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
               billing_invoices.department,
               (SELECT a.department FROM admissions a WHERE a.id = billing_invoices.admission_id LIMIT 1)
             )
-      WHERE id = $2::int`,
-    number, Number(invoiceId),
+      WHERE id = $2::int
+        AND tenant_id = $3::uuid`,
+    number, Number(invoiceId), tenant,
   );
   // Issuing transitions DRAFT → ISSUED without changing totals; read them back
   // for the TPA cap re-check and the INVOICE_ISSUE ledger post.
   const readIssueMeta = (db) => db.$queryRawUnsafe(
     `SELECT admission_id, patient_uid, tenant_id, total_amount,
             (COALESCE(cgst_amount,0) + COALESCE(sgst_amount,0) + COALESCE(igst_amount,0)) AS tax_amount
-       FROM billing_invoices WHERE id = $1::int`,
-    Number(invoiceId),
+       FROM billing_invoices WHERE id = $1::int
+        AND tenant_id = $2::uuid`,
+    Number(invoiceId), tenant,
   );
 
-  let meta;
-  if (wiring.sameTx) {
-    // Enforce: the ISSUED transition and the INVOICE_ISSUE ledger post (debit
-    // PATIENT_AR / credit REVENUE) commit together, so a ledger failure rolls
-    // back the issuance.
-    meta = await setTenantTx(requireTenantId(inv.tenant_id), async (tx) => {
-      await doIssueUpdate(tx);
-      const m = await readIssueMeta(tx);
-      if (m.length && m[0].patient_uid) {
-        await postInvoiceIssueEntry({
-          invoice: { id: invoiceId, patient_uid: m[0].patient_uid, total_amount: m[0].total_amount, tax_amount: m[0].tax_amount },
-          tenantId: m[0].tenant_id, tx,
-        });
-      }
-      return m;
-    });
-  } else {
-    await doIssueUpdate(prisma);
-    meta = await readIssueMeta(prisma);
-  }
+  const meta = await setTenantTx(tenant, async (tx) => {
+    const locked = await lockBillingInvoice(tx, invoiceId, tenant, 'id, status, tenant_id');
+    if (!locked) throw AppError.notFound('Invoice not found');
+    if (locked.status !== 'DRAFT') {
+      throw AppError.badRequest(`Invoice is already ${locked.status}`);
+    }
+    const items = await tx.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS c FROM billing_invoice_items
+        WHERE invoice_id = $1::int
+          AND tenant_id = $2::uuid`,
+      Number(invoiceId),
+      tenant,
+    );
+    if (items[0].c === 0) throw AppError.badRequest('Cannot issue an invoice with no items');
+
+    const number = await nextInvoiceNumber(tenant, tx);
+    await doIssueUpdate(tx, number);
+    const issuedMeta = await readIssueMeta(tx);
+    if (wiring.sameTx && issuedMeta.length && issuedMeta[0].patient_uid) {
+      await postInvoiceIssueEntry({
+        invoice: {
+          id: invoiceId,
+          patient_uid: issuedMeta[0].patient_uid,
+          total_amount: issuedMeta[0].total_amount,
+          tax_amount: issuedMeta[0].tax_amount,
+        },
+        tenantId: issuedMeta[0].tenant_id,
+        tx,
+      });
+    }
+    return issuedMeta;
+  });
 
   // Re-check the TPA cap so a draft that's already over cap surfaces an alert at
   // issuance (best-effort, both modes). recomputeInvoiceTotals only fires on
@@ -886,18 +1034,44 @@ export async function voidInvoice(invoiceId, { reason, voided_by, tenantId }) {
   const inv = await findBillingInvoice(
     invoiceId,
     tenantId,
-    'status',
+    'status, tenant_id',
   );
   if (!inv) throw AppError.notFound('Invoice not found');
   if (inv.status === 'VOID') throw AppError.badRequest('Already void');
   if (inv.status === 'PAID') throw AppError.badRequest('Cannot void a paid invoice — raise a refund instead');
 
-  await prisma.$executeRawUnsafe(
-    `UPDATE billing_invoices
-        SET status = 'VOID', voided_at = NOW(), voided_by = $1::uuid, void_reason = $2, updated_at = NOW()
-      WHERE id = $3::int`,
-    voided_by ? String(voided_by) : null, reason, Number(invoiceId),
-  );
+  const tenant = requireTenantId(inv.tenant_id);
+  await setTenantTx(tenant, async (tx) => {
+    const locked = await lockBillingInvoice(tx, invoiceId, tenant, 'status');
+    if (!locked) throw AppError.notFound('Invoice not found');
+    if (locked.status === 'VOID') throw AppError.badRequest('Already void');
+    if (locked.status === 'PAID') {
+      throw AppError.badRequest('Cannot void a paid invoice — raise a refund instead');
+    }
+    const releaseSourceRefs = locked.status === 'DRAFT';
+    await tx.$executeRawUnsafe(
+      `UPDATE billing_invoices
+          SET status = 'VOID', voided_at = NOW(), voided_by = $1::uuid,
+              void_reason = $2, updated_at = NOW()
+        WHERE id = $3::int
+          AND tenant_id = $4::uuid`,
+      voided_by ? String(voided_by) : null,
+      reason,
+      Number(invoiceId),
+      tenant,
+    );
+    if (releaseSourceRefs) {
+      await tx.$executeRawUnsafe(
+        `UPDATE billing_invoice_items
+            SET source_ref_active = FALSE
+          WHERE invoice_id = $1::int
+            AND tenant_id = $2::uuid
+            AND source_ref_active = TRUE`,
+        Number(invoiceId),
+        tenant,
+      );
+    }
+  });
   return getInvoice(invoiceId, { tenantId });
 }
 
@@ -1131,7 +1305,7 @@ export async function getInvoice(invoiceId, { tenantId } = {}) {
 
   return {
     ...invoice,
-    items,
+    items: items.map(normalizeBillingItemForResponse),
     payments,
     advance_settlements: settlements,
     tpa_utilisation: tpaUtilisation,
@@ -2411,7 +2585,7 @@ export async function getInvoiceNonPayableBreakdown(invoiceId, { tenantId } = {}
     invoice_id: Number(invoiceId),
     non_payable_total: Math.round(total * 100) / 100,
     line_count: items.length,
-    lines: items,
+    lines: items.map(normalizeBillingItemForResponse),
   };
 }
 

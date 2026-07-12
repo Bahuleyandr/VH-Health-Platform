@@ -533,6 +533,8 @@ void main() {
       File('lib/features/ward/screens/ward_mode_screen.dart'),
       File('lib/features/cath_lab/screens/cath_lab_screen.dart'),
       File('lib/features/emergency/screens/ed_trauma_workbench_screen.dart'),
+      File('lib/features/cath_lab/widgets/cath_case_consumables_panel.dart'),
+      File('lib/features/cath_lab/widgets/cath_consumable_capture_sheet.dart'),
       File(
         'lib/features/radiation_oncology/screens/radiation_oncology_screen.dart',
       ),
@@ -577,6 +579,7 @@ void main() {
       's4.lib.appointment_queue.',
       's4.lib.audit_logs.',
       's4.lib.billing_desk.',
+      's4.dynamic.cath_lab.',
       's4.lib.cath_lab.',
       's4.lib.radiation_oncology.',
       's4.lib.staff_diagnostics.',
@@ -658,6 +661,29 @@ void main() {
       _missingLocaleEntries(keys, requiredLocales: 5),
       isEmpty,
       reason: 'Code STEMI keys must have en/hi/ta/te/ml entries.',
+    );
+  });
+
+  test('Cath consumable copy has all five staff locale entries', () {
+    final files = [
+      File('lib/features/cath_lab/widgets/cath_case_consumables_panel.dart'),
+      File('lib/features/cath_lab/widgets/cath_consumable_capture_sheet.dart'),
+    ];
+    final keys = <String>{};
+    for (final file in files) {
+      keys.addAll(
+        _appStringKeysFrom(file.readAsStringSync(), const [
+          's4.lib.cath_lab.consumables.',
+          's4.dynamic.cath_lab.consumables.',
+        ]),
+      );
+    }
+
+    expect(keys, isNotEmpty);
+    expect(
+      _missingLocaleEntries(keys, requiredLocales: 5),
+      isEmpty,
+      reason: 'Cath consumable keys must have en/hi/ta/te/ml entries.',
     );
   });
 

@@ -40,6 +40,7 @@ const navigation: NavItem[] = [
   { name: 'Nuclear Med & Radiotherapy', href: '/dashboard/radiation-oncology', minRole: 'STAFF' },
   { name: 'Transplant', href: '/dashboard/transplant', minRole: 'STAFF' },
   { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
+  { name: 'Cath Consumables', href: '/dashboard/billing/cath-consumables', requiredRole: 'ADMIN' },
   { name: 'Reporting', href: '/dashboard/reporting', minRole: 'HR' },
   { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Report Builder', href: '/dashboard/report-builder', requiredPermissions: ['viewAuditLogs'] },

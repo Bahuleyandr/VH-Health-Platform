@@ -90,6 +90,27 @@ export const INDICATOR_DEFINITIONS = Object.freeze({
     denominator: 'Major/sentinel incidents requiring RCA in the period.',
     assessor_note: 'RCA scope is explicitly limited to major and sentinel incidents.',
   },
+  cath_case_volume: {
+    chapter: 'QPS',
+    source_tables: ['cath_lab_cases'],
+    numerator: 'Cath-lab cases completed in the period.',
+    denominator: null,
+    assessor_note: 'Counts are split by urgency in details (NL13-P1f).',
+  },
+  cath_complication_rate_pct: {
+    chapter: 'QPS',
+    source_tables: ['cath_complication_registry', 'cath_lab_cases'],
+    numerator: 'Completed cath cases with at least one complication registry entry in the period.',
+    denominator: 'Cath-lab cases completed in the period.',
+    assessor_note: 'Registry-derived; lower is better (NL13-P1f).',
+  },
+  cath_dose_outlier_count: {
+    chapter: 'QPS',
+    source_tables: ['cath_contrast_radiation_records', 'cath_dose_alert_settings'],
+    numerator: 'Dose/contrast records exceeding an owner-configured alert threshold in the period.',
+    denominator: null,
+    assessor_note: 'Reports thresholds_pending until the owner configures thresholds — no default dose limits are assumed (NL13-P1f).',
+  },
 });
 
 function isMissingSchema(err) {
@@ -418,6 +439,95 @@ const INDICATORS = {
         completion_requires: ['root_cause', 'corrective_action', 'preventive_action', 'status resolved/closed'],
       },
     );
+  },
+
+  async cath_case_volume({ from, to, tenantId }) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COALESCE(urgency, 'unspecified') AS urgency, COUNT(*)::int AS n
+         FROM cath_lab_cases
+        WHERE tenant_id = $1::uuid
+          AND status = 'completed'
+          AND COALESCE(actual_end_at, updated_at) >= $2::date
+          AND COALESCE(actual_end_at, updated_at) < ($3::date + 1)
+        GROUP BY 1 ORDER BY n DESC`,
+      tenantId, from, to,
+    );
+    const total = rows.reduce((sum, r) => sum + Number(r.n), 0);
+    return indicator('cath_case_volume', 'Cath-lab case volume (completed)', 'count', total, total, null, {
+      by_urgency: Object.fromEntries(rows.map((r) => [r.urgency, Number(r.n)])),
+    });
+  },
+
+  async cath_complication_rate_pct({ from, to, tenantId }) {
+    const rows = await prisma.$queryRawUnsafe(
+      `WITH completed AS (
+         SELECT id
+           FROM cath_lab_cases
+          WHERE tenant_id = $1::uuid
+            AND status = 'completed'
+            AND COALESCE(actual_end_at, updated_at) >= $2::date
+            AND COALESCE(actual_end_at, updated_at) < ($3::date + 1)
+       )
+       SELECT (SELECT COUNT(*)::int FROM completed) AS total,
+              COUNT(DISTINCT reg.case_id)::int AS with_complication
+         FROM cath_complication_registry reg
+        WHERE reg.tenant_id = $1::uuid
+          AND reg.case_id IN (SELECT id FROM completed)`,
+      tenantId, from, to,
+    );
+    const row = rows[0] || {};
+    const numerator = Number(row.with_complication) || 0;
+    const denominator = Number(row.total) || 0;
+    return indicator(
+      'cath_complication_rate_pct',
+      'Cath cases with a registered complication',
+      '%',
+      pct(numerator, denominator),
+      numerator,
+      denominator,
+    );
+  },
+
+  async cath_dose_outlier_count({ from, to, tenantId }) {
+    const settingsRows = await prisma.$queryRawUnsafe(
+      `SELECT fluoro_time_alert_min, dap_alert_gy_cm2, air_kerma_alert_mgy, contrast_volume_alert_ml
+         FROM cath_dose_alert_settings
+        WHERE tenant_id = $1::uuid`,
+      tenantId,
+    );
+    const settings = normalizeForWire(settingsRows[0] || null);
+    const configured = Boolean(settings && [
+      settings.fluoro_time_alert_min,
+      settings.dap_alert_gy_cm2,
+      settings.air_kerma_alert_mgy,
+      settings.contrast_volume_alert_ml,
+    ].some((v) => v != null));
+    if (!configured) {
+      // Fail-closed: never fabricate dose limits — surface the pending state.
+      return indicator('cath_dose_outlier_count', 'Cath dose records above owner thresholds', 'count',
+        null, null, null, { thresholds_status: 'thresholds_pending' });
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM cath_contrast_radiation_records d
+        WHERE d.tenant_id = $1::uuid
+          AND d.recorded_at >= $2::date
+          AND d.recorded_at < ($3::date + 1)
+          AND (
+            (d.fluoroscopy_time_min IS NOT NULL AND $4::numeric IS NOT NULL AND d.fluoroscopy_time_min > $4::numeric)
+            OR (d.dose_area_product_gy_cm2 IS NOT NULL AND $5::numeric IS NOT NULL AND d.dose_area_product_gy_cm2 > $5::numeric)
+            OR (d.air_kerma_mgy IS NOT NULL AND $6::numeric IS NOT NULL AND d.air_kerma_mgy > $6::numeric)
+            OR (d.contrast_volume_ml IS NOT NULL AND $7::numeric IS NOT NULL AND d.contrast_volume_ml > $7::numeric)
+          )`,
+      tenantId, from, to,
+      settings.fluoro_time_alert_min,
+      settings.dap_alert_gy_cm2,
+      settings.air_kerma_alert_mgy,
+      settings.contrast_volume_alert_ml,
+    );
+    const count = Number(rows[0]?.n) || 0;
+    return indicator('cath_dose_outlier_count', 'Cath dose records above owner thresholds', 'count',
+      count, count, null, { thresholds_status: 'configured' });
   },
 };
 
