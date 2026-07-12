@@ -334,6 +334,24 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'resuscitation_event':
+      // Sol Ultra LD-RRB-02 (Med): the resuscitation detail read (/events/:id)
+      // returns full timeline/team/signature/medication/device/QA to the broad
+      // emergency role set with no patient authorization. Resolve the event to
+      // its patient so the care-team guard can run on the DETAIL read (the
+      // cross-patient 'recent' alert board stays open by design).
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM resuscitation_events e
+           JOIN users p ON p.uid = e.patient_uid
+          WHERE e.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND e.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
     case 'prehospital_handover':
       // Sol Ultra ambulance-H1: the ED pre-hospital handover routes carry only a
       // handover id, so a plain patient guard saw no patient context and passed.
