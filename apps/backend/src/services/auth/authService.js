@@ -1077,9 +1077,22 @@ export class AuthService {
     try {
       const decoded = verifyToken(token);
       if (decoded) {
-        // Blacklist the token so it can't be reused
+        // Blacklist the presented token so it can't be reused
         if (decoded.jti && decoded.exp) {
           await blacklistToken(decoded.jti, decoded.exp, 'logout');
+        }
+
+        // A login mints an access token AND a sibling refresh token with
+        // independent jti values and no shared session-family id. Blacklisting
+        // only the presented token therefore leaves its sibling valid — a copied
+        // refresh token could still be rotated into a fresh session after a
+        // "successful" logout (Sol Ultra #19). Revoke every token for this
+        // identity so both credentials (and any other active session) are cut
+        // off. NOTE: this makes logout end all of the user's sessions; a
+        // per-device model would require a session-family id on both tokens.
+        const revokeKey = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
+        if (revokeKey != null) {
+          await revokeAllUserTokens(String(revokeKey));
         }
 
         await prisma.auth_logs.create({

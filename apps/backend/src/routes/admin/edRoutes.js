@@ -7,6 +7,7 @@ import express from 'express';
 
 import { success } from '../../utils/responseHelper.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
+import { resolvePatientForResourceAccess } from '../../services/security/accessDecisionService.js';
 import { emitEdBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 import {
   acceptPrehospitalHandover,
@@ -333,8 +334,29 @@ router.patch('/ambulance-requests/:id/transition', async (req, res, next) => {
 });
 
 // Pre-hospital handover seam (NL-14 P2/P3). The parent /api/v1/ed mount
-// supplies ED clinical RBAC + PHI logging; this guard adds patient-context ABAC
-// when the handover request carries a patient_uid.
+// supplies ED clinical RBAC + PHI logging; this guard adds patient-context ABAC.
+//
+// Sol Ultra ambulance-H1: the by-id handover routes carry only a handover id
+// (path /handovers/<id> or body.handover_id), so the plain patient guard saw no
+// patient context and passed for every ED role. Resolve the handover to its
+// patient FIRST (best-effort; never blocks) so the care-team guard below has a
+// patient to evaluate.
+async function resolvePrehospitalHandoverContext(req, _res, next) {
+  try {
+    const m = /\/handovers\/(\d+)(?:\/|$)/.exec(req.originalUrl || req.url || '');
+    const handoverId = m ? m[1] : (req.body?.handover_id ?? null);
+    if (handoverId != null) {
+      const patient = await resolvePatientForResourceAccess(req, {
+        resourceType: 'prehospital_handover', resourceId: handoverId,
+      });
+      if (patient?.uid) {
+        req.phiContext = { ...(req.phiContext ?? {}), patientUid: patient.uid };
+      }
+    }
+  } catch { /* best-effort — the guard handles a missing patient context */ }
+  next();
+}
+router.use('/prehospital', resolvePrehospitalHandoverContext);
 router.use('/prehospital', patientAccessGuard('PREHOSPITAL_HANDOVER', { careTeamModeGoverned: true }));
 
 router.post('/prehospital/handovers', async (req, res, next) => {
@@ -391,7 +413,7 @@ router.post('/prehospital/handovers/:id/timeline', async (req, res, next) => {
       handoverId: req.params.id,
       eventType: b.event_type,
       eventAt: b.event_at,
-      recordedBy: b.recorded_by || req.user?.uid || null,
+      recordedBy: req.user?.uid || null, // Sol Ultra ambulance-H2: recorder is the authenticated actor, not a body value
       sourceType: b.source_type,
       summary: b.summary,
       observation: b.observation,
@@ -411,8 +433,10 @@ router.post('/prehospital/handovers/:id/acceptances', async (req, res, next) => 
     const row = await acceptPrehospitalHandover({
       tenantId: req.tenantId,
       handoverId: req.params.id,
-      acceptedByUid: b.accepted_by_uid || req.user?.uid || null,
-      acceptedByRole: b.accepted_by_role || req.user?.role || req.user?.roles?.[0] || null,
+      // Sol Ultra ambulance-H2: the receiving-clinician acceptance signature is
+      // the authenticated actor's — not a caller-supplied accepted_by uid/role.
+      acceptedByUid: req.user?.uid || null,
+      acceptedByRole: req.user?.role || req.user?.roles?.[0] || null,
       acceptanceRole: b.acceptance_role,
       signatureMethod: b.signature_method,
       signatureText: b.signature_text,
@@ -435,7 +459,7 @@ router.post('/prehospital/handovers/:id/device-links', async (req, res, next) =>
       linkStatus: b.link_status,
       verificationStatus: b.verification_status,
       sourceSystem: b.source_system,
-      verifiedByUid: b.verified_by_uid || req.user?.uid || null,
+      verifiedByUid: req.user?.uid || null, // Sol Ultra ambulance-H2: device-link verifier is the authenticated actor
       verifiedAt: b.verified_at,
       notes: b.notes,
       metadata: b.metadata,

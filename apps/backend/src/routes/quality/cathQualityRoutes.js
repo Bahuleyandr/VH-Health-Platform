@@ -119,7 +119,7 @@ router.post('/complication-registry/:id/review', async (req, res) => {
     if (!gate(req, res, canConfigureCathQuality)) return undefined;
     const entry = await updateRegistryReview(
       req.params.id,
-      { tenantId: resolveTenantOrThrow(req), ...req.body },
+      { ...req.body, tenantId: resolveTenantOrThrow(req) },
       contextOf(req)
     );
     return success(res, { entry }, 'Cath complication review updated');

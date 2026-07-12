@@ -48,7 +48,7 @@ router.get('/packages', requireStaffOrAdmin, wrap(async (req) =>
 
 // Beneficiaries
 router.post('/beneficiaries', requireStaffOrAdmin, wrap(async (req) =>
-  pmjay.upsertBeneficiary({ tenantId: tenantOf(req), ...req.body }),
+  pmjay.upsertBeneficiary({ ...req.body, tenantId: tenantOf(req) }),
 ));
 
 router.get('/beneficiaries/patient/:uid', requireStaffOrAdmin, wrap(async (req) =>
@@ -69,7 +69,8 @@ router.post('/beneficiaries/:id/verify', requireStaffOrAdmin, wrap(async (req) =
 // Cases
 router.post('/cases', requireStaffOrAdmin, wrap(async (req) =>
   pmjay.createCase({
-    tenantId: tenantOf(req), created_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), created_by: req.user?.uid,
   }),
 ));
 
@@ -88,7 +89,8 @@ router.get('/cases/:id', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/cases/:id/transition', requireStaffOrAdmin, wrap(async (req) =>
   pmjay.transition({
-    tenantId: tenantOf(req), id: req.params.id, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), id: req.params.id,
   }),
 ));
 

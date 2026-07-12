@@ -713,9 +713,9 @@ router.get('/messages/:threadId', requirePatient, wrap(async (req) =>
 
 router.post('/messages', requirePatient, wrap(async (req) =>
   portal.startThread({
+    ...req.body,
     tenantId: tenantOf(req),
     patient_uid: patientUidOf(req),
-    ...req.body,
   }),
 ));
 

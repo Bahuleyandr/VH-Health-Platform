@@ -36,7 +36,7 @@ function requireStaffOrAdmin(req, res, next) {
 
 // Death records
 router.post('/records', requireStaffOrAdmin, wrap(async (req) =>
-  svc.createDeathRecord({ tenantId: tenantOf(req), ...req.body })));
+  svc.createDeathRecord({ ...req.body, tenantId: tenantOf(req) })));
 
 router.get('/records', requireStaffOrAdmin, wrap(async (req) =>
   svc.listDeathRecords({
@@ -51,21 +51,22 @@ router.get('/records/:id', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/records/:id/transition', requireStaffOrAdmin, wrap(async (req) =>
   svc.transition({
+    ...req.body,
     tenantId: tenantOf(req), id: req.params.id,
     certified_by: req.user?.uid,
-    ...req.body,
   })));
 
 router.post('/records/:id/body-release', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordBodyRelease({
+    ...req.body,
     tenantId: tenantOf(req), id: req.params.id,
     body_release_witnessed_by: req.user?.uid,
-    ...req.body,
   })));
 
 router.post('/records/:id/police-clearance', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordPoliceClearance({
-    tenantId: tenantOf(req), id: req.params.id, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), id: req.params.id,
   })));
 
 // Mortuary custody
@@ -80,43 +81,44 @@ router.get('/mortuary/slots', requireStaffOrAdmin, wrap(async (req) =>
   })));
 
 router.post('/mortuary/slots', requireStaffOrAdmin, wrap(async (req) =>
-  svc.createMortuarySlot({ tenantId: tenantOf(req), ...req.body })));
+  svc.createMortuarySlot({ ...req.body, tenantId: tenantOf(req) })));
 
 router.get('/records/:id/custody', requireStaffOrAdmin, wrap(async (req) =>
   svc.getBodyCustodyChain({ tenantId: tenantOf(req), id: req.params.id })));
 
 router.post('/records/:id/custody/receive', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordBodyReceive({
+    ...req.body,
     tenantId: tenantOf(req),
     id: req.params.id,
     performed_by: req.user?.uid,
     performed_by_role: req.user?.role,
-    ...req.body,
   })));
 
 router.post('/records/:id/custody/store', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordBodyStorage({
+    ...req.body,
     tenantId: tenantOf(req),
     id: req.params.id,
     performed_by: req.user?.uid,
     performed_by_role: req.user?.role,
-    ...req.body,
   })));
 
 router.post('/records/:id/custody/release', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordMortuaryBodyRelease({
+    ...req.body,
     tenantId: tenantOf(req),
     id: req.params.id,
     performed_by: req.user?.uid,
     performed_by_role: req.user?.role,
     body_release_witnessed_by: req.user?.uid,
-    ...req.body,
   })));
 
 // Mortality review
 router.post('/records/:id/review', requireStaffOrAdmin, wrap(async (req) =>
   svc.upsertReview({
-    tenantId: tenantOf(req), death_record_id: req.params.id, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), death_record_id: req.params.id,
   })));
 
 router.post('/reviews/:id/finalise', requireStaffOrAdmin, wrap(async (req) =>

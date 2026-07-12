@@ -1159,7 +1159,9 @@ export async function upsertScoreDefinition({ tenantId, actorUid, ...body }) {
       'NICU_SCORE_REFERENCE_REQUIRED'
     );
   }
-  const approvedBy = body.approved_by || actorUid || null;
+  // Sol Ultra Wave-E (NICU): activating a score definition attests the approver's
+  // OWN decision — bind it to the authenticated actor, not a caller-supplied uid.
+  const approvedBy = actorUid || null;
   if (activate && !approvedBy) {
     throw AppError.badRequest(
       'approved_by is required to activate a NICU/PICU score definition',
@@ -1298,9 +1300,12 @@ export async function recordScoreOutput({
           'NICU_SCORE_UNAVAILABLE'
         );
       }
-      if (!body.reviewer_uid) {
+      // Sol Ultra Wave-E (NICU): a score review attests the reviewer's OWN
+      // reading — bind reviewer_uid to the authenticated actor, not a
+      // caller-supplied value.
+      if (!actorUid) {
         throw AppError.badRequest(
-          'reviewer_uid is required for NICU/PICU score outputs',
+          'an authenticated reviewer is required for NICU/PICU score outputs',
           'NICU_SCORE_REVIEWER_REQUIRED'
         );
       }
@@ -1333,7 +1338,7 @@ export async function recordScoreOutput({
       json(body.output_payload),
       definition ? definition.reference_source : null,
       definition ? definition.reference_version : null,
-      wantsUnavailable ? null : body.reviewer_uid || null,
+      wantsUnavailable ? null : (actorUid || null),
       body.reviewer_role || null,
       body.reviewed_at || null,
       wantsUnavailable ? 'score_unavailable' : body.review_status || 'reviewed',

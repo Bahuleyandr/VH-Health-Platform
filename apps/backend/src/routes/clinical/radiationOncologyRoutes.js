@@ -95,7 +95,7 @@ router.get('/referrals', async (req, res) => {
 router.post('/referrals', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create radiation-oncology referrals', HTTP_STATUS.FORBIDDEN);
-    const referral = await createReferral({ tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const referral = await createReferral({ ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { referral }, 'Radiation-oncology referral created', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'create referral');
@@ -114,7 +114,7 @@ router.get('/referrals/:id', async (req, res) => {
 router.post('/referrals/:id/status', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership update referral status', HTTP_STATUS.FORBIDDEN);
-    const referral = await transitionReferralStatus(req.params.id, { tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const referral = await transitionReferralStatus(req.params.id, { ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { referral }, 'Radiation-oncology referral status updated');
   } catch (err) {
     return handleFailure(res, err, 'update referral status');
@@ -126,7 +126,7 @@ router.post('/referrals/:id/status', async (req, res) => {
 router.post('/referrals/:id/plan-refs', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership record plan references', HTTP_STATUS.FORBIDDEN);
-    const planRef = await createPlanRef(req.params.id, { tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const planRef = await createPlanRef(req.params.id, { ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { plan_ref: planRef }, 'Radiotherapy plan reference recorded', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'create plan reference');
@@ -136,7 +136,7 @@ router.post('/referrals/:id/plan-refs', async (req, res) => {
 router.post('/plan-refs/:id/status', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership update plan status', HTTP_STATUS.FORBIDDEN);
-    const planRef = await transitionPlanStatus(req.params.id, { tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const planRef = await transitionPlanStatus(req.params.id, { ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { plan_ref: planRef }, 'Radiotherapy plan status updated');
   } catch (err) {
     return handleFailure(res, err, 'update plan status');
@@ -147,7 +147,7 @@ router.post('/plan-refs/:id/status', async (req, res) => {
 
 router.post('/plan-refs/:id/fractions', async (req, res) => {
   try {
-    const fraction = await scheduleFraction(req.params.id, { tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const fraction = await scheduleFraction(req.params.id, { ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { fraction }, 'Radiotherapy fraction scheduled', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'schedule fraction');
@@ -156,7 +156,7 @@ router.post('/plan-refs/:id/fractions', async (req, res) => {
 
 router.post('/fractions/:id/status', async (req, res) => {
   try {
-    const fraction = await transitionFractionStatus(req.params.id, { tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const fraction = await transitionFractionStatus(req.params.id, { ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { fraction }, 'Radiotherapy fraction status updated');
   } catch (err) {
     return handleFailure(res, err, 'update fraction status');
@@ -168,7 +168,7 @@ router.post('/fractions/:id/status', async (req, res) => {
 router.post('/nuclear-orders', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create nuclear-medicine orders', HTTP_STATUS.FORBIDDEN);
-    const order = await createNuclearOrder({ tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const order = await createNuclearOrder({ ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { order }, 'Nuclear-medicine order created', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'create nuclear-medicine order');
@@ -178,7 +178,7 @@ router.post('/nuclear-orders', async (req, res) => {
 router.post('/nuclear-orders/:id/status', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership update nuclear-medicine order status', HTTP_STATUS.FORBIDDEN);
-    const order = await transitionNuclearOrderStatus(req.params.id, { tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const order = await transitionNuclearOrderStatus(req.params.id, { ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { order }, 'Nuclear-medicine order status updated');
   } catch (err) {
     return handleFailure(res, err, 'update nuclear-medicine order status');
@@ -187,7 +187,7 @@ router.post('/nuclear-orders/:id/status', async (req, res) => {
 
 router.post('/nuclear-orders/:id/administrations', async (req, res) => {
   try {
-    const administration = await recordRadioisotopeAdministration(req.params.id, { tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const administration = await recordRadioisotopeAdministration(req.params.id, { ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { administration }, 'Radioisotope administration recorded', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'record radioisotope administration');
@@ -213,7 +213,7 @@ router.get('/safety-evidence', async (req, res) => {
 router.post('/safety-evidence', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership record radiation safety evidence', HTTP_STATUS.FORBIDDEN);
-    const evidence = await recordSafetyEvidence({ tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const evidence = await recordSafetyEvidence({ ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { evidence }, 'Radiation safety evidence recorded', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'record safety evidence');

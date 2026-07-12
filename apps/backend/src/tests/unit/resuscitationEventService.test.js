@@ -58,7 +58,8 @@ const {
   createResuscitationEvent,
   finalizeResuscitationEvent,
   isResuscitationEnabled,
-  upsertQaReview
+  upsertQaReview,
+  upsertTeamRole
 } = await import('../../services/clinical/resuscitationEventService.js');
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -465,5 +466,20 @@ describe('resuscitationEventService', () => {
     await expect(isResuscitationEnabled(TENANT)).resolves.toBe(false);
     queryRawMock.mockResolvedValueOnce(ENABLED_ROW);
     await expect(isResuscitationEnabled(TENANT)).resolves.toBe(true);
+  });
+});
+
+describe('upsertTeamRole signature binding (Sol Ultra LD-RRB-02)', () => {
+  it('refuses to sign another clinician\'s participation', async () => {
+    queryRawMock
+      .mockResolvedValueOnce(ENABLED_ROW)    // assertEnabled
+      .mockResolvedValueOnce([eventRow()]);  // assertEvent FOR UPDATE
+    await expect(
+      upsertTeamRole({
+        tenantId: TENANT, eventId: 9, actorUid: ACTOR,
+        staff_uid: '44444444-4444-4444-8444-444444444444',
+        role: 'team_leader', sign: true,
+      })
+    ).rejects.toMatchObject({ code: 'RESUS_SIGN_NOT_SELF' });
   });
 });

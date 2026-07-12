@@ -18,6 +18,7 @@ import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as resus from '../../services/clinical/resuscitationEventService.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -76,10 +77,10 @@ router.put('/settings', requireAdmin, wrap(async req =>
 // (post-commit, best-effort) the realtime notification.
 router.post('/events', requireStaffOrAdmin, wrap(async (req, res) => {
   const row = await resus.createResuscitationEvent({
+    ...req.body,
     tenantId: tenantOf(req),
     actorUid: req.user?.uid,
-    actorRole: req.user?.role,
-    ...req.body
+    actorRole: req.user?.role
   });
   return success(res, row, 'Resuscitation event created', 201);
 }));
@@ -95,17 +96,28 @@ router.get('/events/recent', requireStaffOrAdmin, wrap(async req =>
     limit: req.query.limit
   })));
 
-router.get('/events/:id', requireStaffOrAdmin, wrap(async req =>
+// Full resuscitation-event DETAIL (timeline/team/signature/medication/device/QA).
+// Unlike the cross-patient alert board (/events/recent), the detail read is
+// patient-scoped: resolve the event to its patient + run the care-team guard
+// (Sol Ultra LD-RRB-02 Medium). allowNoPatientResource defers a code-blue that
+// has no linked patient yet to the handler's own 404.
+const guardResusEventDetail = patientAccessGuardForResource('RESUSCITATION_EVENT', {
+  resourceType: 'resuscitation_event',
+  idParam: 'id',
+  careTeamModeGoverned: true,
+  allowNoPatientResource: true,
+});
+router.get('/events/:id', requireStaffOrAdmin, guardResusEventDetail, wrap(async req =>
   resus.getResuscitationEvent({ tenantId: tenantOf(req), eventId: req.params.id })));
 
 // Append-only timeline (immutable rows; corrections are new entries)
 router.post('/events/:id/timeline', requireStaffOrAdmin, wrap(async (req, res) => {
   const row = await resus.appendTimelineEntry({
+    ...req.body,
     tenantId: tenantOf(req),
     eventId: req.params.id,
     actorUid: req.user?.uid,
-    actorRole: req.user?.role,
-    ...req.body
+    actorRole: req.user?.role
   });
   return success(res, row, 'Timeline entry appended', 201);
 }));
@@ -113,11 +125,11 @@ router.post('/events/:id/timeline', requireStaffOrAdmin, wrap(async (req, res) =
 // Team roles + signature capture
 router.post('/events/:id/roles', requireStaffOrAdmin, wrap(async req =>
   resus.upsertTeamRole({
+    ...req.body,
     tenantId: tenantOf(req),
     eventId: req.params.id,
     actorUid: req.user?.uid,
-    actorRole: req.user?.role,
-    ...req.body
+    actorRole: req.user?.role
   })));
 
 router.post('/events/:id/end', requireStaffOrAdmin, wrap(async req =>
@@ -153,11 +165,11 @@ router.post('/events/:id/cancel-misfire', requireStaffOrAdmin, wrap(async req =>
 // Post-event QA / debrief (fail-closed until governance supplies a template)
 router.put('/events/:id/qa-review', requireStaffOrAdmin, wrap(async req =>
   resus.upsertQaReview({
+    ...req.body,
     tenantId: tenantOf(req),
     eventId: req.params.id,
     actorUid: req.user?.uid,
-    actorRole: req.user?.role,
-    ...req.body
+    actorRole: req.user?.role
   })));
 
 export default router;

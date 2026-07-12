@@ -296,7 +296,7 @@ function resourceTypeFromPath(path) {
 // subject/patient reference in a write body. Returns null when no patient is
 // addressed (e.g. an unfiltered search) — a patient-context SMART token is then
 // denied by the caller, since it must never run an unscoped query.
-function addressedPatientUid(req, resourceType) {
+export function addressedPatientUid(req, resourceType) {
   // Path id: /Patient/<uuid> (and /Patient/<uuid>/$everything). Parse it from
   // the raw path — router-level middleware runs before route params are bound,
   // so req.params is empty here.
@@ -306,20 +306,40 @@ function addressedPatientUid(req, resourceType) {
     if (UUID_RE.test(text)) return text;
   }
   // ?patient=<uuid> | ?patient=Patient/<uuid>
+  let queryPatient = null;
   const q = req.query?.patient;
   if (q !== undefined && q !== null && q !== '') {
     const text = String(q).trim();
     const ref = /^Patient\/([0-9a-f-]{36})$/i.exec(text);
     const uid = String(ref?.[1] || text).trim().toLowerCase();
-    if (UUID_RE.test(uid)) return uid;
+    if (UUID_RE.test(uid)) queryPatient = uid;
   }
   // Write body: subject.reference / patient.reference = Patient/<uuid>
+  let bodyPatient = null;
   const bodyRef = req.body?.subject?.reference || req.body?.patient?.reference;
   if (bodyRef) {
     const ref = /^Patient\/([0-9a-f-]{36})$/i.exec(String(bodyRef).trim());
     const uid = String(ref?.[1] || '').trim().toLowerCase();
-    if (UUID_RE.test(uid)) return uid;
+    if (UUID_RE.test(uid)) bodyPatient = uid;
   }
+  // Sol Ultra #2: for a create/update, the FHIR body is the canonical mutation
+  // target — a ?patient= query selector must NOT override it. When both are
+  // present and disagree, that is a cross-patient write attempt (the SMART
+  // patient-context check below compares the ADDRESSED patient to the token's
+  // patient, so returning the query patient would authorize a token scoped to A
+  // while the handler writes the body's patient B). Surface the body patient for
+  // writes, and reject a conflicting query selector outright.
+  if (req.method && req.method !== 'GET' && bodyPatient) {
+    if (queryPatient && queryPatient !== bodyPatient) {
+      throw smartForbidden(
+        'Conflicting SMART patient selectors',
+        'FHIR_SMART_PATIENT_SELECTOR_CONFLICT',
+      );
+    }
+    return bodyPatient;
+  }
+  if (queryPatient) return queryPatient;
+  if (bodyPatient) return bodyPatient;
   return null;
 }
 

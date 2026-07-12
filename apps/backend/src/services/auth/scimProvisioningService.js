@@ -419,18 +419,28 @@ async function findExistingStaff(tx, context, fields, id = null) {
          FROM users u
          JOIN staff s ON s.user_id = u.uid AND s.tenant_id = u.tenant_id
         WHERE u.tenant_id = $1::uuid AND u.uid = $2::uuid
+          AND (u.scim_provider_id IS NULL OR u.scim_provider_id = $3::bigint)
+          AND (s.scim_provider_id IS NULL OR s.scim_provider_id = $3::bigint)
         LIMIT 1`,
       context.tenant.id,
       id,
+      context.provider.id,
     );
     if (byId[0]) return byId[0];
   }
+  // Sol Ultra #5: a SCIM provider may match/mutate only identities it owns or
+  // that are unowned — never another provider's. The provider match was in the
+  // ORDER BY (ranking) only, not the WHERE (filter), so a lookup by external id
+  // / email / employee id could adopt a foreign provider's identity. Filter both
+  // halves of the joined staff identity by provider ownership.
   const rows = await tx.$queryRawUnsafe(
     `SELECT u.id, u.uid, u.identity_source AS user_identity_source,
             u.is_break_glass_account, s.id AS staff_id, s.identity_source AS staff_identity_source
        FROM users u
        JOIN staff s ON s.user_id = u.uid AND s.tenant_id = u.tenant_id
       WHERE u.tenant_id = $1::uuid
+        AND (u.scim_provider_id IS NULL OR u.scim_provider_id = $5::bigint)
+        AND (s.scim_provider_id IS NULL OR s.scim_provider_id = $5::bigint)
         AND (
           ($2::text IS NOT NULL AND (u.scim_external_id = $2 OR s.scim_external_id = $2))
           OR ($3::text IS NOT NULL AND lower(u.email) = lower($3))
@@ -457,16 +467,20 @@ async function findExistingAdmin(tx, context, fields, id = null) {
       `SELECT uid, identity_source, is_break_glass_account
          FROM admins
         WHERE tenant_id = $1::uuid AND uid = $2::uuid
+          AND (scim_provider_id IS NULL OR scim_provider_id = $3::bigint)
         LIMIT 1`,
       context.tenant.id,
       id,
+      context.provider.id,
     );
     if (byId[0]) return byId[0];
   }
+  // Sol Ultra #5: filter by provider ownership (unowned or own), not just rank.
   const rows = await tx.$queryRawUnsafe(
     `SELECT uid, identity_source, is_break_glass_account
        FROM admins
       WHERE tenant_id = $1::uuid
+        AND (scim_provider_id IS NULL OR scim_provider_id = $5::bigint)
         AND (
           ($2::text IS NOT NULL AND scim_external_id = $2)
           OR ($3::text IS NOT NULL AND lower(email) = lower($3))

@@ -1111,6 +1111,20 @@ export const createPrescription = async (req, res) => {
       doctorUid,
       tenantId: rxTenantId,
     });
+    // Sol Ultra #3: the controlled-substance privilege was evaluated ONLY on the
+    // body-supplied doctor, so a low-privilege caller could name a privileged
+    // doctor and prescribe a controlled substance under their authority. Also
+    // require the AUTHENTICATED actor (the person actually creating the Rx) to
+    // hold the privilege when they are not the named prescriber; a genuine
+    // on-behalf-of flow needs a verified delegation, not merely a body doctor_id.
+    const prescribingActorUid = req.user?.uid;
+    if (prescribingActorUid && String(prescribingActorUid) !== String(doctorUid)) {
+      await assertControlledSubstancePrivilege({
+        medications,
+        doctorUid: prescribingActorUid,
+        tenantId: rxTenantId,
+      });
+    }
 
     // Validate the linked admission exists and belongs to this patient —
     // an admission_id pointing at a different patient's stay is exactly
@@ -2152,6 +2166,17 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
     }
     const rx = rxResult[0];
+
+    // Ownership gate (Sol Ultra #13): a PATIENT could POST order-pharmacy for
+    // ANY prescription id and create an order against — and read the medication
+    // PHI of — another patient's prescription. Reuse the same relationship helper
+    // the read/PDF paths use; staff read-roles pass, a PATIENT must own the row.
+    // Return 404 (not 403) so a foreign id is not confirmed to exist.
+    // NOTE: intentionally NOT gating on signed/locked here — walk-in OPD orders
+    // pharmacy from an active (as-yet-unsigned) prescription, a supported flow.
+    if (!callerMayAccessPrescription(req, rx.patient_id)) {
+      return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     if (isRefill) {
       // Refill flow: only allow when the previous order is *complete*

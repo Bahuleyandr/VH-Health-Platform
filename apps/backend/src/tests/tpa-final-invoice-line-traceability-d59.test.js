@@ -14,6 +14,20 @@ const RUN_SUFFIX = String(Date.now() % 100000).padStart(5, '0');
 
 const createdClaimIds = [];
 const createdInvoiceIds = [];
+const createdAdmissionIds = [];
+
+// Sol Ultra #15 binds a claim's admission to a real tenant-scoped row, so
+// fabricated admission ids now (correctly) reject at createClaim.
+async function seedAdmission() {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO admissions (tenant_id, patient_uid, status, admitted_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'admitted', NOW(), NOW())
+     RETURNING id`,
+    TENANT, PATIENT_UID,
+  );
+  createdAdmissionIds.push(rows[0].id);
+  return rows[0].id;
+}
 let policyId;
 
 async function seedIssuedInvoice({ admissionId, sourceRefType, sourceRefId }) {
@@ -66,6 +80,9 @@ describe('TPA final claim invoice line traceability (D59)', () => {
     for (const id of createdInvoiceIds) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = $1::int`, id).catch(() => {});
     }
+    for (const id of createdAdmissionIds) {
+      await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE id = $1::int`, id).catch(() => {});
+    }
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
@@ -73,7 +90,7 @@ describe('TPA final claim invoice line traceability (D59)', () => {
   });
 
   it('rejects a final cashless claim when billable invoice lines are manual', async () => {
-    const admissionId = 590100 + (Date.now() % 10000);
+    const admissionId = await seedAdmission();
     const invoiceId = await seedIssuedInvoice({
       admissionId,
       sourceRefType: 'manual',
@@ -102,7 +119,7 @@ describe('TPA final claim invoice line traceability (D59)', () => {
   });
 
   it('allows a final cashless claim when invoice lines carry source refs', async () => {
-    const admissionId = 591100 + (Date.now() % 10000);
+    const admissionId = await seedAdmission();
     const invoiceId = await seedIssuedInvoice({
       admissionId,
       sourceRefType: 'ward_indent',

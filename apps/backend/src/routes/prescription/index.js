@@ -49,10 +49,17 @@ wrapAutoRBAC(router, 'ePrescriptionCreateRoutes', {
   ]
 });
 
-// Patient: my prescriptions
+// Patient: my prescriptions (self-scoped)
 wrapAutoRBAC(router, 'ePrescriptionPatientRoutes', {
   get: [
-    ['/patient/my', [], ePrescriptionController.getMyPrescriptions],
+    ['/patient/my', [], ePrescriptionController.getMyPrescriptions]
+  ]
+});
+
+// Staff/pharmacy: list ALL prescriptions. NOT patient-accessible — getAllPrescriptions
+// is unscoped (WHERE 1=1), so PATIENT here = enumerate everyone's PHI (Sol Ultra #11).
+wrapAutoRBAC(router, 'ePrescriptionListAllRoutes', {
+  get: [
     ['/all', [], ePrescriptionController.getAllPrescriptions]
   ]
 });
