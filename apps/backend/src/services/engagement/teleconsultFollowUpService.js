@@ -558,6 +558,10 @@ export async function closeTeleconsultFollowUpLoop({
   });
 }
 
+// Shared NL9-P3 rail helpers. Other completion-fact producers (NL-13 P1e cath
+// procedure loops) reuse these instead of forking the loop/step/event SQL.
+export { insertEvent as insertFollowUpLoopEvent, insertStep as insertFollowUpLoopStep };
+
 export const __testing__ = {
   DEFAULT_TRIGGER_DEFAULTS,
   FORBIDDEN_FACT_KEYS,

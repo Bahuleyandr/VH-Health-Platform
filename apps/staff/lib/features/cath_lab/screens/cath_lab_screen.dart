@@ -17,6 +17,7 @@ import '../../../l10n/app_strings.dart';
 import '../services/cath_lab_api_service.dart';
 import '../widgets/cath_case_reports_panel.dart';
 import '../widgets/cath_case_consumables_panel.dart';
+import '../widgets/cath_quick_wins_panel.dart';
 
 typedef CathLabCaseLoader =
     Future<List<CathLabCaseSummary>> Function(DateTime date);
@@ -62,6 +63,7 @@ class CathLabScreen extends StatefulWidget {
     this.loadRole,
     this.reportDependencies = const CathReportDependencies(),
     this.consumableDependencies = const CathConsumableDependencies(),
+    this.quickWinsDependencies = const CathQuickWinsDependencies(),
   });
 
   final CathLabCaseLoader? loadCases;
@@ -73,6 +75,7 @@ class CathLabScreen extends StatefulWidget {
   final CathLabRoleLoader? loadRole;
   final CathReportDependencies reportDependencies;
   final CathConsumableDependencies consumableDependencies;
+  final CathQuickWinsDependencies quickWinsDependencies;
 
   @override
   State<CathLabScreen> createState() => _CathLabScreenState();
@@ -393,7 +396,10 @@ class _CathLabScreenState extends State<CathLabScreen>
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: cases.length,
-      itemBuilder: (context, index) => _ReadinessCard(cathCase: cases[index]),
+      itemBuilder: (context, index) => _ReadinessCard(
+        cathCase: cases[index],
+        quickWinsDependencies: widget.quickWinsDependencies,
+      ),
     );
   }
 
@@ -909,9 +915,13 @@ class _CathLabCaseCard extends StatelessWidget {
 }
 
 class _ReadinessCard extends StatelessWidget {
-  const _ReadinessCard({required this.cathCase});
+  const _ReadinessCard({
+    required this.cathCase,
+    this.quickWinsDependencies = const CathQuickWinsDependencies(),
+  });
 
   final CathLabCaseSummary cathCase;
+  final CathQuickWinsDependencies quickWinsDependencies;
 
   @override
   Widget build(BuildContext context) {
@@ -967,6 +977,10 @@ class _ReadinessCard extends StatelessWidget {
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
               ],
+            ),
+            CathQuickWinsPanel(
+              caseId: cathCase.id,
+              dependencies: quickWinsDependencies,
             ),
           ],
         ),

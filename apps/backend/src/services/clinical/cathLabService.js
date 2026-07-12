@@ -7,6 +7,7 @@ import { requireTenantId } from '../tenant/tenantService.js';
 import { addInvoiceItem, createDraftInvoice } from '../billing/billingV2Service.js';
 import { recordMovement } from '../pharmacy/inventoryV2Service.js';
 import { reserveStock } from '../pharmacySupply/pharmacySupplyService.js';
+import { emitCathProcedureCompletionFollowUps } from './cathQuickWinsService.js';
 import {
   completeWorkflowSla,
   recordCanonicalClinicalEvent,
@@ -674,11 +675,8 @@ export async function updateReadinessCheck(caseId, input = {}, context = {}) {
       `INSERT INTO cath_lab_readiness_checks
          (tenant_id, case_id, check_type, status, required, completed_by, completed_at,
           evidence_owner, source_name, source_version, attachment_ref, notes, metadata)
-       VALUES ($1::uuid, $2::bigint, $3, $4::varchar(30), COALESCE($5, TRUE), $6::uuid,
-               CASE
-                 WHEN $4::varchar(30) = 'pending' THEN NULL
-                 ELSE COALESCE($7::timestamptz, NOW())
-               END,
+       VALUES ($1::uuid, $2::bigint, $3, $4::text, COALESCE($5, TRUE), $6::uuid,
+               CASE WHEN $4::text = 'pending' THEN NULL ELSE COALESCE($7::timestamptz, NOW()) END,
                $8, $9, $10, $11, $12, $13::jsonb)
        ON CONFLICT (tenant_id, case_id, check_type) DO UPDATE SET
           status = EXCLUDED.status,
@@ -808,7 +806,7 @@ export async function recordProcedureLog(caseId, input = {}, context = {}) {
     gate: 'cath_lab_procedure_log',
     enabled: gate.enabled
   });
-  return setTenantTx(tenantId, async tx => {
+  const recorded = await setTenantTx(tenantId, async tx => {
     const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
     await assertReadinessComplete(tx, tenantId, cathCase.id);
     const procedureType = cleanText(input.procedure_type || input.procedureType, 120);
@@ -890,6 +888,24 @@ export async function recordProcedureLog(caseId, input = {}, context = {}) {
     );
     return normalizeDbValue(procedure);
   });
+  // NL-13 P1e Phase-1.5 seam: finalized procedure logs emit their completion
+  // fact to the NL9-P3 follow-up rails post-commit, best-effort. Owner
+  // templates in tenants.settings decide whether anything triggers; failure
+  // here never blocks the procedure log itself.
+  if (recorded?.status === 'finalized') {
+    try {
+      await emitCathProcedureCompletionFollowUps({
+        tenantId,
+        procedureLogId: recorded.id,
+        actorUid: context.actorUid
+      });
+    } catch (err) {
+      logger.warn(
+        `Cath follow-up loop emission failed for procedure_log=${recorded.id}: ${err.message}`
+      );
+    }
+  }
+  return recorded;
 }
 
 export async function addHemodynamicSummary(caseId, input = {}, context = {}) {

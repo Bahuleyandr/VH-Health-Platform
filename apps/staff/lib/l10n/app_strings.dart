@@ -6253,6 +6253,31 @@ class AppStrings {
       's4.lib.cath_lab.post_orders': "Post-procedure orders",
       's4.lib.cath_lab.post_orders_count': "{count} active orders",
       's4.lib.cath_lab.post_orders_pending': "Post-procedure orders pending",
+      's4.lib.cath_lab.quick_wins.live_evidence': "Live evidence & order sets",
+      's4.lib.cath_lab.quick_wins.load_failed': "Could not load live evidence",
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          "Evidence pulled from live hospital records",
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          "No live evidence found — checks stay manual",
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          "Attach latest evidence to checklist",
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          "Evidence attached to the readiness checklist",
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          "Could not attach evidence",
+      's4.lib.cath_lab.quick_wins.blood_chip': "Crossmatch: {status}",
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': "Pending",
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': "Compatible",
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': "Incompatible",
+      's4.lib.cath_lab.quick_wins.consent_chip': "Signed consent on file",
+      's4.lib.cath_lab.quick_wins.apply_pre_cath': "Apply pre-cath order set",
+      's4.lib.cath_lab.quick_wins.apply_post_cath': "Apply post-cath order set",
+      's4.lib.cath_lab.quick_wins.apply_confirm_title': "Apply order set?",
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          "Stage {count} orders from \"{title}\" through the standard ordering workflow. Orders still require the usual review and signing.",
+      's4.lib.cath_lab.quick_wins.apply_success':
+          "Order set staged through CPOE",
+      's4.lib.cath_lab.quick_wins.apply_failed': "Could not apply order set",
       's4.lib.cath_lab.stemi.incoming': "Incoming Code STEMI activations",
       's4.lib.cath_lab.stemi.empty': "No incoming Code STEMI activations",
       's4.lib.cath_lab.stemi.load_failed':
@@ -11935,6 +11960,33 @@ class AppStrings {
       's4.lib.cath_lab.post_orders': "पोस्ट-प्रोसीजर आदेश",
       's4.lib.cath_lab.post_orders_count': "{count} सक्रिय आदेश",
       's4.lib.cath_lab.post_orders_pending': "पोस्ट-प्रोसीजर आदेश लंबित",
+      's4.lib.cath_lab.quick_wins.live_evidence': "लाइव साक्ष्य और ऑर्डर सेट",
+      's4.lib.cath_lab.quick_wins.load_failed': "लाइव साक्ष्य लोड नहीं हो सका",
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          "अस्पताल के लाइव रिकॉर्ड से साक्ष्य मिला",
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          "कोई लाइव साक्ष्य नहीं मिला — जाँचें मैनुअल रहेंगी",
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          "नवीनतम साक्ष्य चेकलिस्ट से जोड़ें",
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          "साक्ष्य रेडीनेस चेकलिस्ट से जुड़ गया",
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          "साक्ष्य जोड़ा नहीं जा सका",
+      's4.lib.cath_lab.quick_wins.blood_chip': "क्रॉसमैच: {status}",
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': "लंबित",
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': "संगत",
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': "असंगत",
+      's4.lib.cath_lab.quick_wins.consent_chip': "हस्ताक्षरित सहमति दर्ज है",
+      's4.lib.cath_lab.quick_wins.apply_pre_cath':
+          "प्री-कैथ ऑर्डर सेट लागू करें",
+      's4.lib.cath_lab.quick_wins.apply_post_cath':
+          "पोस्ट-कैथ ऑर्डर सेट लागू करें",
+      's4.lib.cath_lab.quick_wins.apply_confirm_title': "ऑर्डर सेट लागू करें?",
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          "\"{title}\" से {count} ऑर्डर मानक ऑर्डरिंग वर्कफ़्लो के माध्यम से स्टेज होंगे। ऑर्डर की सामान्य समीक्षा और साइनिंग आवश्यक रहेगी।",
+      's4.lib.cath_lab.quick_wins.apply_success':
+          "ऑर्डर सेट CPOE के माध्यम से स्टेज हुआ",
+      's4.lib.cath_lab.quick_wins.apply_failed': "ऑर्डर सेट लागू नहीं हो सका",
       's4.lib.cath_lab.stemi.incoming': "आने वाले कोड STEMI सक्रियण",
       's4.lib.cath_lab.stemi.empty': "कोई आने वाला कोड STEMI सक्रियण नहीं",
       's4.lib.cath_lab.stemi.load_failed': "कोड STEMI सक्रियण लोड नहीं हो सके",
@@ -18193,6 +18245,37 @@ class AppStrings {
       's4.lib.cath_lab.post_orders_count': "{count} செயலில் உள்ள ஆணைகள்",
       's4.lib.cath_lab.post_orders_pending':
           "செயல்முறைக்கு பிந்தைய ஆணைகள் நிலுவையில்",
+      's4.lib.cath_lab.quick_wins.live_evidence':
+          "நேரடி ஆதாரம் & ஆர்டர் செட்கள்",
+      's4.lib.cath_lab.quick_wins.load_failed':
+          "நேரடி ஆதாரத்தை ஏற்ற முடியவில்லை",
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          "மருத்துவமனை நேரடி பதிவுகளிலிருந்து ஆதாரம் பெறப்பட்டது",
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          "நேரடி ஆதாரம் இல்லை — சரிபார்ப்புகள் கைமுறையாகவே இருக்கும்",
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          "சமீபத்திய ஆதாரத்தை சரிபார்ப்புப் பட்டியலில் இணைக்கவும்",
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          "ஆதாரம் தயார்நிலை பட்டியலில் இணைக்கப்பட்டது",
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          "ஆதாரத்தை இணைக்க முடியவில்லை",
+      's4.lib.cath_lab.quick_wins.blood_chip': "குறுக்குப்பொருத்தம்: {status}",
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': "நிலுவையில்",
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': "பொருந்தும்",
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': "பொருந்தாது",
+      's4.lib.cath_lab.quick_wins.consent_chip': "கையொப்பமிட்ட ஒப்புதல் உள்ளது",
+      's4.lib.cath_lab.quick_wins.apply_pre_cath':
+          "ப்ரீ-கேத் ஆர்டர் செட்டைப் பயன்படுத்து",
+      's4.lib.cath_lab.quick_wins.apply_post_cath':
+          "போஸ்ட்-கேத் ஆர்டர் செட்டைப் பயன்படுத்து",
+      's4.lib.cath_lab.quick_wins.apply_confirm_title':
+          "ஆர்டர் செட்டைப் பயன்படுத்தவா?",
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          "\"{title}\" இலிருந்து {count} ஆர்டர்கள் நிலையான ஆர்டர் வழிமுறையில் நிலைநிறுத்தப்படும். வழக்கமான மதிப்பாய்வும் கையொப்பமும் தேவை.",
+      's4.lib.cath_lab.quick_wins.apply_success':
+          "ஆர்டர் செட் CPOE வழியாக நிலைநிறுத்தப்பட்டது",
+      's4.lib.cath_lab.quick_wins.apply_failed':
+          "ஆர்டர் செட்டைப் பயன்படுத்த முடியவில்லை",
       's4.lib.cath_lab.stemi.incoming': "வரும் கோட் STEMI செயல்பாடுகள்",
       's4.lib.cath_lab.stemi.empty': "வரும் கோட் STEMI செயல்பாடுகள் இல்லை",
       's4.lib.cath_lab.stemi.load_failed':
@@ -24533,6 +24616,37 @@ class AppStrings {
       's4.lib.cath_lab.post_orders_count': "{count} క్రియాశీల ఆర్డర్లు",
       's4.lib.cath_lab.post_orders_pending':
           "ప్రొసీజర్ తర్వాత ఆర్డర్లు పెండింగ్‌లో ఉన్నాయి",
+      's4.lib.cath_lab.quick_wins.live_evidence':
+          "లైవ్ ఆధారాలు & ఆర్డర్ సెట్లు",
+      's4.lib.cath_lab.quick_wins.load_failed':
+          "లైవ్ ఆధారాలను లోడ్ చేయలేకపోయాం",
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          "ఆసుపత్రి లైవ్ రికార్డుల నుండి ఆధారం లభించింది",
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          "లైవ్ ఆధారం లేదు — తనిఖీలు మాన్యువల్‌గానే ఉంటాయి",
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          "తాజా ఆధారాన్ని చెక్‌లిస్ట్‌కు జత చేయండి",
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          "ఆధారం సంసిద్ధత చెక్‌లిస్ట్‌కు జత చేయబడింది",
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          "ఆధారాన్ని జత చేయలేకపోయాం",
+      's4.lib.cath_lab.quick_wins.blood_chip': "క్రాస్‌మ్యాచ్: {status}",
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': "పెండింగ్",
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': "సరిపోతుంది",
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': "సరిపోదు",
+      's4.lib.cath_lab.quick_wins.consent_chip': "సంతకం చేసిన సమ్మతి నమోదైంది",
+      's4.lib.cath_lab.quick_wins.apply_pre_cath':
+          "ప్రీ-క్యాత్ ఆర్డర్ సెట్ వర్తింపజేయండి",
+      's4.lib.cath_lab.quick_wins.apply_post_cath':
+          "పోస్ట్-క్యాత్ ఆర్డర్ సెట్ వర్తింపజేయండి",
+      's4.lib.cath_lab.quick_wins.apply_confirm_title':
+          "ఆర్డర్ సెట్ వర్తింపజేయాలా?",
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          "\"{title}\" నుండి {count} ఆర్డర్లు ప్రామాణిక ఆర్డరింగ్ వర్క్‌ఫ్లో ద్వారా స్టేజ్ అవుతాయి. ఆర్డర్లకు యథావిధి సమీక్ష, సంతకం అవసరం.",
+      's4.lib.cath_lab.quick_wins.apply_success':
+          "ఆర్డర్ సెట్ CPOE ద్వారా స్టేజ్ అయింది",
+      's4.lib.cath_lab.quick_wins.apply_failed':
+          "ఆర్డర్ సెట్ వర్తింపజేయలేకపోయాం",
       's4.lib.cath_lab.stemi.incoming': "వస్తున్న కోడ్ STEMI యాక్టివేషన్లు",
       's4.lib.cath_lab.stemi.empty': "వస్తున్న కోడ్ STEMI యాక్టివేషన్లు లేవు",
       's4.lib.cath_lab.stemi.load_failed':
@@ -27571,6 +27685,37 @@ class AppStrings {
       's4.lib.cath_lab.post_orders_count': '{count} സജീവ ഓർഡറുകൾ',
       's4.lib.cath_lab.post_orders_pending':
           'പ്രൊസീജറിന് ശേഷമുള്ള ഓർഡറുകൾ ബാക്കി',
+      's4.lib.cath_lab.quick_wins.live_evidence':
+          'ലൈവ് തെളിവും ഓർഡർ സെറ്റുകളും',
+      's4.lib.cath_lab.quick_wins.load_failed':
+          'ലൈവ് തെളിവ് ലോഡ് ചെയ്യാനായില്ല',
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          'ആശുപത്രി ലൈവ് രേഖകളിൽ നിന്ന് തെളിവ് ലഭിച്ചു',
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          'ലൈവ് തെളിവ് ഇല്ല — പരിശോധനകൾ മാനുവലായി തുടരും',
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          'ഏറ്റവും പുതിയ തെളിവ് ചെക്ക്‌ലിസ്റ്റിൽ ചേർക്കുക',
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          'തെളിവ് റെഡിനസ് ചെക്ക്‌ലിസ്റ്റിൽ ചേർത്തു',
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          'തെളിവ് ചേർക്കാനായില്ല',
+      's4.lib.cath_lab.quick_wins.blood_chip': 'ക്രോസ്മാച്ച്: {status}',
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': 'തീർപ്പാക്കാത്തത്',
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': 'യോജിക്കുന്നു',
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': 'യോജിക്കുന്നില്ല',
+      's4.lib.cath_lab.quick_wins.consent_chip': 'ഒപ്പിട്ട സമ്മതം രേഖയിലുണ്ട്',
+      's4.lib.cath_lab.quick_wins.apply_pre_cath':
+          'പ്രീ-കാത്ത് ഓർഡർ സെറ്റ് പ്രയോഗിക്കുക',
+      's4.lib.cath_lab.quick_wins.apply_post_cath':
+          'പോസ്റ്റ്-കാത്ത് ഓർഡർ സെറ്റ് പ്രയോഗിക്കുക',
+      's4.lib.cath_lab.quick_wins.apply_confirm_title':
+          'ഓർഡർ സെറ്റ് പ്രയോഗിക്കണോ?',
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          '"{title}" ൽ നിന്ന് {count} ഓർഡറുകൾ സാധാരണ ഓർഡറിംഗ് വർക്ക്ഫ്ലോയിലൂടെ സ്റ്റേജ് ചെയ്യും. പതിവ് അവലോകനവും ഒപ്പിടലും ആവശ്യമാണ്.',
+      's4.lib.cath_lab.quick_wins.apply_success':
+          'ഓർഡർ സെറ്റ് CPOE വഴി സ്റ്റേജ് ചെയ്തു',
+      's4.lib.cath_lab.quick_wins.apply_failed':
+          'ഓർഡർ സെറ്റ് പ്രയോഗിക്കാനായില്ല',
       's4.lib.cath_lab.stemi.incoming': 'വരുന്ന കോഡ് STEMI ആക്ടിവേഷനുകൾ',
       's4.lib.cath_lab.stemi.empty': 'വരുന്ന കോഡ് STEMI ആക്ടിവേഷനുകൾ ഇല്ല',
       's4.lib.cath_lab.stemi.load_failed':
