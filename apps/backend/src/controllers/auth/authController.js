@@ -23,9 +23,9 @@ export const requestOtp = async (req, res) => {
 // Verify OTP and authenticate
 export const verifyOtp = async (req, res) => {
   try {
-    const { phone, otp } = req.body;
+    const { phone, otp, deviceType } = req.body;
     // ✅ FIX: Called the static method on the AuthService class
-    const result = await AuthService.verifyOtpAndAuthenticate(phone, otp, req);
+    const result = await AuthService.verifyOtpAndAuthenticate(phone, otp, req, { deviceType });
     success(res, result, result.isNewUser ? 'User registered and logged in' : 'Login successful');
   } catch (err) {
     logger.error('Verify OTP Error:', err);
@@ -106,9 +106,9 @@ export const getPublicStats = async (req, res) => {
 // Legacy login handler
 export const login = async (req, res) => {
   try {
-    const { phone } = req.body;
+    const { phone, deviceType } = req.body;
     // ✅ FIX: Called the static method on the AuthService class
-    const result = await AuthService.legacyLogin(phone, req);
+    const result = await AuthService.legacyLogin(phone, req, { deviceType });
     success(res, result, 'Login successful');
   } catch (err) {
     logger.error('Legacy Login Error:', err);
@@ -119,9 +119,9 @@ export const login = async (req, res) => {
 // Legacy register handler
 export const register = async (req, res) => {
   try {
-    const { phone } = req.body;
+    const { phone, deviceType } = req.body;
     // ✅ FIX: Called the static method on the AuthService class
-    const result = await AuthService.legacyRegister(phone, req);
+    const result = await AuthService.legacyRegister(phone, req, { deviceType });
     success(res, result, 'Registration successful');
   } catch (err) {
     logger.error('Legacy Register Error:', err);

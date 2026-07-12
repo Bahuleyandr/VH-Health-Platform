@@ -271,17 +271,23 @@ describe('AuthService.requestOtp', () => {
 // directOtpLogin
 // ====================================================================
 describe('AuthService.directOtpLogin', () => {
-  it('issues a token for an existing user', async () => {
+  it('claims the direct OTP session for an existing user', async () => {
     mockPrisma.users.findUnique.mockResolvedValue({
       uid: 'u1', id: 5, phone: '+919876543210', name: 'Alice', role: 'PATIENT',
     });
+    const req = { ip: '203.0.113.10', headers: { 'user-agent': 'otp-quick-test' } };
 
-    const res = await AuthService.directOtpLogin('9876543210');
+    const res = await AuthService.directOtpLogin('9876543210', req, { deviceType: 'mobile' });
 
-    expect(res.token).toBe('mock-jwt-token');
+    expect(res.token).toBe('session-access-token');
     expect(res.user).toMatchObject({ uid: 'u1', id: 5, role: 'PATIENT' });
-    expect(mockGenerateToken).toHaveBeenCalledWith(
-      expect.objectContaining({ uid: 'u1', id: 5, phone: '+919876543210', role: 'PATIENT' }),
+    expect(mockIssueSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userUid: 'u1',
+        tokenPayload: expect.objectContaining({ uid: 'u1', id: 5, phone: '+919876543210', role: 'PATIENT' }),
+        req,
+        deviceType: 'mobile',
+      }),
     );
   });
 
@@ -469,16 +475,25 @@ describe('AuthService.adminLogin — deactivated branch', () => {
 // verifyOtp (login OTP → upsert user → JWT)
 // ====================================================================
 describe('AuthService.verifyOtp', () => {
-  it('creates a new user on first login and returns isNewUser true', async () => {
+  it('creates a new user and claims the OTP session on first login', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
     mockPrisma.users.findFirst.mockResolvedValue(null);
     mockPrisma.users.create.mockResolvedValue({ uid: 'new', id: 1, name: null, phone: '+919876543210', role: 'PATIENT' });
+    const req = { ip: '203.0.113.11', headers: { 'user-agent': 'otp-test' } };
 
-    const res = await AuthService.verifyOtp('9876543210', '123456', {});
+    const res = await AuthService.verifyOtp('9876543210', '123456', req, { deviceType: 'web' });
     expect(res.user.isNewUser).toBe(true);
-    expect(res.token).toBe('mock-jwt-token');
+    expect(res.token).toBe('session-access-token');
     expect(mockPrisma.users.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ phone: '+919876543210' }) }),
+    );
+    expect(mockIssueSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userUid: 'new',
+        tokenPayload: expect.objectContaining({ uid: 'new', id: 1, role: 'PATIENT' }),
+        req,
+        deviceType: 'web',
+      }),
     );
   });
 
@@ -631,17 +646,23 @@ describe('AuthService.staffLogin', () => {
     name: 'Nurse Joy', role: 'nurse', is_active: true, phone: '+919998887776',
   };
 
-  it('issues a JWT, stamps last_login, and returns staff identity on success', async () => {
+  it('claims the PIN session, stamps last_login, and returns staff identity on success', async () => {
     mockPrisma.staff.findUnique.mockResolvedValue({ ...staff });
     mockBcryptCompare.mockResolvedValue(true);
     mockPrisma.staff.update.mockResolvedValue({});
+    const req = { ip: '203.0.113.12', headers: { 'user-agent': 'staff-pin-test' } };
 
-    const res = await AuthService.staffLogin('EMP1', '1234');
+    const res = await AuthService.staffLogin('EMP1', '1234', req, { deviceType: 'tablet' });
 
-    expect(res.token).toBe('mock-jwt-token');
+    expect(res.token).toBe('session-access-token');
     expect(res.staff).toEqual({ uid: 'staff-uid-1', employeeId: 'EMP1', name: 'Nurse Joy', role: 'nurse' });
-    expect(mockGenerateToken).toHaveBeenCalledWith(
-      expect.objectContaining({ uid: 'staff-uid-1', role: 'NURSE', sub: 'staff-uid-1' }),
+    expect(mockIssueSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userUid: 'staff-uid-1',
+        tokenPayload: expect.objectContaining({ uid: 'staff-uid-1', role: 'NURSE', sub: 'staff-uid-1' }),
+        req,
+        deviceType: 'tablet',
+      }),
     );
     expect(mockPrisma.staff.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 7 }, data: { last_login: expect.any(Date) } }),
@@ -1031,9 +1052,13 @@ describe('AuthService legacy phone auth gate', () => {
   it('legacyLogin delegates to directOtpLogin when the gate is open', async () => {
     mockIsLegacyPhoneAuthAllowed.mockReturnValue(true);
     mockPrisma.users.findUnique.mockResolvedValue({ uid: 'u1', id: 1, phone: '+91', name: 'A', role: 'PATIENT' });
+    const req = { ip: '203.0.113.15', headers: { 'user-agent': 'legacy-login-test' } };
 
-    const res = await AuthService.legacyLogin('9876543210', {});
-    expect(res.token).toBe('mock-jwt-token');
+    const res = await AuthService.legacyLogin('9876543210', req, { deviceType: 'desktop' });
+    expect(res.token).toBe('session-access-token');
+    expect(mockIssueSession).toHaveBeenCalledWith(
+      expect.objectContaining({ userUid: 'u1', req, deviceType: 'desktop' }),
+    );
   });
 
   it('legacyRegister is blocked when the gate is closed', async () => {
@@ -1045,10 +1070,19 @@ describe('AuthService legacy phone auth gate', () => {
     mockIsLegacyPhoneAuthAllowed.mockReturnValue(true);
     mockPrisma.users.findUnique.mockResolvedValue(null);
     mockPrisma.users.create.mockResolvedValue({ uid: 'new', id: 2, phone: '+919876543210', role: 'PATIENT' });
+    const req = { ip: '203.0.113.13', headers: { 'user-agent': 'legacy-register-test' } };
 
-    const res = await AuthService.legacyRegister('9876543210', {});
-    expect(res.token).toBe('mock-jwt-token');
+    const res = await AuthService.legacyRegister('9876543210', req, { deviceType: 'desktop' });
+    expect(res.token).toBe('session-access-token');
     expect(res.user).toMatchObject({ uid: 'new', role: 'PATIENT' });
+    expect(mockIssueSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userUid: 'new',
+        tokenPayload: expect.objectContaining({ uid: 'new', id: 2, role: 'PATIENT' }),
+        req,
+        deviceType: 'desktop',
+      }),
+    );
   });
 
   it('legacyRegister throws CONFLICT when the user already exists', async () => {
@@ -1153,14 +1187,23 @@ describe('AuthService.getPublicStats', () => {
 // verifyOtpAndAuthenticate (separate from verifyOtp)
 // ====================================================================
 describe('AuthService.verifyOtpAndAuthenticate', () => {
-  it('creates a new user (isNewUser true) and returns a token', async () => {
+  it('creates a new user and claims the routed OTP session', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
     mockPrisma.users.findFirst.mockResolvedValue(null);
     mockPrisma.users.create.mockResolvedValue({ uid: 'new', id: 1, name: null, phone: '+919876543210', role: 'PATIENT' });
+    const req = { ip: '203.0.113.14', headers: { 'user-agent': 'otp-route-test' } };
 
-    const res = await AuthService.verifyOtpAndAuthenticate('9876543210', '123456', {});
+    const res = await AuthService.verifyOtpAndAuthenticate('9876543210', '123456', req, { deviceType: 'mobile' });
     expect(res.user.isNewUser).toBe(true);
-    expect(res.token).toBe('mock-jwt-token');
+    expect(res.token).toBe('session-access-token');
+    expect(mockIssueSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userUid: 'new',
+        tokenPayload: expect.objectContaining({ uid: 'new', id: 1, role: 'PATIENT' }),
+        req,
+        deviceType: 'mobile',
+      }),
+    );
   });
 
   it('returns isNewUser false for an existing user', async () => {
