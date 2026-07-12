@@ -16,12 +16,33 @@ const loggerMock = {
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: txMock,
   setTenantTx: setTenantTxMock,
+  // The quick-wins merge widened cathLabService's import graph (follow-up
+  // rails → reliabilityMetrics → lib/prisma named exports); an ESM mock must
+  // satisfy every named import in the loaded graph, so provide the full
+  // standard surface.
+  setTenant: setTenantTxMock,
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(txMock),
+  pickTenantClient: () => txMock,
+  prismaReadOnly: txMock,
+  circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   requireTenantId: (tenantId) => tenantId,
+  // P1e's tenantSettingsService (in cathLabService's import graph since the
+  // quick-wins merge) imports getTenantById — an ESM mock must satisfy every
+  // named import of the module or the whole suite fails to load.
+  getTenantById: jest.fn(async () => null),
+}));
+
+// The quick-wins merge gave cathLabService a completion-fact seam into the
+// follow-up rails, whose transitive graph (tenant settings, reliability
+// metrics, IPD support, engagement) is irrelevant to consumables units —
+// mock the seam at its source instead of chasing its imports.
+jest.unstable_mockModule('../../services/clinical/cathQuickWinsService.js', () => ({
+  emitCathProcedureCompletionFollowUps: jest.fn(async () => ({ emitted: 0 })),
 }));
 
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
