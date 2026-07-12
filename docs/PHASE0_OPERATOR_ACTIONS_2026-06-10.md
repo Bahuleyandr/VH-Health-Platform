@@ -150,9 +150,16 @@ next syncs, resolve the currently-deployed releases:
 
 ```bash
 GHCR_TOKEN=<read:packages PAT> COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs \
-  --tag backend-v<current> --tag admin-v<current> --tag staff-web-v<current>
+  --tag backend-v<current> --expected-digest sha256:<from that release run> \
+  --tag admin-v<current> --expected-digest sha256:<...> \
+  --tag staff-web-v<current> --expected-digest sha256:<...>
 git commit -am "chore(prod): bootstrap H11 digest pins" && git push
 ```
+
+Each `--expected-digest` is the digest that release run's build job emitted
+(its `image-ref.txt` artifact / release summary). The prod tree refuses
+tag-only pins — re-resolving a mutable tag would permit pinning any
+previously-signed image (audit finding #20).
 
 Future releases update the block automatically via
 `.forgejo/workflows/release-images.yml`; `.forgejo/workflows/release-pin-digests.yml`

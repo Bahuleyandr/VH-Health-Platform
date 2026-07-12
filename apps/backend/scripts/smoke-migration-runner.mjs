@@ -26,7 +26,7 @@
 // from inside WSL against the pgvector docker container):
 //   wsl -d Ubuntu-24.04 -- docker run -d --name vh-pg-migrunner \
 //     -e POSTGRES_USER=vhhealth -e POSTGRES_PASSWORD=test \
-//     -e POSTGRES_DB=vhhealth -p 56432:5432 pgvector/pgvector:pg16
+//     -e POSTGRES_DB=vhhealth -p 56432:5432 pgvector/pgvector:pg18
 //   wsl -d Ubuntu-24.04 -- bash -c "cd /mnt/d/.../apps/backend && \
 //     MIGRUN_SMOKE_DB_PASSWORD=test node scripts/smoke-migration-runner.mjs"
 

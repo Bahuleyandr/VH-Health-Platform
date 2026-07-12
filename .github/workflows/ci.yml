@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '26.5.0'
           cache: npm
           cache-dependency-path: |
             apps/backend/package-lock.json
@@ -55,7 +55,7 @@ jobs:
           # drifted to 3.44.6 (2026-07-12) and its new ListTile framework
           # assertion broke this runner on every feature branch while the
           # hosted per-stack jobs stayed green. Bump BOTH files together.
-          flutter-version: 3.41.9
+          flutter-version: 3.44.0
           cache: true
 
       - uses: actions/setup-java@v4

@@ -11,7 +11,7 @@ export async function checkDependencyHealth() {
     const warnings = [];
 
     // Check Node.js version using semver range matching so any
-    // 22.x runtime satisfies an `>=22.15.0 <23` constraint without
+    // current-major runtime satisfies the package.json engines range without
     // false-positive mismatch warnings.
     if (expectedNode && !semver.satisfies(nodeVersion, expectedNode)) {
       warnings.push(`Node.js version mismatch: running ${nodeVersion}, expected ${expectedNode}`);

@@ -28,7 +28,8 @@ export const phoneValidator = [
         throw new Error('Phone number is required');
       }
       return true;
-    })
+    }),
+  deviceTypeValidator,
 ];
 
 // OTP validators
