@@ -40,6 +40,11 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 
 jest.unstable_mockModule('../../services/staff/credentialingService.js', () => ({
   hasActivePrivilege: jest.fn(),
+  // maternityService imports these for its OBGyn labour-ward gate; keep the gate
+  // inert here (isGateEnabled → false) so these tenant-authz tests are unchanged.
+  assertPrivilegeForGate: jest.fn(async () => ({ enforced: false, allowed: true })),
+  isGateEnabled: jest.fn(() => false),
+  privilegeKey: jest.fn((value) => String(value).trim().toLowerCase()),
 }));
 
 jest.unstable_mockModule('../../utils/clinical/vitalSignMonitor.js', () => ({
