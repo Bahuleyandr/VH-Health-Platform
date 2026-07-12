@@ -93,7 +93,7 @@ router.post('/cases/:id/schedule', requireCathWorkflow, async (req, res) => {
   try {
     const link = await scheduleCase(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { link }, 'Cath case booked', HTTP_STATUS.CREATED);
@@ -106,7 +106,7 @@ router.post('/cases/:id/schedule/cancel', requireCathWorkflow, async (req, res) 
   try {
     const link = await cancelCaseSchedule(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { link }, 'Cath case booking cancelled');
@@ -119,7 +119,7 @@ router.post('/cases/:id/complications', requireCathWorkflow, async (req, res) =>
   try {
     const entry = await addRegistryEntry(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { entry }, 'Cath complication registry entry recorded', HTTP_STATUS.CREATED);
