@@ -31,6 +31,20 @@ let policyId;
 const createdClaimIds = [];
 const createdInvoiceIds = [];
 const createdSummaryIds = [];
+const createdAdmissionIds = [];
+
+// Sol Ultra #15 binds a claim's admission to a real tenant-scoped row, so
+// the old fabricated admission ids now (correctly) reject at createClaim.
+async function seedAdmission() {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO admissions (tenant_id, patient_uid, status, admitted_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'admitted', NOW(), NOW())
+     RETURNING id`,
+    TENANT, PATIENT_UID,
+  );
+  createdAdmissionIds.push(rows[0].id);
+  return rows[0].id;
+}
 
 async function seedIssuedInvoice({ total, admissionId, idx }) {
   const rows = await prisma.$queryRawUnsafe(
@@ -82,6 +96,9 @@ describe('submitClaim — unsigned discharge summary gate (H D9)', () => {
     for (const id of createdInvoiceIds) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = $1::int`, id).catch(() => {});
     }
+    for (const id of createdAdmissionIds) {
+      await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE id = $1::int`, id).catch(() => {});
+    }
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
@@ -89,7 +106,7 @@ describe('submitClaim — unsigned discharge summary gate (H D9)', () => {
   });
 
   it('rejects cashless final submit when discharge summary is still in draft', async () => {
-    const admissionId = 950900 + Math.floor(Math.random() * 5000);
+    const admissionId = await seedAdmission();
     const invoiceId = await seedIssuedInvoice({ total: 45000, admissionId, idx: 'draft' });
     await seedDischargeSummary({ admissionId, status: 'draft' });
 
@@ -109,7 +126,7 @@ describe('submitClaim — unsigned discharge summary gate (H D9)', () => {
   });
 
   it('accepts cashless final submit when discharge summary is signed', async () => {
-    const admissionId = 960900 + Math.floor(Math.random() * 5000);
+    const admissionId = await seedAdmission();
     const invoiceId = await seedIssuedInvoice({ total: 50000, admissionId, idx: 'signed' });
     await seedDischargeSummary({ admissionId, status: 'signed' });
 
@@ -130,7 +147,7 @@ describe('submitClaim — unsigned discharge summary gate (H D9)', () => {
     // No discharge_summaries row → my D9 gate does NOT fire (the
     // missing-summary case is handled by auto-assemble / coordinator
     // workflow, not this regression).
-    const admissionId = 970900 + Math.floor(Math.random() * 5000);
+    const admissionId = await seedAdmission();
     const invoiceId = await seedIssuedInvoice({ total: 40000, admissionId, idx: 'none' });
 
     const claim = await claims.createClaim({
