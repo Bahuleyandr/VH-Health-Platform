@@ -18,11 +18,9 @@ const userFindUniqueMock = jest.fn();
 // writes). The mock $transaction faithfully runs the callback with a `tx` that
 // is this same mocked prisma object, so `tx.clinical_notes.update(...)` etc.
 // hit the per-model mocks above and every recorded call / assertion still
-// works. The canonical event write inside the tx no-ops by design: it guards
-// on `typeof db.$queryRawUnsafe === 'function'` and this mock intentionally
-// exposes no raw client, so `recordCanonicalClinicalEvent` returns null
-// without touching the timeline/audit tables — these unit tests validate the
-// note service's own logic, not the canonical layer.
+// works. Canonical persistence is mocked below with successful timeline and
+// audit evidence; these unit tests validate the note service's own logic while
+// respecting the production fail-closed clinical-write invariant.
 const prismaMock = {
   clinical_notes: {
     findUnique: findUniqueMock,
@@ -49,6 +47,18 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   pickTenantClient: () => prismaMock,
 }));
 
+const recordCanonicalClinicalEventMock = jest.fn(async () => ({
+  timeline: { id: 'timeline-test-event' },
+  audit: { id: 'audit-test-event' },
+}));
+
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  ensureEncounterForAppointment: jest.fn(async () => null),
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+  readCanonicalPatientTimeline: jest.fn(async () => []),
+  transitionEncounter: jest.fn(async () => null),
+}));
+
 const { createNote, updateNote } = await import('../../services/emr/clinicalNotesService.js');
 
 const EDITOR_UID = '00000000-0000-4000-8000-00000000aaaa';
@@ -68,6 +78,7 @@ beforeEach(() => {
   updateMock.mockReset();
   userFindUniqueMock.mockReset();
   usersFindManyMock.mockReset();
+  recordCanonicalClinicalEventMock.mockClear();
 });
 
 describe('updateNote — edit gate', () => {
