@@ -176,6 +176,7 @@ router.post('/results', requireStaffOrAdmin, wrap(async (req) =>
   lab.recordResultManual({
     tenantId: tenantOf(req),
     performed_by: req.user?.uid,
+    performed_by_role: req.user?.role,
     result: req.body,
   }),
 ));
