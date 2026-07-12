@@ -1111,6 +1111,20 @@ export const createPrescription = async (req, res) => {
       doctorUid,
       tenantId: rxTenantId,
     });
+    // Sol Ultra #3: the controlled-substance privilege was evaluated ONLY on the
+    // body-supplied doctor, so a low-privilege caller could name a privileged
+    // doctor and prescribe a controlled substance under their authority. Also
+    // require the AUTHENTICATED actor (the person actually creating the Rx) to
+    // hold the privilege when they are not the named prescriber; a genuine
+    // on-behalf-of flow needs a verified delegation, not merely a body doctor_id.
+    const prescribingActorUid = req.user?.uid;
+    if (prescribingActorUid && String(prescribingActorUid) !== String(doctorUid)) {
+      await assertControlledSubstancePrivilege({
+        medications,
+        doctorUid: prescribingActorUid,
+        tenantId: rxTenantId,
+      });
+    }
 
     // Validate the linked admission exists and belongs to this patient —
     // an admission_id pointing at a different patient's stay is exactly
