@@ -345,7 +345,7 @@ export async function upsertInventoryItem({
 
 export async function listInventoryItems({
   tenantId = null, facilityId = null, status = null,
-  isNarcotic = null, limit = DEFAULT_LIST_LIMIT,
+  isNarcotic = null, q = null, limit = DEFAULT_LIST_LIMIT,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const filters = ['tenant_id = $1::uuid'];
@@ -361,6 +361,17 @@ export async function listInventoryItems({
   if (isNarcotic !== null) {
     params.push(normalizeBoolean(isNarcotic));
     filters.push(`is_narcotic = $${params.length}`);
+  }
+  const query = safeText(q, 160);
+  if (query) {
+    params.push(`%${query.toLowerCase()}%`);
+    filters.push(`(
+      LOWER(display_name) LIKE $${params.length}
+      OR LOWER(sku_code) LIKE $${params.length}
+      OR LOWER(COALESCE(generic_name, '')) LIKE $${params.length}
+      OR LOWER(COALESCE(brand_name, '')) LIKE $${params.length}
+      OR LOWER(COALESCE(manufacturer, '')) LIKE $${params.length}
+    )`);
   }
   const safeLimit = normalizeLimit(limit);
   try {
@@ -470,9 +481,64 @@ export async function addInventoryBatch({
  * expiry-first order, writing one stock_movement row per batch hit.
  * Returns the per-batch breakdown of what was consumed.
  *
- * Caller is expected to wrap this in a transaction if atomic
- * behaviour against external state matters.
+ * The FEFO locks, batch decrements, and movement rows commit atomically.
  */
+async function existingCathReservation(db, {
+  tenantId,
+  inventoryItemId,
+  referenceId,
+}) {
+  return db.$queryRawUnsafe(
+    `SELECT m.id, m.tenant_id, m.inventory_item_id, m.inventory_batch_id,
+            m.movement_kind, m.quantity_delta, m.reference_type, m.reference_id,
+            m.performed_by, m.notes, m.created_at, b.batch_number
+       FROM pharmacy_stock_movements m
+       LEFT JOIN pharmacy_inventory_batches b
+         ON b.id = m.inventory_batch_id
+        AND b.tenant_id = m.tenant_id
+      WHERE m.tenant_id = $1::uuid
+        AND m.inventory_item_id = $2::int
+        AND m.reference_type = 'cath_consumable_usage'
+        AND m.reference_id = $3
+      ORDER BY m.id`,
+    tenantId,
+    inventoryItemId,
+    referenceId,
+  );
+}
+
+function replayedCathReservation(rows, { requested, movementKind }) {
+  if (!rows.length) return null;
+  const consumed = rows.map((row) => {
+    const quantityTaken = -Number(row.quantity_delta);
+    if (row.movement_kind !== movementKind || !(quantityTaken > 0)) {
+      throw AppError.conflict(
+        'Existing cath consumable reservation does not match the documented usage',
+        'CATH_INVENTORY_RESERVATION_REPLAY_CONFLICT',
+      );
+    }
+    return {
+      batch_id: row.inventory_batch_id,
+      batch_number: row.batch_number,
+      quantity_taken: quantityTaken,
+    };
+  });
+  const fulfilled = consumed.reduce((sum, row) => sum + row.quantity_taken, 0);
+  if (fulfilled - requested > 0.000001) {
+    throw AppError.conflict(
+      'Existing cath consumable reservation exceeds the documented quantity',
+      'CATH_INVENTORY_RESERVATION_REPLAY_CONFLICT',
+    );
+  }
+  return {
+    requested,
+    fulfilled,
+    short_by: Math.max(0, requested - fulfilled),
+    consumed,
+    idempotent_replay: true,
+  };
+}
+
 export async function reserveStock({
   tenantId = null,
   inventoryItemId,
@@ -487,58 +553,97 @@ export async function reserveStock({
   const itemId = normalizeId(inventoryItemId, 'inventory_item_id');
   const want = normalizeQuantity(quantity, 'quantity', { min: 0.0001, required: true });
   const cleanKind = normalizeEnum(movementKind, MOVEMENT_KINDS, 'movement_kind') || 'issue';
+  const cleanReferenceType = safeText(referenceType, 60);
+  const cleanReferenceId = safeText(referenceId, 120);
+  const cathUsageReplay = cleanReferenceType === 'cath_consumable_usage'
+    && Boolean(cleanReferenceId);
 
-  // Pull all in_stock batches FEFO. Caller can wrap in setTenant for RLS.
-  const batches = await prisma.$queryRawUnsafe(
-    `SELECT id, batch_number, expiry_date, remaining_quantity
-     FROM pharmacy_inventory_batches
-     WHERE tenant_id = $1::uuid AND inventory_item_id = $2 AND status = 'in_stock'
-       AND remaining_quantity > 0
-     ORDER BY expiry_date ASC, id ASC`,
-    tid, itemId,
-  );
-  let remainingNeed = want;
-  const consumed = [];
-  for (const batch of batches) {
-    if (remainingNeed <= 0) break;
-    const take = Math.min(Number(batch.remaining_quantity), remainingNeed);
-    if (take <= 0) continue;
-    const newRemaining = Number(batch.remaining_quantity) - take;
-    const updated = await prisma.$queryRawUnsafe(
-      `UPDATE pharmacy_inventory_batches
-       SET remaining_quantity = $1,
-           status = CASE WHEN $1 = 0 THEN 'depleted' ELSE status END,
-           updated_at = NOW()
-       WHERE id = $2 AND tenant_id = $3::uuid AND remaining_quantity = $4
-       RETURNING ${BATCH_RETURNING}`,
-      newRemaining, batch.id, tid, batch.remaining_quantity,
-    );
-    if (!updated[0]) {
-      // Concurrent update — caller should retry the whole operation.
-      throw AppError.conflict('Concurrent batch update; retry the reservation');
-    }
-    try {
-      await prisma.$queryRawUnsafe(
-        `INSERT INTO pharmacy_stock_movements
-           (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-            quantity_delta, reference_type, reference_id, performed_by, notes)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9)`,
-        tid, itemId, batch.id, cleanKind,
-        -take, safeText(referenceType, 60), safeText(referenceId, 120),
-        maybeUuid(performedBy, 'performed_by'), safeText(notes),
+  try {
+    return await setTenantTx(tid, async (tx) => {
+      const batches = await tx.$queryRawUnsafe(
+        `SELECT id, batch_number, expiry_date, remaining_quantity
+         FROM pharmacy_inventory_batches
+         WHERE tenant_id = $1::uuid AND inventory_item_id = $2 AND status = 'in_stock'
+           AND remaining_quantity > 0
+           AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+         ORDER BY expiry_date ASC, id ASC
+         FOR UPDATE`,
+        tid, itemId,
       );
-    } catch (err) {
-      if (!isMissingSchemaError(err)) throw err;
-    }
-    consumed.push({ batch_id: batch.id, batch_number: batch.batch_number, quantity_taken: take });
-    remainingNeed -= take;
+      if (cathUsageReplay) {
+        const existing = await existingCathReservation(tx, {
+          tenantId: tid,
+          inventoryItemId: itemId,
+          referenceId: cleanReferenceId,
+        });
+        const replay = replayedCathReservation(existing, {
+          requested: want,
+          movementKind: cleanKind,
+        });
+        if (replay) return replay;
+      }
+      let remainingNeed = want;
+      const consumed = [];
+      for (const batch of batches) {
+        if (remainingNeed <= 0) break;
+        const take = Math.min(Number(batch.remaining_quantity), remainingNeed);
+        if (take <= 0) continue;
+        const inserted = await tx.$queryRawUnsafe(
+          `INSERT INTO pharmacy_stock_movements
+             (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+              quantity_delta, reference_type, reference_id, performed_by, notes)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9)
+           ${cathUsageReplay ? 'ON CONFLICT DO NOTHING' : ''}
+           RETURNING id`,
+          tid, itemId, batch.id, cleanKind,
+          -take, cleanReferenceType, cleanReferenceId,
+          maybeUuid(performedBy, 'performed_by'), safeText(notes),
+        );
+        if (cathUsageReplay && !inserted[0]) {
+          throw AppError.conflict(
+            'Cath consumable reservation replay raced with another request',
+            'CATH_INVENTORY_RESERVATION_REPLAY_RACE',
+          );
+        }
+        const newRemaining = Number(batch.remaining_quantity) - take;
+        const updated = await tx.$queryRawUnsafe(
+          `UPDATE pharmacy_inventory_batches
+           SET remaining_quantity = $1::numeric,
+               status = CASE WHEN $1::numeric = 0 THEN 'depleted' ELSE status END,
+               updated_at = NOW()
+           WHERE id = $2 AND tenant_id = $3::uuid
+           RETURNING ${BATCH_RETURNING}`,
+          newRemaining, batch.id, tid,
+        );
+        if (!updated[0]) {
+          throw AppError.conflict('Concurrent batch update; retry the reservation');
+        }
+        consumed.push({ batch_id: batch.id, batch_number: batch.batch_number, quantity_taken: take });
+        remainingNeed -= take;
+      }
+      return {
+        requested: want,
+        fulfilled: want - remainingNeed,
+        short_by: remainingNeed,
+        consumed,
+      };
+    });
+  } catch (err) {
+    if (err?.code !== 'CATH_INVENTORY_RESERVATION_REPLAY_RACE') throw err;
+    return setTenantTx(tid, async (tx) => {
+      const existing = await existingCathReservation(tx, {
+        tenantId: tid,
+        inventoryItemId: itemId,
+        referenceId: cleanReferenceId,
+      });
+      const replay = replayedCathReservation(existing, {
+        requested: want,
+        movementKind: cleanKind,
+      });
+      if (!replay) throw err;
+      return replay;
+    });
   }
-  return {
-    requested: want,
-    fulfilled: want - remainingNeed,
-    short_by: remainingNeed,
-    consumed,
-  };
 }
 
 export async function listBatches({

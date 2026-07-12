@@ -34,6 +34,24 @@ function asMoney(value) {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
 }
 
+function normalizeSourceRefIdForWire(value) {
+  if (typeof value !== 'bigint') return value;
+  if (
+    value >= BigInt(Number.MIN_SAFE_INTEGER)
+    && value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return Number(value);
+  }
+  return value.toString();
+}
+
+function normalizeBillItemForWire(item) {
+  return {
+    ...item,
+    source_ref_id: normalizeSourceRefIdForWire(item.source_ref_id),
+  };
+}
+
 function first(items) {
   return Array.isArray(items) && items.length > 0 ? items[0] : null;
 }
@@ -890,6 +908,7 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
       ORDER BY id`,
     rows[0].id,
   );
+  const wireItems = items.map(normalizeBillItemForWire);
   const payments = await prisma.$queryRawUnsafe(
     `SELECT id, amount, mode, reference, collected_at, reversed
        FROM billing_payments
@@ -920,7 +939,7 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
   let nonPayableTotal = 0;
   let nonPayableLineCount = 0;
   const nonPayableReasons = {};
-  for (const it of items) {
+  for (const it of wireItems) {
     if (it.tpa_decision === 'non_payable' || it.tpa_decision === 'partial') {
       nonPayableTotal += Number(it.line_total || 0);
       nonPayableLineCount += 1;
@@ -966,7 +985,7 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
   });
 
   return {
-    invoice: rows[0], items, payments,
+    invoice: rows[0], items: wireItems, payments,
     tpa_breakdown: tpaBreakdown, non_payable_preview, responsibility,
   };
 }

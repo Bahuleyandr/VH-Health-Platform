@@ -833,10 +833,13 @@ async function maybeEmitDialysisBillingLine({ tenantId, session, actorUid = null
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, invoice_id
          FROM billing_invoice_items
-        WHERE source_ref_type = 'dialysis_session'
-          AND source_ref_id = $1::int
+        WHERE tenant_id = $1::uuid
+          AND source_ref_active = TRUE
+          AND source_ref_type = 'dialysis_session'
+          AND source_ref_id = $2::bigint
         LIMIT 1`,
-      Number(session.id),
+      tenantOr(tenantId),
+      String(session.id),
     );
     if (existing.length) {
       return {
@@ -897,10 +900,13 @@ async function maybeEmitDialysisBillingLine({ tenantId, session, actorUid = null
     const duplicate = await prisma.$queryRawUnsafe(
       `SELECT id, invoice_id
          FROM billing_invoice_items
-        WHERE source_ref_type = 'dialysis_session'
-          AND source_ref_id = $1::int
+        WHERE tenant_id = $1::uuid
+          AND source_ref_active = TRUE
+          AND source_ref_type = 'dialysis_session'
+          AND source_ref_id = $2::bigint
         LIMIT 1`,
-      Number(session.id),
+      tenantOr(tenantId),
+      String(session.id),
     ).catch(() => []);
     if (duplicate.length) {
       return {

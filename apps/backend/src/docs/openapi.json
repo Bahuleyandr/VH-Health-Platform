@@ -151,7 +151,18 @@
             "type": "string"
           },
           "source_ref_id": {
-            "type": "integer"
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
           }
         }
       },
@@ -4344,6 +4355,1214 @@
           },
           "data": {
             "$ref": "#/components/schemas/CashPosition"
+          }
+        }
+      },
+      "CathCaseConsumableUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "case_id",
+          "procedure_log_id",
+          "catalog_item_id",
+          "patient_uid",
+          "inventory_batch_id",
+          "quantity",
+          "batch_tracked",
+          "is_implant",
+          "batch_number",
+          "lot_number",
+          "expiry_date",
+          "serial_number",
+          "unit_cost_snapshot",
+          "used_by",
+          "used_by_name",
+          "used_at",
+          "wasted",
+          "waste_reason",
+          "inventory_decrement_status",
+          "inventory_movement_id",
+          "inventory_warning",
+          "timeline_event_id",
+          "audit_event_id",
+          "idempotency_key",
+          "created_at",
+          "updated_at",
+          "metadata",
+          "item_name",
+          "category",
+          "manufacturer",
+          "model",
+          "billing_item_code",
+          "inventory_item_id",
+          "inventory_sku",
+          "inventory_item_name",
+          "inventory_unit_label",
+          "implant_record_id"
+        ],
+        "properties": {
+          "id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "case_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "procedure_log_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ],
+            "nullable": true
+          },
+          "catalog_item_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inventory_batch_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0.0001
+          },
+          "batch_tracked": {
+            "type": "boolean"
+          },
+          "is_implant": {
+            "type": "boolean"
+          },
+          "batch_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "lot_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "expiry_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "serial_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit_cost_snapshot": {
+            "type": "number",
+            "nullable": true
+          },
+          "used_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "used_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "used_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "wasted": {
+            "type": "boolean"
+          },
+          "waste_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_decrement_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "not_linked",
+              "decremented",
+              "insufficient_stock",
+              "error"
+            ]
+          },
+          "inventory_movement_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "inventory_warning": {
+            "type": "string",
+            "nullable": true
+          },
+          "timeline_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "audit_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "idempotency_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "idempotent_replay": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "manufacturer": {
+            "type": "string",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "billing_item_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_item_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "inventory_sku": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_item_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_unit_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "implant_record_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ],
+            "nullable": true
+          },
+          "billing_hook": {
+            "$ref": "#/components/schemas/CathConsumableBillingHook"
+          }
+        }
+      },
+      "CathCaseConsumableUsageCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "catalog_item_id",
+          "quantity"
+        ],
+        "properties": {
+          "catalog_item_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "procedure_log_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "inventory_batch_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0.0001
+          },
+          "batch_number": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "lot_number": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "expiry_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "serial_number": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "used_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "wasted": {
+            "type": "boolean"
+          },
+          "waste_reason": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "CathCaseConsumableUsageListData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "usage",
+          "count"
+        ],
+        "properties": {
+          "usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathCaseConsumableUsage"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CathCaseConsumableUsageListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathCaseConsumableUsageListData"
+          }
+        }
+      },
+      "CathCaseConsumableUsageMutationData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "usage"
+        ],
+        "properties": {
+          "usage": {
+            "$ref": "#/components/schemas/CathCaseConsumableUsage"
+          }
+        }
+      },
+      "CathCaseConsumableUsageMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathCaseConsumableUsageMutationData"
+          }
+        }
+      },
+      "CathConsumableBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "inventory_item_id",
+          "batch_number",
+          "lot_number",
+          "expiry_date",
+          "remaining_quantity",
+          "status",
+          "unit_cost_minor",
+          "mrp_minor"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "inventory_item_id": {
+            "type": "integer"
+          },
+          "batch_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "lot_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "expiry_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "remaining_quantity": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "unit_cost_minor": {
+            "type": "integer",
+            "nullable": true
+          },
+          "mrp_minor": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "CathConsumableBatchListData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "batches",
+          "count"
+        ],
+        "properties": {
+          "batches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathConsumableBatch"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CathConsumableBatchListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathConsumableBatchListData"
+          }
+        }
+      },
+      "CathConsumableBillingHook": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "emitted",
+          "unmapped"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "finance_review_required",
+              "procedure_not_completed",
+              "partial",
+              "emitted",
+              "error"
+            ]
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "emitted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unmapped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "emitted_lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathConsumableBillingLineReference"
+            }
+          },
+          "unmapped_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathConsumableBillingLineReference"
+            }
+          },
+          "failed_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathConsumableBillingLineReference"
+            }
+          }
+        }
+      },
+      "CathConsumableBillingLineReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "source_id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "procedure",
+              "consumable"
+            ]
+          },
+          "source_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "line_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CathConsumableCatalogItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "inventory_item_id",
+          "item_name",
+          "category",
+          "manufacturer",
+          "model",
+          "is_implant",
+          "batch_tracked",
+          "default_unit_cost_reference",
+          "billing_item_code",
+          "status",
+          "retired_at",
+          "created_by",
+          "updated_by",
+          "created_at",
+          "updated_at",
+          "metadata",
+          "inventory_sku",
+          "inventory_item_name",
+          "inventory_unit_label"
+        ],
+        "properties": {
+          "id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inventory_item_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "manufacturer": {
+            "type": "string",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_implant": {
+            "type": "boolean"
+          },
+          "batch_tracked": {
+            "type": "boolean"
+          },
+          "default_unit_cost_reference": {
+            "type": "number",
+            "nullable": true
+          },
+          "billing_item_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "retired"
+            ]
+          },
+          "retired_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "updated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "inventory_sku": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_item_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_unit_label": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CathConsumableCatalogListData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "count"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathConsumableCatalogItem"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CathConsumableCatalogListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathConsumableCatalogListData"
+          }
+        }
+      },
+      "CathConsumableCatalogMutationData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item"
+        ],
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/CathConsumableCatalogItem"
+          }
+        }
+      },
+      "CathConsumableCatalogMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathConsumableCatalogMutationData"
+          }
+        }
+      },
+      "CathConsumableCatalogUpsertRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_name"
+        ],
+        "properties": {
+          "id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "inventory_item_id": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 1
+          },
+          "item_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "manufacturer": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "model": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 160
+          },
+          "is_implant": {
+            "type": "boolean"
+          },
+          "batch_tracked": {
+            "type": "boolean"
+          },
+          "default_unit_cost_reference": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "billing_item_code": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 50
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "retired"
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "CathConsumableUnbilledUsageItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "usage_id",
+          "case_id",
+          "procedure_log_id",
+          "patient_uid",
+          "patient_name",
+          "item_name",
+          "category",
+          "quantity",
+          "wasted",
+          "waste_reason",
+          "used_at",
+          "billing_item_code",
+          "inventory_decrement_status",
+          "billing_gap_reason"
+        ],
+        "properties": {
+          "usage_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "case_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ]
+          },
+          "procedure_log_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ],
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0.0001
+          },
+          "wasted": {
+            "type": "boolean"
+          },
+          "waste_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "used_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "billing_item_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_decrement_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "not_linked",
+              "decremented",
+              "insufficient_stock",
+              "error"
+            ]
+          },
+          "billing_gap_reason": {
+            "type": "string",
+            "enum": [
+              "procedure_not_completed",
+              "wastage_review_required",
+              "billing_code_not_mapped",
+              "billing_code_invalid",
+              "billing_disabled",
+              "billing_pending_or_failed"
+            ]
+          }
+        }
+      },
+      "CathConsumableUnbilledUsageListData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "count",
+          "total",
+          "page",
+          "limit"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathConsumableUnbilledUsageItem"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "CathConsumableUnbilledUsageListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathConsumableUnbilledUsageListData"
+          }
+        }
+      },
+      "CathConsumablesBillingSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "charge_enabled",
+          "procedure_billing_code",
+          "procedure_unit_price",
+          "gst_rate",
+          "finance_reviewed_at",
+          "finance_reviewed_by",
+          "acceptance_snapshot"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "charge_enabled": {
+            "type": "boolean"
+          },
+          "procedure_billing_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "procedure_unit_price": {
+            "type": "number",
+            "nullable": true
+          },
+          "gst_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 28
+          },
+          "finance_reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "finance_reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "acceptance_snapshot": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CathConsumablesBillingSettingsData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "settings"
+        ],
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/CathConsumablesBillingSettings"
+          }
+        }
+      },
+      "CathConsumablesBillingSettingsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathConsumablesBillingSettingsData"
+          }
+        }
+      },
+      "CathConsumablesBillingSettingsUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "charge_enabled": {
+            "type": "boolean"
+          },
+          "procedure_billing_code": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 50
+          },
+          "procedure_unit_price": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "gst_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 28
+          },
+          "finance_reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "acceptance_snapshot": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -15538,7 +16757,18 @@
             "nullable": true
           },
           "source_ref_id": {
-            "type": "integer",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ],
             "nullable": true
           },
           "tpa_decision": {
@@ -18094,7 +19324,18 @@
             "nullable": true
           },
           "source_ref_id": {
-            "type": "integer",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ],
             "nullable": true
           },
           "line_total": {
@@ -28870,6 +30111,243 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/cath-consumables/billing-settings": {
+      "get": {
+        "operationId": "get_api_v1_admin_cath_consumables_billing_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathConsumablesBillingSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_cath_consumables_billing_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathConsumablesBillingSettingsResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CathConsumablesBillingSettingsUpdateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/cath-consumables/catalog": {
+      "get": {
+        "operationId": "get_api_v1_admin_cath_consumables_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathConsumableCatalogListResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "stent",
+                "balloon",
+                "guidewire",
+                "catheter",
+                "sheath",
+                "closure_device",
+                "pacemaker",
+                "lead",
+                "other"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "retired"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          },
+          {
+            "name": "mapped",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_cath_consumables_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathConsumableCatalogMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CathConsumableCatalogUpsertRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/cath-consumables/unbilled-usage": {
+      "get": {
+        "operationId": "get_api_v1_admin_cath_consumables_unbilled_usage",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathConsumableUnbilledUsageListResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "stent",
+                "balloon",
+                "guidewire",
+                "catheter",
+                "sheath",
+                "closure_device",
+                "pacemaker",
+                "lead",
+                "other"
+              ]
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
             }
           }
         ]
@@ -52564,6 +54042,79 @@
         ]
       }
     },
+    "/api/v1/cath-lab/cases/{id}/consumables": {
+      "get": {
+        "operationId": "get_api_v1_cath_lab_cases_by_id_consumables",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathCaseConsumableUsageListResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_cath_lab_cases_by_id_consumables",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathCaseConsumableUsageMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CathCaseConsumableUsageCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cath-lab/cases/{id}/contrast-radiation": {
       "post": {
         "operationId": "post_api_v1_cath_lab_cases_by_id_contrast_radiation",
@@ -52645,6 +54196,41 @@
         ]
       }
     },
+    "/api/v1/cath-lab/cases/{id}/order-sets/{slot}/apply": {
+      "post": {
+        "operationId": "post_api_v1_cath_lab_cases_by_id_order_sets_by_slot_apply",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "slot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/cath-lab/cases/{id}/post-orders": {
       "post": {
         "operationId": "post_api_v1_cath_lab_cases_by_id_post_orders",
@@ -52699,9 +54285,63 @@
         ]
       }
     },
+    "/api/v1/cath-lab/cases/{id}/quick-wins": {
+      "get": {
+        "operationId": "get_api_v1_cath_lab_cases_by_id_quick_wins",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/cath-lab/cases/{id}/readiness": {
       "post": {
         "operationId": "post_api_v1_cath_lab_cases_by_id_readiness",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cath-lab/cases/{id}/readiness/evidence/refresh": {
+      "post": {
+        "operationId": "post_api_v1_cath_lab_cases_by_id_readiness_evidence_refresh",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -52815,6 +54455,109 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cath-lab/consumables/catalog": {
+      "get": {
+        "operationId": "get_api_v1_cath_lab_consumables_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathConsumableCatalogListResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scan",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "stent",
+                "balloon",
+                "guidewire",
+                "catheter",
+                "sheath",
+                "closure_device",
+                "pacemaker",
+                "lead",
+                "other"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "retired"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cath-lab/consumables/catalog/{id}/batches": {
+      "get": {
+        "operationId": "get_api_v1_cath_lab_consumables_catalog_by_id_batches",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathConsumableBatchListResponse"
                 }
               }
             }

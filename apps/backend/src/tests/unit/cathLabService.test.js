@@ -28,6 +28,19 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   requireTenantId: tenantId => tenantId || '00000000-0000-4000-8000-000000000001'
 }));
 
+jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
+  addInvoiceItem: jest.fn(),
+  createDraftInvoice: jest.fn()
+}));
+
+jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
+  recordMovement: jest.fn()
+}));
+
+jest.unstable_mockModule('../../services/pharmacySupply/pharmacySupplyService.js', () => ({
+  reserveStock: jest.fn()
+}));
+
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   completeWorkflowSla: completeWorkflowSlaMock,
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
@@ -39,6 +52,13 @@ jest.unstable_mockModule('../../services/staff/credentialingService.js', () => (
   assertPrivilegeForGate: assertPrivilegeForGateMock,
   isGateEnabled: isGateEnabledMock,
   privilegeKey: privilegeKeyMock
+}));
+
+// NL-13 P1e: keep this suite's graph tight — completion emission is
+// best-effort and covered by cathQuickWinsService.test.js.
+const emitCathFollowUpsMock = jest.fn(async () => ({ created: [], skipped: [] }));
+jest.unstable_mockModule('../../services/clinical/cathQuickWinsService.js', () => ({
+  emitCathProcedureCompletionFollowUps: emitCathFollowUpsMock
 }));
 
 const {

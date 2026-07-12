@@ -114,7 +114,7 @@ describe('billing admission itemizer — issued ward indent charges (D58)', () =
          FROM billing_invoice_items
         WHERE invoice_id = $1::int
           AND source_ref_type = 'ward_indent'
-          AND source_ref_id = $2::int`,
+          AND source_ref_id = $2::bigint`,
       invoiceId,
       indentId,
     );
@@ -122,7 +122,7 @@ describe('billing admission itemizer — issued ward indent charges (D58)', () =
     expect(rows[0]).toMatchObject({
       category: 'pharmacy',
       source_ref_type: 'ward_indent',
-      source_ref_id: indentId,
+      source_ref_id: BigInt(indentId),
       tpa_decision: 'pending',
     });
     expect(rows[0].description).toContain('Pharmacy ward indent');

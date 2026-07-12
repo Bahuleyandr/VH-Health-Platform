@@ -1,0 +1,270 @@
+class CathConsumableCatalogItem {
+  const CathConsumableCatalogItem({
+    required this.id,
+    required this.itemName,
+    required this.category,
+    required this.manufacturer,
+    required this.model,
+    required this.isImplant,
+    required this.batchTracked,
+    this.inventoryItemId,
+    this.skuCode = '',
+    this.unitLabel = 'each',
+    this.active = true,
+  });
+
+  final int id;
+  final String itemName;
+  final String category;
+  final String manufacturer;
+  final String model;
+  final bool isImplant;
+  final bool batchTracked;
+  final int? inventoryItemId;
+  final String skuCode;
+  final String unitLabel;
+  final bool active;
+
+  String get supportingLabel => [
+    if (manufacturer.isNotEmpty) manufacturer,
+    if (model.isNotEmpty) model,
+    if (skuCode.isNotEmpty) skuCode,
+  ].join(' - ');
+
+  factory CathConsumableCatalogItem.fromJson(Map<String, dynamic> json) {
+    return CathConsumableCatalogItem(
+      id: _asInt(json['id']) ?? 0,
+      itemName: _firstText(json, const ['item_name', 'name', 'display_name']),
+      category: _firstText(json, const ['category'], fallback: 'other'),
+      manufacturer: _firstText(json, const ['manufacturer']),
+      model: _firstText(json, const ['model', 'model_number']),
+      isImplant: _asBool(json['is_implant']),
+      batchTracked: _asBool(json['batch_tracked']),
+      inventoryItemId: _asInt(
+        json['inventory_item_id'] ?? json['pharmacy_inventory_item_id'],
+      ),
+      skuCode: _firstText(json, const [
+        'sku_code',
+        'inventory_sku',
+        'inventory_sku_code',
+      ]),
+      unitLabel: _firstText(json, const [
+        'unit_label',
+        'inventory_unit_label',
+        'default_unit',
+      ], fallback: 'each'),
+      active: json.containsKey('active')
+          ? _asBool(json['active'])
+          : _text(json['status']).toLowerCase() != 'retired',
+    );
+  }
+}
+
+class CathInventoryBatch {
+  const CathInventoryBatch({
+    required this.id,
+    required this.batchNumber,
+    required this.lotNumber,
+    required this.expiryDate,
+    required this.remainingQuantity,
+    required this.status,
+    this.inventoryItemId,
+    this.unitLabel = 'each',
+  });
+
+  final int id;
+  final int? inventoryItemId;
+  final String batchNumber;
+  final String lotNumber;
+  final DateTime? expiryDate;
+  final double remainingQuantity;
+  final String status;
+  final String unitLabel;
+
+  factory CathInventoryBatch.fromJson(Map<String, dynamic> json) {
+    return CathInventoryBatch(
+      id: _asInt(json['id']) ?? 0,
+      inventoryItemId: _asInt(json['inventory_item_id']),
+      batchNumber: _firstText(json, const ['batch_number', 'batch_no']),
+      lotNumber: _firstText(json, const ['lot_number', 'lot_no']),
+      expiryDate: _asDate(json['expiry_date']),
+      remainingQuantity: _asDouble(json['remaining_quantity']) ?? 0,
+      status: _text(json['status'], fallback: 'in_stock'),
+      unitLabel: _text(json['unit_label'], fallback: 'each'),
+    );
+  }
+}
+
+class CathCaseConsumableUsage {
+  const CathCaseConsumableUsage({
+    required this.id,
+    required this.caseId,
+    required this.catalogItemId,
+    required this.itemName,
+    required this.category,
+    required this.quantity,
+    required this.unitLabel,
+    required this.batchNumber,
+    required this.lotNumber,
+    required this.serialNumber,
+    required this.wasted,
+    required this.wastageReason,
+    required this.usedByName,
+    required this.isImplant,
+    required this.batchTracked,
+    required this.inventoryWarning,
+    required this.inventoryDecrementStatus,
+    this.procedureLogId,
+    this.inventoryBatchId,
+    this.expiryDate,
+    this.recordedAt,
+  });
+
+  final int id;
+  final int caseId;
+  final int catalogItemId;
+  final int? procedureLogId;
+  final int? inventoryBatchId;
+  final String itemName;
+  final String category;
+  final double quantity;
+  final String unitLabel;
+  final String batchNumber;
+  final String lotNumber;
+  final DateTime? expiryDate;
+  final String serialNumber;
+  final bool wasted;
+  final String wastageReason;
+  final String usedByName;
+  final bool isImplant;
+  final bool batchTracked;
+  final String inventoryWarning;
+  final String inventoryDecrementStatus;
+  final DateTime? recordedAt;
+
+  bool get hasInventoryWarning => inventoryWarning.trim().isNotEmpty;
+
+  factory CathCaseConsumableUsage.fromJson(Map<String, dynamic> json) {
+    final nestedRaw = json['catalog_item'] ?? json['catalog'];
+    final nested = nestedRaw is Map
+        ? Map<String, dynamic>.from(nestedRaw)
+        : const <String, dynamic>{};
+    Object? value(String key) => json[key] ?? nested[key];
+
+    return CathCaseConsumableUsage(
+      id: _asInt(json['id']) ?? 0,
+      caseId: _asInt(json['case_id']) ?? 0,
+      catalogItemId: _asInt(json['catalog_item_id'] ?? nested['id']) ?? 0,
+      procedureLogId: _asInt(json['procedure_log_id']),
+      inventoryBatchId: _asInt(json['inventory_batch_id']),
+      itemName: _firstText(json, const [
+        'item_name',
+        'catalog_item_name',
+        'display_name',
+      ], fallback: _firstText(nested, const ['item_name', 'name'])),
+      category: _text(value('category'), fallback: 'other'),
+      quantity: _asDouble(json['quantity']) ?? 0,
+      unitLabel: _text(
+        json['unit_label'] ??
+            json['inventory_unit_label'] ??
+            nested['unit_label'],
+        fallback: 'each',
+      ),
+      batchNumber: _firstText(json, const ['batch_number', 'batch_no']),
+      lotNumber: _firstText(json, const ['lot_number', 'lot_no']),
+      expiryDate: _asDate(json['expiry_date']),
+      serialNumber: _text(json['serial_number']),
+      wasted: _asBool(json['wasted']),
+      wastageReason: _firstText(json, const ['wastage_reason', 'waste_reason']),
+      usedByName: _firstText(json, const ['used_by_name', 'recorded_by_name']),
+      isImplant: _asBool(value('is_implant')),
+      batchTracked: _asBool(value('batch_tracked')),
+      inventoryWarning: _text(json['inventory_warning']),
+      inventoryDecrementStatus: _text(
+        json['inventory_decrement_status'] ?? json['inventory_status'],
+      ),
+      recordedAt: _asDate(
+        json['used_at'] ?? json['recorded_at'] ?? json['created_at'],
+      ),
+    );
+  }
+}
+
+class CathConsumableUsageDraft {
+  const CathConsumableUsageDraft({
+    required this.catalogItemId,
+    required this.quantity,
+    required this.wasted,
+    this.procedureLogId,
+    this.inventoryBatchId,
+    this.batchNumber,
+    this.lotNumber,
+    this.expiryDate,
+    this.serialNumber,
+    this.wastageReason,
+  });
+
+  final int catalogItemId;
+  final double quantity;
+  final int? procedureLogId;
+  final int? inventoryBatchId;
+  final String? batchNumber;
+  final String? lotNumber;
+  final DateTime? expiryDate;
+  final String? serialNumber;
+  final bool wasted;
+  final String? wastageReason;
+
+  Map<String, dynamic> toJson() => {
+    'catalog_item_id': catalogItemId.toString(),
+    'quantity': quantity,
+    if (procedureLogId != null) 'procedure_log_id': procedureLogId.toString(),
+    if (inventoryBatchId != null) 'inventory_batch_id': inventoryBatchId,
+    if ((batchNumber ?? '').isNotEmpty) 'batch_number': batchNumber,
+    if ((lotNumber ?? '').isNotEmpty) 'lot_number': lotNumber,
+    if (expiryDate != null)
+      'expiry_date': expiryDate!.toIso8601String().substring(0, 10),
+    if ((serialNumber ?? '').isNotEmpty) 'serial_number': serialNumber,
+    'wasted': wasted,
+    if ((wastageReason ?? '').isNotEmpty) 'waste_reason': wastageReason,
+  };
+}
+
+String _firstText(
+  Map<String, dynamic> json,
+  List<String> keys, {
+  String fallback = '',
+}) {
+  for (final key in keys) {
+    final value = _text(json[key]);
+    if (value.isNotEmpty) return value;
+  }
+  return fallback;
+}
+
+String _text(Object? value, {String fallback = ''}) {
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? fallback : text;
+}
+
+int? _asInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(_text(value));
+}
+
+double? _asDouble(Object? value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(_text(value));
+}
+
+bool _asBool(Object? value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  return const {'true', '1', 'yes', 'on'}.contains(_text(value).toLowerCase());
+}
+
+DateTime? _asDate(Object? value) {
+  final raw = _text(value);
+  return raw.isEmpty ? null : DateTime.tryParse(raw)?.toLocal();
+}

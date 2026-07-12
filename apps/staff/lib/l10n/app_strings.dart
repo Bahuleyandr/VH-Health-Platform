@@ -6259,6 +6259,31 @@ class AppStrings {
       's4.lib.cath_lab.post_orders': "Post-procedure orders",
       's4.lib.cath_lab.post_orders_count': "{count} active orders",
       's4.lib.cath_lab.post_orders_pending': "Post-procedure orders pending",
+      's4.lib.cath_lab.quick_wins.live_evidence': "Live evidence & order sets",
+      's4.lib.cath_lab.quick_wins.load_failed': "Could not load live evidence",
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          "Evidence pulled from live hospital records",
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          "No live evidence found — checks stay manual",
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          "Attach latest evidence to checklist",
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          "Evidence attached to the readiness checklist",
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          "Could not attach evidence",
+      's4.lib.cath_lab.quick_wins.blood_chip': "Crossmatch: {status}",
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': "Pending",
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': "Compatible",
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': "Incompatible",
+      's4.lib.cath_lab.quick_wins.consent_chip': "Signed consent on file",
+      's4.lib.cath_lab.quick_wins.apply_pre_cath': "Apply pre-cath order set",
+      's4.lib.cath_lab.quick_wins.apply_post_cath': "Apply post-cath order set",
+      's4.lib.cath_lab.quick_wins.apply_confirm_title': "Apply order set?",
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          "Stage {count} orders from \"{title}\" through the standard ordering workflow. Orders still require the usual review and signing.",
+      's4.lib.cath_lab.quick_wins.apply_success':
+          "Order set staged through CPOE",
+      's4.lib.cath_lab.quick_wins.apply_failed': "Could not apply order set",
       's4.lib.cath_lab.stemi.incoming': "Incoming Code STEMI activations",
       's4.lib.cath_lab.stemi.empty': "No incoming Code STEMI activations",
       's4.lib.cath_lab.stemi.load_failed':
@@ -6337,6 +6362,63 @@ class AppStrings {
       's4.dynamic.cath_lab.report.action_failed': "{action} failed: {error}",
       's4.dynamic.cath_lab.report.count': "{count} reports",
       's4.dynamic.cath_lab.report.tat': "{minutes} min TAT",
+      's4.lib.cath_lab.consumables.capture_title': "Record consumable usage",
+      's4.lib.cath_lab.consumables.search_label': "Consumable or implant",
+      's4.lib.cath_lab.consumables.search_hint':
+          "Search by name, model, or SKU",
+      's4.lib.cath_lab.consumables.scan_tooltip': "Scan inventory SKU",
+      's4.lib.cath_lab.consumables.scan_title': "Scan consumable",
+      's4.lib.cath_lab.consumables.scan_hint':
+          "Align the inventory SKU barcode inside the frame.",
+      's4.lib.cath_lab.consumables.select_required':
+          "Select a consumable or implant first",
+      's4.lib.cath_lab.consumables.change_item': "Change item",
+      's4.lib.cath_lab.consumables.quantity_label': "Quantity",
+      's4.lib.cath_lab.consumables.quantity_invalid':
+          "Enter a quantity greater than zero",
+      's4.lib.cath_lab.consumables.field_required': "This field is required",
+      's4.lib.cath_lab.consumables.loading_batches':
+          "Loading available batches...",
+      's4.lib.cath_lab.consumables.batch_label': "Inventory batch",
+      's4.lib.cath_lab.consumables.batch_required': "Select a batch",
+      's4.lib.cath_lab.consumables.expiry_label': "Expiry date",
+      's4.lib.cath_lab.consumables.expiry_unknown': "Expiry not available",
+      's4.lib.cath_lab.consumables.manual_batch_hint':
+          "No available inventory batch. Record the package details manually; documentation will still be saved.",
+      's4.lib.cath_lab.consumables.batch_number_label': "Batch number",
+      's4.lib.cath_lab.consumables.lot_number_label': "Lot number (optional)",
+      's4.lib.cath_lab.consumables.serial_number_label':
+          "Implant serial number",
+      's4.lib.cath_lab.consumables.wastage_label': "Opened but not used",
+      's4.lib.cath_lab.consumables.wastage_hint':
+          "Wastage still decrements inventory",
+      's4.lib.cath_lab.consumables.wastage_reason_label': "Wastage reason",
+      's4.lib.cath_lab.consumables.saving': "Recording...",
+      's4.lib.cath_lab.consumables.save': "Record usage",
+      's4.lib.cath_lab.consumables.add': "Add usage",
+      's4.lib.cath_lab.consumables.loading_usage': "Loading recorded usage...",
+      's4.lib.cath_lab.consumables.no_usage':
+          "No consumables recorded for this case",
+      's4.lib.cath_lab.consumables.saved': "Consumable usage recorded",
+      's4.lib.cath_lab.consumables.wasted_badge': "Wasted",
+      's4.lib.cath_lab.consumables.category.stent': "Stent",
+      's4.lib.cath_lab.consumables.category.balloon': "Balloon",
+      's4.lib.cath_lab.consumables.category.guidewire': "Guidewire",
+      's4.lib.cath_lab.consumables.category.catheter': "Catheter",
+      's4.lib.cath_lab.consumables.category.sheath': "Sheath",
+      's4.lib.cath_lab.consumables.category.closure_device': "Closure device",
+      's4.lib.cath_lab.consumables.category.pacemaker': "Pacemaker",
+      's4.lib.cath_lab.consumables.category.lead': "Lead",
+      's4.lib.cath_lab.consumables.category.other': "Other",
+      's4.dynamic.cath_lab.consumables.batch_option':
+          "Batch {batch} - expires {expiry} - {quantity} remaining",
+      's4.dynamic.cath_lab.consumables.usage_count': "{count} usage rows",
+      's4.dynamic.cath_lab.consumables.saved_warning':
+          "Usage recorded. Inventory warning: {warning}",
+      's4.dynamic.cath_lab.consumables.quantity': "{quantity} {unit}",
+      's4.dynamic.cath_lab.consumables.batch': "Batch/lot {batch}",
+      's4.dynamic.cath_lab.consumables.expiry': "Expiry {expiry}",
+      's4.dynamic.cath_lab.consumables.serial': "Serial {serial}",
       's4.lib.stroke_pathway.activation': "Activation",
       's4.lib.stroke_pathway.decision.administered': "Administered",
       's4.lib.stroke_pathway.decision.approved': "Approved",
@@ -11891,6 +11973,33 @@ class AppStrings {
       's4.lib.cath_lab.post_orders': "पोस्ट-प्रोसीजर आदेश",
       's4.lib.cath_lab.post_orders_count': "{count} सक्रिय आदेश",
       's4.lib.cath_lab.post_orders_pending': "पोस्ट-प्रोसीजर आदेश लंबित",
+      's4.lib.cath_lab.quick_wins.live_evidence': "लाइव साक्ष्य और ऑर्डर सेट",
+      's4.lib.cath_lab.quick_wins.load_failed': "लाइव साक्ष्य लोड नहीं हो सका",
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          "अस्पताल के लाइव रिकॉर्ड से साक्ष्य मिला",
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          "कोई लाइव साक्ष्य नहीं मिला — जाँचें मैनुअल रहेंगी",
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          "नवीनतम साक्ष्य चेकलिस्ट से जोड़ें",
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          "साक्ष्य रेडीनेस चेकलिस्ट से जुड़ गया",
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          "साक्ष्य जोड़ा नहीं जा सका",
+      's4.lib.cath_lab.quick_wins.blood_chip': "क्रॉसमैच: {status}",
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': "लंबित",
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': "संगत",
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': "असंगत",
+      's4.lib.cath_lab.quick_wins.consent_chip': "हस्ताक्षरित सहमति दर्ज है",
+      's4.lib.cath_lab.quick_wins.apply_pre_cath':
+          "प्री-कैथ ऑर्डर सेट लागू करें",
+      's4.lib.cath_lab.quick_wins.apply_post_cath':
+          "पोस्ट-कैथ ऑर्डर सेट लागू करें",
+      's4.lib.cath_lab.quick_wins.apply_confirm_title': "ऑर्डर सेट लागू करें?",
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          "\"{title}\" से {count} ऑर्डर मानक ऑर्डरिंग वर्कफ़्लो के माध्यम से स्टेज होंगे। ऑर्डर की सामान्य समीक्षा और साइनिंग आवश्यक रहेगी।",
+      's4.lib.cath_lab.quick_wins.apply_success':
+          "ऑर्डर सेट CPOE के माध्यम से स्टेज हुआ",
+      's4.lib.cath_lab.quick_wins.apply_failed': "ऑर्डर सेट लागू नहीं हो सका",
       's4.lib.cath_lab.stemi.incoming': "आने वाले कोड STEMI सक्रियण",
       's4.lib.cath_lab.stemi.empty': "कोई आने वाला कोड STEMI सक्रियण नहीं",
       's4.lib.cath_lab.stemi.load_failed': "कोड STEMI सक्रियण लोड नहीं हो सके",
@@ -11970,6 +12079,64 @@ class AppStrings {
       's4.dynamic.cath_lab.report.action_failed': "{action} विफल: {error}",
       's4.dynamic.cath_lab.report.count': "{count} रिपोर्ट",
       's4.dynamic.cath_lab.report.tat': "{minutes} मिनट TAT",
+      's4.lib.cath_lab.consumables.capture_title': "उपभोग्य उपयोग दर्ज करें",
+      's4.lib.cath_lab.consumables.search_label': "उपभोग्य या इम्प्लांट",
+      's4.lib.cath_lab.consumables.search_hint': "नाम, मॉडल या SKU से खोजें",
+      's4.lib.cath_lab.consumables.scan_tooltip': "इन्वेंटरी SKU स्कैन करें",
+      's4.lib.cath_lab.consumables.scan_title': "उपभोग्य स्कैन करें",
+      's4.lib.cath_lab.consumables.scan_hint':
+          "इन्वेंटरी SKU बारकोड को फ्रेम के भीतर रखें।",
+      's4.lib.cath_lab.consumables.select_required':
+          "पहले उपभोग्य या इम्प्लांट चुनें",
+      's4.lib.cath_lab.consumables.change_item': "आइटम बदलें",
+      's4.lib.cath_lab.consumables.quantity_label': "मात्रा",
+      's4.lib.cath_lab.consumables.quantity_invalid':
+          "शून्य से अधिक मात्रा दर्ज करें",
+      's4.lib.cath_lab.consumables.field_required': "यह फ़ील्ड आवश्यक है",
+      's4.lib.cath_lab.consumables.loading_batches':
+          "उपलब्ध बैच लोड हो रहे हैं...",
+      's4.lib.cath_lab.consumables.batch_label': "इन्वेंटरी बैच",
+      's4.lib.cath_lab.consumables.batch_required': "बैच चुनें",
+      's4.lib.cath_lab.consumables.expiry_label': "समाप्ति तिथि",
+      's4.lib.cath_lab.consumables.expiry_unknown': "समाप्ति उपलब्ध नहीं",
+      's4.lib.cath_lab.consumables.manual_batch_hint':
+          "कोई इन्वेंटरी बैच उपलब्ध नहीं है। पैकेज विवरण हाथ से दर्ज करें; दस्तावेज़ फिर भी सहेजा जाएगा।",
+      's4.lib.cath_lab.consumables.batch_number_label': "बैच नंबर",
+      's4.lib.cath_lab.consumables.lot_number_label': "लॉट नंबर (वैकल्पिक)",
+      's4.lib.cath_lab.consumables.serial_number_label':
+          "इम्प्लांट सीरियल नंबर",
+      's4.lib.cath_lab.consumables.wastage_label':
+          "खोला गया लेकिन उपयोग नहीं हुआ",
+      's4.lib.cath_lab.consumables.wastage_hint':
+          "अपव्यय पर भी इन्वेंटरी घटेगी",
+      's4.lib.cath_lab.consumables.wastage_reason_label': "अपव्यय का कारण",
+      's4.lib.cath_lab.consumables.saving': "दर्ज हो रहा है...",
+      's4.lib.cath_lab.consumables.save': "उपयोग दर्ज करें",
+      's4.lib.cath_lab.consumables.add': "उपयोग जोड़ें",
+      's4.lib.cath_lab.consumables.loading_usage':
+          "दर्ज उपयोग लोड हो रहा है...",
+      's4.lib.cath_lab.consumables.no_usage':
+          "इस केस के लिए कोई उपभोग्य दर्ज नहीं है",
+      's4.lib.cath_lab.consumables.saved': "उपभोग्य उपयोग दर्ज किया गया",
+      's4.lib.cath_lab.consumables.wasted_badge': "व्यर्थ",
+      's4.lib.cath_lab.consumables.category.stent': "स्टेंट",
+      's4.lib.cath_lab.consumables.category.balloon': "बैलून",
+      's4.lib.cath_lab.consumables.category.guidewire': "गाइडवायर",
+      's4.lib.cath_lab.consumables.category.catheter': "कैथेटर",
+      's4.lib.cath_lab.consumables.category.sheath': "शीथ",
+      's4.lib.cath_lab.consumables.category.closure_device': "क्लोज़र डिवाइस",
+      's4.lib.cath_lab.consumables.category.pacemaker': "पेसमेकर",
+      's4.lib.cath_lab.consumables.category.lead': "लीड",
+      's4.lib.cath_lab.consumables.category.other': "अन्य",
+      's4.dynamic.cath_lab.consumables.batch_option':
+          "बैच {batch} - समाप्ति {expiry} - {quantity} शेष",
+      's4.dynamic.cath_lab.consumables.usage_count': "{count} उपयोग पंक्तियाँ",
+      's4.dynamic.cath_lab.consumables.saved_warning':
+          "उपयोग दर्ज हुआ। इन्वेंटरी चेतावनी: {warning}",
+      's4.dynamic.cath_lab.consumables.quantity': "{quantity} {unit}",
+      's4.dynamic.cath_lab.consumables.batch': "बैच/लॉट {batch}",
+      's4.dynamic.cath_lab.consumables.expiry': "समाप्ति {expiry}",
+      's4.dynamic.cath_lab.consumables.serial': "सीरियल {serial}",
       's4.lib.stroke_pathway.activation': "सक्रियण",
       's4.lib.stroke_pathway.decision.administered': "दिया गया",
       's4.lib.stroke_pathway.decision.approved': "स्वीकृत",
@@ -18098,6 +18265,37 @@ class AppStrings {
       's4.lib.cath_lab.post_orders_count': "{count} செயலில் உள்ள ஆணைகள்",
       's4.lib.cath_lab.post_orders_pending':
           "செயல்முறைக்கு பிந்தைய ஆணைகள் நிலுவையில்",
+      's4.lib.cath_lab.quick_wins.live_evidence':
+          "நேரடி ஆதாரம் & ஆர்டர் செட்கள்",
+      's4.lib.cath_lab.quick_wins.load_failed':
+          "நேரடி ஆதாரத்தை ஏற்ற முடியவில்லை",
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          "மருத்துவமனை நேரடி பதிவுகளிலிருந்து ஆதாரம் பெறப்பட்டது",
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          "நேரடி ஆதாரம் இல்லை — சரிபார்ப்புகள் கைமுறையாகவே இருக்கும்",
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          "சமீபத்திய ஆதாரத்தை சரிபார்ப்புப் பட்டியலில் இணைக்கவும்",
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          "ஆதாரம் தயார்நிலை பட்டியலில் இணைக்கப்பட்டது",
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          "ஆதாரத்தை இணைக்க முடியவில்லை",
+      's4.lib.cath_lab.quick_wins.blood_chip': "குறுக்குப்பொருத்தம்: {status}",
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': "நிலுவையில்",
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': "பொருந்தும்",
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': "பொருந்தாது",
+      's4.lib.cath_lab.quick_wins.consent_chip': "கையொப்பமிட்ட ஒப்புதல் உள்ளது",
+      's4.lib.cath_lab.quick_wins.apply_pre_cath':
+          "ப்ரீ-கேத் ஆர்டர் செட்டைப் பயன்படுத்து",
+      's4.lib.cath_lab.quick_wins.apply_post_cath':
+          "போஸ்ட்-கேத் ஆர்டர் செட்டைப் பயன்படுத்து",
+      's4.lib.cath_lab.quick_wins.apply_confirm_title':
+          "ஆர்டர் செட்டைப் பயன்படுத்தவா?",
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          "\"{title}\" இலிருந்து {count} ஆர்டர்கள் நிலையான ஆர்டர் வழிமுறையில் நிலைநிறுத்தப்படும். வழக்கமான மதிப்பாய்வும் கையொப்பமும் தேவை.",
+      's4.lib.cath_lab.quick_wins.apply_success':
+          "ஆர்டர் செட் CPOE வழியாக நிலைநிறுத்தப்பட்டது",
+      's4.lib.cath_lab.quick_wins.apply_failed':
+          "ஆர்டர் செட்டைப் பயன்படுத்த முடியவில்லை",
       's4.lib.cath_lab.stemi.incoming': "வரும் கோட் STEMI செயல்பாடுகள்",
       's4.lib.cath_lab.stemi.empty': "வரும் கோட் STEMI செயல்பாடுகள் இல்லை",
       's4.lib.cath_lab.stemi.load_failed':
@@ -18178,6 +18376,69 @@ class AppStrings {
       's4.dynamic.cath_lab.report.action_failed': "{action} தோல்வி: {error}",
       's4.dynamic.cath_lab.report.count': "{count} அறிக்கைகள்",
       's4.dynamic.cath_lab.report.tat': "{minutes} நிமி TAT",
+      's4.lib.cath_lab.consumables.capture_title':
+          "பயன்படுத்திய பொருளைப் பதிவு செய்க",
+      's4.lib.cath_lab.consumables.search_label': "பொருள் அல்லது உட்பொருத்து",
+      's4.lib.cath_lab.consumables.search_hint':
+          "பெயர், மாதிரி அல்லது SKU மூலம் தேடுக",
+      's4.lib.cath_lab.consumables.scan_tooltip': "சரக்கு SKU-ஐ ஸ்கேன் செய்க",
+      's4.lib.cath_lab.consumables.scan_title': "பொருளை ஸ்கேன் செய்க",
+      's4.lib.cath_lab.consumables.scan_hint':
+          "சரக்கு SKU பார்கோடை சட்டகத்திற்குள் வைக்கவும்.",
+      's4.lib.cath_lab.consumables.select_required':
+          "முதலில் ஒரு பொருள் அல்லது உட்பொருத்தைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.cath_lab.consumables.change_item': "பொருளை மாற்றுக",
+      's4.lib.cath_lab.consumables.quantity_label': "அளவு",
+      's4.lib.cath_lab.consumables.quantity_invalid':
+          "பூஜ்ஜியத்தை விட அதிகமான அளவை உள்ளிடவும்",
+      's4.lib.cath_lab.consumables.field_required': "இந்தப் புலம் அவசியம்",
+      's4.lib.cath_lab.consumables.loading_batches':
+          "கிடைக்கும் தொகுதிகள் ஏற்றப்படுகின்றன...",
+      's4.lib.cath_lab.consumables.batch_label': "சரக்கு தொகுதி",
+      's4.lib.cath_lab.consumables.batch_required':
+          "ஒரு தொகுதியைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.cath_lab.consumables.expiry_label': "காலாவதி தேதி",
+      's4.lib.cath_lab.consumables.expiry_unknown': "காலாவதி விவரம் இல்லை",
+      's4.lib.cath_lab.consumables.manual_batch_hint':
+          "சரக்கு தொகுதி கிடைக்கவில்லை. பொதி விவரங்களை கைமுறையாகப் பதிவு செய்யவும்; ஆவணம் சேமிக்கப்படும்.",
+      's4.lib.cath_lab.consumables.batch_number_label': "தொகுதி எண்",
+      's4.lib.cath_lab.consumables.lot_number_label': "லாட் எண் (விருப்பம்)",
+      's4.lib.cath_lab.consumables.serial_number_label':
+          "உட்பொருத்து வரிசை எண்",
+      's4.lib.cath_lab.consumables.wastage_label':
+          "திறக்கப்பட்டது ஆனால் பயன்படுத்தப்படவில்லை",
+      's4.lib.cath_lab.consumables.wastage_hint':
+          "வீணானாலும் சரக்கு குறைக்கப்படும்",
+      's4.lib.cath_lab.consumables.wastage_reason_label': "வீணான காரணம்",
+      's4.lib.cath_lab.consumables.saving': "பதிவாகிறது...",
+      's4.lib.cath_lab.consumables.save': "பயன்பாட்டைப் பதிவு செய்க",
+      's4.lib.cath_lab.consumables.add': "பயன்பாட்டைச் சேர்க்கவும்",
+      's4.lib.cath_lab.consumables.loading_usage':
+          "பதிவான பயன்பாடு ஏற்றப்படுகிறது...",
+      's4.lib.cath_lab.consumables.no_usage':
+          "இந்த வழக்கிற்கு பொருட்கள் எதுவும் பதிவு செய்யப்படவில்லை",
+      's4.lib.cath_lab.consumables.saved':
+          "பொருள் பயன்பாடு பதிவு செய்யப்பட்டது",
+      's4.lib.cath_lab.consumables.wasted_badge': "வீணானது",
+      's4.lib.cath_lab.consumables.category.stent': "ஸ்டென்ட்",
+      's4.lib.cath_lab.consumables.category.balloon': "பலூன்",
+      's4.lib.cath_lab.consumables.category.guidewire': "கைட்வயர்",
+      's4.lib.cath_lab.consumables.category.catheter': "கேதெட்டர்",
+      's4.lib.cath_lab.consumables.category.sheath': "ஷீத்",
+      's4.lib.cath_lab.consumables.category.closure_device': "மூடல் சாதனம்",
+      's4.lib.cath_lab.consumables.category.pacemaker': "பேஸ்மேக்கர்",
+      's4.lib.cath_lab.consumables.category.lead': "லீட்",
+      's4.lib.cath_lab.consumables.category.other': "மற்றவை",
+      's4.dynamic.cath_lab.consumables.batch_option':
+          "தொகுதி {batch} - காலாவதி {expiry} - {quantity} மீதம்",
+      's4.dynamic.cath_lab.consumables.usage_count':
+          "{count} பயன்பாட்டு வரிகள்",
+      's4.dynamic.cath_lab.consumables.saved_warning':
+          "பயன்பாடு பதிவு செய்யப்பட்டது. சரக்கு எச்சரிக்கை: {warning}",
+      's4.dynamic.cath_lab.consumables.quantity': "{quantity} {unit}",
+      's4.dynamic.cath_lab.consumables.batch': "தொகுதி/லாட் {batch}",
+      's4.dynamic.cath_lab.consumables.expiry': "காலாவதி {expiry}",
+      's4.dynamic.cath_lab.consumables.serial': "வரிசை {serial}",
       's4.lib.stroke_pathway.activation': "செயல்படுத்தல்",
       's4.lib.stroke_pathway.decision.administered': "வழங்கப்பட்டது",
       's4.lib.stroke_pathway.decision.approved': "அங்கீகரிக்கப்பட்டது",
@@ -24381,6 +24642,37 @@ class AppStrings {
       's4.lib.cath_lab.post_orders_count': "{count} క్రియాశీల ఆర్డర్లు",
       's4.lib.cath_lab.post_orders_pending':
           "ప్రొసీజర్ తర్వాత ఆర్డర్లు పెండింగ్‌లో ఉన్నాయి",
+      's4.lib.cath_lab.quick_wins.live_evidence':
+          "లైవ్ ఆధారాలు & ఆర్డర్ సెట్లు",
+      's4.lib.cath_lab.quick_wins.load_failed':
+          "లైవ్ ఆధారాలను లోడ్ చేయలేకపోయాం",
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          "ఆసుపత్రి లైవ్ రికార్డుల నుండి ఆధారం లభించింది",
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          "లైవ్ ఆధారం లేదు — తనిఖీలు మాన్యువల్‌గానే ఉంటాయి",
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          "తాజా ఆధారాన్ని చెక్‌లిస్ట్‌కు జత చేయండి",
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          "ఆధారం సంసిద్ధత చెక్‌లిస్ట్‌కు జత చేయబడింది",
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          "ఆధారాన్ని జత చేయలేకపోయాం",
+      's4.lib.cath_lab.quick_wins.blood_chip': "క్రాస్‌మ్యాచ్: {status}",
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': "పెండింగ్",
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': "సరిపోతుంది",
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': "సరిపోదు",
+      's4.lib.cath_lab.quick_wins.consent_chip': "సంతకం చేసిన సమ్మతి నమోదైంది",
+      's4.lib.cath_lab.quick_wins.apply_pre_cath':
+          "ప్రీ-క్యాత్ ఆర్డర్ సెట్ వర్తింపజేయండి",
+      's4.lib.cath_lab.quick_wins.apply_post_cath':
+          "పోస్ట్-క్యాత్ ఆర్డర్ సెట్ వర్తింపజేయండి",
+      's4.lib.cath_lab.quick_wins.apply_confirm_title':
+          "ఆర్డర్ సెట్ వర్తింపజేయాలా?",
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          "\"{title}\" నుండి {count} ఆర్డర్లు ప్రామాణిక ఆర్డరింగ్ వర్క్‌ఫ్లో ద్వారా స్టేజ్ అవుతాయి. ఆర్డర్లకు యథావిధి సమీక్ష, సంతకం అవసరం.",
+      's4.lib.cath_lab.quick_wins.apply_success':
+          "ఆర్డర్ సెట్ CPOE ద్వారా స్టేజ్ అయింది",
+      's4.lib.cath_lab.quick_wins.apply_failed':
+          "ఆర్డర్ సెట్ వర్తింపజేయలేకపోయాం",
       's4.lib.cath_lab.stemi.incoming': "వస్తున్న కోడ్ STEMI యాక్టివేషన్లు",
       's4.lib.cath_lab.stemi.empty': "వస్తున్న కోడ్ STEMI యాక్టివేషన్లు లేవు",
       's4.lib.cath_lab.stemi.load_failed':
@@ -24460,6 +24752,66 @@ class AppStrings {
       's4.dynamic.cath_lab.report.action_failed': "{action} విఫలమైంది: {error}",
       's4.dynamic.cath_lab.report.count': "{count} నివేదికలు",
       's4.dynamic.cath_lab.report.tat': "{minutes} నిమి TAT",
+      's4.lib.cath_lab.consumables.capture_title':
+          "వినియోగించిన వస్తువును నమోదు చేయండి",
+      's4.lib.cath_lab.consumables.search_label':
+          "వినియోగ వస్తువు లేదా ఇంప్లాంట్",
+      's4.lib.cath_lab.consumables.search_hint':
+          "పేరు, మోడల్ లేదా SKUతో వెతకండి",
+      's4.lib.cath_lab.consumables.scan_tooltip': "ఇన్వెంటరీ SKU స్కాన్ చేయండి",
+      's4.lib.cath_lab.consumables.scan_title': "వస్తువును స్కాన్ చేయండి",
+      's4.lib.cath_lab.consumables.scan_hint':
+          "ఇన్వెంటరీ SKU బార్‌కోడ్‌ను ఫ్రేమ్‌లో ఉంచండి.",
+      's4.lib.cath_lab.consumables.select_required':
+          "ముందుగా వినియోగ వస్తువు లేదా ఇంప్లాంట్‌ను ఎంచుకోండి",
+      's4.lib.cath_lab.consumables.change_item': "వస్తువును మార్చండి",
+      's4.lib.cath_lab.consumables.quantity_label': "పరిమాణం",
+      's4.lib.cath_lab.consumables.quantity_invalid':
+          "సున్నా కంటే ఎక్కువ పరిమాణం నమోదు చేయండి",
+      's4.lib.cath_lab.consumables.field_required': "ఈ ఫీల్డ్ తప్పనిసరి",
+      's4.lib.cath_lab.consumables.loading_batches':
+          "అందుబాటులోని బ్యాచ్‌లు లోడ్ అవుతున్నాయి...",
+      's4.lib.cath_lab.consumables.batch_label': "ఇన్వెంటరీ బ్యాచ్",
+      's4.lib.cath_lab.consumables.batch_required': "బ్యాచ్‌ను ఎంచుకోండి",
+      's4.lib.cath_lab.consumables.expiry_label': "గడువు తేదీ",
+      's4.lib.cath_lab.consumables.expiry_unknown': "గడువు వివరాలు లేవు",
+      's4.lib.cath_lab.consumables.manual_batch_hint':
+          "ఇన్వెంటరీ బ్యాచ్ అందుబాటులో లేదు. ప్యాకేజీ వివరాలను చేతితో నమోదు చేయండి; డాక్యుమెంటేషన్ సేవ్ అవుతుంది.",
+      's4.lib.cath_lab.consumables.batch_number_label': "బ్యాచ్ నంబర్",
+      's4.lib.cath_lab.consumables.lot_number_label': "లాట్ నంబర్ (ఐచ్ఛికం)",
+      's4.lib.cath_lab.consumables.serial_number_label':
+          "ఇంప్లాంట్ సీరియల్ నంబర్",
+      's4.lib.cath_lab.consumables.wastage_label': "తెరిచారు కానీ ఉపయోగించలేదు",
+      's4.lib.cath_lab.consumables.wastage_hint':
+          "వృథా అయినా ఇన్వెంటరీ తగ్గుతుంది",
+      's4.lib.cath_lab.consumables.wastage_reason_label': "వృథా కారణం",
+      's4.lib.cath_lab.consumables.saving': "నమోదవుతోంది...",
+      's4.lib.cath_lab.consumables.save': "వినియోగాన్ని నమోదు చేయండి",
+      's4.lib.cath_lab.consumables.add': "వినియోగాన్ని జోడించండి",
+      's4.lib.cath_lab.consumables.loading_usage':
+          "నమోదైన వినియోగం లోడ్ అవుతోంది...",
+      's4.lib.cath_lab.consumables.no_usage':
+          "ఈ కేసుకు వినియోగ వస్తువులు నమోదు కాలేదు",
+      's4.lib.cath_lab.consumables.saved': "వినియోగ వస్తువు నమోదు చేయబడింది",
+      's4.lib.cath_lab.consumables.wasted_badge': "వృథా",
+      's4.lib.cath_lab.consumables.category.stent': "స్టెంట్",
+      's4.lib.cath_lab.consumables.category.balloon': "బెలూన్",
+      's4.lib.cath_lab.consumables.category.guidewire': "గైడ్‌వైర్",
+      's4.lib.cath_lab.consumables.category.catheter': "క్యాథెటర్",
+      's4.lib.cath_lab.consumables.category.sheath': "షీత్",
+      's4.lib.cath_lab.consumables.category.closure_device': "మూసివేత పరికరం",
+      's4.lib.cath_lab.consumables.category.pacemaker': "పేస్‌మేకర్",
+      's4.lib.cath_lab.consumables.category.lead': "లీడ్",
+      's4.lib.cath_lab.consumables.category.other': "ఇతర",
+      's4.dynamic.cath_lab.consumables.batch_option':
+          "బ్యాచ్ {batch} - గడువు {expiry} - {quantity} మిగిలింది",
+      's4.dynamic.cath_lab.consumables.usage_count': "{count} వినియోగ వరుసలు",
+      's4.dynamic.cath_lab.consumables.saved_warning':
+          "వినియోగం నమోదైంది. ఇన్వెంటరీ హెచ్చరిక: {warning}",
+      's4.dynamic.cath_lab.consumables.quantity': "{quantity} {unit}",
+      's4.dynamic.cath_lab.consumables.batch': "బ్యాచ్/లాట్ {batch}",
+      's4.dynamic.cath_lab.consumables.expiry': "గడువు {expiry}",
+      's4.dynamic.cath_lab.consumables.serial': "సీరియల్ {serial}",
       's4.lib.stroke_pathway.activation': "సక్రియం",
       's4.lib.stroke_pathway.decision.administered': "ఇచ్చారు",
       's4.lib.stroke_pathway.decision.approved': "ఆమోదించబడింది",
@@ -27365,6 +27717,37 @@ class AppStrings {
       's4.lib.cath_lab.post_orders_count': '{count} സജീവ ഓർഡറുകൾ',
       's4.lib.cath_lab.post_orders_pending':
           'പ്രൊസീജറിന് ശേഷമുള്ള ഓർഡറുകൾ ബാക്കി',
+      's4.lib.cath_lab.quick_wins.live_evidence':
+          'ലൈവ് തെളിവും ഓർഡർ സെറ്റുകളും',
+      's4.lib.cath_lab.quick_wins.load_failed':
+          'ലൈവ് തെളിവ് ലോഡ് ചെയ്യാനായില്ല',
+      's4.lib.cath_lab.quick_wins.evidence_found':
+          'ആശുപത്രി ലൈവ് രേഖകളിൽ നിന്ന് തെളിവ് ലഭിച്ചു',
+      's4.lib.cath_lab.quick_wins.no_evidence':
+          'ലൈവ് തെളിവ് ഇല്ല — പരിശോധനകൾ മാനുവലായി തുടരും',
+      's4.lib.cath_lab.quick_wins.refresh_evidence':
+          'ഏറ്റവും പുതിയ തെളിവ് ചെക്ക്‌ലിസ്റ്റിൽ ചേർക്കുക',
+      's4.lib.cath_lab.quick_wins.evidence_saved':
+          'തെളിവ് റെഡിനസ് ചെക്ക്‌ലിസ്റ്റിൽ ചേർത്തു',
+      's4.lib.cath_lab.quick_wins.evidence_refresh_failed':
+          'തെളിവ് ചേർക്കാനായില്ല',
+      's4.lib.cath_lab.quick_wins.blood_chip': 'ക്രോസ്മാച്ച്: {status}',
+      's4.lib.cath_lab.quick_wins.crossmatch.pending': 'തീർപ്പാക്കാത്തത്',
+      's4.lib.cath_lab.quick_wins.crossmatch.compatible': 'യോജിക്കുന്നു',
+      's4.lib.cath_lab.quick_wins.crossmatch.incompatible': 'യോജിക്കുന്നില്ല',
+      's4.lib.cath_lab.quick_wins.consent_chip': 'ഒപ്പിട്ട സമ്മതം രേഖയിലുണ്ട്',
+      's4.lib.cath_lab.quick_wins.apply_pre_cath':
+          'പ്രീ-കാത്ത് ഓർഡർ സെറ്റ് പ്രയോഗിക്കുക',
+      's4.lib.cath_lab.quick_wins.apply_post_cath':
+          'പോസ്റ്റ്-കാത്ത് ഓർഡർ സെറ്റ് പ്രയോഗിക്കുക',
+      's4.lib.cath_lab.quick_wins.apply_confirm_title':
+          'ഓർഡർ സെറ്റ് പ്രയോഗിക്കണോ?',
+      's4.lib.cath_lab.quick_wins.apply_confirm_body':
+          '"{title}" ൽ നിന്ന് {count} ഓർഡറുകൾ സാധാരണ ഓർഡറിംഗ് വർക്ക്ഫ്ലോയിലൂടെ സ്റ്റേജ് ചെയ്യും. പതിവ് അവലോകനവും ഒപ്പിടലും ആവശ്യമാണ്.',
+      's4.lib.cath_lab.quick_wins.apply_success':
+          'ഓർഡർ സെറ്റ് CPOE വഴി സ്റ്റേജ് ചെയ്തു',
+      's4.lib.cath_lab.quick_wins.apply_failed':
+          'ഓർഡർ സെറ്റ് പ്രയോഗിക്കാനായില്ല',
       's4.lib.cath_lab.stemi.incoming': 'വരുന്ന കോഡ് STEMI ആക്ടിവേഷനുകൾ',
       's4.lib.cath_lab.stemi.empty': 'വരുന്ന കോഡ് STEMI ആക്ടിവേഷനുകൾ ഇല്ല',
       's4.lib.cath_lab.stemi.load_failed':
@@ -27451,6 +27834,66 @@ class AppStrings {
           '{action} പരാജയപ്പെട്ടു: {error}',
       's4.dynamic.cath_lab.report.count': '{count} റിപ്പോർട്ടുകൾ',
       's4.dynamic.cath_lab.report.tat': '{minutes} മിനിറ്റ് TAT',
+      's4.lib.cath_lab.consumables.capture_title':
+          'ഉപയോഗിച്ച സാധനം രേഖപ്പെടുത്തുക',
+      's4.lib.cath_lab.consumables.search_label':
+          'ഉപഭോഗ സാധനം അല്ലെങ്കിൽ ഇംപ്ലാന്റ്',
+      's4.lib.cath_lab.consumables.search_hint':
+          'പേര്, മോഡൽ, അല്ലെങ്കിൽ SKU ഉപയോഗിച്ച് തിരയുക',
+      's4.lib.cath_lab.consumables.scan_tooltip': 'ഇൻവെന്ററി SKU സ്കാൻ ചെയ്യുക',
+      's4.lib.cath_lab.consumables.scan_title': 'സാധനം സ്കാൻ ചെയ്യുക',
+      's4.lib.cath_lab.consumables.scan_hint':
+          'ഇൻവെന്ററി SKU ബാർകോഡ് ഫ്രെയിമിനുള്ളിൽ വയ്ക്കുക.',
+      's4.lib.cath_lab.consumables.select_required':
+          'ആദ്യം ഒരു സാധനം അല്ലെങ്കിൽ ഇംപ്ലാന്റ് തിരഞ്ഞെടുക്കുക',
+      's4.lib.cath_lab.consumables.change_item': 'സാധനം മാറ്റുക',
+      's4.lib.cath_lab.consumables.quantity_label': 'അളവ്',
+      's4.lib.cath_lab.consumables.quantity_invalid':
+          'പൂജ്യത്തേക്കാൾ കൂടുതലുള്ള അളവ് നൽകുക',
+      's4.lib.cath_lab.consumables.field_required': 'ഈ ഫീൽഡ് നിർബന്ധമാണ്',
+      's4.lib.cath_lab.consumables.loading_batches':
+          'ലഭ്യമായ ബാച്ചുകൾ ലോഡ് ചെയ്യുന്നു...',
+      's4.lib.cath_lab.consumables.batch_label': 'ഇൻവെന്ററി ബാച്ച്',
+      's4.lib.cath_lab.consumables.batch_required': 'ഒരു ബാച്ച് തിരഞ്ഞെടുക്കുക',
+      's4.lib.cath_lab.consumables.expiry_label': 'കാലാവധി തീയതി',
+      's4.lib.cath_lab.consumables.expiry_unknown': 'കാലാവധി വിവരം ലഭ്യമല്ല',
+      's4.lib.cath_lab.consumables.manual_batch_hint':
+          'ഇൻവെന്ററി ബാച്ച് ലഭ്യമല്ല. പാക്കേജ് വിവരങ്ങൾ കൈകൊണ്ട് രേഖപ്പെടുത്തുക; രേഖ സംരക്ഷിക്കും.',
+      's4.lib.cath_lab.consumables.batch_number_label': 'ബാച്ച് നമ്പർ',
+      's4.lib.cath_lab.consumables.lot_number_label': 'ലോട്ട് നമ്പർ (ഐച്ഛികം)',
+      's4.lib.cath_lab.consumables.serial_number_label':
+          'ഇംപ്ലാന്റ് സീരിയൽ നമ്പർ',
+      's4.lib.cath_lab.consumables.wastage_label':
+          'തുറന്നെങ്കിലും ഉപയോഗിച്ചില്ല',
+      's4.lib.cath_lab.consumables.wastage_hint': 'പാഴായാലും ഇൻവെന്ററി കുറയും',
+      's4.lib.cath_lab.consumables.wastage_reason_label': 'പാഴായതിന്റെ കാരണം',
+      's4.lib.cath_lab.consumables.saving': 'രേഖപ്പെടുത്തുന്നു...',
+      's4.lib.cath_lab.consumables.save': 'ഉപയോഗം രേഖപ്പെടുത്തുക',
+      's4.lib.cath_lab.consumables.add': 'ഉപയോഗം ചേർക്കുക',
+      's4.lib.cath_lab.consumables.loading_usage':
+          'രേഖപ്പെടുത്തിയ ഉപയോഗം ലോഡ് ചെയ്യുന്നു...',
+      's4.lib.cath_lab.consumables.no_usage':
+          'ഈ കേസിന് ഉപഭോഗ സാധനങ്ങൾ രേഖപ്പെടുത്തിയിട്ടില്ല',
+      's4.lib.cath_lab.consumables.saved': 'ഉപഭോഗ സാധന ഉപയോഗം രേഖപ്പെടുത്തി',
+      's4.lib.cath_lab.consumables.wasted_badge': 'പാഴായി',
+      's4.lib.cath_lab.consumables.category.stent': 'സ്റ്റെന്റ്',
+      's4.lib.cath_lab.consumables.category.balloon': 'ബലൂൺ',
+      's4.lib.cath_lab.consumables.category.guidewire': 'ഗൈഡ്‌വയർ',
+      's4.lib.cath_lab.consumables.category.catheter': 'കത്തീറ്റർ',
+      's4.lib.cath_lab.consumables.category.sheath': 'ഷീത്ത്',
+      's4.lib.cath_lab.consumables.category.closure_device': 'ക്ലോഷർ ഉപകരണം',
+      's4.lib.cath_lab.consumables.category.pacemaker': 'പേസ്‌മേക്കർ',
+      's4.lib.cath_lab.consumables.category.lead': 'ലീഡ്',
+      's4.lib.cath_lab.consumables.category.other': 'മറ്റുള്ളവ',
+      's4.dynamic.cath_lab.consumables.batch_option':
+          'ബാച്ച് {batch} - കാലാവധി {expiry} - {quantity} ശേഷിക്കുന്നു',
+      's4.dynamic.cath_lab.consumables.usage_count': '{count} ഉപയോഗ വരികൾ',
+      's4.dynamic.cath_lab.consumables.saved_warning':
+          'ഉപയോഗം രേഖപ്പെടുത്തി. ഇൻവെന്ററി മുന്നറിയിപ്പ്: {warning}',
+      's4.dynamic.cath_lab.consumables.quantity': '{quantity} {unit}',
+      's4.dynamic.cath_lab.consumables.batch': 'ബാച്ച്/ലോട്ട് {batch}',
+      's4.dynamic.cath_lab.consumables.expiry': 'കാലാവധി {expiry}',
+      's4.dynamic.cath_lab.consumables.serial': 'സീരിയൽ {serial}',
       'staff_teleconsult.title': 'വീഡിയോ കൺസൾട്ട്',
       'staff_teleconsult.connecting':
           'വീഡിയോ കൺസൾട്ടിലേക്ക് കണക്റ്റ് ചെയ്യുന്നു...',
