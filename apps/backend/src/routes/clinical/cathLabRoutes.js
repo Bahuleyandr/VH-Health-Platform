@@ -13,6 +13,11 @@ import {
   updateReadinessCheck
 } from '../../services/clinical/cathLabService.js';
 import {
+  applyCathOrderSetSlot,
+  getCaseQuickWins,
+  refreshReadinessEvidence
+} from '../../services/clinical/cathQuickWinsService.js';
+import {
   addReportAddendum,
   createReport,
   getReport,
@@ -281,6 +286,42 @@ router.get('/cases/:id', requireReportRead, async (req, res) => {
     return success(res, { case: cathCase }, 'Cath-lab case');
   } catch (err) {
     return handleFailure(res, err, 'get case');
+  }
+});
+
+router.get('/cases/:id/quick-wins', requireReportRead, async (req, res) => {
+  try {
+    const quickWins = await getCaseQuickWins(req.params.id, { tenantId: tenantOf(req) });
+    return success(res, { quick_wins: quickWins }, 'Cath-lab quick wins');
+  } catch (err) {
+    return handleFailure(res, err, 'get quick wins');
+  }
+});
+
+router.post('/cases/:id/readiness/evidence/refresh', requireCathWorkflow, async (req, res) => {
+  try {
+    const result = await refreshReadinessEvidence(
+      req.params.id,
+      { tenantId: tenantOf(req) },
+      contextOf(req)
+    );
+    return success(res, result, 'Cath-lab readiness evidence refreshed');
+  } catch (err) {
+    return handleFailure(res, err, 'refresh readiness evidence');
+  }
+});
+
+router.post('/cases/:id/order-sets/:slot/apply', requireCathWorkflow, async (req, res) => {
+  try {
+    const result = await applyCathOrderSetSlot(
+      req.params.id,
+      req.params.slot,
+      { tenantId: tenantOf(req) },
+      contextOf(req)
+    );
+    return success(res, result, 'Cath order set applied', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'apply order set');
   }
 });
 

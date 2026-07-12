@@ -51,6 +51,15 @@ jest.unstable_mockModule('../../services/documents/cathReportPdfService.js', () 
   renderCathReportPdf: jest.fn(async () => Buffer.from('%PDF-route-test')),
 }));
 
+// NL-13 P1e quick-wins routes are covered by cathQuickWinsService.test.js;
+// mock the service here to keep this suite's module graph tight.
+jest.unstable_mockModule('../../services/clinical/cathQuickWinsService.js', () => ({
+  applyCathOrderSetSlot: jest.fn(async () => ({ orders: [] })),
+  getCaseQuickWins: jest.fn(async () => ({ readiness_evidence: {}, order_sets: {} })),
+  refreshReadinessEvidence: jest.fn(async () => ({ attached: [], skipped: [] })),
+  emitCathProcedureCompletionFollowUps: jest.fn(async () => ({ created: [], skipped: [] })),
+}));
+
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
 }));
