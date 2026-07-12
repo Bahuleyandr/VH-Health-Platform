@@ -1262,10 +1262,6 @@ export async function createClaim({
 }) {
   if (!policy_id) throw AppError.badRequest('policy_id is required');
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
-  await assertClaimReferencesBelongToPatient({
-    tenantId, patientUid: patient_uid, policyId: policy_id, preauthId: preauth_id,
-    admissionId: admission_id, parentClaimId: parent_claim_id,
-  });
   if (!total_billed || Number(total_billed) <= 0) {
     throw AppError.badRequest('total_billed must be > 0');
   }
@@ -1347,6 +1343,15 @@ export async function createClaim({
   if (stage !== null && stage !== undefined && !VALID_CLAIM_STAGES.includes(stage)) {
     throw AppError.badRequest(`Invalid stage "${stage}". Must be one of: ${VALID_CLAIM_STAGES.join(', ')}`);
   }
+  // Sol Ultra #15: bind the referenced policy / preauth / admission /
+  // parent claim to this tenant + patient. Placed AFTER the pure-input
+  // validations (mirroring createPreauth) so shape checks stay DB-free —
+  // the unit suite's documented contract — while every path that reaches
+  // persistence still passes the binding.
+  await assertClaimReferencesBelongToPatient({
+    tenantId, patientUid: patient_uid, policyId: policy_id, preauthId: preauth_id,
+    admissionId: admission_id, parentClaimId: parent_claim_id,
+  });
   const finalStage = stage || 'final';
   if (claim_type === 'cashless' && finalStage === 'final' && invoice_id) {
     await assertIssuedFinalCashlessInvoice({
