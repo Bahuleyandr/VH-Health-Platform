@@ -29,6 +29,9 @@ spec:
     - "https://kubernetes.github.io/ingress-nginx"
     - "https://operator.min.io"
     - "https://charts.cloudnative-pg.io"
+    # Longhorn child Application (base/longhorn/longhorn-app.yaml) pulls its
+    # chart from here; without this entry the project rejects that source.
+    - "https://charts.longhorn.io"
   destinations:
     - namespace: "vhhealth"
       server: https://kubernetes.default.svc
@@ -49,6 +52,10 @@ spec:
     - namespace: "minio-operator"
       server: https://kubernetes.default.svc
     - namespace: "kube-system"
+      server: https://kubernetes.default.svc
+    # The longhorn child Application deploys into longhorn-system; without
+    # this destination the project rejects its sync.
+    - namespace: "longhorn-system"
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ""
@@ -71,11 +78,29 @@ spec:
       kind: IngressClass
     - group: scheduling.k8s.io
       kind: PriorityClass
+    # base/image-policy/kyverno-verify-images.yaml is rendered into the prod
+    # overlay; ClusterPolicy is cluster-scoped so it must be whitelisted here.
+    - group: kyverno.io
+      kind: ClusterPolicy
   namespaceResourceWhitelist:
     - group: "*"
       kind: "*"
   orphanedResources:
     warn: true
+  # Least-privilege project roles for tokens/automation. Humans use the Argo
+  # CD SSO RBAC; these exist so any automation token minted later (e.g. a
+  # release pipeline) can be scoped to sync-only instead of admin. Inert
+  # until a token is created with `argocd proj role create-token`.
+  roles:
+    - name: readonly
+      description: "Read-only visibility into vhhealth applications"
+      policies:
+        - p, proj:vhhealth:readonly, applications, get, vhhealth/*, allow
+    - name: release-sync
+      description: "Sync-only automation role for release tooling; no app create/delete/override"
+      policies:
+        - p, proj:vhhealth:release-sync, applications, get, vhhealth/*, allow
+        - p, proj:vhhealth:release-sync, applications, sync, vhhealth/*, allow
   # Audit finding M16: ArgoCD `signatureKeys` verifies GPG-signed GIT
   # COMMITS only — it cannot verify cosign image signatures, so it stays
   # empty. Image-signature verification at admission is enforced by Kyverno:

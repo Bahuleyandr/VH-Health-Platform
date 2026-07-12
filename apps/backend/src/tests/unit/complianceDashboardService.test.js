@@ -53,6 +53,31 @@ describe('getComplianceDashboard', () => {
     expect(dash.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
+  it('scopes every read to the caller tenant by default (owner decision 2026-07-13)', async () => {
+    queryUnsafeMock.mockResolvedValue([]);
+    await getComplianceDashboard({ tenantId: TENANT });
+
+    const [dpaSql, dpaParams] = queryUnsafeMock.mock.calls[0];
+    const breachSql = queryUnsafeMock.mock.calls[2][0];
+    const regulatorSql = queryUnsafeMock.mock.calls[3][0];
+    expect(dpaSql).toMatch(/tenant_id = \$1::uuid/);
+    expect(dpaParams).toBe(TENANT);
+    // The two previously-unscoped breach grids now carry the tenant predicate.
+    expect(breachSql).toMatch(/FROM data_breaches\s+WHERE tenant_id = \$1::uuid/);
+    expect(regulatorSql).toMatch(/tenant_id = \$1::uuid/);
+    expect(queryUnsafeMock.mock.calls[2][1]).toBe(TENANT);
+  });
+
+  it('drops the tenant filter for the SUPER_ADMIN cross-tenant view (scope=all)', async () => {
+    queryUnsafeMock.mockResolvedValue([]);
+    const dash = await getComplianceDashboard({ scope: 'all' });
+
+    const breachSql = queryUnsafeMock.mock.calls[2][0];
+    expect(breachSql).toMatch(/FROM data_breaches\s+WHERE TRUE/);
+    expect(queryUnsafeMock.mock.calls[2][1]).toBeUndefined();
+    expect(dash.scope).toBe('all');
+  });
+
   it('degrades when individual tables are missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "data_processing_activities" does not exist'));
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "data_processing_activities" does not exist'));

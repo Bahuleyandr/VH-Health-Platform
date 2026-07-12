@@ -121,6 +121,42 @@ async function main() {
     console.log(`  4. tenant admin ……………… WOULD ensure ADMIN "${adminUsername}" (tenant-bound)`);
   }
 
+  // ── Step 5: Code-STEMI default targets (idempotent) ──────────────────────
+  // Owner-confirmed ACC/AHA+ESC targets (2026-07-13, migration 573). Seeds the
+  // two column-backed clocks as defaults and records all four confirmed values
+  // in metadata; the pathway stays DISABLED until an operator supplies
+  // clock/activation provenance via the admin settings endpoint. COALESCE-fill
+  // preserves any target this tenant already customised.
+  if (args.dryRun) {
+    console.log('  5. STEMI targets ………… WOULD seed door-to-ECG 10 / door-to-balloon 90 (pathway disabled)');
+  } else {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO stemi_pathway_settings (tenant_id, door_to_ecg_target_minutes, door_to_balloon_target_minutes, metadata)
+       VALUES ($1::uuid, 10, 90, $2::jsonb)
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         door_to_ecg_target_minutes = COALESCE(stemi_pathway_settings.door_to_ecg_target_minutes, EXCLUDED.door_to_ecg_target_minutes),
+         door_to_balloon_target_minutes = COALESCE(stemi_pathway_settings.door_to_balloon_target_minutes, EXCLUDED.door_to_balloon_target_minutes),
+         metadata = stemi_pathway_settings.metadata || EXCLUDED.metadata,
+         updated_at = NOW()`,
+      tenantId,
+      JSON.stringify({
+        stemi_targets_confirmed: {
+          source: 'ACC/AHA + ESC current international standards',
+          confirmed_on: '2026-07-13',
+          confirmed_by: 'owner_cardiologist',
+          door_to_ecg_minutes: 10,
+          door_to_balloon_primary_pci_minutes: 90,
+          fmc_to_balloon_minutes: 90,
+          fmc_to_balloon_transfer_minutes: 120,
+          door_to_needle_fibrinolysis_minutes: 30,
+          wired_as_sla_clock: ['door_to_ecg', 'door_to_balloon'],
+          reference_only: ['fmc_to_balloon', 'door_to_needle_fibrinolysis'],
+        },
+      }),
+    );
+    console.log('  5. STEMI targets ………… seeded (door-to-ECG 10, door-to-balloon 90; pathway disabled)');
+  }
+
   // ── Summary + next steps ─────────────────────────────────────────────────
   const apiHost = `${args.slug}-api.${args.baseHost}`;        // flat: <slug>-api.<base>
   const adminHost = `admin.${args.baseHost}`;                 // single admin host (token-driven)

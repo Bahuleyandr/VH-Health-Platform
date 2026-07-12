@@ -21,6 +21,7 @@ import {
   isGateEnabled,
   privilegeKey,
 } from '../staff/credentialingService.js';
+import { isAdminish } from '../../utils/roles.js';
 import { buildViewerUrl } from '../radiology/pacsService.js';
 
 const REFRESH_INTERVAL_MS = 60 * 1000;
@@ -255,12 +256,28 @@ export function assertIsotopeRefForOrderState(order, targetStatus) {
 
 export function radiationPrivilegeGateConfig() {
   const key = privilegeKey(
-    process.env.RADIATION_ONCOLOGY_PRIVILEGE_KEY || 'radiation_oncology_owner_supplied_privilege',
+    process.env.RADIATION_ONCOLOGY_PRIVILEGE_KEY || 'radiation_oncology_access',
   );
   return {
     key,
     enabled: isGateEnabled('RADIATION_ONCOLOGY_PRIVILEGE_GATE_ENABLED'),
   };
+}
+
+// Owner decision 2026-07-13: the radiation gate is credential-based and
+// ADDITIVE to role-based access — ADMIN/SUPER_ADMIN bypass it (they keep the
+// access they have today), everyone else needs an active
+// radiation_oncology_access credential once the env flag enables enforcement.
+async function assertRadiationPrivilege(tenantId, context = {}, gate) {
+  if (isAdminish(context.actorRole)) return;
+  const cfg = radiationPrivilegeGateConfig();
+  await assertPrivilegeForGate({
+    staffUid: context.actorUid,
+    privilegeName: cfg.key,
+    tenantId,
+    gate,
+    enabled: cfg.enabled,
+  });
 }
 
 // ── per-tenant feature flag (fail-closed cache) ──────────────────────────
@@ -714,6 +731,12 @@ export async function createPlanRef(referralId, input = {}, context = {}) {
 export async function transitionPlanStatus(planRefId, input = {}, context = {}) {
   const tenantId = tenantOr(input.tenantId);
   await assertCoordinationEnabled(tenantId);
+  // Plan approval is a credential-gated radiation act; other transitions are
+  // coordination bookkeeping and stay role-gated only.
+  const requestedPlanStatus = String(input.plan_status || input.planStatus || input.status || '').trim().toLowerCase();
+  if (requestedPlanStatus === 'approved') {
+    await assertRadiationPrivilege(tenantId, context, 'radiotherapy_plan_approval');
+  }
   return setTenantTx(tenantId, async (tx) => {
     const planRef = await planRefById(tx, tenantId, planRefId, { lock: true });
     const target = validatePlanTransition(planRef.plan_status, input.plan_status || input.planStatus || input.status);
@@ -814,6 +837,11 @@ export async function scheduleFraction(planRefId, input = {}, context = {}) {
 export async function transitionFractionStatus(fractionId, input = {}, context = {}) {
   const tenantId = tenantOr(input.tenantId);
   await assertCoordinationEnabled(tenantId);
+  // Attesting a fraction as delivered is a credential-gated radiation act.
+  const requestedFractionStatus = String(input.status || '').trim().toLowerCase();
+  if (requestedFractionStatus === 'delivered') {
+    await assertRadiationPrivilege(tenantId, context, 'radiotherapy_fraction_delivery');
+  }
   return setTenantTx(tenantId, async (tx) => {
     const fraction = await fractionById(tx, tenantId, fractionId, { lock: true });
     const target = validateFractionTransition(fraction.status, input.status);
@@ -981,14 +1009,8 @@ export async function transitionNuclearOrderStatus(orderId, input = {}, context 
 export async function recordRadioisotopeAdministration(orderId, input = {}, context = {}) {
   const tenantId = tenantOr(input.tenantId);
   await assertCoordinationEnabled(tenantId);
-  const gate = radiationPrivilegeGateConfig();
-  await assertPrivilegeForGate({
-    staffUid: context.actorUid,
-    privilegeName: gate.key,
-    tenantId,
-    gate: 'radioisotope_administration',
-    enabled: gate.enabled,
-  });
+  await assertRadiationPrivilege(tenantId, context, 'radioisotope_administration');
+  const gate = radiationPrivilegeGateConfig(); // canonical payload records the configured gate state
   return setTenantTx(tenantId, async (tx) => {
     const order = await nuclearOrderById(tx, tenantId, orderId, { lock: true });
     if (!cleanText(order.radiopharmaceutical_ref) && !cleanText(order.isotope_ref) && !cleanText(input.radiopharmaceutical_ref || input.radiopharmaceuticalRef)) {
