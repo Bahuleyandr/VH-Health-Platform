@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import http from 'node:http';
-import { Agent } from 'undici';
+import { Agent, fetch as undiciFetch } from 'undici';
 
 // M17 (audit 2026-06-22): close the SSRF DNS-rebind TOCTOU. The old guard
 // validated a hostname's resolved IPs, then the caller's fetch() re-resolved
@@ -24,6 +24,7 @@ const {
   buildPinnedDispatcher,
   safeFetch,
   isBlockedAddress,
+  _transport,
 } = await import('../../utils/ssrfGuard.js');
 
 const PUBLIC_V4 = '93.184.216.34'; // example.com — publicly routable
@@ -150,7 +151,7 @@ describe('the connection goes to the pinned IP, not DNS', () => {
       ? cb(null, [{ address: '127.0.0.1', family: 4 }])
       : cb(null, '127.0.0.1', 4));
     const agent = new Agent({ connect: { lookup: rawLookup } });
-    const res = await fetch(`http://nonexistent-rebind-target.invalid:${port}/x`, { dispatcher: agent });
+    const res = await undiciFetch(`http://nonexistent-rebind-target.invalid:${port}/x`, { dispatcher: agent });
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('pinned-ok');
     // SNI/Host stays the original hostname (so HTTPS cert validation is intact).
@@ -162,7 +163,7 @@ describe('the connection goes to the pinned IP, not DNS', () => {
 describe('safeFetch — validates then pins the dispatcher', () => {
   it('passes a pinned dispatcher to fetch for a DNS host', async () => {
     lookupMock.mockResolvedValueOnce([{ address: PUBLIC_V4, family: 4 }]);
-    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = jest.spyOn(_transport, 'fetch').mockResolvedValue({ ok: true, status: 200 });
     try {
       await safeFetch('https://feed.example.com/push', { method: 'POST', body: 'x' });
       expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -176,7 +177,7 @@ describe('safeFetch — validates then pins the dispatcher', () => {
   });
 
   it('does NOT attach a dispatcher for an IP-literal host (no DNS to rebind)', async () => {
-    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = jest.spyOn(_transport, 'fetch').mockResolvedValue({ ok: true, status: 200 });
     try {
       await safeFetch(`https://${PUBLIC_V4}/x`, {});
       const [, init] = fetchSpy.mock.calls[0];
@@ -189,7 +190,7 @@ describe('safeFetch — validates then pins the dispatcher', () => {
 
   it('rejects an unsafe URL with SSRF_BLOCKED before any fetch', async () => {
     lookupMock.mockResolvedValueOnce([{ address: '10.1.2.3', family: 4 }]);
-    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = jest.spyOn(_transport, 'fetch').mockResolvedValue({ ok: true, status: 200 });
     try {
       await expect(safeFetch('https://internal.example.com/')).rejects.toMatchObject({ code: 'SSRF_BLOCKED' });
       expect(fetchSpy).not.toHaveBeenCalled();

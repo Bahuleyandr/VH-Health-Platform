@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 
-ARG NODE_IMAGE=node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
+ARG NODE_IMAGE=node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66
 
 # ---- Dependencies Stage ----
 FROM ${NODE_IMAGE} AS deps

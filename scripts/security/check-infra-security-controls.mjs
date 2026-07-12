@@ -51,9 +51,9 @@ check('admin Dockerfile does not persist SENTRY_AUTH_TOKEN as ARG/ENV', () =>
   !/^ENV SENTRY_AUTH_TOKEN=/m.test(adminDockerfile));
 
 check('release Dockerfiles use digest-pinned base image defaults', () =>
-  new RegExp(`^ARG NODE_IMAGE=node:22-alpine${sha256Digest}$`, 'm').test(backendDockerfile) &&
-  new RegExp(`^ARG NODE_IMAGE=node:22-alpine${sha256Digest}$`, 'm').test(adminDockerfile) &&
-  new RegExp(`^ARG FLUTTER_IMAGE=ghcr\\.io/cirruslabs/flutter:3\\.41\\.7${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  new RegExp(`^ARG NODE_IMAGE=node:26\.5\.0-alpine${sha256Digest}$`, 'm').test(backendDockerfile) &&
+  new RegExp(`^ARG NODE_IMAGE=node:26\.5\.0-alpine${sha256Digest}$`, 'm').test(adminDockerfile) &&
+  new RegExp(`^ARG FLUTTER_IMAGE=ghcr\\.io/cirruslabs/flutter:3\\.44\\.0${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
   new RegExp(`^ARG NGINX_IMAGE=nginx:1\\.27-alpine${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
   !/^FROM (node|nginx|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
 

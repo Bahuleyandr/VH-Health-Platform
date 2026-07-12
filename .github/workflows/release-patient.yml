@@ -41,7 +41,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           # Pinned to the workspace toolchain (_reusable-flutter-workspace.yml + ci.yml) — bump all together.
-          flutter-version: 3.41.9
+          flutter-version: 3.44.0
           cache: true
 
       - name: Activate Melos
