@@ -21,8 +21,16 @@
 
 import dns from 'node:dns/promises';
 import net from 'node:net';
-import { Agent } from 'undici';
+// Agent AND fetch must come from the SAME undici — mixing the npm package's
+// Agent with Node's internal fetch broke on Node 26 ("invalid onError
+// method": the bundled undici moved to a new dispatcher-handler contract).
+// undici is now a direct dependency; never rely on the global fetch here.
+import { Agent, fetch as undiciFetch } from 'undici';
 import { AppError } from './AppError.js';
+
+// Test seam: unit suites stub the transport here instead of patching
+// globalThis.fetch (which safeFetch deliberately does not use).
+export const _transport = { fetch: undiciFetch };
 
 function ipv4ToInt(ip) {
   const parts = ip.split('.').map((p) => Number.parseInt(p, 10));
@@ -317,7 +325,7 @@ export async function safeFetch(rawUrl, fetchOptions = {}, guardOptions = {}) {
 
     let response;
     try {
-      response = await fetch(url, perHop);
+      response = await _transport.fetch(url, perHop);
     } catch (err) {
       if (agent) agent.close().catch(() => agent.destroy().catch(() => {}));
       throw err;

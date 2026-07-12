@@ -150,7 +150,7 @@ jobs:
           provenance: true
           sbom: true
           build-args: |
-            NODE_IMAGE=node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
+            NODE_IMAGE=node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66
 
       - name: Prune local Docker cache before release analysis
         run: |
@@ -243,6 +243,23 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${IMAGE}@${DIGEST}"
           echo "cosign verify passed for ${IMAGE}@${DIGEST}"
+
+      # Audit finding #20: persist the just-built digest so the digest-pin
+      # workflow pins exactly this image instead of re-resolving the mutable
+      # tag. Runs only after cosign sign + verify succeeded.
+      - name: Publish build-emitted image ref (digest-pin provenance)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.images.outputs.backend }}
+        run: |
+          mkdir -p output/image-ref
+          printf '%s@%s\n' "$IMAGE" "$DIGEST" > output/image-ref/image-ref.txt
+
+      - name: Upload build-emitted image ref
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-ref-backend-${{ github.ref_name }}
+          path: output/image-ref/image-ref.txt
 
       - name: Write build summary
         if: always()
@@ -443,6 +460,23 @@ jobs:
             "${IMAGE}@${DIGEST}"
           echo "cosign verify passed for ${IMAGE}@${DIGEST}"
 
+      # Audit finding #20: persist the just-built digest so the digest-pin
+      # workflow pins exactly this image instead of re-resolving the mutable
+      # tag. Runs only after cosign sign + verify succeeded.
+      - name: Publish build-emitted image ref (digest-pin provenance)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.images.outputs.admin }}
+        run: |
+          mkdir -p output/image-ref
+          printf '%s@%s\n' "$IMAGE" "$DIGEST" > output/image-ref/image-ref.txt
+
+      - name: Upload build-emitted image ref
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-ref-admin-${{ github.ref_name }}
+          path: output/image-ref/image-ref.txt
+
       - name: Write build summary
         if: always()
         env:
@@ -630,6 +664,23 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${IMAGE}@${DIGEST}"
           echo "cosign verify passed for ${IMAGE}@${DIGEST}"
+
+      # Audit finding #20: persist the just-built digest so the digest-pin
+      # workflow pins exactly this image instead of re-resolving the mutable
+      # tag. Runs only after cosign sign + verify succeeded.
+      - name: Publish build-emitted image ref (digest-pin provenance)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.images.outputs.staff_web }}
+        run: |
+          mkdir -p output/image-ref
+          printf '%s@%s\n' "$IMAGE" "$DIGEST" > output/image-ref/image-ref.txt
+
+      - name: Upload build-emitted image ref
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-ref-staff-web-${{ github.ref_name }}
+          path: output/image-ref/image-ref.txt
 
       - name: Write build summary
         if: always()

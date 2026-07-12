@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 25
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_USER: postgres
           # Trust auth, like every other CI service container in this repo —
@@ -47,7 +47,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '26.5.0'
           cache: npm
           cache-dependency-path: apps/backend/package-lock.json
 
