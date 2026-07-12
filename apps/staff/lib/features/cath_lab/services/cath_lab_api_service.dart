@@ -329,6 +329,8 @@ class CathLabApiService {
       throw Exception('Cath Lab consumable usage response was malformed');
     }
     return CathCaseConsumableUsage.fromJson(Map<String, dynamic>.from(raw));
+  }
+
   static Future<CathCaseQuickWins> fetchCaseQuickWins(int caseId) async {
     final response = await ApiClient.get('/cath-lab/cases/$caseId/quick-wins');
     final data = _successfulData(
