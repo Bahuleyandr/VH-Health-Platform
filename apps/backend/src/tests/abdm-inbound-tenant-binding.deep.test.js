@@ -16,6 +16,7 @@
 // covered by abdm-callback-replay-and-ratelimit; here we isolate the tenant
 // binding). Needs the test Postgres. Self-skips when unconfigured.
 
+import crypto from 'crypto';
 import prisma from '../lib/prisma.js';
 import abdmService from '../services/abdm/abdmService.js';
 
@@ -31,11 +32,52 @@ const ABHA_DUP = '22-2222-2222-2222';       // in BOTH tenant B and C
 const PHONE_B = '+919000010b01';
 const PHONE_C = '+919000010c01';
 const CONSENT_ID = 'ab100000-consent-0000-0000-00000000c1';
+const SIGNED_CONSENT_ID = 'ab100000-signed-consent-0000-00000000c1';
 const TXN_ID = 'ab100000-txn-0000-0000-00000000f1';
+const SIGNED_ARTEFACT = {
+  schemaVersion: '1.0',
+  consentId: SIGNED_CONSENT_ID,
+  patient: { id: ABHA_UNIQUE },
+  hip: { id: 'HIP-DEEP' },
+  hiu: { id: 'HIU-DEEP' },
+  consentManager: { id: 'CM-DEEP' },
+  requester: { name: 'Deep Test HIU' },
+  purpose: { code: 'CAREMGT' },
+  hiTypes: ['DiagnosticReport', 'Prescription'],
+  permission: {
+    dateRange: {
+      from: '2026-01-01T00:00:00.000Z',
+      to: '2026-12-31T23:59:59.000Z',
+    },
+    dataEraseAt: '2099-01-31T00:00:00.000Z',
+  },
+};
+const SIGNED_ARTEFACT_JSON = JSON.stringify(SIGNED_ARTEFACT);
+const SIGNED_ARTEFACT_HASH = crypto.createHash('sha256').update(SIGNED_ARTEFACT_JSON).digest('hex');
+const KEYPAIR = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+function restoreEnv(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+function signArtefact(payload) {
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(payload);
+  signer.end();
+  return signer.sign(KEYPAIR.privateKey).toString('base64');
+}
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(`DELETE FROM abdm_data_requests WHERE transaction_id = $1`, TXN_ID).catch(() => {});
-  await prisma.$executeRawUnsafe(`DELETE FROM abdm_consents WHERE consent_id IN ($1, $2)`, CONSENT_ID, `${CONSENT_ID}-dup`).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM abdm_consents WHERE consent_id IN ($1, $2, $3)`,
+    CONSENT_ID, `${CONSENT_ID}-dup`, SIGNED_CONSENT_ID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM interop_replay_guard WHERE namespace = $1 AND request_id = $2`,
+    'abdm-consent-artefact-sha256', SIGNED_ARTEFACT_HASH,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid)`, PATIENT_B, PATIENT_C).catch(() => {});
   // PATIENT_B/C have fixed uids, but the second duplicate-ABHA patient ("B2") is
   // inserted with a RANDOM uid + a fixed phone, so a uid-only delete leaks it
@@ -92,26 +134,34 @@ d('ABDM inbound tenant binding (C-4)', () => {
   }, 30000);
 
   test('consent request binds to the patient tenant (not the default)', async () => {
-    const consent = await abdmService.handleConsentRequest({
-      consentRequestId: CONSENT_ID,
-      purpose: 'CAREMGT',
-      hiTypes: ['Prescription'],
-      patient: { id: ABHA_UNIQUE },
-      hiu: { id: 'HIU-TEST' },
-      requester: { name: 'Test HIU' },
-      dateRange: { from: '2026-01-01', to: '2026-12-31' },
-      expiry: '2027-01-01',
-    });
+    const previousVerification = process.env.ABDM_VERIFY_CONSENT_ARTEFACT;
+    process.env.ABDM_VERIFY_CONSENT_ARTEFACT = 'false';
+    let consent;
+    try {
+      consent = await abdmService.handleConsentRequest({
+        consentRequestId: CONSENT_ID,
+        purpose: 'CAREMGT',
+        hiTypes: ['Prescription'],
+        patient: { id: ABHA_UNIQUE },
+        hiu: { id: 'HIU-TEST' },
+        requester: { name: 'Test HIU' },
+        dateRange: { from: '2026-01-01', to: '2026-12-31' },
+        expiry: '2027-01-01',
+      });
+    } finally {
+      restoreEnv('ABDM_VERIFY_CONSENT_ARTEFACT', previousVerification);
+    }
     expect(consent.consent_id).toBe(CONSENT_ID);
 
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT tenant_id::text AS tenant_id, patient_uid::text AS patient_uid
+      `SELECT tenant_id::text AS tenant_id, patient_uid::text AS patient_uid, consent_artifact
          FROM abdm_consents WHERE consent_id = $1`,
       CONSENT_ID,
     );
     expect(rows.length).toBe(1);
     expect(rows[0].tenant_id).toBe(TENANT_B);
     expect(rows[0].patient_uid).toBe(PATIENT_B);
+    expect(rows[0].consent_artifact).toBeNull();
   });
 
   test('a multi-tenant ABHA match is rejected deterministically (no default-tenant pick)', async () => {
@@ -133,6 +183,162 @@ d('ABDM inbound tenant binding (C-4)', () => {
       `${CONSENT_ID}-dup`,
     );
     expect(rows[0].n).toBe(0); // nothing written for the ambiguous match
+  });
+
+  test('verified artefact hash is persisted and the same artefact cannot be reused', async () => {
+    const savedVerification = process.env.ABDM_VERIFY_CONSENT_ARTEFACT;
+    const savedPublicKey = process.env.ABDM_CM_PUBLIC_KEY;
+    const savedCmId = process.env.ABDM_CM_ID;
+    process.env.ABDM_VERIFY_CONSENT_ARTEFACT = 'true';
+    process.env.ABDM_CM_PUBLIC_KEY = KEYPAIR.publicKey.export({ type: 'spki', format: 'pem' });
+    process.env.ABDM_CM_ID = 'CM-DEEP';
+
+    const request = {
+      consentRequestId: SIGNED_CONSENT_ID,
+      purpose: 'CAREMGT',
+      hiTypes: ['Prescription', 'DiagnosticReport'],
+      patient: { id: ABHA_UNIQUE },
+      hip: { id: 'HIP-DEEP' },
+      authenticatedHipId: 'HIP-DEEP',
+      hiu: { id: 'HIU-DEEP' },
+      consentManager: { id: 'CM-DEEP' },
+      requester: { name: 'Deep Test HIU' },
+      dateRange: { ...SIGNED_ARTEFACT.permission.dateRange },
+      expiry: SIGNED_ARTEFACT.permission.dataEraseAt,
+      consentArtefact: SIGNED_ARTEFACT,
+      signature: signArtefact(SIGNED_ARTEFACT_JSON),
+    };
+
+    try {
+      const attempts = await Promise.allSettled([
+        abdmService.handleConsentRequest(request),
+        abdmService.handleConsentRequest(request),
+      ]);
+      const accepted = attempts.filter((attempt) => attempt.status === 'fulfilled');
+      const rejected = attempts.filter((attempt) => attempt.status === 'rejected');
+      expect(accepted).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason).toMatchObject({
+        statusCode: 409,
+        code: 'ABDM_CONSENT_ARTEFACT_REUSED',
+      });
+
+      const consent = accepted[0].value;
+      expect(consent.consent_id).toBe(SIGNED_CONSENT_ID);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT tenant_id::text AS tenant_id, patient_uid::text AS patient_uid,
+                hip_id, hiu_id, purpose, hi_types, date_range_from, date_range_to,
+                expiry_date, consent_artifact
+           FROM abdm_consents WHERE consent_id = $1`,
+        SIGNED_CONSENT_ID,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        tenant_id: TENANT_B,
+        patient_uid: PATIENT_B,
+        hip_id: 'HIP-DEEP',
+        hiu_id: 'HIU-DEEP',
+        purpose: 'CAREMGT',
+        hi_types: ['DiagnosticReport', 'Prescription'],
+        consent_artifact: {
+          verification: {
+            signatureVerified: true,
+            artefactHash: SIGNED_ARTEFACT_HASH,
+            patientAbha: ABHA_UNIQUE,
+            consentManagerId: 'CM-DEEP',
+          },
+        },
+      });
+      expect(rows[0].date_range_from.toISOString()).toBe('2026-01-01T00:00:00.000Z');
+      expect(rows[0].date_range_to.toISOString()).toBe('2026-12-31T23:59:59.000Z');
+      expect(rows[0].expiry_date.toISOString()).toBe('2099-01-31T00:00:00.000Z');
+
+      const counts = await prisma.$queryRawUnsafe(
+        `SELECT
+           (SELECT count(*)::int FROM abdm_consents WHERE consent_id = $1) AS consent_count,
+           (SELECT count(*)::int FROM interop_replay_guard
+             WHERE namespace = $2 AND request_id = $3) AS claim_count`,
+        SIGNED_CONSENT_ID,
+        'abdm-consent-artefact-sha256',
+        SIGNED_ARTEFACT_HASH,
+      );
+      expect(counts[0]).toEqual({ consent_count: 1, claim_count: 1 });
+
+      const granted = await abdmService.grantConsent(SIGNED_CONSENT_ID, PATIENT_B);
+      expect(granted.consent_artifact).toMatchObject({
+        consentId: SIGNED_CONSENT_ID,
+        patient: { id: ABHA_UNIQUE },
+        consentManager: { id: 'CM-DEEP' },
+      });
+      expect(granted.consent_artifact).not.toHaveProperty('verifiedArtefactHash');
+
+      const durableEvidence = await prisma.$queryRawUnsafe(
+        `SELECT consent_artifact FROM abdm_consents WHERE consent_id = $1`,
+        SIGNED_CONSENT_ID,
+      );
+      expect(durableEvidence[0].consent_artifact).toMatchObject({
+        verification: {
+          artefactHash: SIGNED_ARTEFACT_HASH,
+          patientAbha: ABHA_UNIQUE,
+          consentManagerId: 'CM-DEEP',
+        },
+        grantedPayload: { consentId: SIGNED_CONSENT_ID },
+      });
+    } finally {
+      restoreEnv('ABDM_VERIFY_CONSENT_ARTEFACT', savedVerification);
+      restoreEnv('ABDM_CM_PUBLIC_KEY', savedPublicKey);
+      restoreEnv('ABDM_CM_ID', savedCmId);
+    }
+  });
+
+  test('a failed consent insert rolls back its artefact hash claim', async () => {
+    const savedVerification = process.env.ABDM_VERIFY_CONSENT_ARTEFACT;
+    const savedPublicKey = process.env.ABDM_CM_PUBLIC_KEY;
+    const savedCmId = process.env.ABDM_CM_ID;
+    process.env.ABDM_VERIFY_CONSENT_ARTEFACT = 'true';
+    process.env.ABDM_CM_PUBLIC_KEY = KEYPAIR.publicKey.export({ type: 'spki', format: 'pem' });
+    process.env.ABDM_CM_ID = 'CM-DEEP';
+
+    const overlongConsentId = 'c'.repeat(101);
+    const artefact = { ...SIGNED_ARTEFACT, consentId: overlongConsentId };
+    const serialized = JSON.stringify(artefact);
+    const hash = crypto.createHash('sha256').update(serialized).digest('hex');
+
+    try {
+      await expect(abdmService.handleConsentRequest({
+        consentRequestId: overlongConsentId,
+        purpose: 'CAREMGT',
+        hiTypes: ['DiagnosticReport', 'Prescription'],
+        patient: { id: ABHA_UNIQUE },
+        hip: { id: 'HIP-DEEP' },
+        authenticatedHipId: 'HIP-DEEP',
+        hiu: { id: 'HIU-DEEP' },
+        consentManager: { id: 'CM-DEEP' },
+        requester: { name: 'Deep Test HIU' },
+        dateRange: { ...artefact.permission.dateRange },
+        expiry: artefact.permission.dataEraseAt,
+        consentArtefact: artefact,
+        signature: signArtefact(serialized),
+      })).rejects.toBeDefined();
+
+      const claims = await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS n FROM interop_replay_guard
+          WHERE namespace = $1 AND request_id = $2`,
+        'abdm-consent-artefact-sha256',
+        hash,
+      );
+      expect(claims[0].n).toBe(0);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM interop_replay_guard WHERE namespace = $1 AND request_id = $2`,
+        'abdm-consent-artefact-sha256',
+        hash,
+      ).catch(() => {});
+      restoreEnv('ABDM_VERIFY_CONSENT_ARTEFACT', savedVerification);
+      restoreEnv('ABDM_CM_PUBLIC_KEY', savedPublicKey);
+      restoreEnv('ABDM_CM_ID', savedCmId);
+    }
   });
 
   test('data request + collected bundle bind to the consent tenant', async () => {
