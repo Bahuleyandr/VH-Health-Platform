@@ -351,7 +351,38 @@ jobs:
           mv /tmp/vh-release-tools/cosign-linux-amd64 /tmp/vh-release-tools/cosign
           chmod 0755 /tmp/vh-release-tools/cosign
 
-      - name: Resolve digest and update overlay
+      # Audit finding #20: the pinned digest must be the one THIS run's build
+      # job emitted (threaded through the release-image artifact) — never a
+      # fresh resolution of the mutable tag, which would permit pinning any
+      # previously-signed image. The script still resolves the tag, but only
+      # as a cross-check that it agrees with the build-emitted digest.
+      - name: Resolve release app from tag
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF_NAME" in
+            backend-v*) echo "RELEASE_APP=backend" >> "$GITHUB_ENV" ;;
+            admin-v*) echo "RELEASE_APP=admin" >> "$GITHUB_ENV" ;;
+            staff-web-v*) echo "RELEASE_APP=staff-web" >> "$GITHUB_ENV" ;;
+            *) echo "::error::unexpected release ref ${GITHUB_REF_NAME}"; exit 1 ;;
+          esac
+
+      - name: Download build-emitted image ref
+        uses: https://data.forgejo.org/actions/download-artifact@v3
+        with:
+          name: release-image-${{ env.RELEASE_APP }}-${{ github.ref_name }}
+          path: output/release-artifact
+
+      - name: Locate build-emitted image ref
+        run: |
+          set -euo pipefail
+          ref_file="$(find output/release-artifact -name image-ref.txt -type f | head -n 1)"
+          if [ -z "$ref_file" ]; then
+            echo "::error::image-ref.txt not found in the release-image artifact — cannot prove the digest came from this run (audit finding #20)"
+            exit 1
+          fi
+          echo "IMAGE_REF_FILE=$ref_file" >> "$GITHUB_ENV"
+
+      - name: Pin build-emitted digest and update overlay
         run: |
           set -euo pipefail
           if [ -z "${GHCR_TOKEN:-}" ] && [ -n "${CONTAINER_REGISTRY_PASSWORD:-}" ]; then
@@ -363,6 +394,7 @@ jobs:
           node scripts/update-prod-digests.mjs \
             --cosign-exe /tmp/vh-release-tools/cosign \
             --tag "$GITHUB_REF_NAME" \
+            --expected-digest-file "$IMAGE_REF_FILE" \
             --evidence-file "output/release-pin-digests/${GITHUB_REF_NAME}.json"
 
       - name: Commit digest bump

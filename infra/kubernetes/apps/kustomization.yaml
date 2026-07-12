@@ -22,15 +22,24 @@ resources:
 # The Deployments in this tree ship `:0.0.0-placeholder` / mutable tags; the
 # cluster MUST deploy immutable @sha256 digests (matching the already-pinned
 # platform images). These digests are WRITTEN BY AUTOMATION:
-#   - scripts/update-prod-digests.mjs resolves a released tag to its digest,
-#     verifies the signed image ref with cosign, and rewrites this block only
-#     after verification passes;
+#   - scripts/update-prod-digests.mjs pins the digest the release build job
+#     emitted (threaded via --expected-digest / --expected-digest-file),
+#     cross-checks that the tag still resolves to that exact digest, verifies
+#     the signed ref with cosign, and only then rewrites this block. It
+#     REFUSES mutable-tag re-resolution for this tree (audit finding #20 —
+#     a rebindable tag would permit pinning any previously-signed image);
 #   - .forgejo/workflows/release-images.yml runs it after every signed
-#     backend-v* / admin-v* / staff-web-v* release; .forgejo/workflows/
-#     release-pin-digests.yml is the manual repair path. Both commit the bump
-#     (GitOps write-back), which the ArgoCD `apps` Application then syncs.
+#     backend-v* / admin-v* / staff-web-v* release with that run's
+#     image-ref.txt artifact; .forgejo/workflows/release-pin-digests.yml is
+#     the manual repair path (operator supplies the build-emitted digest).
+#     Both commit the bump (GitOps write-back), which the ArgoCD `apps`
+#     Application then syncs.
 # OPERATOR: before the first sync after this change, run
-#   COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs --tag backend-vX.Y.Z --tag admin-vX.Y.Z --tag staff-web-vX.Y.Z
+#   COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs \
+#     --tag backend-vX.Y.Z --expected-digest sha256:<from that release run> \
+#     --tag admin-vX.Y.Z --expected-digest sha256:<...> \
+#     --tag staff-web-vX.Y.Z --expected-digest sha256:<...>
+# (each digest from its release run's image-ref.txt artifact / summary)
 # to replace the placeholders with the currently-deployed releases.
 # An all-zeros digest is an intentional FAIL-CLOSED placeholder — pods cannot
 # pull it, so an unpinned tree can never silently deploy a mutable tag.

@@ -58,8 +58,13 @@ jobs:
           COSIGN_CERTIFICATE_IDENTITY_REGEXP: '^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$'
           COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
         run: |
+          # Staging overlay only: already-released tags are resolved at pin
+          # time (cosign-verified). The script refuses --allow-tag-resolution
+          # for the prod tree (audit finding #20) — prod pins require the
+          # build-emitted digest from the release run.
           node scripts/update-prod-digests.mjs \
             --kustomization infra/kubernetes/overlays/staging/apps/kustomization.yaml \
+            --allow-tag-resolution \
             --tag "${BACKEND_TAG}" \
             --tag "${ADMIN_TAG}" \
             --tag "${STAFF_WEB_TAG}" \

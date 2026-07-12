@@ -6,6 +6,12 @@ on:
       release_tag:
         description: 'Image release tag, for example backend-v1.2.3'
         required: true
+      # Audit finding #20: repair pins must also be the digest the original
+      # release build emitted — take it from that run's image-ref.txt artifact
+      # or release summary. The script refuses to pin anything else.
+      expected_digest:
+        description: 'Build-emitted digest for that tag (sha256:<hex> or full image@sha256:<hex>)'
+        required: true
 
 permissions:
   contents: write
@@ -48,7 +54,9 @@ jobs:
           mv /tmp/vh-release-tools/cosign-linux-amd64 /tmp/vh-release-tools/cosign
           chmod 0755 /tmp/vh-release-tools/cosign
 
-      - name: Resolve digest and update overlay
+      - name: Pin build-emitted digest and update overlay
+        env:
+          EXPECTED_DIGEST: ${{ inputs.expected_digest }}
         run: |
           set -euo pipefail
           case "${{ inputs.release_tag }}" in
@@ -64,6 +72,7 @@ jobs:
           node scripts/update-prod-digests.mjs \
             --cosign-exe /tmp/vh-release-tools/cosign \
             --tag "${{ inputs.release_tag }}" \
+            --expected-digest "$EXPECTED_DIGEST" \
             --evidence-file "output/release-pin-digests/${{ inputs.release_tag }}.json"
 
       - name: Commit digest bump
