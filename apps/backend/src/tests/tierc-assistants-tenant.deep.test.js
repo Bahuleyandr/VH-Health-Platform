@@ -40,19 +40,37 @@ const STAMP = String(Date.now() % 100000).padStart(5, '0');
 
 let admA;
 let admB;
+let encA;
 let rxA;
 let rxB;
+let orderActiveId;
+let orderDoneId;
 const createdInvestigations = [];
 const createdFallRisks = [];
+const createdNotes = [];
+const createdVitals = [];
+const createdIo = [];
 
 async function seedAdmission(tenantId, diagnosis) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO admissions (tenant_id, patient_uid, ward, bed_number, status,
                              admitted_at, admitting_diagnosis, updated_at)
      VALUES ($1::uuid, $2::uuid, 'T38 Ward', $3, 'admitted', NOW(), $4, NOW())
-     RETURNING id`,
+     RETURNING id, encounter_id`,
     tenantId, PATIENT, `T38-${STAMP}`, diagnosis,
   );
+  return rows[0];
+}
+
+async function seedNote(tenantId, encounterId, text) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_notes (tenant_id, encounter_id, patient_uid, note_type,
+                                 author_role, content)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, 'progress', 'DOCTOR', $4::jsonb)
+     RETURNING id`,
+    tenantId, encounterId, PATIENT, JSON.stringify({ text }),
+  );
+  createdNotes.push(rows[0].id);
   return rows[0].id;
 }
 
@@ -75,10 +93,56 @@ beforeAll(async () => {
      VALUES ($1::uuid, '9000038${STAMP.slice(-3)}', 'TierC sweep patient', 'PATIENT', true, NOW())
      ON CONFLICT (uid) DO NOTHING`, PATIENT);
 
-  admA = await seedAdmission(TENANT_A, `T38A dx ${STAMP}`);
-  admB = await seedAdmission(TENANT_B, `T38B dx ${STAMP}`);
+  const a = await seedAdmission(TENANT_A, `T38A dx ${STAMP}`);
+  admA = a.id;
+  encA = a.encounter_id;
+  admB = (await seedAdmission(TENANT_B, `T38B dx ${STAMP}`)).id;
   rxA = await seedPrescription(TENANT_A, `TSWEEP-A-MED-${STAMP}`);
   rxB = await seedPrescription(TENANT_B, `TSWEEP-B-MED-${STAMP}`);
+
+  // Children on tenant A's encounter. The second note shares the SAME
+  // encounter but is stamped tenant B — it must never surface for A (the
+  // child queries' own tenant predicate, not the entry gate, filters it).
+  await seedNote(TENANT_A, encA, `TSWEEP-NOTE-A-${STAMP}`);
+  await seedNote(TENANT_B, encA, `TSWEEP-NOTE-XB-${STAMP}`);
+
+  const vit = await prisma.$queryRawUnsafe(
+    `INSERT INTO vitals_chart (tenant_id, patient_uid, encounter_uid, heart_rate,
+                               systolic_bp, diastolic_bp, spo2, temperature,
+                               respiratory_rate, recorded_at)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, 88, 118, 76, 97, 37.5, 16, NOW())
+     RETURNING id`,
+    TENANT_A, PATIENT, encA,
+  );
+  createdVitals.push(vit[0].id);
+
+  const ordA = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_orders (tenant_id, encounter_id, patient_uid, order_number,
+                                  order_type, priority, details, status)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'lab', 'routine', '{}'::jsonb, 'ordered')
+     RETURNING id`,
+    TENANT_A, encA, PATIENT, `ORD-T38-${STAMP}-1`,
+  );
+  orderActiveId = ordA[0].id;
+  const ordDone = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_orders (tenant_id, encounter_id, patient_uid, order_number,
+                                  order_type, priority, details, status)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'lab', 'routine', '{}'::jsonb, 'completed')
+     RETURNING id`,
+    TENANT_A, encA, PATIENT, `ORD-T38-${STAMP}-2`,
+  );
+  orderDoneId = ordDone[0].id;
+
+  for (const [ioType, category, ml] of [['intake', 'oral', 250], ['output', 'urine', 100]]) {
+    const io = await prisma.$queryRawUnsafe(
+      `INSERT INTO intake_output (tenant_id, patient_uid, encounter_uid, io_type,
+                                  category, amount_ml, recorded_at, recorded_by)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::numeric, NOW(), $2::uuid)
+       RETURNING id`,
+      TENANT_A, PATIENT, encA, ioType, category, ml,
+    );
+    createdIo.push(io[0].id);
+  }
 
   // Fall-risk assessments exist ONLY in tenant A for this patient.
   const fr = await prisma.$queryRawUnsafe(
@@ -103,6 +167,18 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  for (const id of createdIo) {
+    await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE id = $1::int`, id).catch(() => {});
+  }
+  for (const id of [orderActiveId, orderDoneId].filter(Boolean)) {
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE id = $1::int`, id).catch(() => {});
+  }
+  for (const id of createdVitals) {
+    await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE id = $1::int`, id).catch(() => {});
+  }
+  for (const id of createdNotes) {
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_notes WHERE id = $1::int`, id).catch(() => {});
+  }
   for (const id of createdInvestigations) {
     await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE id = $1::int`, id).catch(() => {});
   }
@@ -163,12 +239,50 @@ describe('Tier C admissions-by-id entry queries (Sol Ultra #38)', () => {
     await expect(generateIntakeOutputSummary({ tenantId: TENANT_A, admissionId: admB }))
       .rejects.toMatchObject({ statusCode: 404, message: 'Admission not found' });
     // In-tenant: the admission resolves; the failure moves PAST the entry
-    // gate to the (admission-keyed legacy) intake_output read.
+    // gate to the I/O read (tenant B's encounter has no I/O rows seeded).
     await expect(generateIntakeOutputSummary({ tenantId: TENANT_B, admissionId: admB }))
       .rejects.toMatchObject({
         statusCode: 404,
         message: 'No intake_output rows found for the specified day',
       });
+  });
+});
+
+describe('Tier C child reads — encounter-keyed + tenant-scoped', () => {
+  it('clinic letter: notes come from the admission encounter, tenant-filtered', async () => {
+    await generateClinicLetterDraft({ tenantId: TENANT_A, admissionId: admA });
+    const texts = runExplainerPipeline.mock.calls[0][0].userPromptPayload.recent_notes
+      .map((n) => n.text);
+    expect(texts).toContain(`TSWEEP-NOTE-A-${STAMP}`);
+    // Same encounter, other tenant: the child's own tenant predicate hides it.
+    expect(texts).not.toContain(`TSWEEP-NOTE-XB-${STAMP}`);
+  });
+
+  it('ICU round: vitals, overnight notes, and active orders resurface', async () => {
+    await generateIcuRoundSummary({ tenantId: TENANT_A, admissionId: admA });
+    const payload = runExplainerPipeline.mock.calls[0][0].userPromptPayload;
+
+    const ourVital = payload.recent_vitals.find((v) => Number(v.heart_rate) === 88);
+    expect(ourVital).toBeTruthy();
+    expect(Number(ourVital.temperature_c)).toBe(37.5);
+
+    const noteTexts = payload.overnight_notes.map((n) => n.text);
+    expect(noteTexts).toContain(`TSWEEP-NOTE-A-${STAMP}`);
+    expect(noteTexts).not.toContain(`TSWEEP-NOTE-XB-${STAMP}`);
+
+    const orderIds = payload.active_orders.map((o) => o.id);
+    expect(orderIds).toContain(orderActiveId);
+    expect(orderIds).not.toContain(orderDoneId);
+  });
+
+  it('intake/output summary: totals compute from the encounter I/O rows', async () => {
+    const result = await generateIntakeOutputSummary({ tenantId: TENANT_A, admissionId: admA });
+    expect(result.__mock).toBe(true);
+    const payload = runExplainerPipeline.mock.calls[0][0].userPromptPayload;
+    expect(payload.intake_total_ml).toBe(250);
+    expect(payload.output_total_ml).toBe(100);
+    expect(payload.net_balance_ml).toBe(150);
+    expect(payload.entries).toHaveLength(2);
   });
 });
 

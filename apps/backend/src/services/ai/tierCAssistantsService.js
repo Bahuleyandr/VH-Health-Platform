@@ -136,7 +136,8 @@ export async function generateClinicLetterDraft({
   const admId = normalizeId(admissionId, 'admission_id');
   const tid = requireTenantId(tenantId);
   const adm = (await safeQuery(
-    `SELECT id, patient_uid, admitted_at AS admission_date, discharged_at AS discharge_date,
+    `SELECT id, patient_uid, encounter_id, admitted_at AS admission_date,
+            discharged_at AS discharge_date,
             admitting_diagnosis AS primary_diagnosis, NULL::text AS secondary_diagnoses,
             discharge_summary
      FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
@@ -144,11 +145,17 @@ export async function generateClinicLetterDraft({
   ))[0];
   if (!adm) throw AppError.notFound('Admission not found');
 
-  const notes = await safeQuery(
-    `SELECT id, note_text, note_type, author_role, created_at
-     FROM clinical_notes WHERE admission_id = $1
+  // Notes are keyed by the admission's encounter UUID; note text lives in the
+  // legacy `notes` column or the content JSON — same extraction idiom as
+  // dischargeService body_text.
+  const notes = !adm.encounter_id ? [] : await safeQuery(
+    `SELECT id,
+            COALESCE(notes, content->>'text', content->>'summary', content->>'body') AS note_text,
+            note_type, author_role, created_at
+     FROM clinical_notes
+     WHERE encounter_id = $1::uuid AND tenant_id = $2::uuid
      ORDER BY created_at DESC LIMIT 5`,
-    [admId],
+    [adm.encounter_id, tid],
   );
 
   const citations = [
@@ -621,22 +628,26 @@ export async function generateIntakeOutputSummary({
   const admId = normalizeId(admissionId, 'admission_id');
   const tid = requireTenantId(tenantId);
   const adm = (await safeQuery(
-    `SELECT id, patient_uid FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    `SELECT id, patient_uid, encounter_id
+     FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
     [admId, tid],
   ))[0];
   if (!adm) throw AppError.notFound('Admission not found');
 
   const day = dateIso ? String(dateIso).slice(0, 10) : null;
-  const ioParams = day ? [admId, day] : [admId];
-  const io = await safeQuery(
+  // I/O rows carry the admission's encounter UUID in encounter_uid (mig 208).
+  const ioParams = day ? [adm.encounter_id, tid, day] : [adm.encounter_id, tid];
+  const io = !adm.encounter_id ? [] : await safeQuery(
     day
       ? `SELECT id, io_type, amount_ml, recorded_at
          FROM intake_output
-         WHERE admission_id = $1 AND recorded_at::date = $2::date
+         WHERE encounter_uid = $1::uuid AND tenant_id = $2::uuid
+           AND recorded_at::date = $3::date
          ORDER BY recorded_at ASC`
       : `SELECT id, io_type, amount_ml, recorded_at
          FROM intake_output
-         WHERE admission_id = $1 AND recorded_at >= NOW() - INTERVAL '1 day'
+         WHERE encounter_uid = $1::uuid AND tenant_id = $2::uuid
+           AND recorded_at >= NOW() - INTERVAL '1 day'
          ORDER BY recorded_at ASC`,
     ioParams,
   );
@@ -683,7 +694,7 @@ export async function generateIcuRoundSummary({
   const admId = normalizeId(admissionId, 'admission_id');
   const tid = requireTenantId(tenantId);
   const adm = (await safeQuery(
-    `SELECT id, patient_uid, admitted_at AS admission_date,
+    `SELECT id, patient_uid, encounter_id, admitted_at AS admission_date,
             admitting_diagnosis AS primary_diagnosis, NULL::text AS secondary_diagnoses,
             ward, bed_number
      FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
@@ -691,23 +702,35 @@ export async function generateIcuRoundSummary({
   ))[0];
   if (!adm) throw AppError.notFound('Admission not found');
 
-  const recentVitals = await safeQuery(
-    `SELECT id, recorded_at, heart_rate, systolic_bp, diastolic_bp, spo2, temperature_c, respiratory_rate
-     FROM vitals_chart WHERE admission_id = $1
+  // Children key on the admission's encounter UUID — clinical_notes and
+  // clinical_orders carry it in encounter_id, vitals_chart in encounter_uid
+  // (migration 208 split UUID admission encounters from legacy int visits).
+  const enc = adm.encounter_id;
+  const recentVitals = !enc ? [] : await safeQuery(
+    `SELECT id, recorded_at, heart_rate, systolic_bp, diastolic_bp, spo2,
+            temperature AS temperature_c, respiratory_rate
+     FROM vitals_chart WHERE encounter_uid = $1::uuid AND tenant_id = $2::uuid
      ORDER BY recorded_at DESC LIMIT 10`,
-    [admId],
+    [enc, tid],
   );
-  const overnightNotes = await safeQuery(
-    `SELECT id, note_type, note_text, author_role, created_at
-     FROM clinical_notes WHERE admission_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'
+  const overnightNotes = !enc ? [] : await safeQuery(
+    `SELECT id, note_type,
+            COALESCE(notes, content->>'text', content->>'summary', content->>'body') AS note_text,
+            author_role, created_at
+     FROM clinical_notes WHERE encounter_id = $1::uuid AND tenant_id = $2::uuid
+       AND created_at >= NOW() - INTERVAL '24 hours'
      ORDER BY created_at DESC LIMIT 10`,
-    [admId],
+    [enc, tid],
   );
-  const activeOrders = await safeQuery(
+  // Active set = anything not terminated, matching orderEntryService's
+  // duplicate-order idiom — the schema's status vocabulary is 'ordered'-based,
+  // so an IN ('pending','active','in_progress') filter matches nothing real.
+  const activeOrders = !enc ? [] : await safeQuery(
     `SELECT id, order_type, details, status, created_at
-     FROM clinical_orders WHERE admission_id = $1 AND status IN ('pending','active','in_progress')
+     FROM clinical_orders WHERE encounter_id = $1::uuid AND tenant_id = $2::uuid
+       AND COALESCE(status, 'ordered') !~* '(cancelled|canceled|discontinued|stopped|on[\\s_-]?hold|suspended|completed)'
      ORDER BY created_at DESC LIMIT 30`,
-    [admId],
+    [enc, tid],
   );
 
   return runExplainerPipeline({
