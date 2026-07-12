@@ -49,6 +49,9 @@ const {
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT = '11111111-1111-4111-8111-111111111111';
+// Admission encounter UUID — child reads (notes/vitals/orders/IO) key on it
+// and short-circuit to [] when the admission row lacks one.
+const ENCOUNTER = '33333333-3333-4333-8333-333333333333';
 
 function defaultModule(moduleKey, overrides = {}) {
   return {
@@ -106,6 +109,7 @@ describe('clinic_letter_draft', () => {
   });
   it('drafts using admission + recent notes', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, patient_uid: PATIENT,
+      encounter_id: ENCOUNTER,
       primary_diagnosis: 'CAP', admission_date: '2026-04-30' }]);
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 9, note_type: 'progress', note_text: 'improving', author_role: 'DOCTOR', created_at: '2026-05-01' },
@@ -314,13 +318,13 @@ describe('aki_risk_alert', () => {
 
 describe('intake_output_summary', () => {
   it('throws 404 when no I/O rows', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, patient_uid: PATIENT }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, patient_uid: PATIENT, encounter_id: ENCOUNTER }]);
     queryUnsafeMock.mockResolvedValueOnce([]);
     await expect(generateIntakeOutputSummary({ tenantId: TENANT, admissionId: 1 }))
       .rejects.toMatchObject({ statusCode: 404 });
   });
   it('drafts summary when rows exist', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, patient_uid: PATIENT }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, patient_uid: PATIENT, encounter_id: ENCOUNTER }]);
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 10, io_type: 'iv_intake', amount_ml: 1000, recorded_at: '2026-05-01' },
       { id: 11, io_type: 'urine_output', amount_ml: 800, recorded_at: '2026-05-01' },
@@ -336,7 +340,7 @@ describe('intake_output_summary', () => {
 describe('icu_round_summary', () => {
   it('drafts ICU round summary', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
-      id: 1, patient_uid: PATIENT, admission_date: '2026-04-29',
+      id: 1, patient_uid: PATIENT, encounter_id: ENCOUNTER, admission_date: '2026-04-29',
       primary_diagnosis: 'septic shock', ward: 'ICU', bed_number: 'ICU-3',
     }]);
     queryUnsafeMock.mockResolvedValueOnce([
