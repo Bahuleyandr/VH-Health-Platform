@@ -110,6 +110,10 @@ const MANUAL_SEED_TABLES = new Set([
   'nicu_feed_fluid_entries',
   'nicu_jaundice_phototherapy_events',
   'nicu_picu_scoring_outputs',
+  // Sign-off 2026-07-13: migration 573 seeds stemi_pathway_settings for every
+  // tenant (incl. the default tenant), so the generic walker's default-tenant
+  // insert would collide on the tenant_id PK. The migration owns this row.
+  'stemi_pathway_settings',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;

@@ -50,6 +50,7 @@ const {
   recordRadioisotopeAdministration,
   recordSafetyEvidence,
   transitionPlanStatus,
+  transitionFractionStatus,
   validateReferralTransition,
   validatePlanTransition,
   validateFractionTransition,
@@ -71,6 +72,10 @@ const T_ADMIN = 'aaaaaaaa-0000-4000-8000-000000000002';
 const T_EVIDENCE = 'aaaaaaaa-0000-4000-8000-000000000003';
 const T_DISABLED = 'aaaaaaaa-0000-4000-8000-000000000004';
 const T_PLAN = 'aaaaaaaa-0000-4000-8000-000000000005';
+const T_PLAN_GATE = 'aaaaaaaa-0000-4000-8000-000000000006';
+const T_FRACTION_SCHED = 'aaaaaaaa-0000-4000-8000-000000000007';
+const T_FRACTION_DELIV = 'aaaaaaaa-0000-4000-8000-000000000008';
+const T_ADMIN_BYPASS = 'aaaaaaaa-0000-4000-8000-000000000009';
 
 function enabledSettingsRow(tenantId) {
   return { tenant_id: tenantId, enabled: true };
@@ -145,9 +150,9 @@ describe('radiationCoordinationService required-external-reference guardrails (f
 });
 
 describe('radiationCoordinationService privilege gate + PACS reuse', () => {
-  test('privilege gate stays inert until the owner-supplied key is enabled', () => {
+  test('privilege gate stays inert until the operator enables it', () => {
     expect(radiationPrivilegeGateConfig()).toEqual({
-      key: 'radiation_oncology_owner_supplied_privilege',
+      key: 'radiation_oncology_access',
       enabled: false
     });
     process.env.RADIATION_ONCOLOGY_PRIVILEGE_KEY = 'RADONC_PRIV_OWNER_APPROVED';
@@ -163,6 +168,98 @@ describe('radiationCoordinationService privilege gate + PACS reuse', () => {
     expect(linked.viewer_url).toBe('https://viewer.example/viewer?StudyInstanceUIDs=1.2.3.4');
     const noImage = __testing__.withViewerUrl({ id: 2, image_study_instance_uid: null });
     expect(noImage.viewer_url).toBeUndefined();
+  });
+});
+
+describe('radiationCoordinationService credential gate seams (owner sign-off 2026-07-13)', () => {
+  test('plan approval asserts the credential gate and threads the env flag', async () => {
+    process.env.RADIATION_ONCOLOGY_PRIVILEGE_GATE_ENABLED = 'true';
+    const planRef = {
+      id: 51, tenant_id: T_PLAN_GATE, patient_uid: PATIENT, encounter_id: ENCOUNTER,
+      plan_status: 'referenced', external_plan_system: 'Eclipse', external_plan_id: 'PLAN-7'
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([enabledSettingsRow(T_PLAN_GATE)])          // assertCoordinationEnabled
+      .mockResolvedValueOnce([planRef])                                  // planRefById (lock)
+      .mockResolvedValueOnce([{ ...planRef, plan_status: 'approved' }])  // UPDATE
+      .mockResolvedValueOnce([]);                                        // emitAndLink UPDATE
+
+    await transitionPlanStatus(
+      51,
+      { tenantId: T_PLAN_GATE, plan_status: 'approved' },
+      { actorUid: ACTOR, actorRole: 'RADIATION_ONCOLOGIST' }
+    );
+
+    expect(assertPrivilegeForGateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        staffUid: ACTOR,
+        privilegeName: 'radiation_oncology_access',
+        gate: 'radiotherapy_plan_approval',
+        enabled: true
+      })
+    );
+  });
+
+  test('fraction delivery asserts the credential gate; other fraction transitions do not', async () => {
+    const scheduled = {
+      id: 61, tenant_id: T_FRACTION_SCHED, patient_uid: PATIENT, encounter_id: ENCOUNTER,
+      status: 'planned', fraction_number: 1, external_treatment_ref: null
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([enabledSettingsRow(T_FRACTION_SCHED)])
+      .mockResolvedValueOnce([scheduled])
+      .mockResolvedValueOnce([{ ...scheduled, status: 'scheduled' }])
+      .mockResolvedValueOnce([]);
+    await transitionFractionStatus(
+      61,
+      { tenantId: T_FRACTION_SCHED, status: 'scheduled' },
+      { actorUid: ACTOR, actorRole: 'RADIOTHERAPIST' }
+    );
+    expect(assertPrivilegeForGateMock).not.toHaveBeenCalled();
+
+    const deliverable = {
+      id: 62, tenant_id: T_FRACTION_DELIV, patient_uid: PATIENT, encounter_id: ENCOUNTER,
+      status: 'scheduled', fraction_number: 2, external_treatment_ref: 'RT-REC-9'
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([enabledSettingsRow(T_FRACTION_DELIV)])
+      .mockResolvedValueOnce([deliverable])
+      .mockResolvedValueOnce([{ ...deliverable, status: 'delivered' }])
+      .mockResolvedValueOnce([]);
+    await transitionFractionStatus(
+      62,
+      { tenantId: T_FRACTION_DELIV, status: 'delivered' },
+      { actorUid: ACTOR, actorRole: 'RADIOTHERAPIST' }
+    );
+    expect(assertPrivilegeForGateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        staffUid: ACTOR,
+        privilegeName: 'radiation_oncology_access',
+        gate: 'radiotherapy_fraction_delivery',
+        enabled: false
+      })
+    );
+  });
+
+  test('ADMIN bypasses the credential gate — role-based access is preserved', async () => {
+    process.env.RADIATION_ONCOLOGY_PRIVILEGE_GATE_ENABLED = 'true';
+    const planRef = {
+      id: 52, tenant_id: T_ADMIN_BYPASS, patient_uid: PATIENT, encounter_id: ENCOUNTER,
+      plan_status: 'referenced', external_plan_system: 'Eclipse', external_plan_id: 'PLAN-8'
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([enabledSettingsRow(T_ADMIN_BYPASS)])
+      .mockResolvedValueOnce([planRef])
+      .mockResolvedValueOnce([{ ...planRef, plan_status: 'approved' }])
+      .mockResolvedValueOnce([]);
+
+    await transitionPlanStatus(
+      52,
+      { tenantId: T_ADMIN_BYPASS, plan_status: 'approved' },
+      { actorUid: ACTOR, actorRole: 'ADMIN' }
+    );
+
+    expect(assertPrivilegeForGateMock).not.toHaveBeenCalled();
   });
 });
 
@@ -219,7 +316,7 @@ describe('radiationCoordinationService canonical writes', () => {
     expect(assertPrivilegeForGateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         staffUid: ACTOR,
-        privilegeName: 'radiation_oncology_owner_supplied_privilege',
+        privilegeName: 'radiation_oncology_access',
         gate: 'radioisotope_administration',
         enabled: false
       })
@@ -228,7 +325,7 @@ describe('radiationCoordinationService canonical writes', () => {
       expect.objectContaining({
         eventType: 'nuclear_medicine.radioisotope_administered',
         sourceTable: 'radioisotope_administration_records',
-        payload: expect.objectContaining({ privilege_gate: { key: 'radiation_oncology_owner_supplied_privilege', enforced: false } }),
+        payload: expect.objectContaining({ privilege_gate: { key: 'radiation_oncology_access', enforced: false } }),
         tags: ['radiation_oncology', 'nl13_p4']
       }),
       { db: __prismaDefaultMock }

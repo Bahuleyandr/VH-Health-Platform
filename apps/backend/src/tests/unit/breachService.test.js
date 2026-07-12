@@ -85,6 +85,56 @@ describe('breach listing queries', () => {
   });
 });
 
+describe('breach tenancy (owner decision 2026-07-13)', () => {
+  const TENANT = 'bbbbbbbb-0000-4000-8000-000000000001';
+
+  it('scopes breach listing to the caller tenant by default', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ total: '0' }])
+      .mockResolvedValueOnce([]);
+    await getBreaches({ tenantId: TENANT });
+
+    const countSql = queryUnsafeMock.mock.calls[0][0];
+    const listSql = queryUnsafeMock.mock.calls[1][0];
+    expect(countSql).toMatch(/tenant_id = \$1::uuid/);
+    expect(listSql).toMatch(/tenant_id = \$1::uuid/);
+    expect(queryUnsafeMock.mock.calls[0][1]).toBe(TENANT);
+  });
+
+  it('omits the tenant predicate for the SUPER_ADMIN cross-tenant view', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ total: '0' }])
+      .mockResolvedValueOnce([]);
+    await getBreaches({ crossTenant: true });
+
+    const countSql = queryUnsafeMock.mock.calls[0][0];
+    const listSql = queryUnsafeMock.mock.calls[1][0];
+    expect(countSql).not.toMatch(/tenant_id = \$/);
+    expect(listSql).not.toMatch(/tenant_id = \$/);
+  });
+
+  it('scopes the single-breach timeline to the caller tenant', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ breach_id: 'B-001' }])
+      .mockResolvedValueOnce([]);
+    await getBreachTimeline('B-001', { tenantId: TENANT });
+
+    const breachSql = queryUnsafeMock.mock.calls[0][0];
+    expect(breachSql).toMatch(/breach_id = \$1 AND tenant_id = \$2::uuid/);
+    expect(queryUnsafeMock.mock.calls[0][1]).toBe('B-001');
+    expect(queryUnsafeMock.mock.calls[0][2]).toBe(TENANT);
+  });
+
+  it('stamps tenant_id on breach report inserts', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ breach_id: 'B-100', severity: 'low', affected_records: 0 }]);
+    await reportBreach({ severity: 'low', description: 'x', tenantId: TENANT });
+
+    const insertSql = queryUnsafeMock.mock.calls[0][0];
+    expect(insertSql).toMatch(/INSERT INTO data_breaches\s*\n?\s*\(tenant_id,/);
+    expect(queryUnsafeMock.mock.calls[0][1]).toBe(TENANT);
+  });
+});
+
 describe('notifyRegulator', () => {
   it('rejects missing required fields', async () => {
     await expect(notifyRegulator({ breachId: 'B-001' }))

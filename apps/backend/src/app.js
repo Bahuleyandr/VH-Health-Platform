@@ -94,6 +94,7 @@ import {
   PATIENT_FLOW_ROUTE_ROLES,
   PATHOLOGY_ROUTE_ROLES,
   PCPNDT_ROUTE_ROLES,
+  PEOPLE_OPERATIONS_ROUTE_ROLES,
   PHYSIO_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
   PHARMACY_ORDER_ROUTE_ROLES,
@@ -1408,8 +1409,11 @@ app.use('/api/v1/referrals', patientAccessGuard('REFERRAL', { careTeamModeGovern
 // never updated for them.
 app.use('/api/v1/messaging', requireRole(...ALL_STAFF_MESSAGING_ROUTE_ROLES), messagingRoutes);
 
-// Compliance: Breach Notification + Audit Search (admin only)
-app.use('/api/v1/compliance', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, breachRoutes);
+// Compliance: Breach Notification + Audit Search. Owner decision 2026-07-13:
+// HR + admins read their OWN tenant's privacy incidents (SUPER_ADMIN gets
+// cross-tenant); breachRoutes internally re-guards every non-read route with
+// ADMIN_ROUTE_ROLES, so the wider mount only exposes the three read routes.
+app.use('/api/v1/compliance', requireRole(...PEOPLE_OPERATIONS_ROUTE_ROLES), adminRateLimiter, breachRoutes);
 app.use('/api/v1/compliance', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, auditSearchRoutes);
 app.use('/api/v1/compliance', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, complianceIndicatorsRoutes);
 

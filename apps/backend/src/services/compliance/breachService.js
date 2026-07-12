@@ -5,8 +5,15 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import { normalizeAuditLogUserId } from '../../utils/auditLogIdentity.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { requireTenantId } from '../tenant/tenantService.js';
+
+// Owner decision 2026-07-13: privacy incidents are per-tenant. Reads/writes
+// carry an explicit tenant predicate (defense-in-depth even where RLS is
+// off); crossTenant is the SUPER_ADMIN-only view and runs under the explicit
+// super-admin RLS bypass.
 
 const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
 
@@ -23,7 +30,7 @@ const VALID_TRANSITIONS = {
  * Report a new data breach.
  * For high/critical severity, immediately queues admin notifications.
  */
-export async function reportBreach({ severity, description, affectedRecords, affectedPatientUids, reportedBy }) {
+export async function reportBreach({ severity, description, affectedRecords, affectedPatientUids, reportedBy, tenantId }) {
   if (!severity || !description) {
     throw AppError.badRequest('severity and description are required');
   }
@@ -32,19 +39,22 @@ export async function reportBreach({ severity, description, affectedRecords, aff
     throw AppError.badRequest(`Invalid severity. Must be one of: ${VALID_SEVERITIES.join(', ')}`);
   }
 
+  const tid = requireTenantId(tenantId);
+
   const result = await prisma.$queryRawUnsafe(
     `INSERT INTO data_breaches
-      (severity, description, affected_records, affected_patient_uids, discovered_at, reported_by, status, created_at)
-     VALUES ($1, $2, $3, $4, NOW(), $5, 'open', NOW())
+      (tenant_id, severity, description, affected_records, affected_patient_uids, discovered_at, reported_by, status, created_at)
+     VALUES ($1::uuid, $2, $3, $4, $5, NOW(), $6, 'open', NOW())
      RETURNING id, breach_id, severity, description, affected_records, affected_patient_uids,
                discovered_at, reported_by, status, created_at`,
-    
+
+      tid,
       severity,
       description,
       affectedRecords || 0,
       affectedPatientUids || [],
       reportedBy || null,
-    
+
   );
 
   const breach = result[0];
@@ -61,9 +71,9 @@ export async function reportBreach({ severity, description, affectedRecords, aff
     affected_records: affectedRecords || 0,
   });
 
-  // High/critical severity — notify all admin users immediately
+  // High/critical severity — notify the tenant's admin users immediately
   if (severity === 'high' || severity === 'critical') {
-    await notifyAdminsOfBreach(breach);
+    await notifyAdminsOfBreach(breach, tid);
   }
 
   return breach;
@@ -72,14 +82,16 @@ export async function reportBreach({ severity, description, affectedRecords, aff
 /**
  * Update breach status to 'contained' with containment actions.
  */
-export async function containBreach(breachId, containmentActions, adminId) {
+export async function containBreach(breachId, containmentActions, adminId, { tenantId } = {}) {
   if (!breachId || !containmentActions) {
     throw AppError.badRequest('breachId and containmentActions are required');
   }
 
+  const tid = requireTenantId(tenantId);
+
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1`,
-    breachId
+    `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1 AND tenant_id = $2::uuid`,
+    breachId, tid
   );
 
   if (existing.length === 0) {
@@ -94,10 +106,10 @@ export async function containBreach(breachId, containmentActions, adminId) {
   const result = await prisma.$queryRawUnsafe(
     `UPDATE data_breaches
      SET status = 'contained', containment_actions = $1
-     WHERE breach_id = $2
+     WHERE breach_id = $2 AND tenant_id = $3::uuid
      RETURNING id, breach_id, severity, description, affected_records, status,
                containment_actions, discovered_at, created_at`,
-    containmentActions, breachId
+    containmentActions, breachId, tid
   );
 
   logBreachAudit(adminId, 'breach_contained', breachId, { containment_actions: containmentActions });
@@ -110,14 +122,16 @@ export async function containBreach(breachId, containmentActions, adminId) {
 /**
  * Resolve a breach with resolution notes.
  */
-export async function resolveBreach(breachId, resolutionNotes, adminId) {
+export async function resolveBreach(breachId, resolutionNotes, adminId, { tenantId } = {}) {
   if (!breachId || !resolutionNotes) {
     throw AppError.badRequest('breachId and resolutionNotes are required');
   }
 
+  const tid = requireTenantId(tenantId);
+
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1`,
-    breachId
+    `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1 AND tenant_id = $2::uuid`,
+    breachId, tid
   );
 
   if (existing.length === 0) {
@@ -132,10 +146,10 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
   const result = await prisma.$queryRawUnsafe(
     `UPDATE data_breaches
      SET status = 'resolved', resolution_notes = $1, resolved_at = NOW()
-     WHERE breach_id = $2
+     WHERE breach_id = $2 AND tenant_id = $3::uuid
      RETURNING id, breach_id, severity, description, affected_records, status,
                containment_actions, resolution_notes, resolved_at, discovered_at, created_at`,
-    resolutionNotes, breachId
+    resolutionNotes, breachId, tid
   );
 
   logBreachAudit(adminId, 'breach_resolved', breachId, { resolution_notes: resolutionNotes });
@@ -149,7 +163,7 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
  * List breaches with optional status/severity filters, paginated.
  */
 export async function getBreaches(filters = {}) {
-  const { status, severity } = filters;
+  const { status, severity, tenantId, crossTenant = false } = filters;
   const listQuery = parseListQuery(filters, {
     defaultLimit: 20,
     maxLimit: 100,
@@ -159,6 +173,10 @@ export async function getBreaches(filters = {}) {
   const params = [];
   let paramIndex = 1;
 
+  if (!crossTenant) {
+    conditions.push(`tenant_id = $${paramIndex++}::uuid`);
+    params.push(requireTenantId(tenantId));
+  }
   if (status) {
     conditions.push(`status = $${paramIndex++}`);
     params.push(status);
@@ -170,66 +188,76 @@ export async function getBreaches(filters = {}) {
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const countResult = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) AS total FROM data_breaches ${whereClause}`,
-    ...params
-  );
-  const total = parseInt(countResult[0].total, 10);
+  const runQueries = async () => {
+    const countResult = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) AS total FROM data_breaches ${whereClause}`,
+      ...params
+    );
+    const total = parseInt(countResult[0].total, 10);
 
-  params.push(listQuery.limit, listQuery.offset);
+    const listParams = [...params, listQuery.limit, listQuery.offset];
 
-  const result = await prisma.$queryRawUnsafe(
-    `SELECT id, breach_id, severity, description, affected_records,
-            affected_patient_uids, discovered_at, reported_by, status,
-            containment_actions, resolution_notes, resolved_at, created_at,
-            regulator_notified_at, regulator_reference, regulator_jurisdiction,
-            data_subjects_notified_at, data_subject_notification_count
-     FROM data_breaches
-     ${whereClause}
-     ORDER BY created_at DESC
-     LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-    ...params
-  );
+    const result = await prisma.$queryRawUnsafe(
+      `SELECT id, breach_id, severity, description, affected_records,
+              affected_patient_uids, discovered_at, reported_by, status,
+              containment_actions, resolution_notes, resolved_at, created_at,
+              regulator_notified_at, regulator_reference, regulator_jurisdiction,
+              data_subjects_notified_at, data_subject_notification_count
+       FROM data_breaches
+       ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      ...listParams
+    );
 
-  return {
-    breaches: result,
-    pagination: buildPagination(total, listQuery.page, listQuery.limit),
+    return {
+      breaches: result,
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
+    };
   };
+
+  return crossTenant ? runWithSuperAdmin(runQueries) : runQueries();
 }
 
 /**
  * Get a single breach with its timeline of audit actions.
  */
-export async function getBreachTimeline(breachId) {
-  const breachResult = await prisma.$queryRawUnsafe(
-    `SELECT id, breach_id, severity, description, affected_records,
-            affected_patient_uids, discovered_at, reported_by, status,
-            containment_actions, resolution_notes, resolved_at, created_at,
-            regulator_notified_at, regulator_reference, regulator_jurisdiction,
-            data_subjects_notified_at, data_subject_notification_count
-     FROM data_breaches
-     WHERE breach_id = $1`,
-    breachId
-  );
+export async function getBreachTimeline(breachId, { tenantId, crossTenant = false } = {}) {
+  const breachParams = crossTenant ? [breachId] : [breachId, requireTenantId(tenantId)];
 
-  if (breachResult.length === 0) {
-    throw AppError.notFound('Breach not found');
-  }
+  const run = async () => {
+    const breachResult = await prisma.$queryRawUnsafe(
+      `SELECT id, breach_id, severity, description, affected_records,
+              affected_patient_uids, discovered_at, reported_by, status,
+              containment_actions, resolution_notes, resolved_at, created_at,
+              regulator_notified_at, regulator_reference, regulator_jurisdiction,
+              data_subjects_notified_at, data_subject_notification_count
+       FROM data_breaches
+       WHERE breach_id = $1${crossTenant ? '' : ' AND tenant_id = $2::uuid'}`,
+      ...breachParams
+    );
 
-  // Fetch timeline from audit_log for this breach
-  const timelineResult = await prisma.$queryRawUnsafe(
-    `SELECT user_id, user_name, user_role, action, request_summary, created_at
-     FROM audit_log
-     WHERE module = 'compliance'
-       AND request_summary LIKE $1
-     ORDER BY created_at ASC`,
-    `%${breachId}%`
-  );
+    if (breachResult.length === 0) {
+      throw AppError.notFound('Breach not found');
+    }
 
-  return {
-    breach: breachResult[0],
-    timeline: timelineResult,
+    // Fetch timeline from audit_log for this breach
+    const timelineResult = await prisma.$queryRawUnsafe(
+      `SELECT user_id, user_name, user_role, action, request_summary, created_at
+       FROM audit_log
+       WHERE module = 'compliance'
+         AND request_summary LIKE $1
+       ORDER BY created_at ASC`,
+      `%${breachId}%`
+    );
+
+    return {
+      breach: breachResult[0],
+      timeline: timelineResult,
+    };
   };
+
+  return crossTenant ? runWithSuperAdmin(run) : run();
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -269,10 +297,13 @@ function logBreachAudit(userId, action, breachId, details) {
  * Notify all admin users about a high/critical breach.
  * Uses the notification_outbox table for reliable delivery.
  */
-async function notifyAdminsOfBreach(breach) {
+async function notifyAdminsOfBreach(breach, tenantId) {
   try {
+    // Notify only the affected tenant's admins — a breach alert itself is
+    // tenant-scoped incident data.
     const adminsResult = await prisma.$queryRawUnsafe(
-      `SELECT uid, name, email FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND is_active = true`
+      `SELECT uid, name, email FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND is_active = true AND tenant_id = $1::uuid`,
+      tenantId
     );
 
     if (adminsResult.length === 0) {
@@ -332,13 +363,15 @@ async function notifyAdminsOfBreach(breach) {
  * becoming aware). Records the notification timestamp + reference + the
  * jurisdiction the regulator covers.
  */
-export async function notifyRegulator({ breachId, regulatorReference, jurisdiction, riskAssessment = null, dpaId = null, crossBorderImpact = false, notifiedBy = null }) {
+export async function notifyRegulator({ breachId, regulatorReference, jurisdiction, riskAssessment = null, dpaId = null, crossBorderImpact = false, notifiedBy = null, tenantId }) {
   if (!breachId || !regulatorReference || !jurisdiction) {
     throw AppError.badRequest('breachId, regulatorReference and jurisdiction are required');
   }
+  const tid = requireTenantId(tenantId);
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, breach_id, status, regulator_notified_at FROM data_breaches WHERE breach_id = $1`,
+    `SELECT id, breach_id, status, regulator_notified_at FROM data_breaches WHERE breach_id = $1 AND tenant_id = $2::uuid`,
     breachId,
+    tid,
   );
   if (existing.length === 0) throw AppError.notFound('Breach not found');
   if (existing[0].regulator_notified_at) {
@@ -353,7 +386,7 @@ export async function notifyRegulator({ breachId, regulatorReference, jurisdicti
          risk_assessment = COALESCE($3::jsonb, risk_assessment),
          dpa_id = COALESCE($4::int, dpa_id),
          cross_border_impact = $5
-     WHERE breach_id = $6
+     WHERE breach_id = $6 AND tenant_id = $7::uuid
      RETURNING id, breach_id, severity, status,
                regulator_notified_at, regulator_reference, regulator_jurisdiction,
                data_subjects_notified_at, data_subject_notification_count,
@@ -364,6 +397,7 @@ export async function notifyRegulator({ breachId, regulatorReference, jurisdicti
     dpaId ? Number(dpaId) : null,
     Boolean(crossBorderImpact),
     breachId,
+    tid,
   );
 
   logBreachAudit(notifiedBy, 'breach_regulator_notified', breachId, {
@@ -379,15 +413,17 @@ export async function notifyRegulator({ breachId, regulatorReference, jurisdicti
  * GDPR Art. 34 — high-risk data subjects must be notified directly.
  * Records timestamp + count of notified subjects.
  */
-export async function notifyDataSubjects({ breachId, notificationCount, notifiedBy = null }) {
+export async function notifyDataSubjects({ breachId, notificationCount, notifiedBy = null, tenantId }) {
   if (!breachId) throw AppError.badRequest('breachId is required');
   const count = Number.parseInt(notificationCount, 10);
   if (!Number.isFinite(count) || count < 0) {
     throw AppError.badRequest('notificationCount must be a non-negative integer');
   }
+  const tid = requireTenantId(tenantId);
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1`,
+    `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1 AND tenant_id = $2::uuid`,
     breachId,
+    tid,
   );
   if (existing.length === 0) throw AppError.notFound('Breach not found');
 
@@ -395,12 +431,12 @@ export async function notifyDataSubjects({ breachId, notificationCount, notified
     `UPDATE data_breaches
      SET data_subjects_notified_at = NOW(),
          data_subject_notification_count = $1
-     WHERE breach_id = $2
+     WHERE breach_id = $2 AND tenant_id = $3::uuid
      RETURNING id, breach_id, severity, status,
                data_subjects_notified_at, data_subject_notification_count,
                regulator_notified_at, regulator_reference, regulator_jurisdiction,
                risk_assessment, dpa_id, cross_border_impact, discovered_at, created_at`,
-    count, breachId,
+    count, breachId, tid,
   );
 
   logBreachAudit(notifiedBy, 'breach_data_subjects_notified', breachId, {

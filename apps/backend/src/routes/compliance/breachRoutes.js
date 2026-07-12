@@ -27,6 +27,8 @@ import {
 } from '../../services/compliance/dataRetentionPolicyService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { ADMIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -35,6 +37,79 @@ const validate = (req, res, next) => {
 };
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// Tenant-scoped incident READ surface (owner decision 2026-07-13): each
+// hospital's privacy incidents are visible to its OWN HR + admin roles only;
+// SUPER_ADMIN gets the cross-tenant view. The mount admits
+// PEOPLE_OPERATIONS_ROUTE_ROLES (SUPER_ADMIN, ADMIN, HR_STAFF); every route
+// below the router.use(requireRole(...ADMIN_ROUTE_ROLES)) guard further down
+// stays admin-only.
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /compliance/breaches
+ * List the caller's tenant's breaches (SUPER_ADMIN: all tenants).
+ * Query: status?, severity?, page?, limit?
+ */
+router.get('/breaches', async (req, res, next) => {
+  try {
+    const { status, severity, page, limit } = req.query;
+    const result = await breachService.getBreaches({
+      status,
+      severity,
+      page,
+      limit,
+      tenantId: req.tenantId,
+      crossTenant: req.user?.role === 'SUPER_ADMIN',
+    });
+
+    return success(res, result.breaches, 'Breaches retrieved', 200, result.pagination);
+  } catch (err) {
+    logger.error('Failed to list breaches:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /compliance/breach/:id
+ * Get breach details with timeline (own tenant; SUPER_ADMIN: any tenant).
+ */
+router.get('/breach/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await breachService.getBreachTimeline(id, {
+      tenantId: req.tenantId,
+      crossTenant: req.user?.role === 'SUPER_ADMIN',
+    });
+
+    return success(res, result, 'Breach details retrieved');
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to get breach:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /compliance/dashboard
+ * Compliance dashboard for the caller's tenant (SUPER_ADMIN: cross-tenant).
+ */
+router.get('/dashboard', async (req, res, next) => {
+  try {
+    const result = await getComplianceDashboard({
+      tenantId: req.tenantId,
+      scope: req.user?.role === 'SUPER_ADMIN' ? 'all' : 'tenant',
+    });
+    return success(res, result, 'Compliance dashboard retrieved');
+  } catch (err) { return next(err); }
+});
+
+// Everything below is admin-only: breach lifecycle writes, GDPR registers,
+// numbering series, retention policies, certification cockpit.
+router.use(requireRole(...ADMIN_ROUTE_ROLES));
 
 /**
  * POST /compliance/breach/report
@@ -57,6 +132,7 @@ router.post('/breach/report', requiredString('description', 2000), requiredEnum(
       affectedRecords: affected_records,
       affectedPatientUids: affected_patient_uids,
       reportedBy,
+      tenantId: req.tenantId,
     });
 
     logger.info('Breach reported via API', { breach_id: breach.breach_id, admin_uid: reportedBy });
@@ -86,7 +162,7 @@ router.put('/breach/:id/contain', paramId(), validate, async (req, res, next) =>
     }
 
     const adminId = req.user?.uid || req.user?.id || null;
-    const breach = await breachService.containBreach(id, containment_actions, adminId);
+    const breach = await breachService.containBreach(id, containment_actions, adminId, { tenantId: req.tenantId });
 
     return success(res, breach, 'Breach marked as contained');
   } catch (err) {
@@ -113,7 +189,7 @@ router.put('/breach/:id/resolve', paramId(), validate, async (req, res, next) =>
     }
 
     const adminId = req.user?.uid || req.user?.id || null;
-    const breach = await breachService.resolveBreach(id, resolution_notes, adminId);
+    const breach = await breachService.resolveBreach(id, resolution_notes, adminId, { tenantId: req.tenantId });
 
     return success(res, breach, 'Breach marked as resolved');
   } catch (err) {
@@ -121,42 +197,6 @@ router.put('/breach/:id/resolve', paramId(), validate, async (req, res, next) =>
       return error(res, err.message, err.statusCode);
     }
     logger.error('Failed to resolve breach:', { error: err.message });
-    next(err);
-  }
-});
-
-/**
- * GET /compliance/breaches
- * List all breaches with optional filters.
- * Query: status?, severity?, page?, limit?
- */
-router.get('/breaches', async (req, res, next) => {
-  try {
-    const { status, severity, page, limit } = req.query;
-    const result = await breachService.getBreaches({ status, severity, page, limit });
-
-    return success(res, result.breaches, 'Breaches retrieved', 200, result.pagination);
-  } catch (err) {
-    logger.error('Failed to list breaches:', { error: err.message });
-    next(err);
-  }
-});
-
-/**
- * GET /compliance/breach/:id
- * Get breach details with timeline.
- */
-router.get('/breach/:id', async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const result = await breachService.getBreachTimeline(id);
-
-    return success(res, result, 'Breach details retrieved');
-  } catch (err) {
-    if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
-    }
-    logger.error('Failed to get breach:', { error: err.message });
     next(err);
   }
 });
@@ -181,6 +221,7 @@ router.post('/breach/:id/notify-regulator', async (req, res, next) => {
       dpaId: b.dpa_id,
       crossBorderImpact: b.cross_border_impact,
       notifiedBy: req.user?.uid || req.user?.id || null,
+      tenantId: req.tenantId,
     });
     return success(res, result, 'Regulator notification recorded');
   } catch (err) { return next(err); }
@@ -197,6 +238,7 @@ router.post('/breach/:id/notify-data-subjects', async (req, res, next) => {
       breachId,
       notificationCount: req.body?.notification_count,
       notifiedBy: req.user?.uid || req.user?.id || null,
+      tenantId: req.tenantId,
     });
     return success(res, result, 'Data subject notification recorded');
   } catch (err) { return next(err); }
@@ -358,15 +400,9 @@ router.delete('/retention-policies/:id', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// Compliance dashboard
+// Certification cockpit (dashboard moved to the tenant-scoped read surface
+// at the top of this router)
 // ---------------------------------------------------------------------------
-
-router.get('/dashboard', async (req, res, next) => {
-  try {
-    const result = await getComplianceDashboard({ tenantId: req.tenantId });
-    return success(res, result, 'Compliance dashboard retrieved');
-  } catch (err) { return next(err); }
-});
 
 router.get('/certification-cockpit', async (req, res, next) => {
   try {

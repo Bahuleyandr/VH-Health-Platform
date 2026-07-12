@@ -10,6 +10,7 @@ describe('NL-13 P1c STEMI migration contracts', () => {
   const settings = migration(560, 'stemi_pathway_settings');
   const notifications = migration(561, 'stemi_team_notifications');
   const pendingSla = migration(562, 'workflow_sla_targets_pending');
+  const targetSeed = migration(573, 'stemi_pathway_target_seed');
   const service = readFileSync(
     new URL('../../services/clinical/stemiPathwayService.js', import.meta.url),
     'utf8',
@@ -65,5 +66,18 @@ describe('NL-13 P1c STEMI migration contracts', () => {
     expect(events).toMatch(/sequence_number INTEGER NOT NULL/);
     expect(events).toMatch(/ON stemi_pathway_events \(tenant_id, activation_id, sequence_number\)/);
     expect(events).toMatch(/'stemi_pathway_events is append-only:/);
+  });
+
+  it('seeds owner-confirmed targets per tenant without enabling the pathway or clobbering customisation', () => {
+    // Seeds the two column-backed clocks for every tenant.
+    expect(targetSeed).toMatch(/INSERT INTO stemi_pathway_settings/);
+    expect(targetSeed).toMatch(/FROM tenants t/);
+    expect(targetSeed).toMatch(/door_to_ecg_target_minutes/);
+    expect(targetSeed).toMatch(/door_to_balloon_target_minutes/);
+    // COALESCE-fill preserves any tenant's existing custom target.
+    expect(targetSeed).toMatch(/door_to_ecg_target_minutes = COALESCE\(\s*stemi_pathway_settings\.door_to_ecg_target_minutes/);
+    // Seeds targets ONLY — never flips enabled (that needs owner provenance).
+    expect(targetSeed).not.toMatch(/enabled\s*=\s*(TRUE|true)/);
+    expect(targetSeed).not.toMatch(/SET enabled/);
   });
 });
