@@ -8,7 +8,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
-import { generateToken, issueSetupToken, verifyToken } from '../../utils/jwtUtils.js';
+import { issueSetupToken, verifyToken } from '../../utils/jwtUtils.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -102,7 +102,7 @@ export class AuthService {
     }
   }
 
-  static async verifyOtp(phone, otp, req) {
+  static async verifyOtp(phone, otp, req, { deviceType } = {}) {
     try {
       const normalizedPhone = normalizePhone(phone);
 
@@ -147,7 +147,7 @@ export class AuthService {
         logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
       }
 
-      const token = generateToken({
+      const tokenPayload = {
         uid: user.uid,
         id: user.id,
         phone: user.phone,
@@ -156,6 +156,12 @@ export class AuthService {
         // (matches the helper-minted Firebase/staff/admin paths). Cached +
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
+      };
+      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+        userUid: String(tokenPayload.uid),
+        tokenPayload,
+        req,
+        deviceType,
       });
 
       // C-9 (audit 2026-06-18): issue a separate type:'refresh' token so the
@@ -185,7 +191,7 @@ export class AuthService {
     }
   }
 
-  static async directOtpLogin(phone) {
+  static async directOtpLogin(phone, req, { deviceType } = {}) {
     try {
       const normalizedPhone = normalizePhone(phone);
       const user = await this.getUserByPhone(normalizedPhone);
@@ -195,7 +201,7 @@ export class AuthService {
         throw err;
       }
 
-      const token = generateToken({
+      const tokenPayload = {
         uid: user.uid,
         id: user.id,
         phone: user.phone,
@@ -203,6 +209,12 @@ export class AuthService {
         // W4 C5: stamp the bearer's tenant (see verifyOtp). Cached +
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
+      };
+      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+        userUid: String(tokenPayload.uid),
+        tokenPayload,
+        req,
+        deviceType,
       });
 
       // C-9 (audit 2026-06-18): issue a separate type:'refresh' token.
@@ -587,7 +599,7 @@ export class AuthService {
   }
 
   /* ========================= Staff Auth (PIN) ========================= */
-  static async staffLogin(employeeId, pin) {
+  static async staffLogin(employeeId, pin, req, { deviceType } = {}) {
     try {
       // employee_id is unique per-tenant now (mig 330: @@unique([tenant_id,
       // employee_id])); findUnique on it alone is invalid — use findFirst and
@@ -611,7 +623,7 @@ export class AuthService {
       const ok = await bcrypt.compare(pin, staff.pin_hash);
       if (!ok) throw new Error('Invalid credentials');
 
-      const token = generateToken({
+      const tokenPayload = {
         uid: String(staff.uid),
         phone: staff.phone,
         role: String(staff.role).toUpperCase(),
@@ -619,6 +631,12 @@ export class AuthService {
         // W4 C5: stamp the staff member's tenant (staff live in `users`, so
         // resolveTenantIdForUid resolves it directly). Cached + default fallback.
         tenant_id: await resolveTenantIdForUid(String(staff.uid)),
+      };
+      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+        userUid: String(tokenPayload.uid),
+        tokenPayload,
+        req,
+        deviceType,
       });
 
       await prisma.staff.update({
@@ -1155,12 +1173,12 @@ export class AuthService {
     }
   }
 
-  static async legacyLogin(phone, _req) {
+  static async legacyLogin(phone, req, { deviceType } = {}) {
     this._assertLegacyPhoneAuthAllowed('login');
-    return this.directOtpLogin(phone);
+    return this.directOtpLogin(phone, req, { deviceType });
   }
 
-  static async legacyRegister(phone, _req) {
+  static async legacyRegister(phone, req, { deviceType } = {}) {
     try {
       this._assertLegacyPhoneAuthAllowed('registration');
       const normalizedPhone = normalizePhone(phone);
@@ -1188,7 +1206,7 @@ export class AuthService {
         select: { uid: true, id: true, phone: true, role: true },
       });
 
-      const token = generateToken({
+      const tokenPayload = {
         uid: user.uid,
         id: user.id,
         phone: user.phone,
@@ -1196,6 +1214,12 @@ export class AuthService {
         // W4 C5: stamp the newly-registered patient's tenant (just-created
         // users row). Cached + default-tenant fallback.
         tenant_id: await resolveTenantIdForUid(user.uid),
+      };
+      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+        userUid: String(tokenPayload.uid),
+        tokenPayload,
+        req,
+        deviceType,
       });
 
       return {
@@ -1353,7 +1377,7 @@ export class AuthService {
     }
   }
 
-  static async verifyOtpAndAuthenticate(phone, otp, req) {
+  static async verifyOtpAndAuthenticate(phone, otp, req, { deviceType } = {}) {
     try {
       const normalizedPhone = normalizePhone(phone);
 
@@ -1399,7 +1423,7 @@ export class AuthService {
         logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
       }
 
-      const token = generateToken({
+      const tokenPayload = {
         uid: user.uid,
         id: user.id,
         phone: user.phone,
@@ -1407,6 +1431,12 @@ export class AuthService {
         // W4 C5: stamp the bearer's tenant (see verifyOtp). Cached +
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
+      };
+      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+        userUid: String(tokenPayload.uid),
+        tokenPayload,
+        req,
+        deviceType,
       });
 
       // C-9 (audit 2026-06-18): issue a SEPARATE refresh token. Patients

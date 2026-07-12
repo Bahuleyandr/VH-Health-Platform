@@ -3,6 +3,8 @@ import { jest } from '@jest/globals';
 const mockAdminLogin = jest.fn();
 const mockRequestOtp = jest.fn();
 const mockVerifyOtpAndAuthenticate = jest.fn();
+const mockLegacyLogin = jest.fn();
+const mockLegacyRegister = jest.fn();
 const mockValidationResult = jest.fn(() => ({
   array: () => [],
   isEmpty: () => true,
@@ -51,6 +53,8 @@ jest.unstable_mockModule('../../services/auth/authService.js', () => ({
     adminLogin: mockAdminLogin,
     requestOtp: mockRequestOtp,
     verifyOtpAndAuthenticate: mockVerifyOtpAndAuthenticate,
+    legacyLogin: mockLegacyLogin,
+    legacyRegister: mockLegacyRegister,
   },
 }));
 
@@ -580,12 +584,17 @@ describe('auth response contracts', () => {
       };
       mockVerifyOtpAndAuthenticate.mockResolvedValue(data);
       const { req, res } = makeHttp({
-        body: { phone: '+919000000001', otp: '123456' },
+        body: { phone: '+919000000001', otp: '123456', deviceType: 'mobile' },
       });
 
       await authController.verifyOtp(req, res);
 
-      expect(mockVerifyOtpAndAuthenticate).toHaveBeenCalledWith('+919000000001', '123456', req);
+      expect(mockVerifyOtpAndAuthenticate).toHaveBeenCalledWith(
+        '+919000000001',
+        '123456',
+        req,
+        { deviceType: 'mobile' },
+      );
       expect(res.statusCode).toBe(200);
       expect(res.body).toEqual({
         success: true,
@@ -636,6 +645,38 @@ describe('auth response contracts', () => {
         success: false,
         message: 'Authentication failed',
       });
+    });
+
+    it('threads request metadata and device type through legacy login', async () => {
+      mockLegacyLogin.mockResolvedValue({ token: 'legacy-login-token' });
+      const { req, res } = makeHttp({
+        body: { phone: '+919000000003', deviceType: 'desktop' },
+      });
+
+      await authController.login(req, res);
+
+      expect(mockLegacyLogin).toHaveBeenCalledWith(
+        '+919000000003',
+        req,
+        { deviceType: 'desktop' },
+      );
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('threads request metadata and device type through legacy registration', async () => {
+      mockLegacyRegister.mockResolvedValue({ token: 'legacy-register-token' });
+      const { req, res } = makeHttp({
+        body: { phone: '+919000000004', deviceType: 'web' },
+      });
+
+      await authController.register(req, res);
+
+      expect(mockLegacyRegister).toHaveBeenCalledWith(
+        '+919000000004',
+        req,
+        { deviceType: 'web' },
+      );
+      expect(res.statusCode).toBe(200);
     });
   });
 });
