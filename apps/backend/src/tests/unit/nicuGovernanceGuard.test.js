@@ -9,15 +9,17 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = fs.readFileSync(path.resolve(__dirname, '../../routes/clinical/icuRoutes.js'), 'utf8');
 
-// The router.put(...) block that registers `route` (from the router.put before it
-// to the next router. call), so we can assert its middleware.
+// The router.put(...) block whose args include `route` (a path can also have a
+// GET route, so scan router.put( blocks specifically, not the first path match).
 function putBlock(route) {
-  const pos = SRC.indexOf(`'${route}'`);
-  if (pos === -1) throw new Error(`route ${route} not found`);
-  const start = SRC.lastIndexOf('router.put(', pos);
-  if (start === -1) throw new Error(`${route} is not a router.put route`);
-  const nextCall = SRC.indexOf('\nrouter.', pos);
-  return SRC.slice(start, nextCall === -1 ? pos + 400 : nextCall);
+  let i = 0;
+  while ((i = SRC.indexOf('router.put(', i)) !== -1) {
+    const end = SRC.indexOf('\nrouter.', i + 1);
+    const block = SRC.slice(i, end === -1 ? SRC.length : end);
+    if (block.includes(`'${route}'`)) return block;
+    i += 'router.put('.length;
+  }
+  throw new Error(`PUT ${route} not found`);
 }
 
 describe('NICU governance route authority (Sol Ultra Wave-E)', () => {
