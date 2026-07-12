@@ -162,6 +162,27 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   columns → NULL with every other column byte-identical via `to_jsonb` equality (stemi
   mig-559 pattern).
 
+- **Union tail-depth law.** Blind keep-both conflict union breaks when the two sides end at
+  different structural depths (a shared closing brace serves one side's method/class tail):
+  P1c nested a test inside a helper as dead code; the P1d and P1f rolls each dropped a closing
+  brace in the SAME file (cath_lab_api_service.dart). LAW: after ANY keep-both union, compile
+  and run the touched package's tests BEFORE committing the merge — every incident was caught
+  by an immediate targeted run and cost one line to fix.
+- **ESM mock-graph law.** `jest.unstable_mockModule` suites fail to LOAD when the loaded
+  import graph gains a named import their mocks don't provide — merges widen graphs silently
+  (P1e's follow-up seam, P1f's registry seam broke P1d's consumables units twice). Prefer
+  mocking a new SEAM at its source (one line kills the whole subtree) over chasing transitive
+  named exports; complete the shared lib/prisma mock surface when needed.
+- **Legacy-contract test law.** A security fix invalidates every test that pins the OLD
+  contract — and those failures are the fix WORKING, not regressions. The #555 train: four
+  TPA/cashless suites fabricated admission ids (Sol Ultra #15 now rejects them → seed real
+  rows), the payer-tenant suite depended on suite-order tenant seeding (self-create with
+  ON CONFLICT), claimsService units expected DB-free validation (binding reordered after
+  pure-input checks, mirroring createPreauth), and tokenBlacklistFailClosed asserted the #29
+  VULNERABILITY as its happy path (clean Redis miss ⇒ no DB hit). Sweep the whole affected
+  test FAMILY locally on a FRESH scratch DB in one pass — CI's chunked runner reveals these
+  one ~35-minute cycle at a time, and a reused scratch is a lying oracle.
+
 ## 4. Coordinator verification method (specs AND build PRs)
 
 1. **Scope-cleanliness first**: `gh pr view N --json files,additions,deletions` — only the
@@ -259,9 +280,9 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 546–554 | NL13-P6 transplant program (6 organs, live+deceased) | **on main** (#541) |
 | 555–557 | NL13-P1b cath-lab reporting (owner access model 2026-07-11) | **on main** (#552) |
 | 558–562 | NL13-P1c code-STEMI pathway (stroke-pathway mirror) | **on main** (#553) |
-| 563–566 | NL13-P1d cath consumables/implants + billing hook | GATE OPEN (P1b on main); kickoff handed 2026-07-11 |
-| 567–568 | NL13-P1e cath quick wins (readiness evidence, order sets, follow-up loops) | GATE OPEN (P1b on main); kickoff handed 2026-07-11 |
-| 569–571 | NL13-P1f cath scheduling + dose/complication registries | GATE OPEN (P1b on main); kickoff handed 2026-07-11 |
+| 563–566 | NL13-P1d cath consumables/implants + billing hook | **on main** (#558) |
+| 567–568 | NL13-P1e cath quick wins (readiness evidence, order sets, follow-up loops) | **on main** (#556, used 567; 568 unused gap — do not reuse) |
+| 569–571 | NL13-P1f cath scheduling + dose/complication registries | **on main** (#557) |
 | 572+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
@@ -324,7 +345,19 @@ edge + deploy · IdP pilot tenant · cluster activation items from earlier progr
   #544, code-blue #545, burns #546, ambulance #547, nuclear-med #548 (+ Trivy c-ares fix #549).
   Content verified per §4; coordinator fixed defects on-branch (route-policy + enum-array `::text[]`
   on #541, five proxy-allowlist entries, dart-format rolls).
-- **Cath enhancement tranche (owner asks 2026-07-11)** — **P1b MERGED #552 + P1c MERGED #553** (2026-07-11;
+- **CATH TRANCHE COMPLETE (2026-07-12): P1b #552 · P1c #553 · P1d #558 · P1e #556 · P1f #557 all on main.**
+  Cross-cutting fixes during the train: canonical-runner Flutter pin + ED ListTile Material (#559),
+  deploy/release workflow pins (#561, owner decision). Spread-order guard note: the #555 systemic
+  guard test now polices every route object-literal — new handlers MUST spread `...req.body`
+  BEFORE server-derived fields (four P1f handlers were caught and fixed at the #555 roll).
+- **Sol-Ultra AUDIT REMEDIATION MERGED (2026-07-12): #555 no-ff (37 commits preserved per its
+  merge ledger)** — 33 findings + the systemic req.body sweep; plus pending items #20 (#562,
+  digest pin) and #33 (#563, ABDM consent binding) landed by side sessions. REMAINING from the
+  audit: #27 OTP/PIN session tracking (launchable now — auth files settled), #38/#16
+  tenant-predicate sweeps (launchable now — train done), the SIGN-OFF group (owner decisions on
+  a staging branch: breach-registry tenancy, radiation privilege gate, Kyverno enforce, ArgoCD
+  project, device TLS), and operator items (CAN-011 flip, DOWNTIME_ACCESS_TOKEN, repo settings).
+- Historical: **P1b MERGED #552 + P1c MERGED #553** (2026-07-11;
   coordinator fixes on both: P1b seeder lat word-boundary; P1c seeder overrides + mig-559
   append-only/SET-NULL allowance + P1b×P1c workbench union). P1d/P1e/P1f **GATES OPEN**,
   kickoff lines handed (with pre-PR seed-proof addendum). Originally: P1b–P1f authored (blocks 555–571; §5/§7/§9).
@@ -377,9 +410,9 @@ parallel-safe may overlap.
 | `nl13-p1-cath-lab.md` | cath-lab cases/readiness/procedure/dose/orders/device-links | NL-13 spec on main | **MERGED** #536 (482–488) |
 | `nl13-p1b-cath-reporting.md` | templated Angio/PTCA/PPI reports, sign-off+addenda, DICOM viewer links, owner access model | P1 on main ✓ | **MERGED** #552 (555–557) |
 | `nl13-p1c-stemi-pathway.md` | code-STEMI activation, team fan-out, door-to-ECG/lab/balloon SLAs, cath-case link | stroke pathway (503–507) + cath P1 on main ✓ | **MERGED** #553 (558–562) |
-| `nl13-p1d-cath-consumables.md` | per-case consumable/implant usage, batch/expiry, inventory decrement, billing hook | P1b on main ✓ | GATE OPEN; kickoff handed (563–566) |
-| `nl13-p1e-cath-quickwins.md` | live readiness evidence (crossmatch/e-sign), pre/post order sets, post-PCI loops | P1b on main ✓ | GATE OPEN; kickoff handed (567–568) |
-| `nl13-p1f-cath-scheduling-registry.md` | cath rooms on Scheduling 2.0, dose rollups, complication registry → cockpit/BI | P1b on main ✓ + Scheduling 2.0 | GATE OPEN; kickoff handed (569–571) |
+| `nl13-p1d-cath-consumables.md` | per-case consumable/implant usage, batch/expiry, inventory decrement, billing hook | P1b on main ✓ | **MERGED** #558 (563–566) |
+| `nl13-p1e-cath-quickwins.md` | live readiness evidence (crossmatch/e-sign), pre/post order sets, post-PCI loops | P1b on main ✓ | **MERGED** #556 (567; 568 unused) |
+| `nl13-p1f-cath-scheduling-registry.md` | cath rooms on Scheduling 2.0, dose rollups, complication registry → cockpit/BI | P1b on main ✓ + Scheduling 2.0 | **MERGED** #557 (569–571) |
 | `nl13-p2-stroke.md` | code-stroke activation, NIHSS, thrombolysis, pathway SLA | NL-13 spec on main | **MERGED** #542 (503–507) |
 | `nl13-p3-oncology-staging.md` | TNM/AJCC staging, CTCAE toxicity, tumor board | NL-13 spec on main | **MERGED** #539 (489–492; 493–494 unused gaps) |
 | `nl13-p4-nuclear-med-radiotherapy.md` | radiotherapy referrals/plans/fractions, nuc-med orders (coordination-only) | NL-13 spec + P3 | **MERGED** #548 (508–512) |
