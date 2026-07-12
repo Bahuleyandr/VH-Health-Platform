@@ -37,6 +37,10 @@ const BILLING_PROVIDER = {
   },
 };
 
+// icd_cpt_map is tenant-agnostic reference data (no tenant_id column) — its
+// lookups below are intentionally NOT tenant-scoped. Every PHI-bearing table
+// on this router (claim_denials, invoices, billing_invoices, insurance_claims,
+// tpa_claims, users) is scoped to req.tenantId (Sol Ultra 2026-07-11 #16).
 /** GET /icd-cpt-map?icd10=X[&limit=50] — lookup billing codes by diagnosis. */
 router.get('/icd-cpt-map', async (req, res) => {
   try {
@@ -76,18 +80,22 @@ router.get('/denials/summary', async (req, res) => {
          COUNT(*) FILTER (WHERE appealed)::int       AS appealed,
          COUNT(*) FILTER (WHERE appeal_outcome = 'won')::int AS won
        FROM claim_denials
-      WHERE denied_at >= NOW() - ($1 || ' days')::interval`,
+      WHERE denied_at >= NOW() - ($1 || ' days')::interval
+        AND tenant_id = $2::uuid`,
       String(days),
+      req.tenantId,
     );
 
     const byReason = await prisma.$queryRawUnsafe(
       `SELECT reason_code, COUNT(*)::int AS count, COALESCE(SUM(denied_amount), 0)::float AS amount
          FROM claim_denials
         WHERE denied_at >= NOW() - ($1 || ' days')::interval
+          AND tenant_id = $2::uuid
         GROUP BY reason_code
         ORDER BY count DESC
         LIMIT 20`,
       String(days),
+      req.tenantId,
     );
 
     return success(res, {
@@ -109,9 +117,11 @@ router.get('/denials', async (req, res) => {
       `SELECT d.id, d.invoice_id, d.payer, d.reason_code, d.reason_text,
               d.denied_amount, d.appealed, d.appeal_outcome, d.denied_at
          FROM claim_denials d
+        WHERE d.tenant_id = $2::uuid
         ORDER BY d.denied_at DESC
         LIMIT $1`,
       limit,
+      req.tenantId,
     );
     return success(res, { items: rows, count: rows.length }, 'Recent denials');
   } catch (err) {
@@ -142,6 +152,7 @@ router.get('/ar-aging', async (req, res) => {
     // (total_amount/paid_amount/payment_status/due_date) UNIONed with
     // `billing_invoices` (total_amount/amount_paid/status/no-due_date,
     // plus tpa_claims+policies+payers join for the insurer side).
+    // $1 is the caller's tenant in every query built on this CTE.
     const baseCte = `
       WITH base AS (
         SELECT
@@ -162,6 +173,7 @@ router.get('/ar-aging', async (req, res) => {
         LEFT JOIN users u ON u.uid = i.patient_uid
         WHERE i.payment_status NOT IN ('paid', 'cancelled')
           AND (i.total_amount - COALESCE(i.paid_amount, 0)) > 0
+          AND i.tenant_id = $1::uuid
         UNION ALL
         SELECT
           'v2'::text AS source,
@@ -194,12 +206,14 @@ router.get('/ar-aging', async (req, res) => {
           LEFT JOIN insurance_policies ipol ON ipol.id = tc.policy_id
           LEFT JOIN payers p ON p.id = ipol.payer_id
           WHERE tc.invoice_id = bi.id
+            AND tc.tenant_id = $1::uuid
           ORDER BY tc.id DESC
           LIMIT 1
         ) tc_one ON TRUE
         WHERE bi.status IN ('ISSUED', 'PARTIAL')
           AND bi.voided_at IS NULL
           AND COALESCE(bi.amount_due, bi.total_amount - COALESCE(bi.amount_paid, 0)) > 0
+          AND bi.tenant_id = $1::uuid
       )
     `;
 
@@ -210,6 +224,7 @@ router.get('/ar-aging', async (req, res) => {
          COALESCE(SUM(outstanding), 0)::float AS total_outstanding,
          COALESCE(MAX(age_days), 0)::int AS oldest_age_days
        FROM base`,
+      req.tenantId,
     );
 
     const buckets = await prisma.$queryRawUnsafe(
@@ -232,6 +247,7 @@ router.get('/ar-aging', async (req, res) => {
        FROM bucketed
        GROUP BY bucket
        ORDER BY CASE bucket WHEN '0-30' THEN 1 WHEN '31-60' THEN 2 WHEN '61-90' THEN 3 ELSE 4 END`,
+      req.tenantId,
     );
 
     const invoices = await prisma.$queryRawUnsafe(
@@ -252,7 +268,8 @@ router.get('/ar-aging', async (req, res) => {
          claim_reference
        FROM base
        ORDER BY age_days DESC, outstanding DESC, issued_at ASC
-       LIMIT $1`,
+       LIMIT $2`,
+      req.tenantId,
       limit,
     );
 
@@ -288,9 +305,11 @@ router.get('/claim-queue', async (req, res) => {
          COALESCE(SUM(claim_amount - COALESCE(approved_amount, 0)), 0)::float AS payer_balance
        FROM insurance_claims
        WHERE status = ANY(string_to_array($1, ','))
+         AND tenant_id = $2::uuid
        GROUP BY status
        ORDER BY count DESC`,
       statuses,
+      req.tenantId,
     );
 
     const claims = await prisma.$queryRawUnsafe(
@@ -315,6 +334,7 @@ router.get('/claim-queue', async (req, res) => {
        LEFT JOIN invoices i ON i.id = c.invoice_id
        LEFT JOIN users u ON u.uid = c.patient_uid
        WHERE c.status = ANY(string_to_array($1, ','))
+         AND c.tenant_id = $3::uuid
        ORDER BY
          CASE c.status
            WHEN 'submitted' THEN 1
@@ -328,6 +348,7 @@ router.get('/claim-queue', async (req, res) => {
        LIMIT $2`,
       statuses,
       limit,
+      req.tenantId,
     );
 
     return success(res, {
@@ -359,15 +380,18 @@ router.get('/837/:invoiceId', async (req, res) => {
     const invoiceRows = await prisma.$queryRawUnsafe(
       `SELECT i.id, i.invoice_number, i.patient_uid, i.items, i.total_amount,
               i.issued_at, i.insurance_claim_id
-         FROM invoices i WHERE i.id = $1`,
+         FROM invoices i WHERE i.id = $1 AND i.tenant_id = $2::uuid`,
       invoiceId,
+      req.tenantId,
     );
     if (invoiceRows.length === 0) return error(res, 'Invoice not found', 404);
     const invoice = invoiceRows[0];
 
     const patientRows = await prisma.$queryRawUnsafe(
-      `SELECT uid, name, gender, birthday, phone FROM users WHERE uid = $1::uuid`,
+      `SELECT uid, name, gender, birthday, phone FROM users
+        WHERE uid = $1::uuid AND tenant_id = $2::uuid`,
       invoice.patient_uid,
+      req.tenantId,
     );
     if (patientRows.length === 0) return error(res, 'Patient not found for invoice', 404);
     const patient = patientRows[0];

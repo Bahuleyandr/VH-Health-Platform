@@ -24,6 +24,7 @@
 import crypto from 'crypto';
 
 import prisma from '../../lib/prisma.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { runExplainerPipeline } from './patientExplainersService.js';
 
@@ -84,15 +85,16 @@ export async function generateMedicalCertificateDraft({
   generatedBy = null, req = null,
 } = {}) {
   const admId = normalizeId(admissionId, 'admission_id');
+  const tid = requireTenantId(tenantId);
   const cert = String(certType || 'fitness').toLowerCase();
   if (!['fitness', 'sickness', 'vaccination', 'disability', 'travel', 'leave'].includes(cert)) {
     throw AppError.badRequest('cert_type must be fitness/sickness/vaccination/disability/travel/leave');
   }
   const adm = (await safeQuery(
-    `SELECT id, patient_uid, admission_date, discharge_date, primary_diagnosis,
-            secondary_diagnoses
-     FROM admissions WHERE id = $1 LIMIT 1`,
-    [admId],
+    `SELECT id, patient_uid, admitted_at AS admission_date, discharged_at AS discharge_date,
+            admitting_diagnosis AS primary_diagnosis, NULL::text AS secondary_diagnoses
+     FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    [admId, tid],
   ))[0];
   if (!adm) throw AppError.notFound('Admission not found');
 
@@ -103,7 +105,7 @@ export async function generateMedicalCertificateDraft({
 
   return runExplainerPipeline({
     moduleKey: 'medical_certificate_draft',
-    tenantId, patientUid: adm.patient_uid, admissionId: admId,
+    tenantId: tid, patientUid: adm.patient_uid, admissionId: admId,
     systemPrompt: [
       `You are a clinical scribe. Draft a ${cert} medical certificate from the admission context.`,
       'Output a JSON object with: explanation_summary (one-line purpose), certificate_text (multi-paragraph signable text), recommended_validity_days, restrictions (array).',
@@ -132,11 +134,13 @@ export async function generateClinicLetterDraft({
   generatedBy = null, req = null,
 } = {}) {
   const admId = normalizeId(admissionId, 'admission_id');
+  const tid = requireTenantId(tenantId);
   const adm = (await safeQuery(
-    `SELECT id, patient_uid, admission_date, discharge_date, primary_diagnosis,
-            secondary_diagnoses, discharge_summary
-     FROM admissions WHERE id = $1 LIMIT 1`,
-    [admId],
+    `SELECT id, patient_uid, admitted_at AS admission_date, discharged_at AS discharge_date,
+            admitting_diagnosis AS primary_diagnosis, NULL::text AS secondary_diagnoses,
+            discharge_summary
+     FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    [admId, tid],
   ))[0];
   if (!adm) throw AppError.notFound('Admission not found');
 
@@ -159,7 +163,7 @@ export async function generateClinicLetterDraft({
 
   return runExplainerPipeline({
     moduleKey: 'clinic_letter_draft',
-    tenantId, patientUid: adm.patient_uid, admissionId: admId,
+    tenantId: tid, patientUid: adm.patient_uid, admissionId: admId,
     systemPrompt: [
       `You are a clinical scribe. Draft a clinic letter to a ${recipientType.replace(/_/g, ' ')}.`,
       'Output: explanation_summary (one-line summary of the encounter), letter_body (full letter, 2-4 paragraphs), recommended_followup (array).',
@@ -361,15 +365,16 @@ async function drugSafetyCheck({
   moduleKey, label, prescriptionId, additionalContext, prompt, generatedBy, req, tenantId,
 }) {
   const rxId = normalizeId(prescriptionId, 'prescription_id');
+  const tid = requireTenantId(tenantId);
   const rx = (await safeQuery(
-    `SELECT id, patient_uid, medication_name, dosage, frequency, duration, status
-     FROM prescriptions WHERE id = $1 LIMIT 1`,
-    [rxId],
+    `SELECT id, patient_uid, medication_name, dosage, frequency, duration_days AS duration, status
+     FROM prescriptions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    [rxId, tid],
   ))[0];
   if (!rx) throw AppError.notFound('Prescription not found');
 
   return runExplainerPipeline({
-    moduleKey, tenantId,
+    moduleKey, tenantId: tid,
     patientUid: rx.patient_uid || null, admissionId: null,
     systemPrompt: prompt,
     userPromptPayload: {
@@ -446,20 +451,22 @@ export async function generateAdverseDrugEventDetection({
   generatedBy = null, req = null,
 } = {}) {
   const uid = requireUuid(patientUid, 'patient_uid');
+  const tid = requireTenantId(tenantId);
   if (!signal || typeof signal !== 'object') {
     throw AppError.badRequest('signal must be an object describing the symptom/lab/vital');
   }
   const meds = await safeQuery(
-    `SELECT id, medication_name, dosage, frequency, duration, prescribed_at
+    `SELECT id, medication_name, dosage, frequency, duration_days AS duration,
+            issued_at AS prescribed_at
      FROM prescriptions
-     WHERE patient_uid = $1::uuid AND status IN ('active', 'ongoing')
-     ORDER BY prescribed_at DESC LIMIT 25`,
-    [uid],
+     WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid AND status IN ('active', 'ongoing')
+     ORDER BY issued_at DESC LIMIT 25`,
+    [uid, tid],
   );
 
   return runExplainerPipeline({
     moduleKey: 'adverse_drug_event_detector',
-    tenantId, patientUid: uid, admissionId: null,
+    tenantId: tid, patientUid: uid, admissionId: null,
     systemPrompt: [
       'You are a clinical pharmacist. Decide whether the patient signal is a likely adverse drug event for any active medication.',
       'Output: explanation_summary, likely_ade: yes|no|uncertain, candidate_drugs (array of { medication, mechanism, naranjo_band: definite|probable|possible|doubtful, recommended_action }).',
@@ -483,12 +490,13 @@ export async function generateFallRiskPrediction({
   tenantId = null, patientUid, generatedBy = null, req = null,
 } = {}) {
   const uid = requireUuid(patientUid, 'patient_uid');
+  const tid = requireTenantId(tenantId);
   const recent = await safeQuery(
     `SELECT id, scale, score, risk_level, factors, interventions, recorded_at
      FROM fall_risk_assessments
-     WHERE patient_uid = $1::uuid
+     WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
      ORDER BY recorded_at DESC LIMIT 5`,
-    [uid],
+    [uid, tid],
   );
   if (!recent.length) {
     throw AppError.notFound('No fall_risk_assessments rows found — record one first via /clinical/assessments/fall-risk');
@@ -496,7 +504,7 @@ export async function generateFallRiskPrediction({
 
   return runExplainerPipeline({
     moduleKey: 'fall_risk_prediction',
-    tenantId, patientUid: uid, admissionId: null,
+    tenantId: tid, patientUid: uid, admissionId: null,
     systemPrompt: [
       'You are a clinical risk model. Predict the patient fall risk over the next 24-72 hours.',
       'Output: explanation_summary, predicted_risk_level: low|medium|high|very_high, predicted_probability_24h (0..1), trend_vs_prior (improving|stable|worsening), recommended_interventions (array).',
@@ -559,26 +567,27 @@ export async function generateAkiRiskAlert({
   generatedBy = null, req = null,
 } = {}) {
   const uid = requireUuid(patientUid, 'patient_uid');
+  const tid = requireTenantId(tenantId);
   const creats = await safeQuery(
-    `SELECT id, test_name, result_value, result_unit, completed_at
+    `SELECT id, test_name, result_summary AS result_value, unit AS result_unit, completed_at
      FROM investigations
-     WHERE patient_uid = $1::uuid
+     WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
        AND LOWER(test_name) IN ('creatinine', 'serum creatinine', 'egfr')
        AND completed_at IS NOT NULL
      ORDER BY completed_at DESC LIMIT 8`,
-    [uid],
+    [uid, tid],
   );
   const meds = await safeQuery(
-    `SELECT id, medication_name, dosage, prescribed_at
+    `SELECT id, medication_name, dosage, issued_at AS prescribed_at
      FROM prescriptions
-     WHERE patient_uid = $1::uuid AND status IN ('active', 'ongoing')
-     ORDER BY prescribed_at DESC LIMIT 30`,
-    [uid],
+     WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid AND status IN ('active', 'ongoing')
+     ORDER BY issued_at DESC LIMIT 30`,
+    [uid, tid],
   );
 
   return runExplainerPipeline({
     moduleKey: 'aki_risk_alert',
-    tenantId, patientUid: uid, admissionId: null,
+    tenantId: tid, patientUid: uid, admissionId: null,
     systemPrompt: [
       'You are a clinical AKI surveillance assistant. Decide whether the patient is at acute kidney injury risk.',
       'Use the KDIGO definition (creatinine rise >=0.3 mg/dL within 48h OR >=1.5x baseline).',
@@ -610,8 +619,10 @@ export async function generateIntakeOutputSummary({
   generatedBy = null, req = null,
 } = {}) {
   const admId = normalizeId(admissionId, 'admission_id');
+  const tid = requireTenantId(tenantId);
   const adm = (await safeQuery(
-    `SELECT id, patient_uid FROM admissions WHERE id = $1 LIMIT 1`, [admId],
+    `SELECT id, patient_uid FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    [admId, tid],
   ))[0];
   if (!adm) throw AppError.notFound('Admission not found');
 
@@ -640,7 +651,7 @@ export async function generateIntakeOutputSummary({
 
   return runExplainerPipeline({
     moduleKey: 'intake_output_summary',
-    tenantId, patientUid: adm.patient_uid, admissionId: admId,
+    tenantId: tid, patientUid: adm.patient_uid, admissionId: admId,
     systemPrompt: [
       'You are a clinical scribe. Summarise the patient intake / output for the day.',
       'Output: explanation_summary, intake_total_ml, output_total_ml, net_balance_ml, by_type (object), notable_trends, recommended_actions.',
@@ -670,11 +681,13 @@ export async function generateIcuRoundSummary({
   generatedBy = null, req = null,
 } = {}) {
   const admId = normalizeId(admissionId, 'admission_id');
+  const tid = requireTenantId(tenantId);
   const adm = (await safeQuery(
-    `SELECT id, patient_uid, admission_date, primary_diagnosis,
-            secondary_diagnoses, ward, bed_number
-     FROM admissions WHERE id = $1 LIMIT 1`,
-    [admId],
+    `SELECT id, patient_uid, admitted_at AS admission_date,
+            admitting_diagnosis AS primary_diagnosis, NULL::text AS secondary_diagnoses,
+            ward, bed_number
+     FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    [admId, tid],
   ))[0];
   if (!adm) throw AppError.notFound('Admission not found');
 
@@ -699,7 +712,7 @@ export async function generateIcuRoundSummary({
 
   return runExplainerPipeline({
     moduleKey: 'icu_round_summary',
-    tenantId, patientUid: adm.patient_uid, admissionId: admId,
+    tenantId: tid, patientUid: adm.patient_uid, admissionId: admId,
     systemPrompt: [
       'You are an ICU scribe. Produce the per-patient round summary for the rounding team.',
       'Output: explanation_summary, problem_list (array of { problem, status }), overnight_events (array), today_plan (array), pending_items (array).',
