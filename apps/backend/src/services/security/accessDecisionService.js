@@ -334,6 +334,22 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'prehospital_handover':
+      // Sol Ultra ambulance-H1: the ED pre-hospital handover routes carry only a
+      // handover id, so a plain patient guard saw no patient context and passed.
+      // Resolve the handover to its patient so the care-team decision can run.
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM prehospital_handovers h
+           JOIN users p ON p.uid = h.patient_uid
+          WHERE h.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND h.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
     case 'encounter':
       return patientFromUuidResourceQuery(
         req,

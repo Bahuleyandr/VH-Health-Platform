@@ -7,6 +7,7 @@ import express from 'express';
 
 import { success } from '../../utils/responseHelper.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
+import { resolvePatientForResourceAccess } from '../../services/security/accessDecisionService.js';
 import { emitEdBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 import {
   acceptPrehospitalHandover,
@@ -333,8 +334,29 @@ router.patch('/ambulance-requests/:id/transition', async (req, res, next) => {
 });
 
 // Pre-hospital handover seam (NL-14 P2/P3). The parent /api/v1/ed mount
-// supplies ED clinical RBAC + PHI logging; this guard adds patient-context ABAC
-// when the handover request carries a patient_uid.
+// supplies ED clinical RBAC + PHI logging; this guard adds patient-context ABAC.
+//
+// Sol Ultra ambulance-H1: the by-id handover routes carry only a handover id
+// (path /handovers/<id> or body.handover_id), so the plain patient guard saw no
+// patient context and passed for every ED role. Resolve the handover to its
+// patient FIRST (best-effort; never blocks) so the care-team guard below has a
+// patient to evaluate.
+async function resolvePrehospitalHandoverContext(req, _res, next) {
+  try {
+    const m = /\/handovers\/(\d+)(?:\/|$)/.exec(req.originalUrl || req.url || '');
+    const handoverId = m ? m[1] : (req.body?.handover_id ?? null);
+    if (handoverId != null) {
+      const patient = await resolvePatientForResourceAccess(req, {
+        resourceType: 'prehospital_handover', resourceId: handoverId,
+      });
+      if (patient?.uid) {
+        req.phiContext = { ...(req.phiContext ?? {}), patientUid: patient.uid };
+      }
+    }
+  } catch { /* best-effort — the guard handles a missing patient context */ }
+  next();
+}
+router.use('/prehospital', resolvePrehospitalHandoverContext);
 router.use('/prehospital', patientAccessGuard('PREHOSPITAL_HANDOVER', { careTeamModeGoverned: true }));
 
 router.post('/prehospital/handovers', async (req, res, next) => {
