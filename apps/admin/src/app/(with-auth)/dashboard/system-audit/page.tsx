@@ -6,15 +6,21 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, Search, Shield, User } from "lucide-react";
+import { Activity, ClipboardList, Search, Shield, User } from "lucide-react";
 import { LiveFeedTab } from "./components/LiveFeedTab";
 import { LogSearchTab } from "./components/LogSearchTab";
 import { UserHistoryTab } from "./components/UserHistoryTab";
+import { ClinicalAuditTab } from "./components/ClinicalAuditTab";
 
 const TABS = [
   { id: "live", label: "Live Feed", icon: <Activity className="h-4 w-4" /> },
   { id: "search", label: "Log Search", icon: <Search className="h-4 w-4" /> },
   { id: "user", label: "User History", icon: <User className="h-4 w-4" /> },
+  {
+    id: "clinical",
+    label: "Clinical Audit",
+    icon: <ClipboardList className="h-4 w-4" />,
+  },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -62,6 +68,7 @@ export default function SystemAuditPage() {
       {activeTab === "live" && <LiveFeedTab />}
       {activeTab === "search" && <LogSearchTab />}
       {activeTab === "user" && <UserHistoryTab />}
+      {activeTab === "clinical" && <ClinicalAuditTab />}
     </div>
   );
 }
