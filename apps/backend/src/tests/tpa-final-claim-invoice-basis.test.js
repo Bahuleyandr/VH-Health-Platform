@@ -27,6 +27,20 @@ const PATIENT_UID = 'f4444444-4444-4444-8444-dddddddd5501';
 
 const createdClaimIds = [];
 const createdInvoiceIds = [];
+const createdAdmissionIds = [];
+
+// Sol Ultra #15 binds a claim's admission to a real tenant-scoped row, so
+// fabricated admission ids now (correctly) reject at createClaim.
+async function seedAdmission() {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO admissions (tenant_id, patient_uid, status, admitted_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'admitted', NOW(), NOW())
+     RETURNING id`,
+    TENANT, PATIENT_UID,
+  );
+  createdAdmissionIds.push(rows[0].id);
+  return rows[0].id;
+}
 let policyId;
 
 async function seedIssuedInvoice({ total, admissionId, status = 'ISSUED', invoiceType = 'IP' }) {
@@ -64,6 +78,9 @@ describe('TPA final-claim invoice basis (interim vs final bill, 7239f4be)', () =
     for (const id of createdInvoiceIds) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = $1::int`, id).catch(() => {});
     }
+    for (const id of createdAdmissionIds) {
+      await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE id = $1::int`, id).catch(() => {});
+    }
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
@@ -71,7 +88,7 @@ describe('TPA final-claim invoice basis (interim vs final bill, 7239f4be)', () =
   });
 
   it('rejects createClaim when the final cashless claim is anchored to an interim invoice and a larger final invoice exists', async () => {
-    const admissionId = 960100 + (Date.now() % 10000);
+    const admissionId = await seedAdmission();
     // Interim IPD bill (₹76k) and the full final bill (₹80k) — both ISSUED,
     // both invoice_type='IP', same admission. Mirrors the finding.
     const interimId = await seedIssuedInvoice({ total: 76000, admissionId });
@@ -91,7 +108,7 @@ describe('TPA final-claim invoice basis (interim vs final bill, 7239f4be)', () =
   });
 
   it('allows the final cashless claim anchored to the FINAL invoice and is not capped at the interim amount', async () => {
-    const admissionId = 970100 + (Date.now() % 10000);
+    const admissionId = await seedAdmission();
     await seedIssuedInvoice({ total: 76000, admissionId }); // interim, lower
     const finalId = await seedIssuedInvoice({ total: 80000, admissionId }); // final, full bill
 
@@ -126,7 +143,7 @@ describe('TPA final-claim invoice basis (interim vs final bill, 7239f4be)', () =
   });
 
   it('does NOT false-positive when the linked invoice is the only/largest invoice for the admission', async () => {
-    const admissionId = 980100 + (Date.now() % 10000);
+    const admissionId = await seedAdmission();
     // A lower interim that was later VOIDED + a smaller PARTIAL must not
     // block: neither is a live invoice with a greater total than the final.
     await seedIssuedInvoice({ total: 90000, admissionId, status: 'VOID' });
@@ -143,7 +160,7 @@ describe('TPA final-claim invoice basis (interim vs final bill, 7239f4be)', () =
   });
 
   it('rejects at submitClaim too when a prepared final claim is still anchored to the interim invoice', async () => {
-    const admissionId = 990100 + (Date.now() % 10000);
+    const admissionId = await seedAdmission();
     const interimId = await seedIssuedInvoice({ total: 76000, admissionId });
     const finalId = await seedIssuedInvoice({ total: 80000, admissionId });
 

@@ -81,9 +81,9 @@ router.get('/templates', requireStaffOrAdmin, wrap(async (req) =>
 // ── Summaries ────────────────────────────────────────────────────────
 router.post('/', requireStaffOrAdmin, wrap(async (req) =>
   discharge.createDraft({
+    ...req.body,
     tenantId: tenantOf(req),
     created_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 

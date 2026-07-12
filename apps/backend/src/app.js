@@ -33,7 +33,7 @@ import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
 import { patientAccessGuardForPaths, phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
-import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
+import { patientAccessGuard, patientAccessGuardForResource, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import fhirPatientContext, { requireFhirSearchPatientContext } from './middleware/fhirPatientContext.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import {
@@ -295,6 +295,7 @@ import hl7FeedRoutes from './routes/hl7/hl7FeedRoutes.js';
 import deviceVitalsRoutes from './routes/emr/deviceVitalsRoutes.js';
 import schedulingRoutes from './routes/scheduling/schedulingRoutes.js';
 import nabhRoutes from './routes/quality/nabhRoutes.js';
+import cathQualityRoutes from './routes/quality/cathQualityRoutes.js';
 import infectionControlRoutes from './routes/quality/infectionControlRoutes.js';
 import credentialingRoutes from './routes/staff/credentialingRoutes.js';
 import researchRoutes from './routes/research/researchRoutes.js';
@@ -1043,6 +1044,11 @@ app.use('/api/v1/scheduling', requireRole(...CLINICAL_STAFF_ROLES, 'RECEPTIONIST
 // NABH quality indicators (roadmap D4) — computed packs + assessor export.
 app.use('/api/v1/quality/nabh', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), nabhRoutes);
 
+// NL13-P1f cath quality views — dose-audit rollups + complication registry.
+// Rides the existing api/v1/quality admin proxy family; registry rows are
+// patient-linked, so the mount carries PHI access logging.
+app.use('/api/v1/quality/cath', requireRole('ADMIN', ...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), phiAccessLogger('QUALITY'), cathQualityRoutes);
+
 // Infection-control workbench (roadmap D5) — isolation board, ADT contact
 // tracing, antibiogram over existing micro data. Same IC/quality gate as NABH.
 app.use('/api/v1/infection-control', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), phiAccessLogger('INFECTION_CONTROL'), infectionControlRoutes);
@@ -1258,7 +1264,11 @@ app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGua
 
 // Operating Theatre
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
-app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), orBoardRoutes);
+// OR board shares the /theatre prefix but was mounted with role-only gating —
+// missing the patient-access guard and PHI logging its sibling has, so broad
+// theatre roles could read every patient's OR-board clinical state (and schedule
+// surgery) un-audited (Sol Ultra #9/#12). Mirror the theatreRoutes middleware.
+app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), orBoardRoutes);
 app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ANESTHESIA_CHART', { careTeamModeGoverned: true }), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 app.use('/api/v1/ctvs', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CTVS_PERFUSION', { careTeamModeGoverned: true }), phiAccessLogger('CTVS_PERFUSION'), ctvsPerfusionRoutes);
 app.use('/api/v1/cssd', requireRole(...CSSD_ROUTE_ROLES), sanitizeAllBodyStrings, cssdRoutes);
@@ -1334,6 +1344,20 @@ app.use('/api/v1/insurance', requireRole(...BILLING_ROUTE_ROLES), insuranceClaim
 app.use(
   '/api/v1/admissions/:admissionId/tpa-enhancement',
   requireRole(...BILLING_V2_ROUTE_ROLES),
+  // Sol Ultra #8: this clinician-facing enhancement surface is keyed off the
+  // :admissionId path param, so a plain patientAccessGuard would see no
+  // patient_uid and pass. Resolve the admission -> patient and run the care-team
+  // relationship decision (a foreign/unrelated admission 403s in enforce mode).
+  patientAccessGuardForResource('INSURANCE_PREAUTH', {
+    resourceType: 'admission',
+    idParam: 'admissionId',
+    careTeamModeGoverned: true,
+    // When the admission id doesn't resolve to a patient (e.g. the chart surface
+    // operates on preauth.admission_id without an admissions FK), defer to the
+    // route's own ownership/existence check (404) instead of a hard 403 — the
+    // care-team relationship is enforced whenever the admission DOES resolve.
+    allowNoPatientResource: true,
+  }),
   phiAccessLogger('INSURANCE_PREAUTH'),
   admissionEnhancementRoutes,
 );

@@ -72,20 +72,23 @@ export async function blacklistToken(jti, expiresAt, reason = 'logout') {
 export async function isTokenBlacklisted(jti) {
   if (!jti) return false;
 
-  // Redis: fast path
+  // Redis is a POSITIVE cache only. A hit proves the token is revoked; a MISS is
+  // NOT proof of absence — the key may have been evicted, or Redis flushed, while
+  // the durable invalidated_tokens row still stands. So only a hit short-circuits;
+  // a miss (or any Redis error) falls through to the authoritative DB query
+  // (Sol Ultra #29 — a Redis clean-miss must never accept a DB-revoked token).
   if (isRedisConnected()) {
     try {
       const result = await cacheGet(`${BLACKLIST_PREFIX}${jti}`);
       if (result !== null) return true;
-      // Redis says not blacklisted — trust it (token was never added or TTL expired)
-      return false;
+      // miss → fall through to the DB; absence in Redis is not proof.
     } catch (err) {
       // Redis failed, fall through to DB
       logger.warn('Token blacklist Redis read failed, falling back to DB:', err.message);
     }
   }
 
-  // DB: fallback when Redis is unavailable
+  // DB: authoritative negative answer (and the fallback when Redis missed/failed)
   try {
     const result = await prisma.$queryRawUnsafe(
       'SELECT 1 FROM invalidated_tokens WHERE jti = $1 AND expires_at > NOW() LIMIT 1',

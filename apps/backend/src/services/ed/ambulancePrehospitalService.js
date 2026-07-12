@@ -366,7 +366,17 @@ export async function createPrehospitalHandover({
 } = {}) {
   const tid = requireTenantId(tenantId);
   const ambulance = await fetchAmbulanceRequest(tid, ambulanceRequestId);
-  const resolvedPatientUid = requireUuid(patientUid || ambulance.patient_uid, 'patient_uid');
+  // Sol Ultra ambulance-H3: the handover's patient IS the selected ambulance
+  // request's patient — a request body must not replace it. When the ambulance
+  // already carries a patient, a differing supplied patient_uid is a cross-bind
+  // attempt; only a patientless ambulance may have its patient populated here.
+  if (ambulance.patient_uid && patientUid && String(patientUid) !== String(ambulance.patient_uid)) {
+    throw AppError.badRequest(
+      'patient_uid does not match the ambulance request patient',
+      'PREHOSPITAL_PATIENT_MISMATCH',
+    );
+  }
+  const resolvedPatientUid = requireUuid(ambulance.patient_uid || patientUid, 'patient_uid');
   const existingVisit = emergencyVisitId ? await fetchEmergencyVisit(tid, emergencyVisitId) : null;
   if (existingVisit?.patient_uid && existingVisit.patient_uid !== resolvedPatientUid) {
     throw AppError.badRequest('emergency_visit_id belongs to a different patient');

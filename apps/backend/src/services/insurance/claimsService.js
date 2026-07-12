@@ -141,7 +141,15 @@ async function assertTpaChildParentInTenant({ tenantId, claim_id, preauth_id }) 
  * placeholder row for unrecognised insurers.
  */
 async function resolvePayerId(tenantId, { payer_id, payer_code, insurer_code, insurer_name }) {
-  if (payer_id) return Number(payer_id);
+  if (payer_id) {
+    // Sol Ultra #4: a directly-supplied payer_id must still belong to this
+    // tenant — never bind a policy to another tenant's payer master. Falls
+    // through to null (→ 'OTHER' placeholder or unset) when it isn't ours.
+    const owned = await prisma.payers.findFirst({
+      where: { id: Number(payer_id), tenant_id: tenantId }, select: { id: true },
+    });
+    return owned?.id ?? null;
+  }
   const code = (payer_code || insurer_code || '').trim();
   if (code) {
     const row = await prisma.payers.findFirst({
@@ -169,7 +177,13 @@ async function resolvePayerId(tenantId, { payer_id, payer_code, insurer_code, in
  * tpa_code, or fuzzy display_name.
  */
 async function resolveTpaId(tenantId, { tpa_id, tpa_code, tpa_name }) {
-  if (tpa_id) return Number(tpa_id);
+  if (tpa_id) {
+    // Sol Ultra #4: verify a directly-supplied tpa_id belongs to this tenant.
+    const owned = await prisma.tpas.findFirst({
+      where: { id: Number(tpa_id), tenant_id: tenantId }, select: { id: true },
+    });
+    return owned?.id ?? null;
+  }
   const code = (tpa_code || '').trim();
   if (code) {
     const row = await prisma.tpas.findFirst({
@@ -272,6 +286,13 @@ export async function createPreauth({
   if (!expected_cost || Number(expected_cost) <= 0) {
     throw AppError.badRequest('expected_cost must be > 0');
   }
+  // Sol Ultra #15: bind the referenced policy / admission / parent pre-auth to
+  // this tenant + patient before creating the pre-auth (parent_preauth_id points
+  // at insurance_preauth, i.e. the preauthId ref in the shared checker).
+  await assertClaimReferencesBelongToPatient({
+    tenantId, patientUid: patient_uid, policyId: policy_id,
+    admissionId: admission_id, preauthId: parent_preauth_id,
+  });
 
   const preauth_number = await nextSeq('insurance_preauth_counter', 'PA', tenantId);
 
@@ -1070,11 +1091,25 @@ const FINAL_CASHLESS_TRACEABLE_SOURCE_TYPES = new Set([
   'room_day',
   'discharge_consult',
   'theatre_case',
+  'dialysis_session',
+  'cath_procedure_log',
+  'cath_consumable_usage',
   'admission_package',
   'package',
 ]);
 
 const FINAL_CASHLESS_SOURCE_ID_OPTIONAL = new Set(['admission_package', 'package']);
+
+function normalizeBigIntForResponse(value) {
+  if (typeof value !== 'bigint') return value;
+  if (
+    value >= BigInt(Number.MIN_SAFE_INTEGER)
+    && value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return Number(value);
+  }
+  return value.toString();
+}
 
 async function assertFinalCashlessInvoiceLinesTraceable(invoiceId) {
   const rows = await prisma.$queryRawUnsafe(
@@ -1099,7 +1134,7 @@ async function assertFinalCashlessInvoiceLinesTraceable(invoiceId) {
     id: Number(row.id),
     description: String(row.description || '').slice(0, 120),
     source_ref_type: row.source_ref_type || null,
-    source_ref_id: row.source_ref_id == null ? null : Number(row.source_ref_id),
+    source_ref_id: normalizeBigIntForResponse(row.source_ref_id),
   }));
   throw AppError.badRequest(
     `Final cashless claim invoice ${invoiceId} has ${untraceable.length} untraceable billable line(s). ` +
@@ -1185,6 +1220,38 @@ async function assertIssuedFinalCashlessInvoice({
   }
   await assertFinalCashlessInvoiceLinesTraceable(invoice.id);
   return invoice;
+}
+
+// Sol Ultra #1/#15: a claim/preauth carried caller-supplied policy_id,
+// preauth_id, admission_id and parent_claim_id straight into the INSERT with no
+// check that those objects belong to the same tenant AND the same patient. A
+// biller could therefore bind a claim to another patient's policy/admission
+// (intra-tenant financial-integrity), or reference another tenant's ids. Verify
+// each referenced object resolves within the tenant and shares the patient.
+// Table names are fixed literals here (never request data) — safe to inline.
+async function assertClaimReferencesBelongToPatient({
+  tenantId, patientUid, policyId = null, preauthId = null,
+  admissionId = null, parentClaimId = null,
+}) {
+  const refs = [
+    ['insurance_policies', policyId, 'policy_id'],
+    ['insurance_preauth', preauthId, 'preauth_id'],
+    ['admissions', admissionId, 'admission_id'],
+    ['tpa_claims', parentClaimId, 'parent_claim_id'],
+  ];
+  for (const [table, id, label] of refs) {
+    if (id == null) continue;
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT patient_uid FROM ${table} WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+      Number(id), tenantId,
+    );
+    if (!rows.length) {
+      throw AppError.badRequest(`${label} not found in this tenant`, 'CLAIM_REFERENCE_INVALID');
+    }
+    if (patientUid && rows[0].patient_uid && String(rows[0].patient_uid) !== String(patientUid)) {
+      throw AppError.forbidden(`${label} belongs to a different patient`, 'CLAIM_REFERENCE_PATIENT_MISMATCH');
+    }
+  }
 }
 
 export async function createClaim({
@@ -1276,6 +1343,15 @@ export async function createClaim({
   if (stage !== null && stage !== undefined && !VALID_CLAIM_STAGES.includes(stage)) {
     throw AppError.badRequest(`Invalid stage "${stage}". Must be one of: ${VALID_CLAIM_STAGES.join(', ')}`);
   }
+  // Sol Ultra #15: bind the referenced policy / preauth / admission /
+  // parent claim to this tenant + patient. Placed AFTER the pure-input
+  // validations (mirroring createPreauth) so shape checks stay DB-free —
+  // the unit suite's documented contract — while every path that reaches
+  // persistence still passes the binding.
+  await assertClaimReferencesBelongToPatient({
+    tenantId, patientUid: patient_uid, policyId: policy_id, preauthId: preauth_id,
+    admissionId: admission_id, parentClaimId: parent_claim_id,
+  });
   const finalStage = stage || 'final';
   if (claim_type === 'cashless' && finalStage === 'final' && invoice_id) {
     await assertIssuedFinalCashlessInvoice({
@@ -2237,3 +2313,7 @@ export async function getClaimBundle({ tenantId, id }) {
   );
   return { claim: { ...claim, warnings }, documents: docs, correspondence: corr };
 }
+
+export const __testing__ = {
+  assertFinalCashlessInvoiceLinesTraceable,
+};

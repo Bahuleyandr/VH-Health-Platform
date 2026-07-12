@@ -36,22 +36,26 @@ describe('billing v2 issueInvoice — GST recipient-field backfill', () => {
     mockPrisma.$queryRawUnsafe
       // 1) initial status check
       .mockResolvedValueOnce([{ id: 11, status: 'DRAFT', tenant_id: tenantId }])
-      // 2) item count check
+      // 2) locked status recheck
+      .mockResolvedValueOnce([{ id: 11, status: 'DRAFT', tenant_id: tenantId }])
+      // 3) item count check
       .mockResolvedValueOnce([{ c: 2 }])
-      // 3) nextInvoiceNumber counter UPSERT
+      // 4) nextInvoiceNumber counter UPSERT
       .mockResolvedValueOnce([{ next_value: 2 }])
-      // 4) tpa-cap meta lookup (no admission)
+      // 5) tpa-cap meta lookup (no admission)
       .mockResolvedValueOnce([{
         admission_id: null,
         patient_uid: null,
         tenant_id: tenantId,
         total_amount: '0',
       }])
-      // 5) getInvoice -> invoices SELECT
+      // 6) getInvoice -> invoices SELECT
       .mockResolvedValueOnce([{ id: 11, invoice_number: 'INV-2026-000001' }])
-      // 6) getInvoice -> items SELECT
+      // 7) getInvoice -> items SELECT
       .mockResolvedValueOnce([])
-      // 7) getInvoice -> payments SELECT
+      // 8) getInvoice -> payments SELECT
+      .mockResolvedValueOnce([])
+      // 9) getInvoice -> advance settlements SELECT
       .mockResolvedValueOnce([]);
 
     await issueInvoice(11);

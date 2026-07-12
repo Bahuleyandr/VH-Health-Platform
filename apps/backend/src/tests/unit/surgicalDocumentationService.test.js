@@ -483,7 +483,12 @@ describe('recordImplant', () => {
 
   it('inserts a knee prosthesis with UDI', async () => {
     mockSchedule();
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 11, status: 'in_situ' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 11,
+      status: 'in_situ',
+      cath_case_id: 9_007_199_254_740_993n,
+      cath_usage_id: 42n,
+    }]);
     const row = await recordImplant({
       tenantId: TENANT,
       otScheduleId: 42,
@@ -495,16 +500,49 @@ describe('recordImplant', () => {
       side: 'left',
     });
     expect(row.status).toBe('in_situ');
+    expect(row.cath_case_id).toBe('9007199254740993');
+    expect(row.cath_usage_id).toBe(42);
+    expect(() => JSON.stringify(row)).not.toThrow();
   });
 });
 
 describe('listImplants', () => {
+  it('preserves cath BIGINT filters as exact decimal strings', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    await listImplants({
+      tenantId: TENANT,
+      cathCaseId: '9007199254740993',
+      cathUsageId: '9223372036854775807',
+    });
+    expect(queryUnsafeMock.mock.calls[0].slice(1, 4)).toEqual([
+      TENANT,
+      '9007199254740993',
+      '9223372036854775807',
+    ]);
+  });
+
+  it('rejects unsafe numeric cath filters before they can be rounded', async () => {
+    await expect(listImplants({
+      tenantId: TENANT,
+      cathCaseId: 9_007_199_254_740_992,
+    })).rejects.toThrow(/decimal string/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
   it('filters by patient_uid + status', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 11, status: 'in_situ' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 11,
+      status: 'in_situ',
+      cath_case_id: 42n,
+      cath_usage_id: 9_007_199_254_740_993n,
+    }]);
     const result = await listImplants({
       tenantId: TENANT, patientUid: PATIENT, status: 'in_situ',
     });
     expect(result.implants).toHaveLength(1);
+    expect(result.implants[0].cath_case_id).toBe(42);
+    expect(result.implants[0].cath_usage_id).toBe('9007199254740993');
+    expect(() => JSON.stringify(result)).not.toThrow();
     const sql = queryUnsafeMock.mock.calls[0][0];
     expect(sql).toMatch(/patient_uid = \$2::uuid/);
   });
@@ -518,11 +556,20 @@ describe('listImplants', () => {
 
 describe('recordImplantRemoval', () => {
   it('flips status to removed', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 11, status: 'removed', removal_reason: 'infection' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 11,
+      status: 'removed',
+      removal_reason: 'infection',
+      cath_case_id: 9_007_199_254_740_993n,
+      cath_usage_id: 42n,
+    }]);
     const row = await recordImplantRemoval({
       tenantId: TENANT, id: 11, removalReason: 'infection',
     });
     expect(row.status).toBe('removed');
+    expect(row.cath_case_id).toBe('9007199254740993');
+    expect(row.cath_usage_id).toBe(42);
+    expect(() => JSON.stringify(row)).not.toThrow();
   });
 
   it('throws not-found when implant not in_situ', async () => {

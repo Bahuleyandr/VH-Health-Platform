@@ -18,6 +18,7 @@ const addReportAddendumMock = jest.fn(async () => ({ id: 91, report_id: 51 }));
 const getSignedReportForPdfMock = jest.fn(async () => ({ id: 51, status: 'signed' }));
 const getCaseMock = jest.fn(async () => ({ id: 42, status: 'scheduled' }));
 const listCasesMock = jest.fn(async () => [{ id: 42, status: 'scheduled' }]);
+const recordConsumableUsageMock = jest.fn(async () => ({ id: 73, quantity: 1 }));
 const transitionCaseStatusMock = jest.fn();
 
 jest.unstable_mockModule('../../services/clinical/cathLabService.js', () => ({
@@ -27,7 +28,11 @@ jest.unstable_mockModule('../../services/clinical/cathLabService.js', () => ({
   addPostProcedureOrder: jest.fn(),
   createCase: jest.fn(),
   getCase: getCaseMock,
+  listCaseConsumableUsage: jest.fn(),
+  listCatalogBatches: jest.fn(),
   listCases: listCasesMock,
+  listConsumableCatalog: jest.fn(),
+  recordConsumableUsage: recordConsumableUsageMock,
   recordProcedureLog: jest.fn(),
   transitionCaseStatus: transitionCaseStatusMock,
   updateReadinessCheck: jest.fn(),
@@ -51,8 +56,33 @@ jest.unstable_mockModule('../../services/documents/cathReportPdfService.js', () 
   renderCathReportPdf: jest.fn(async () => Buffer.from('%PDF-route-test')),
 }));
 
+// NL-13 P1e quick-wins routes are covered by cathQuickWinsService.test.js;
+// mock the service here to keep this suite's module graph tight.
+jest.unstable_mockModule('../../services/clinical/cathQuickWinsService.js', () => ({
+  applyCathOrderSetSlot: jest.fn(async () => ({ orders: [] })),
+  getCaseQuickWins: jest.fn(async () => ({ readiness_evidence: {}, order_sets: {} })),
+  refreshReadinessEvidence: jest.fn(async () => ({ attached: [], skipped: [] })),
+  emitCathProcedureCompletionFollowUps: jest.fn(async () => ({ created: [], skipped: [] })),
+}));
+
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // NL13-P1f: cathLabRoutes now mounts cathSchedulingRoutes, whose service
+  // chain (cathSchedulingRegistryService + schedulingOptimizationService)
+  // imports requireTenantId at module load.
+  requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
+}));
+
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  phiAccessLogger: () => (_req, _res, next) => next(),
+}));
+
+jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
+  requireIdempotencyKey: () => (req, res, next) => (
+    req.get('idempotency-key')
+      ? next()
+      : res.status(400).json({ success: false, message: 'Idempotency-Key header is required' })
+  ),
 }));
 
 const { default: cathLabRoutes } = await import('../../routes/clinical/cathLabRoutes.js');
@@ -87,6 +117,7 @@ beforeEach(() => {
     getSignedReportForPdfMock,
     getCaseMock,
     listCasesMock,
+    recordConsumableUsageMock,
     transitionCaseStatusMock,
   ]) {
     mock.mockClear();
@@ -120,6 +151,7 @@ describe('cath report route access matrices and response contract', () => {
       '/api/v1/cath-lab/cases/42/contrast-radiation',
       '/api/v1/cath-lab/cases/42/post-orders',
       '/api/v1/cath-lab/cases/42/device-links',
+      '/api/v1/cath-lab/cases/42/consumables',
     ];
 
     for (const role of ['RECEPTIONIST', 'TECHNICIAN']) {
@@ -135,6 +167,65 @@ describe('cath report route access matrices and response contract', () => {
     }
 
     expect(transitionCaseStatusMock).not.toHaveBeenCalled();
+    expect(recordConsumableUsageMock).not.toHaveBeenCalled();
+  });
+
+  test('pins consumable writes to the authenticated tenant', async () => {
+    const response = await request(app)
+      .post('/api/v1/cath-lab/cases/42/consumables')
+      .set('x-test-role', 'DOCTOR')
+      .set('idempotency-key', 'cath-usage-route-test')
+      .send({
+        tenantId: '00000000-0000-4000-8000-000000000099',
+        catalog_item_id: 7,
+        quantity: 1,
+      });
+
+    expect(response.statusCode).toBe(201);
+    expect(recordConsumableUsageMock).toHaveBeenCalledWith(
+      '42',
+      expect.objectContaining({
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        catalog_item_id: 7,
+        quantity: 1,
+      }),
+      expect.objectContaining({
+        actorRole: 'DOCTOR',
+        idempotencyKey: 'cath-usage-route-test',
+      }),
+    );
+  });
+
+  test('requires an idempotency key for consumable writes', async () => {
+    const response = await request(app)
+      .post('/api/v1/cath-lab/cases/42/consumables')
+      .set('x-test-role', 'DOCTOR')
+      .send({ catalog_item_id: 7, quantity: 1 });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.message).toMatch(/Idempotency-Key/i);
+    expect(recordConsumableUsageMock).not.toHaveBeenCalled();
+  });
+
+  test('pins case completion and its billing hook to the authenticated tenant', async () => {
+    transitionCaseStatusMock.mockResolvedValueOnce({ id: 42, status: 'completed' });
+    const response = await request(app)
+      .post('/api/v1/cath-lab/cases/42/status')
+      .set('x-test-role', 'DOCTOR')
+      .send({
+        tenantId: '00000000-0000-4000-8000-000000000099',
+        status: 'completed',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(transitionCaseStatusMock).toHaveBeenCalledWith(
+      '42',
+      expect.objectContaining({
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        status: 'completed',
+      }),
+      expect.objectContaining({ actorRole: 'DOCTOR' }),
+    );
   });
 
   test('lets a receptionist create and reopen transcription drafts', async () => {

@@ -89,6 +89,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Sol Ultra #7: a release tag (or a dispatch) on ANY commit could build,
+      # sign, and production-pin a commit that never passed protected-main review.
+      # Gate every release on main-containment BEFORE any registry/signing secret
+      # is used: the exact source commit must be an ancestor of origin/main.
+      # (Complements — does not replace — server-side tag-prefix protection and a
+      # required-reviewer environment on the sign/pin steps.)
+      - name: Verify source commit is contained in main (Sol Ultra #7)
+        run: |
+          set -euo pipefail
+          git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then
+            echo "::error::Release commit ${GITHUB_SHA} is not contained in origin/main — refusing to build/sign/pin an unreviewed commit."
+            exit 1
+          fi
+          echo "Verified ${GITHUB_SHA} is contained in origin/main."
+
       - name: Select image for this trigger
         id: selection
         run: |

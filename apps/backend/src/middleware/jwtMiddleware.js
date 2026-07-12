@@ -112,6 +112,22 @@ export default async function jwtMiddleware(req, res, next) {
     });
   }
 
+  // A refresh token (type:'refresh') is a long-lived credential minted ONLY for
+  // the /auth/*/refresh endpoint, which verifies it directly and rotates it.
+  // It must never be accepted as an access bearer on protected routes — else a
+  // copied refresh secret becomes a full-access session for its (30-day)
+  // remaining life, skipping refresh rotation + session-state checks (Sol Ultra
+  // #17). The refresh routes are public (/api/v1/auth/*) and do not run this
+  // middleware, so rejecting here is safe. Generic message (no kind disclosure).
+  if (decoded.type === 'refresh') {
+    logger.warn('JWT denied: refresh token presented as access bearer');
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid or expired token',
+      code: 'TOKEN_INVALID'
+    });
+  }
+
   // Check token blacklist (jti-based revocation) + revoke-all. FAIL CLOSED
   // (audit finding M2): when no revocation store can answer, deny with 503
   // instead of honouring a possibly-revoked token.

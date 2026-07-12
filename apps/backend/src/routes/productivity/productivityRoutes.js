@@ -74,19 +74,19 @@ router.get('/phrases/by-code/:code', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/phrases', requireDoctorOrAdmin, wrap(async (req) =>
   phrases.create({
+    ...req.body,
     tenantId: tenantOf(req),
     owner_uid: req.user?.uid,
-    ...req.body,
     can_manage_shared: canManageSharedPhrases(req.user?.role),
   }),
 ));
 
 router.patch('/phrases/:id', requireDoctorOrAdmin, wrap(async (req) =>
   phrases.update({
+    ...req.body,
     tenantId: tenantOf(req),
     id: req.params.id,
     owner_uid: req.user?.uid,
-    ...req.body,
     can_manage_shared: canManageSharedPhrases(req.user?.role),
   }),
 ));
@@ -122,18 +122,18 @@ router.get('/order-sets/by-code/:code', requireStaffOrAdmin, wrap(async (req) =>
 router.post('/order-sets', wrap(async (req, res) => {
   if (!isAdmin(req.user?.role)) return error(res, 'Admin role required', 403);
   return orderSets.createSet({
+    ...req.body,
     tenantId: tenantOf(req),
     created_by: req.user?.uid,
-    ...req.body,
   });
 }));
 
 router.post('/order-sets/:id/apply', requireDoctorOrAdmin, wrap(async (req) =>
   orderSets.applySet({
+    ...req.body,
     tenantId: tenantOf(req),
     order_set_id: req.params.id,
     applied_by: req.user?.uid,
-    ...req.body,
   }),
 ));
 

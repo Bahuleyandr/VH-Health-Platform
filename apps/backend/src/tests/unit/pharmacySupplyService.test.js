@@ -144,6 +144,17 @@ describe('listInventoryItems', () => {
     expect(sql).toMatch(/is_narcotic = \$\d/);
   });
 
+  it('searches the inventory master by identity fields', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    await listInventoryItems({ tenantId: TENANT, q: 'coronary stent' });
+    const [sql, tenantId, query] = queryUnsafeMock.mock.calls[0];
+    expect(sql).toContain('LOWER(display_name)');
+    expect(sql).toContain('LOWER(sku_code)');
+    expect(sql).toContain("LOWER(COALESCE(manufacturer, ''))");
+    expect(tenantId).toBe(TENANT);
+    expect(query).toBe('%coronary stent%');
+  });
+
   it('degrades on schema-missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "pharmacy_inventory_items" does not exist'));
     expect(await listInventoryItems({ tenantId: TENANT })).toEqual({ items: [], count: 0 });
@@ -197,10 +208,10 @@ describe('reserveStock — FEFO', () => {
       { id: 10, batch_number: 'B1', expiry_date: '2026-06-01', remaining_quantity: 50 },
       { id: 11, batch_number: 'B2', expiry_date: '2026-12-01', remaining_quantity: 100 },
     ]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 101 }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 10, remaining_quantity: 0, status: 'depleted' }]);
-    queryUnsafeMock.mockResolvedValueOnce([]); // movement insert
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 102 }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 11, remaining_quantity: 70, status: 'in_stock' }]);
-    queryUnsafeMock.mockResolvedValueOnce([]);
     const result = await reserveStock({
       tenantId: TENANT, inventoryItemId: 5, quantity: 80, performedBy: USER,
     });
@@ -211,14 +222,19 @@ describe('reserveStock — FEFO', () => {
       { batch_id: 10, batch_number: 'B1', quantity_taken: 50 },
       { batch_id: 11, batch_number: 'B2', quantity_taken: 30 },
     ]);
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FOR UPDATE/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain(
+      "expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date",
+    );
   });
 
   it('reports short_by when stock insufficient', async () => {
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 10, batch_number: 'B1', expiry_date: '2026-06-01', remaining_quantity: 5 },
     ]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 101 }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 10, remaining_quantity: 0 }]);
-    queryUnsafeMock.mockResolvedValueOnce([]);
     const result = await reserveStock({
       tenantId: TENANT, inventoryItemId: 5, quantity: 50,
     });
@@ -230,10 +246,95 @@ describe('reserveStock — FEFO', () => {
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 10, batch_number: 'B1', expiry_date: '2026-06-01', remaining_quantity: 50 },
     ]);
-    queryUnsafeMock.mockResolvedValueOnce([]); // optimistic update finds 0 rows
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 101 }]);
+    queryUnsafeMock.mockResolvedValueOnce([]); // locked update finds 0 rows
     await expect(reserveStock({
       tenantId: TENANT, inventoryItemId: 5, quantity: 10,
     })).rejects.toThrow(/Concurrent batch update/);
+  });
+
+  it('fails the transaction when a movement insert fails', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 10, batch_number: 'B1', expiry_date: '2026-06-01', remaining_quantity: 50 },
+    ]);
+    queryUnsafeMock.mockResolvedValueOnce([]); // no committed replay
+    queryUnsafeMock.mockRejectedValueOnce(new Error('movement insert failed'));
+
+    await expect(reserveStock({
+      tenantId: TENANT,
+      inventoryItemId: 5,
+      quantity: 10,
+      referenceType: 'cath_consumable_usage',
+      referenceId: '71',
+    })).rejects.toThrow(/movement insert failed/);
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses committed FEFO movements without consuming stock twice', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 11, batch_number: 'B2', expiry_date: '2026-12-01', remaining_quantity: 70 },
+    ]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 101,
+      inventory_batch_id: 10,
+      batch_number: 'B1',
+      movement_kind: 'issue',
+      quantity_delta: '-30.0000',
+      reference_type: 'cath_consumable_usage',
+      reference_id: '71',
+    }]);
+
+    const result = await reserveStock({
+      tenantId: TENANT,
+      inventoryItemId: 5,
+      quantity: 30,
+      referenceType: 'cath_consumable_usage',
+      referenceId: '71',
+    });
+
+    expect(result).toEqual({
+      requested: 30,
+      fulfilled: 30,
+      short_by: 0,
+      consumed: [{ batch_id: 10, batch_number: 'B1', quantity_taken: 30 }],
+      idempotent_replay: true,
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers a FEFO unique-index race from the winning movement', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 10, batch_number: 'B1', expiry_date: '2026-12-01', remaining_quantity: 50 },
+    ]);
+    queryUnsafeMock.mockResolvedValueOnce([]); // preflight finds no movement
+    queryUnsafeMock.mockResolvedValueOnce([]); // ON CONFLICT winner
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 102,
+      inventory_batch_id: 10,
+      batch_number: 'B1',
+      movement_kind: 'issue',
+      quantity_delta: '-20.0000',
+      reference_type: 'cath_consumable_usage',
+      reference_id: '72',
+    }]);
+
+    const result = await reserveStock({
+      tenantId: TENANT,
+      inventoryItemId: 5,
+      quantity: 20,
+      referenceType: 'cath_consumable_usage',
+      referenceId: '72',
+    });
+
+    expect(result).toMatchObject({
+      requested: 20,
+      fulfilled: 20,
+      short_by: 0,
+      idempotent_replay: true,
+    });
+    expect(transactionMock).toHaveBeenCalledTimes(2);
+    expect(queryUnsafeMock.mock.calls[2][0]).toContain('ON CONFLICT DO NOTHING');
   });
 
   it('rejects unknown movement_kind', async () => {

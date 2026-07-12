@@ -422,12 +422,16 @@ export async function createBurnChart(input = {}) {
       bool(input.circumferentialBurns ?? input.circumferential_burns, false),
       stringArray(input.comorbidRisks || input.comorbid_risks, 'comorbid_risks'),
       asJson(jsonArray(input.woundSummary || input.wound_summary, 'wound_summary')),
-      enumValue(input.status, ['draft', 'active', 'reviewed', 'closed', 'cancelled'], 'status') || 'active',
+      // Sol Ultra LD-RRB-05: a chart is CREATED as a draft/active record — it
+      // must not be born already 'reviewed'/'closed' with a caller-supplied
+      // reviewer signoff attributed to another clinician. Terminal/review states
+      // and the signoff are separate, actor-bound transitions.
+      enumValue(input.status, ['draft', 'active'], 'status') || 'active',
       actorInfo.actorUid,
       uuid(input.governanceOwnerUid || input.governance_owner_uid, 'governance_owner_uid'),
       text(input.governanceOwnerRole || input.governance_owner_role, 80),
-      uuid(input.reviewerSignoffUid || input.reviewer_signoff_uid, 'reviewer_signoff_uid'),
-      timestamp(input.reviewerSignoffAt || input.reviewer_signoff_at, 'reviewer_signoff_at'),
+      null,
+      null,
       asJson(jsonObject(input.metadata, 'metadata')),
     );
     const chart = rows[0];

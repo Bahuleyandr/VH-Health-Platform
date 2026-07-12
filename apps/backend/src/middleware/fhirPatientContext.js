@@ -45,12 +45,17 @@ export function fhirPatientUidFromRequest(req) {
 
   // (2) Resource search: ?patient= / ?subject=
   const fromQuery = normalizePatientToken(req?.query?.patient ?? req?.query?.subject);
-  if (fromQuery) return fromQuery;
-
   // (3) Writes: body subject/patient reference (Patient/<uuid>)
   const fromBody = normalizePatientToken(
     req?.body?.subject?.reference ?? req?.body?.patient?.reference,
   );
+
+  // For a write, the body is the mutation target — resolve the care-team guard
+  // against the ACTUAL target patient, not a ?patient= query selector that may
+  // point at a different patient (Sol Ultra #2 — the SMART path rejects a
+  // conflicting selector outright; here we simply authorize the real target).
+  if (req?.method && req.method !== 'GET' && fromBody) return fromBody;
+  if (fromQuery) return fromQuery;
   if (fromBody) return fromBody;
 
   return null;

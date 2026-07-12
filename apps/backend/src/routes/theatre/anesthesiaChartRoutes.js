@@ -36,7 +36,8 @@ function requireStaffOrAdmin(req, res, next) {
 
 router.post('/entries', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordEntry({
-    tenantId: tenantOf(req), recorded_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId: tenantOf(req), recorded_by: req.user?.uid,
   }),
 ));
 

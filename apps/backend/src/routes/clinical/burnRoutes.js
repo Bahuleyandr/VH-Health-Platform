@@ -45,8 +45,8 @@ router.get('/charts', wrap(async (req) =>
 
 router.post('/charts', wrap(async (req) =>
   burns.createBurnChart({
-    tenantId: tenantOf(req),
     ...req.body,
+    tenantId: tenantOf(req),
     ...actorFrom(req),
   }), { status: 201, message: 'Burn chart created' }));
 
@@ -58,25 +58,25 @@ router.get('/charts/:id', wrap(async (req) =>
 
 router.post('/charts/:id/tbsa-regions', wrap(async (req) =>
   burns.recordTbsaRegions({
+    ...req.body,
     tenantId: tenantOf(req),
     burnChartId: req.params.id,
-    ...req.body,
     ...actorFrom(req),
   }), { status: 201, message: 'Burn TBSA regions recorded' }));
 
 router.post('/charts/:id/reassessments', wrap(async (req) =>
   burns.recordReassessment({
+    ...req.body,
     tenantId: tenantOf(req),
     burnChartId: req.params.id,
-    ...req.body,
     ...actorFrom(req),
   }), { status: 201, message: 'Burn reassessment recorded' }));
 
 router.post('/charts/:id/fluid-worksheets', wrap(async (req) =>
   burns.recordFluidWorksheet({
+    ...req.body,
     tenantId: tenantOf(req),
     burnChartId: req.params.id,
-    ...req.body,
     ...actorFrom(req),
   }), { status: 201, message: 'Burn fluid worksheet recorded' }));
 
@@ -88,9 +88,9 @@ router.get('/charts/:id/protocol-links', wrap(async (req) =>
 
 router.post('/charts/:id/protocol-links', wrap(async (req) =>
   burns.linkProtocolContent({
+    ...req.body,
     tenantId: tenantOf(req),
     burnChartId: req.params.id,
-    ...req.body,
     ...actorFrom(req),
   }), { status: 201, message: 'Burn protocol content linked' }));
 

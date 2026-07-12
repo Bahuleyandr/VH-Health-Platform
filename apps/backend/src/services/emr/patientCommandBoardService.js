@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { getHospitalNumberMap } from '../patient/patientIdentifierService.js';
 import { normalizeRole as normalizePlatformRole } from '../../utils/roles.js';
+import { isClinical, isLeadership } from '../../utils/roleHelpers.js';
 import { getIcuChartView } from '../clinical/icuChartingService.js';
 import { getNicuPicuChartView, NICU_PICU_UNITS } from '../clinical/nicuPicuChartingService.js';
 import {
@@ -115,6 +116,16 @@ function normalizeRole(role) {
 
 function shouldMinimizePayload(role) {
   return MINIMIZED_INPATIENT_PAYLOAD_ROLES.has(normalizeRole(role));
+}
+
+// Sol Ultra Wave-E LD-RRB-04: the full ICU/NICU chart (device/manual vitals,
+// ventilation, sedation, lines, scores, feeds…) is chart-depth PHI. It must only
+// enrich the command board for clinical roles + clinical leadership — not the
+// non-clinical full-scope roles (reception, admission, IPD counselling, pharmacy,
+// billing, finance, insurance) that also read the board for their own summary.
+function mayViewIcuChart(role) {
+  const r = normalizeRole(role);
+  return isClinical(r) || isLeadership(r);
 }
 
 function asDate(value) {
@@ -577,7 +588,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   // the board itself must never fail because a chart read did. Minimized
   // (location-only) payload roles get no clinical chart data.
   const icuChartByAdmissionId = new Map();
-  if (!shouldMinimizePayload(role) && admissions.length) {
+  if (!shouldMinimizePayload(role) && mayViewIcuChart(role) && admissions.length) {
     try {
       const icuRows = await prisma.icu_admissions.findMany({
         where: {

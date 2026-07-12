@@ -174,8 +174,23 @@ export default {
     MEDICAL_SUPERINTENDENT,
     ADMIN
   ],
+  // /prescriptions/patient/my — a patient's OWN prescriptions (self-scoped).
   ePrescriptionPatientRoutes: [
     PATIENT,
+    DOCTOR,
+    DUTY_DOCTOR,
+    NURSING_STAFF,
+    IP_STAFF_NURSE,
+    OP_STAFF_NURSE,
+    PHARMACY_STAFF,
+    PHARMACY_INCHARGE,
+    ADMIN
+  ],
+  // /prescriptions/all — staff/pharmacy triage list of EVERY prescription
+  // (getAllPrescriptions has no caller scope: WHERE 1=1 + optional filters).
+  // MUST NOT include PATIENT (Sol Ultra #11: a patient could enumerate every
+  // other patient's prescription PHI). Patients use /prescriptions/patient/my.
+  ePrescriptionListAllRoutes: [
     DOCTOR,
     DUTY_DOCTOR,
     NURSING_STAFF,

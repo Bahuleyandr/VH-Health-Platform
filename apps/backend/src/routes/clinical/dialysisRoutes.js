@@ -71,8 +71,9 @@ router.post('/patients/:id/prescription', requireStaffOrAdmin, wrap(async (req) 
   }
   const tenantId = tenantOf(req);
   const row = await svc.prescribe({
+    ...req.body,
     tenantId, dialysis_patient_id: req.params.id,
-    prescribed_by: req.user?.uid, ...req.body,
+    prescribed_by: req.user?.uid,
   });
   emitDialysisEvent('prescription-created', { tenantId });
   return row;
@@ -85,9 +86,9 @@ router.get('/patients/:id/prescription', requireStaffOrAdmin, wrap(async (req) =
 router.post('/patients/:id/access', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.addAccess({
+    ...req.body,
     tenantId,
     dialysis_patient_id: req.params.id,
-    ...req.body,
   });
   emitDialysisEvent('access-created', { tenantId });
   return row;
@@ -108,7 +109,8 @@ router.post('/access/:id/abandon', requireStaffOrAdmin, wrap(async (req) => {
 router.post('/sessions', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.scheduleSession({
-    tenantId, conducted_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId, conducted_by: req.user?.uid,
   });
   emitDialysisEvent('session-scheduled', { tenantId });
   return row;
@@ -128,7 +130,8 @@ router.get('/today', requireStaffOrAdmin, wrap(async (req) =>
 router.post('/sessions/:id/start', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.startSession({
-    tenantId, id: req.params.id, ...req.body,
+    ...req.body,
+    tenantId, id: req.params.id,
   });
   emitDialysisEvent('session-started', { tenantId });
   return row;
@@ -137,7 +140,8 @@ router.post('/sessions/:id/start', requireStaffOrAdmin, wrap(async (req) => {
 router.post('/sessions/:id/complete', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.completeSession({
-    tenantId, id: req.params.id, completed_by: req.user?.uid, actorRole: req.user?.role, ...req.body,
+    ...req.body,
+    tenantId, id: req.params.id, completed_by: req.user?.uid, actorRole: req.user?.role,
   });
   emitDialysisEvent('session-completed', { tenantId });
   return row;
@@ -146,10 +150,10 @@ router.post('/sessions/:id/complete', requireStaffOrAdmin, wrap(async (req) => {
 router.post('/sessions/:id/reuse-register', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.recordReuseRegister({
+    ...req.body,
     tenantId,
     session_id: req.params.id,
     processed_by: req.user?.uid,
-    ...req.body,
   });
   emitDialysisEvent('reuse-register-updated', { tenantId });
   return row;
@@ -176,7 +180,8 @@ router.post('/sessions/:id/cancel', requireStaffOrAdmin, wrap(async (req) => {
 router.post('/sessions/:id/obs', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.logObservation({
-    tenantId, session_id: req.params.id, recorded_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId, session_id: req.params.id, recorded_by: req.user?.uid,
   });
   emitDialysisEvent('observation-logged', { tenantId });
   return row;
@@ -189,8 +194,9 @@ router.get('/sessions/:id/obs', requireStaffOrAdmin, wrap(async (req) =>
 router.post('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.recordSessionEvent({
+    ...req.body,
     tenantId, session_id: req.params.id,
-    recorded_by: req.user?.uid, actorRole: req.user?.role, ...req.body,
+    recorded_by: req.user?.uid, actorRole: req.user?.role,
   });
   emitDialysisEvent('session-event-recorded', { tenantId });
   return row;
@@ -202,9 +208,9 @@ router.get('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) =>
 router.post('/machine-qa', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.recordMachineQaLog({
+    ...req.body,
     tenantId,
     recorded_by: req.user?.uid,
-    ...req.body,
   });
   emitDialysisEvent('machine-qa-recorded', { tenantId });
   return row;
@@ -234,7 +240,8 @@ router.post('/machines/ingest', requireStaffOrAdmin, wrap(async (req, res) => {
 router.post('/patients/:id/serology', requireStaffOrAdmin, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.recordSerology({
-    tenantId, dialysis_patient_id: req.params.id, reported_by: req.user?.uid, ...req.body,
+    ...req.body,
+    tenantId, dialysis_patient_id: req.params.id, reported_by: req.user?.uid,
   });
   emitDialysisEvent('serology-recorded', { tenantId });
   return row;

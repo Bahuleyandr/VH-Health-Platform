@@ -73,11 +73,23 @@ describe('M2 — isTokenBlacklisted fails closed', () => {
     await expect(isTokenBlacklisted('some-jti')).resolves.toBe(true);
   });
 
-  test('legitimate path: Redis clean miss ⇒ false (trusted, no DB hit)', async () => {
+  // Sol Ultra #29: Redis is a POSITIVE cache only — a clean miss is not proof
+  // of absence (eviction/flush loses revocations), so it falls through to the
+  // authoritative invalidated_tokens query. The old contract ("miss ⇒ trusted,
+  // no DB hit") was the vulnerability.
+  test('legitimate path: Redis clean miss ⇒ DB consulted; clean DB ⇒ false', async () => {
     redisMock.isRedisConnected.mockReturnValue(true);
     redisMock.cacheGet.mockResolvedValue(null);
+    prismaMock.$queryRawUnsafe.mockResolvedValue([]);
     await expect(isTokenBlacklisted('some-jti')).resolves.toBe(false);
-    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalled();
+  });
+
+  test('Redis clean miss but DB row stands ⇒ true (revocation survives eviction)', async () => {
+    redisMock.isRedisConnected.mockReturnValue(true);
+    redisMock.cacheGet.mockResolvedValue(null);
+    prismaMock.$queryRawUnsafe.mockResolvedValue([{ '?column?': 1 }]);
+    await expect(isTokenBlacklisted('some-jti')).resolves.toBe(true);
   });
 
   test('legitimate path: Redis down, DB answers ⇒ DB result honoured', async () => {

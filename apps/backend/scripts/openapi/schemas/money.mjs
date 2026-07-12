@@ -6,6 +6,16 @@ import { envelope, listEnvelope, countListEnvelope } from './_helpers.mjs';
 // V2 money JSON type. V2 uses Decimal(12,2) in rupees, which Prisma serializes
 // to a JSON STRING (verified by the V2 contract deep test, same as V1).
 const MT = 'string';
+const BIGINT_WIRE = {
+  oneOf: [
+    { type: 'integer', minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
+    {
+      type: 'string',
+      pattern: '^[1-9][0-9]*$',
+      description: 'Decimal string when the identifier exceeds the JavaScript safe-integer range.',
+    },
+  ],
+};
 
 export const schemas = {
   // ---- GL ledger reports (read-only; ledgerReportsService.js) ----
@@ -526,7 +536,7 @@ export const schemas = {
       notes: { type: 'string', nullable: true },
       created_at: { type: 'string', format: 'date-time', nullable: true },
       source_ref_type: { type: 'string', nullable: true },
-      source_ref_id: { type: 'integer', nullable: true },
+      source_ref_id: { ...BIGINT_WIRE, nullable: true },
       tpa_decision: { type: 'string', nullable: true },
       tpa_non_payable_reason: { type: 'string', nullable: true },
       tpa_decided_at: { type: 'string', format: 'date-time', nullable: true },
@@ -699,7 +709,7 @@ export const schemas = {
       id: { type: 'integer' },
       description: { type: 'string' },
       source_ref_type: { type: 'string', nullable: true },
-      source_ref_id: { type: 'integer', nullable: true },
+      source_ref_id: { ...BIGINT_WIRE, nullable: true },
       line_total: { type: MT },
       tpa_decision: { type: 'string' },
       tpa_non_payable_reason: { type: 'string', nullable: true },
@@ -771,7 +781,7 @@ export const schemas = {
       gst_rate: { type: 'number' },
       notes: { type: 'string' },
       source_ref_type: { type: 'string' },
-      source_ref_id: { type: 'integer' },
+      source_ref_id: BIGINT_WIRE,
     },
   },
   ItemizeRequest: {

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import cathSchedulingRoutes from './cathSchedulingRoutes.js';
 import logger from '../../logging/logger.js';
 import {
   addContrastRadiationRecord,
@@ -7,11 +8,20 @@ import {
   addPostProcedureOrder,
   createCase,
   getCase,
+  listCatalogBatches,
   listCases,
+  listCaseConsumableUsage,
+  listConsumableCatalog,
+  recordConsumableUsage,
   recordProcedureLog,
   transitionCaseStatus,
   updateReadinessCheck
 } from '../../services/clinical/cathLabService.js';
+import {
+  applyCathOrderSetSlot,
+  getCaseQuickWins,
+  refreshReadinessEvidence
+} from '../../services/clinical/cathQuickWinsService.js';
 import {
   addReportAddendum,
   createReport,
@@ -28,6 +38,7 @@ import {
 import { renderCathReportPdf } from '../../services/documents/cathReportPdfService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import {
@@ -39,6 +50,10 @@ import {
 } from '../../utils/roleHelpers.js';
 
 const router = Router();
+
+// NL13-P1f: scheduling strip + case booking + manual complication entries
+// (same /api/v1/cath-lab family; role guards live inside the subrouter).
+router.use('/', cathSchedulingRoutes);
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -52,7 +67,8 @@ function contextOf(req) {
     actorRoles: Array.isArray(req.user?.roles) ? req.user.roles : [],
     requestId: req.id || null,
     ipAddress: req.ip || null,
-    userAgent: req.get?.('user-agent') || null
+    userAgent: req.get?.('user-agent') || null,
+    idempotencyKey: req.get?.('idempotency-key') || null
   };
 }
 
@@ -117,11 +133,36 @@ router.get('/report-templates', requireReportRead, async (req, res) => {
   }
 });
 
+router.get('/consumables/catalog', requireReportRead, async (req, res) => {
+  try {
+    const items = await listConsumableCatalog({
+      tenantId: tenantOf(req),
+      q: req.query.q || null,
+      scan: req.query.scan || null,
+      category: req.query.category || null,
+      status: req.query.status || 'active',
+      limit: req.query.limit || 100
+    });
+    return success(res, { items, count: items.length }, 'Cath consumable catalog');
+  } catch (err) {
+    return handleFailure(res, err, 'list consumable catalog');
+  }
+});
+
+router.get('/consumables/catalog/:id/batches', requireReportRead, async (req, res) => {
+  try {
+    const batches = await listCatalogBatches(req.params.id, { tenantId: tenantOf(req) });
+    return success(res, { batches, count: batches.length }, 'Cath consumable batches');
+  } catch (err) {
+    return handleFailure(res, err, 'list consumable batches');
+  }
+});
+
 router.post('/report-templates/:id/supersede', requireReportEdit, async (req, res) => {
   try {
     const template = await supersedeReportTemplate(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { template }, 'Cath report template superseded', HTTP_STATUS.CREATED);
@@ -147,7 +188,7 @@ router.post('/cases/:caseId/reports', requireReportEdit, async (req, res) => {
   try {
     const report = await createReport(
       req.params.caseId,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { report }, 'Cath report draft created', HTTP_STATUS.CREATED);
@@ -204,7 +245,7 @@ router.patch('/reports/:id', requireReportEdit, async (req, res) => {
   try {
     const report = await updateReport(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { report }, 'Cath report updated');
@@ -217,7 +258,7 @@ router.post('/reports/:id/preliminary', requireReportEdit, async (req, res) => {
   try {
     const report = await markReportPreliminary(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { report }, 'Cath report marked preliminary');
@@ -230,7 +271,7 @@ router.post('/reports/:id/sign', requireReportSign, async (req, res) => {
   try {
     const report = await signReport(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { report }, 'Cath report signed');
@@ -243,7 +284,7 @@ router.post('/reports/:id/addenda', requireReportSign, async (req, res) => {
   try {
     const addendum = await addReportAddendum(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { addendum }, 'Cath report addendum appended', HTTP_STATUS.CREATED);
@@ -268,7 +309,7 @@ router.get('/cases', requireReportRead, async (req, res) => {
 
 router.post('/cases', requireCathWorkflow, async (req, res) => {
   try {
-    const cathCase = await createCase({ tenantId: tenantOf(req), ...req.body }, contextOf(req));
+    const cathCase = await createCase({ ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { case: cathCase }, 'Cath-lab case created', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'create case');
@@ -284,11 +325,77 @@ router.get('/cases/:id', requireReportRead, async (req, res) => {
   }
 });
 
+router.get(
+  '/cases/:id/consumables',
+  requireReportRead,
+  async (req, res) => {
+    try {
+      const usage = await listCaseConsumableUsage(req.params.id, { tenantId: tenantOf(req) });
+      return success(res, { usage, count: usage.length }, 'Cath consumable usage');
+    } catch (err) {
+      return handleFailure(res, err, 'list consumable usage');
+    }
+  }
+);
+
+router.post(
+  '/cases/:id/consumables',
+  requireCathWorkflow,
+  requireIdempotencyKey({ required: true, scope: 'cath_consumable_usage' }),
+  async (req, res) => {
+    try {
+      const usage = await recordConsumableUsage(
+        req.params.id,
+        { ...req.body, tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, { usage }, 'Cath consumable usage recorded', HTTP_STATUS.CREATED);
+    } catch (err) {
+      return handleFailure(res, err, 'record consumable usage');
+    }
+  }
+);
+router.get('/cases/:id/quick-wins', requireReportRead, async (req, res) => {
+  try {
+    const quickWins = await getCaseQuickWins(req.params.id, { tenantId: tenantOf(req) });
+    return success(res, { quick_wins: quickWins }, 'Cath-lab quick wins');
+  } catch (err) {
+    return handleFailure(res, err, 'get quick wins');
+  }
+});
+
+router.post('/cases/:id/readiness/evidence/refresh', requireCathWorkflow, async (req, res) => {
+  try {
+    const result = await refreshReadinessEvidence(
+      req.params.id,
+      { tenantId: tenantOf(req) },
+      contextOf(req)
+    );
+    return success(res, result, 'Cath-lab readiness evidence refreshed');
+  } catch (err) {
+    return handleFailure(res, err, 'refresh readiness evidence');
+  }
+});
+
+router.post('/cases/:id/order-sets/:slot/apply', requireCathWorkflow, async (req, res) => {
+  try {
+    const result = await applyCathOrderSetSlot(
+      req.params.id,
+      req.params.slot,
+      { tenantId: tenantOf(req) },
+      contextOf(req)
+    );
+    return success(res, result, 'Cath order set applied', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'apply order set');
+  }
+});
+
 router.post('/cases/:id/status', requireCathWorkflow, async (req, res) => {
   try {
     const cathCase = await transitionCaseStatus(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { case: cathCase }, 'Cath-lab case status updated');
@@ -301,7 +408,7 @@ router.post('/cases/:id/readiness', requireCathWorkflow, async (req, res) => {
   try {
     const readiness = await updateReadinessCheck(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, readiness, 'Cath-lab readiness updated');
@@ -314,7 +421,7 @@ router.post('/cases/:id/procedure-logs', requireCathWorkflow, async (req, res) =
   try {
     const procedure = await recordProcedureLog(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { procedure }, 'Cath procedure logged', HTTP_STATUS.CREATED);
@@ -327,7 +434,7 @@ router.post('/cases/:id/hemodynamics', requireCathWorkflow, async (req, res) => 
   try {
     const summary = await addHemodynamicSummary(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { summary }, 'Cath hemodynamic summary recorded', HTTP_STATUS.CREATED);
@@ -340,7 +447,7 @@ router.post('/cases/:id/contrast-radiation', requireCathWorkflow, async (req, re
   try {
     const record = await addContrastRadiationRecord(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(
@@ -358,7 +465,7 @@ router.post('/cases/:id/post-orders', requireCathWorkflow, async (req, res) => {
   try {
     const order = await addPostProcedureOrder(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { order }, 'Cath post-procedure orders saved', HTTP_STATUS.CREATED);
@@ -371,7 +478,7 @@ router.post('/cases/:id/device-links', requireCathWorkflow, async (req, res) => 
   try {
     const link = await addDeviceLink(
       req.params.id,
-      { tenantId: tenantOf(req), ...req.body },
+      { ...req.body, tenantId: tenantOf(req) },
       contextOf(req)
     );
     return success(res, { link }, 'Cath device link attached', HTTP_STATUS.CREATED);

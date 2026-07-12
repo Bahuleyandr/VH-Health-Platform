@@ -152,6 +152,12 @@ describe('createClaim validation + claimed_amount derivation', () => {
     const originalQueryRaw = prisma.$queryRawUnsafe;
     prisma.$queryRawUnsafe = async (sql) => {
       const text = String(sql);
+      // Sol Ultra #15 reference binding (policy/admission belong to patient).
+      if (text.includes('SELECT patient_uid FROM insurance_policies WHERE')
+        || text.includes('SELECT patient_uid FROM admissions WHERE')) {
+        return [{ patient_uid: validBase.patient_uid }];
+      }
+      if (text.includes('FROM billing_invoice_items')) return [{ total: 0 }];
       if (text.includes('FROM billing_invoices')) {
         return [{
           id: 12,
@@ -866,6 +872,11 @@ describe('createClaim attaches non-blocking warnings (does not reject)', () => {
     // claimed≤billed hard guard passes (80000 ≤ 80000); the advisory fires.
     prisma.$queryRawUnsafe = async (sql, ...params) => {
       const text = String(sql);
+      // Sol Ultra #15 reference binding (policy/preauth belong to patient).
+      if (text.includes('SELECT patient_uid FROM insurance_policies WHERE')
+        || text.includes('SELECT patient_uid FROM insurance_preauth WHERE')) {
+        return [{ patient_uid: patientUid }];
+      }
       if (text.includes('INSERT INTO tpa_claim_counter')) return [{ next_value: 7 }];
       if (text.includes('INSERT INTO tpa_claims')) {
         return [{
@@ -922,6 +933,10 @@ describe('createClaim attaches non-blocking warnings (does not reject)', () => {
   it('attaches an empty warnings array when the claim has no linked preauth', async () => {
     prisma.$queryRawUnsafe = async (sql, ...params) => {
       const text = String(sql);
+      // Sol Ultra #15 reference binding (policy belongs to patient).
+      if (text.includes('SELECT patient_uid FROM insurance_policies WHERE')) {
+        return [{ patient_uid: patientUid }];
+      }
       if (text.includes('INSERT INTO tpa_claim_counter')) return [{ next_value: 8 }];
       if (text.includes('INSERT INTO tpa_claims')) {
         return [{

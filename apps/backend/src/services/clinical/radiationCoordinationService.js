@@ -718,8 +718,11 @@ export async function transitionPlanStatus(planRefId, input = {}, context = {}) 
     const planRef = await planRefById(tx, tenantId, planRefId, { lock: true });
     const target = validatePlanTransition(planRef.plan_status, input.plan_status || input.planStatus || input.status);
     assertPlanReferenceForApproval(planRef, target);
+    // Sol Ultra LD-RRB-07: a plan approval attests the approving radiation
+    // oncologist's OWN decision — bind it to the authenticated actor rather than
+    // a caller-supplied uid (which let one doctor record another as the approver).
     const approverUid = target === 'approved'
-      ? maybeUuid(input.approving_radiation_oncologist_uid || input.approvingRadiationOncologistUid || context.actorUid, 'approving_radiation_oncologist_uid')
+      ? maybeUuid(context.actorUid, 'approving_radiation_oncologist_uid')
       : null;
     const rows = await tx.$queryRawUnsafe(
       `UPDATE radiotherapy_plan_refs
@@ -874,7 +877,18 @@ export async function createNuclearOrder(input = {}, context = {}) {
   return setTenantTx(tenantId, async (tx) => {
     const patientUid = await assertPatientInTenant(tx, tenantId, input.patient_uid || input.patientUid);
     const referralId = maybeId(input.referral_id || input.referralId, 'referral_id');
-    if (referralId) await referralById(tx, tenantId, referralId);
+    if (referralId) {
+      const referral = await referralById(tx, tenantId, referralId);
+      // Sol Ultra LD-RRB-06: a referral must belong to the SAME patient as the
+      // order, not merely exist in the tenant (mirrors assertDiagnosisLink /
+      // assertStagingLink, which already patient-bind their references).
+      if (referral?.patient_uid && String(referral.patient_uid) !== String(patientUid)) {
+        throw AppError.forbidden(
+          'referral_id belongs to a different patient',
+          'RADIATION_REFERRAL_PATIENT_MISMATCH',
+        );
+      }
+    }
     const orderKind = input.order_kind ? normalizeEnum(input.order_kind || input.orderKind, ORDER_KINDS, 'order_kind') : 'diagnostic';
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO nuclear_medicine_orders
@@ -1003,7 +1017,9 @@ export async function recordRadioisotopeAdministration(orderId, input = {}, cont
       cleanText(input.administered_activity_summary || input.administeredActivitySummary, 200),
       optionalNumber(input.administered_activity_mbq || input.administeredActivityMbq, 'administered_activity_mbq'),
       cleanText(input.route, 80),
-      maybeUuid(input.administered_by || input.administeredBy || context.actorUid, 'administered_by'),
+      // Sol Ultra LD-RRB-07: the administering clinician is the authenticated
+      // actor, not a caller-supplied administered_by.
+      maybeUuid(context.actorUid, 'administered_by'),
       optionalTimestamp(input.administered_at || input.administeredAt, 'administered_at'),
       JSON.stringify(normalizeJson(input.safety_checklist || input.safetyChecklist, 'safety_checklist', {})),
       cleanText(input.aerb_evidence_owner || input.aerbEvidenceOwner, 160),

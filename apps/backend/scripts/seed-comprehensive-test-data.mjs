@@ -14,6 +14,11 @@ const MANUAL_SEED_TABLES = new Set([
   'provider_availability_templates',
   'appointment_slot_holds',
   'resource_bookings',
+  // NL13-P1f: the link row must reference the REAL seeded booking/room/case —
+  // resource_bookings itself is manually seeded AFTER the generic walk, so the
+  // generic pass would have no parent to point at. Seeded alongside it in
+  // seedPillarDWorkflowTables below.
+  'cath_case_schedule_links',
   'chemo_protocol_drugs',
   'chemo_cycles',
   'dental_tooth_findings',
@@ -395,6 +400,30 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   stemi_activations: {
     activation_source: 'prehospital_handover',
   },
+  // migs 563-565: keep the generic cath usage row on the non-batch,
+  // non-implant branch while satisfying its tenant-composite references.
+  cath_consumable_catalog: {
+    tenant_id: (ctx) => ctx.tenantId,
+    inventory_item_id: async () => firstValue('pharmacy_inventory_items', 'id'),
+  },
+  cath_case_consumable_usage: {
+    tenant_id: (ctx) => ctx.tenantId,
+    case_id: async () => firstValue('cath_lab_cases', 'id'),
+    procedure_log_id: null,
+    catalog_item_id: async () => firstValue('cath_consumable_catalog', 'id'),
+    patient_uid: async () => firstValue('cath_lab_cases', 'patient_uid'),
+    inventory_batch_id: null,
+    batch_tracked: false,
+    is_implant: false,
+    inventory_movement_id: null,
+    timeline_event_id: null,
+    audit_event_id: null,
+  },
+  surgical_implants: {
+    tenant_id: (ctx) => ctx.tenantId,
+    cath_case_id: null,
+    cath_usage_id: null,
+  },
 };
 
 function seedOverrideFor(table, columnName) {
@@ -449,6 +478,15 @@ async function rowForTable(table, columns, metadata, ctx, index, relaxed = false
     const hasDefault = column.column_default !== null;
     const isGenerated = column.is_identity === 'YES' || column.is_generated !== 'NEVER';
     if (isGenerated) continue;
+
+    const tableOverrides = TABLE_COLUMN_SEED_OVERRIDES[table];
+    if (tableOverrides && Object.hasOwn(tableOverrides, column.column_name)) {
+      const override = tableOverrides[column.column_name];
+      row[column.column_name] = typeof override === 'function'
+        ? await override(ctx)
+        : override;
+      continue;
+    }
 
     const required = column.is_nullable === 'NO' && !hasDefault;
     const fk = metadata.fkByTableColumn.get(`${table}.${column.column_name}`);
@@ -1232,6 +1270,21 @@ async function seedPillarDWorkflowTables() {
       booked_for_type: 'other',
       status: 'booked',
       notes: 'Seed booking for QA coverage',
+    }]);
+  }
+
+  // NL13-P1f: cath case ↔ booking link needs the real seeded parents (the
+  // partial unique indexes allow exactly one active link per case/booking).
+  const cathCase = await first('cath_lab_cases', 'id');
+  const booking = await first('resource_bookings', 'id, resource_id');
+  if (cathCase && booking?.resource_id) {
+    await insertIfEmpty('cath_case_schedule_links', [{
+      tenant_id: DEFAULT_TENANT_ID,
+      case_id: cathCase.id,
+      resource_booking_id: booking.id,
+      resource_id: booking.resource_id,
+      status: 'active',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
     }]);
   }
 

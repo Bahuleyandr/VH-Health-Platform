@@ -281,8 +281,8 @@ router.post('/outbreaks', async (req, res) => {
 router.post('/outbreaks/:id/cases', async (req, res) => {
   try {
     const link = await linkOutbreakCase({
-      episodeId: req.params.id,
       ...req.body,
+      episodeId: req.params.id,
       ...actor(req),
       tenantId: req.tenantId,
     });

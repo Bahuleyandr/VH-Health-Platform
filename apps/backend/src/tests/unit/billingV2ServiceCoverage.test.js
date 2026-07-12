@@ -291,12 +291,16 @@ describe('addInvoiceItem', () => {
   // Helper: build the standard query sequence for a successful ad-hoc add.
   // calls: [findBillingInvoice], [INSERT item], then recomputeInvoiceTotals:
   // [aggregates], [discount/paid], [exec UPDATE], [meta admission lookup].
-  function mockSuccessfulAdd({ admissionId = null } = {}) {
+  function mockSuccessfulAdd({
+    admissionId = null,
+    item = { id: 100, line_total: '118' },
+  } = {}) {
     queryMock
       .mockResolvedValueOnce([{
         status: 'DRAFT', patient_state: 'TN', hospital_state: 'TN', admission_id: admissionId,
+        patient_uid: PATIENT, tenant_id: TENANT,
       }]) // findBillingInvoice
-      .mockResolvedValueOnce([{ id: 100, line_total: '118' }]) // INSERT item
+      .mockResolvedValueOnce([item]) // INSERT item
       // recomputeInvoiceTotals:
       .mockResolvedValueOnce([{ subtotal: '100', cgst: '9', sgst: '9', igst: '0' }]) // aggregates
       .mockResolvedValueOnce([{ discount_amount: '0', amount_paid: '0' }]) // discount/paid
@@ -335,6 +339,42 @@ describe('addInvoiceItem', () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
+  it('rejects a zero source_ref_id', async () => {
+    await expect(
+      svc.addInvoiceItem(1, {
+        description: 'x', unit_price: 10, source_ref_type: 'lab_order', source_ref_id: '0',
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('preserves BIGINT source references beyond JavaScript safe-integer range', async () => {
+    mockSuccessfulAdd({
+      item: { id: 100, line_total: '118', source_ref_id: 9_007_199_254_740_993n },
+    });
+    const item = await svc.addInvoiceItem(1, {
+      tenantId: TENANT,
+      description: 'Large source id',
+      unit_price: 10,
+      source_ref_type: 'lab_order',
+      source_ref_id: '9007199254740993',
+    });
+
+    expect(queryMock.mock.calls[1].at(-2)).toBe('9007199254740993');
+    expect(queryMock.mock.calls[1].at(-1)).toBe(TENANT);
+    expect(item.source_ref_id).toBe('9007199254740993');
+    expect(() => JSON.stringify(item)).not.toThrow();
+  });
+
+  it('rejects unsafe numeric source references before JSON rounding can be persisted', async () => {
+    await expect(svc.addInvoiceItem(1, {
+      description: 'Rounded source id',
+      unit_price: 10,
+      source_ref_type: 'lab_order',
+      source_ref_id: 9_007_199_254_740_992,
+    })).rejects.toMatchObject({ statusCode: 400 });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
   it('requires source_ref_id for source-backed types (SOURCE_REF_ID_REQUIRED)', async () => {
     await expect(
       svc.addInvoiceItem(1, {
@@ -346,40 +386,63 @@ describe('addInvoiceItem', () => {
   it('throws notFound when the parent invoice does not exist', async () => {
     queryMock.mockResolvedValueOnce([]); // findBillingInvoice -> none
     await expect(
-      svc.addInvoiceItem(1, { description: 'x', unit_price: 10 }),
+      svc.addInvoiceItem(1, { tenantId: TENANT, description: 'x', unit_price: 10 }),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('rejects adding to a non-DRAFT invoice', async () => {
-    queryMock.mockResolvedValueOnce([{ status: 'ISSUED', admission_id: null }]);
+    queryMock.mockResolvedValueOnce([{ status: 'ISSUED', admission_id: null, tenant_id: TENANT }]);
     await expect(
-      svc.addInvoiceItem(1, { description: 'x', unit_price: 10 }),
+      svc.addInvoiceItem(1, { tenantId: TENANT, description: 'x', unit_price: 10 }),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('resolves service_code from the master and computes GST split', async () => {
     queryMock
       .mockResolvedValueOnce([{
+        status: 'DRAFT', patient_state: 'TN', hospital_state: 'TN', admission_id: null,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]) // lockBillingInvoice
+      .mockResolvedValueOnce([{
         description: 'Consultation', category: 'consultation', hsn_sac: '9993',
         default_price: '500', gst_rate: '0',
       }]) // service master lookup
-      .mockResolvedValueOnce([{
-        status: 'DRAFT', patient_state: 'TN', hospital_state: 'TN', admission_id: null,
-      }]) // findBillingInvoice
       .mockResolvedValueOnce([{ id: 101 }]) // INSERT
       .mockResolvedValueOnce([{ subtotal: '500', cgst: '0', sgst: '0', igst: '0' }]) // aggregates
       .mockResolvedValueOnce([{ discount_amount: '0', amount_paid: '0' }]) // discount/paid
       .mockResolvedValueOnce([{ admission_id: null, patient_uid: null, tenant_id: TENANT }]); // meta
-    const row = await svc.addInvoiceItem(7, { service_code: 'CONS' });
+    const row = await svc.addInvoiceItem(7, { service_code: 'CONS', tenantId: TENANT });
     expect(row).toMatchObject({ id: 101 });
     // INSERT uses resolved description from the master
     const insertParams = queryMock.mock.calls[2];
     expect(insertParams).toContain('Consultation');
   });
 
+  it('scopes service-code resolution to the invoice tenant', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        status: 'DRAFT', patient_state: 'TN', hospital_state: 'TN', admission_id: null,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }])
+      .mockResolvedValueOnce([{
+        description: 'Consultation', category: 'consultation', hsn_sac: '9993',
+        default_price: '500', gst_rate: '0',
+      }])
+      .mockResolvedValueOnce([{ id: 101 }])
+      .mockResolvedValueOnce([{ subtotal: '500', cgst: '0', sgst: '0', igst: '0' }])
+      .mockResolvedValueOnce([{ discount_amount: '0', amount_paid: '0' }])
+      .mockResolvedValueOnce([{ admission_id: null, patient_uid: null, tenant_id: TENANT }]);
+
+    await svc.addInvoiceItem(7, { service_code: 'CONS', tenantId: TENANT });
+
+    expect(queryMock.mock.calls[1][0]).toContain('tenant_id = $2::uuid');
+    expect(queryMock.mock.calls[1].slice(1)).toEqual(['CONS', TENANT]);
+  });
+
   it('adds an ad-hoc line and recomputes totals (no admission -> no TPA alert)', async () => {
     mockSuccessfulAdd();
     const row = await svc.addInvoiceItem(7, {
+      tenantId: TENANT,
       description: 'Dressing', unit_price: 100, gst_rate: 18, quantity: 1, category: 'procedure',
     });
     expect(row).toMatchObject({ id: 100 });
@@ -395,12 +458,14 @@ describe('addInvoiceItem', () => {
     queryMock
       .mockResolvedValueOnce([{
         status: 'DRAFT', patient_state: null, hospital_state: null, admission_id: null,
+        patient_uid: PATIENT, tenant_id: TENANT,
       }])
       .mockResolvedValueOnce([{ id: 102 }])
       .mockResolvedValueOnce([{ subtotal: '0', cgst: '0', sgst: '0', igst: '0' }])
       .mockResolvedValueOnce([{ discount_amount: '0', amount_paid: '0' }])
       .mockResolvedValueOnce([{ admission_id: null, patient_uid: null, tenant_id: TENANT }]);
     const row = await svc.addInvoiceItem(7, {
+      tenantId: TENANT,
       description: 'Package bundle', unit_price: 0, source_ref_type: 'package',
     });
     expect(row).toMatchObject({ id: 102 });
@@ -412,6 +477,7 @@ describe('addInvoiceItem', () => {
       // addInvoiceItem -> findBillingInvoice
       ['status, patient_state, hospital_state, admission_id', [{
         status: 'DRAFT', patient_state: null, hospital_state: null, admission_id: 77,
+        patient_uid: PATIENT, tenant_id: TENANT,
       }]],
       ['SELECT billing_closed_at FROM admissions', []], // billing open
       ['INSERT INTO billing_invoice_items', [{ id: 103 }]],
@@ -432,6 +498,7 @@ describe('addInvoiceItem', () => {
       ['INSERT INTO clinical_alerts', [{ id: 1, severity: 'CRITICAL', message: 'x' }]],
     ]);
     const row = await svc.addInvoiceItem(7, {
+      tenantId: TENANT,
       description: 'Implant', unit_price: 90000, category: 'implants',
     });
     expect(row).toMatchObject({ id: 103 });
@@ -444,6 +511,7 @@ describe('addInvoiceItem', () => {
     routeQueries([
       ['status, patient_state, hospital_state, admission_id', [{
         status: 'DRAFT', patient_state: null, hospital_state: null, admission_id: 77,
+        patient_uid: PATIENT, tenant_id: TENANT,
       }]],
       ['SELECT billing_closed_at FROM admissions', []],
       ['INSERT INTO billing_invoice_items', [{ id: 104 }]],
@@ -457,6 +525,7 @@ describe('addInvoiceItem', () => {
     ]);
     // Must still resolve (the invoice update is authoritative).
     const row = await svc.addInvoiceItem(7, {
+      tenantId: TENANT,
       description: 'Implant', unit_price: 90000, category: 'implants',
     });
     expect(row).toMatchObject({ id: 104 });
@@ -568,6 +637,7 @@ describe('issueInvoice', () => {
   it('rejects issuing an invoice with no items', async () => {
     queryMock
       .mockResolvedValueOnce([{ id: 1, status: 'DRAFT', tenant_id: TENANT }]) // findBillingInvoice
+      .mockResolvedValueOnce([{ id: 1, status: 'DRAFT', tenant_id: TENANT }]) // lockBillingInvoice
       .mockResolvedValueOnce([{ c: 0 }]); // item count
     await expect(svc.issueInvoice(1)).rejects.toMatchObject({ statusCode: 400 });
   });
@@ -575,6 +645,7 @@ describe('issueInvoice', () => {
   it('issues and returns the full invoice (insert path -> seq 1)', async () => {
     queryMock
       .mockResolvedValueOnce([{ id: 11, status: 'DRAFT', tenant_id: TENANT }]) // findBillingInvoice
+      .mockResolvedValueOnce([{ id: 11, status: 'DRAFT', tenant_id: TENANT }]) // lockBillingInvoice
       .mockResolvedValueOnce([{ c: 2 }]) // item count
       .mockResolvedValueOnce([{ next_value: 2 }]) // nextInvoiceNumber (insert -> 2 -> seq 1)
       .mockResolvedValueOnce([{ admission_id: null, patient_uid: null, tenant_id: TENANT, total_amount: '0' }]) // meta
@@ -615,9 +686,10 @@ describe('voidInvoice', () => {
     await expect(svc.voidInvoice(1, { reason: 'dup' })).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it('voids a DRAFT/ISSUED invoice and returns it', async () => {
+  it('voids a DRAFT invoice, releases source references, and returns it', async () => {
     queryMock
-      .mockResolvedValueOnce([{ status: 'ISSUED' }]) // findBillingInvoice
+      .mockResolvedValueOnce([{ status: 'DRAFT', tenant_id: TENANT }]) // findBillingInvoice
+      .mockResolvedValueOnce([{ status: 'DRAFT' }]) // lockBillingInvoice
       // getInvoice:
       .mockResolvedValueOnce([{ id: 1, admission_id: null, tenant_id: TENANT, total_amount: '0' }])
       .mockResolvedValueOnce([])
@@ -626,7 +698,33 @@ describe('voidInvoice', () => {
     const r = await svc.voidInvoice(1, { reason: 'dup', voided_by: PATIENT });
     expect(r).toMatchObject({ id: 1 });
     expect(execMock).toHaveBeenCalledWith(
-      expect.stringContaining("status = 'VOID'"), PATIENT, 'dup', 1,
+      expect.stringContaining("status = 'VOID'"), PATIENT, 'dup', 1, TENANT,
+    );
+    expect(execMock).toHaveBeenCalledWith(
+      expect.stringContaining('source_ref_active = FALSE'), 1, TENANT,
+    );
+  });
+
+  it('voids an ISSUED invoice without releasing posted source references', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ status: 'ISSUED', tenant_id: TENANT }]) // findBillingInvoice
+      .mockResolvedValueOnce([{ status: 'ISSUED' }]) // lockBillingInvoice
+      // getInvoice:
+      .mockResolvedValueOnce([{ id: 1, admission_id: null, tenant_id: TENANT, total_amount: '0' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await expect(svc.voidInvoice(1, {
+      reason: 'duplicate',
+      voided_by: PATIENT,
+    })).resolves.toMatchObject({ id: 1 });
+
+    expect(execMock).toHaveBeenCalledTimes(1);
+    expect(execMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('source_ref_active = FALSE'),
+      expect.anything(),
+      expect.anything(),
     );
   });
 });
@@ -687,10 +785,10 @@ describe('resolveAdmissionTpaCap', () => {
 // ───────────────────────────────────────────────────────────────────────
 
 describe('getInvoice', () => {
-  function mockInvoiceBase(invoice) {
+  function mockInvoiceBase(invoice, items = [{ id: 1, line_total: '100' }]) {
     queryMock
       .mockResolvedValueOnce([invoice]) // findBillingInvoice
-      .mockResolvedValueOnce([{ id: 1, line_total: '100' }]) // items
+      .mockResolvedValueOnce(items) // items
       .mockResolvedValueOnce([{ id: 2, amount: '50' }]) // payments
       .mockResolvedValueOnce([{ id: 3, amount: '20', advance_mode: 'CASH' }]); // settlements
   }
@@ -709,6 +807,23 @@ describe('getInvoice', () => {
     expect(r.items).toHaveLength(1);
     expect(r.payments).toHaveLength(1);
     expect(r.advance_settlements).toHaveLength(1);
+  });
+
+  it('serializes safe and oversized BIGINT item source references', async () => {
+    mockInvoiceBase(
+      { id: 1, admission_id: 5, tenant_id: TENANT, total_amount: '1000' },
+      [
+        { id: 1, line_total: '100', source_ref_id: 42n },
+        { id: 2, line_total: '200', source_ref_id: 9_007_199_254_740_993n },
+      ],
+    );
+    queryMock.mockResolvedValueOnce([{ root_preauth_id: null }]);
+
+    const r = await svc.getInvoice(1, { tenantId: TENANT });
+
+    expect(r.items[0].source_ref_id).toBe(42);
+    expect(r.items[1].source_ref_id).toBe('9007199254740993');
+    expect(() => JSON.stringify(r)).not.toThrow();
   });
 
   it('surfaces tpa_preauth but null utilisation when cumulative_approved is 0 (denied/pending)', async () => {
@@ -1431,13 +1546,21 @@ describe('getInvoiceNonPayableBreakdown', () => {
     queryMock
       .mockResolvedValueOnce([{ id: 1 }]) // findBillingInvoice
       .mockResolvedValueOnce([
-        { id: 10, line_total: '100.50', tpa_decision: 'non_payable' },
-        { id: 11, line_total: '49.50', tpa_decision: 'partial' },
+        {
+          id: 10, line_total: '100.50', tpa_decision: 'non_payable', source_ref_id: 42n,
+        },
+        {
+          id: 11, line_total: '49.50', tpa_decision: 'partial',
+          source_ref_id: 9_007_199_254_740_993n,
+        },
       ]);
     const r = await svc.getInvoiceNonPayableBreakdown(1, { tenantId: TENANT });
     expect(r.non_payable_total).toBe(150);
     expect(r.line_count).toBe(2);
     expect(r.lines).toHaveLength(2);
+    expect(r.lines[0].source_ref_id).toBe(42);
+    expect(r.lines[1].source_ref_id).toBe('9007199254740993');
+    expect(() => JSON.stringify(r)).not.toThrow();
   });
 
   it('handles an empty breakdown (total 0)', async () => {
@@ -1775,6 +1898,7 @@ describe('itemizeAdmissionInvoice', () => {
       ['SELECT source_ref_type, source_ref_id', []],
     ]));
     const res = await svc.itemizeAdmissionInvoice(1, {
+      tenantId: TENANT,
       emit_pharmacy: false, emit_ward_indents: false, emit_lab: false,
       emit_consults: false, emit_theatre: false,
     });
@@ -1823,6 +1947,7 @@ describe('itemizeAdmissionInvoice', () => {
       ['SELECT admission_id, patient_uid, tenant_id\n       FROM billing_invoices', [{ admission_id: null, patient_uid: null, tenant_id: TENANT }]],
     ]);
     const res = await svc.itemizeAdmissionInvoice(1, {
+      tenantId: TENANT,
       emit_package: false, emit_pharmacy: false, emit_ward_indents: false,
       emit_consults: false, emit_theatre: false,
     });
