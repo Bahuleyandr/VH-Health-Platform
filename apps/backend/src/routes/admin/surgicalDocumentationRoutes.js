@@ -356,6 +356,8 @@ router.get('/implants', async (req, res, next) => {
     const result = await listImplants({
       tenantId: req.tenantId,
       otScheduleId: req.query.ot_schedule_id || null,
+      cathCaseId: req.query.cath_case_id || null,
+      cathUsageId: req.query.cath_usage_id || null,
       patientUid: req.query.patient_uid || null,
       status: req.query.status || null,
       manufacturer: req.query.manufacturer || null,

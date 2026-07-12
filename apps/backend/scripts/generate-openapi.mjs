@@ -24,6 +24,7 @@ import * as pharmacy from './openapi/schemas/pharmacy.mjs';
 import * as users from './openapi/schemas/users.mjs';
 import * as config from './openapi/schemas/config.mjs';
 import * as portal from './openapi/schemas/portal.mjs';
+import * as cathConsumables from './openapi/schemas/cathConsumables.mjs';
 
 const SCHEMA_MODULES = [
   money,
@@ -36,7 +37,8 @@ const SCHEMA_MODULES = [
   pharmacy,
   users,
   config,
-  portal
+  portal,
+  cathConsumables
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

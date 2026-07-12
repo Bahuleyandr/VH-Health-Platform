@@ -1,0 +1,394 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/features/cath_lab/models/cath_consumable_models.dart';
+import 'package:vhhealth_staff/features/cath_lab/services/cath_lab_api_service.dart';
+import 'package:vhhealth_staff/features/cath_lab/widgets/cath_case_consumables_panel.dart';
+
+const _cathCase = CathLabCaseSummary(
+  id: 42,
+  patientUid: '11111111-1111-4111-8111-111111111111',
+  patientName: 'Asha Rao',
+  requestedProcedure: 'Primary PCI',
+  status: 'in_progress',
+  urgency: 'emergency',
+  labRoom: 'CL-1',
+  plannedStartAt: null,
+  readinessTotal: 8,
+  readinessCleared: 8,
+  procedureCount: 1,
+  doseRecordCount: 1,
+  activePostOrderCount: 0,
+  deviceLinkCount: 1,
+);
+
+const _untrackedItem = CathConsumableCatalogItem(
+  id: 10,
+  itemName: 'Diagnostic catheter',
+  category: 'catheter',
+  manufacturer: 'Synthetic Medical',
+  model: 'DX-5F',
+  isImplant: false,
+  batchTracked: false,
+);
+
+const _trackedImplant = CathConsumableCatalogItem(
+  id: 17,
+  itemName: 'Drug-eluting stent',
+  category: 'stent',
+  manufacturer: 'Synthetic Medical',
+  model: 'DES-30',
+  isImplant: true,
+  batchTracked: true,
+  inventoryItemId: 91,
+  skuCode: 'CATH-DES-30',
+);
+
+const _batch = CathInventoryBatch(
+  id: 44,
+  inventoryItemId: 91,
+  batchNumber: 'B-2026-07',
+  lotNumber: 'LOT-7',
+  expiryDate: null,
+  remainingQuantity: 2,
+  status: 'in_stock',
+);
+
+Widget _wrap(
+  CathConsumableDependencies dependencies, {
+  CathLabCaseSummary cathCase = _cathCase,
+}) {
+  return MaterialApp(
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: CathCaseConsumablesPanel(
+          cathCase: cathCase,
+          initiallyExpanded: true,
+          dependencies: dependencies,
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _wrapReadOnly(CathConsumableDependencies dependencies) {
+  return MaterialApp(
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: CathCaseConsumablesPanel(
+          cathCase: _cathCase,
+          initiallyExpanded: true,
+          canAddUsage: false,
+          dependencies: dependencies,
+        ),
+      ),
+    ),
+  );
+}
+
+Future<List<CathConsumableCatalogItem>> _untrackedSearch({
+  String? query,
+  String? scan,
+}) async => const [_untrackedItem];
+
+Future<List<CathConsumableCatalogItem>> _trackedSearch({
+  String? query,
+  String? scan,
+}) async => const [_trackedImplant];
+
+void main() {
+  testWidgets('ready cases open capture in locked wastage-only mode', (
+    tester,
+  ) async {
+    const readyCase = CathLabCaseSummary(
+      id: 43,
+      patientUid: '11111111-1111-4111-8111-111111111111',
+      patientName: 'Asha Rao',
+      requestedProcedure: 'Primary PCI',
+      status: 'ready',
+      urgency: 'emergency',
+      labRoom: 'CL-1',
+      plannedStartAt: null,
+      readinessTotal: 8,
+      readinessCleared: 8,
+      procedureCount: 0,
+      doseRecordCount: 0,
+      activePostOrderCount: 0,
+      deviceLinkCount: 0,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        CathConsumableDependencies(
+          loadUsage: (_) async => const [],
+          searchCatalog: _untrackedSearch,
+          loadBatches: (_) async => const [],
+        ),
+        cathCase: readyCase,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumables-add-43')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cath-consumable-search')),
+      'diagnostic',
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumable-option-10')));
+    await tester.pumpAndSettle();
+
+    final toggle = tester.widget<SwitchListTile>(
+      find.byKey(const ValueKey('cath-consumable-wastage-toggle')),
+    );
+    expect(toggle.value, isTrue);
+    expect(toggle.onChanged, isNull);
+    expect(
+      find.byKey(const ValueKey('cath-consumable-wastage-reason')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('read-only cath roles cannot open consumable capture', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrapReadOnly(
+        CathConsumableDependencies(loadUsage: (_) async => const []),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('cath-consumables-add-42')), findsNothing);
+  });
+
+  testWidgets('batch controls stay hidden for non-batch-tracked items', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        CathConsumableDependencies(
+          loadUsage: (_) async => const [],
+          searchCatalog: _untrackedSearch,
+          loadBatches: (_) async => const [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('cath-consumables-add-42')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cath-consumable-search')),
+      'diagnostic',
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumable-option-10')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('cath-consumable-batch-picker')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('cath-consumable-manual-batch')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('cath-consumable-serial-number')),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+    'tracked implant capture shows batch and wastage fields and keeps warning usage',
+    (tester) async {
+      CathConsumableUsageDraft? submitted;
+      final batch = CathInventoryBatch(
+        id: _batch.id,
+        inventoryItemId: _batch.inventoryItemId,
+        batchNumber: _batch.batchNumber,
+        lotNumber: _batch.lotNumber,
+        expiryDate: DateTime(2028, 6, 30),
+        remainingQuantity: _batch.remainingQuantity,
+        status: _batch.status,
+      );
+      await tester.pumpWidget(
+        _wrap(
+          CathConsumableDependencies(
+            loadUsage: (_) async => const [],
+            searchCatalog: _trackedSearch,
+            loadBatches: (_) async => [batch],
+            scanCode: () async => 'CATH-DES-30',
+            createUsage: (caseId, draft) async {
+              expect(caseId, 42);
+              submitted = draft;
+              return CathCaseConsumableUsage(
+                id: 71,
+                caseId: 42,
+                catalogItemId: 17,
+                itemName: _trackedImplant.itemName,
+                category: _trackedImplant.category,
+                quantity: draft.quantity,
+                unitLabel: 'each',
+                batchNumber: draft.batchNumber ?? '',
+                lotNumber: draft.lotNumber ?? '',
+                expiryDate: draft.expiryDate,
+                serialNumber: draft.serialNumber ?? '',
+                wasted: draft.wasted,
+                wastageReason: draft.wastageReason ?? '',
+                usedByName: 'Dr Test',
+                isImplant: true,
+                batchTracked: true,
+                inventoryWarning: 'Insufficient stock; documentation retained',
+                inventoryDecrementStatus: 'warning',
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('cath-consumables-add-42')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-consumable-search')),
+        'stent',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('cath-consumable-option-17')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('cath-consumable-batch-picker')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('cath-consumable-serial-number')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('cath-consumable-batch-picker')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.text('Batch B-2026-07 - expires 2028-06-30 - 2 remaining').last,
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-consumable-serial-number')),
+        'SER-1001',
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('cath-consumable-wastage-toggle')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('cath-consumable-wastage-toggle')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-consumable-wastage-reason')),
+        'Opened but deployment aborted',
+      );
+      await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+      await tester.pumpAndSettle();
+      final save = find.byKey(const ValueKey('cath-consumable-save'));
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(submitted, isNotNull);
+      expect(submitted!.inventoryBatchId, 44);
+      expect(submitted!.batchNumber, 'B-2026-07');
+      expect(submitted!.lotNumber, 'LOT-7');
+      expect(submitted!.serialNumber, 'SER-1001');
+      expect(submitted!.wasted, isTrue);
+      expect(submitted!.wastageReason, 'Opened but deployment aborted');
+      expect(
+        find.byKey(const ValueKey('cath-consumable-usage-71')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Insufficient stock; documentation retained'),
+        findsWidgets,
+      );
+      expect(find.textContaining('Usage recorded.'), findsOneWidget);
+    },
+  );
+
+  testWidgets('batch-tracked item without stock exposes manual batch fields', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        CathConsumableDependencies(
+          loadUsage: (_) async => const [],
+          searchCatalog: _trackedSearch,
+          loadBatches: (_) async => const [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumables-add-42')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cath-consumable-search')),
+      'stent',
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumable-option-17')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('cath-consumable-batch-picker')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('cath-consumable-manual-batch')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('cath-consumable-manual-expiry')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('injected scanner resolves the inventory SKU through catalog', (
+    tester,
+  ) async {
+    String? scannedQuery;
+    Future<List<CathConsumableCatalogItem>> scanSearch({
+      String? query,
+      String? scan,
+    }) async {
+      scannedQuery = scan;
+      return const [_untrackedItem];
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        CathConsumableDependencies(
+          loadUsage: (_) async => const [],
+          searchCatalog: scanSearch,
+          loadBatches: (_) async => const [],
+          scanCode: () async => 'CATH-DX-5F',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumables-add-42')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumable-scan')));
+    await tester.pumpAndSettle();
+
+    expect(scannedQuery, 'CATH-DX-5F');
+    expect(
+      find.byKey(const ValueKey('cath-consumable-selected-item')),
+      findsOneWidget,
+    );
+    expect(find.text('Diagnostic catheter'), findsOneWidget);
+  });
+}

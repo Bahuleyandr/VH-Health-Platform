@@ -7744,34 +7744,37 @@ model pharmacy_goods_receipts {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model pharmacy_inventory_batches {
-  id                           Int                            @id @default(autoincrement())
-  tenant_id                    String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  inventory_item_id            Int
-  facility_id                  Int?
-  batch_number                 String                         @db.VarChar(120)
-  lot_number                   String?                        @db.VarChar(120)
-  manufacture_date             DateTime?                      @db.Date
-  expiry_date                  DateTime                       @db.Date
-  received_quantity            Decimal                        @db.Decimal(14, 4)
-  remaining_quantity           Decimal                        @db.Decimal(14, 4)
-  unit_cost_minor              BigInt?
-  mrp_minor                    BigInt?
-  supplier_id                  Int?
-  goods_receipt_id             Int?
-  storage_location_id          Int?
-  status                       String                         @default("in_stock") @db.VarChar(20)
-  recall_reference             String?                        @db.VarChar(255)
-  metadata                     Json                           @default("{}")
-  created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
-  updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
-  pharmacy_expiry_alerts       pharmacy_expiry_alerts[]
-  pharmacy_goods_receipt_items pharmacy_goods_receipt_items[]
-  pharmacy_inventory_items     pharmacy_inventory_items       @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  pharmacy_suppliers           pharmacy_suppliers?            @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
-  tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  pharmacy_stock_movements     pharmacy_stock_movements[]
+  id                                                                                                             Int                            @id @default(autoincrement())
+  tenant_id                                                                                                      String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  inventory_item_id                                                                                              Int
+  facility_id                                                                                                    Int?
+  batch_number                                                                                                   String                         @db.VarChar(120)
+  lot_number                                                                                                     String?                        @db.VarChar(120)
+  manufacture_date                                                                                               DateTime?                      @db.Date
+  expiry_date                                                                                                    DateTime                       @db.Date
+  received_quantity                                                                                              Decimal                        @db.Decimal(14, 4)
+  remaining_quantity                                                                                             Decimal                        @db.Decimal(14, 4)
+  unit_cost_minor                                                                                                BigInt?
+  mrp_minor                                                                                                      BigInt?
+  supplier_id                                                                                                    Int?
+  goods_receipt_id                                                                                               Int?
+  storage_location_id                                                                                            Int?
+  status                                                                                                         String                         @default("in_stock") @db.VarChar(20)
+  recall_reference                                                                                               String?                        @db.VarChar(255)
+  metadata                                                                                                       Json                           @default("{}")
+  created_at                                                                                                     DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                     DateTime                       @default(now()) @db.Timestamptz(6)
+  cath_case_consumable_usage_cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches           cath_case_consumable_usage[]   @relation("cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches cath_case_consumable_usage[]   @relation("cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches")
+  pharmacy_expiry_alerts                                                                                         pharmacy_expiry_alerts[]
+  pharmacy_goods_receipt_items                                                                                   pharmacy_goods_receipt_items[]
+  pharmacy_inventory_items                                                                                       pharmacy_inventory_items       @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_suppliers                                                                                             pharmacy_suppliers?            @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                                        tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_stock_movements                                                                                       pharmacy_stock_movements[]
 
   @@unique([inventory_item_id, batch_number])
+  @@unique([tenant_id, id], map: "ux_pharmacy_inventory_batches_tenant_id_for_cath")
   @@index([inventory_item_id, status, expiry_date], map: "idx_pharmacy_batches_item_status")
   @@index([tenant_id, status], map: "idx_pharmacy_batches_recall", where: raw("((status)::text = 'recalled'::text)"))
   @@index([supplier_id], map: "idx_pharmacy_batches_supplier", where: raw("(supplier_id IS NOT NULL)"))
@@ -7780,40 +7783,43 @@ model pharmacy_inventory_batches {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model pharmacy_inventory_items {
-  id                                                                                     Int                             @id @default(autoincrement())
-  tenant_id                                                                              String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  facility_id                                                                            Int?
-  sku_code                                                                               String                          @db.VarChar(120)
-  display_name                                                                           String                          @db.VarChar(255)
-  generic_name                                                                           String?                         @db.VarChar(255)
-  brand_name                                                                             String?                         @db.VarChar(255)
-  manufacturer                                                                           String?                         @db.VarChar(255)
-  form                                                                                   String?                         @db.VarChar(80)
-  strength                                                                               String?                         @db.VarChar(80)
-  unit_label                                                                             String                          @default("each") @db.VarChar(40)
-  pack_size                                                                              Int?
-  hsn_code                                                                               String?                         @db.VarChar(40)
-  schedule_class                                                                         String?                         @db.VarChar(20)
-  is_narcotic                                                                            Boolean                         @default(false)
-  is_cold_chain                                                                          Boolean                         @default(false)
-  reorder_level                                                                          Int?
-  reorder_quantity                                                                       Int?
-  default_supplier_id                                                                    Int?
-  status                                                                                 String                          @default("active") @db.VarChar(20)
-  metadata                                                                               Json                            @default("{}")
-  created_at                                                                             DateTime                        @default(now()) @db.Timestamptz(6)
-  updated_at                                                                             DateTime                        @default(now()) @db.Timestamptz(6)
-  pharmacy_expiry_alerts                                                                 pharmacy_expiry_alerts[]
-  pharmacy_goods_receipt_items                                                           pharmacy_goods_receipt_items[]
-  pharmacy_inventory_batches                                                             pharmacy_inventory_batches[]
-  pharmacy_suppliers                                                                     pharmacy_suppliers?             @relation(fields: [default_supplier_id], references: [id], onUpdate: NoAction)
-  tenants                                                                                tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  pharmacy_purchase_order_items                                                          pharmacy_purchase_order_items[]
-  pharmacy_stock_movements                                                               pharmacy_stock_movements[]
-  pharmacy_substitutes_pharmacy_substitutes_primary_item_idTopharmacy_inventory_items    pharmacy_substitutes[]          @relation("pharmacy_substitutes_primary_item_idTopharmacy_inventory_items")
-  pharmacy_substitutes_pharmacy_substitutes_substitute_item_idTopharmacy_inventory_items pharmacy_substitutes[]          @relation("pharmacy_substitutes_substitute_item_idTopharmacy_inventory_items")
+  id                                                                                                    Int                             @id @default(autoincrement())
+  tenant_id                                                                                             String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id                                                                                           Int?
+  sku_code                                                                                              String                          @db.VarChar(120)
+  display_name                                                                                          String                          @db.VarChar(255)
+  generic_name                                                                                          String?                         @db.VarChar(255)
+  brand_name                                                                                            String?                         @db.VarChar(255)
+  manufacturer                                                                                          String?                         @db.VarChar(255)
+  form                                                                                                  String?                         @db.VarChar(80)
+  strength                                                                                              String?                         @db.VarChar(80)
+  unit_label                                                                                            String                          @default("each") @db.VarChar(40)
+  pack_size                                                                                             Int?
+  hsn_code                                                                                              String?                         @db.VarChar(40)
+  schedule_class                                                                                        String?                         @db.VarChar(20)
+  is_narcotic                                                                                           Boolean                         @default(false)
+  is_cold_chain                                                                                         Boolean                         @default(false)
+  reorder_level                                                                                         Int?
+  reorder_quantity                                                                                      Int?
+  default_supplier_id                                                                                   Int?
+  status                                                                                                String                          @default("active") @db.VarChar(20)
+  metadata                                                                                              Json                            @default("{}")
+  created_at                                                                                            DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                            DateTime                        @default(now()) @db.Timestamptz(6)
+  cath_consumable_catalog_cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items           cath_consumable_catalog[]       @relation("cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items")
+  cath_consumable_catalog_cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items cath_consumable_catalog[]       @relation("cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items")
+  pharmacy_expiry_alerts                                                                                pharmacy_expiry_alerts[]
+  pharmacy_goods_receipt_items                                                                          pharmacy_goods_receipt_items[]
+  pharmacy_inventory_batches                                                                            pharmacy_inventory_batches[]
+  pharmacy_suppliers                                                                                    pharmacy_suppliers?             @relation(fields: [default_supplier_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                               tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_purchase_order_items                                                                         pharmacy_purchase_order_items[]
+  pharmacy_stock_movements                                                                              pharmacy_stock_movements[]
+  pharmacy_substitutes_pharmacy_substitutes_primary_item_idTopharmacy_inventory_items                   pharmacy_substitutes[]          @relation("pharmacy_substitutes_primary_item_idTopharmacy_inventory_items")
+  pharmacy_substitutes_pharmacy_substitutes_substitute_item_idTopharmacy_inventory_items                pharmacy_substitutes[]          @relation("pharmacy_substitutes_substitute_item_idTopharmacy_inventory_items")
 
   @@unique([tenant_id, sku_code])
+  @@unique([tenant_id, id], map: "ux_pharmacy_inventory_items_tenant_id_for_cath")
   @@index([tenant_id, status, display_name], map: "idx_pharmacy_items_tenant_status")
   @@index([tenant_id, facility_id, status], map: "idx_pharmacy_items_facility", where: raw("(facility_id IS NOT NULL)"))
   @@index([tenant_id, is_narcotic, status], map: "idx_pharmacy_items_narcotic", where: raw("(is_narcotic = true)"))
@@ -7978,23 +7984,27 @@ model pharmacy_purchase_orders {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model pharmacy_stock_movements {
-  id                         Int                         @id @default(autoincrement())
-  tenant_id                  String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  inventory_item_id          Int
-  inventory_batch_id         Int?
-  movement_kind              String                      @db.VarChar(40)
-  quantity_delta             Decimal                     @db.Decimal(14, 4)
-  reference_type             String?                     @db.VarChar(60)
-  reference_id               String?                     @db.VarChar(120)
-  performed_by               String?                     @db.Uuid
-  notes                      String?
-  metadata                   Json                        @default("{}")
-  created_at                 DateTime                    @default(now()) @db.Timestamptz(6)
-  pharmacy_inventory_batches pharmacy_inventory_batches? @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
-  pharmacy_inventory_items   pharmacy_inventory_items    @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants                    tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                                              Int                          @id @default(autoincrement())
+  tenant_id                                                                                                       String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  inventory_item_id                                                                                               Int
+  inventory_batch_id                                                                                              Int?
+  movement_kind                                                                                                   String                       @db.VarChar(40)
+  quantity_delta                                                                                                  Decimal                      @db.Decimal(14, 4)
+  reference_type                                                                                                  String?                      @db.VarChar(60)
+  reference_id                                                                                                    String?                      @db.VarChar(120)
+  performed_by                                                                                                    String?                      @db.Uuid
+  notes                                                                                                           String?
+  metadata                                                                                                        Json                         @default("{}")
+  created_at                                                                                                      DateTime                     @default(now()) @db.Timestamptz(6)
+  cath_case_consumable_usage_cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements           cath_case_consumable_usage[] @relation("cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements cath_case_consumable_usage[] @relation("cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements")
+  pharmacy_inventory_batches                                                                                      pharmacy_inventory_batches?  @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
+  pharmacy_inventory_items                                                                                        pharmacy_inventory_items     @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                                                                                                         tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@unique([tenant_id, id], map: "ux_pharmacy_stock_movements_tenant_id_for_cath")
   @@index([inventory_item_id, created_at(sort: Desc)], map: "idx_pharmacy_mvmt_item_time")
   @@index([tenant_id, movement_kind, created_at(sort: Desc)], map: "idx_pharmacy_mvmt_tenant_kind")
   @@index([inventory_batch_id, created_at(sort: Desc)], map: "idx_pharmacy_mvmt_batch", where: raw("(inventory_batch_id IS NOT NULL)"))
@@ -9386,40 +9396,47 @@ model step_sessions {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model surgical_implants {
-  id                Int          @id @default(autoincrement())
-  tenant_id         String       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  ot_schedule_id    Int
-  patient_uid       String?      @db.Uuid
-  implant_type      String       @db.VarChar(160)
-  manufacturer      String?      @db.VarChar(255)
-  brand_name        String?      @db.VarChar(255)
-  product_name      String?      @db.VarChar(255)
-  reference_number  String?      @db.VarChar(120)
-  lot_number        String?      @db.VarChar(120)
-  serial_number     String?      @db.VarChar(160)
-  udi               String?      @db.VarChar(255)
-  gudid_di          String?      @db.VarChar(120)
-  size              String?      @db.VarChar(80)
-  side              String?      @db.VarChar(20)
-  expiry_date       DateTime?    @db.Date
-  sterilization_lot String?      @db.VarChar(120)
-  implanted_by      String?      @db.Uuid
-  implanted_at      DateTime?    @db.Timestamptz(6)
-  removal_date      DateTime?    @db.Timestamptz(6)
-  removal_reason    String?
-  status            String       @default("in_situ") @db.VarChar(20)
-  recall_reference  String?      @db.VarChar(255)
-  notes             String?
-  metadata          Json         @default("{}")
-  created_at        DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime     @default(now()) @db.Timestamptz(6)
-  ot_schedules      ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants           tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                                                        Int                         @id @default(autoincrement())
+  tenant_id                                                                                                                 String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ot_schedule_id                                                                                                            Int?
+  patient_uid                                                                                                               String?                     @db.Uuid
+  implant_type                                                                                                              String                      @db.VarChar(160)
+  manufacturer                                                                                                              String?                     @db.VarChar(255)
+  brand_name                                                                                                                String?                     @db.VarChar(255)
+  product_name                                                                                                              String?                     @db.VarChar(255)
+  reference_number                                                                                                          String?                     @db.VarChar(120)
+  lot_number                                                                                                                String?                     @db.VarChar(120)
+  serial_number                                                                                                             String?                     @db.VarChar(160)
+  udi                                                                                                                       String?                     @db.VarChar(255)
+  gudid_di                                                                                                                  String?                     @db.VarChar(120)
+  size                                                                                                                      String?                     @db.VarChar(80)
+  side                                                                                                                      String?                     @db.VarChar(20)
+  expiry_date                                                                                                               DateTime?                   @db.Date
+  sterilization_lot                                                                                                         String?                     @db.VarChar(120)
+  implanted_by                                                                                                              String?                     @db.Uuid
+  implanted_at                                                                                                              DateTime?                   @db.Timestamptz(6)
+  removal_date                                                                                                              DateTime?                   @db.Timestamptz(6)
+  removal_reason                                                                                                            String?
+  status                                                                                                                    String                      @default("in_situ") @db.VarChar(20)
+  recall_reference                                                                                                          String?                     @db.VarChar(255)
+  notes                                                                                                                     String?
+  metadata                                                                                                                  Json                        @default("{}")
+  created_at                                                                                                                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                                DateTime                    @default(now()) @db.Timestamptz(6)
+  cath_case_id                                                                                                              BigInt?
+  cath_usage_id                                                                                                             BigInt?                     @unique(map: "ux_surgical_implants_cath_usage_id", where: raw("(cath_usage_id IS NOT NULL)"))
+  cath_lab_cases                                                                                                            cath_lab_cases?             @relation(fields: [cath_case_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_surgical_implants_cath_case")
+  cath_case_consumable_usage_surgical_implants_tenant_id_cath_usage_id_cath_case_id_patient_uidTocath_case_consumable_usage cath_case_consumable_usage? @relation("surgical_implants_tenant_id_cath_usage_id_cath_case_id_patient_uidTocath_case_consumable_usage", fields: [tenant_id, cath_usage_id, cath_case_id, patient_uid], references: [tenant_id, id, case_id, patient_uid], onDelete: Cascade, onUpdate: NoAction, map: "fk_surgical_implants_cath_origin_tenant")
+  cath_case_consumable_usage_surgical_implants_cath_usage_idTocath_case_consumable_usage                                    cath_case_consumable_usage? @relation("surgical_implants_cath_usage_idTocath_case_consumable_usage", fields: [cath_usage_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_surgical_implants_cath_usage")
+  ot_schedules                                                                                                              ot_schedules?               @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                                                                                                                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@unique([tenant_id, cath_usage_id, cath_case_id, patient_uid], map: "ux_surgical_implants_cath_usage")
   @@index([ot_schedule_id], map: "idx_surgical_implants_schedule")
   @@index([tenant_id, patient_uid, status], map: "idx_surgical_implants_tenant_patient")
   @@index([tenant_id, manufacturer, lot_number], map: "idx_surgical_implants_lot", where: raw("(lot_number IS NOT NULL)"))
   @@index([tenant_id, udi], map: "idx_surgical_implants_udi", where: raw("(udi IS NOT NULL)"))
+  @@index([tenant_id, cath_case_id, status], map: "idx_surgical_implants_cath_case", where: raw("(cath_case_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -9734,6 +9751,9 @@ model tenants {
   care_team_members                          care_team_members[]
   care_team_status_history                   care_team_status_history[]
   care_teams                                 care_teams[]
+  cath_case_consumable_usage                 cath_case_consumable_usage[]
+  cath_consumable_catalog                    cath_consumable_catalog[]
+  cath_consumables_billing_settings          cath_consumables_billing_settings?
   cath_contrast_radiation_records            cath_contrast_radiation_records[]
   cath_device_links                          cath_device_links[]
   cath_hemodynamic_summaries                 cath_hemodynamic_summaries[]
@@ -10769,6 +10789,7 @@ model users {
   biomed_work_order_recipients                                                                   biomed_work_order_recipients[]
   biomed_work_order_updates                                                                      biomed_work_order_updates[]
   biomed_work_orders                                                                             biomed_work_orders[]
+  cath_case_consumable_usage                                                                     cath_case_consumable_usage[]
   cath_contrast_radiation_records                                                                cath_contrast_radiation_records[]
   cath_device_links                                                                              cath_device_links[]
   cath_hemodynamic_summaries                                                                     cath_hemodynamic_summaries[]
@@ -11524,17 +11545,20 @@ model billing_invoice_items {
   notes                    String?                    @db.VarChar(255)
   created_at               DateTime?                  @default(now()) @db.Timestamptz(6)
   source_ref_type          String?                    @db.VarChar(40)
-  source_ref_id            Int?
+  source_ref_id            BigInt?
   tpa_decision             String?                    @db.VarChar(20)
   tpa_non_payable_reason   String?                    @db.VarChar(60)
   tpa_decided_at           DateTime?                  @db.Timestamptz(6)
   tpa_decided_by           String?                    @db.Uuid
   tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  source_ref_active        Boolean                    @default(true)
   billing_invoices         billing_invoices           @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_billing_invoice_items_tenant")
   tpa_claim_line_decisions tpa_claim_line_decisions[]
 
-  @@unique([source_ref_type, source_ref_id], map: "ux_billing_invoice_items_dialysis_session", where: raw("(((source_ref_type)::text = 'dialysis_session'::text) AND (source_ref_id IS NOT NULL))"))
+  @@unique([tenant_id, source_ref_type, source_ref_id], map: "ux_billing_invoice_items_dialysis_session", where: raw("(((source_ref_type)::text = 'dialysis_session'::text) AND (source_ref_id IS NOT NULL) AND source_ref_active)"))
+  @@unique([tenant_id, source_ref_type, source_ref_id], map: "ux_billing_invoice_items_cath_consumable", where: raw("(((source_ref_type)::text = 'cath_consumable_usage'::text) AND (source_ref_id IS NOT NULL) AND source_ref_active)"))
+  @@unique([tenant_id, source_ref_type, source_ref_id], map: "ux_billing_invoice_items_cath_procedure", where: raw("(((source_ref_type)::text = 'cath_procedure_log'::text) AND (source_ref_id IS NOT NULL) AND source_ref_active)"))
   @@index([invoice_id], map: "idx_invoice_items_invoice")
   @@index([invoice_id], map: "idx_billing_invoice_items_non_payable", where: raw("((tpa_decision)::text = ANY ((ARRAY['non_payable'::character varying, 'partial'::character varying])::text[]))"))
   @@index([source_ref_type, source_ref_id], map: "idx_billing_invoice_items_source_ref", where: raw("((source_ref_type IS NOT NULL) AND (source_ref_id IS NOT NULL))"))
@@ -14947,53 +14971,56 @@ model patient_encounters {
 
 /// Append-only canonical patient timeline event stream.
 model clinical_timeline_events {
-  id                                  String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                           String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid                         String                                @db.Uuid
-  encounter_id                        String?                               @db.Uuid
-  event_type                          String                                @db.VarChar(80)
-  event_subtype                       String?                               @db.VarChar(80)
-  event_status                        String?                               @db.VarChar(40)
-  source_table                        String?                               @db.VarChar(100)
-  source_id                           String?                               @db.VarChar(120)
-  source_uid                          String?                               @db.Uuid
-  resource_type                       String?                               @db.VarChar(80)
-  resource_id                         String?                               @db.VarChar(120)
-  actor_uid                           String?                               @db.Uuid
-  actor_role                          String?                               @db.VarChar(80)
-  occurred_at                         DateTime                              @default(now()) @db.Timestamptz(6)
-  visible_to_patient                  Boolean                               @default(false)
-  clinical_summary                    String?
-  payload                             Json                                  @default("{}")
-  tags                                String[]                              @default([])
-  idempotency_key                     String                                @unique @db.VarChar(220)
-  created_at                          DateTime                              @default(now()) @db.Timestamptz(6)
-  cath_lab_cases                      cath_lab_cases[]
-  cath_post_procedure_orders          cath_post_procedure_orders[]
-  cath_procedure_logs                 cath_procedure_logs[]
-  ed_encounter_evidence               ed_encounter_evidence[]
-  mlc_completeness_reviews            mlc_completeness_reviews[]
-  nuclear_medicine_orders             nuclear_medicine_orders[]
-  oncology_diagnoses                  oncology_diagnoses[]
-  oncology_staging_records            oncology_staging_records[]
-  oncology_toxicity_events            oncology_toxicity_events[]
-  radiation_oncology_referrals        radiation_oncology_referrals[]
-  radioisotope_administration_records radioisotope_administration_records[]
-  radiotherapy_fraction_schedules     radiotherapy_fraction_schedules[]
-  radiotherapy_plan_refs              radiotherapy_plan_refs[]
-  stemi_activations                   stemi_activations[]
-  stemi_pathway_events                stemi_pathway_events[]
-  stemi_team_notifications            stemi_team_notifications[]
-  stroke_activations                  stroke_activations[]
-  stroke_nihss_assessments            stroke_nihss_assessments[]
-  stroke_pathway_events               stroke_pathway_events[]
-  stroke_thrombolysis_decisions       stroke_thrombolysis_decisions[]
-  trauma_activations                  trauma_activations[]
-  trauma_survey_records               trauma_survey_records[]
-  trauma_timeline_events              trauma_timeline_events[]
-  tumor_board_cases                   tumor_board_cases[]
-  tumor_board_recommendations         tumor_board_recommendations[]
+  id                                                                                                          String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                   String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                                                                                                 String                                @db.Uuid
+  encounter_id                                                                                                String?                               @db.Uuid
+  event_type                                                                                                  String                                @db.VarChar(80)
+  event_subtype                                                                                               String?                               @db.VarChar(80)
+  event_status                                                                                                String?                               @db.VarChar(40)
+  source_table                                                                                                String?                               @db.VarChar(100)
+  source_id                                                                                                   String?                               @db.VarChar(120)
+  source_uid                                                                                                  String?                               @db.Uuid
+  resource_type                                                                                               String?                               @db.VarChar(80)
+  resource_id                                                                                                 String?                               @db.VarChar(120)
+  actor_uid                                                                                                   String?                               @db.Uuid
+  actor_role                                                                                                  String?                               @db.VarChar(80)
+  occurred_at                                                                                                 DateTime                              @default(now()) @db.Timestamptz(6)
+  visible_to_patient                                                                                          Boolean                               @default(false)
+  clinical_summary                                                                                            String?
+  payload                                                                                                     Json                                  @default("{}")
+  tags                                                                                                        String[]                              @default([])
+  idempotency_key                                                                                             String                                @unique @db.VarChar(220)
+  created_at                                                                                                  DateTime                              @default(now()) @db.Timestamptz(6)
+  cath_case_consumable_usage_cath_case_consumable_usage_timeline_event_idToclinical_timeline_events           cath_case_consumable_usage[]          @relation("cath_case_consumable_usage_timeline_event_idToclinical_timeline_events")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_timeline_event_idToclinical_timeline_events cath_case_consumable_usage[]          @relation("cath_case_consumable_usage_tenant_id_timeline_event_idToclinical_timeline_events")
+  cath_lab_cases                                                                                              cath_lab_cases[]
+  cath_post_procedure_orders                                                                                  cath_post_procedure_orders[]
+  cath_procedure_logs                                                                                         cath_procedure_logs[]
+  ed_encounter_evidence                                                                                       ed_encounter_evidence[]
+  mlc_completeness_reviews                                                                                    mlc_completeness_reviews[]
+  nuclear_medicine_orders                                                                                     nuclear_medicine_orders[]
+  oncology_diagnoses                                                                                          oncology_diagnoses[]
+  oncology_staging_records                                                                                    oncology_staging_records[]
+  oncology_toxicity_events                                                                                    oncology_toxicity_events[]
+  radiation_oncology_referrals                                                                                radiation_oncology_referrals[]
+  radioisotope_administration_records                                                                         radioisotope_administration_records[]
+  radiotherapy_fraction_schedules                                                                             radiotherapy_fraction_schedules[]
+  radiotherapy_plan_refs                                                                                      radiotherapy_plan_refs[]
+  stemi_activations                                                                                           stemi_activations[]
+  stemi_pathway_events                                                                                        stemi_pathway_events[]
+  stemi_team_notifications                                                                                    stemi_team_notifications[]
+  stroke_activations                                                                                          stroke_activations[]
+  stroke_nihss_assessments                                                                                    stroke_nihss_assessments[]
+  stroke_pathway_events                                                                                       stroke_pathway_events[]
+  stroke_thrombolysis_decisions                                                                               stroke_thrombolysis_decisions[]
+  trauma_activations                                                                                          trauma_activations[]
+  trauma_survey_records                                                                                       trauma_survey_records[]
+  trauma_timeline_events                                                                                      trauma_timeline_events[]
+  tumor_board_cases                                                                                           tumor_board_cases[]
+  tumor_board_recommendations                                                                                 tumor_board_recommendations[]
 
+  @@unique([tenant_id, id], map: "ux_clinical_timeline_events_tenant_id_for_cath")
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_timeline_patient_occurred")
   @@index([tenant_id, encounter_id, occurred_at(sort: Desc)], map: "idx_clinical_timeline_encounter_occurred", where: raw("(encounter_id IS NOT NULL)"))
   @@index([source_table, source_id], map: "idx_clinical_timeline_source", where: raw("((source_table IS NOT NULL) AND (source_id IS NOT NULL))"))
@@ -15003,44 +15030,47 @@ model clinical_timeline_events {
 /// Normalized clinical-action audit stream. This complements legacy audit_log,
 /// audit_logs, patient_access_audit_log, and staff_access_audit_log.
 model clinical_audit_events {
-  id                            String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid                   String?                         @db.Uuid
-  encounter_id                  String?                         @db.Uuid
-  action                        String                          @db.VarChar(100)
-  action_status                 String                          @default("success") @db.VarChar(40)
-  actor_uid                     String?                         @db.Uuid
-  actor_role                    String?                         @db.VarChar(80)
-  resource_type                 String?                         @db.VarChar(80)
-  resource_table                String?                         @db.VarChar(100)
-  resource_id                   String?                         @db.VarChar(120)
-  request_id                    String?                         @db.VarChar(120)
-  ip_address                    String?                         @db.Inet
-  user_agent                    String?
-  before_state                  Json?
-  after_state                   Json?
-  metadata                      Json                            @default("{}")
-  idempotency_key               String?                         @unique(map: "idx_clinical_audit_events_idempotency", where: raw("(idempotency_key IS NOT NULL)")) @db.VarChar(220)
-  occurred_at                   DateTime                        @default(now()) @db.Timestamptz(6)
-  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
-  chain_seq                     BigInt?
-  prev_hash                     String?                         @db.Char(64)
-  chain_hash                    String?                         @db.Char(64)
-  cath_lab_cases                cath_lab_cases[]
-  cath_post_procedure_orders    cath_post_procedure_orders[]
-  cath_procedure_logs           cath_procedure_logs[]
-  ed_encounter_evidence         ed_encounter_evidence[]
-  ed_injury_diagram_attachments ed_injury_diagram_attachments[]
-  mlc_completeness_reviews      mlc_completeness_reviews[]
-  oncology_registry_exports     oncology_registry_exports[]
-  radiation_safety_evidence     radiation_safety_evidence[]
-  stemi_activations             stemi_activations[]
-  stemi_pathway_events          stemi_pathway_events[]
-  stemi_team_notifications      stemi_team_notifications[]
-  trauma_activations            trauma_activations[]
-  trauma_survey_records         trauma_survey_records[]
-  trauma_timeline_events        trauma_timeline_events[]
+  id                                                                                                    String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                             String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                                                                                           String?                         @db.Uuid
+  encounter_id                                                                                          String?                         @db.Uuid
+  action                                                                                                String                          @db.VarChar(100)
+  action_status                                                                                         String                          @default("success") @db.VarChar(40)
+  actor_uid                                                                                             String?                         @db.Uuid
+  actor_role                                                                                            String?                         @db.VarChar(80)
+  resource_type                                                                                         String?                         @db.VarChar(80)
+  resource_table                                                                                        String?                         @db.VarChar(100)
+  resource_id                                                                                           String?                         @db.VarChar(120)
+  request_id                                                                                            String?                         @db.VarChar(120)
+  ip_address                                                                                            String?                         @db.Inet
+  user_agent                                                                                            String?
+  before_state                                                                                          Json?
+  after_state                                                                                           Json?
+  metadata                                                                                              Json                            @default("{}")
+  idempotency_key                                                                                       String?                         @unique(map: "idx_clinical_audit_events_idempotency", where: raw("(idempotency_key IS NOT NULL)")) @db.VarChar(220)
+  occurred_at                                                                                           DateTime                        @default(now()) @db.Timestamptz(6)
+  created_at                                                                                            DateTime                        @default(now()) @db.Timestamptz(6)
+  chain_seq                                                                                             BigInt?
+  prev_hash                                                                                             String?                         @db.Char(64)
+  chain_hash                                                                                            String?                         @db.Char(64)
+  cath_case_consumable_usage_cath_case_consumable_usage_audit_event_idToclinical_audit_events           cath_case_consumable_usage[]    @relation("cath_case_consumable_usage_audit_event_idToclinical_audit_events")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events cath_case_consumable_usage[]    @relation("cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events")
+  cath_lab_cases                                                                                        cath_lab_cases[]
+  cath_post_procedure_orders                                                                            cath_post_procedure_orders[]
+  cath_procedure_logs                                                                                   cath_procedure_logs[]
+  ed_encounter_evidence                                                                                 ed_encounter_evidence[]
+  ed_injury_diagram_attachments                                                                         ed_injury_diagram_attachments[]
+  mlc_completeness_reviews                                                                              mlc_completeness_reviews[]
+  oncology_registry_exports                                                                             oncology_registry_exports[]
+  radiation_safety_evidence                                                                             radiation_safety_evidence[]
+  stemi_activations                                                                                     stemi_activations[]
+  stemi_pathway_events                                                                                  stemi_pathway_events[]
+  stemi_team_notifications                                                                              stemi_team_notifications[]
+  trauma_activations                                                                                    trauma_activations[]
+  trauma_survey_records                                                                                 trauma_survey_records[]
+  trauma_timeline_events                                                                                trauma_timeline_events[]
 
+  @@unique([tenant_id, id], map: "ux_clinical_audit_events_tenant_id_for_cath")
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_patient_time", where: raw("(patient_uid IS NOT NULL)"))
   @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time", where: raw("(actor_uid IS NOT NULL)"))
   @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource", where: raw("((resource_table IS NOT NULL) AND (resource_id IS NOT NULL))"))
@@ -20659,47 +20689,51 @@ model cath_hemodynamic_summaries {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model cath_lab_cases {
-  id                              BigInt                            @id @default(autoincrement())
-  tenant_id                       String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid                     String                            @db.Uuid
-  encounter_id                    String?                           @db.Uuid
-  appointment_id                  Int?
-  requested_procedure             String                            @db.VarChar(160)
-  indication                      String?
-  urgency                         String                            @default("routine") @db.VarChar(30)
-  lab_room                        String?                           @db.VarChar(120)
-  status                          String                            @default("scheduled") @db.VarChar(40)
-  planned_start_at                DateTime?                         @db.Timestamptz(6)
-  planned_end_at                  DateTime?                         @db.Timestamptz(6)
-  actual_start_at                 DateTime?                         @db.Timestamptz(6)
-  actual_end_at                   DateTime?                         @db.Timestamptz(6)
-  team                            Json                              @default("{}")
-  timeline_event_id               String?                           @db.Uuid
-  audit_event_id                  String?                           @db.Uuid
-  sla_rule_code                   String?                           @db.VarChar(100)
-  sla_instance_id                 String?                           @db.Uuid
-  created_by                      String?                           @db.Uuid
-  updated_by                      String?                           @db.Uuid
-  created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
-  updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
-  metadata                        Json                              @default("{}")
-  cath_contrast_radiation_records cath_contrast_radiation_records[]
-  cath_device_links               cath_device_links[]
-  cath_hemodynamic_summaries      cath_hemodynamic_summaries[]
-  appointments                    appointments?                     @relation(fields: [appointment_id], references: [id], onUpdate: NoAction)
-  clinical_audit_events           clinical_audit_events?            @relation(fields: [audit_event_id], references: [id], onUpdate: NoAction)
-  patient_encounters              patient_encounters?               @relation(fields: [encounter_id], references: [id], onUpdate: NoAction)
-  users                           users                             @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
-  workflow_sla_instances          workflow_sla_instances?           @relation(fields: [sla_instance_id], references: [id], onUpdate: NoAction)
-  clinical_timeline_events        clinical_timeline_events?         @relation(fields: [timeline_event_id], references: [id], onUpdate: NoAction)
-  tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_lab_cases_tenant")
-  cath_lab_readiness_checks       cath_lab_readiness_checks[]
-  cath_post_procedure_orders      cath_post_procedure_orders[]
-  cath_procedure_logs             cath_procedure_logs[]
-  cath_procedure_reports          cath_procedure_reports[]
-  cath_report_addenda             cath_report_addenda[]
-  stemi_activations               stemi_activations[]
+  id                                                                                                  BigInt                            @id @default(autoincrement())
+  tenant_id                                                                                           String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                                                                                         String                            @db.Uuid
+  encounter_id                                                                                        String?                           @db.Uuid
+  appointment_id                                                                                      Int?
+  requested_procedure                                                                                 String                            @db.VarChar(160)
+  indication                                                                                          String?
+  urgency                                                                                             String                            @default("routine") @db.VarChar(30)
+  lab_room                                                                                            String?                           @db.VarChar(120)
+  status                                                                                              String                            @default("scheduled") @db.VarChar(40)
+  planned_start_at                                                                                    DateTime?                         @db.Timestamptz(6)
+  planned_end_at                                                                                      DateTime?                         @db.Timestamptz(6)
+  actual_start_at                                                                                     DateTime?                         @db.Timestamptz(6)
+  actual_end_at                                                                                       DateTime?                         @db.Timestamptz(6)
+  team                                                                                                Json                              @default("{}")
+  timeline_event_id                                                                                   String?                           @db.Uuid
+  audit_event_id                                                                                      String?                           @db.Uuid
+  sla_rule_code                                                                                       String?                           @db.VarChar(100)
+  sla_instance_id                                                                                     String?                           @db.Uuid
+  created_by                                                                                          String?                           @db.Uuid
+  updated_by                                                                                          String?                           @db.Uuid
+  created_at                                                                                          DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                          DateTime                          @default(now()) @db.Timestamptz(6)
+  metadata                                                                                            Json                              @default("{}")
+  cath_case_consumable_usage_cath_case_consumable_usage_case_idTocath_lab_cases                       cath_case_consumable_usage[]      @relation("cath_case_consumable_usage_case_idTocath_lab_cases")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_case_id_patient_uidTocath_lab_cases cath_case_consumable_usage[]      @relation("cath_case_consumable_usage_tenant_id_case_id_patient_uidTocath_lab_cases")
+  cath_contrast_radiation_records                                                                     cath_contrast_radiation_records[]
+  cath_device_links                                                                                   cath_device_links[]
+  cath_hemodynamic_summaries                                                                          cath_hemodynamic_summaries[]
+  appointments                                                                                        appointments?                     @relation(fields: [appointment_id], references: [id], onUpdate: NoAction)
+  clinical_audit_events                                                                               clinical_audit_events?            @relation(fields: [audit_event_id], references: [id], onUpdate: NoAction)
+  patient_encounters                                                                                  patient_encounters?               @relation(fields: [encounter_id], references: [id], onUpdate: NoAction)
+  users                                                                                               users                             @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  workflow_sla_instances                                                                              workflow_sla_instances?           @relation(fields: [sla_instance_id], references: [id], onUpdate: NoAction)
+  clinical_timeline_events                                                                            clinical_timeline_events?         @relation(fields: [timeline_event_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                             tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_lab_cases_tenant")
+  cath_lab_readiness_checks                                                                           cath_lab_readiness_checks[]
+  cath_post_procedure_orders                                                                          cath_post_procedure_orders[]
+  cath_procedure_logs                                                                                 cath_procedure_logs[]
+  cath_procedure_reports                                                                              cath_procedure_reports[]
+  cath_report_addenda                                                                                 cath_report_addenda[]
+  stemi_activations                                                                                   stemi_activations[]
+  surgical_implants                                                                                   surgical_implants[]
 
+  @@unique([tenant_id, id, patient_uid], map: "ux_cath_lab_cases_usage_tenant_patient")
   @@index([tenant_id, encounter_id], map: "idx_cath_lab_cases_encounter", where: raw("(encounter_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid, planned_start_at(sort: Desc)], map: "idx_cath_lab_cases_patient")
   @@index([tenant_id, planned_start_at, status], map: "idx_cath_lab_cases_schedule")
@@ -20768,39 +20802,42 @@ model cath_post_procedure_orders {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model cath_procedure_logs {
-  id                              BigInt                            @id @default(autoincrement())
-  tenant_id                       String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  case_id                         BigInt
-  patient_uid                     String                            @db.Uuid
-  encounter_id                    String?                           @db.Uuid
-  procedure_type                  String                            @db.VarChar(120)
-  access_site                     String?                           @db.VarChar(120)
-  operators                       Json                              @default("[]")
-  sedation_anesthesia_ref         String?                           @db.VarChar(160)
-  devices                         Json                              @default("[]")
-  findings_summary                String?
-  complications                   Json                              @default("[]")
-  status                          String                            @default("finalized") @db.VarChar(30)
-  started_at                      DateTime?                         @db.Timestamptz(6)
-  ended_at                        DateTime?                         @db.Timestamptz(6)
-  logged_by                       String?                           @db.Uuid
-  timeline_event_id               String?                           @db.Uuid
-  audit_event_id                  String?                           @db.Uuid
-  created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
-  updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
-  metadata                        Json                              @default("{}")
-  cath_contrast_radiation_records cath_contrast_radiation_records[]
-  cath_device_links               cath_device_links[]
-  cath_hemodynamic_summaries      cath_hemodynamic_summaries[]
-  cath_post_procedure_orders      cath_post_procedure_orders[]
-  clinical_audit_events           clinical_audit_events?            @relation(fields: [audit_event_id], references: [id], onUpdate: NoAction)
-  cath_lab_cases                  cath_lab_cases                    @relation(fields: [case_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  patient_encounters              patient_encounters?               @relation(fields: [encounter_id], references: [id], onUpdate: NoAction)
-  users                           users                             @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
-  clinical_timeline_events        clinical_timeline_events?         @relation(fields: [timeline_event_id], references: [id], onUpdate: NoAction)
-  tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_procedure_logs_tenant")
-  cath_procedure_reports          cath_procedure_reports[]
+  id                                                                                                                        BigInt                            @id @default(autoincrement())
+  tenant_id                                                                                                                 String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_id                                                                                                                   BigInt
+  patient_uid                                                                                                               String                            @db.Uuid
+  encounter_id                                                                                                              String?                           @db.Uuid
+  procedure_type                                                                                                            String                            @db.VarChar(120)
+  access_site                                                                                                               String?                           @db.VarChar(120)
+  operators                                                                                                                 Json                              @default("[]")
+  sedation_anesthesia_ref                                                                                                   String?                           @db.VarChar(160)
+  devices                                                                                                                   Json                              @default("[]")
+  findings_summary                                                                                                          String?
+  complications                                                                                                             Json                              @default("[]")
+  status                                                                                                                    String                            @default("finalized") @db.VarChar(30)
+  started_at                                                                                                                DateTime?                         @db.Timestamptz(6)
+  ended_at                                                                                                                  DateTime?                         @db.Timestamptz(6)
+  logged_by                                                                                                                 String?                           @db.Uuid
+  timeline_event_id                                                                                                         String?                           @db.Uuid
+  audit_event_id                                                                                                            String?                           @db.Uuid
+  created_at                                                                                                                DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                                DateTime                          @default(now()) @db.Timestamptz(6)
+  metadata                                                                                                                  Json                              @default("{}")
+  cath_case_consumable_usage_cath_case_consumable_usage_procedure_log_idTocath_procedure_logs                               cath_case_consumable_usage[]      @relation("cath_case_consumable_usage_procedure_log_idTocath_procedure_logs")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_procedure_log_id_case_id_patient_uidTocath_procedure_logs cath_case_consumable_usage[]      @relation("cath_case_consumable_usage_tenant_id_procedure_log_id_case_id_patient_uidTocath_procedure_logs")
+  cath_contrast_radiation_records                                                                                           cath_contrast_radiation_records[]
+  cath_device_links                                                                                                         cath_device_links[]
+  cath_hemodynamic_summaries                                                                                                cath_hemodynamic_summaries[]
+  cath_post_procedure_orders                                                                                                cath_post_procedure_orders[]
+  clinical_audit_events                                                                                                     clinical_audit_events?            @relation(fields: [audit_event_id], references: [id], onUpdate: NoAction)
+  cath_lab_cases                                                                                                            cath_lab_cases                    @relation(fields: [case_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patient_encounters                                                                                                        patient_encounters?               @relation(fields: [encounter_id], references: [id], onUpdate: NoAction)
+  users                                                                                                                     users                             @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  clinical_timeline_events                                                                                                  clinical_timeline_events?         @relation(fields: [timeline_event_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                                                   tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_procedure_logs_tenant")
+  cath_procedure_reports                                                                                                    cath_procedure_reports[]
 
+  @@unique([tenant_id, id, case_id, patient_uid], map: "ux_cath_procedure_logs_usage_tenant_case_patient")
   @@index([tenant_id, case_id, created_at(sort: Desc)], map: "idx_cath_procedure_logs_case")
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_cath_procedure_logs_patient")
   @@index([tenant_id, case_id, ended_at(sort: Desc)], map: "idx_cath_procedure_logs_case_end", where: raw("(ended_at IS NOT NULL)"))
@@ -23292,6 +23329,113 @@ model cath_report_templates {
   @@unique([tenant_id, template_code, version], map: "ux_cath_report_templates_version")
   @@index([tenant_id, report_type, name, version(sort: Desc)], map: "idx_cath_report_templates_lookup", where: raw("(is_active = true)"))
   @@index([tenant_id, supersedes_template_id], map: "idx_cath_report_templates_supersedes", where: raw("(supersedes_template_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_case_consumable_usage {
+  id                                                                                                                 BigInt                      @id @default(autoincrement())
+  tenant_id                                                                                                          String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_id                                                                                                            BigInt
+  procedure_log_id                                                                                                   BigInt?
+  catalog_item_id                                                                                                    BigInt
+  patient_uid                                                                                                        String                      @db.Uuid
+  inventory_batch_id                                                                                                 Int?
+  quantity                                                                                                           Decimal                     @db.Decimal(14, 4)
+  batch_tracked                                                                                                      Boolean
+  is_implant                                                                                                         Boolean
+  batch_number                                                                                                       String?                     @db.VarChar(120)
+  lot_number                                                                                                         String?                     @db.VarChar(120)
+  expiry_date                                                                                                        DateTime?                   @db.Date
+  serial_number                                                                                                      String?                     @db.VarChar(160)
+  unit_cost_snapshot                                                                                                 Decimal?                    @db.Decimal(12, 2)
+  used_by                                                                                                            String?                     @db.Uuid
+  used_at                                                                                                            DateTime                    @default(now()) @db.Timestamptz(6)
+  wasted                                                                                                             Boolean                     @default(false)
+  waste_reason                                                                                                       String?
+  inventory_decrement_status                                                                                         String                      @default("pending") @db.VarChar(30)
+  inventory_movement_id                                                                                              Int?
+  inventory_warning                                                                                                  String?
+  timeline_event_id                                                                                                  String?                     @db.Uuid
+  audit_event_id                                                                                                     String?                     @db.Uuid
+  idempotency_key                                                                                                    String?                     @db.VarChar(200)
+  created_at                                                                                                         DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                         DateTime                    @default(now()) @db.Timestamptz(6)
+  metadata                                                                                                           Json                        @default("{}")
+  clinical_audit_events_cath_case_consumable_usage_audit_event_idToclinical_audit_events                             clinical_audit_events?      @relation("cath_case_consumable_usage_audit_event_idToclinical_audit_events", fields: [audit_event_id], references: [id], onUpdate: NoAction)
+  cath_lab_cases_cath_case_consumable_usage_case_idTocath_lab_cases                                                  cath_lab_cases              @relation("cath_case_consumable_usage_case_idTocath_lab_cases", fields: [case_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_batches_cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches               pharmacy_inventory_batches? @relation("cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches", fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
+  pharmacy_stock_movements_cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements                pharmacy_stock_movements?   @relation("cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements", fields: [inventory_movement_id], references: [id], onUpdate: NoAction)
+  users                                                                                                              users                       @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  cath_procedure_logs_cath_case_consumable_usage_procedure_log_idTocath_procedure_logs                               cath_procedure_logs?        @relation("cath_case_consumable_usage_procedure_log_idTocath_procedure_logs", fields: [procedure_log_id], references: [id], onUpdate: NoAction)
+  clinical_timeline_events_cath_case_consumable_usage_timeline_event_idToclinical_timeline_events                    clinical_timeline_events?   @relation("cath_case_consumable_usage_timeline_event_idToclinical_timeline_events", fields: [timeline_event_id], references: [id], onUpdate: NoAction)
+  clinical_audit_events_cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events                   clinical_audit_events?      @relation("cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events", fields: [tenant_id, audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_consumable_usage_audit_tenant")
+  cath_lab_cases_cath_case_consumable_usage_tenant_id_case_id_patient_uidTocath_lab_cases                            cath_lab_cases              @relation("cath_case_consumable_usage_tenant_id_case_id_patient_uidTocath_lab_cases", fields: [tenant_id, case_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: Cascade, onUpdate: NoAction, map: "fk_cath_consumable_usage_case_tenant_patient")
+  cath_consumable_catalog                                                                                            cath_consumable_catalog     @relation(fields: [tenant_id, catalog_item_id, batch_tracked, is_implant], references: [tenant_id, id, batch_tracked, is_implant], onUpdate: NoAction, map: "fk_cath_consumable_usage_catalog_snapshot")
+  pharmacy_inventory_batches_cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches     pharmacy_inventory_batches? @relation("cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches", fields: [tenant_id, inventory_batch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_consumable_usage_inventory_batch_tenant")
+  pharmacy_stock_movements_cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements      pharmacy_stock_movements?   @relation("cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements", fields: [tenant_id, inventory_movement_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_consumable_usage_inventory_movement_tenant")
+  cath_procedure_logs_cath_case_consumable_usage_tenant_id_procedure_log_id_case_id_patient_uidTocath_procedure_logs cath_procedure_logs?        @relation("cath_case_consumable_usage_tenant_id_procedure_log_id_case_id_patient_uidTocath_procedure_logs", fields: [tenant_id, procedure_log_id, case_id, patient_uid], references: [tenant_id, id, case_id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_consumable_usage_procedure_tenant_case_patient")
+  tenants                                                                                                            tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_consumable_usage_tenant")
+  clinical_timeline_events_cath_case_consumable_usage_tenant_id_timeline_event_idToclinical_timeline_events          clinical_timeline_events?   @relation("cath_case_consumable_usage_tenant_id_timeline_event_idToclinical_timeline_events", fields: [tenant_id, timeline_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_consumable_usage_timeline_tenant")
+  surgical_implants_surgical_implants_tenant_id_cath_usage_id_cath_case_id_patient_uidTocath_case_consumable_usage   surgical_implants?          @relation("surgical_implants_tenant_id_cath_usage_id_cath_case_id_patient_uidTocath_case_consumable_usage")
+  surgical_implants_surgical_implants_cath_usage_idTocath_case_consumable_usage                                      surgical_implants?          @relation("surgical_implants_cath_usage_idTocath_case_consumable_usage")
+
+  @@unique([tenant_id, idempotency_key], map: "ux_cath_consumable_usage_idempotency", where: raw("(idempotency_key IS NOT NULL)"))
+  @@unique([tenant_id, serial_number], map: "ux_cath_consumable_usage_implant_serial", where: raw("(is_implant AND (serial_number IS NOT NULL))"))
+  @@unique([tenant_id, id, case_id, patient_uid], map: "ux_cath_consumable_usage_tenant_origin")
+  @@index([tenant_id, case_id, used_at(sort: Desc)], map: "idx_cath_consumable_usage_case")
+  @@index([tenant_id, catalog_item_id, used_at(sort: Desc)], map: "idx_cath_consumable_usage_catalog")
+  @@index([tenant_id, inventory_decrement_status, used_at], map: "idx_cath_consumable_usage_inventory_followup", where: raw("((inventory_decrement_status)::text = ANY ((ARRAY['pending'::character varying, 'insufficient_stock'::character varying, 'error'::character varying])::text[]))"))
+  @@index([tenant_id, patient_uid, used_at(sort: Desc)], map: "idx_cath_consumable_usage_patient_implants", where: raw("is_implant"))
+  @@index([tenant_id, procedure_log_id], map: "idx_cath_consumable_usage_procedure", where: raw("(procedure_log_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_consumable_catalog {
+  id                                                                                                     BigInt                       @id @default(autoincrement())
+  tenant_id                                                                                              String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  inventory_item_id                                                                                      Int?
+  item_name                                                                                              String                       @db.VarChar(255)
+  category                                                                                               String                       @default("other") @db.VarChar(40)
+  manufacturer                                                                                           String?                      @db.VarChar(255)
+  model                                                                                                  String?                      @db.VarChar(160)
+  is_implant                                                                                             Boolean                      @default(false)
+  batch_tracked                                                                                          Boolean                      @default(false)
+  default_unit_cost_reference                                                                            Decimal?                     @db.Decimal(12, 2)
+  billing_item_code                                                                                      String?                      @db.VarChar(50)
+  status                                                                                                 String                       @default("active") @db.VarChar(20)
+  retired_at                                                                                             DateTime?                    @db.Timestamptz(6)
+  created_by                                                                                             String?                      @db.Uuid
+  updated_by                                                                                             String?                      @db.Uuid
+  created_at                                                                                             DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                             DateTime                     @default(now()) @db.Timestamptz(6)
+  metadata                                                                                               Json                         @default("{}")
+  cath_case_consumable_usage                                                                             cath_case_consumable_usage[]
+  pharmacy_inventory_items_cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items           pharmacy_inventory_items?    @relation("cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items", fields: [inventory_item_id], references: [id], onUpdate: NoAction)
+  pharmacy_inventory_items_cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items pharmacy_inventory_items?    @relation("cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items", fields: [tenant_id, inventory_item_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_consumable_catalog_inventory_tenant")
+  tenants                                                                                                tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cath_consumable_catalog_tenant")
+
+  @@unique([tenant_id, id, batch_tracked, is_implant], map: "ux_cath_consumable_catalog_usage_snapshot")
+  @@index([tenant_id, status, category, item_name], map: "idx_cath_consumable_catalog_active")
+  @@index([tenant_id, billing_item_code], map: "idx_cath_consumable_catalog_billing_mapping", where: raw("(billing_item_code IS NOT NULL)"))
+  @@index([tenant_id, inventory_item_id], map: "idx_cath_consumable_catalog_inventory_item", where: raw("(inventory_item_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_consumables_billing_settings {
+  tenant_id              String    @id @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  charge_enabled         Boolean   @default(false)
+  procedure_billing_code String?   @db.VarChar(50)
+  procedure_unit_price   Decimal?  @db.Decimal(12, 2)
+  gst_rate               Decimal   @default(0) @db.Decimal(5, 2)
+  finance_reviewed_at    DateTime? @db.Timestamptz(6)
+  finance_reviewed_by    String?   @db.Uuid
+  acceptance_snapshot    Json?
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 enum transplant_organ_type {

@@ -7,6 +7,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/stemi_pathway_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/config/role_config.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
@@ -15,6 +16,7 @@ import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../services/cath_lab_api_service.dart';
 import '../widgets/cath_case_reports_panel.dart';
+import '../widgets/cath_case_consumables_panel.dart';
 import '../widgets/cath_quick_wins_panel.dart';
 
 typedef CathLabCaseLoader =
@@ -25,6 +27,29 @@ typedef CathLabRealtimeEventStreamFactory =
     Stream<RealtimeEvent> Function(String channel);
 typedef CathLabClock = DateTime Function();
 typedef CathLabRoleLoader = Future<String> Function();
+
+@visibleForTesting
+bool cathConsumablesCanAddForRole(String role) {
+  return const {
+    StaffRole.doctor,
+    StaffRole.dutyDoctor,
+    StaffRole.cathLabStaff,
+    StaffRole.cathLabIncharge,
+    StaffRole.nurse,
+    StaffRole.admin,
+    StaffRole.superAdmin,
+  }.contains(StaffRole.fromString(role));
+}
+
+@visibleForTesting
+bool cathConsumablesCanAddForCaseStatus(String status) {
+  return const {
+    'ready',
+    'in_progress',
+    'completed',
+    'cancelled',
+  }.contains(status.trim().toLowerCase());
+}
 
 class CathLabScreen extends StatefulWidget {
   const CathLabScreen({
@@ -37,6 +62,7 @@ class CathLabScreen extends StatefulWidget {
     this.currentStaffUid,
     this.loadRole,
     this.reportDependencies = const CathReportDependencies(),
+    this.consumableDependencies = const CathConsumableDependencies(),
     this.quickWinsDependencies = const CathQuickWinsDependencies(),
   });
 
@@ -48,6 +74,7 @@ class CathLabScreen extends StatefulWidget {
   final String? currentStaffUid;
   final CathLabRoleLoader? loadRole;
   final CathReportDependencies reportDependencies;
+  final CathConsumableDependencies consumableDependencies;
   final CathQuickWinsDependencies quickWinsDependencies;
 
   @override
@@ -381,15 +408,12 @@ class _CathLabScreenState extends State<CathLabScreen>
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: cases.length,
-      itemBuilder: (context, index) => _StageCard(
+      itemBuilder: (context, index) => CathCaseConsumablesPanel(
         cathCase: cases[index],
-        icon: Icons.monitor_heart_outlined,
-        title: 's4.lib.cath_lab.procedure_logs',
-        countKey: 's4.lib.cath_lab.procedure_logs_count',
-        count: cases[index].procedureCount,
-        emptyKey: 's4.lib.cath_lab.procedure_pending',
-        extraKey: 's4.lib.cath_lab.device_links_count',
-        extraCount: cases[index].deviceLinkCount,
+        dependencies: widget.consumableDependencies,
+        canAddUsage:
+            cathConsumablesCanAddForRole(_role) &&
+            cathConsumablesCanAddForCaseStatus(cases[index].status),
       ),
     );
   }
@@ -973,8 +997,6 @@ class _StageCard extends StatelessWidget {
     required this.countKey,
     required this.count,
     required this.emptyKey,
-    this.extraKey,
-    this.extraCount,
   });
 
   final CathLabCaseSummary cathCase;
@@ -983,8 +1005,6 @@ class _StageCard extends StatelessWidget {
   final String countKey;
   final int count;
   final String emptyKey;
-  final String? extraKey;
-  final int? extraCount;
 
   @override
   Widget build(BuildContext context) {
@@ -1026,11 +1046,6 @@ class _StageCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (extraKey != null && extraCount != null)
-                  _StatusChip(
-                    label: s.format(extraKey!, {'count': extraCount}),
-                    color: AppTheme.primaryBlue,
-                  ),
               ],
             ),
           ],

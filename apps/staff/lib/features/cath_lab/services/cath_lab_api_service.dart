@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:intl/intl.dart';
 
 import '../../../core/services/api_client.dart';
+import '../models/cath_consumable_models.dart';
 import '../models/cath_report_models.dart';
 
 class CathLabCaseSummary {
@@ -258,6 +259,76 @@ class CathLabApiService {
           (raw) => CathLabCaseSummary.fromJson(Map<String, dynamic>.from(raw)),
         )
         .toList();
+  }
+
+  static Future<List<CathConsumableCatalogItem>> searchConsumableCatalog({
+    String? query,
+    String? scan,
+  }) async {
+    final response = await ApiClient.get(
+      '/cath-lab/consumables/catalog',
+      queryParameters: {
+        if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
+        if (scan != null && scan.trim().isNotEmpty) 'scan': scan.trim(),
+      },
+    );
+    final data = _successfulData(
+      response,
+      'Failed to search Cath Lab consumables',
+    );
+    return _mapList(data['items'])
+        .map(CathConsumableCatalogItem.fromJson)
+        .where((item) => item.id > 0 && item.itemName.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  static Future<List<CathInventoryBatch>> fetchConsumableBatches(
+    int catalogItemId,
+  ) async {
+    final response = await ApiClient.get(
+      '/cath-lab/consumables/catalog/$catalogItemId/batches',
+    );
+    final data = _successfulData(
+      response,
+      'Failed to load Cath Lab consumable batches',
+    );
+    return _mapList(data['batches'])
+        .map(CathInventoryBatch.fromJson)
+        .where((batch) => batch.id > 0)
+        .toList(growable: false);
+  }
+
+  static Future<List<CathCaseConsumableUsage>> fetchConsumablesForCase(
+    int caseId,
+  ) async {
+    final response = await ApiClient.get('/cath-lab/cases/$caseId/consumables');
+    final data = _successfulData(
+      response,
+      'Failed to load Cath Lab consumable usage',
+    );
+    return _mapList(data['usage'])
+        .map(CathCaseConsumableUsage.fromJson)
+        .where((usage) => usage.id > 0)
+        .toList(growable: false);
+  }
+
+  static Future<CathCaseConsumableUsage> createConsumableUsage(
+    int caseId,
+    CathConsumableUsageDraft draft,
+  ) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/consumables',
+      body: draft.toJson(),
+    );
+    final data = _successfulData(
+      response,
+      'Failed to record Cath Lab consumable usage',
+    );
+    final raw = data['usage'];
+    if (raw is! Map) {
+      throw Exception('Cath Lab consumable usage response was malformed');
+    }
+    return CathCaseConsumableUsage.fromJson(Map<String, dynamic>.from(raw));
   }
 
   static Future<CathCaseQuickWins> fetchCaseQuickWins(int caseId) async {

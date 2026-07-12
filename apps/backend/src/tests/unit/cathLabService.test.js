@@ -23,6 +23,19 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   requireTenantId: tenantId => tenantId || '00000000-0000-4000-8000-000000000001'
 }));
 
+jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
+  addInvoiceItem: jest.fn(),
+  createDraftInvoice: jest.fn()
+}));
+
+jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
+  recordMovement: jest.fn()
+}));
+
+jest.unstable_mockModule('../../services/pharmacySupply/pharmacySupplyService.js', () => ({
+  reserveStock: jest.fn()
+}));
+
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   completeWorkflowSla: completeWorkflowSlaMock,
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
