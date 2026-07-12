@@ -877,7 +877,18 @@ export async function createNuclearOrder(input = {}, context = {}) {
   return setTenantTx(tenantId, async (tx) => {
     const patientUid = await assertPatientInTenant(tx, tenantId, input.patient_uid || input.patientUid);
     const referralId = maybeId(input.referral_id || input.referralId, 'referral_id');
-    if (referralId) await referralById(tx, tenantId, referralId);
+    if (referralId) {
+      const referral = await referralById(tx, tenantId, referralId);
+      // Sol Ultra LD-RRB-06: a referral must belong to the SAME patient as the
+      // order, not merely exist in the tenant (mirrors assertDiagnosisLink /
+      // assertStagingLink, which already patient-bind their references).
+      if (referral?.patient_uid && String(referral.patient_uid) !== String(patientUid)) {
+        throw AppError.forbidden(
+          'referral_id belongs to a different patient',
+          'RADIATION_REFERRAL_PATIENT_MISMATCH',
+        );
+      }
+    }
     const orderKind = input.order_kind ? normalizeEnum(input.order_kind || input.orderKind, ORDER_KINDS, 'order_kind') : 'diagnostic';
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO nuclear_medicine_orders
