@@ -30,6 +30,7 @@ jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', ()
 jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
   uploadFileToR2: jest.fn(),
   getSignedFileUrl: jest.fn(),
+  deleteObject: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../utils/phoneUtils.js', () => ({

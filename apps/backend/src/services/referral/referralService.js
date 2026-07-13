@@ -61,15 +61,6 @@ function notificationPriorityForUrgency(urgency) {
   return normalized === 'routine' ? 'MEDIUM' : 'HIGH';
 }
 
-async function bestEffortReferralCanonical(label, fn) {
-  try {
-    return await fn();
-  } catch (err) {
-    logger.warn(`Canonical referral event failed during ${label}: ${err?.message || err}`);
-    return null;
-  }
-}
-
 // Shared `select` for state-transition returns (accept / complete / decline).
 // Keeping the shape consistent means callers don't need to branch on which
 // action produced the row.
@@ -679,53 +670,53 @@ class ReferralService {
     }
     await this._assertCanActOnReferral(existing, acceptedBy, options.actorRole, 'accept');
 
-    const referral = await prisma.referrals.update({
-      where: { id: referralId },
-      data: {
-        status: 'accepted',
-        accepted_by: acceptedBy,
-        referred_to_doctor: existing.referred_to_doctor || acceptedBy,
-        performer_id: acceptedBy,
-        accepted_at: new Date(),
-        first_seen_at: existing.first_seen_at || new Date(),
-        first_seen_by: existing.first_seen_at ? undefined : acceptedBy,
-        updated_at: new Date(),
-      },
-      select: REFERRAL_STATE_SELECT,
-    });
-
-    logger.info(`Referral ${referralId} accepted by ${acceptedBy}`);
-    await bestEffortReferralCanonical('referral accept', async () => {
+    const referral = await setTenantTx(existing.tenant_id, async (tx) => {
+      const row = await tx.referrals.update({
+        where: { id: referralId },
+        data: {
+          status: 'accepted',
+          accepted_by: acceptedBy,
+          referred_to_doctor: existing.referred_to_doctor || acceptedBy,
+          performer_id: acceptedBy,
+          accepted_at: new Date(),
+          first_seen_at: existing.first_seen_at || new Date(),
+          first_seen_by: existing.first_seen_at ? undefined : acceptedBy,
+          updated_at: new Date(),
+        },
+        select: REFERRAL_STATE_SELECT,
+      });
       await recordCanonicalClinicalEvent({
-        tenantId: referral.tenant_id,
-        patientUid: referral.patient_uid,
-        encounterId: referral.encounter_id,
+        tenantId: row.tenant_id,
+        patientUid: row.patient_uid,
+        encounterId: row.encounter_id,
         eventType: 'referral.accepted',
-        eventSubtype: referral.referred_to_department,
-        eventStatus: referral.status,
+        eventSubtype: row.referred_to_department,
+        eventStatus: row.status,
         sourceTable: 'referrals',
-        sourceId: referral.id,
+        sourceId: row.id,
         resourceType: 'referral',
-        resourceId: referral.id,
+        resourceId: row.id,
         actorUid: acceptedBy,
         actorRole: options.actorRole,
-        summary: `Referral ${referral.referral_number} accepted`,
+        summary: `Referral ${row.referral_number} accepted`,
         payload: {
-          referral_number: referral.referral_number,
-          accepted_by: referral.accepted_by,
-          accepted_at: referral.accepted_at,
+          referral_number: row.referral_number,
+          accepted_by: row.accepted_by,
+          accepted_at: row.accepted_at,
         },
         beforeState: existing,
-        afterState: referral,
-      });
+        afterState: row,
+      }, { db: tx, strict: true });
       await completeWorkflowSla({
-        tenantId: referral.tenant_id,
+        tenantId: row.tenant_id,
         ruleCode: 'referral_response',
         sourceTable: 'referrals',
-        sourceId: referral.id,
+        sourceId: row.id,
         metadata: { completed_by: acceptedBy, completed_by_action: 'accepted' },
-      });
+      }, { db: tx });
+      return row;
     });
+    logger.info(`Referral ${referralId} accepted by ${acceptedBy}`);
     return referral;
   }
 
@@ -771,35 +762,41 @@ class ReferralService {
     };
     if (responseNotes != null) data.response_notes = responseNotes;
 
-    const referral = await prisma.referrals.update({
-      where: { id: referralId },
-      data,
-      select: REFERRAL_STATE_SELECT,
+    const referral = await setTenantTx(existing.tenant_id, async (tx) => {
+      const row = await tx.referrals.update({
+        where: { id: referralId },
+        data,
+        select: REFERRAL_STATE_SELECT,
+      });
+      await recordCanonicalClinicalEvent({
+        tenantId: row.tenant_id,
+        patientUid: row.patient_uid,
+        encounterId: row.encounter_id,
+        eventType: 'referral.completed',
+        eventSubtype: row.referred_to_department,
+        eventStatus: row.status,
+        sourceTable: 'referrals',
+        sourceId: row.id,
+        resourceType: 'referral',
+        resourceId: row.id,
+        actorUid: options.actorUid,
+        actorRole: options.actorRole,
+        summary: `Referral ${row.referral_number} completed`,
+        payload: {
+          referral_number: row.referral_number,
+          response_notes: row.response_notes,
+          completed_at: row.completed_at,
+        },
+        beforeState: { status: existing.status },
+        afterState: {
+          status: row.status,
+          completed_at: row.completed_at,
+          response_notes: row.response_notes,
+        },
+      }, { db: tx, strict: true });
+      return row;
     });
-
     logger.info(`Referral ${referralId} completed`);
-    await bestEffortReferralCanonical('referral complete', () => recordCanonicalClinicalEvent({
-      tenantId: referral.tenant_id,
-      patientUid: referral.patient_uid,
-      encounterId: referral.encounter_id,
-      eventType: 'referral.completed',
-      eventSubtype: referral.referred_to_department,
-      eventStatus: referral.status,
-      sourceTable: 'referrals',
-      sourceId: referral.id,
-      resourceType: 'referral',
-      resourceId: referral.id,
-      actorUid: options.actorUid,
-      actorRole: options.actorRole,
-      summary: `Referral ${referral.referral_number} completed`,
-      payload: {
-        referral_number: referral.referral_number,
-        response_notes: referral.response_notes,
-        completed_at: referral.completed_at,
-      },
-      beforeState: existing,
-      afterState: referral,
-    }));
     return referral;
   }
 
@@ -834,47 +831,47 @@ class ReferralService {
     }
     await this._assertCanDeclineReferral(existing, options.actorUid, options.actorRole);
 
-    const referral = await prisma.referrals.update({
-      where: { id: referralId },
-      data: {
-        status: 'declined',
-        response_notes: responseNotes || null,
-        updated_at: new Date(),
-      },
-      select: REFERRAL_STATE_SELECT,
-    });
-
-    logger.info(`Referral ${referralId} declined`);
-    await bestEffortReferralCanonical('referral decline', async () => {
+    const referral = await setTenantTx(existing.tenant_id, async (tx) => {
+      const row = await tx.referrals.update({
+        where: { id: referralId },
+        data: {
+          status: 'declined',
+          response_notes: responseNotes || null,
+          updated_at: new Date(),
+        },
+        select: REFERRAL_STATE_SELECT,
+      });
       await recordCanonicalClinicalEvent({
-        tenantId: referral.tenant_id,
-        patientUid: referral.patient_uid,
-        encounterId: referral.encounter_id,
+        tenantId: row.tenant_id,
+        patientUid: row.patient_uid,
+        encounterId: row.encounter_id,
         eventType: 'referral.declined',
-        eventSubtype: referral.referred_to_department,
-        eventStatus: referral.status,
+        eventSubtype: row.referred_to_department,
+        eventStatus: row.status,
         sourceTable: 'referrals',
-        sourceId: referral.id,
+        sourceId: row.id,
         resourceType: 'referral',
-        resourceId: referral.id,
+        resourceId: row.id,
         actorUid: options.actorUid,
         actorRole: options.actorRole,
-        summary: `Referral ${referral.referral_number} declined`,
+        summary: `Referral ${row.referral_number} declined`,
         payload: {
-          referral_number: referral.referral_number,
-          response_notes: referral.response_notes,
+          referral_number: row.referral_number,
+          response_notes: row.response_notes,
         },
-        beforeState: existing,
-        afterState: referral,
-      });
+        beforeState: { status: existing.status },
+        afterState: { status: row.status, response_notes: row.response_notes },
+      }, { db: tx, strict: true });
       await completeWorkflowSla({
-        tenantId: referral.tenant_id,
+        tenantId: row.tenant_id,
         ruleCode: 'referral_response',
         sourceTable: 'referrals',
-        sourceId: referral.id,
+        sourceId: row.id,
         metadata: { completed_by: options.actorUid, completed_by_action: 'declined' },
-      });
+      }, { db: tx });
+      return row;
     });
+    logger.info(`Referral ${referralId} declined`);
     return referral;
   }
 
@@ -921,41 +918,42 @@ class ReferralService {
       data.performer_id = actorUid;
     }
 
-    const referral = await prisma.referrals.update({
-      where: { id: referralId },
-      data,
-      select: REFERRAL_STATE_SELECT,
-    });
-    await bestEffortReferralCanonical('referral seen', async () => {
+    const referral = await setTenantTx(existing.tenant_id, async (tx) => {
+      const row = await tx.referrals.update({
+        where: { id: referralId },
+        data,
+        select: REFERRAL_STATE_SELECT,
+      });
       await recordCanonicalClinicalEvent({
-        tenantId: referral.tenant_id,
-        patientUid: referral.patient_uid,
-        encounterId: referral.encounter_id,
+        tenantId: row.tenant_id,
+        patientUid: row.patient_uid,
+        encounterId: row.encounter_id,
         eventType: 'referral.seen',
-        eventSubtype: referral.referred_to_department,
-        eventStatus: referral.status,
+        eventSubtype: row.referred_to_department,
+        eventStatus: row.status,
         sourceTable: 'referrals',
-        sourceId: referral.id,
+        sourceId: row.id,
         resourceType: 'referral',
-        resourceId: referral.id,
+        resourceId: row.id,
         actorUid,
         actorRole: options.actorRole,
-        summary: `Referral ${referral.referral_number} seen`,
+        summary: `Referral ${row.referral_number} seen`,
         payload: {
-          referral_number: referral.referral_number,
-          first_seen_at: referral.first_seen_at,
-          first_seen_by: referral.first_seen_by,
+          referral_number: row.referral_number,
+          first_seen_at: row.first_seen_at,
+          first_seen_by: row.first_seen_by,
         },
-        beforeState: existing,
-        afterState: referral,
-      });
+        beforeState: { first_seen_at: existing.first_seen_at },
+        afterState: { first_seen_at: row.first_seen_at, first_seen_by: row.first_seen_by },
+      }, { db: tx, strict: true });
       await completeWorkflowSla({
-        tenantId: referral.tenant_id,
+        tenantId: row.tenant_id,
         ruleCode: 'referral_response',
         sourceTable: 'referrals',
-        sourceId: referral.id,
+        sourceId: row.id,
         metadata: { completed_by: actorUid, completed_by_action: 'seen' },
-      });
+      }, { db: tx });
+      return row;
     });
     return referral;
   }

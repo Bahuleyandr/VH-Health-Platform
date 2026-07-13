@@ -264,7 +264,12 @@ export const updateBedNotes = async (req, res) => {
     if (notes !== null && typeof notes !== 'string') {
       return error(res, 'notes must be a string or null', HTTP_STATUS.BAD_REQUEST);
     }
-    const bed = await bedService.updateBedNotes(req.params.id, notes);
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
+    const bed = await bedService.updateBedNotes(req.params.id, notes, {
+      tenantId,
+      actorUid: req.user?.uid || null,
+      actorRole: req.user?.role || null,
+    });
     if (!bed) return error(res, 'Bed not found', HTTP_STATUS.NOT_FOUND);
     emitBedEvent('bed-notes-updated', bed);
     success(res, { bed }, 'Bed notes updated');

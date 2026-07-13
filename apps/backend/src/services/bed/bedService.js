@@ -31,8 +31,15 @@ function parseExpectedDischarge(value) {
 // aborts the tx so the bed/admission mutation rolls back rather than leaving the
 // timeline/audit layer out of sync (recordCanonicalClinicalEvent still tolerates
 // a genuinely-absent canonical table, SQLSTATE 42P01).
-function recordCanonicalAdmissionEvent(input, tx) {
-  return recordCanonicalClinicalEvent(input, { db: tx });
+async function recordCanonicalAdmissionEvent(input, tx) {
+  const event = await recordCanonicalClinicalEvent(input, { db: tx });
+  if (!event?.timeline?.id || !event?.audit?.id) {
+    throw AppError.internal(
+      'Bed write requires canonical timeline and audit events',
+      'BED_CANONICAL_EVENT_REQUIRED',
+    );
+  }
+  return event;
 }
 
 const BED_RETURNING = `id, ward_id, ward_name, floor, bed_number, bed_type, status,
@@ -757,29 +764,67 @@ class BedService {
   // discharge the patient. Returns the updated bed (with the same join
   // shape getBedsByWard uses) or null when the id doesn't exist.
   async updateBedNotes(id, notes, options = {}) {
-    const tenantId = tenantOf(options);
+    const tenantId = requireTenantId(tenantOf(options));
     const bedId = parseInt(id, 10);
-    const bedRows = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
-      bedId,
-      tenantId,
-    );
-    if (!bedRows.length) return null;
-    const status = String(bedRows[0].status || '').toLowerCase();
-    if (!['occupied', 'reserved'].includes(status)) {
-      throw AppError.badRequest('Bed notes can only be saved for occupied or reserved beds');
-    }
+    return setTenantTx(tenantId, async (tx) => {
+      const bedRows = await tx.$queryRawUnsafe(
+        `SELECT b.id, b.tenant_id, b.status, b.patient_uid, b.admission_id,
+                b.bed_number, b.notes, a.encounter_id
+           FROM beds b
+      LEFT JOIN admissions a ON a.id = b.admission_id AND a.tenant_id = b.tenant_id
+          WHERE b.id = $1 AND b.tenant_id = $2::uuid
+          FOR UPDATE OF b`,
+        bedId,
+        tenantId,
+      );
+      if (!bedRows.length) return null;
+      const previous = bedRows[0];
+      const status = String(previous.status || '').toLowerCase();
+      if (!['occupied', 'reserved'].includes(status)) {
+        throw AppError.badRequest('Bed notes can only be saved for occupied or reserved beds');
+      }
+      if (!previous.patient_uid) {
+        throw AppError.conflict(
+          'Bed notes require a patient-linked occupied or reserved bed',
+          'BED_PATIENT_REQUIRED',
+        );
+      }
 
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE beds
-         SET notes = $1,
-             updated_at = NOW()
-       WHERE id = $2
-         AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
-       RETURNING ${BED_RETURNING}`,
-      typeof notes === 'string' ? notes : null, bedId, tenantId,
-    );
-    return rows[0] ?? null;
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE beds
+           SET notes = $1,
+               updated_at = NOW()
+         WHERE id = $2
+           AND tenant_id = $3::uuid
+         RETURNING ${BED_RETURNING}`,
+        typeof notes === 'string' ? notes : null, bedId, tenantId,
+      );
+      const updated = rows[0];
+      await recordCanonicalAdmissionEvent({
+        tenantId: updated.tenant_id,
+        patientUid: updated.patient_uid,
+        encounterId: previous.encounter_id,
+        eventType: 'bed.notes_updated',
+        eventStatus: updated.status,
+        sourceTable: 'beds',
+        sourceId: updated.id,
+        resourceType: 'bed',
+        resourceId: updated.id,
+        actorUid: options.actorUid || null,
+        actorRole: options.actorRole || null,
+        summary: `Bed notes updated for bed ${updated.bed_number}`,
+        payload: {
+          bed_id: updated.id,
+          bed_number: updated.bed_number,
+          admission_id: updated.admission_id,
+        },
+        beforeState: previous,
+        afterState: updated,
+        timelineIdempotencyKey: `beds:${updated.id}:notes:${updated.updated_at?.toISOString?.() || 'now'}`,
+        auditIdempotencyKey: `beds:${updated.id}:audit:notes:${updated.updated_at?.toISOString?.() || 'now'}`,
+      }, tx);
+      return updated;
+    });
   }
 
   // Admit a patient to a bed via the bed board's quick-admit endpoint
@@ -841,11 +886,13 @@ class BedService {
     const patientRows = await prisma.$queryRawUnsafe(
       `SELECT id, uid, name, role, tenant_id
          FROM users
-        WHERE ($1::uuid IS NOT NULL AND uid = $1::uuid)
-           OR ($2::int  IS NOT NULL AND id  = $2::int)
+        WHERE (($1::uuid IS NOT NULL AND uid = $1::uuid)
+           OR ($2::int  IS NOT NULL AND id  = $2::int))
+          AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
         LIMIT 1`,
       resolvedPatientUid,
       resolvedPatientId,
+      tenantId,
     );
     const patient = patientRows[0] ?? null;
     if (!patient) throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
@@ -950,11 +997,12 @@ class BedService {
       // (d) bed_transfers admission audit row (patient_uid + tenant NOT NULL).
       await tx.$executeRawUnsafe(
         `INSERT INTO bed_transfers (tenant_id, patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1::uuid, $2::uuid, $3, NULL, $4, 'Admission', $2::uuid)`,
+         VALUES ($1::uuid, $2::uuid, $3, NULL, $4, 'Admission', $5::uuid)`,
         bed.tenant_id || resolvedTenantId,
         resolvedPatientUid,
         admission.id,
         parsedBedId,
+        options.actorUid || null,
       );
 
       // (e) Canonical clinical timeline invariant — admission.created on `tx`.
@@ -969,7 +1017,8 @@ class BedService {
         sourceId: admission.id,
         resourceType: 'admission',
         resourceId: admission.id,
-        actorUid: null,
+        actorUid: options.actorUid || null,
+        actorRole,
         summary: `${resolvedPatientName || 'Patient'} admitted to bed ${bed.bed_number}`,
         payload: {
           admission_id: admission.id,

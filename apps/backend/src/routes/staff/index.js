@@ -19,10 +19,11 @@ import { patientAccessGuard, patientAccessGuardForResource } from '../../middlew
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import * as orderService from '../../services/investigation/orderService.js';
+import { createLegacyStaffConsultation } from '../../services/emr/legacyStaffMedicalService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isStaff } from '../../utils/roleHelpers.js';
-import { uploadFileToR2 } from '../../utils/r2Storage.js';
+import { deleteObject, uploadFileToR2 } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
@@ -225,33 +226,20 @@ router.post('/medical/consultations', requireStaffMedical, guardStaffConsultatio
 
     const currentUserId = Number(req.user?.id);
     const doctorId = Number.isInteger(currentUserId) && currentUserId > 0 ? currentUserId : null;
-    const record = await prisma.medical_records.create({
-      data: {
-        patient_id: patient.uid,
-        doctor_id: doctorId,
-        record_type: 'CONSULTATION',
-        title: String(consultationType),
-        description: notes,
-        attachments: {
-          source: 'staff_app_legacy',
-          patientName: req.body?.patientName || null,
-          consultationDate: req.body?.date || null,
-          additionalData: req.body?.additionalData || null,
-        },
-        privacy_level: 'RESTRICTED',
-        created_by: req.user?.uid || null,
-        tenant_id: tenantId,
+    const record = await createLegacyStaffConsultation({
+      tenantId,
+      patientUid: patient.uid,
+      doctorId,
+      consultationType,
+      notes,
+      attachments: {
+        patientName: req.body?.patientName || null,
+        consultationDate: req.body?.date || null,
+        additionalData: req.body?.additionalData || null,
       },
-      select: {
-        id: true,
-        patient_id: true,
-        doctor_id: true,
-        record_type: true,
-        title: true,
-        description: true,
-        created_by: true,
-        created_at: true,
-      },
+      actorUid: req.user?.uid || null,
+      actorRole: req.user?.role || null,
+      requestId: req.id,
     });
 
     return success(res, { record, patient }, 'Consultation uploaded successfully', 201);
@@ -271,53 +259,35 @@ router.post('/medical/investigations', requireStaffMedical, upload.single('file'
     }
 
     let fileKey = req.body?.file_key || req.body?.fileUrl || null;
+    let uploadedFileKey = null;
     if (req.file) {
       const fileName = storageSafeName(req.file.originalname || req.body?.fileName || 'result');
       fileKey = `investigations/staff/${phone.replace(/^\+/, '')}/${Date.now()}-${fileName}`;
       await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
+      uploadedFileKey = fileKey;
     }
 
-    let investigation = await orderService.createLegacyInvestigation({
-      phone,
-      test_name: String(testName),
-      file_key: fileKey,
-      createdBy: req.user?.uid || null,
-      tenantId,
-    });
-
-    const patch = {};
-    if (req.body?.result) {
-      patch.result_summary = String(req.body.result);
-      patch.results = { result: String(req.body.result) };
-      patch.status = 'COMPLETED';
-      patch.completed_at = new Date();
-      patch.result_uploaded_at = new Date();
-    } else if (fileKey) {
-      patch.status = 'COMPLETED';
-      patch.completed_at = new Date();
-      patch.result_uploaded_at = new Date();
-    }
-    if (req.body?.notes) {
-      patch.notes = String(req.body.notes);
-    }
-
-    if (Object.keys(patch).length > 0) {
-      investigation = await prisma.investigations.update({
-        where: { id: investigation.id },
-        data: patch,
-        select: {
-          id: true,
-          phone: true,
-          test_name: true,
-          file_key: true,
-          status: true,
-          result_summary: true,
-          notes: true,
-          requested_by: true,
-          requested_at: true,
-          completed_at: true,
-        },
+    let investigation;
+    try {
+      investigation = await orderService.createLegacyInvestigation({
+        phone,
+        test_name: String(testName),
+        file_key: fileKey,
+        createdBy: req.user?.uid || null,
+        actorRole: req.user?.role || null,
+        tenantId,
+        result_summary: req.body?.result ? String(req.body.result) : null,
+        results: req.body?.result ? { result: String(req.body.result) } : null,
+        notes: req.body?.notes ? String(req.body.notes) : null,
+        completed: Boolean(req.body?.result || fileKey),
       });
+    } catch (writeError) {
+      if (uploadedFileKey) {
+        await deleteObject(uploadedFileKey).catch((cleanupError) => {
+          logger.warn(`Failed to clean up uncommitted staff investigation file ${uploadedFileKey}: ${cleanupError.message}`);
+        });
+      }
+      throw writeError;
     }
 
     return success(res, {
@@ -326,6 +296,9 @@ router.post('/medical/investigations', requireStaffMedical, upload.single('file'
     }, 'Investigation uploaded successfully', 201);
   } catch (err) {
     logger.error('Staff medical investigation upload failed:', err);
+    if (err?.code === 'PATIENT_NOT_FOUND') {
+      return error(res, 'Patient not found', 404);
+    }
     return error(res, 'Failed to upload investigation', 500);
   }
 });

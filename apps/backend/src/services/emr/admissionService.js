@@ -88,11 +88,11 @@ export function canAllocateIcuBedForAdmission(role) {
 // row in the SAME transaction. The canonical write therefore runs on the
 // transaction client (`tx`, required) and is NOT swallowed — a failure aborts
 // the transaction so the admission/bed mutation rolls back rather than leaving
-// the timeline/audit layer out of sync. recordCanonicalClinicalEvent still
-// tolerates a genuinely-absent canonical table (SQLSTATE 42P01) internally;
-// every other error propagates.
+// the timeline/audit layer out of sync. Transactional patient writes require
+// both canonical rows, so a missing table or invalid identity aborts the
+// source mutation instead of silently committing a partial record.
 function recordCanonicalAdmissionEvent(input, tx) {
-  return recordCanonicalClinicalEvent(input, { db: tx });
+  return recordCanonicalClinicalEvent(input, { db: tx, strict: true });
 }
 
 // SEC-3 — open a PHI interactive transaction that is ALWAYS RLS-tenant-scoped:
@@ -2213,36 +2213,41 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
     return existing;
   }
 
-  const updated = await prisma.discharge_consults.update({
-    where: {
-      admission_id_consult_type: {
-        admission_id: Number(admissionId),
-        consult_type: normalizedConsultType,
+  const updated = await setTenantTx(requireTenantId(admission.tenant_id), async (tx) => {
+    const row = await tx.discharge_consults.update({
+      where: {
+        admission_id_consult_type: {
+          admission_id: Number(admissionId),
+          consult_type: normalizedConsultType,
+        },
       },
-    },
-    data: {
-      completed_at: new Date(),
-      completed_by: completedBy,
-      notes: notes ?? null,
-      updated_at: new Date(),
-    },
-  });
+      data: {
+        completed_at: new Date(),
+        completed_by: completedBy,
+        notes: notes ?? null,
+        updated_at: new Date(),
+      },
+    });
 
-  await prisma.audit_logs.create({
-    data: {
-      uid: completedBy,
-      action: 'COMPLETE_DISCHARGE_CONSULT',
-      resource: 'discharge_consult',
-      resource_id: String(updated.id),
-      metadata: { admission_id: admissionId, consult_type: normalizedConsultType },
-      ip_address: null,
-    },
-  });
+    await tx.audit_logs.create({
+      data: {
+        uid: completedBy,
+        action: 'COMPLETE_DISCHARGE_CONSULT',
+        resource: 'discharge_consult',
+        resource_id: String(row.id),
+        metadata: { admission_id: admissionId, consult_type: normalizedConsultType },
+        ip_address: null,
+      },
+    });
 
-  await emitDischargeWorkItemCompleted({
-    consult: updated,
-    actorUid: completedBy,
-    actorRole: options.role || null,
+    await emitDischargeWorkItemCompleted({
+      db: tx,
+      consult: row,
+      admission,
+      actorUid: completedBy,
+      actorRole: options.role || null,
+    });
+    return row;
   });
 
   logger.info(`Discharge consult ${normalizedConsultType} completed for admission ${admissionId} by ${completedBy}`);
@@ -2354,14 +2359,14 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy, options = {
     );
   }
 
-  const updated = await prisma.admissions.update({
-    where: { id: admissionId },
-    data: { discharge_drugs_dispensed_at: new Date(), updated_at: new Date() },
-    select: ADMISSION_RETURNING_SELECT,
-  });
+  const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
+    const row = await tx.admissions.update({
+      where: { id: admissionId },
+      data: { discharge_drugs_dispensed_at: new Date(), updated_at: new Date() },
+      select: ADMISSION_RETURNING_SELECT,
+    });
 
-  try {
-    await prisma.audit_logs.create({
+    await tx.audit_logs.create({
       data: {
         uid: dispensedBy,
         action: 'MARK_DISCHARGE_DRUGS_DISPENSED',
@@ -2371,16 +2376,14 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy, options = {
         ip_address: null,
       },
     });
-  } catch (auditErr) {
-    logger.warn(
-      `markDischargeDrugsDispensed: audit log skipped for admission ${admissionId} (${auditErr.message})`,
-    );
-  }
 
-  await emitDischargeDrugsDispensed({
-    admission: updated,
-    actorUid: dispensedBy,
-    actorRole: 'PHARMACY',
+    await emitDischargeDrugsDispensed({
+      db: tx,
+      admission: row,
+      actorUid: dispensedBy,
+      actorRole: options.actorRole || options.role || 'PHARMACY',
+    });
+    return row;
   });
 
   logger.info(`Discharge drugs dispensed for admission ${admissionId} by ${dispensedBy}`);

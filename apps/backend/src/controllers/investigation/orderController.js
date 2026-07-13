@@ -71,6 +71,8 @@ export const orderInvestigation = async (req, res) => {
       fasting_instructions: body.fasting_instructions ?? body.fastingInstructions,
       priority: body.priority ? String(body.priority).toUpperCase() : body.priority,
       orderedBy: requestedBy,
+      actorRole: req.user?.role || null,
+      tenantId: req.tenantId,
     };
 
     const result = await orderService.createInvestigationOrder(orderData);
@@ -149,7 +151,9 @@ export const legacyInvestigationRequest = async (req, res) => {
       phone,
       test_name,
       file_key,
-      createdBy: requestedBy
+      createdBy: requestedBy,
+      actorRole: req.user?.role || null,
+      tenantId: req.tenantId,
     });
 
     await logAudit(req, 'legacy-investigation-requested', { phone, test_name });

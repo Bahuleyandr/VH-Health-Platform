@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 
 const updateMock = jest.fn();
 const findUniqueMock = jest.fn();
+const findFirstMock = jest.fn();
 const findManyMock = jest.fn();
 const countMock = jest.fn();
 
@@ -13,6 +14,7 @@ const __prismaDefaultMock = {
     findMany: findManyMock,
     count: countMock,
     findUnique: findUniqueMock,
+    findFirst: findFirstMock,
     update: updateMock,
   },
 };
@@ -22,6 +24,11 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
+}));
+
+const recordCanonicalClinicalEventMock = jest.fn();
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
 }));
 
 const {
@@ -34,13 +41,19 @@ const {
 
 const LAB_TECH_UID = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-05-15T10:00:00.000Z');
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   jest.useFakeTimers().setSystemTime(NOW);
   findUniqueMock.mockReset();
+  findFirstMock.mockReset();
   findManyMock.mockReset();
   countMock.mockReset();
   updateMock.mockReset();
+  recordCanonicalClinicalEventMock.mockResolvedValue({
+    timeline: { id: 'timeline-1' },
+    audit: { id: 'audit-1' },
+  });
 });
 
 afterEach(() => {
@@ -49,14 +62,22 @@ afterEach(() => {
 
 describe('investigationService.updateStatus', () => {
   it('stamps collection audit fields when marking an investigation COLLECTED', async () => {
-    findUniqueMock.mockResolvedValue({ sample_barcode: null });
-    updateMock.mockImplementation(async ({ data }) => ({ id: 20, ...data }));
+    findFirstMock.mockResolvedValue({ id: 20, patient_uid: '33333333-3333-4333-8333-333333333333', sample_barcode: null });
+    updateMock.mockImplementation(async ({ data }) => ({
+      id: 20,
+      tenant_id: TENANT_ID,
+      patient_uid: '33333333-3333-4333-8333-333333333333',
+      test_name: 'CBC',
+      test_type: 'LAB',
+      ...data,
+    }));
 
     const result = await updateStatus(
       20,
       'COLLECTED',
       'Collected urgent IPD sample',
-      LAB_TECH_UID
+      LAB_TECH_UID,
+      TENANT_ID,
     );
 
     expect(updateMock).toHaveBeenCalledWith({

@@ -457,7 +457,10 @@ router.post(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
     const dispensedBy = req.user?.uid;
-    const updated = await admissionService.markDischargeDrugsDispensed(admissionId, dispensedBy, tenantOptions(req));
+    const updated = await admissionService.markDischargeDrugsDispensed(admissionId, dispensedBy, {
+      actorRole: req.user?.role,
+      ...tenantOptions(req),
+    });
     success(res, { admission: updated }, 'Discharge drugs marked as dispensed');
   })
 );

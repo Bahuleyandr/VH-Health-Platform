@@ -54,6 +54,7 @@ router.post('/diagnosis', guardDiagnosisWrite, async (req, res, next) => {
       notes: notes || null,
       tenant_id: req.tenantId,
       codings: Array.isArray(codings) ? codings : [],
+      actor_role: req.user.role,
     });
 
     logPhiAccess({
@@ -97,7 +98,7 @@ router.put('/diagnosis/:id/status', requireDiagnosisStatus, guardDiagnosisResour
       status,
       resolved_date || null,
       req.user.uid,
-      { tenantId: req.tenantId }
+      { tenantId: req.tenantId, actorRole: req.user.role }
     );
 
     logPhiAccess({

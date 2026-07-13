@@ -277,6 +277,20 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       // The most-recent audit row is this PATCH (the prior test's PUT only
       // touched temperature + notes). Assert on what *this* call mutated.
       expect(auditRows[0].metadata.corrected_fields).toContain('pain_score');
+
+      const canonicalAudit = await prisma.$queryRawUnsafe(
+        `SELECT actor_uid, actor_role, before_state, after_state
+           FROM clinical_audit_events
+          WHERE resource_table = 'vitals_chart' AND resource_id = $1
+            AND action = 'vitals.corrected'
+          ORDER BY occurred_at DESC LIMIT 1`,
+        String(normalVitalsId),
+      );
+      expect(canonicalAudit).toHaveLength(1);
+      expect(String(canonicalAudit[0].actor_uid)).toBe(RECORDER_UID);
+      expect(canonicalAudit[0].actor_role).toBe('DOCTOR');
+      expect(canonicalAudit[0].before_state.corrected_fields).toHaveProperty('pain_score');
+      expect(canonicalAudit[0].after_state.corrected_fields).toHaveProperty('pain_score');
     });
 
     it('accepts patient_id when patient_uid is not supplied', async () => {

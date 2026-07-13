@@ -226,6 +226,7 @@ import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineSer
 import { purgeExpiredStaffMessages } from '../services/messaging/staffMessageRetentionService.js';
 import { purgeExpiredNoteDrafts } from '../services/emr/clinicalNoteDraftService.js';
 import { purgeExpiredAmbientAudio } from '../services/ai/ambientDocumentationService.js';
+import { purgeAuditEvidenceForTenant } from '../services/compliance/auditRetentionService.js';
 
 // Inpatient drug-chart SLA — once a patient has reached a ward/ICU bed,
 // doctors and that ward's nurses must not silently miss first medication charting.
@@ -720,25 +721,25 @@ if (process.env.NODE_ENV !== 'test') {
     { timezone: process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata' }
   );
 
-  // 🗓️ Daily at 03:30 - Purge audit logs older than 90 days
-  //
-  // audit_log is append-only at the DB layer (migration 324: a BEFORE
-  // UPDATE OR DELETE trigger blocks the app role). This retention purge is the
-  // ONE authorized deleter, so it opts into the bypass EXPLICITLY by setting the
-  // transaction-local `app.audit_bypass` GUC before the DELETE. A bare
-  // prisma.$queryRawUnsafe DELETE would be rejected by the trigger once the prod
-  // app role is sealed NOSUPERUSER. The GUC is transaction-scoped (set_config
-  // …, true) so it never leaks to other pooled queries.
+  // 🗓️ Daily at 03:30 - Apply tenant retention policies to all five audit sinks.
+  // The service fails closed unless an active policy explicitly selects erase
+  // and does not require an unimplemented archive/legal-hold decision.
   registerCron('30 3 * * *', withJobLock('purge-audit-logs', async () => {
-    logger.info('Scheduled Task: Purging audit logs older than 90 days...');
-    let deleted = 0;
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
-      deleted = await tx.$executeRawUnsafe(
-        `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'`
-      );
+    logger.info('Scheduled Task: Evaluating per-tenant audit retention policies...');
+    const fanout = await runForEachTenant('audit-retention', async (tenantId) => {
+      const result = await purgeAuditEvidenceForTenant({ tenantId });
+      logger.info('Audit retention tenant sweep complete', {
+        tenant_id: tenantId,
+        deleted_total: result.deleted_total,
+        sinks: result.sinks.map((sink) => ({
+          table: sink.table,
+          decision: sink.decision,
+          reason: sink.reason,
+          deleted: sink.deleted,
+        })),
+      });
     });
-    logger.info(`Audit log cleanup: ${Number(deleted) || 0} rows deleted`);
+    logger.info('Audit retention fan-out complete', fanout);
   }));
 
   // Daily at 03:32 - Purge staff messages older than the configured retention

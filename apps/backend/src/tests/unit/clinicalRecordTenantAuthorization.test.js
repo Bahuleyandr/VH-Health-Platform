@@ -33,7 +33,7 @@ const recordClinicalAuditEventMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
-  setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
+  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
   setTenant: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
   pickTenantClient: () => prismaMock,
@@ -181,8 +181,8 @@ describe('clinical record tenant authorization invariants', () => {
       patient_uid: PATIENT,
     });
     diagnosesMock.findFirst
-      .mockResolvedValueOnce({ id: 7 })
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce({ id: 7 });
+    diagnosesMock.update.mockResolvedValueOnce({
         id: 7,
         tenant_id: TENANT,
         patient_uid: PATIENT,
@@ -192,16 +192,26 @@ describe('clinical record tenant authorization invariants', () => {
         status: 'resolved',
         updated_at: new Date('2026-06-11T10:00:00.000Z'),
       });
-    diagnosesMock.updateMany.mockResolvedValueOnce({ count: 1 });
 
-    await updateDiagnosisStatus(7, 'resolved', null, ACTOR, { tenantId: TENANT });
+    await updateDiagnosisStatus(7, 'resolved', null, ACTOR, {
+      tenantId: TENANT,
+      actorRole: 'DOCTOR',
+    });
 
     expect(diagnosesMock.findFirst.mock.calls[0][0]).toMatchObject({
       where: { id: 7, tenant_id: TENANT },
     });
-    expect(diagnosesMock.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 7, tenant_id: TENANT },
+    expect(diagnosesMock.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 7 },
     }));
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        patientUid: PATIENT,
+        eventType: 'diagnosis.status_updated',
+        actorRole: 'DOCTOR',
+      }),
+      expect.objectContaining({ db: prismaMock, strict: true }),
+    );
   });
 
   it('tenant-scopes PACS patient study reads and order linking', async () => {

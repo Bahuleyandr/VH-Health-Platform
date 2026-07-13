@@ -1,6 +1,14 @@
+import { createHash } from 'node:crypto';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import {
+  exportAuditEvents,
+  getAuditEventDetail,
+  getAuditHealth,
+  listAuditEvents,
+  recordAuditConsoleAccess,
+} from '../../services/compliance/auditAccountabilityService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -45,7 +53,17 @@ export const getAuditLogs = async (req, res) => {
       SELECT al.id, al.user_id, al.user_name, al.user_role, al.ip_address,
              al.method, al.path, al.module, al.action,
              al.status_code, al.response_time_ms, al.success,
-             al.request_summary, al.error_message,
+             CASE
+               WHEN al.module IN (
+                 'clinical_notes', 'clinical_orders', 'vitals', 'intake_output',
+                 'drug_chart', 'discharge_summaries', 'investigations',
+                 'prescriptions', 'diagnoses', 'referrals', 'blood_bank',
+                 'medication_administration', 'handovers'
+               ) OR al.path LIKE '/api/v1/staff/medical/%'
+               THEN '[REDACTED_CLINICAL_REQUEST]'
+               ELSE al.request_summary
+             END AS request_summary,
+             al.error_message,
              al.created_at
       FROM audit_log al
       ${where}
@@ -70,159 +88,86 @@ export const getAuditLogs = async (req, res) => {
   }
 };
 
-// GET /api/v1/admin/audit/unified
-// Normalized clinical governance feed across request audit, patient-access
-// decisions, and canonical clinical action audit. This is additive: the
-// legacy /logs endpoint remains unchanged for API/request troubleshooting.
+function auditError(res, err, operation) {
+  if (err?.isOperational && err?.statusCode) {
+    return error(res, err.message, err.statusCode, { code: err.code });
+  }
+  logger.error(`${operation} Error:`, err);
+  return error(res, `Failed to ${operation.toLowerCase()}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+}
+
+// GET /api/v1/admin/audit/events
+// Compatibility alias: GET /api/v1/admin/audit/unified
 export const getUnifiedAuditLogs = async (req, res) => {
   try {
-    const {
-      source,
-      action,
-      actor_uid,
-      patient_uid,
-      status,
-      from,
-      to,
-      search,
-      limit = 100,
-      offset = 0,
-    } = req.query;
-
-    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
-    const conditions = [];
-    const params = [];
-    let idx = 1;
-
-    if (source) { conditions.push(`source = $${idx++}`); params.push(String(source)); }
-    if (action) { conditions.push(`action ILIKE $${idx++}`); params.push(`%${action}%`); }
-    if (actor_uid) { conditions.push(`actor_uid = $${idx++}`); params.push(String(actor_uid)); }
-    if (patient_uid) { conditions.push(`patient_uid = $${idx++}`); params.push(String(patient_uid)); }
-    if (status) { conditions.push(`action_status = $${idx++}`); params.push(String(status)); }
-    if (from) { conditions.push(`occurred_at >= $${idx++}::timestamptz`); params.push(from); }
-    if (to) { conditions.push(`occurred_at <= $${idx++}::timestamptz`); params.push(to); }
-    if (tenantId) {
-      conditions.push(`(tenant_id IS NULL OR tenant_id = $${idx++})`);
-      params.push(String(tenantId));
-    }
-    if (search) {
-      conditions.push(`(
-        action ILIKE $${idx}
-        OR COALESCE(resource_type, '') ILIKE $${idx}
-        OR COALESCE(resource_table, '') ILIKE $${idx}
-        OR COALESCE(summary, '') ILIKE $${idx}
-      )`);
-      params.push(`%${search}%`);
-      idx += 1;
-    }
-
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const limitVal = Math.min(parseInt(limit, 10) || 100, 500);
-    const offsetVal = parseInt(offset, 10) || 0;
-    params.push(limitVal, offsetVal);
-
-    const query = `
-      WITH combined AS (
-        SELECT
-          'request'::text AS source,
-          al.tenant_id::text AS tenant_id, -- CAN-042: was NULL, which made request rows bypass the tenant filter
-          al.id::text AS id,
-          al.created_at AS occurred_at,
-          al.user_id::text AS actor_uid,
-          al.user_role::text AS actor_role,
-          NULL::text AS patient_uid,
-          al.action::text AS action,
-          CASE WHEN al.success THEN 'success' ELSE 'failure' END::text AS action_status,
-          al.module::text AS resource_type,
-          NULL::text AS resource_table,
-          NULL::text AS resource_id,
-          CONCAT(al.method, ' ', al.path)::text AS summary,
-          jsonb_build_object(
-            'method', al.method,
-            'path', al.path,
-            'status_code', al.status_code,
-            'response_time_ms', al.response_time_ms,
-            'request_summary', al.request_summary,
-            'error_message', al.error_message
-          ) AS metadata
-        FROM audit_log al
-
-        UNION ALL
-
-        SELECT
-          'clinical'::text AS source,
-          cae.tenant_id::text AS tenant_id,
-          cae.id::text AS id,
-          cae.occurred_at AS occurred_at,
-          cae.actor_uid::text AS actor_uid,
-          cae.actor_role::text AS actor_role,
-          cae.patient_uid::text AS patient_uid,
-          cae.action::text AS action,
-          cae.action_status::text AS action_status,
-          cae.resource_type::text AS resource_type,
-          cae.resource_table::text AS resource_table,
-          cae.resource_id::text AS resource_id,
-          COALESCE(cae.metadata->>'summary', cae.action)::text AS summary,
-          jsonb_build_object(
-            'encounter_id', cae.encounter_id,
-            'request_id', cae.request_id,
-            'before_state', cae.before_state,
-            'after_state', cae.after_state,
-            'metadata', cae.metadata
-          ) AS metadata
-        FROM clinical_audit_events cae
-
-        UNION ALL
-
-        SELECT
-          'patient_access'::text AS source,
-          pa.tenant_id::text AS tenant_id,
-          pa.id::text AS id,
-          pa.created_at AS occurred_at,
-          pa.actor_uid::text AS actor_uid,
-          pa.actor_role::text AS actor_role,
-          pa.patient_uid::text AS patient_uid,
-          COALESCE(pa.action, 'patient_access')::text AS action,
-          pa.access_decision::text AS action_status,
-          'patient_access'::text AS resource_type,
-          NULL::text AS resource_table,
-          COALESCE(pa.care_team_id::text, pa.break_glass_id::text) AS resource_id,
-          COALESCE(pa.reason, pa.access_source)::text AS summary,
-          jsonb_build_object(
-            'access_source', pa.access_source,
-            'route', pa.route,
-            'request_id', pa.request_id,
-            'care_team_id', pa.care_team_id,
-            'break_glass_id', pa.break_glass_id,
-            'metadata', pa.metadata
-          ) AS metadata
-        FROM patient_access_audit_log pa
-      )
-      SELECT *
-        FROM combined
-        ${where}
-       ORDER BY occurred_at DESC
-       LIMIT $${idx} OFFSET $${idx + 1}`;
-
-    const rows = await prisma.$queryRawUnsafe(query, ...params);
-    return success(res, {
-      logs: rows,
-      limit: limitVal,
-      offset: offsetVal,
-      filters: {
-        source: source || null,
-        action: action || null,
-        actor_uid: actor_uid || null,
-        patient_uid: patient_uid || null,
-        status: status || null,
-        from: from || null,
-        to: to || null,
-        search: search || null,
-      },
-    }, 'Unified audit logs fetched');
+    const tenantId = resolveTenantOrThrow(req);
+    const result = await listAuditEvents(tenantId, req.query);
+    await recordAuditConsoleAccess(req, 'AUDIT_EVENTS_VIEW', {
+      filters: result.filters,
+      returned_count: result.logs.length,
+    });
+    return success(res, result, 'Unified audit events fetched');
   } catch (err) {
-    logger.error('Unified Audit Logs Error:', err);
-    error(res, 'Failed to fetch unified audit logs', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return auditError(res, err, 'Fetch unified audit events');
+  }
+};
+
+// GET /api/v1/admin/audit/events/:source/:id
+export const getUnifiedAuditEventDetail = async (req, res) => {
+  try {
+    const tenantId = resolveTenantOrThrow(req);
+    const result = await getAuditEventDetail(tenantId, req.params.source, req.params.id);
+    await recordAuditConsoleAccess(req, 'AUDIT_EVENT_DETAIL_VIEW', {
+      source: req.params.source,
+      source_id: req.params.id,
+      patient_uid: result.event.patient_uid || null,
+    });
+    return success(res, result, 'Audit event detail fetched');
+  } catch (err) {
+    return auditError(res, err, 'Fetch audit event detail');
+  }
+};
+
+// GET /api/v1/admin/audit/export
+export const exportUnifiedAuditEvents = async (req, res) => {
+  try {
+    const tenantId = resolveTenantOrThrow(req);
+    const result = await exportAuditEvents(tenantId, req.query);
+    const generatedAt = new Date().toISOString();
+    const actorUid = /^[0-9a-f-]{36}$/i.test(String(req.user?.uid || ''))
+      ? String(req.user.uid)
+      : 'unknown';
+    const body = Buffer.from(`\uFEFF${result.csv}`, 'utf8');
+    const digest = createHash('sha256').update(body).digest('base64');
+    await recordAuditConsoleAccess(req, 'AUDIT_EVENTS_EXPORT', {
+      filters: result.filters,
+      exported_count: result.row_count,
+      generated_at: generatedAt,
+      actor_uid: actorUid === 'unknown' ? null : actorUid,
+      sha256_digest: digest,
+    });
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="audit-events-${date}.csv"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Digest', `sha-256=${digest}`);
+    res.setHeader('X-Audit-Export-Generated-At', generatedAt);
+    res.setHeader('X-Audit-Export-Actor-Uid', actorUid);
+    return res.status(200).send(body);
+  } catch (err) {
+    return auditError(res, err, 'Export audit events');
+  }
+};
+
+// GET /api/v1/admin/audit/health
+export const getUnifiedAuditHealth = async (req, res) => {
+  try {
+    const tenantId = resolveTenantOrThrow(req);
+    const result = await getAuditHealth(tenantId, req.query);
+    await recordAuditConsoleAccess(req, 'AUDIT_HEALTH_VIEW', { window: result.window });
+    return success(res, result, 'Audit health fetched');
+  } catch (err) {
+    return auditError(res, err, 'Fetch audit health');
   }
 };
 
@@ -314,7 +259,18 @@ export const getUserAuditHistory = async (req, res) => {
 
     const logs = await prisma.$queryRawUnsafe(`
       SELECT id, method, path, module, action, status_code, response_time_ms,
-             success, request_summary, ip_address, created_at
+             success,
+             CASE
+               WHEN module IN (
+                 'clinical_notes', 'clinical_orders', 'vitals', 'intake_output',
+                 'drug_chart', 'discharge_summaries', 'investigations',
+                 'prescriptions', 'diagnoses', 'referrals', 'blood_bank',
+                 'medication_administration', 'handovers'
+               ) OR path LIKE '/api/v1/staff/medical/%'
+               THEN '[REDACTED_CLINICAL_REQUEST]'
+               ELSE request_summary
+             END AS request_summary,
+             ip_address, created_at
       FROM audit_log
       WHERE user_id = $1
         AND created_at >= NOW() - $2::INTERVAL

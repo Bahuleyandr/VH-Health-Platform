@@ -45,6 +45,10 @@ beforeEach(() => {
   queryRawUnsafeMock.mockReset();
   executeRawUnsafeMock.mockReset();
   transactionMock.mockClear();
+  recordCanonicalClinicalEventMock.mockResolvedValue({
+    timeline: { id: 'timeline-1' },
+    audit: { id: 'audit-1' },
+  });
 });
 
 describe('blood-bank tenant authorization', () => {
@@ -90,6 +94,33 @@ describe('blood-bank tenant authorization', () => {
     });
 
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects the detail write when canonical persistence returns null', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ uid: PATIENT }])
+      .mockResolvedValueOnce([{
+        id: 9,
+        tenant_id: TENANT,
+        patient_uid: PATIENT,
+        blood_group: 'A+',
+        component: 'prbc',
+        units: 1,
+        urgency: 'routine',
+        status: 'requested',
+      }]);
+    recordCanonicalClinicalEventMock.mockResolvedValueOnce({ timeline: null, audit: null });
+
+    await expect(bloodBankService.createRequest({
+      patient_uid: PATIENT,
+      blood_group: 'A+',
+      component: 'prbc',
+      units: 1,
+      clinical_indication: 'Symptomatic anaemia',
+      ordered_by: ACTOR,
+    }, { tenantId: TENANT, actorUid: ACTOR, actorRole: 'DOCTOR' })).rejects.toMatchObject({
+      code: 'BLOOD_BANK_CANONICAL_EVENT_REQUIRED',
+    });
   });
 
   it('scopes legacy crossmatch, issue, inventory, and pending reads by tenant', async () => {

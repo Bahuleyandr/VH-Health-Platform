@@ -63,17 +63,19 @@ function auditPharmacyOrder(req, action, order, extra = {}) {
   });
 }
 
-function canonicalPharmacyOrder(req, eventType, order, extra = {}) {
-  emitPharmacyOrderEvent({
-    order,
+function emitPharmacyOrderEventInTx(tx, req, eventType, order, extra = {}) {
+  return emitPharmacyOrderEvent({
+    db: tx,
+    order: {
+      ...order,
+      tenant_id: order?.tenant_id || req.tenantId,
+    },
     actorUid: req.user?.uid || null,
     actorRole: req.user?.role || null,
     eventType,
     eventStatus: extra.to_status || order?.status || null,
     previousStatus: extra.from_status || null,
     payload: extra,
-  }).catch((canonicalErr) => {
-    logger.warn(`Canonical pharmacy event ${eventType} failed for order ${order?.id || 'unknown'}: ${canonicalErr.message}`);
   });
 }
 
@@ -106,33 +108,42 @@ export const placeOrder = async (req, res) => {
     const patientName = patient[0]?.name || 'Patient';
     const patientPhone = patient[0]?.phone || '';
 
-    const result = await prisma.$queryRawUnsafe(`
-      INSERT INTO pharmacy_orders (
-        patient_id, phone, patient_name, patient_phone, order_note,
-        prescription_photo_key, delivery_type,
-        delivery_address, delivery_landmark, delivery_lat, delivery_lng,
-        delivery_phone, status, prescribed_by, tenant_id, ordered_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PENDING',$13::uuid,$14::uuid, NOW(), NOW())
-      RETURNING id, uid, patient_id, patient_name, patient_phone, phone, status,
-        order_note, total_amount, created_at, updated_at, order_number, delivery_type
-    `,
-      patientId, patientPhone, patientName, patientPhone,
-      order_note || null, prescriptionPhotoKey,
-      delivery_type || 'delivery',
-      delivery_address || null, delivery_landmark || null,
-      delivery_lat || null, delivery_lng || null,
-      delivery_phone || patientPhone,
-      req.user?.uid || null,
-      req.tenantId
-    );
+    const order = await setTenantTx(req.tenantId, async (tx) => {
+      const result = await tx.$queryRawUnsafe(`
+        INSERT INTO pharmacy_orders (
+          patient_id, phone, patient_name, patient_phone, order_note,
+          prescription_photo_key, delivery_type,
+          delivery_address, delivery_landmark, delivery_lat, delivery_lng,
+          delivery_phone, status, prescribed_by, tenant_id, ordered_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PENDING',$13::uuid,$14::uuid, NOW(), NOW())
+        RETURNING id, uid, tenant_id, patient_id, patient_name, patient_phone, phone, status,
+          order_note, total_amount, created_at, updated_at, order_number, delivery_type
+      `,
+        patientId, patientPhone, patientName, patientPhone,
+        order_note || null, prescriptionPhotoKey,
+        delivery_type || 'delivery',
+        delivery_address || null, delivery_landmark || null,
+        delivery_lat || null, delivery_lng || null,
+        delivery_phone || patientPhone,
+        req.user?.uid || null,
+        req.tenantId
+      );
+      const created = result[0];
 
-    const order = result[0];
-
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_order_history (order_id, to_status, changed_by, changed_by_role, notes)
-       VALUES ($1, 'PENDING', $2, 'patient', 'Order placed')`,
-      order.id, patientId
-    );
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history (order_id, to_status, changed_by, changed_by_role, notes)
+         VALUES ($1, 'PENDING', $2, 'patient', 'Order placed')`,
+        created.id, patientId
+      );
+      await emitPharmacyOrderEventInTx(tx, req, 'pharmacy.order_created', {
+        ...created,
+        patient_uid: req.user?.uid || null,
+      }, {
+        to_status: 'PENDING',
+        delivery_type: created.delivery_type || delivery_type || null,
+      });
+      return created;
+    });
 
     setImmediate(async () => {
       try {
@@ -142,11 +153,6 @@ export const placeOrder = async (req, res) => {
       } catch (e) {
         logger.warn('Pharmacist alert failed:', e.message);
       }
-    });
-
-    canonicalPharmacyOrder(req, 'pharmacy.order_created', order, {
-      to_status: 'PENDING',
-      delivery_type: order.delivery_type || delivery_type || null,
     });
 
     success(res, order, `Order placed. ${order.order_number}`);
@@ -262,37 +268,44 @@ export const confirmOrder = async (req, res) => {
       return error(res, 'Can only confirm PENDING orders', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE pharmacy_orders SET
-        status='CONFIRMED', confirmed_by=$1, confirmed_at=NOW(),
-        confirmation_notes=$2, items_list=$3::jsonb, total_amount=$4,
-        sla_dispatch_target=NOW()+INTERVAL '30 minutes', updated_at=NOW()
-      WHERE id=$5
-      RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount,
-        confirmation_notes, items_list, created_at, updated_at
-    `,
-      staffId, confirmation_notes || null,
-      JSON.stringify(items_list || []),
-      total_amount ?? order[0].total_amount,
-      parseInt(id)
-    );
+    const result = await setTenantTx(req.tenantId, async (tx) => {
+      const updated = await tx.$queryRawUnsafe(`
+        UPDATE pharmacy_orders SET
+          status='CONFIRMED', confirmed_by=$1, confirmed_at=NOW(),
+          confirmation_notes=$2, items_list=$3::jsonb, total_amount=$4,
+          sla_dispatch_target=NOW()+INTERVAL '30 minutes', updated_at=NOW()
+        WHERE id=$5 AND status='PENDING'
+        RETURNING id, uid, tenant_id, patient_id, patient_name, status, order_note, total_amount,
+          confirmation_notes, items_list, created_at, updated_at, order_number
+      `,
+        staffId, confirmation_notes || null,
+        JSON.stringify(items_list || []),
+        total_amount ?? order[0].total_amount,
+        parseInt(id)
+      );
+      if (!updated.length) return null;
 
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
-       VALUES ($1, 'PENDING', 'CONFIRMED', $2, 'pharmacist', $3)`,
-      parseInt(id), staffId, confirmation_notes || null
-    );
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
+         VALUES ($1, 'PENDING', 'CONFIRMED', $2, 'pharmacist', $3)`,
+        parseInt(id), staffId, confirmation_notes || null
+      );
+      await emitPharmacyOrderEventInTx(tx, req, 'pharmacy.order_confirmed', updated[0], {
+        from_status: 'PENDING',
+        to_status: 'CONFIRMED',
+        item_count: Array.isArray(items_list) ? items_list.length : 0,
+      });
+      return updated;
+    });
+
+    if (!result) {
+      return error(res, 'Can only confirm PENDING orders', HTTP_STATUS.BAD_REQUEST);
+    }
 
     auditPharmacyOrder(req, 'PHARMACY_ORDER_CONFIRMED', { ...result[0], order_number: order[0].order_number }, {
       from_status: 'PENDING',
       to_status: 'CONFIRMED',
     });
-    canonicalPharmacyOrder(req, 'pharmacy.order_confirmed', { ...result[0], order_number: order[0].order_number }, {
-      from_status: 'PENDING',
-      to_status: 'CONFIRMED',
-      item_count: Array.isArray(items_list) ? items_list.length : 0,
-    });
-
     setImmediate(async () => {
       try {
         const { sendSMS } = await import('../../services/smsService.js');
@@ -335,32 +348,36 @@ export const markPreparing = async (req, res) => {
     const { id } = req.params;
     // B1 — pharmacist clinical verification gates preparation.
     if (await verificationGateBlocked(req, res, parseInt(id, 10))) return;
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE pharmacy_orders SET status='PREPARING', preparing_at=NOW(), updated_at=NOW()
-       WHERE id=$1 AND status='CONFIRMED'
-       RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at`,
-      parseInt(id)
-    );
+    const result = await setTenantTx(req.tenantId, async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE pharmacy_orders SET status='PREPARING', preparing_at=NOW(), updated_at=NOW()
+         WHERE id=$1 AND status='CONFIRMED'
+         RETURNING id, uid, tenant_id, patient_id, patient_name, status, order_note,
+           total_amount, created_at, updated_at, order_number`,
+        parseInt(id)
+      );
+      if (!updated.length) return null;
 
-    if (!result.length) {
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
+         VALUES ($1, 'CONFIRMED', 'PREPARING', $2, 'pharmacist')`,
+        parseInt(id), req.user?.id
+      );
+      await emitPharmacyOrderEventInTx(tx, req, 'pharmacy.order_preparing', updated[0], {
+        from_status: 'CONFIRMED',
+        to_status: 'PREPARING',
+      });
+      return updated;
+    });
+
+    if (!result?.length) {
       return error(res, 'Order not found or wrong status', HTTP_STATUS.BAD_REQUEST);
     }
-
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
-       VALUES ($1, 'CONFIRMED', 'PREPARING', $2, 'pharmacist')`,
-      parseInt(id), req.user?.id
-    );
 
     auditPharmacyOrder(req, 'PHARMACY_ORDER_PREPARING', result[0], {
       from_status: 'CONFIRMED',
       to_status: 'PREPARING',
     });
-    canonicalPharmacyOrder(req, 'pharmacy.order_preparing', result[0], {
-      from_status: 'CONFIRMED',
-      to_status: 'PREPARING',
-    });
-
     success(res, result[0], 'Preparing');
   } catch (err) {
     logger.error('Mark preparing error:', err);
@@ -392,47 +409,57 @@ export const dispatchOrder = async (req, res) => {
 
     const fromStatus = order[0].status;
 
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE pharmacy_orders SET
-        status='DISPATCHED', dispatched_at=NOW(), dispatched_by=$1,
-        delivery_person=$2, delivery_person_phone=$3,
-        sla_delivery_target=NOW()+INTERVAL '2 hours', updated_at=NOW()
-      WHERE id=$4
-      RETURNING id, uid, patient_id, patient_name, status, delivery_person,
-        delivery_person_phone, dispatched_at, total_amount, created_at, updated_at
-    `,
-      staffId, delivery_person || null, delivery_person_phone || null, parseInt(id)
-    );
-
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
-       VALUES ($1, $2, 'DISPATCHED', $3, 'pharmacist')`,
-      parseInt(id), fromStatus, staffId
-    );
-
-    auditPharmacyOrder(req, 'PHARMACY_ORDER_DISPATCHED', result[0], {
-      from_status: fromStatus,
-      to_status: 'DISPATCHED',
-      delivery_person: delivery_person || null,
-    });
-    canonicalPharmacyOrder(req, 'pharmacy.order_dispatched', result[0], {
-      from_status: fromStatus,
-      to_status: 'DISPATCHED',
-      delivery_person: delivery_person || null,
-    });
-
     let eta = { estimated_mins: null, distance_km: null };
     try {
       eta = calculateETA(order[0].delivery_lat, order[0].delivery_lng) || eta;
     } catch (e) {
       logger.warn('calculateETA failed:', e.message);
     }
-    await prisma.$queryRawUnsafe(
-      `UPDATE pharmacy_orders SET estimated_delivery_mins=$1, delivery_distance_km=$2,
-         delivery_started_at=NOW(), delivery_tracking_active=TRUE WHERE id=$3`,
-      eta.estimated_mins, eta.distance_km, parseInt(id)
-    );
 
+    const result = await setTenantTx(req.tenantId, async (tx) => {
+      const updated = await tx.$queryRawUnsafe(`
+        UPDATE pharmacy_orders SET
+          status='DISPATCHED', dispatched_at=NOW(), dispatched_by=$1,
+          delivery_person=$2, delivery_person_phone=$3,
+          estimated_delivery_mins=$4, delivery_distance_km=$5,
+          delivery_started_at=NOW(), delivery_tracking_active=TRUE,
+          sla_delivery_target=NOW()+INTERVAL '2 hours', updated_at=NOW()
+        WHERE id=$6 AND status=$7
+        RETURNING id, uid, tenant_id, patient_id, patient_name, status, delivery_person,
+          delivery_person_phone, dispatched_at, total_amount, created_at, updated_at, order_number
+      `,
+        staffId,
+        delivery_person || null,
+        delivery_person_phone || null,
+        eta.estimated_mins,
+        eta.distance_km,
+        parseInt(id),
+        fromStatus,
+      );
+      if (!updated.length) return null;
+
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
+         VALUES ($1, $2, 'DISPATCHED', $3, 'pharmacist')`,
+        parseInt(id), fromStatus, staffId
+      );
+      await emitPharmacyOrderEventInTx(tx, req, 'pharmacy.order_dispatched', updated[0], {
+        from_status: fromStatus,
+        to_status: 'DISPATCHED',
+        delivery_person: delivery_person || null,
+      });
+      return updated;
+    });
+
+    if (!result?.length) {
+      return error(res, 'Order status changed before dispatch', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_DISPATCHED', result[0], {
+      from_status: fromStatus,
+      to_status: 'DISPATCHED',
+      delivery_person: delivery_person || null,
+    });
     setImmediate(async () => {
       try {
         const { sendSMS } = await import('../../services/smsService.js');
@@ -503,8 +530,8 @@ export const markDelivered = async (req, res) => {
         `UPDATE pharmacy_orders SET status='DELIVERED', delivered_at=NOW(),
            delivery_tracking_active=FALSE, updated_at=NOW()
          WHERE id=$1 AND status='DISPATCHED'
-         RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount,
-           items_list, delivered_at, created_at, updated_at`,
+         RETURNING id, uid, tenant_id, patient_id, patient_name, status, order_note, total_amount,
+           items_list, delivered_at, created_at, updated_at, order_number`,
         orderId,
       );
       if (!updated.length) return null;
@@ -564,12 +591,16 @@ export const markDelivered = async (req, res) => {
         orderId, order.patient_id ?? null,
       );
 
-      // History row last so it lands inside the same tx.
+      // History and canonical evidence share the dispense transaction.
       await tx.$queryRawUnsafe(
         `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
          VALUES ($1, 'DISPATCHED', 'DELIVERED', $2, 'pharmacist')`,
         orderId, req.user?.id ?? null,
       );
+      await emitPharmacyOrderEventInTx(tx, req, 'pharmacy.order_delivered', order, {
+        from_status: 'DISPATCHED',
+        to_status: 'DELIVERED',
+      });
 
       return order;
     });
@@ -582,11 +613,6 @@ export const markDelivered = async (req, res) => {
       from_status: 'DISPATCHED',
       to_status: 'DELIVERED',
     });
-    canonicalPharmacyOrder(req, 'pharmacy.order_delivered', result, {
-      from_status: 'DISPATCHED',
-      to_status: 'DELIVERED',
-    });
-
     success(res, result, 'Delivered');
   } catch (err) {
     logger.error('Mark delivered error:', err);
@@ -973,7 +999,7 @@ export const markCounterDispensed = async (req, res) => {
                 confirmation_notes=COALESCE($13, confirmation_notes),
                 updated_at=NOW()
           WHERE id=$1
-          RETURNING id, uid, patient_id, patient_name, status, order_note,
+          RETURNING id, uid, tenant_id, patient_id, patient_name, status, order_note,
                     total_amount, items_list, dispensed_medications,
                     payment_status, payment_mode, amount_collected,
                     partial_dispense, partial_reason, receipt_delivery,
@@ -1058,6 +1084,12 @@ export const markCounterDispensed = async (req, res) => {
           return note;
         })(),
       );
+      await emitPharmacyOrderEventInTx(tx, req, 'pharmacy.order_dispensed', out, {
+        from_status: order.status,
+        to_status: 'DISPENSED',
+        partial_dispense: Boolean(out.partial_dispense),
+        payment_status: out.payment_status || null,
+      });
 
       return { ok: out };
     });
@@ -1086,11 +1118,6 @@ export const markCounterDispensed = async (req, res) => {
       );
     }
     auditPharmacyOrder(req, 'PHARMACY_ORDER_DISPENSED', result.ok, {
-      to_status: 'DISPENSED',
-      partial_dispense: Boolean(result.ok?.partial_dispense),
-      payment_status: result.ok?.payment_status || null,
-    });
-    canonicalPharmacyOrder(req, 'pharmacy.order_dispensed', result.ok, {
       to_status: 'DISPENSED',
       partial_dispense: Boolean(result.ok?.partial_dispense),
       payment_status: result.ok?.payment_status || null,
@@ -1130,27 +1157,42 @@ export const markUnavailable = async (req, res) => {
     }
 
     const fromStatus = order[0].status;
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE pharmacy_orders
-          SET status='UNAVAILABLE',
-              cancellation_reason=$2,
-              partial_reason=$2,
-              updated_at=NOW()
-        WHERE id=$1
-        RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount,
-                  cancellation_reason, partial_reason, items_list, created_at, updated_at, order_number`,
-      orderId,
-      reason || 'Medicine unavailable',
-    );
+    const result = await setTenantTx(req.tenantId, async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE pharmacy_orders
+            SET status='UNAVAILABLE',
+                cancellation_reason=$2,
+                partial_reason=$2,
+                updated_at=NOW()
+          WHERE id=$1 AND status=$3
+          RETURNING id, uid, tenant_id, patient_id, patient_name, status, order_note, total_amount,
+                    cancellation_reason, partial_reason, items_list, created_at, updated_at, order_number`,
+        orderId,
+        reason || 'Medicine unavailable',
+        fromStatus,
+      );
+      if (!updated.length) return null;
 
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
-       VALUES ($1, $2, 'UNAVAILABLE', $3, 'pharmacist', $4)`,
-      orderId,
-      fromStatus,
-      req.user?.id,
-      reason || null,
-    );
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
+         VALUES ($1, $2, 'UNAVAILABLE', $3, 'pharmacist', $4)`,
+        orderId,
+        fromStatus,
+        req.user?.id,
+        reason || null,
+      );
+      await emitPharmacyOrderEventInTx(tx, req, 'pharmacy.order_unavailable', updated[0], {
+        from_status: fromStatus,
+        to_status: 'UNAVAILABLE',
+        reason: reason || null,
+        unavailable_items: Array.isArray(unavailable_items) ? unavailable_items : null,
+      });
+      return updated;
+    });
+
+    if (!result?.length) {
+      return error(res, 'Order status changed before it was marked unavailable', HTTP_STATUS.BAD_REQUEST);
+    }
 
     auditPharmacyOrder(req, 'PHARMACY_ORDER_UNAVAILABLE', result[0], {
       from_status: fromStatus,
@@ -1158,13 +1200,6 @@ export const markUnavailable = async (req, res) => {
       reason: reason || null,
       unavailable_items: Array.isArray(unavailable_items) ? unavailable_items : null,
     });
-    canonicalPharmacyOrder(req, 'pharmacy.order_unavailable', result[0], {
-      from_status: fromStatus,
-      to_status: 'UNAVAILABLE',
-      reason: reason || null,
-      unavailable_items: Array.isArray(unavailable_items) ? unavailable_items : null,
-    });
-
     success(res, result[0], 'Order marked unavailable');
   } catch (err) {
     logger.error('Mark pharmacy order unavailable error:', err);
@@ -1186,32 +1221,39 @@ export const cancelOrder = async (req, res) => {
 
     const fromStatus = order[0].status;
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE pharmacy_orders SET status='CANCELLED', cancellation_reason=$2,
-         cancelled_at=NOW(), updated_at=NOW()
-       WHERE id=$1
-       RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount,
-         cancellation_reason, cancelled_at, created_at, updated_at`,
-      parseInt(id), cancellation_reason || null
-    );
+    const result = await setTenantTx(req.tenantId, async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE pharmacy_orders SET status='CANCELLED', cancellation_reason=$2,
+           cancelled_at=NOW(), updated_at=NOW()
+         WHERE id=$1 AND status=$3
+         RETURNING id, uid, tenant_id, patient_id, patient_name, status, order_note, total_amount,
+           cancellation_reason, cancelled_at, created_at, updated_at, order_number`,
+        parseInt(id), cancellation_reason || null, fromStatus
+      );
+      if (!updated.length) return null;
 
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
-       VALUES ($1, $2, 'CANCELLED', $3, 'staff', $4)`,
-      parseInt(id), fromStatus, req.user?.id, cancellation_reason || null
-    );
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
+         VALUES ($1, $2, 'CANCELLED', $3, 'staff', $4)`,
+        parseInt(id), fromStatus, req.user?.id, cancellation_reason || null
+      );
+      await emitPharmacyOrderEventInTx(tx, req, 'pharmacy.order_cancelled', updated[0], {
+        from_status: fromStatus,
+        to_status: 'CANCELLED',
+        reason: cancellation_reason || null,
+      });
+      return updated;
+    });
+
+    if (!result?.length) {
+      return error(res, 'Order status changed before cancellation', HTTP_STATUS.BAD_REQUEST);
+    }
 
     auditPharmacyOrder(req, 'PHARMACY_ORDER_CANCELLED', result[0], {
       from_status: fromStatus,
       to_status: 'CANCELLED',
       reason: cancellation_reason || null,
     });
-    canonicalPharmacyOrder(req, 'pharmacy.order_cancelled', result[0], {
-      from_status: fromStatus,
-      to_status: 'CANCELLED',
-      reason: cancellation_reason || null,
-    });
-
     success(res, result[0], 'Order cancelled');
   } catch (err) {
     logger.error('Cancel pharmacy order error:', err);

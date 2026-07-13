@@ -840,7 +840,7 @@ export async function correctVitals(vitalsId, data) {
     throw AppError.badRequest('vitals id must be a positive integer');
   }
 
-  const { temperature_unit, corrected_by, ip_address, tenantId, ...changes } = data;
+  const { temperature_unit, corrected_by, actor_role, ip_address, tenantId, ...changes } = data;
   if (!corrected_by) {
     throw AppError.badRequest('corrected_by is required');
   }
@@ -917,6 +917,31 @@ export async function correctVitals(vitalsId, data) {
         ip_address,
       },
     });
+
+    const correctedFields = Object.keys(updateData);
+    await recordCanonicalClinicalEvent({
+      tenantId: requireTenantId(tenantId),
+      patientUid: updated.patient_uid,
+      encounterId: updated.encounter_uid || null,
+      eventType: 'vitals.corrected',
+      eventStatus: 'corrected',
+      sourceTable: 'vitals_chart',
+      sourceId: updated.id,
+      resourceType: 'vitals',
+      resourceId: updated.id,
+      actorUid: corrected_by,
+      actorRole: actor_role || null,
+      summary: 'Vitals entry corrected',
+      payload: { corrected_fields: correctedFields },
+      beforeState: {
+        corrected_fields: Object.fromEntries(correctedFields.map((field) => [field, auditValue(existing[field])])),
+      },
+      afterState: {
+        corrected_fields: Object.fromEntries(correctedFields.map((field) => [field, auditValue(updated[field])])),
+      },
+      timelineIdempotencyKey: `vitals_chart:${updated.id}:corrected:${updated.updated_at?.toISOString?.() || Date.now()}`,
+      auditIdempotencyKey: `vitals_chart:${updated.id}:audit:corrected:${updated.updated_at?.toISOString?.() || Date.now()}`,
+    }, { db: tx, strict: true });
 
     logger.info(`Vitals corrected: id=${updated.id}, patient=${updated.patient_uid}, by=${corrected_by}`);
     return updated;

@@ -22,7 +22,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { auditLogMiddleware, deriveAction, deriveModule, deriveAuditResourceContext } = await import(
+const { auditLogMiddleware, deriveAction, deriveModule, deriveAuditResourceContext, sanitizeBody } = await import(
   '../../middleware/auditLog.js'
 );
 
@@ -76,6 +76,25 @@ describe('auditLogMiddleware context enrichment', () => {
       admission_id: '55',
       patient_uid: PATIENT_UID,
     }));
+  });
+
+  it('classifies staff clinical routes before the generic staff-user rules', () => {
+    expect(deriveAction('POST', '/api/v1/staff/medical/consultations'))
+      .toBe('create_clinical_note');
+    expect(deriveModule('/api/v1/staff/medical/consultations'))
+      .toBe('clinical_notes');
+    expect(deriveAction('POST', '/api/v1/staff/medical/investigations'))
+      .toBe('record_investigation_result');
+    expect(deriveModule('/api/v1/staff/medical/investigations'))
+      .toBe('investigations');
+  });
+
+  it('names audit oversight actions and redacts clinical free text', () => {
+    expect(deriveAction('GET', '/api/v1/admin/audit/events')).toBe('view_audit_events');
+    expect(deriveAction('GET', '/api/v1/admin/audit/export')).toBe('export_audit_events');
+    expect(sanitizeBody({ patient_uid: 'patient', notes: 'sensitive', result: { value: 'secret' } }))
+      .toContain('REDACTED_CLINICAL_TEXT');
+    expect(sanitizeBody({ notes: 'sensitive' })).not.toContain('sensitive');
   });
 
   it('writes universal audit_log rows with searchable resource metadata', async () => {

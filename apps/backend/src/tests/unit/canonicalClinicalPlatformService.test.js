@@ -108,6 +108,53 @@ describe('canonical clinical platform service', () => {
     expect(queryUnsafeMock.mock.calls[1][0]).toContain('clinical_audit_events');
   });
 
+  it('rejects strict writes when the timeline row cannot be recorded', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(recordCanonicalClinicalEvent({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      eventType: 'note.signed',
+      sourceTable: 'clinical_notes',
+      sourceId: 7,
+      actorUid: ACTOR,
+    }, { strict: true })).rejects.toMatchObject({
+      code: 'CANONICAL_TIMELINE_REQUIRED',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('enforces complete canonical pairs for patient writes on a transaction client', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(recordCanonicalClinicalEvent({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      eventType: 'order.created',
+      sourceTable: 'clinical_orders',
+      sourceId: 9,
+    }, { db: __prismaDefaultMock })).rejects.toMatchObject({
+      code: 'CANONICAL_TIMELINE_REQUIRED',
+    });
+  });
+
+  it('rejects strict writes when the audit row cannot be recorded', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 'timeline-row' }])
+      .mockResolvedValueOnce([]);
+
+    await expect(recordCanonicalClinicalEvent({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      eventType: 'note.signed',
+      sourceTable: 'clinical_notes',
+      sourceId: 7,
+      actorUid: ACTOR,
+    }, { strict: true })).rejects.toMatchObject({
+      code: 'CANONICAL_AUDIT_REQUIRED',
+    });
+  });
+
   it('reads only the canonical patient timeline by default', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: '66666666-6666-4666-8666-666666666666',

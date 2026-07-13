@@ -5,6 +5,7 @@ const findFirstMock = jest.fn();
 const updateMock = jest.fn();
 const auditCreateMock = jest.fn();
 const queryUnsafeMock = jest.fn();
+const emitDischargeDrugsDispensedMock = jest.fn();
 
 const prismaDefaultMock = {
   admissions: {
@@ -49,6 +50,19 @@ jest.unstable_mockModule('../../services/insurance/claimsService.js', () => ({
   createClaim: jest.fn(),
   createPreauth: jest.fn(),
 }));
+jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeService.js', () => ({
+  safeCanonical: jest.fn(async (_label, task) => task()),
+  emitPharmacyOrderEvent: jest.fn(),
+  emitHousekeepingRequestRaised: jest.fn(),
+  emitHousekeepingRequestStatus: jest.fn(),
+  emitBedMarkedReady: jest.fn(),
+  emitDischargeDrugsDispensed: emitDischargeDrugsDispensedMock,
+  emitDischargeWorkflowOpened: jest.fn(),
+  emitDischargeWorkItemCompleted: jest.fn(),
+  emitFinalDischargeCompleted: jest.fn(),
+  emitCriticalLabAlertAcknowledged: jest.fn(),
+  emitCdsAlertAcknowledged: jest.fn(),
+}));
 
 const admissionService = (await import('../../services/emr/admissionService.js')).default;
 
@@ -63,6 +77,7 @@ beforeEach(() => {
   updateMock.mockReset();
   auditCreateMock.mockReset();
   queryUnsafeMock.mockReset();
+  emitDischargeDrugsDispensedMock.mockReset().mockResolvedValue({});
 });
 
 afterEach(() => {
@@ -109,11 +124,13 @@ describe('admissionService.markDischargeDrugsDispensed evidence gate', () => {
   it('stamps dispense when linked evidence exists', async () => {
     const stamped = {
       id: 42,
+      tenant_id: TENANT,
       patient_uid: PATIENT,
       discharge_drugs_dispensed_at: new Date('2026-05-23T12:00:00.000Z'),
     };
-    findUniqueMock.mockResolvedValueOnce({
+    findFirstMock.mockResolvedValueOnce({
       id: 42,
+      tenant_id: TENANT,
       patient_uid: PATIENT,
       status: 'admitted',
       discharge_initiated_at: new Date('2026-05-23T11:00:00.000Z'),
@@ -123,7 +140,10 @@ describe('admissionService.markDischargeDrugsDispensed evidence gate', () => {
     updateMock.mockResolvedValueOnce(stamped);
     auditCreateMock.mockResolvedValueOnce({});
 
-    const result = await admissionService.markDischargeDrugsDispensed(42, PHARMACY);
+    const result = await admissionService.markDischargeDrugsDispensed(42, PHARMACY, {
+      tenantId: TENANT,
+      actorRole: 'PHARMACY_STAFF',
+    });
 
     expect(result).toBe(stamped);
     expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/pharmacy_orders/);
@@ -132,6 +152,12 @@ describe('admissionService.markDischargeDrugsDispensed evidence gate', () => {
       data: expect.objectContaining({
         discharge_drugs_dispensed_at: expect.any(Date),
       }),
+    }));
+    expect(emitDischargeDrugsDispensedMock).toHaveBeenCalledWith(expect.objectContaining({
+      db: prismaDefaultMock,
+      admission: stamped,
+      actorUid: PHARMACY,
+      actorRole: 'PHARMACY_STAFF',
     }));
   });
 });

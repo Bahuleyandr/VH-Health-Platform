@@ -26,7 +26,7 @@ function doctor(tenantId) {
   };
 }
 
-let patientAId; let patientBId;
+let patientAId; let patientBId; let tenantABookingId;
 
 async function seedPatient(uid, tenantId, phone) {
   const rows = await prisma.$queryRawUnsafe(
@@ -37,6 +37,9 @@ async function seedPatient(uid, tenantId, phone) {
 }
 
 async function clean() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_timeline_events WHERE patient_uid IN ($1::uuid,$2::uuid)`,
+    PATIENT_A, PATIENT_B).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM investigation_booking_history WHERE booking_id IN (
        SELECT id FROM investigation_bookings WHERE patient_id IN (
@@ -68,6 +71,74 @@ d('Booking patient-resolution tenant scope (CAN-032)', () => {
   it('a tenant-A clinician can book for a tenant-A patient (resolves)', async () => {
     const res = await doctor(TENANT_A).post('/api/v1/investigations/bookings/create',
       { patient_id: patientAId, custom_test_names: 'CBC' });
-    expect(res.statusCode).not.toBe(404);
+    expect(res.statusCode).toBe(200);
+    const bookingId = res.body?.data?.id;
+    tenantABookingId = bookingId;
+    const timeline = await prisma.$queryRawUnsafe(
+      `SELECT id FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+          AND event_type = 'investigation.booking_created'
+          AND source_table = 'investigation_bookings' AND source_id = $3`,
+      TENANT_A, PATIENT_A, String(bookingId),
+    );
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT id FROM clinical_audit_events
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+          AND action = 'investigation.booking_created'
+          AND resource_table = 'investigation_bookings' AND resource_id = $3`,
+      TENANT_A, PATIENT_A, String(bookingId),
+    );
+    expect(timeline).toHaveLength(1);
+    expect(audit).toHaveLength(1);
+  });
+
+  it('records each staff booking transition in the canonical timeline and audit', async () => {
+    const confirm = await doctor(TENANT_A).post(
+      `/api/v1/investigations/bookings/${tenantABookingId}/confirm`,
+      { actual_tests: [], final_cost: 500, confirmation_notes: 'Confirmed by lab' },
+    );
+    expect(confirm.statusCode).toBe(200);
+
+    const dispatch = await doctor(TENANT_A).post(
+      `/api/v1/investigations/bookings/${tenantABookingId}/dispatch`,
+      { assigned_collector: 1, notes: 'Collector dispatched' },
+    );
+    expect(dispatch.statusCode).toBe(200);
+
+    const collected = await doctor(TENANT_A).post(
+      `/api/v1/investigations/bookings/${tenantABookingId}/collected`,
+      { collection_notes: 'Sample received intact' },
+    );
+    expect(collected.statusCode).toBe(200);
+
+    const processing = await doctor(TENANT_A).post(
+      `/api/v1/investigations/bookings/${tenantABookingId}/processing`,
+      {},
+    );
+    expect(processing.statusCode).toBe(200);
+
+    const expectedEvents = [
+      'investigation.booking_created',
+      'investigation.booking_confirmed',
+      'investigation.collector_dispatched',
+      'investigation.sample_collected',
+      'investigation.processing_started',
+    ];
+    const timeline = await prisma.$queryRawUnsafe(
+      `SELECT event_type FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+          AND source_table = 'investigation_bookings' AND source_id = $3
+        ORDER BY occurred_at`,
+      TENANT_A, PATIENT_A, String(tenantABookingId),
+    );
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT action FROM clinical_audit_events
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+          AND resource_table = 'investigation_bookings' AND resource_id = $3
+        ORDER BY occurred_at`,
+      TENANT_A, PATIENT_A, String(tenantABookingId),
+    );
+    expect(timeline.map((row) => row.event_type)).toEqual(expectedEvents);
+    expect(audit.map((row) => row.action)).toEqual(expectedEvents);
   });
 });

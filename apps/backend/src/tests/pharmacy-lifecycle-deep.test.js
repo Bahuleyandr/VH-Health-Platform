@@ -275,6 +275,26 @@ describe('Rich pharmacy lifecycle — deep integration', () => {
         'DISPATCHED->DELIVERED',
       ]));
     });
+
+    it('records the pharmacy lifecycle in the canonical clinical audit stream', async () => {
+      const events = await prisma.$queryRawUnsafe(
+        `SELECT action, action_status, patient_uid, actor_uid
+           FROM clinical_audit_events
+          WHERE resource_type = 'pharmacy_order'
+            AND resource_id = $1
+          ORDER BY occurred_at ASC`,
+        String(orderId),
+      );
+
+      expect(events.map((event) => event.action)).toEqual(expect.arrayContaining([
+        'pharmacy.order_confirmed',
+        'pharmacy.order_preparing',
+        'pharmacy.order_dispatched',
+        'pharmacy.order_delivered',
+      ]));
+      expect(events.every((event) => event.patient_uid === PATIENT_UID)).toBe(true);
+      expect(events.every((event) => event.actor_uid === ADMIN_UID)).toBe(true);
+    });
   });
 
   describe('cancelOrder branch', () => {

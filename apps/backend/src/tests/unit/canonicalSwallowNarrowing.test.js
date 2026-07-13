@@ -73,9 +73,9 @@ describe('canonical swallow narrowing (MEDIUM §4)', () => {
     await expect(recordCanonicalClinicalEvent(baseEvent, { db })).rejects.toThrow(/column .* does not exist/i);
   });
 
-  test('recordCanonicalClinicalEvent still tolerates a genuinely-absent table (42P01)', async () => {
+  test('transactional patient writes reject a genuinely-absent canonical table', async () => {
     const db = throwingDb('42P01', 'relation "clinical_timeline_events" does not exist');
     await expect(recordCanonicalClinicalEvent(baseEvent, { db }))
-      .resolves.toEqual({ timeline: null, audit: null });
+      .rejects.toMatchObject({ code: 'CANONICAL_TIMELINE_REQUIRED' });
   });
 });

@@ -1,13 +1,66 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { sendSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
+import { uploadFileToR2, getSignedFileUrl, deleteObject } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
+import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalClinicalPlatformService.js';
+import { AppError } from '../../utils/AppError.js';
+
+async function recordRequiredBookingEvent(tx, booking, {
+  eventType,
+  actorUid,
+  actorRole,
+  previousStatus = null,
+  summary,
+  payload = {},
+}) {
+  const bookingState = {
+    ...booking,
+    id: String(booking.id),
+  };
+  const patientRows = await tx.$queryRawUnsafe(
+    `SELECT uid FROM users WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+    Number(booking.patient_id),
+    booking.tenant_id,
+  );
+  const patientUid = patientRows[0]?.uid || null;
+  const event = await recordCanonicalClinicalEvent({
+    tenantId: booking.tenant_id,
+    patientUid,
+    eventType,
+    eventStatus: booking.status,
+    sourceTable: 'investigation_bookings',
+    sourceId: String(booking.id),
+    resourceType: 'investigation_booking',
+    resourceId: String(booking.id),
+    actorUid,
+    actorRole,
+    summary,
+    payload: {
+      booking_number: booking.booking_number || null,
+      investigation_id: booking.investigation_id || null,
+      previous_status: previousStatus,
+      status: booking.status,
+      ...payload,
+    },
+    beforeState: previousStatus ? { status: previousStatus } : null,
+    afterState: bookingState,
+    timelineIdempotencyKey: `investigation_bookings:${booking.id}:${eventType}:${booking.status}`,
+    auditIdempotencyKey: `investigation_bookings:${booking.id}:audit:${eventType}:${booking.status}`,
+  }, { db: tx });
+  if (!event?.timeline?.id || !event?.audit?.id) {
+    throw AppError.internal(
+      'Investigation booking requires canonical timeline and audit events',
+      'INVESTIGATION_BOOKING_CANONICAL_EVENT_REQUIRED',
+    );
+  }
+  return event;
+}
 
 async function resolveBookingPatient(req) {
   // CAN-032: scope every patient resolution + the new-patient create to the
@@ -17,7 +70,7 @@ async function resolveBookingPatient(req) {
   const role = String(req.user?.role || '').toUpperCase();
   if (role === 'PATIENT') {
     const patient = await prisma.$queryRawUnsafe(
-      'SELECT id, name, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1',
+      'SELECT id, uid, name, phone, tenant_id FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1',
       req.user?.id, tenantId,
     );
     return patient[0] || { id: req.user?.id, name: null, phone: null };
@@ -26,7 +79,7 @@ async function resolveBookingPatient(req) {
   const explicitId = parseInt(req.body.patient_id, 10);
   if (Number.isFinite(explicitId)) {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, name, phone, role FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1`,
+      `SELECT id, uid, name, phone, role, tenant_id FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1`,
       explicitId, tenantId,
     );
     if (!rows.length) {
@@ -51,7 +104,7 @@ async function resolveBookingPatient(req) {
 
   const last10 = patientPhone.replace(/\D/g, '').slice(-10);
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, name, phone, role
+    `SELECT id, uid, name, phone, role, tenant_id
        FROM users
       WHERE (phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2)
         AND tenant_id = $3::uuid
@@ -75,7 +128,7 @@ async function resolveBookingPatient(req) {
   const created = await prisma.$queryRawUnsafe(
     `INSERT INTO users (phone, name, role, tenant_id, registered_at, updated_at)
      VALUES ($1, $2, 'PATIENT', $3::uuid, NOW(), NOW())
-     RETURNING id, name, phone`,
+     RETURNING id, uid, name, phone, tenant_id`,
     patientPhone,
     patientName,
     tenantId,
@@ -130,9 +183,7 @@ export const createBooking = async (req, res) => {
       const timestamp = Date.now();
       const ext = req.file.originalname?.split('.').pop() || 'jpg';
       slipPhotoKey = `investigations/slips/${patientId}/${timestamp}.${ext}`;
-      try {
-        await uploadFileToR2(req.file.buffer, slipPhotoKey, req.file.mimetype);
-      } catch (e) { logger.warn('Slip upload failed:', e.message); }
+      await uploadFileToR2(req.file.buffer, slipPhotoKey, req.file.mimetype);
     }
 
     // Migration 219 — appointment_id links the booking back to the
@@ -151,35 +202,62 @@ export const createBooking = async (req, res) => {
 
     // CAN-032: stamp tenant_id explicitly so the booking is tenant-attributed
     // even outside an RLS context (rather than relying on the GUC default).
-    const result = await prisma.$queryRawUnsafe(`
-      INSERT INTO investigation_bookings (
-        patient_id, patient_phone, patient_name,
-        selected_tests, custom_test_names, slip_photo_key, notes,
-        collection_type, collection_address, collection_landmark,
-        collection_lat, collection_lng,
-        preferred_date, preferred_time_slot,
-        estimated_cost, appointment_id, tenant_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15,$16,$17::uuid)
-      RETURNING id, booking_number, patient_id, patient_name, patient_phone,
-        selected_tests, custom_test_names, slip_photo_key, notes,
-        collection_type, collection_address, collection_landmark,
-        preferred_date, preferred_time_slot, estimated_cost,
-        appointment_id, status, created_at, updated_at
-    `,
-      patientId, patientRow?.phone, patientRow?.name,
-      parsedTests || null, custom_test_names || null, slipPhotoKey, notes || null,
-      collection_type || 'home', collection_address || null, collection_landmark || null,
-      collection_lat || null, collection_lng || null,
-      preferred_date || null, preferred_time_slot || null,
-      estimatedCost || null, resolvedAppointmentId, resolveTenantOrThrow(req)
-    );
-
-    // Log status
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO investigation_booking_history (booking_id, to_status, changed_by, changed_by_role, notes)
-       VALUES ($1, 'BOOKED', $2, 'patient', 'Patient booked investigation')`,
-      result[0].id, patientId
-    );
+    const tenantId = resolveTenantOrThrow(req);
+    let result;
+    try {
+      result = await setTenantTx(tenantId, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(`
+        INSERT INTO investigation_bookings (
+          patient_id, patient_phone, patient_name,
+          selected_tests, custom_test_names, slip_photo_key, notes,
+          collection_type, collection_address, collection_landmark,
+          collection_lat, collection_lng,
+          preferred_date, preferred_time_slot,
+          estimated_cost, appointment_id, tenant_id
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15,$16,$17::uuid)
+        RETURNING id, booking_number, patient_id, patient_name, patient_phone,
+          selected_tests, custom_test_names, slip_photo_key, notes,
+          collection_type, collection_address, collection_landmark,
+          preferred_date, preferred_time_slot, estimated_cost,
+          appointment_id, status, tenant_id, created_at, updated_at
+      `,
+        patientId, patientRow?.phone, patientRow?.name,
+        parsedTests || null, custom_test_names || null, slipPhotoKey, notes || null,
+        collection_type || 'home', collection_address || null, collection_landmark || null,
+        collection_lat || null, collection_lng || null,
+        preferred_date || null, preferred_time_slot || null,
+        estimatedCost || null, resolvedAppointmentId, tenantId
+      );
+        await tx.$queryRawUnsafe(
+          `INSERT INTO investigation_booking_history (booking_id, to_status, changed_by, changed_by_role, notes, tenant_id)
+           VALUES ($1, 'BOOKED', $2, $3, 'Investigation booked', $4::uuid)`,
+          rows[0].id,
+          patientId,
+          req.user?.role || 'PATIENT',
+          tenantId,
+        );
+        await recordRequiredBookingEvent(tx, rows[0], {
+          eventType: 'investigation.booking_created',
+          actorUid: req.user?.uid || patientRow.uid || null,
+          actorRole: req.user?.role || 'PATIENT',
+          summary: `Investigation booking ${rows[0].booking_number || rows[0].id} created`,
+          payload: {
+            selected_tests: parsedTests || [],
+            custom_test_names: custom_test_names || null,
+            collection_type: rows[0].collection_type,
+            appointment_id: resolvedAppointmentId,
+          },
+        });
+        return rows;
+      });
+    } catch (transactionError) {
+      if (slipPhotoKey) {
+        await deleteObject(slipPhotoKey).catch((cleanupError) => {
+          logger.warn(`Failed to clean up uncommitted investigation slip ${slipPhotoKey}: ${cleanupError.message}`);
+        });
+      }
+      throw transactionError;
+    }
 
     // Alert lab staff (fire-and-forget)
     setImmediate(async () => {
@@ -359,24 +437,40 @@ export const confirmBooking = async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
     const { confirmation_notes, actual_tests, final_cost } = req.body;
+    const tenantId = resolveTenantOrThrow(req);
 
-    const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', id);
+    const booking = await prisma.$queryRawUnsafe('SELECT id, booking_number, investigation_id, patient_id, patient_name, patient_phone, test_name, collection_type, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1 AND tenant_id=$2::uuid', id, tenantId);
     if (!booking.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     if (booking[0].status !== 'BOOKED') return error(res, 'Can only confirm BOOKED bookings', HTTP_STATUS.BAD_REQUEST);
 
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE investigation_bookings SET
-        status='CONFIRMED', confirmed_by=$1, confirmed_at=NOW(),
-        confirmation_notes=$2, actual_tests=$3, final_cost=COALESCE($4, estimated_cost),
-        sla_dispatch_target=NOW()+INTERVAL '1 hour',
-        updated_at=NOW()
-      WHERE id=$5 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
-    `, staffId, confirmation_notes, actual_tests, final_cost, id);
-
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role, notes) VALUES ($1,'BOOKED','CONFIRMED',$2,'lab_staff',$3)`,
-      id, staffId, confirmation_notes
-    );
+    const result = await setTenantTx(tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(`
+        UPDATE investigation_bookings SET
+          status='CONFIRMED', confirmed_by=$1, confirmed_at=NOW(),
+          confirmation_notes=$2, actual_tests=$3, final_cost=COALESCE($4, estimated_cost),
+          sla_dispatch_target=NOW()+INTERVAL '1 hour',
+          updated_at=NOW()
+        WHERE id=$5 AND tenant_id=$6::uuid
+        RETURNING id, booking_number, investigation_id, patient_id, patient_name, patient_phone,
+          test_name, status, scheduled_date, phlebotomist_id, notes, final_cost,
+          tenant_id, created_at, updated_at
+      `, staffId, confirmation_notes, actual_tests, final_cost, id, tenantId);
+      await tx.$queryRawUnsafe(
+        `INSERT INTO investigation_booking_history
+           (booking_id, from_status, to_status, changed_by, changed_by_role, notes, tenant_id)
+         VALUES ($1,'BOOKED','CONFIRMED',$2,'lab_staff',$3,$4::uuid)`,
+        id, staffId, confirmation_notes, tenantId
+      );
+      await recordRequiredBookingEvent(tx, rows[0], {
+        eventType: 'investigation.booking_confirmed',
+        actorUid: req.user?.uid || null,
+        actorRole: req.user?.role || null,
+        previousStatus: 'BOOKED',
+        summary: `Investigation booking ${rows[0].booking_number || id} confirmed`,
+        payload: { actual_tests: actual_tests || [], final_cost: rows[0].final_cost || null },
+      });
+      return rows;
+    });
 
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
@@ -410,27 +504,56 @@ export const dispatchCollector = async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
     const { assigned_collector, collector_phone, notes: dispatchNotes } = req.body;
+    const tenantId = resolveTenantOrThrow(req);
 
-    const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', id);
+    const booking = await prisma.$queryRawUnsafe(
+      `SELECT id, booking_number, investigation_id, patient_id, patient_name, patient_phone,
+              test_name, collection_lat, collection_lng, status, scheduled_date,
+              phlebotomist_id, notes, tenant_id, created_at, updated_at
+         FROM investigation_bookings
+        WHERE id=$1 AND tenant_id=$2::uuid`,
+      id,
+      tenantId,
+    );
     if (!booking.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     if (booking[0].status !== 'CONFIRMED') return error(res, 'Must be CONFIRMED first', HTTP_STATUS.BAD_REQUEST);
 
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE investigation_bookings SET
-        status='DISPATCHED', assigned_collector=$1, dispatched_at=NOW(),
-        collector_phone=$2, sla_collect_target=NOW()+INTERVAL '2 hours',
-        updated_at=NOW()
-      WHERE id=$3 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
-    `, assigned_collector || staffId, collector_phone, id);
-
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role, notes) VALUES ($1,'CONFIRMED','DISPATCHED',$2,'lab_staff',$3)`,
-      id, staffId, dispatchNotes || 'Collector dispatched'
-    );
-
     // Calculate ETA based on collection destination
     const eta = calculateETA(booking[0].collection_lat, booking[0].collection_lng);
-    await prisma.$queryRawUnsafe(`UPDATE investigation_bookings SET estimated_collection_mins=$1, collection_distance_km=$2, collection_tracking_active=TRUE WHERE id=$3`, eta.estimated_mins, eta.distance_km, id);
+    const result = await setTenantTx(tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(`
+        UPDATE investigation_bookings SET
+          status='DISPATCHED', assigned_collector=$1, dispatched_at=NOW(),
+          collector_phone=$2, sla_collect_target=NOW()+INTERVAL '2 hours',
+          estimated_collection_mins=$3, collection_distance_km=$4,
+          collection_tracking_active=TRUE, updated_at=NOW()
+        WHERE id=$5 AND tenant_id=$6::uuid AND status='CONFIRMED'
+        RETURNING id, booking_number, investigation_id, patient_id, patient_name,
+          patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes,
+          tenant_id, created_at, updated_at
+      `, assigned_collector || staffId, collector_phone, eta.estimated_mins, eta.distance_km, id, tenantId);
+      if (!rows.length) throw AppError.conflict('Booking status changed before dispatch', 'BOOKING_STATUS_CHANGED');
+      await tx.$queryRawUnsafe(
+        `INSERT INTO investigation_booking_history
+           (booking_id, from_status, to_status, changed_by, changed_by_role, notes, tenant_id)
+         VALUES ($1,'CONFIRMED','DISPATCHED',$2,'lab_staff',$3,$4::uuid)`,
+        id, staffId, dispatchNotes || 'Collector dispatched', tenantId
+      );
+      await recordRequiredBookingEvent(tx, rows[0], {
+        eventType: 'investigation.collector_dispatched',
+        actorUid: req.user?.uid || null,
+        actorRole: req.user?.role || null,
+        previousStatus: 'CONFIRMED',
+        summary: `Collector dispatched for investigation booking ${rows[0].booking_number || id}`,
+        payload: {
+          assigned_collector: assigned_collector || staffId,
+          estimated_collection_mins: eta.estimated_mins,
+          collection_distance_km: eta.distance_km,
+          notes: dispatchNotes || null,
+        },
+      });
+      return rows;
+    });
 
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
@@ -461,20 +584,44 @@ export const markCollected = async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
     const { collection_notes } = req.body;
+    const tenantId = resolveTenantOrThrow(req);
 
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE investigation_bookings SET
-        status='COLLECTED', collected_at=NOW(), collected_by=$1,
-        collection_notes=$2, collection_tracking_active=FALSE, updated_at=NOW()
-      WHERE id=$3 AND status IN ('DISPATCHED','CONFIRMED') RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
-    `, staffId, collection_notes, id);
+    const result = await setTenantTx(tenantId, async (tx) => {
+      const previous = await tx.$queryRawUnsafe(
+        `SELECT id, status FROM investigation_bookings
+          WHERE id=$1 AND tenant_id=$2::uuid AND status IN ('DISPATCHED','CONFIRMED')
+          FOR UPDATE`,
+        id,
+        tenantId,
+      );
+      if (!previous.length) return [];
+      const rows = await tx.$queryRawUnsafe(`
+        UPDATE investigation_bookings SET
+          status='COLLECTED', collected_at=NOW(), collected_by=$1,
+          collection_notes=$2, collection_tracking_active=FALSE, updated_at=NOW()
+        WHERE id=$3 AND tenant_id=$4::uuid
+        RETURNING id, booking_number, investigation_id, patient_id, patient_name,
+          patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes,
+          tenant_id, created_at, updated_at
+      `, staffId, collection_notes, id, tenantId);
+      await tx.$queryRawUnsafe(
+        `INSERT INTO investigation_booking_history
+           (booking_id, from_status, to_status, changed_by, changed_by_role, notes, tenant_id)
+         VALUES ($1,$2,'COLLECTED',$3,'lab_staff',$4,$5::uuid)`,
+        id, previous[0].status, staffId, collection_notes || 'Samples collected', tenantId
+      );
+      await recordRequiredBookingEvent(tx, rows[0], {
+        eventType: 'investigation.sample_collected',
+        actorUid: req.user?.uid || null,
+        actorRole: req.user?.role || null,
+        previousStatus: previous[0].status,
+        summary: `Samples collected for investigation booking ${rows[0].booking_number || id}`,
+        payload: { collection_notes: collection_notes || null },
+      });
+      return rows;
+    });
 
     if (!result.length) return error(res, 'Not found or wrong status', HTTP_STATUS.BAD_REQUEST);
-
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role, notes) VALUES ($1,$2,'COLLECTED',$3,'lab_staff',$4)`,
-      id, 'DISPATCHED', staffId, collection_notes || 'Samples collected'
-    );
 
     success(res, result[0], 'Samples collected');
   } catch (e) {
@@ -488,9 +635,18 @@ export const startProcessing = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
+    const tenantId = resolveTenantOrThrow(req);
 
-    const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', id);
+    const booking = await prisma.$queryRawUnsafe(
+      `SELECT id, booking_number, investigation_id, patient_id, patient_name, patient_phone,
+              test_name, selected_tests, status, scheduled_date, phlebotomist_id, notes,
+              tenant_id, created_at, updated_at
+         FROM investigation_bookings WHERE id=$1 AND tenant_id=$2::uuid`,
+      id,
+      tenantId,
+    );
     if (!booking.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    if (booking[0].status !== 'COLLECTED') return error(res, 'Must be COLLECTED first', HTTP_STATUS.BAD_REQUEST);
 
     // Calculate SLA target based on test turnaround
     let maxTAT = 24;
@@ -499,18 +655,34 @@ export const startProcessing = async (req, res) => {
       maxTAT = parseInt(tat[0]?.max_tat) || 24;
     }
 
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE investigation_bookings SET
-        status='PROCESSING', processing_started_at=NOW(),
-        sla_result_target=NOW()+INTERVAL '1 hour' * $2,
-        updated_at=NOW()
-      WHERE id=$1 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
-    `, id, maxTAT);
-
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,'COLLECTED','PROCESSING',$2,'lab_staff')`,
-      id, staffId
-    );
+    const result = await setTenantTx(tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(`
+        UPDATE investigation_bookings SET
+          status='PROCESSING', processing_started_at=NOW(),
+          sla_result_target=NOW()+INTERVAL '1 hour' * $2,
+          updated_at=NOW()
+        WHERE id=$1 AND tenant_id=$3::uuid AND status='COLLECTED'
+        RETURNING id, booking_number, investigation_id, patient_id, patient_name,
+          patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes,
+          tenant_id, created_at, updated_at
+      `, id, maxTAT, tenantId);
+      if (!rows.length) throw AppError.conflict('Booking status changed before processing', 'BOOKING_STATUS_CHANGED');
+      await tx.$queryRawUnsafe(
+        `INSERT INTO investigation_booking_history
+           (booking_id, from_status, to_status, changed_by, changed_by_role, tenant_id)
+         VALUES ($1,'COLLECTED','PROCESSING',$2,'lab_staff',$3::uuid)`,
+        id, staffId, tenantId
+      );
+      await recordRequiredBookingEvent(tx, rows[0], {
+        eventType: 'investigation.processing_started',
+        actorUid: req.user?.uid || null,
+        actorRole: req.user?.role || null,
+        previousStatus: 'COLLECTED',
+        summary: `Processing started for investigation booking ${rows[0].booking_number || id}`,
+        payload: { turnaround_target_hours: maxTAT },
+      });
+      return rows;
+    });
 
     success(res, result[0], 'Processing started');
   } catch (e) {
@@ -525,10 +697,18 @@ export const uploadResult = async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
     const { result_notes } = req.body;
+    const tenantId = resolveTenantOrThrow(req);
 
     if (!req.file) return error(res, 'Result file is required', HTTP_STATUS.BAD_REQUEST);
 
-    const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', id);
+    const booking = await prisma.$queryRawUnsafe(
+      `SELECT id, booking_number, investigation_id, patient_id, patient_name, patient_phone,
+              test_name, status, scheduled_date, phlebotomist_id, notes, tenant_id,
+              created_at, updated_at
+         FROM investigation_bookings WHERE id=$1 AND tenant_id=$2::uuid`,
+      id,
+      tenantId,
+    );
     if (!booking.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     // Chip-G — block silent overwrite of an already-uploaded result.
@@ -551,21 +731,43 @@ export const uploadResult = async (req, res) => {
     const ext = req.file.originalname?.split('.').pop() || 'pdf';
     const fileKey = `investigations/results/${id}/${timestamp}.${ext}`;
 
+    await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
+
+    let result;
     try {
-      await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
-    } catch (e) { logger.warn('Result upload failed:', e.message); }
-
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE investigation_bookings SET
-        status='RESULT_READY', result_uploaded_at=NOW(), result_uploaded_by=$1,
-        result_file_key=$2, result_notes=$3, updated_at=NOW()
-      WHERE id=$4 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
-    `, staffId, fileKey, result_notes, id);
-
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role, notes) VALUES ($1,'PROCESSING','RESULT_READY',$2,'lab_staff','Result uploaded')`,
-      id, staffId
-    );
+      result = await setTenantTx(tenantId, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(`
+          UPDATE investigation_bookings SET
+            status='RESULT_READY', result_uploaded_at=NOW(), result_uploaded_by=$1,
+            result_file_key=$2, result_notes=$3, updated_at=NOW()
+          WHERE id=$4 AND tenant_id=$5::uuid AND status='PROCESSING'
+          RETURNING id, booking_number, investigation_id, patient_id, patient_name,
+            patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes,
+            tenant_id, created_at, updated_at
+        `, staffId, fileKey, result_notes, id, tenantId);
+        if (!rows.length) throw AppError.conflict('Booking status changed before result upload', 'BOOKING_STATUS_CHANGED');
+        await tx.$queryRawUnsafe(
+          `INSERT INTO investigation_booking_history
+             (booking_id, from_status, to_status, changed_by, changed_by_role, notes, tenant_id)
+           VALUES ($1,'PROCESSING','RESULT_READY',$2,'lab_staff','Result uploaded',$3::uuid)`,
+          id, staffId, tenantId
+        );
+        await recordRequiredBookingEvent(tx, rows[0], {
+          eventType: 'investigation.result_ready',
+          actorUid: req.user?.uid || null,
+          actorRole: req.user?.role || null,
+          previousStatus: 'PROCESSING',
+          summary: `Results ready for investigation booking ${rows[0].booking_number || id}`,
+          payload: { result_file_key: fileKey, result_notes: result_notes || null },
+        });
+        return rows;
+      });
+    } catch (transactionError) {
+      await deleteObject(fileKey).catch((cleanupError) => {
+        logger.warn(`Failed to clean up uncommitted investigation result ${fileKey}: ${cleanupError.message}`);
+      });
+      throw transactionError;
+    }
 
     // Notify patient (fire-and-forget)
     setImmediate(async () => {

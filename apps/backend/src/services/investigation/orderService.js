@@ -11,18 +11,22 @@ import {
   PRIORITY_LEVELS,
   PRIORITY_TURNAROUND_HOURS,
 } from '../../config/investigationConfig.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
-async function bestEffortInvestigationCanonical(label, input) {
-  try {
-    return await recordCanonicalClinicalEvent(input);
-  } catch (err) {
-    logger.warn(`Canonical investigation event failed during ${label}: ${err?.message || err}`);
-    return null;
+async function recordRequiredInvestigationEvent(input, tx) {
+  const event = await recordCanonicalClinicalEvent(input, { db: tx });
+  if (!event?.timeline?.id || !event?.audit?.id) {
+    throw AppError.internal(
+      'Investigation write requires canonical timeline and audit events',
+      'INVESTIGATION_CANONICAL_EVENT_REQUIRED',
+    );
   }
+  return event;
 }
 
 // Subset of investigations columns the caller gets back. Shared between the
@@ -53,9 +57,10 @@ const INVESTIGATION_SELECT = {
 export const createInvestigationOrder = async (orderData) => {
   const {
     patient_id, appointment_id, doctor_uid, test_name, test_code, type,
-    priority = 'NORMAL', notes, orderedBy,
+    priority = 'NORMAL', notes, orderedBy, actorRole = null,
     collection_location, collection_deadline_at,
     fasting_required, fasting_instructions,
+    tenantId = null,
   } = orderData;
 
   if (!patient_id || !(doctor_uid || orderedBy) || !test_name || !type) {
@@ -93,9 +98,13 @@ export const createInvestigationOrder = async (orderData) => {
 
   // Prisma ORM — column names checked at runtime against schema.prisma so a
   // typo like `.findUnique({ where: { user_id: ... } })` fails loudly.
-  const patient = await prisma.users.findUnique({
-    where: { id: parseInt(patient_id) },
-    select: { id: true, uid: true, name: true, phone: true },
+  const patient = await prisma.users.findFirst({
+    where: {
+      id: parseInt(patient_id),
+      role: 'PATIENT',
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+    },
+    select: { id: true, uid: true, name: true, phone: true, tenant_id: true },
   });
   if (!patient) {
     const e = new Error('PATIENT_NOT_FOUND');
@@ -113,8 +122,8 @@ export const createInvestigationOrder = async (orderData) => {
       e.code = 'INVALID_APPOINTMENT_ID';
       throw e;
     }
-    const appointment = await prisma.appointments.findUnique({
-      where: { id: appointmentIdNum },
+    const appointment = await prisma.appointments.findFirst({
+      where: { id: appointmentIdNum, tenant_id: patient.tenant_id },
       select: { id: true, patient_id: true, doctor_id: true, status: true },
     });
     if (!appointment) {
@@ -212,6 +221,7 @@ export const createInvestigationOrder = async (orderData) => {
   const cleanFastingInstructions = fasting_instructions != null && String(fasting_instructions).trim()
     ? String(fasting_instructions).trim()
     : (!effectiveFastingRequired && needsSampleCollection ? 'No fasting required unless the care team tells you otherwise.' : null);
+  const effectiveTenantId = requireTenantId(patient.tenant_id || tenantId);
 
   // Soft duplicate-order guard — warn, never block. OB investigation
   // order sets are gestational-age-specific (18w anomaly scan, 24w GDM
@@ -228,6 +238,7 @@ export const createInvestigationOrder = async (orderData) => {
               requested_at, completed_at
          FROM investigations
         WHERE patient_id = $1::int
+          AND tenant_id = $4::uuid
           AND requested_at >= NOW() - INTERVAL '60 days'
           AND status <> 'CANCELLED'
           AND (
@@ -239,6 +250,7 @@ export const createInvestigationOrder = async (orderData) => {
       parseInt(patient_id, 10),
       resolvedTestCode,
       String(test_name).trim(),
+      effectiveTenantId,
     );
     if (priorRows.length) {
       const prior = priorRows[0];
@@ -260,27 +272,55 @@ export const createInvestigationOrder = async (orderData) => {
     logger.warn(`investigation duplicate-order check failed: ${err.message}`);
   }
 
-  const investigation = await prisma.investigations.create({
-    data: {
-      phone: patient.phone || 'unknown',
-      patient_id: parseInt(patient_id),
-      patient_uid: patient.uid || null,
-      appointment_id: appointmentIdNum,
-      test_name,
-      test_code: resolvedTestCode,
-      test_type: typeUpper,
-      status: 'REQUESTED',
-      priority: priorityUpper,
-      turnaround_target_hours: turnaroundHours,
-      requested_by: requesterUuid,
-      updated_at: now,
-      notes: trimmedNotes,
-      collection_location: cleanCollectionLocation,
-      collection_deadline_at: effectiveDeadline,
-      fasting_required: effectiveFastingRequired,
-      fasting_instructions: cleanFastingInstructions,
-    },
-    select: INVESTIGATION_SELECT,
+  const investigation = await setTenantTx(effectiveTenantId, async (tx) => {
+    const created = await tx.investigations.create({
+      data: {
+        phone: patient.phone || 'unknown',
+        patient_id: parseInt(patient_id),
+        patient_uid: patient.uid,
+        tenant_id: effectiveTenantId,
+        appointment_id: appointmentIdNum,
+        test_name,
+        test_code: resolvedTestCode,
+        test_type: typeUpper,
+        status: 'REQUESTED',
+        priority: priorityUpper,
+        turnaround_target_hours: turnaroundHours,
+        requested_by: requesterUuid,
+        updated_at: now,
+        notes: trimmedNotes,
+        collection_location: cleanCollectionLocation,
+        collection_deadline_at: effectiveDeadline,
+        fasting_required: effectiveFastingRequired,
+        fasting_instructions: cleanFastingInstructions,
+      },
+      select: { ...INVESTIGATION_SELECT, tenant_id: true },
+    });
+
+    await recordRequiredInvestigationEvent({
+      tenantId: created.tenant_id,
+      patientUid: created.patient_uid,
+      eventType: 'investigation.ordered',
+      eventSubtype: created.test_type,
+      eventStatus: created.status,
+      sourceTable: 'investigations',
+      sourceId: created.id,
+      resourceType: 'investigation',
+      resourceId: created.id,
+      actorUid: created.requested_by,
+      actorRole,
+      summary: `${created.test_name} ordered`,
+      payload: {
+        test_name: created.test_name,
+        test_code: resolvedTestCode,
+        test_type: created.test_type,
+        priority: created.priority,
+        appointment_id: created.appointment_id,
+        duplicate_warning: duplicateWarning,
+      },
+      afterState: created,
+    }, tx);
+    return created;
   });
 
   // Notification is best-effort. uid is populated client-side via randomUUID
@@ -298,28 +338,6 @@ export const createInvestigationOrder = async (orderData) => {
     },
   }).catch((err) => logger.warn(`investigation notification insert failed: ${err.message}`));
 
-  await bestEffortInvestigationCanonical('investigation order', {
-    patientUid: investigation.patient_uid,
-    eventType: 'investigation.ordered',
-    eventSubtype: investigation.test_type,
-    eventStatus: investigation.status,
-    sourceTable: 'investigations',
-    sourceId: investigation.id,
-    resourceType: 'investigation',
-    resourceId: investigation.id,
-    actorUid: investigation.requested_by,
-    summary: `${investigation.test_name} ordered`,
-    payload: {
-      test_name: investigation.test_name,
-      test_code: resolvedTestCode,
-      test_type: investigation.test_type,
-      priority: investigation.priority,
-      appointment_id: investigation.appointment_id,
-      duplicate_warning: duplicateWarning,
-    },
-    afterState: investigation,
-  });
-
   logger.info(`Investigation ordered: ${test_name} for patient ${patient_id} by ${requesterUuid}`);
 
   return {
@@ -329,7 +347,18 @@ export const createInvestigationOrder = async (orderData) => {
   };
 };
 
-export const createLegacyInvestigation = async ({ phone, test_name, file_key, createdBy, tenantId = null }) => {
+export const createLegacyInvestigation = async ({
+  phone,
+  test_name,
+  file_key,
+  createdBy,
+  actorRole = null,
+  tenantId = null,
+  result_summary = null,
+  results = null,
+  notes = null,
+  completed = false,
+}) => {
   const now = new Date();
 
   // Resolve patient by phone so legacy investigation rows still get
@@ -341,6 +370,7 @@ export const createLegacyInvestigation = async ({ phone, test_name, file_key, cr
   // 2026-05-09-inpatient-admission-lab-tech-ipd-orders-patient-uid-null.
   let patientId = null;
   let patientUid = null;
+  let patientTenantId = null;
   if (phone) {
     const patient = await prisma.users.findFirst({
       where: {
@@ -348,38 +378,81 @@ export const createLegacyInvestigation = async ({ phone, test_name, file_key, cr
         ...(tenantId ? { tenant_id: tenantId } : {}),
         role: 'PATIENT',
       },
-      select: { id: true, uid: true },
+      select: { id: true, uid: true, tenant_id: true },
       orderBy: { id: 'asc' },
     });
     if (patient) {
       patientId = patient.id;
       patientUid = patient.uid || null;
+      patientTenantId = patient.tenant_id;
     }
   }
 
-  const investigation = await prisma.investigations.create({
-    data: {
-      phone,
-      patient_id: patientId,
-      patient_uid: patientUid,
-      test_name,
-      file_key: file_key ?? null,
-      status: 'REQUESTED',
-      requested_by: createdBy ?? null,
-      ...(tenantId ? { tenant_id: tenantId } : {}),
-      updated_at: now,
-    },
-    select: {
-      id: true,
-      phone: true,
-      patient_id: true,
-      patient_uid: true,
-      test_name: true,
-      file_key: true,
-      status: true,
-      requested_by: true,
-      requested_at: true,
-    },
+  if (!patientUid) {
+    const err = new Error('PATIENT_NOT_FOUND');
+    err.statusCode = 404;
+    err.code = 'PATIENT_NOT_FOUND';
+    throw err;
+  }
+
+  const effectiveTenantId = requireTenantId(patientTenantId || tenantId);
+  const investigation = await setTenantTx(effectiveTenantId, async (tx) => {
+    const created = await tx.investigations.create({
+      data: {
+        phone,
+        patient_id: patientId,
+        patient_uid: patientUid,
+        tenant_id: effectiveTenantId,
+        test_name,
+        file_key: file_key ?? null,
+        status: completed ? 'COMPLETED' : 'REQUESTED',
+        requested_by: createdBy ?? null,
+        result_summary: result_summary || null,
+        results: results || null,
+        notes: notes || null,
+        completed_at: completed ? now : null,
+        result_uploaded_at: completed ? now : null,
+        updated_at: now,
+      },
+      select: {
+        id: true,
+        phone: true,
+        patient_id: true,
+        patient_uid: true,
+        tenant_id: true,
+        test_name: true,
+        file_key: true,
+        status: true,
+        result_summary: true,
+        results: true,
+        notes: true,
+        requested_by: true,
+        requested_at: true,
+        completed_at: true,
+      },
+    });
+    const eventType = completed ? 'investigation.result_ready' : 'investigation.ordered';
+    await recordRequiredInvestigationEvent({
+      tenantId: created.tenant_id,
+      patientUid: created.patient_uid,
+      eventType,
+      eventStatus: created.status,
+      sourceTable: 'investigations',
+      sourceId: created.id,
+      resourceType: 'investigation',
+      resourceId: created.id,
+      actorUid: created.requested_by,
+      actorRole,
+      summary: completed ? `${created.test_name} result ready` : `${created.test_name} ordered`,
+      payload: {
+        test_name: created.test_name,
+        file_key: created.file_key,
+        result_summary: created.result_summary,
+        source: 'staff_app_legacy',
+      },
+      afterState: created,
+    }, tx);
+    return created;
   });
 
   await prisma.notifications.create({

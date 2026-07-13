@@ -4,8 +4,11 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads/investigations';
 const ALLOWED_FILE_TYPES = ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx'];
@@ -19,7 +22,56 @@ async function ensureUploadDir() {
   }
 }
 
-export const uploadInvestigationFile = async (investigationId, file, uploadedBy) => {
+async function recordRequiredFileEvent(tx, investigation, file, {
+  eventType,
+  actorUid,
+  actorRole,
+  summary,
+  beforeState = null,
+  afterState = null,
+}) {
+  const fileState = {
+    ...file,
+    file_size: file.file_size == null ? null : String(file.file_size),
+  };
+  const event = await recordCanonicalClinicalEvent({
+    tenantId: investigation.tenant_id,
+    patientUid: investigation.patient_uid,
+    eventType,
+    eventSubtype: investigation.test_type || investigation.type || null,
+    eventStatus: investigation.status,
+    sourceTable: 'investigation_files',
+    sourceId: file.id,
+    resourceType: 'investigation_file',
+    resourceId: file.id,
+    actorUid,
+    actorRole,
+    summary,
+    payload: {
+      investigation_id: investigation.id,
+      file_name: file.file_name,
+      file_type: file.file_type,
+      file_size: fileState.file_size,
+    },
+    beforeState: beforeState ? fileState : null,
+    afterState: afterState ? fileState : null,
+    timelineIdempotencyKey: `investigation_files:${file.id}:${eventType}`,
+    auditIdempotencyKey: `investigation_files:${file.id}:audit:${eventType}`,
+  }, { db: tx });
+  if (!event?.timeline?.id || !event?.audit?.id) {
+    throw AppError.internal(
+      'Investigation file write requires canonical timeline and audit events',
+      'INVESTIGATION_FILE_CANONICAL_EVENT_REQUIRED',
+    );
+  }
+}
+
+export const uploadInvestigationFile = async (
+  investigationId,
+  file,
+  uploadedBy,
+  { tenantId = null, actorRole = null } = {},
+) => {
   await ensureUploadDir();
 
   const fileExt = path.extname(file.originalname).toLowerCase();
@@ -32,10 +84,20 @@ export const uploadInvestigationFile = async (investigationId, file, uploadedBy)
   }
 
   // Check if investigation exists
+  const effectiveTenantId = requireTenantId(tenantId);
   const rows = await prisma.$queryRaw`
-    SELECT id FROM investigations WHERE id = ${parseInt(investigationId)}
+    SELECT id, tenant_id, patient_uid, test_name, test_type, type, status
+      FROM investigations
+     WHERE id = ${parseInt(investigationId)}
+       AND tenant_id = ${effectiveTenantId}::uuid
   `;
   if (rows.length === 0) throw new Error('Investigation not found');
+  if (!rows[0].patient_uid) {
+    throw AppError.conflict(
+      'Investigation is not linked to a patient timeline',
+      'INVESTIGATION_PATIENT_REQUIRED',
+    );
+  }
 
   const timestamp = Date.now();
   const randomString = crypto.randomBytes(8).toString('hex');
@@ -45,15 +107,26 @@ export const uploadInvestigationFile = async (investigationId, file, uploadedBy)
   try {
     await fs.writeFile(filePath, file.buffer);
 
-    const result = await prisma.investigation_files.create({
-      data: {
-        investigation_id: parseInt(investigationId),
-        file_name: file.originalname,
-        file_path: filePath,
-        file_type: fileExt,
-        file_size: BigInt(file.size),
-        uploaded_by: uploadedBy ? uploadedBy : null,
-      },
+    const result = await setTenantTx(effectiveTenantId, async (tx) => {
+      const created = await tx.investigation_files.create({
+        data: {
+          investigation_id: parseInt(investigationId),
+          file_name: file.originalname,
+          file_path: filePath,
+          file_type: fileExt,
+          file_size: BigInt(file.size),
+          uploaded_by: uploadedBy || null,
+          tenant_id: effectiveTenantId,
+        },
+      });
+      await recordRequiredFileEvent(tx, rows[0], created, {
+        eventType: 'investigation.file_uploaded',
+        actorUid: uploadedBy,
+        actorRole,
+        summary: `File uploaded for ${rows[0].test_name}`,
+        afterState: created,
+      });
+      return created;
     });
 
     logger.info(`File uploaded for investigation ${investigationId}: ${fileName}`);
@@ -86,19 +159,51 @@ export const getFileById = async (fileId) => {
   });
 };
 
-export const deleteFile = async (fileId, deletedBy) => {
-  const file = await prisma.investigation_files.findUnique({
-    where: { id: parseInt(fileId) },
-    select: {
-      id: true, investigation_id: true, file_name: true,
-      file_path: true, file_type: true, file_size: true,
-      uploaded_by: true, created_at: true,
-    },
-  });
+export const deleteFile = async (
+  fileId,
+  deletedBy,
+  { tenantId = null, actorRole = null } = {},
+) => {
+  const effectiveTenantId = requireTenantId(tenantId);
+  const files = await prisma.$queryRaw`
+    SELECT f.id, f.investigation_id, f.file_name, f.file_path, f.file_type,
+           f.file_size, f.uploaded_by, f.created_at, f.tenant_id,
+           i.patient_uid, i.test_name, i.test_type, i.type, i.status
+      FROM investigation_files f
+      JOIN investigations i ON i.id = f.investigation_id
+       AND i.tenant_id = f.tenant_id
+     WHERE f.id = ${parseInt(fileId)}
+       AND f.tenant_id = ${effectiveTenantId}::uuid
+     LIMIT 1
+  `;
+  const file = files[0];
 
   if (!file) throw new Error('File not found');
+  if (!file.patient_uid) {
+    throw AppError.conflict(
+      'Investigation is not linked to a patient timeline',
+      'INVESTIGATION_PATIENT_REQUIRED',
+    );
+  }
 
-  await prisma.investigation_files.delete({ where: { id: parseInt(fileId) } });
+  await setTenantTx(effectiveTenantId, async (tx) => {
+    await tx.investigation_files.delete({ where: { id: parseInt(fileId) } });
+    await recordRequiredFileEvent(tx, {
+      id: file.investigation_id,
+      tenant_id: file.tenant_id,
+      patient_uid: file.patient_uid,
+      test_name: file.test_name,
+      test_type: file.test_type,
+      type: file.type,
+      status: file.status,
+    }, file, {
+      eventType: 'investigation.file_deleted',
+      actorUid: deletedBy,
+      actorRole,
+      summary: `File deleted from ${file.test_name}`,
+      beforeState: file,
+    });
+  });
 
   if (file.file_path) {
     try { await fs.unlink(file.file_path); } catch (_e) { /* ignore */ }
