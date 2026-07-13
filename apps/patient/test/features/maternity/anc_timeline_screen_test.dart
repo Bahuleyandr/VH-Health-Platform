@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:vhhealth/features/maternity/models/anc_timeline.dart';
 import 'package:vhhealth/features/maternity/screens/anc_timeline_screen.dart';
 import 'package:vhhealth/features/maternity/services/maternity_repository.dart';
@@ -71,6 +72,12 @@ void main() {
   testWidgets(
     'renders only future or active booked visits and recorded BP/weight',
     (tester) async {
+      final now = DateTime.now();
+      final semanticFutureDate = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).add(const Duration(days: 20));
       tester.view.physicalSize = const Size(1080, 3000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -79,15 +86,15 @@ void main() {
       await tester.pumpWidget(
         _LocalizedHarness(
           child: AncTimelineScreen(
-            repository: _FakeMaternityRepository(_factsTimeline()),
+            repository: _FakeMaternityRepository(_factsTimeline(now)),
             reminderScheduler: _FakeAncSupplementReminderScheduler(),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      // Future scheduled + in-progress bookings render with their factual
-      // booking details.
+      // Future scheduled + active attendance bookings render with their
+      // factual booking details.
       expect(find.text('Booked visits'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('anc_booked_visit_501')),
@@ -97,11 +104,30 @@ void main() {
         find.byKey(const ValueKey('anc_booked_visit_504')),
         findsOneWidget,
       );
+      expect(
+        find.byKey(const ValueKey('anc_booked_visit_505')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('anc_booked_visit_506')),
+        findsOneWidget,
+      );
       expect(find.textContaining('10:30'), findsOneWidget);
       expect(find.textContaining('Obstetrics'), findsOneWidget);
       expect(find.textContaining('Reason: ANC review'), findsOneWidget);
       expect(find.text('Scheduled'), findsOneWidget);
       expect(find.text('In progress'), findsOneWidget);
+      expect(find.text('Checked in'), findsOneWidget);
+      expect(find.text('Waiting'), findsOneWidget);
+
+      // The appointment's backend date remains the displayed calendar day;
+      // its attached offset must not move it into the following day.
+      final expectedDate = DateFormat.yMMMd('en').format(semanticFutureDate);
+      final shiftedDate = DateFormat.yMMMd(
+        'en',
+      ).format(semanticFutureDate.add(const Duration(days: 1)));
+      expect(find.textContaining(expectedDate), findsOneWidget);
+      expect(find.textContaining(shiftedDate), findsNothing);
 
       // Completed and stale past bookings never render — the completed one
       // is already represented by a recorded ANC visit.
@@ -119,6 +145,13 @@ void main() {
 
       // A row with no BP pair and no weight has nothing factual to show.
       expect(find.byKey(const ValueKey('anc_general_vital_603')), findsNothing);
+      // Readings without a valid recorded timestamp fail closed, and raw
+      // malformed timestamp text never reaches the UI.
+      expect(find.byKey(const ValueKey('anc_general_vital_604')), findsNothing);
+      expect(find.byKey(const ValueKey('anc_general_vital_605')), findsNothing);
+      expect(find.text('199/111 mmHg'), findsNothing);
+      expect(find.text('99 kg'), findsNothing);
+      expect(find.textContaining('not-a-recorded-time'), findsNothing);
     },
   );
 
@@ -297,9 +330,10 @@ String _isoDate(DateTime date) {
 
 /// Timeline exercising the F1 booked-visit filter and general-vitals facts.
 /// Booking dates are relative to today so the test never goes stale.
-AncTimelineData _factsTimeline() {
-  final now = DateTime.now();
-  final future = _isoDate(now.add(const Duration(days: 20)));
+AncTimelineData _factsTimeline(DateTime now) {
+  final future =
+      '${_isoDate(now.add(const Duration(days: 20)))}'
+      'T23:30:00-12:00';
   final past = _isoDate(now.subtract(const Duration(days: 20)));
   return AncTimelineData(
     pregnancy: const AncPregnancy(
@@ -345,6 +379,18 @@ AncTimelineData _factsTimeline() {
         status: 'IN_PROGRESS',
         department: 'Labour ward',
       ),
+      AncBookedVisit(
+        id: 505,
+        appointmentDate: past,
+        status: 'CHECKED_IN',
+        department: 'ANC reception',
+      ),
+      AncBookedVisit(
+        id: 506,
+        appointmentDate: past,
+        status: 'WAITING',
+        department: 'ANC waiting area',
+      ),
     ],
     generalVitals: const [
       AncGeneralVital(
@@ -354,8 +400,20 @@ AncTimelineData _factsTimeline() {
         diastolicBp: 76,
         weightKg: 62.4,
       ),
-      AncGeneralVital(id: 602, weightKg: 63),
+      AncGeneralVital(
+        id: 602,
+        recordedAt: '2026-07-02T09:15:00.000Z',
+        weightKg: 63,
+      ),
       AncGeneralVital(id: 603),
+      AncGeneralVital(
+        id: 604,
+        recordedAt: 'not-a-recorded-time',
+        systolicBp: 199,
+        diastolicBp: 111,
+        weightKg: 99,
+      ),
+      AncGeneralVital(id: 605, systolicBp: 188, diastolicBp: 110, weightKg: 98),
     ],
   );
 }

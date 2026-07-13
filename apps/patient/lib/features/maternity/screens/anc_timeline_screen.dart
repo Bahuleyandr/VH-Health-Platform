@@ -838,10 +838,10 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
     );
   }
 
-  /// Soonest booking first; rows without a parseable date sort last.
+  /// Soonest booking first; rows without a semantic date sort last.
   static int _compareBookedVisits(AncBookedVisit a, AncBookedVisit b) {
-    final dateA = DateTime.tryParse(a.appointmentDate ?? '');
-    final dateB = DateTime.tryParse(b.appointmentDate ?? '');
+    final dateA = a.appointmentCalendarDate;
+    final dateB = b.appointmentCalendarDate;
     if (dateA == null && dateB == null) return 0;
     if (dateA == null) return 1;
     if (dateB == null) return -1;
@@ -856,8 +856,9 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
     AncBookedVisit visit,
   ) {
     final cs = theme.colorScheme;
-    final dateLabel = visit.appointmentDate != null
-        ? _fmtDate(context, visit.appointmentDate!)
+    final appointmentDate = visit.appointmentCalendarDate;
+    final dateLabel = appointmentDate != null
+        ? _fmtCalendarDate(context, appointmentDate)
         : null;
     final timeLabel = _fmtTimeOfDay(visit.appointmentTime);
     final when = [?dateLabel, ?timeLabel].join(' • ');
@@ -917,7 +918,10 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
   }
 
   String _bookedVisitStatusLabel(String? status) {
-    return switch (AppointmentStatus.fromString(status)) {
+    final normalizedStatus = status?.trim().toUpperCase();
+    if (normalizedStatus == 'CHECKED_IN') return 'Checked in';
+    if (normalizedStatus == 'WAITING') return 'Waiting';
+    return switch (AppointmentStatus.fromString(normalizedStatus)) {
       AppointmentStatus.scheduled => 'Scheduled',
       AppointmentStatus.confirmed => 'Confirmed',
       AppointmentStatus.inProgress => 'In progress',
@@ -938,24 +942,22 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
     AppLocalizations l,
     AncGeneralVital vital,
   ) {
-    final recordedLabel = vital.recordedAt != null
-        ? _fmtDateTime(context, vital.recordedAt!)
-        : null;
+    final recordedAt = vital.recordedDateTime;
+    if (recordedAt == null) return const SizedBox.shrink();
+    final recordedLabel = _fmtDateTime(context, recordedAt);
     return Padding(
       key: vital.id != null ? ValueKey('anc_general_vital_${vital.id}') : null,
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (recordedLabel != null) ...[
-            Text(
-              recordedLabel,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
+          Text(
+            recordedLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
             ),
-            const SizedBox(height: 6),
-          ],
+          ),
+          const SizedBox(height: 6),
           Wrap(
             spacing: 16,
             runSpacing: 8,
@@ -975,13 +977,17 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
     );
   }
 
-  String _fmtDateTime(BuildContext context, String iso) {
-    final d = DateTime.tryParse(iso);
-    if (d == null) return iso;
+  String _fmtDateTime(BuildContext context, DateTime recordedAt) {
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final local = d.toLocal();
+    final local = recordedAt.toLocal();
     return '${DateFormat.yMMMd(locale).format(local)}, '
         '${DateFormat.jm(locale).format(local)}';
+  }
+
+  String _fmtCalendarDate(BuildContext context, DateTime date) {
+    return DateFormat.yMMMd(
+      Localizations.localeOf(context).toLanguageTag(),
+    ).format(date);
   }
 
   Widget _supplementTile(

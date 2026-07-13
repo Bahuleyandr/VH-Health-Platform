@@ -123,6 +123,7 @@ void main() {
       final vital = data.generalVitals.single;
       expect(vital.id, 601);
       expect(vital.recordedAt, '2026-07-01T09:15:00.000Z');
+      expect(vital.recordedDateTime, DateTime.utc(2026, 7, 1, 9, 15));
       expect(vital.systolicBp, 118);
       expect(vital.diastolicBp, 76);
       expect(vital.weightKg, 62.4);
@@ -250,7 +251,7 @@ void main() {
       );
     });
 
-    test('in-progress bookings stay visible regardless of date', () {
+    test('active attendance states stay visible regardless of date', () {
       expect(
         visit(
           status: 'IN_PROGRESS',
@@ -259,6 +260,11 @@ void main() {
         isTrue,
       );
       expect(visit(status: 'IN_PROGRESS').isUpcomingOrActive(now), isTrue);
+      expect(
+        visit(status: 'CHECKED_IN', date: '2026-07-12').isUpcomingOrActive(now),
+        isTrue,
+      );
+      expect(visit(status: 'WAITING').isUpcomingOrActive(now), isTrue);
     });
 
     test('missing or unparseable dates fail closed for scheduled rows', () {
@@ -267,22 +273,56 @@ void main() {
         visit(status: 'SCHEDULED', date: 'not-a-date').isUpcomingOrActive(now),
         isFalse,
       );
+      expect(
+        visit(
+          status: 'SCHEDULED',
+          date: '2026-07-20Tnot-a-time',
+        ).isUpcomingOrActive(now),
+        isFalse,
+      );
+    });
+
+    test('appointment date keeps its source calendar day', () {
+      final booked = visit(
+        status: 'SCHEDULED',
+        date: '2026-07-13T23:30:00-05:00',
+      );
+
+      expect(booked.appointmentCalendarDate, DateTime(2026, 7, 13));
+      expect(booked.isUpcomingOrActive(DateTime(2026, 7, 14, 0, 15)), isFalse);
+    });
+
+    test('invalid calendar dates fail closed', () {
+      expect(
+        visit(status: 'SCHEDULED', date: '2026-02-30').isUpcomingOrActive(now),
+        isFalse,
+      );
     });
   });
 
   group('AncGeneralVital readings', () {
     test('BP requires both systolic and diastolic', () {
-      const systolicOnly = AncGeneralVital(systolicBp: 118);
+      const systolicOnly = AncGeneralVital(
+        recordedAt: '2026-07-01T09:15:00.000Z',
+        systolicBp: 118,
+      );
       expect(systolicOnly.hasBloodPressure, isFalse);
       expect(systolicOnly.hasDisplayableReading, isFalse);
 
-      const both = AncGeneralVital(systolicBp: 118, diastolicBp: 76);
+      const both = AncGeneralVital(
+        recordedAt: '2026-07-01T09:15:00.000Z',
+        systolicBp: 118,
+        diastolicBp: 76,
+      );
       expect(both.hasBloodPressure, isTrue);
       expect(both.hasDisplayableReading, isTrue);
     });
 
     test('weight alone is displayable', () {
-      const weightOnly = AncGeneralVital(weightKg: 62.4);
+      const weightOnly = AncGeneralVital(
+        recordedAt: '2026-07-01T09:15:00.000Z',
+        weightKg: 62.4,
+      );
       expect(weightOnly.hasBloodPressure, isFalse);
       expect(weightOnly.hasDisplayableReading, isTrue);
     });
@@ -292,9 +332,37 @@ void main() {
       expect(empty.hasDisplayableReading, isFalse);
     });
 
+    test('missing, malformed, or date-only timestamps fail closed', () {
+      const missing = AncGeneralVital(
+        systolicBp: 118,
+        diastolicBp: 76,
+        weightKg: 62.4,
+      );
+      const malformed = AncGeneralVital(
+        recordedAt: 'not-a-recorded-time',
+        systolicBp: 118,
+        diastolicBp: 76,
+        weightKg: 62.4,
+      );
+      const dateOnly = AncGeneralVital(
+        recordedAt: '2026-07-01',
+        weightKg: 62.4,
+      );
+      const impossible = AncGeneralVital(
+        recordedAt: '2026-02-30T09:15:00Z',
+        weightKg: 62.4,
+      );
+
+      expect(missing.hasDisplayableReading, isFalse);
+      expect(malformed.hasDisplayableReading, isFalse);
+      expect(dateOnly.hasDisplayableReading, isFalse);
+      expect(impossible.hasDisplayableReading, isFalse);
+    });
+
     test('malformed numeric values parse to null instead of throwing', () {
       final vital = AncGeneralVital.fromJson(const {
         'id': 'abc',
+        'recorded_at': '2026-07-01T09:15:00.000Z',
         'systolic_bp': 'high',
         'diastolic_bp': true,
         'weight_kg': 'heavy',

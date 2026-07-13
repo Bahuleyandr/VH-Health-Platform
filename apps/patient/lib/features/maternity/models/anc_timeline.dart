@@ -237,18 +237,48 @@ class AncBookedVisit {
   final String? department;
   final String? reason;
 
+  /// The appointment's semantic calendar date, without timezone conversion.
+  ///
+  /// PostgreSQL `date` values can arrive as either `YYYY-MM-DD` or a midnight
+  /// ISO timestamp. In both cases the leading date is the booked day and must
+  /// not move when the device timezone differs from the backend timezone.
+  DateTime? get appointmentCalendarDate {
+    final raw = appointmentDate?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    final match = RegExp(
+      r'^(\d{4})-(\d{2})-(\d{2})(?:$|[T ]\d{2}:\d{2}'
+      r'(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)$',
+    ).firstMatch(raw);
+    if (match == null) return null;
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final parsed = DateTime(year, month, day);
+    if (parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+    if (raw.length > 10 && DateTime.tryParse(raw) == null) return null;
+    return parsed;
+  }
+
   /// Whether this booking should still appear on the patient timeline.
   ///
   /// Completed appointments are excluded so they are not duplicated with
   /// the recorded ANC visits; anything unparseable fails closed (hidden).
   bool isUpcomingOrActive(DateTime now) {
-    final parsedStatus = AppointmentStatus.fromString(status);
-    if (parsedStatus == null || !parsedStatus.isActive) return false;
-    if (parsedStatus == AppointmentStatus.inProgress) return true;
-    final parsedDate = DateTime.tryParse(appointmentDate ?? '');
-    if (parsedDate == null) return false;
-    final local = parsedDate.toLocal();
-    final visitDay = DateTime(local.year, local.month, local.day);
+    final normalizedStatus = status?.trim().toUpperCase();
+    final parsedStatus = AppointmentStatus.fromString(normalizedStatus);
+    if (parsedStatus == AppointmentStatus.inProgress ||
+        normalizedStatus == 'CHECKED_IN' ||
+        normalizedStatus == 'WAITING') {
+      return true;
+    }
+    if (parsedStatus != AppointmentStatus.scheduled &&
+        parsedStatus != AppointmentStatus.confirmed) {
+      return false;
+    }
+    final visitDay = appointmentCalendarDate;
+    if (visitDay == null) return false;
     final today = DateTime(now.year, now.month, now.day);
     return !visitDay.isBefore(today);
   }
@@ -289,7 +319,35 @@ class AncGeneralVital {
 
   bool get hasWeight => weightKg != null;
 
-  bool get hasDisplayableReading => hasBloodPressure || hasWeight;
+  DateTime? get recordedDateTime {
+    final raw = recordedAt?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    final match = RegExp(
+      r'^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})'
+      r'(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$',
+    ).firstMatch(raw);
+    if (match == null) return null;
+
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final hour = int.parse(match.group(4)!);
+    final minute = int.parse(match.group(5)!);
+    final second = int.tryParse(match.group(6) ?? '') ?? 0;
+    final validated = DateTime.utc(year, month, day, hour, minute, second);
+    if (validated.year != year ||
+        validated.month != month ||
+        validated.day != day ||
+        validated.hour != hour ||
+        validated.minute != minute ||
+        validated.second != second) {
+      return null;
+    }
+    return DateTime.tryParse(raw);
+  }
+
+  bool get hasDisplayableReading =>
+      recordedDateTime != null && (hasBloodPressure || hasWeight);
 
   factory AncGeneralVital.fromJson(Map<String, dynamic> json) {
     return AncGeneralVital(
