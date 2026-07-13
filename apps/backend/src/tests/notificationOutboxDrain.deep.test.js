@@ -30,6 +30,9 @@ jest.unstable_mockModule('../services/smsService.js', () => ({
 
 const { drainNotificationOutbox } = await import('../utils/scheduler.js');
 const { notificationOutbox } = await import('../utils/notifications/notificationOutbox.js');
+const { resolveRecipientTokens } = await import(
+  '../utils/notifications/notificationOutboxDelivery.js'
+);
 const prisma = (await import('../lib/prisma.js')).default;
 
 const DB = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -142,5 +145,129 @@ d('notification outbox drain (deep)', () => {
 
     const row = await statusOf(before);
     expect(Number(row.retry_count)).toBe(1); // unchanged — not re-attempted
+  });
+});
+
+// C3: recipient_id is TEXT and may carry an integer users.id or a uuid
+// users.uid. queue() previously coerced through $2::int, silently NULLing
+// uuid recipients. This suite proves both forms survive queue insertion
+// unchanged and resolve to the recipient's device token through the existing
+// delivery path (resolveRecipientTokens + the real drain), and that blank
+// recipient ids are stored as NULL.
+d('C3: outbox recipient_id text/uuid transport (deep)', () => {
+  const outboxIds = [];
+  let user = null;
+  const deviceToken = `c3-outbox-token-${Date.now()}`;
+  const phone = `+9190613${String(Date.now() % 100000).padStart(5, '0')}`;
+
+  beforeAll(async () => {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (phone, name, role, is_active, updated_at, device_token)
+       VALUES ($1, 'C3 Outbox Transport Probe', 'PATIENT', true, NOW(), $2)
+       RETURNING id, uid`,
+      phone,
+      deviceToken,
+    );
+    user = rows[0];
+  });
+
+  beforeEach(() => {
+    sendPushMock.mockReset();
+    sendSmsMock.mockReset();
+  });
+
+  afterAll(async () => {
+    if (outboxIds.length) {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM notification_outbox WHERE id = ANY($1::int[])`,
+        outboxIds,
+      ).catch(() => {});
+    }
+    if (user) {
+      await prisma.$executeRawUnsafe(
+        'DELETE FROM users WHERE id = $1',
+        user.id,
+      ).catch(() => {});
+    }
+  });
+
+  async function storedRecipientId(id) {
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT recipient_id FROM notification_outbox WHERE id = $1',
+      id,
+    );
+    return rows[0].recipient_id;
+  }
+
+  it('stores a numeric users.id recipient as exact decimal text and resolves its device token', async () => {
+    const queued = await notificationOutbox.queue({
+      type: 'push',
+      recipientId: user.id, // integer id, as legacy callers pass it
+      title: 'C3 id-form',
+      body: 'numeric id transport',
+      data: { kind: 'c3' },
+    });
+    expect(queued?.id).toBeTruthy();
+    outboxIds.push(queued.id);
+
+    const stored = await storedRecipientId(queued.id);
+    expect(stored).toBe(String(user.id));
+    await expect(resolveRecipientTokens(stored)).resolves.toContain(deviceToken);
+  });
+
+  it('stores a uuid users.uid recipient verbatim and resolves its device token', async () => {
+    const queued = await notificationOutbox.queue({
+      type: 'push',
+      recipientId: user.uid, // uuid string — previously NULLed by the int cast
+      title: 'C3 uid-form',
+      body: 'uuid transport',
+      data: { kind: 'c3' },
+    });
+    expect(queued?.id).toBeTruthy();
+    outboxIds.push(queued.id);
+
+    const stored = await storedRecipientId(queued.id);
+    expect(stored).toBe(user.uid);
+    await expect(resolveRecipientTokens(stored)).resolves.toContain(deviceToken);
+  });
+
+  it('stores NULL for a blank recipient id (phone-only rows stay valid)', async () => {
+    const queued = await notificationOutbox.queue({
+      type: 'sms',
+      recipientId: '   ',
+      recipientPhone: phone,
+      title: 'C3 blank',
+      body: 'blank recipient normalizes to NULL',
+      data: {},
+    });
+    expect(queued?.id).toBeTruthy();
+    outboxIds.push(queued.id);
+
+    const stored = await storedRecipientId(queued.id);
+    expect(stored).toBeNull();
+  });
+
+  it('delivers the id-form and uid-form rows through the real drain', async () => {
+    sendPushMock.mockResolvedValue({ successCount: 1, failureCount: 0 });
+    sendSmsMock.mockResolvedValue({ ok: true });
+
+    const result = await drainNotificationOutbox({ limit: 100 });
+    expect(result.claimed).toBeGreaterThanOrEqual(3);
+
+    for (const id of outboxIds) {
+      const row = await statusOf(id);
+      expect(row.status).toBe('SENT');
+    }
+
+    // Both push rows resolved this user's device token, one per id form.
+    const tokenCalls = sendPushMock.mock.calls
+      .map(([arg]) => arg)
+      .filter((arg) => (arg.tokens || []).includes(deviceToken));
+    expect(tokenCalls.map((c) => String(c.userId)).sort()).toEqual(
+      [String(user.id), user.uid].sort(),
+    );
+
+    // The blank-recipient row delivered over its phone-only SMS path.
+    expect(sendSmsMock).toHaveBeenCalledWith(phone, 'blank recipient normalizes to NULL');
   });
 });
