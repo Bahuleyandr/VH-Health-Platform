@@ -1,3 +1,5 @@
+import 'package:vhhealth/core/models/status_enums.dart';
+
 class AncTimelineData {
   const AncTimelineData({
     required this.pregnancy,
@@ -6,6 +8,8 @@ class AncTimelineData {
     required this.fetalKicks,
     required this.packages,
     required this.advice,
+    this.bookedVisits = const [],
+    this.generalVitals = const [],
     this.contentPendingReview = false,
     this.adviceLoadFailed = false,
     this.staleLabel,
@@ -17,6 +21,8 @@ class AncTimelineData {
   final List<AncFetalKick> fetalKicks;
   final List<MaternityPackage> packages;
   final List<AncAdvice> advice;
+  final List<AncBookedVisit> bookedVisits;
+  final List<AncGeneralVital> generalVitals;
   final bool contentPendingReview;
   final bool adviceLoadFailed;
   final String? staleLabel;
@@ -38,6 +44,8 @@ class AncTimelineData {
     List<AncFetalKick>? fetalKicks,
     List<MaternityPackage>? packages,
     List<AncAdvice>? advice,
+    List<AncBookedVisit>? bookedVisits,
+    List<AncGeneralVital>? generalVitals,
     bool? contentPendingReview,
     bool? adviceLoadFailed,
     String? staleLabel,
@@ -49,6 +57,8 @@ class AncTimelineData {
       fetalKicks: fetalKicks ?? this.fetalKicks,
       packages: packages ?? this.packages,
       advice: advice ?? this.advice,
+      bookedVisits: bookedVisits ?? this.bookedVisits,
+      generalVitals: generalVitals ?? this.generalVitals,
       contentPendingReview: contentPendingReview ?? this.contentPendingReview,
       adviceLoadFailed: adviceLoadFailed ?? this.adviceLoadFailed,
       staleLabel: staleLabel ?? this.staleLabel,
@@ -95,6 +105,14 @@ class AncTimelineData {
       fetalKicks: listOfMaps(
         timeline['fetal_kicks'],
       ).map(AncFetalKick.fromJson).toList(growable: false),
+      // Optional in older responses; absent or malformed values fall back
+      // to empty lists so the rest of the timeline still renders.
+      bookedVisits: listOfMaps(
+        timeline['booked_visits'],
+      ).map(AncBookedVisit.fromJson).toList(growable: false),
+      generalVitals: listOfMaps(
+        timeline['general_vitals'],
+      ).map(AncGeneralVital.fromJson).toList(growable: false),
       packages: listOfMaps(
         packagesData,
       ).map(MaternityPackage.fromJson).toList(growable: false),
@@ -192,6 +210,94 @@ class AncVisit {
       urineAlbumin: json['urine_albumin']?.toString(),
       nextVisitDate: json['next_visit_date']?.toString(),
       notes: json['notes']?.toString(),
+    );
+  }
+}
+
+/// A booked OB/ANC appointment from `booked_visits`.
+///
+/// Only the factual booking fields are parsed. The backend also decorates
+/// each row with derived schedule data (milestone_label, gestational_age,
+/// trimester, visit_sequence_number); that is schedule inference and is
+/// deliberately not part of the approved patient-facing scope.
+class AncBookedVisit {
+  const AncBookedVisit({
+    this.id,
+    this.appointmentDate,
+    this.appointmentTime,
+    this.status,
+    this.department,
+    this.reason,
+  });
+
+  final int? id;
+  final String? appointmentDate;
+  final String? appointmentTime;
+  final String? status;
+  final String? department;
+  final String? reason;
+
+  /// Whether this booking should still appear on the patient timeline.
+  ///
+  /// Completed appointments are excluded so they are not duplicated with
+  /// the recorded ANC visits; anything unparseable fails closed (hidden).
+  bool isUpcomingOrActive(DateTime now) {
+    final parsedStatus = AppointmentStatus.fromString(status);
+    if (parsedStatus == null || !parsedStatus.isActive) return false;
+    if (parsedStatus == AppointmentStatus.inProgress) return true;
+    final parsedDate = DateTime.tryParse(appointmentDate ?? '');
+    if (parsedDate == null) return false;
+    final local = parsedDate.toLocal();
+    final visitDay = DateTime(local.year, local.month, local.day);
+    final today = DateTime(now.year, now.month, now.day);
+    return !visitDay.isBefore(today);
+  }
+
+  factory AncBookedVisit.fromJson(Map<String, dynamic> json) {
+    return AncBookedVisit(
+      id: toInt(json['id']),
+      appointmentDate: json['appointment_date']?.toString(),
+      appointmentTime: json['appointment_time']?.toString(),
+      status: json['status']?.toString(),
+      department: json['department']?.toString(),
+      reason: json['reason']?.toString(),
+    );
+  }
+}
+
+/// A reading from `general_vitals` (vitals recorded outside the ANC
+/// composer, e.g. on the general vitals screen).
+///
+/// The approved patient-facing scope is limited to recorded BP and weight;
+/// other columns in the row are intentionally not parsed.
+class AncGeneralVital {
+  const AncGeneralVital({
+    this.id,
+    this.recordedAt,
+    this.systolicBp,
+    this.diastolicBp,
+    this.weightKg,
+  });
+
+  final int? id;
+  final String? recordedAt;
+  final int? systolicBp;
+  final int? diastolicBp;
+  final num? weightKg;
+
+  bool get hasBloodPressure => systolicBp != null && diastolicBp != null;
+
+  bool get hasWeight => weightKg != null;
+
+  bool get hasDisplayableReading => hasBloodPressure || hasWeight;
+
+  factory AncGeneralVital.fromJson(Map<String, dynamic> json) {
+    return AncGeneralVital(
+      id: toInt(json['id']),
+      recordedAt: json['recorded_at']?.toString(),
+      systolicBp: toInt(json['systolic_bp']),
+      diastolicBp: toInt(json['diastolic_bp']),
+      weightKg: toNum(json['weight_kg']),
     );
   }
 }
