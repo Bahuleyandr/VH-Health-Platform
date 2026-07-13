@@ -69,6 +69,8 @@ router.post('/pregnancies', requireStaffOrAdmin, wrap(async (req) =>
     ...req.body,
     tenantId: tenantOf(req),
     created_by: req.user?.uid,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 
@@ -147,6 +149,8 @@ router.post('/deliveries', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordDelivery({
     ...req.body,
     tenantId: tenantOf(req),
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 
