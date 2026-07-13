@@ -597,12 +597,13 @@ router.get('/lab-orders/:id/pdf', requirePatient, async (req, res, next) => {
 });
 
 // ── Maternity / ANC ─────────────────────────────────────────────────
-router.get('/maternity/timeline', requirePatient, wrap(async (req) =>
-  maternity.getAncTimelineForPatient({
+router.get('/maternity/timeline', requirePatient, wrap(async (req) => {
+  const timeline = await maternity.getAncTimelineForPatient({
     tenantId: tenantOf(req),
     patient_uid: patientUidOf(req),
-  }),
-));
+  });
+  return maternity.projectAncTimelineForPatient(timeline);
+}));
 
 router.get('/maternity/fetal-kicks', requirePatient, wrap(async (req) => {
   const active = await maternity.getActivePregnancyForPatient({
