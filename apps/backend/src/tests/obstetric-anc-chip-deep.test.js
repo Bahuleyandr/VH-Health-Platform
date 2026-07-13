@@ -20,6 +20,7 @@ import {
   getAncTimelineForPregnancy,
   listMaternityPackages,
   listPriorOrdersForPregnancy,
+  projectAncTimelineForPatient,
   recordAncVisit,
   recordSupplement,
 } from '../services/maternity/maternityService.js';
@@ -317,6 +318,43 @@ describe('Obstetric/ANC chip — deep integration', () => {
         .set('Authorization', `Bearer ${token}`);
     }
 
+    function doctorGet(path) {
+      const token = generateTestToken('DOCTOR', { uid: DOCTOR_UID });
+      return request(app)
+        .get(path)
+        .set('x-api-key', API_KEY)
+        .set('Authorization', `Bearer ${token}`);
+    }
+
+    it('fails closed when imaging rows have no schema-backed patient release signal', () => {
+      const source = {
+        pregnancy: { id: pregnancyId },
+        prior_imaging: [
+          { status: 'REQUESTED', result_summary: 'draft narrative' },
+          { status: 'PRELIMINARY', interpretation: 'preliminary interpretation' },
+          {
+            status: 'COMPLETED',
+            verified_at: '2026-07-13T00:00:00.000Z',
+            patient_notified_at: '2026-07-13T00:05:00.000Z',
+            notes: 'staff note',
+            result_summary: 'verified but unreleased narrative',
+          },
+          {
+            status: 'COMPLETED',
+            released_to_patient_at: '2026-07-13T00:10:00.000Z',
+            internal_narrative: 'untrusted release-like field',
+          },
+        ],
+      };
+
+      const projected = projectAncTimelineForPatient(source);
+      const serialized = JSON.stringify(projected);
+
+      expect(projected).not.toHaveProperty('prior_imaging');
+      expect(source.prior_imaging).toHaveLength(4);
+      expect(serialized).not.toMatch(/draft narrative|preliminary interpretation|staff note|unreleased|internal_narrative/);
+    });
+
     it('lets a patient read only their own ANC timeline and kick log', async () => {
       const active = await patientGet(`/api/v1/maternity/pregnancies/active/${PATIENT_UID}`);
       expect(active.statusCode).toBe(200);
@@ -334,6 +372,29 @@ describe('Obstetric/ANC chip — deep integration', () => {
 
       const forbidden = await patientGet(`/api/v1/maternity/timeline/patient/${DOCTOR_UID}`);
       expect(forbidden.statusCode).toBe(403);
+    });
+
+    it('omits prior imaging from every patient ANC timeline boundary', async () => {
+      const responses = await Promise.all([
+        patientGet('/api/v1/portal/maternity/timeline'),
+        patientGet(`/api/v1/maternity/timeline/patient/${PATIENT_UID}`),
+        patientGet(`/api/v1/maternity/pregnancies/${pregnancyId}/timeline`),
+      ]);
+
+      for (const response of responses) {
+        expect(response.statusCode).toBe(200);
+        expect(response.body.data).not.toHaveProperty('prior_imaging');
+        expect(JSON.stringify(response.body.data)).not.toContain('No structural anomaly detected');
+      }
+    });
+
+    it('preserves prior imaging and its narrative on the staff ANC timeline', async () => {
+      const response = await doctorGet(`/api/v1/maternity/pregnancies/${pregnancyId}/timeline`);
+
+      expect(response.statusCode).toBe(200);
+      const scan = response.body.data?.prior_imaging?.find((row) => row.id === anomalyUsgId);
+      expect(scan).toBeTruthy();
+      expect(scan.result_summary).toBe('No structural anomaly detected');
     });
   });
 
