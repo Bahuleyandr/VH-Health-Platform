@@ -285,7 +285,8 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 569–571 | NL13-P1f cath scheduling + dose/complication registries | **on main** (#557) |
 | 572 | Audit sign-off group: radiation-oncology credential-gate activation (owner-confirmed credential-based, env-flag enforcement default-off) | `feat/nl-signoff-group` |
 | 573 | Audit sign-off group: Code-STEMI target seed (owner-confirmed ACC/AHA+ESC; door-to-ECG 10, door-to-balloon 90; pathway stays disabled) | `feat/nl-signoff-group` |
-| 574+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
+| 574 | Credential-hardening: OBGyn labour-ward privilege seed (worked-example specialty gate; obstetrics scope, grantable, enforcement env-flagged off) | `feat/credential-hardening` |
+| 575+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.

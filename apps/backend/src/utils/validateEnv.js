@@ -33,6 +33,27 @@ export const envSchema = Joi.object({
   RATE_LIMIT_WINDOW_MS: Joi.number().optional().label('RATE_LIMIT_WINDOW_MS'),
   RATE_LIMIT_MAX: Joi.number().optional().label('RATE_LIMIT_MAX'),
 
+  // ── Clinical credential-gate enforcement flags (see config/privilegeGates.js) ──
+  // Each turns ON credential enforcement for one clinical act; default OFF.
+  // Registered here so the canonical flag names are documented in ONE place.
+  // Values are intentionally NOT strictly validated — a bad value must not crash
+  // the app (validateEnv exits on any schema error); it simply reads as "off".
+  // The authoritative runtime read is gateFlagEnabled()/isGateEnabled() against
+  // process.env, and logPrivilegeGateStates() prints each gate's resolved state
+  // at boot so a mistyped flag can't silently leave a gate disabled unnoticed.
+  THEATRE_REQUIRE_PRIMARY_SURGEON_PRIVILEGE: Joi.string().optional().label('THEATRE_REQUIRE_PRIMARY_SURGEON_PRIVILEGE'),
+  THEATRE_REQUIRE_OT_READY_SURGEON_PRIVILEGE: Joi.string().optional().label('THEATRE_REQUIRE_OT_READY_SURGEON_PRIVILEGE'),
+  ANESTHESIA_REQUIRE_FINALIZE_PRIVILEGE: Joi.string().optional().label('ANESTHESIA_REQUIRE_FINALIZE_PRIVILEGE'),
+  CTVS_ENFORCE_PERFUSIONIST_SIGNOFF_PRIVILEGE: Joi.string().optional().label('CTVS_ENFORCE_PERFUSIONIST_SIGNOFF_PRIVILEGE'),
+  CATH_LAB_PRIVILEGE_GATE_ENABLED: Joi.string().optional().label('CATH_LAB_PRIVILEGE_GATE_ENABLED'),
+  CHEMO_REQUIRE_ADMIN_PRIVILEGE: Joi.string().optional().label('CHEMO_REQUIRE_ADMIN_PRIVILEGE'),
+  CONTROLLED_SUBSTANCE_REQUIRE_PRESCRIBE_PRIVILEGE: Joi.string().optional().label('CONTROLLED_SUBSTANCE_REQUIRE_PRESCRIBE_PRIVILEGE'),
+  RADIATION_ONCOLOGY_PRIVILEGE_GATE_ENABLED: Joi.string().optional().label('RADIATION_ONCOLOGY_PRIVILEGE_GATE_ENABLED'),
+  OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED: Joi.string().optional().label('OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED'),
+  // Optional per-gate privilege-key overrides (advanced; defaults in privilegeGates.js).
+  RADIATION_ONCOLOGY_PRIVILEGE_KEY: Joi.string().optional().label('RADIATION_ONCOLOGY_PRIVILEGE_KEY'),
+  OBGYN_LABOUR_WARD_PRIVILEGE_KEY: Joi.string().optional().label('OBGYN_LABOUR_WARD_PRIVILEGE_KEY'),
+
   // Patient hard-upgrade gate served by public GET /api/v1/config.
   // 0 disables the gate; otherwise set this to the minimum accepted mobile
   // build number. Semver advisory checks remain on /health/client-requirements.
