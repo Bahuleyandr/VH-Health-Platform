@@ -2,7 +2,9 @@ import { randomUUID } from 'crypto';
 
 import prisma from '../lib/prisma.js';
 import {
+  admitToLabor,
   createPregnancy,
+  recordPartographEntry,
   recordDelivery,
 } from '../services/maternity/maternityService.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
@@ -114,13 +116,26 @@ async function seedPregnancy({
   return rows[0];
 }
 
-async function seedLabor({ pregnancyId, tenantId = TENANT_A } = {}) {
+async function seedAdmission({ patientUid, tenantId = TENANT_A } = {}) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO admissions
+       (patient_uid, tenant_id, status, admitted_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'admitted', NOW(), NOW())
+     RETURNING *`,
+    patientUid,
+    tenantId,
+  );
+  return rows[0];
+}
+
+async function seedLabor({ pregnancyId, tenantId = TENANT_A, admissionId = null } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_labor_admissions
-       (pregnancy_id, admission_reason, status, attending_obstetrician, tenant_id)
-     VALUES ($1::int, 'spontaneous_labour', 'active', $2::uuid, $3::uuid)
+       (pregnancy_id, admission_id, admission_reason, status, attending_obstetrician, tenant_id)
+     VALUES ($1::int, $2::int, 'spontaneous_labour', 'active', $3::uuid, $4::uuid)
      RETURNING *`,
     Number(pregnancyId),
+    admissionId == null ? null : Number(admissionId),
     PERFORMER_UID,
     tenantId,
   );
@@ -142,7 +157,7 @@ async function canonicalRows(patientUid, eventType) {
   const timeline = await prisma.$queryRawUnsafe(
     `SELECT tenant_id, event_type, event_status, source_table, source_id,
             resource_type, resource_id, actor_uid, actor_role,
-            visible_to_patient, clinical_summary, payload
+            visible_to_patient, clinical_summary, payload, idempotency_key
        FROM clinical_timeline_events
       WHERE patient_uid = $1::uuid AND event_type = $2
       ORDER BY created_at`,
@@ -151,7 +166,8 @@ async function canonicalRows(patientUid, eventType) {
   );
   const audit = await prisma.$queryRawUnsafe(
     `SELECT tenant_id, patient_uid, action, action_status, actor_uid, actor_role,
-            resource_type, resource_table, resource_id, after_state, metadata
+            resource_type, resource_table, resource_id, after_state, metadata,
+            idempotency_key
        FROM clinical_audit_events
       WHERE patient_uid = $1::uuid AND action = $2
       ORDER BY created_at`,
@@ -173,6 +189,41 @@ async function assertCreateRolledBack(patientUid) {
 
   expect(pregnancies).toHaveLength(0);
   expect(projection).toMatchObject({ is_pregnant: false, pregnancy_lmp_date: null });
+  expect(events.timeline).toHaveLength(0);
+  expect(events.audit).toHaveLength(0);
+}
+
+async function assertLaborAdmissionRolledBack({ patientUid, pregnancyId }) {
+  const admissions = await prisma.$queryRawUnsafe(
+    `SELECT id FROM maternity_labor_admissions
+      WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
+    TENANT_A,
+    Number(pregnancyId),
+  );
+  const events = await canonicalRows(patientUid, 'maternity.labor_admission_recorded');
+
+  expect(admissions).toHaveLength(0);
+  expect(events.timeline).toHaveLength(0);
+  expect(events.audit).toHaveLength(0);
+}
+
+async function assertPartographRolledBack({ patientUid, laborId }) {
+  const entries = await prisma.$queryRawUnsafe(
+    `SELECT id FROM maternity_partograph_entries
+      WHERE tenant_id = $1::uuid AND labor_admission_id = $2::int`,
+    TENANT_A,
+    Number(laborId),
+  );
+  const labor = await prisma.$queryRawUnsafe(
+    `SELECT status FROM maternity_labor_admissions
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    TENANT_A,
+    Number(laborId),
+  );
+  const events = await canonicalRows(patientUid, 'maternity.partograph_entry_recorded');
+
+  expect(entries).toHaveLength(0);
+  expect(labor[0]?.status).toBe('active');
   expect(events.timeline).toHaveLength(0);
   expect(events.audit).toHaveLength(0);
 }
@@ -221,6 +272,10 @@ async function cleanup() {
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM maternity_pregnancies WHERE patient_uid = ANY($1::uuid[])`,
+      createdPatientUids,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM admissions WHERE patient_uid = ANY($1::uuid[])`,
       createdPatientUids,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
@@ -359,6 +414,255 @@ d('C2 maternity atomic writes', () => {
       await removeTrigger();
     }
     await assertCreateRolledBack(patientUid);
+  });
+
+  test('admitToLabor commits detail and a staff-only canonical/audit pair under the submitter identity', async () => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    const admission = await seedAdmission({ patientUid });
+    const laborAdmission = await admitToLabor({
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      admission_id: admission.id,
+      admission_reason: 'other',
+      gestational_age_weeks: 39.2,
+      membrane_status: 'intact',
+      cervix_dilation_cm: 3,
+      fetal_heart_rate_bpm: 142,
+      attending_obstetrician: PERFORMER_UID,
+      notes: 'MB_PRIVATE_LABOUR_NARRATIVE',
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    });
+
+    expect(String(laborAdmission.attending_obstetrician)).toBe(PERFORMER_UID);
+    expect(laborAdmission.admission_reason).toBe('other');
+    expect(laborAdmission.notes).toBe('MB_PRIVATE_LABOUR_NARRATIVE');
+    const persistedLaborAdmissions = await prisma.$queryRawUnsafe(
+      `SELECT id, pregnancy_id, admission_id, admission_reason, attending_obstetrician, notes
+         FROM maternity_labor_admissions
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(laborAdmission.id),
+    );
+    expect(persistedLaborAdmissions).toHaveLength(1);
+    expect(persistedLaborAdmissions[0]).toMatchObject({
+      id: laborAdmission.id,
+      pregnancy_id: pregnancy.id,
+      admission_id: admission.id,
+      admission_reason: 'other',
+      attending_obstetrician: PERFORMER_UID,
+      notes: 'MB_PRIVATE_LABOUR_NARRATIVE',
+    });
+
+    const { timeline, audit } = await canonicalRows(
+      patientUid,
+      'maternity.labor_admission_recorded',
+    );
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      tenant_id: TENANT_A,
+      event_status: 'active',
+      source_table: 'maternity_labor_admissions',
+      source_id: String(laborAdmission.id),
+      resource_type: 'labor_admission',
+      resource_id: String(laborAdmission.id),
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+      visible_to_patient: false,
+      clinical_summary: 'Labour admission recorded',
+      payload: {
+        labor_admission_id: laborAdmission.id,
+        pregnancy_id: pregnancy.id,
+        admission_id: admission.id,
+      },
+      idempotency_key: `maternity_labor_admissions:${laborAdmission.id}:recorded`,
+    });
+    expect(timeline[0].payload).toEqual({
+      labor_admission_id: laborAdmission.id,
+      pregnancy_id: pregnancy.id,
+      admission_id: admission.id,
+    });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      tenant_id: TENANT_A,
+      patient_uid: patientUid,
+      action_status: 'success',
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+      resource_type: 'labor_admission',
+      resource_table: 'maternity_labor_admissions',
+      resource_id: String(laborAdmission.id),
+      after_state: { labor_status: 'active' },
+      idempotency_key: `maternity_labor_admissions:${laborAdmission.id}:audit:recorded`,
+    });
+    expect(audit[0].after_state).toEqual({ labor_status: 'active' });
+    expect(audit[0].metadata).toEqual({});
+    const canonicalText = JSON.stringify([timeline[0].payload, audit[0].after_state, audit[0].metadata]);
+    expect(canonicalText).not.toContain('MB_PRIVATE_LABOUR_NARRATIVE');
+    expect(canonicalText).not.toContain('admission_reason');
+    expect(canonicalText).not.toContain('notes');
+  });
+
+  test.each([
+    ['canonical timeline', ({ patientUid }) => ({
+      table: 'clinical_timeline_events', operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patientUid}'::uuid AND NEW.event_type = 'maternity.labor_admission_recorded'`,
+    })],
+    ['clinical audit', ({ patientUid }) => ({
+      table: 'clinical_audit_events', operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patientUid}'::uuid AND NEW.action = 'maternity.labor_admission_recorded'`,
+    })],
+  ])('admitToLabor rolls back the detail after injected failure at %s', async (_label, triggerFor) => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    const admission = await seedAdmission({ patientUid });
+    const removeTrigger = await installFailureTrigger(triggerFor({ patientUid }));
+    try {
+      await expect(admitToLabor({
+        tenantId: TENANT_A,
+        pregnancy_id: pregnancy.id,
+        admission_id: admission.id,
+        admission_reason: 'other',
+        attending_obstetrician: PERFORMER_UID,
+        actor_uid: ACTOR_UID,
+        actor_role: 'NURSING_STAFF',
+      })).rejects.toThrow();
+    } finally {
+      await removeTrigger();
+    }
+    await assertLaborAdmissionRolledBack({ patientUid, pregnancyId: pregnancy.id });
+  });
+
+  test('recordPartographEntry commits detail and a staff-only canonical/audit pair without inpatient content', async () => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    const labor = await seedLabor({ pregnancyId: pregnancy.id });
+    const entry = await recordPartographEntry({
+      tenantId: TENANT_A,
+      labor_admission_id: labor.id,
+      recorded_at: '2026-07-13T12:00:00.000Z',
+      bp_systolic: 138,
+      bp_diastolic: 88,
+      cervix_dilation_cm: 5,
+      contractions_per_10min: 3,
+      fetal_heart_rate_bpm: 144,
+      oxytocin_units_l: 4.25,
+      oxytocin_drops_min: 18,
+      drugs_given: 'MB_PRIVATE_DRUG_DETAIL',
+      iv_fluids: 'MB_PRIVATE_IV_FLUID_DETAIL',
+      notes: 'MB_PRIVATE_PARTOGRAPH_NARRATIVE',
+      recorded_by: PERFORMER_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    });
+
+    expect(String(entry.recorded_by)).toBe(PERFORMER_UID);
+    expect(entry.drugs_given).toBe('MB_PRIVATE_DRUG_DETAIL');
+    expect(entry.iv_fluids).toBe('MB_PRIVATE_IV_FLUID_DETAIL');
+    expect(entry.notes).toBe('MB_PRIVATE_PARTOGRAPH_NARRATIVE');
+    const persistedPartographEntries = await prisma.$queryRawUnsafe(
+      `SELECT id, labor_admission_id, recorded_by, drugs_given, iv_fluids, notes
+         FROM maternity_partograph_entries
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(entry.id),
+    );
+    expect(persistedPartographEntries).toHaveLength(1);
+    expect(persistedPartographEntries[0]).toMatchObject({
+      id: entry.id,
+      labor_admission_id: labor.id,
+      recorded_by: PERFORMER_UID,
+      drugs_given: 'MB_PRIVATE_DRUG_DETAIL',
+      iv_fluids: 'MB_PRIVATE_IV_FLUID_DETAIL',
+      notes: 'MB_PRIVATE_PARTOGRAPH_NARRATIVE',
+    });
+
+    const { timeline, audit } = await canonicalRows(
+      patientUid,
+      'maternity.partograph_entry_recorded',
+    );
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      tenant_id: TENANT_A,
+      event_status: 'recorded',
+      source_table: 'maternity_partograph_entries',
+      source_id: String(entry.id),
+      resource_type: 'partograph_entry',
+      resource_id: String(entry.id),
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+      visible_to_patient: false,
+      clinical_summary: 'Partograph entry recorded',
+      payload: {
+        partograph_entry_id: entry.id,
+        labor_admission_id: labor.id,
+        pregnancy_id: pregnancy.id,
+      },
+      idempotency_key: `maternity_partograph_entries:${entry.id}:recorded`,
+    });
+    expect(timeline[0].payload).toEqual({
+      partograph_entry_id: entry.id,
+      labor_admission_id: labor.id,
+      pregnancy_id: pregnancy.id,
+    });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      tenant_id: TENANT_A,
+      patient_uid: patientUid,
+      action_status: 'success',
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+      resource_type: 'partograph_entry',
+      resource_table: 'maternity_partograph_entries',
+      resource_id: String(entry.id),
+      after_state: { partograph_entry_recorded: true },
+      idempotency_key: `maternity_partograph_entries:${entry.id}:audit:recorded`,
+    });
+    expect(audit[0].after_state).toEqual({ partograph_entry_recorded: true });
+    expect(audit[0].metadata).toEqual({});
+    const canonicalText = JSON.stringify([timeline[0].payload, audit[0].after_state, audit[0].metadata]);
+    for (const excluded of [
+      'MB_PRIVATE_DRUG_DETAIL',
+      'MB_PRIVATE_IV_FLUID_DETAIL',
+      'MB_PRIVATE_PARTOGRAPH_NARRATIVE',
+      'drugs_given',
+      'iv_fluids',
+      'oxytocin',
+      'notes',
+    ]) {
+      expect(canonicalText).not.toContain(excluded);
+    }
+  });
+
+  test.each([
+    ['canonical timeline', ({ patientUid }) => ({
+      table: 'clinical_timeline_events', operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patientUid}'::uuid AND NEW.event_type = 'maternity.partograph_entry_recorded'`,
+    })],
+    ['clinical audit', ({ patientUid }) => ({
+      table: 'clinical_audit_events', operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patientUid}'::uuid AND NEW.action = 'maternity.partograph_entry_recorded'`,
+    })],
+  ])('recordPartographEntry rolls back the detail after injected failure at %s', async (_label, triggerFor) => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    const labor = await seedLabor({ pregnancyId: pregnancy.id });
+    const removeTrigger = await installFailureTrigger(triggerFor({ patientUid }));
+    try {
+      await expect(recordPartographEntry({
+        tenantId: TENANT_A,
+        labor_admission_id: labor.id,
+        recorded_at: '2026-07-13T13:00:00.000Z',
+        cervix_dilation_cm: 6,
+        recorded_by: PERFORMER_UID,
+        actor_uid: ACTOR_UID,
+        actor_role: 'NURSING_STAFF',
+      })).rejects.toThrow();
+    } finally {
+      await removeTrigger();
+    }
+    await assertPartographRolledBack({ patientUid, laborId: labor.id });
   });
 
   test('recordDelivery commits all transitions and a staff-only event under the submitter identity', async () => {
@@ -642,6 +946,74 @@ d('C2 maternity atomic writes', () => {
       laborId: labor.id,
       lmpDate,
     });
+  });
+
+  test('M-B preflights reject cross-tenant and mismatched maternity resources without writes', async () => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    const otherPatientUid = await seedUser();
+    const mismatchedAdmission = await seedAdmission({ patientUid: otherPatientUid });
+    const tenantBPatientUid = await seedUser({ tenantId: TENANT_B });
+    const tenantBAdmission = await seedAdmission({
+      patientUid: tenantBPatientUid,
+      tenantId: TENANT_B,
+    });
+
+    await expect(admitToLabor({
+      tenantId: TENANT_B,
+      pregnancy_id: pregnancy.id,
+      attending_obstetrician: PERFORMER_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(admitToLabor({
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      admission_id: tenantBAdmission.id,
+      attending_obstetrician: PERFORMER_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(admitToLabor({
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      admission_id: mismatchedAdmission.id,
+      attending_obstetrician: PERFORMER_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    })).rejects.toMatchObject({ statusCode: 403 });
+
+    const laborAdmissions = await prisma.$queryRawUnsafe(
+      `SELECT id FROM maternity_labor_admissions WHERE pregnancy_id = $1::int`,
+      Number(pregnancy.id),
+    );
+    const admissionEvents = await canonicalRows(patientUid, 'maternity.labor_admission_recorded');
+    expect(laborAdmissions).toHaveLength(0);
+    expect(admissionEvents.timeline).toHaveLength(0);
+    expect(admissionEvents.audit).toHaveLength(0);
+
+    const partographPatientUid = await seedUser();
+    const partographPregnancy = await seedPregnancy({ patientUid: partographPatientUid });
+    const labor = await seedLabor({ pregnancyId: partographPregnancy.id });
+    await expect(recordPartographEntry({
+      tenantId: TENANT_B,
+      labor_admission_id: labor.id,
+      recorded_by: PERFORMER_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    })).rejects.toMatchObject({ statusCode: 404 });
+
+    const entries = await prisma.$queryRawUnsafe(
+      `SELECT id FROM maternity_partograph_entries WHERE labor_admission_id = $1::int`,
+      Number(labor.id),
+    );
+    const partographEvents = await canonicalRows(
+      partographPatientUid,
+      'maternity.partograph_entry_recorded',
+    );
+    expect(entries).toHaveLength(0);
+    expect(partographEvents.timeline).toHaveLength(0);
+    expect(partographEvents.audit).toHaveLength(0);
   });
 
   test('tenant preflights reject cross-tenant pregnancy and delivery writes', async () => {

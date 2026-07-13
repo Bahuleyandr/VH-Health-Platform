@@ -17,6 +17,16 @@ let uncredentialedUid;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_audit_events
+      WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'OBGTEST Patient')
+        AND action = 'maternity.labor_admission_recorded'`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_timeline_events
+      WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'OBGTEST Patient')
+        AND event_type = 'maternity.labor_admission_recorded'`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM maternity_deliveries
       WHERE pregnancy_id IN (SELECT id FROM maternity_pregnancies
         WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'OBGTEST Patient'))`,
@@ -91,7 +101,7 @@ d('OBGyn labour-ward credential gate (worked example)', () => {
       tenantId: DEFAULT_TENANT_ID,
       pregnancy_id: pregnancyId,
       attending_obstetrician: uncredentialedUid,
-      admission_reason: 'labour',
+      admission_reason: 'spontaneous_labour',
     });
     expect(admit.id).toBeDefined();
   });
@@ -102,14 +112,18 @@ d('OBGyn labour-ward credential gate (worked example)', () => {
       tenantId: DEFAULT_TENANT_ID,
       pregnancy_id: pregnancyId,
       attending_obstetrician: uncredentialedUid,
-      admission_reason: 'labour',
+      admission_reason: 'spontaneous_labour',
+      actor_uid: credentialedUid,
+      actor_role: 'DOCTOR',
     })).rejects.toMatchObject({ code: 'CLINICAL_PRIVILEGE_REQUIRED' });
 
     const admit = await admitToLabor({
       tenantId: DEFAULT_TENANT_ID,
       pregnancy_id: pregnancyId,
       attending_obstetrician: credentialedUid,
-      admission_reason: 'labour',
+      admission_reason: 'spontaneous_labour',
+      actor_uid: uncredentialedUid,
+      actor_role: 'DOCTOR',
     });
     expect(admit.id).toBeDefined();
   });
@@ -119,7 +133,7 @@ d('OBGyn labour-ward credential gate (worked example)', () => {
     await expect(admitToLabor({
       tenantId: DEFAULT_TENANT_ID,
       pregnancy_id: pregnancyId,
-      admission_reason: 'labour',
+      admission_reason: 'spontaneous_labour',
     })).rejects.toMatchObject({ code: 'OBGYN_RESPONSIBLE_OBSTETRICIAN_REQUIRED' });
   });
 

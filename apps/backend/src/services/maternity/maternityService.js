@@ -1438,6 +1438,7 @@ export async function admitToLabor({
   cervix_dilation_cm, cervix_effacement_pct, station, presentation,
   fetal_heart_rate_bpm, contractions_per_10min, labor_started_at,
   attending_obstetrician, attending_midwife, notes,
+  actor_uid, actor_role,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   const tid = tenantOr(tenantId);
@@ -1447,36 +1448,66 @@ export async function admitToLabor({
   }
   await assertObgynLabourWardPrivilege(attending_obstetrician, tid, 'maternity_labor_admission');
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_labor_admissions
-       (pregnancy_id, admission_id, admission_reason,
-        gestational_age_weeks, membrane_status, membranes_ruptured_at,
-        cervix_dilation_cm, cervix_effacement_pct, station, presentation,
-        fetal_heart_rate_bpm, contractions_per_10min, labor_started_at,
-        attending_obstetrician, attending_midwife, notes, tenant_id)
-     VALUES ($1::int, $2::int, $3,
-             $4::numeric, $5, $6::timestamptz,
-             $7::numeric, $8::int, $9, $10,
-             $11::int, $12::int, $13::timestamptz,
-             $14::uuid, $15::uuid, $16, $17::uuid)
-     RETURNING *`,
-    Number(pregnancy.id),
-    admission_id ? Number(admission_id) : null,
-    admission_reason || null,
-    gestational_age_weeks ? Number(gestational_age_weeks) : null,
-    membrane_status || null,
-    membranes_ruptured_at || null,
-    cervix_dilation_cm ? Number(cervix_dilation_cm) : null,
-    cervix_effacement_pct ? Number(cervix_effacement_pct) : null,
-    station || null, presentation || null,
-    fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
-    contractions_per_10min ? Number(contractions_per_10min) : null,
-    labor_started_at || null,
-    attending_obstetrician ? String(attending_obstetrician) : null,
-    attending_midwife ? String(attending_midwife) : null,
-    notes || null, tid,
-  );
-  return rows[0];
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO maternity_labor_admissions
+         (pregnancy_id, admission_id, admission_reason,
+          gestational_age_weeks, membrane_status, membranes_ruptured_at,
+          cervix_dilation_cm, cervix_effacement_pct, station, presentation,
+          fetal_heart_rate_bpm, contractions_per_10min, labor_started_at,
+          attending_obstetrician, attending_midwife, notes, tenant_id)
+       VALUES ($1::int, $2::int, $3,
+               $4::numeric, $5, $6::timestamptz,
+               $7::numeric, $8::int, $9, $10,
+               $11::int, $12::int, $13::timestamptz,
+               $14::uuid, $15::uuid, $16, $17::uuid)
+       RETURNING *`,
+      Number(pregnancy.id),
+      admission_id ? Number(admission_id) : null,
+      admission_reason || null,
+      gestational_age_weeks ? Number(gestational_age_weeks) : null,
+      membrane_status || null,
+      membranes_ruptured_at || null,
+      cervix_dilation_cm ? Number(cervix_dilation_cm) : null,
+      cervix_effacement_pct ? Number(cervix_effacement_pct) : null,
+      station || null, presentation || null,
+      fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
+      contractions_per_10min ? Number(contractions_per_10min) : null,
+      labor_started_at || null,
+      attending_obstetrician ? String(attending_obstetrician) : null,
+      attending_midwife ? String(attending_midwife) : null,
+      notes || null, tid,
+    );
+    const laborAdmission = rows[0];
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(pregnancy.patient_uid),
+      eventType: 'maternity.labor_admission_recorded',
+      eventStatus: laborAdmission.status,
+      sourceTable: 'maternity_labor_admissions',
+      sourceId: laborAdmission.id,
+      resourceType: 'labor_admission',
+      resourceId: laborAdmission.id,
+      actorUid: actor_uid || null,
+      actorRole: actor_role || null,
+      occurredAt: laborAdmission.admitted_at,
+      visibleToPatient: false,
+      summary: 'Labour admission recorded',
+      payload: {
+        labor_admission_id: laborAdmission.id,
+        pregnancy_id: pregnancy.id,
+        admission_id: laborAdmission.admission_id || null,
+      },
+      afterState: {
+        labor_status: laborAdmission.status,
+      },
+      timelineIdempotencyKey: `maternity_labor_admissions:${laborAdmission.id}:recorded`,
+      auditIdempotencyKey: `maternity_labor_admissions:${laborAdmission.id}:audit:recorded`,
+    }, { db: tx, strict: true });
+
+    return laborAdmission;
+  });
 }
 
 export async function getLaborAdmission({ tenantId, id }) {
@@ -1541,9 +1572,12 @@ export async function recordPartographEntry({
   fetal_heart_rate_bpm, fetal_decel, amniotic_fluid, moulding,
   oxytocin_units_l, oxytocin_drops_min, drugs_given, iv_fluids,
   notes, recorded_by,
+  actor_uid, actor_role,
 }) {
   if (!labor_admission_id) throw AppError.badRequest('labor_admission_id is required');
-  const labor = await getLaborAdmission({ tenantId, id: labor_admission_id });
+  const tid = tenantOr(tenantId);
+  const labor = await getLaborAdmission({ tenantId: tid, id: labor_admission_id });
+  const pregnancy = await assertPregnancyInTenant(tid, labor.pregnancy_id);
 
   // Active phase starts when dilation first reaches 4cm. We use the
   // labor_started_at as an approximation; if not set, fall back to
@@ -1556,47 +1590,77 @@ export async function recordPartographEntry({
     dilationCm: cervix_dilation_cm != null ? Number(cervix_dilation_cm) : null,
   });
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_partograph_entries
-       (labor_admission_id, recorded_at,
-        bp_systolic, bp_diastolic, pulse_bpm, temperature_c,
-        urine_output_ml, urine_protein, urine_acetone,
-        cervix_dilation_cm, descent_fifths_above_brim,
-        contractions_per_10min, contractions_duration_sec, contractions_intensity,
-        fetal_heart_rate_bpm, fetal_decel, amniotic_fluid, moulding,
-        oxytocin_units_l, oxytocin_drops_min, drugs_given, iv_fluids,
-        on_alert_line, on_action_line, notes, recorded_by, tenant_id)
-     VALUES ($1::int, $2::timestamptz,
-             $3::int, $4::int, $5::int, $6::numeric,
-             $7::int, $8, $9,
-             $10::numeric, $11::int,
-             $12::int, $13::int, $14,
-             $15::int, $16, $17, $18,
-             $19::numeric, $20::int, $21, $22,
-             $23, $24, $25, $26::uuid, $27::uuid)
-     RETURNING *`,
-    labor.id, recAt,
-    bp_systolic ? Number(bp_systolic) : null,
-    bp_diastolic ? Number(bp_diastolic) : null,
-    pulse_bpm ? Number(pulse_bpm) : null,
-    temperature_c ? Number(temperature_c) : null,
-    urine_output_ml ? Number(urine_output_ml) : null,
-    urine_protein || null, urine_acetone || null,
-    cervix_dilation_cm != null ? Number(cervix_dilation_cm) : null,
-    descent_fifths_above_brim != null ? Number(descent_fifths_above_brim) : null,
-    contractions_per_10min ? Number(contractions_per_10min) : null,
-    contractions_duration_sec ? Number(contractions_duration_sec) : null,
-    contractions_intensity || null,
-    fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
-    fetal_decel || null, amniotic_fluid || null, moulding || null,
-    oxytocin_units_l != null ? Number(oxytocin_units_l) : null,
-    oxytocin_drops_min ? Number(oxytocin_drops_min) : null,
-    drugs_given || null, iv_fluids || null,
-    on_alert_line, on_action_line,
-    notes || null,
-    recorded_by ? String(recorded_by) : null, tenantId,
-  );
-  return rows[0];
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO maternity_partograph_entries
+         (labor_admission_id, recorded_at,
+          bp_systolic, bp_diastolic, pulse_bpm, temperature_c,
+          urine_output_ml, urine_protein, urine_acetone,
+          cervix_dilation_cm, descent_fifths_above_brim,
+          contractions_per_10min, contractions_duration_sec, contractions_intensity,
+          fetal_heart_rate_bpm, fetal_decel, amniotic_fluid, moulding,
+          oxytocin_units_l, oxytocin_drops_min, drugs_given, iv_fluids,
+          on_alert_line, on_action_line, notes, recorded_by, tenant_id)
+       VALUES ($1::int, $2::timestamptz,
+               $3::int, $4::int, $5::int, $6::numeric,
+               $7::int, $8, $9,
+               $10::numeric, $11::int,
+               $12::int, $13::int, $14,
+               $15::int, $16, $17, $18,
+               $19::numeric, $20::int, $21, $22,
+               $23, $24, $25, $26::uuid, $27::uuid)
+       RETURNING *`,
+      labor.id, recAt,
+      bp_systolic ? Number(bp_systolic) : null,
+      bp_diastolic ? Number(bp_diastolic) : null,
+      pulse_bpm ? Number(pulse_bpm) : null,
+      temperature_c ? Number(temperature_c) : null,
+      urine_output_ml ? Number(urine_output_ml) : null,
+      urine_protein || null, urine_acetone || null,
+      cervix_dilation_cm != null ? Number(cervix_dilation_cm) : null,
+      descent_fifths_above_brim != null ? Number(descent_fifths_above_brim) : null,
+      contractions_per_10min ? Number(contractions_per_10min) : null,
+      contractions_duration_sec ? Number(contractions_duration_sec) : null,
+      contractions_intensity || null,
+      fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
+      fetal_decel || null, amniotic_fluid || null, moulding || null,
+      oxytocin_units_l != null ? Number(oxytocin_units_l) : null,
+      oxytocin_drops_min ? Number(oxytocin_drops_min) : null,
+      drugs_given || null, iv_fluids || null,
+      on_alert_line, on_action_line,
+      notes || null,
+      recorded_by ? String(recorded_by) : null, tid,
+    );
+    const entry = rows[0];
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(pregnancy.patient_uid),
+      eventType: 'maternity.partograph_entry_recorded',
+      eventStatus: 'recorded',
+      sourceTable: 'maternity_partograph_entries',
+      sourceId: entry.id,
+      resourceType: 'partograph_entry',
+      resourceId: entry.id,
+      actorUid: actor_uid || recorded_by || null,
+      actorRole: actor_role || null,
+      occurredAt: entry.recorded_at,
+      visibleToPatient: false,
+      summary: 'Partograph entry recorded',
+      payload: {
+        partograph_entry_id: entry.id,
+        labor_admission_id: labor.id,
+        pregnancy_id: pregnancy.id,
+      },
+      afterState: {
+        partograph_entry_recorded: true,
+      },
+      timelineIdempotencyKey: `maternity_partograph_entries:${entry.id}:recorded`,
+      auditIdempotencyKey: `maternity_partograph_entries:${entry.id}:audit:recorded`,
+    }, { db: tx, strict: true });
+
+    return entry;
+  });
 }
 
 export async function listPartographEntries({ tenantId, labor_admission_id }) {
