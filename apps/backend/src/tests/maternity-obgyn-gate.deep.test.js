@@ -60,7 +60,7 @@ d('OBGyn labour-ward credential gate (worked example)', () => {
 
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO maternity_pregnancies (patient_uid, lmp_date, edd_date, status, tenant_id)
-       VALUES ($1::uuid, CURRENT_DATE - 260, CURRENT_DATE + 20, 'active', $2::uuid) RETURNING id`,
+       VALUES ($1::uuid, CURRENT_DATE - 260, CURRENT_DATE + 20, 'ongoing', $2::uuid) RETURNING id`,
       patientUid, DEFAULT_TENANT_ID,
     );
     pregnancyId = p[0].id;

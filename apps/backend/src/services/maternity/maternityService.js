@@ -13,11 +13,12 @@
 // flag on_alert_line=true; below the action line → on_action_line=true
 // → escalate to obstetrician.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
   assertPrivilegeForGate,
@@ -288,6 +289,7 @@ export async function createPregnancy({
   gravida = 1, parity = 0, living_children = 0, abortions = 0,
   blood_group, rh_factor, booking_status = 'booked', booking_visit_date,
   high_risk = false, high_risk_reasons, notes, created_by,
+  actor_uid, actor_role,
 }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   const tid = tenantOr(tenantId);
@@ -302,36 +304,77 @@ export async function createPregnancy({
   // never triggered the BP+protein pre-eclampsia alert. Finding:
   //   POST /emr/vitals does not raise pre-eclampsia alert despite
   //   BP ≥140/90 + proteinuria in a known-pregnant patient.
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_pregnancies
-       (patient_uid, pregnancy_number, lmp_date, edd_date, edd_method,
-        gravida, parity, living_children, abortions,
-        blood_group, rh_factor, booking_status, booking_visit_date,
-        high_risk, high_risk_reasons, notes, status, created_by, tenant_id)
-     VALUES ($1::uuid, $2::int, $3::date, $4::date, $5,
-             $6::int, $7::int, $8::int, $9::int,
-             $10, $11, $12, $13::date,
-             $14, $15::text[], $16, 'ongoing', $17::uuid, $18::uuid)
-     RETURNING *`,
-    String(patient_uid), Number(pregnancy_number),
-    lmp_date || null, eddFinal || null, edd_method || null,
-    Number(gravida), Number(parity), Number(living_children), Number(abortions),
-    blood_group || null, rh_factor || null,
-    booking_status, booking_visit_date || null,
-    !!high_risk, high_risk_reasons || null, notes || null,
-    created_by ? String(created_by) : null, tid,
-  );
-  await prisma.$executeRawUnsafe(
-    `UPDATE users
-        SET is_pregnant = TRUE,
-            pregnancy_lmp_date = COALESCE($2::date, pregnancy_lmp_date),
-            updated_at = NOW()
-      WHERE tenant_id = $3::uuid AND uid = $1::uuid`,
-    String(patient_uid),
-    lmp_date || null,
-    tid,
-  );
-  return rows[0];
+  return setTenantTx(tid, async (tx) => {
+    const lockedPatients = await tx.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid
+        FOR UPDATE`,
+      tid,
+      String(patient_uid),
+    );
+    if (!lockedPatients.length) throw AppError.notFound('Patient not found');
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO maternity_pregnancies
+         (patient_uid, pregnancy_number, lmp_date, edd_date, edd_method,
+          gravida, parity, living_children, abortions,
+          blood_group, rh_factor, booking_status, booking_visit_date,
+          high_risk, high_risk_reasons, notes, status, created_by, tenant_id)
+       VALUES ($1::uuid, $2::int, $3::date, $4::date, $5,
+               $6::int, $7::int, $8::int, $9::int,
+               $10, $11, $12, $13::date,
+               $14, $15::text[], $16, 'ongoing', $17::uuid, $18::uuid)
+       RETURNING *`,
+      String(patient_uid), Number(pregnancy_number),
+      lmp_date || null, eddFinal || null, edd_method || null,
+      Number(gravida), Number(parity), Number(living_children), Number(abortions),
+      blood_group || null, rh_factor || null,
+      booking_status, booking_visit_date || null,
+      !!high_risk, high_risk_reasons || null, notes || null,
+      created_by ? String(created_by) : null, tid,
+    );
+    const pregnancy = rows[0];
+
+    await tx.$executeRawUnsafe(
+      `UPDATE users
+          SET is_pregnant = TRUE,
+              pregnancy_lmp_date = COALESCE($2::date, pregnancy_lmp_date),
+              updated_at = NOW()
+        WHERE tenant_id = $3::uuid AND uid = $1::uuid`,
+      String(patient_uid),
+      lmp_date || null,
+      tid,
+    );
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(patient_uid),
+      eventType: 'maternity.pregnancy_created',
+      eventStatus: 'ongoing',
+      sourceTable: 'maternity_pregnancies',
+      sourceId: pregnancy.id,
+      resourceType: 'pregnancy',
+      resourceId: pregnancy.id,
+      actorUid: actor_uid || created_by || null,
+      actorRole: actor_role || null,
+      occurredAt: pregnancy.created_at,
+      visibleToPatient: false,
+      summary: 'Pregnancy episode recorded',
+      payload: {
+        pregnancy_id: pregnancy.id,
+        pregnancy_number: pregnancy.pregnancy_number,
+        status: pregnancy.status,
+      },
+      afterState: {
+        pregnancy_status: pregnancy.status,
+        user_is_pregnant: true,
+      },
+      timelineIdempotencyKey: `maternity_pregnancies:${pregnancy.id}:created`,
+      auditIdempotencyKey: `maternity_pregnancies:${pregnancy.id}:audit:created`,
+    }, { db: tx, strict: true });
+
+    return pregnancy;
+  });
 }
 
 export async function getPregnancy({ tenantId, id }) {
@@ -1577,77 +1620,180 @@ export async function recordDelivery({
   placenta_delivered_at, placenta_method, placenta_complete,
   cord_around_neck, cord_loops_count, anesthesia_type, complications,
   delivered_by, delivered_by_name, pediatrician_present, pediatrician_uid, notes,
+  actor_uid, actor_role,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   if (!delivery_datetime) throw AppError.badRequest('delivery_datetime is required');
   if (!delivery_mode) throw AppError.badRequest('delivery_mode is required');
   const tid = tenantOr(tenantId);
   const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
+  if (pregnancy.status !== 'ongoing') {
+    throw AppError.conflict(
+      'Delivery can only be recorded for an ongoing pregnancy',
+      'MATERNITY_PREGNANCY_NOT_ONGOING',
+    );
+  }
   let labor = null;
   if (labor_admission_id) {
     labor = await getLaborAdmission({ tenantId: tid, id: labor_admission_id });
     if (Number(labor.pregnancy_id) !== Number(pregnancy.id)) {
       throw AppError.forbidden('Labor admission belongs to a different pregnancy');
     }
+    if (labor.status !== 'active') {
+      throw AppError.conflict(
+        'Delivery can only be recorded for an active labor admission',
+        'MATERNITY_LABOR_NOT_ACTIVE',
+      );
+    }
   }
   await assertObgynLabourWardPrivilege(delivered_by, tid, 'maternity_delivery');
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_deliveries
-       (pregnancy_id, labor_admission_id, delivery_datetime, delivery_mode,
-        stage1_duration_min, stage2_duration_min, stage3_duration_min,
-        episiotomy, perineal_tear_grade, perineal_repair_done,
-        blood_loss_ml, pph_diagnosed, pph_treatment,
-        placenta_delivered_at, placenta_method, placenta_complete,
-        cord_around_neck, cord_loops_count, anesthesia_type, complications,
-        delivered_by, delivered_by_name, pediatrician_present, pediatrician_uid,
-        notes, tenant_id)
-     VALUES ($1::int, $2::int, $3::timestamptz, $4,
-             $5::int, $6::int, $7::int,
-             $8, $9, $10,
-             $11::int, $12, $13,
-             $14::timestamptz, $15, $16,
-             $17, $18::int, $19, $20,
-             $21::uuid, $22, $23, $24::uuid,
-             $25, $26::uuid)
-     RETURNING *`,
-    Number(pregnancy.id),
-    labor ? Number(labor.id) : null,
-    delivery_datetime, delivery_mode,
-    stage1_duration_min ? Number(stage1_duration_min) : null,
-    stage2_duration_min ? Number(stage2_duration_min) : null,
-    stage3_duration_min ? Number(stage3_duration_min) : null,
-    !!episiotomy, perineal_tear_grade || null, !!perineal_repair_done,
-    blood_loss_ml ? Number(blood_loss_ml) : null,
-    !!pph_diagnosed, pph_treatment || null,
-    placenta_delivered_at || null, placenta_method || null, placenta_complete ?? null,
-    !!cord_around_neck, Number(cord_loops_count || 0),
-    anesthesia_type || null, complications || null,
-    delivered_by ? String(delivered_by) : null,
-    delivered_by_name || null,
-    !!pediatrician_present,
-    pediatrician_uid ? String(pediatrician_uid) : null,
-    notes || null, tid,
-  );
+  return setTenantTx(tid, async (tx) => {
+    const lockedPatients = await tx.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid
+        FOR UPDATE`,
+      tid,
+      String(pregnancy.patient_uid),
+    );
+    if (!lockedPatients.length) throw AppError.notFound('Patient not found');
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO maternity_deliveries
+         (pregnancy_id, labor_admission_id, delivery_datetime, delivery_mode,
+          stage1_duration_min, stage2_duration_min, stage3_duration_min,
+          episiotomy, perineal_tear_grade, perineal_repair_done,
+          blood_loss_ml, pph_diagnosed, pph_treatment,
+          placenta_delivered_at, placenta_method, placenta_complete,
+          cord_around_neck, cord_loops_count, anesthesia_type, complications,
+          delivered_by, delivered_by_name, pediatrician_present, pediatrician_uid,
+          notes, tenant_id)
+       VALUES ($1::int, $2::int, $3::timestamptz, $4,
+               $5::int, $6::int, $7::int,
+               $8, $9, $10,
+               $11::int, $12, $13,
+               $14::timestamptz, $15, $16,
+               $17, $18::int, $19, $20,
+               $21::uuid, $22, $23, $24::uuid,
+               $25, $26::uuid)
+       RETURNING *`,
+      Number(pregnancy.id),
+      labor ? Number(labor.id) : null,
+      delivery_datetime, delivery_mode,
+      stage1_duration_min ? Number(stage1_duration_min) : null,
+      stage2_duration_min ? Number(stage2_duration_min) : null,
+      stage3_duration_min ? Number(stage3_duration_min) : null,
+      !!episiotomy, perineal_tear_grade || null, !!perineal_repair_done,
+      blood_loss_ml ? Number(blood_loss_ml) : null,
+      !!pph_diagnosed, pph_treatment || null,
+      placenta_delivered_at || null, placenta_method || null, placenta_complete ?? null,
+      !!cord_around_neck, Number(cord_loops_count || 0),
+      anesthesia_type || null, complications || null,
+      delivered_by ? String(delivered_by) : null,
+      delivered_by_name || null,
+      !!pediatrician_present,
+      pediatrician_uid ? String(pediatrician_uid) : null,
+      notes || null, tid,
+    );
+    const delivery = rows[0];
 
-  // Project to pregnancy + labor admission.
-  await prisma.$executeRawUnsafe(
-    `UPDATE maternity_pregnancies
-        SET status = 'delivered', updated_at = NOW()
-      WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(pregnancy.id),
-    tid,
-  );
-  if (labor) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE maternity_labor_admissions
+    const pregnancyTransitions = await tx.$queryRawUnsafe(
+      `UPDATE maternity_pregnancies
           SET status = 'delivered', updated_at = NOW()
-        WHERE id = $1::int AND tenant_id = $2::uuid`,
-      Number(labor.id),
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+          AND status = 'ongoing'
+      RETURNING id`,
+      Number(pregnancy.id),
       tid,
     );
-  }
-  return rows[0];
+    if (pregnancyTransitions.length !== 1) {
+      throw AppError.conflict(
+        'Pregnancy is no longer ongoing',
+        'MATERNITY_PREGNANCY_NOT_ONGOING',
+      );
+    }
+    if (labor) {
+      const laborTransitions = await tx.$queryRawUnsafe(
+        `UPDATE maternity_labor_admissions
+            SET status = 'delivered', updated_at = NOW()
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid
+            AND status = 'active'
+        RETURNING id`,
+        Number(labor.id),
+        tid,
+      );
+      if (laborTransitions.length !== 1) {
+        throw AppError.conflict(
+          'Labor admission is no longer active',
+          'MATERNITY_LABOR_NOT_ACTIVE',
+        );
+      }
+    }
+
+    const projectionRows = await tx.$queryRawUnsafe(
+      `WITH projection AS (
+         SELECT EXISTS (
+                  SELECT 1
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $2::uuid
+                     AND patient_uid = $1::uuid
+                     AND status = 'ongoing'
+                ) AS is_pregnant,
+                (
+                  SELECT lmp_date
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $2::uuid
+                     AND patient_uid = $1::uuid
+                     AND status = 'ongoing'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 1
+                ) AS lmp_date
+       )
+       UPDATE users u
+          SET is_pregnant = projection.is_pregnant,
+              pregnancy_lmp_date = projection.lmp_date,
+              updated_at = NOW()
+         FROM projection
+        WHERE u.tenant_id = $2::uuid
+          AND u.uid = $1::uuid
+       RETURNING u.is_pregnant, u.pregnancy_lmp_date`,
+      String(pregnancy.patient_uid),
+      tid,
+    );
+    const projection = projectionRows[0];
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(pregnancy.patient_uid),
+      eventType: 'maternity.delivery_recorded',
+      eventStatus: 'recorded',
+      sourceTable: 'maternity_deliveries',
+      sourceId: delivery.id,
+      resourceType: 'delivery',
+      resourceId: delivery.id,
+      actorUid: actor_uid || null,
+      actorRole: actor_role || null,
+      occurredAt: delivery.delivery_datetime,
+      visibleToPatient: false,
+      summary: 'Delivery recorded',
+      payload: {
+        delivery_id: delivery.id,
+        pregnancy_id: pregnancy.id,
+        labor_admission_id: labor?.id || null,
+      },
+      afterState: {
+        pregnancy_status: 'delivered',
+        labor_status: labor ? 'delivered' : null,
+        user_is_pregnant: projection?.is_pregnant === true,
+      },
+      timelineIdempotencyKey: `maternity_deliveries:${delivery.id}:recorded`,
+      auditIdempotencyKey: `maternity_deliveries:${delivery.id}:audit:recorded`,
+    }, { db: tx, strict: true });
+
+    return delivery;
+  });
 }
 
 export async function getDelivery({ tenantId, id }) {
