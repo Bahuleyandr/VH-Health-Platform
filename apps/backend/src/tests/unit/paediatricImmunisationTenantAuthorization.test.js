@@ -31,9 +31,11 @@ beforeEach(() => {
 describe('paediatric immunisation tenant authorization', () => {
   it('seeds schedules only after resolving the patient in the caller tenant', async () => {
     queryRawUnsafeMock
-      .mockResolvedValueOnce([{ uid: PATIENT, birthday: '2025-01-01' }])
-      .mockResolvedValueOnce([{ id: 9, code: 'BCG', dose_number: 1, recommended_age_days: 0 }])
-      .mockResolvedValueOnce([{ was_insert: true }]);
+      .mockResolvedValueOnce([{ uid: PATIENT, birthday: '2025-01-01' }]) // assertPatientInTenant
+      .mockResolvedValueOnce([{ id: 9, code: 'BCG', dose_number: 1, recommended_age_days: 0 }]) // catalogue
+      .mockResolvedValueOnce([{ id: 5 }]) // O1 resolver: exactly one maternity newborn
+      .mockResolvedValueOnce([{ vaccine_catalogue_id: 9, id: 77 }]) // O1 resolver: its newborn doses
+      .mockResolvedValueOnce([{ was_insert: true }]); // insert
 
     await service.seedScheduleForPatient({
       patientUid: PATIENT,
@@ -51,10 +53,25 @@ describe('paediatric immunisation tenant authorization', () => {
     expect(catalogueSql).toContain('tenant_id = $1::uuid');
     expect(catalogueParams).toEqual([TENANT]);
 
-    const [insertSql, ...insertParams] = queryRawUnsafeMock.mock.calls[2];
+    // O1: the newborn-identity lookup and its dose lookup are tenant-scoped —
+    // an exact link can never be resolved from another tenant's rows.
+    const [newbornSql, ...newbornParams] = queryRawUnsafeMock.mock.calls[2];
+    expect(newbornSql).toContain('FROM maternity_newborns');
+    expect(newbornSql).toContain('tenant_id = $1::uuid');
+    expect(newbornSql).toContain('newborn_patient_uid = $2::uuid');
+    expect(newbornParams).toEqual([TENANT, PATIENT]);
+
+    const [doseSql, ...doseParams] = queryRawUnsafeMock.mock.calls[3];
+    expect(doseSql).toContain('FROM newborn_immunisations');
+    expect(doseSql).toContain('tenant_id = $1::uuid');
+    expect(doseParams).toEqual([TENANT, 5]);
+
+    const [insertSql, ...insertParams] = queryRawUnsafeMock.mock.calls[4];
     expect(insertSql).toContain('WHERE patient_immunisations.tenant_id = EXCLUDED.tenant_id');
+    expect(insertSql).toContain('newborn_immunisation_id');
     expect(insertParams[0]).toBe(PATIENT);
-    expect(insertParams[3]).toBe(TENANT);
+    expect(insertParams[3]).toBe(77); // exact newborn-dose link wired into the insert
+    expect(insertParams[4]).toBe(TENANT);
   });
 
   it('does not seed or list immunisations for a patient outside the tenant', async () => {

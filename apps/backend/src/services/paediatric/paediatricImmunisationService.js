@@ -98,15 +98,72 @@ async function ensureScheduleSeededForPatient({ patientUid, tenantId }) {
 }
 
 /**
+ * O1 — resolve the EXACT newborn immunisation back-links for a paediatric
+ * patient about to be seeded. A link is only ever produced when the patient's
+ * identity is unambiguous: exactly one maternity newborn in this tenant carries
+ * `newborn_patient_uid = patientUid`. When zero or more than one newborn shares
+ * the uid, nothing is linked — ambiguous identity is never auto-resolved. For
+ * the single matched newborn, each of its `newborn_immunisations` doses maps its
+ * `vaccine_catalogue_id` to that dose id; a vaccine that (defensively) resolves
+ * to more than one dose is dropped.
+ *
+ * Matching is on exact uuid + exact vaccine_catalogue_id only — never on vaccine
+ * name/code equivalence. Strictly tenant-scoped, so a dose in another tenant can
+ * never be returned.
+ *
+ * @returns {Promise<Map<number, number>>} vaccine_catalogue_id -> newborn_immunisation_id
+ */
+async function resolveNewbornDoseLinks({ patientUid, tenantId }) {
+  const tid = tenantOr(tenantId);
+  const newborns = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM maternity_newborns
+      WHERE tenant_id = $1::uuid
+        AND newborn_patient_uid = $2::uuid
+      ORDER BY id`,
+    tid, patientUid,
+  );
+  // Absent or ambiguous identity → link nothing.
+  if (newborns.length !== 1) return new Map();
+  const newbornId = Number(newborns[0].id);
+
+  const doses = await prisma.$queryRawUnsafe(
+    `SELECT vaccine_catalogue_id, id
+       FROM newborn_immunisations
+      WHERE tenant_id = $1::uuid
+        AND newborn_id = $2::int
+      ORDER BY vaccine_catalogue_id, id`,
+    tid, newbornId,
+  );
+  const counts = new Map();
+  const linkByVaccine = new Map();
+  for (const dose of doses) {
+    const vaccineId = Number(dose.vaccine_catalogue_id);
+    counts.set(vaccineId, (counts.get(vaccineId) || 0) + 1);
+    linkByVaccine.set(vaccineId, Number(dose.id));
+  }
+  // UNIQUE(newborn_id, vaccine_catalogue_id) makes >1 impossible for a single
+  // newborn, but guard anyway: never link a vaccine with multiple candidates.
+  for (const [vaccineId, count] of counts) {
+    if (count > 1) linkByVaccine.delete(vaccineId);
+  }
+  return linkByVaccine;
+}
+
+/**
  * Seed a paediatric patient's immunisation schedule from the active
  * vaccine_catalogue. due_date for each row = dob + recommended_age_days.
  * Idempotent on (patient_uid, vaccine_catalogue_id) via the UNIQUE
  * constraint. Existing rows keep their original due_date because pack
  * timing changes apply only to future seeds.
  *
- * If the patient already has a newborn_immunisations cohort row for the
- * same vaccine, the new patient_immunisations row's
- * newborn_immunisation_id back-link is populated so the UI can dedupe.
+ * O1 — for FUTURE seeds only, each newly inserted row's newborn_immunisation_id
+ * back-link is populated when, and only when, the patient's identity resolves
+ * to exactly one maternity newborn with exactly one matching newborn dose for
+ * that vaccine (see resolveNewbornDoseLinks). Any ambiguity leaves the row
+ * unlinked and reported by scripts/immunisation-linkage-report.mjs. Rows that
+ * already exist are never re-linked here (no backfill): the ON CONFLICT branch
+ * does not touch newborn_immunisation_id.
  */
 export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
@@ -126,21 +183,29 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
     tid,
   );
 
+  // Resolve exact newborn-dose back-links once for this patient (tenant-scoped).
+  const newbornLinks = await resolveNewbornDoseLinks({ patientUid, tenantId: tid });
+
   let inserted = 0;
   let updated = 0;
+  let linked = 0;
   for (const row of catalogue) {
     const due = new Date(dobDate.getTime());
     due.setDate(due.getDate() + Number(row.recommended_age_days));
     const dueIso = due.toISOString().slice(0, 10);
+    // Exact link (or null). Only applied on INSERT — the ON CONFLICT branch
+    // never rewrites an existing row's link, so already-seeded schedules are
+    // left exactly as they are (no backfill).
+    const newbornImmunId = newbornLinks.get(Number(row.id)) ?? null;
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO patient_immunisations
-         (patient_uid, vaccine_catalogue_id, due_date, tenant_id)
-       VALUES ($1::uuid, $2, $3::date, $4::uuid)
+         (patient_uid, vaccine_catalogue_id, due_date, newborn_immunisation_id, tenant_id)
+       VALUES ($1::uuid, $2, $3::date, $4::int, $5::uuid)
        ON CONFLICT (patient_uid, vaccine_catalogue_id)
        DO UPDATE SET updated_at = patient_immunisations.updated_at
        WHERE patient_immunisations.tenant_id = EXCLUDED.tenant_id
        RETURNING (xmax = 0) AS was_insert`,
-      patientUid, Number(row.id), dueIso, tid,
+      patientUid, Number(row.id), dueIso, newbornImmunId, tid,
     );
     if (!result.length) {
       throw AppError.conflict(
@@ -148,11 +213,16 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
         'PAEDIATRIC_IMMUNISATION_TENANT_CONFLICT',
       );
     }
-    if (result?.[0]?.was_insert) inserted += 1; else updated += 1;
+    if (result?.[0]?.was_insert) {
+      inserted += 1;
+      if (newbornImmunId != null) linked += 1;
+    } else {
+      updated += 1;
+    }
   }
 
-  logger.info(`Paediatric immunisation schedule seeded for patient=${patientUid} inserted=${inserted} updated=${updated}`);
-  return { patient_uid: patientUid, inserted, updated, total: catalogue.length };
+  logger.info(`Paediatric immunisation schedule seeded for patient=${patientUid} inserted=${inserted} updated=${updated} linked=${linked}`);
+  return { patient_uid: patientUid, inserted, updated, linked, total: catalogue.length };
 }
 
 /**
@@ -183,6 +253,10 @@ export async function listForPatient(patientUid, { tenantId } = {}) {
         AND vc.tenant_id = pi.tenant_id
       WHERE pi.patient_uid = $1::uuid
         AND pi.tenant_id = $2::uuid
+        -- O1 deduped read: a row exactly linked to a newborn dose is owned by
+        -- the newborn immunisation schedule and must not surface here as a
+        -- second, independent patient dose.
+        AND pi.newborn_immunisation_id IS NULL
       ORDER BY pi.due_date ASC, vc.code ASC, vc.dose_number ASC NULLS FIRST`,
     patientUid, tenantOr(tenantId),
   );
@@ -235,6 +309,9 @@ export async function listDueForPatient(patientUid, { asOf = null, tenantId = nu
       WHERE pi.patient_uid = $1::uuid
         AND pi.tenant_id = $4::uuid
         AND pi.status = 'scheduled'
+        -- O1 deduped read: linked doses belong to the newborn schedule, so they
+        -- never appear as an independent "due" paediatric dose.
+        AND pi.newborn_immunisation_id IS NULL
         AND ($3::date IS NULL OR pi.due_date > $3::date)
       ORDER BY pi.due_date ASC`,
     patientUid, checkpointIso, reviewCutoffIso, tenantOr(tenantId),
