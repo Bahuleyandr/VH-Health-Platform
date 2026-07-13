@@ -6,6 +6,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth/core/models/status_enums.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -297,6 +298,17 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
 
     final visitsAsc = [...data.visits].reversed.toList();
     final nextVisit = _resolveNextVisit(data.visits);
+    // Only future/active bookings are shown so a completed appointment is
+    // not duplicated with its recorded ANC visit below.
+    final now = DateTime.now();
+    final bookedVisits =
+        data.bookedVisits
+            .where((visit) => visit.isUpcomingOrActive(now))
+            .toList()
+          ..sort(_compareBookedVisits);
+    final generalVitals = data.generalVitals
+        .where((vital) => vital.hasDisplayableReading)
+        .toList(growable: false);
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -319,10 +331,28 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
         ],
         if (nextVisit != null) _nextVisitCard(theme, l, nextVisit),
         if (nextVisit != null) const SizedBox(height: 16),
+        if (bookedVisits.isNotEmpty) ...[
+          Text('Booked visits', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          ...bookedVisits.map((v) => _bookedVisitCard(theme, l, v)),
+          const SizedBox(height: 16),
+        ],
         if (visitsAsc.isNotEmpty) ...[
           Text(l.ancVisitsSoFar, style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           ...visitsAsc.map((v) => _visitCard(theme, l, v)),
+          const SizedBox(height: 16),
+        ],
+        if (generalVitals.isNotEmpty) ...[
+          Text('Recorded BP & weight', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Card(
+            child: Column(
+              children: generalVitals
+                  .map((vital) => _generalVitalTile(theme, l, vital))
+                  .toList(),
+            ),
+          ),
           const SizedBox(height: 16),
         ],
         if (data.supplements.isNotEmpty) ...[
@@ -806,6 +836,158 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
         ),
       ],
     );
+  }
+
+  /// Soonest booking first; rows without a semantic date sort last.
+  static int _compareBookedVisits(AncBookedVisit a, AncBookedVisit b) {
+    final dateA = a.appointmentCalendarDate;
+    final dateB = b.appointmentCalendarDate;
+    if (dateA == null && dateB == null) return 0;
+    if (dateA == null) return 1;
+    if (dateB == null) return -1;
+    final byDate = dateA.compareTo(dateB);
+    if (byDate != 0) return byDate;
+    return (a.appointmentTime ?? '').compareTo(b.appointmentTime ?? '');
+  }
+
+  Widget _bookedVisitCard(
+    ThemeData theme,
+    AppLocalizations l,
+    AncBookedVisit visit,
+  ) {
+    final cs = theme.colorScheme;
+    final appointmentDate = visit.appointmentCalendarDate;
+    final dateLabel = appointmentDate != null
+        ? _fmtCalendarDate(context, appointmentDate)
+        : null;
+    final timeLabel = _fmtTimeOfDay(visit.appointmentTime);
+    final when = [?dateLabel, ?timeLabel].join(' • ');
+    final details = [
+      if (visit.department?.isNotEmpty == true) visit.department!,
+      if (visit.reason?.isNotEmpty == true)
+        '${l.appointmentDetailReason}: ${visit.reason}',
+    ];
+    return Card(
+      key: visit.id != null ? ValueKey('anc_booked_visit_${visit.id}') : null,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.event_outlined, color: cs.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    when.isEmpty ? l.ancToBeScheduled : when,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  if (details.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      details.join(' • '),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: cs.secondaryContainer,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                _bookedVisitStatusLabel(visit.status),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.onSecondaryContainer,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _bookedVisitStatusLabel(String? status) {
+    final normalizedStatus = status?.trim().toUpperCase();
+    if (normalizedStatus == 'CHECKED_IN') return 'Checked in';
+    if (normalizedStatus == 'WAITING') return 'Waiting';
+    return switch (AppointmentStatus.fromString(normalizedStatus)) {
+      AppointmentStatus.scheduled => 'Scheduled',
+      AppointmentStatus.confirmed => 'Confirmed',
+      AppointmentStatus.inProgress => 'In progress',
+      _ => titleCase((status ?? '').replaceAll('_', ' ').toLowerCase()),
+    };
+  }
+
+  /// Trims a backend `HH:MM[:SS]` time string to `HH:MM` for display.
+  String? _fmtTimeOfDay(String? time) {
+    final trimmed = time?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    final match = RegExp(r'^(\d{1,2}:\d{2})').firstMatch(trimmed);
+    return match?.group(1) ?? trimmed;
+  }
+
+  Widget _generalVitalTile(
+    ThemeData theme,
+    AppLocalizations l,
+    AncGeneralVital vital,
+  ) {
+    final recordedAt = vital.recordedDateTime;
+    if (recordedAt == null) return const SizedBox.shrink();
+    final recordedLabel = _fmtDateTime(context, recordedAt);
+    return Padding(
+      key: vital.id != null ? ValueKey('anc_general_vital_${vital.id}') : null,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            recordedLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: [
+              if (vital.hasBloodPressure)
+                _stat(
+                  theme,
+                  l.ancBpLabel,
+                  '${vital.systolicBp}/${vital.diastolicBp} mmHg',
+                ),
+              if (vital.hasWeight)
+                _stat(theme, l.ancWeightLabel, '${vital.weightKg} kg'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _fmtDateTime(BuildContext context, DateTime recordedAt) {
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final local = recordedAt.toLocal();
+    return '${DateFormat.yMMMd(locale).format(local)}, '
+        '${DateFormat.jm(locale).format(local)}';
+  }
+
+  String _fmtCalendarDate(BuildContext context, DateTime date) {
+    return DateFormat.yMMMd(
+      Localizations.localeOf(context).toLanguageTag(),
+    ).format(date);
   }
 
   Widget _supplementTile(
