@@ -8,9 +8,10 @@
 //     --tenant <uuid> [--json] [--limit N]
 //
 // For one tenant it enumerates two risk families:
-//   * patient_immunisations rows that share an EXACT identity + vaccine with a
-//     newborn dose — classified already_linked / linkable / multiple_newborns /
-//     multiple_doses; and
+//   * every patient_immunisations row — classified already_linked / linkable /
+//     no_newborn_match / no_matching_dose / multiple_newborns /
+//     multiple_doses / stale_or_mismatched_link /
+//     catalogue_tenant_mismatch; and
 //   * newborn_immunisations rows whose newborn has no newborn_patient_uid and
 //     therefore can never be exactly linked — missing_newborn_patient_uid.
 //
@@ -54,11 +55,22 @@ export function parseArgs(argv) {
 // Classification mirrors the seed's exact-link rule precisely: a link is only
 // safe when identity is unambiguous (exactly one newborn for the uid) and that
 // newborn has exactly one matching dose.
-export function classifyLinkage({ currentLink, newbornCount, doseCount }) {
-  if (currentLink != null) return 'already_linked';
-  if (newbornCount > 1) return 'multiple_newborns';
+export function classifyLinkage({
+  currentLink, newbornCount, doseCount, candidateLink,
+  catalogueInTenant = true,
+}) {
+  if (!catalogueInTenant) return 'catalogue_tenant_mismatch';
+  if (newbornCount === 0) {
+    return currentLink == null ? 'no_newborn_match' : 'stale_or_mismatched_link';
+  }
+  if (doseCount === 0) {
+    return currentLink == null ? 'no_matching_dose' : 'stale_or_mismatched_link';
+  }
   if (doseCount > 1) return 'multiple_doses';
-  return 'linkable';
+  if (newbornCount > 1) return 'multiple_newborns';
+  if (currentLink == null) return 'linkable';
+  if (Number(currentLink) === Number(candidateLink)) return 'already_linked';
+  return 'stale_or_mismatched_link';
 }
 
 function isoOrNull(value) {
@@ -79,23 +91,45 @@ export async function buildLinkageReport({ tenantId, limit = DEFAULT_LIMIT } = {
   const tid = String(tenantId);
   const cap = Number.isInteger(limit) && limit > 0 ? limit : DEFAULT_LIMIT;
 
-  // How many newborns carry each uid in this tenant — the identity-ambiguity
-  // signal, independent of whether a given newborn has a matching dose.
-  const newbornCounts = await prisma.$queryRawUnsafe(
-    `SELECT newborn_patient_uid AS uid, COUNT(*)::int AS total
-       FROM maternity_newborns
-      WHERE tenant_id = $1::uuid
-        AND newborn_patient_uid IS NOT NULL
-      GROUP BY newborn_patient_uid`,
-    tid,
-  );
-  const nbTotalByUid = new Map();
-  for (const row of newbornCounts) nbTotalByUid.set(String(row.uid), Number(row.total));
-
-  // One row per (patient dose x candidate newborn dose) — same exact identity
-  // and same exact vaccine_catalogue_id.
-  const paired = await prisma.$queryRawUnsafe(
-    `SELECT
+  // Start from every tenant-scoped patient dose. LEFT JOINs preserve rows with
+  // no exact candidate, including stale links whose target belongs to another
+  // identity or tenant. The current link is never dereferenced directly.
+  const patientRows = await prisma.$queryRawUnsafe(
+     `WITH newborn_counts AS (
+       SELECT tenant_id, newborn_patient_uid,
+              COUNT(*)::int AS newborn_count,
+              ARRAY_AGG(id ORDER BY id) AS candidate_newborn_ids
+         FROM maternity_newborns
+        WHERE tenant_id = $1::uuid
+          AND newborn_patient_uid IS NOT NULL
+        GROUP BY tenant_id, newborn_patient_uid
+     ),
+     candidate_groups AS (
+       SELECT n.tenant_id, n.newborn_patient_uid,
+              ni.vaccine_catalogue_id,
+              COUNT(*)::int AS newborn_dose_count,
+              ARRAY_AGG(ni.id ORDER BY ni.id) AS candidate_dose_ids,
+              JSONB_AGG(
+                JSONB_BUILD_OBJECT(
+                  'newborn_id', n.id,
+                  'newborn_immunisation_id', ni.id,
+                  'newborn_due_date', ni.due_date::text,
+                  'newborn_status', ni.status,
+                  'newborn_given_at', ni.given_at
+                ) ORDER BY n.id, ni.id
+              ) AS candidate_doses,
+              CASE WHEN COUNT(*) = 1 THEN MIN(ni.id)::int END AS sole_dose_id,
+              CASE WHEN COUNT(*) = 1 THEN MIN(n.id)::int END AS sole_newborn_id
+         FROM maternity_newborns n
+         JOIN newborn_immunisations ni
+           ON ni.newborn_id = n.id
+          AND ni.tenant_id = n.tenant_id
+        WHERE n.tenant_id = $1::uuid
+          AND n.newborn_patient_uid IS NOT NULL
+        GROUP BY n.tenant_id, n.newborn_patient_uid,
+                 ni.vaccine_catalogue_id
+     )
+     SELECT
         pi.id                       AS patient_immunisation_id,
         pi.patient_uid              AS patient_uid,
         pi.vaccine_catalogue_id     AS vaccine_catalogue_id,
@@ -108,83 +142,88 @@ export async function buildLinkageReport({ tenantId, limit = DEFAULT_LIMIT } = {
         vc.display_name             AS display_name,
         vc.schedule_source          AS schedule_source,
         vc.source_version           AS source_version,
-        n.id                        AS newborn_id,
-        ni.id                       AS newborn_immunisation_id,
+        (vc.id IS NOT NULL)         AS catalogue_in_tenant,
+        COALESCE(nc.newborn_count, 0)::int AS newborn_count,
+        COALESCE(cg.newborn_dose_count, 0)::int AS newborn_dose_count,
+        COALESCE(cg.candidate_dose_ids, ARRAY[]::int[]) AS candidate_dose_ids,
+        COALESCE(nc.candidate_newborn_ids, ARRAY[]::int[]) AS candidate_newborn_ids,
+        COALESCE(cg.candidate_doses, '[]'::jsonb) AS candidate_doses,
+        cg.sole_newborn_id          AS newborn_id,
+        cg.sole_dose_id             AS newborn_immunisation_id,
         ni.due_date::text           AS newborn_due_date,
         ni.status                   AS newborn_status,
         ni.given_at                 AS newborn_given_at
        FROM patient_immunisations pi
-       JOIN vaccine_catalogue vc
+       LEFT JOIN vaccine_catalogue vc
          ON vc.id = pi.vaccine_catalogue_id
         AND vc.tenant_id = pi.tenant_id
-       JOIN maternity_newborns n
-         ON n.tenant_id = pi.tenant_id
-        AND n.newborn_patient_uid = pi.patient_uid
-       JOIN newborn_immunisations ni
-         ON ni.tenant_id = n.tenant_id
-        AND ni.newborn_id = n.id
-        AND ni.vaccine_catalogue_id = pi.vaccine_catalogue_id
+       LEFT JOIN newborn_counts nc
+         ON nc.tenant_id = pi.tenant_id
+        AND nc.newborn_patient_uid = pi.patient_uid
+       LEFT JOIN candidate_groups cg
+         ON cg.tenant_id = pi.tenant_id
+        AND cg.newborn_patient_uid = pi.patient_uid
+        AND cg.vaccine_catalogue_id = pi.vaccine_catalogue_id
+       LEFT JOIN newborn_immunisations ni
+         ON ni.id = cg.sole_dose_id
+        AND ni.tenant_id = pi.tenant_id
       WHERE pi.tenant_id = $1::uuid
       ORDER BY pi.patient_uid, vc.code, COALESCE(vc.dose_number, -1),
-               pi.id, n.id, ni.id`,
+               pi.id`,
     tid,
   );
 
-  const byPatientDose = new Map();
-  for (const row of paired) {
-    const key = Number(row.patient_immunisation_id);
-    let group = byPatientDose.get(key);
-    if (!group) {
-      group = { head: row, candidates: [] };
-      byPatientDose.set(key, group);
-    }
-    group.candidates.push(row);
-  }
-
   const patientRecords = [];
-  for (const { head, candidates } of byPatientDose.values()) {
-    const currentLink = head.current_link == null ? null : Number(head.current_link);
-    const newbornCount = nbTotalByUid.get(String(head.patient_uid)) || 0;
+  for (const row of patientRows) {
+    const currentLink = row.current_link == null ? null : Number(row.current_link);
+    const newbornCount = Number(row.newborn_count || 0);
+    const doseCount = Number(row.newborn_dose_count || 0);
+    const candidateLink = row.newborn_immunisation_id == null
+      ? null
+      : Number(row.newborn_immunisation_id);
     const reason = classifyLinkage({
       currentLink,
       newbornCount,
-      doseCount: candidates.length,
+      doseCount,
+      candidateLink,
+      catalogueInTenant: row.catalogue_in_tenant === true,
     });
-    // The singular authoritative newborn dose (already_linked -> the linked
-    // one; linkable -> the only candidate). Null when the case is ambiguous.
-    let authoritative = null;
-    if (reason === 'already_linked') {
-      authoritative = candidates.find(
-        (candidate) => Number(candidate.newborn_immunisation_id) === currentLink,
-      ) || null;
-    } else if (reason === 'linkable') {
-      [authoritative] = candidates;
-    }
+    const exactCandidate = newbornCount === 1 && doseCount === 1;
     patientRecords.push({
       kind: 'patient_dose',
       reason,
-      patient_uid: head.patient_uid,
-      patient_immunisation_id: Number(head.patient_immunisation_id),
-      vaccine_catalogue_id: Number(head.vaccine_catalogue_id),
-      code: head.code,
-      dose_number: head.dose_number == null ? null : Number(head.dose_number),
-      display_name: head.display_name,
-      schedule_source: head.schedule_source,
-      source_version: head.source_version,
-      patient_due_date: head.patient_due_date,
-      patient_status: head.patient_status,
-      patient_given_at: isoOrNull(head.patient_given_at),
+      patient_uid: row.patient_uid,
+      patient_immunisation_id: Number(row.patient_immunisation_id),
+      vaccine_catalogue_id: Number(row.vaccine_catalogue_id),
+      code: row.code,
+      dose_number: row.dose_number == null ? null : Number(row.dose_number),
+      display_name: row.display_name,
+      schedule_source: row.schedule_source,
+      source_version: row.source_version,
+      patient_due_date: row.patient_due_date,
+      patient_status: row.patient_status,
+      patient_given_at: isoOrNull(row.patient_given_at),
       current_link: currentLink,
       newborn_count: newbornCount,
-      newborn_dose_count: candidates.length,
-      newborn_id: authoritative ? Number(authoritative.newborn_id) : null,
-      newborn_patient_uid: head.patient_uid,
-      newborn_immunisation_id: authoritative ? Number(authoritative.newborn_immunisation_id) : null,
-      newborn_due_date: authoritative ? authoritative.newborn_due_date : null,
-      newborn_status: authoritative ? authoritative.newborn_status : null,
-      newborn_given_at: authoritative ? isoOrNull(authoritative.newborn_given_at) : null,
-      candidate_newborn_immunisation_ids: candidates
-        .map((candidate) => Number(candidate.newborn_immunisation_id))
+      newborn_dose_count: doseCount,
+      newborn_id: exactCandidate ? Number(row.newborn_id) : null,
+      newborn_patient_uid: newbornCount > 0 ? row.patient_uid : null,
+      newborn_immunisation_id: exactCandidate ? candidateLink : null,
+      newborn_due_date: exactCandidate ? row.newborn_due_date : null,
+      newborn_status: exactCandidate ? row.newborn_status : null,
+      newborn_given_at: exactCandidate ? isoOrNull(row.newborn_given_at) : null,
+      candidate_newborn_ids: (row.candidate_newborn_ids || [])
+        .map((id) => Number(id))
+        .sort((a, b) => a - b),
+      candidate_doses: (row.candidate_doses || []).map((candidate) => ({
+        newborn_id: Number(candidate.newborn_id),
+        newborn_immunisation_id: Number(candidate.newborn_immunisation_id),
+        newborn_due_date: candidate.newborn_due_date,
+        newborn_status: candidate.newborn_status,
+        newborn_given_at: isoOrNull(candidate.newborn_given_at),
+      })),
+      candidate_newborn_immunisation_ids: (row.candidate_dose_ids || [])
+        .map((id) => Number(id))
         .sort((a, b) => a - b),
     });
   }
@@ -247,6 +286,14 @@ export async function buildLinkageReport({ tenantId, limit = DEFAULT_LIMIT } = {
     newborn_due_date: row.newborn_due_date,
     newborn_status: row.newborn_status,
     newborn_given_at: isoOrNull(row.newborn_given_at),
+    candidate_newborn_ids: [Number(row.newborn_id)],
+    candidate_doses: [{
+      newborn_id: Number(row.newborn_id),
+      newborn_immunisation_id: Number(row.newborn_immunisation_id),
+      newborn_due_date: row.newborn_due_date,
+      newborn_status: row.newborn_status,
+      newborn_given_at: isoOrNull(row.newborn_given_at),
+    }],
     candidate_newborn_immunisation_ids: [Number(row.newborn_immunisation_id)],
   }));
 
@@ -286,8 +333,9 @@ async function main() {
   process.stdout.write(`\n[immunisation-linkage] tenant ${report.tenant_id}\n`);
   process.stdout.write(`  records : ${report.summary.total}\n`);
   for (const reason of [
-    'already_linked', 'linkable', 'multiple_newborns',
-    'multiple_doses', 'missing_newborn_patient_uid',
+    'already_linked', 'linkable', 'no_newborn_match', 'no_matching_dose',
+    'multiple_newborns', 'multiple_doses', 'stale_or_mismatched_link',
+    'catalogue_tenant_mismatch', 'missing_newborn_patient_uid',
   ]) {
     if (report.summary[reason]) {
       process.stdout.write(`  ${reason.padEnd(28)}: ${report.summary[reason]}\n`);

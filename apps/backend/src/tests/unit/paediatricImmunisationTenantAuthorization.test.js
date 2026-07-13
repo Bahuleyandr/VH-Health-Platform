@@ -1,13 +1,16 @@
 import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
+const executeRawUnsafeMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
+  $executeRawUnsafe: executeRawUnsafeMock,
 };
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(__prismaDefaultMock));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
-  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
@@ -18,6 +21,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 const service = await import('../../services/paediatric/paediatricImmunisationService.js');
+const { classifyLinkage } = await import('../../../scripts/immunisation-linkage-report.mjs');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const OTHER_TENANT = '00000000-0000-4000-8000-000000000002';
@@ -26,16 +30,43 @@ const STAFF = '22222222-2222-4222-8222-222222222222';
 
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
+  executeRawUnsafeMock.mockReset();
+  executeRawUnsafeMock.mockResolvedValue(0);
+  setTenantTxMock.mockClear();
 });
 
 describe('paediatric immunisation tenant authorization', () => {
-  it('seeds schedules only after resolving the patient in the caller tenant', async () => {
+  it('classifies a current link as exact only when it equals the sole exact candidate', () => {
+    expect(classifyLinkage({
+      currentLink: 77, newbornCount: 1, doseCount: 1, candidateLink: 77,
+    })).toBe('already_linked');
+    expect(classifyLinkage({
+      currentLink: 77, newbornCount: 1, doseCount: 1, candidateLink: 88,
+    })).toBe('stale_or_mismatched_link');
+    expect(classifyLinkage({
+      currentLink: 77, newbornCount: 0, doseCount: 0, candidateLink: null,
+    })).toBe('stale_or_mismatched_link');
+    expect(classifyLinkage({
+      currentLink: 77, newbornCount: 2, doseCount: 2, candidateLink: null,
+    })).toBe('multiple_doses');
+    expect(classifyLinkage({
+      currentLink: 77, newbornCount: 2, doseCount: 1, candidateLink: 77,
+    })).toBe('multiple_newborns');
+    expect(classifyLinkage({
+      currentLink: 77,
+      newbornCount: 0,
+      doseCount: 0,
+      candidateLink: null,
+      catalogueInTenant: false,
+    })).toBe('catalogue_tenant_mismatch');
+  });
+
+  it('closes the resolution/write race inside one locked tenant transaction', async () => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([{ uid: PATIENT, birthday: '2025-01-01' }]) // assertPatientInTenant
-      .mockResolvedValueOnce([{ id: 9, code: 'BCG', dose_number: 1, recommended_age_days: 0 }]) // catalogue
-      .mockResolvedValueOnce([{ id: 5 }]) // O1 resolver: exactly one maternity newborn
-      .mockResolvedValueOnce([{ vaccine_catalogue_id: 9, id: 77 }]) // O1 resolver: its newborn doses
-      .mockResolvedValueOnce([{ was_insert: true }]); // insert
+      .mockResolvedValueOnce([{
+        total: 1, touched: 1, inserted: 1, updated: 0, linked: 1,
+      }]); // atomic exact-resolution + schedule upsert
 
     await service.seedScheduleForPatient({
       patientUid: PATIENT,
@@ -48,30 +79,25 @@ describe('paediatric immunisation tenant authorization', () => {
     expect(patientSql).toContain('tenant_id = $2::uuid');
     expect(patientParams).toEqual([PATIENT, TENANT]);
 
-    const [catalogueSql, ...catalogueParams] = queryRawUnsafeMock.mock.calls[1];
-    expect(catalogueSql).toContain('FROM vaccine_catalogue');
-    expect(catalogueSql).toContain('tenant_id = $1::uuid');
-    expect(catalogueParams).toEqual([TENANT]);
+    // O1 race closure: candidate sources are locked before one statement both
+    // proves exact identity/dose counts and writes every schedule row.
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock.mock.calls[0][0]).toBe(TENANT);
+    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(executeRawUnsafeMock.mock.calls[0][0]).toContain(
+      'LOCK TABLE maternity_newborns, newborn_immunisations IN SHARE MODE',
+    );
 
-    // O1: the newborn-identity lookup and its dose lookup are tenant-scoped —
-    // an exact link can never be resolved from another tenant's rows.
-    const [newbornSql, ...newbornParams] = queryRawUnsafeMock.mock.calls[2];
-    expect(newbornSql).toContain('FROM maternity_newborns');
-    expect(newbornSql).toContain('tenant_id = $1::uuid');
-    expect(newbornSql).toContain('newborn_patient_uid = $2::uuid');
-    expect(newbornParams).toEqual([TENANT, PATIENT]);
-
-    const [doseSql, ...doseParams] = queryRawUnsafeMock.mock.calls[3];
-    expect(doseSql).toContain('FROM newborn_immunisations');
-    expect(doseSql).toContain('tenant_id = $1::uuid');
-    expect(doseParams).toEqual([TENANT, 5]);
-
-    const [insertSql, ...insertParams] = queryRawUnsafeMock.mock.calls[4];
+    const [insertSql, ...insertParams] = queryRawUnsafeMock.mock.calls[1];
+    expect(insertSql).toContain('WITH exact_newborn AS');
+    expect(insertSql).toContain('HAVING COUNT(*) = 1');
+    expect(insertSql).toContain('FROM newborn_immunisations');
+    expect(insertSql).toContain('INSERT INTO patient_immunisations');
     expect(insertSql).toContain('WHERE patient_immunisations.tenant_id = EXCLUDED.tenant_id');
     expect(insertSql).toContain('newborn_immunisation_id');
-    expect(insertParams[0]).toBe(PATIENT);
-    expect(insertParams[3]).toBe(77); // exact newborn-dose link wired into the insert
-    expect(insertParams[4]).toBe(TENANT);
+    expect(insertParams).toEqual([TENANT, PATIENT, '2025-01-01']);
+    expect(executeRawUnsafeMock.mock.invocationCallOrder[0])
+      .toBeLessThan(queryRawUnsafeMock.mock.invocationCallOrder[1]);
   });
 
   it('does not seed or list immunisations for a patient outside the tenant', async () => {
@@ -104,6 +130,11 @@ describe('paediatric immunisation tenant authorization', () => {
     const [listSql, ...listParams] = queryRawUnsafeMock.mock.calls[1];
     expect(listSql).toContain('vc.tenant_id = pi.tenant_id');
     expect(listSql).toContain('pi.tenant_id = $2::uuid');
+    expect(listSql).toContain('linked.newborn_patient_uid = pi.patient_uid');
+    expect(listSql).toContain('linked.vaccine_catalogue_id = pi.vaccine_catalogue_id');
+    expect(listSql).toContain('linked.newborn_count = 1');
+    expect(listSql).toContain('linked.dose_count = 1');
+    expect(listSql).not.toContain('pi.newborn_immunisation_id IS NULL');
     expect(listParams).toEqual([PATIENT, TENANT]);
   });
 
@@ -118,6 +149,11 @@ describe('paediatric immunisation tenant authorization', () => {
     const [dueSql, ...dueParams] = queryRawUnsafeMock.mock.calls[2];
     expect(dueSql).toContain('vc.tenant_id = pi.tenant_id');
     expect(dueSql).toContain('pi.tenant_id = $4::uuid');
+    expect(dueSql).toContain('linked.newborn_patient_uid = pi.patient_uid');
+    expect(dueSql).toContain('linked.vaccine_catalogue_id = pi.vaccine_catalogue_id');
+    expect(dueSql).toContain('linked.newborn_count = 1');
+    expect(dueSql).toContain('linked.dose_count = 1');
+    expect(dueSql).not.toContain('pi.newborn_immunisation_id IS NULL');
     expect(dueParams).toEqual([PATIENT, '2026-06-11', null, TENANT]);
   });
 

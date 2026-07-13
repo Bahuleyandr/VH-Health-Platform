@@ -14,7 +14,7 @@
 // All queries here use prisma.$queryRawUnsafe with spread args per the
 // lint:raw-params convention.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -98,59 +98,6 @@ async function ensureScheduleSeededForPatient({ patientUid, tenantId }) {
 }
 
 /**
- * O1 — resolve the EXACT newborn immunisation back-links for a paediatric
- * patient about to be seeded. A link is only ever produced when the patient's
- * identity is unambiguous: exactly one maternity newborn in this tenant carries
- * `newborn_patient_uid = patientUid`. When zero or more than one newborn shares
- * the uid, nothing is linked — ambiguous identity is never auto-resolved. For
- * the single matched newborn, each of its `newborn_immunisations` doses maps its
- * `vaccine_catalogue_id` to that dose id; a vaccine that (defensively) resolves
- * to more than one dose is dropped.
- *
- * Matching is on exact uuid + exact vaccine_catalogue_id only — never on vaccine
- * name/code equivalence. Strictly tenant-scoped, so a dose in another tenant can
- * never be returned.
- *
- * @returns {Promise<Map<number, number>>} vaccine_catalogue_id -> newborn_immunisation_id
- */
-async function resolveNewbornDoseLinks({ patientUid, tenantId }) {
-  const tid = tenantOr(tenantId);
-  const newborns = await prisma.$queryRawUnsafe(
-    `SELECT id
-       FROM maternity_newborns
-      WHERE tenant_id = $1::uuid
-        AND newborn_patient_uid = $2::uuid
-      ORDER BY id`,
-    tid, patientUid,
-  );
-  // Absent or ambiguous identity → link nothing.
-  if (newborns.length !== 1) return new Map();
-  const newbornId = Number(newborns[0].id);
-
-  const doses = await prisma.$queryRawUnsafe(
-    `SELECT vaccine_catalogue_id, id
-       FROM newborn_immunisations
-      WHERE tenant_id = $1::uuid
-        AND newborn_id = $2::int
-      ORDER BY vaccine_catalogue_id, id`,
-    tid, newbornId,
-  );
-  const counts = new Map();
-  const linkByVaccine = new Map();
-  for (const dose of doses) {
-    const vaccineId = Number(dose.vaccine_catalogue_id);
-    counts.set(vaccineId, (counts.get(vaccineId) || 0) + 1);
-    linkByVaccine.set(vaccineId, Number(dose.id));
-  }
-  // UNIQUE(newborn_id, vaccine_catalogue_id) makes >1 impossible for a single
-  // newborn, but guard anyway: never link a vaccine with multiple candidates.
-  for (const [vaccineId, count] of counts) {
-    if (count > 1) linkByVaccine.delete(vaccineId);
-  }
-  return linkByVaccine;
-}
-
-/**
  * Seed a paediatric patient's immunisation schedule from the active
  * vaccine_catalogue. due_date for each row = dob + recommended_age_days.
  * Idempotent on (patient_uid, vaccine_catalogue_id) via the UNIQUE
@@ -160,10 +107,14 @@ async function resolveNewbornDoseLinks({ patientUid, tenantId }) {
  * O1 — for FUTURE seeds only, each newly inserted row's newborn_immunisation_id
  * back-link is populated when, and only when, the patient's identity resolves
  * to exactly one maternity newborn with exactly one matching newborn dose for
- * that vaccine (see resolveNewbornDoseLinks). Any ambiguity leaves the row
- * unlinked and reported by scripts/immunisation-linkage-report.mjs. Rows that
- * already exist are never re-linked here (no backfill): the ON CONFLICT branch
- * does not touch newborn_immunisation_id.
+ * that vaccine. Candidate resolution and every schedule write happen inside
+ * one tenant-scoped transaction. The two source tables are SHARE-locked before
+ * the single INSERT...SELECT statement so another newborn or newborn dose
+ * cannot appear between the exactness check and the back-link write. Any
+ * ambiguity leaves the row unlinked and is reported by
+ * scripts/immunisation-linkage-report.mjs. Rows that already exist are never
+ * re-linked here (no backfill): the ON CONFLICT branch does not touch
+ * newborn_immunisation_id.
  */
 export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
@@ -173,56 +124,79 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
   if (Number.isNaN(dobDate.getTime())) throw AppError.badRequest('dob must be a valid date');
   await assertPatientInTenant(patientUid, tid);
 
-  // Look up active catalogue rows once, project due_date in app code so
-  // the SQL stays simple and we control date arithmetic explicitly.
-  const catalogue = await prisma.$queryRawUnsafe(
-    `SELECT id, code, dose_number, recommended_age_days
-       FROM vaccine_catalogue
-      WHERE tenant_id = $1::uuid AND active = true
-      ORDER BY recommended_age_days, code, dose_number`,
-    tid,
-  );
-
-  // Resolve exact newborn-dose back-links once for this patient (tenant-scoped).
-  const newbornLinks = await resolveNewbornDoseLinks({ patientUid, tenantId: tid });
-
-  let inserted = 0;
-  let updated = 0;
-  let linked = 0;
-  for (const row of catalogue) {
-    const due = new Date(dobDate.getTime());
-    due.setDate(due.getDate() + Number(row.recommended_age_days));
-    const dueIso = due.toISOString().slice(0, 10);
-    // Exact link (or null). Only applied on INSERT — the ON CONFLICT branch
-    // never rewrites an existing row's link, so already-seeded schedules are
-    // left exactly as they are (no backfill).
-    const newbornImmunId = newbornLinks.get(Number(row.id)) ?? null;
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO patient_immunisations
-         (patient_uid, vaccine_catalogue_id, due_date, newborn_immunisation_id, tenant_id)
-       VALUES ($1::uuid, $2, $3::date, $4::int, $5::uuid)
-       ON CONFLICT (patient_uid, vaccine_catalogue_id)
-       DO UPDATE SET updated_at = patient_immunisations.updated_at
-       WHERE patient_immunisations.tenant_id = EXCLUDED.tenant_id
-       RETURNING (xmax = 0) AS was_insert`,
-      patientUid, Number(row.id), dueIso, newbornImmunId, tid,
+  const dobIso = dobDate.toISOString().slice(0, 10);
+  const counts = await setTenantTx(tid, async (tx) => {
+    // SHARE conflicts with INSERT/UPDATE/DELETE's ROW EXCLUSIVE lock. Holding
+    // both locks until commit closes the identity/dose phantom window without
+    // changing historical rows or adding a schema constraint.
+    await tx.$executeRawUnsafe(
+      'LOCK TABLE maternity_newborns, newborn_immunisations IN SHARE MODE',
     );
-    if (!result.length) {
+    const rows = await tx.$queryRawUnsafe(
+      `WITH exact_newborn AS (
+         SELECT MIN(id)::int AS newborn_id
+           FROM maternity_newborns
+          WHERE tenant_id = $1::uuid
+            AND newborn_patient_uid = $2::uuid
+         HAVING COUNT(*) = 1
+       ),
+       exact_doses AS (
+         SELECT ni.vaccine_catalogue_id,
+                MIN(ni.id)::int AS newborn_immunisation_id
+           FROM newborn_immunisations ni
+           JOIN exact_newborn en ON en.newborn_id = ni.newborn_id
+          WHERE ni.tenant_id = $1::uuid
+          GROUP BY ni.vaccine_catalogue_id
+         HAVING COUNT(*) = 1
+       ),
+       active_catalogue AS (
+         SELECT vc.id,
+                ($3::date + vc.recommended_age_days)::date AS due_date
+           FROM vaccine_catalogue vc
+          WHERE vc.tenant_id = $1::uuid
+            AND vc.active = true
+       ),
+       upserted AS (
+         INSERT INTO patient_immunisations
+           (patient_uid, vaccine_catalogue_id, due_date,
+            newborn_immunisation_id, tenant_id)
+         SELECT $2::uuid, ac.id, ac.due_date,
+                ed.newborn_immunisation_id, $1::uuid
+           FROM active_catalogue ac
+           LEFT JOIN exact_doses ed
+             ON ed.vaccine_catalogue_id = ac.id
+         ON CONFLICT (patient_uid, vaccine_catalogue_id)
+         DO UPDATE SET updated_at = patient_immunisations.updated_at
+         WHERE patient_immunisations.tenant_id = EXCLUDED.tenant_id
+         RETURNING (xmax = 0) AS was_insert, newborn_immunisation_id
+       )
+       SELECT (SELECT COUNT(*)::int FROM active_catalogue) AS total,
+              COUNT(*)::int AS touched,
+              COUNT(*) FILTER (WHERE was_insert)::int AS inserted,
+              COUNT(*) FILTER (WHERE NOT was_insert)::int AS updated,
+              COUNT(*) FILTER (
+                WHERE was_insert AND newborn_immunisation_id IS NOT NULL
+              )::int AS linked
+         FROM upserted`,
+      tid, patientUid, dobIso,
+    );
+    const result = rows[0];
+    if (Number(result?.touched || 0) !== Number(result?.total || 0)) {
       throw AppError.conflict(
         'Patient immunisation row conflicts with another tenant',
         'PAEDIATRIC_IMMUNISATION_TENANT_CONFLICT',
       );
     }
-    if (result?.[0]?.was_insert) {
-      inserted += 1;
-      if (newbornImmunId != null) linked += 1;
-    } else {
-      updated += 1;
-    }
-  }
+    return result;
+  });
+
+  const total = Number(counts?.total || 0);
+  const inserted = Number(counts?.inserted || 0);
+  const updated = Number(counts?.updated || 0);
+  const linked = Number(counts?.linked || 0);
 
   logger.info(`Paediatric immunisation schedule seeded for patient=${patientUid} inserted=${inserted} updated=${updated} linked=${linked}`);
-  return { patient_uid: patientUid, inserted, updated, linked, total: catalogue.length };
+  return { patient_uid: patientUid, inserted, updated, linked, total };
 }
 
 /**
@@ -241,23 +215,59 @@ export async function listForPatient(patientUid, { tenantId } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
   await ensureScheduleSeededForPatient({ patientUid, tenantId });
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT pi.id, pi.patient_uid, pi.vaccine_catalogue_id, pi.due_date,
-            pi.status, pi.given_at, pi.given_by, pi.given_by_name,
-            pi.batch_number, pi.manufacturer, pi.site_of_injection,
-            pi.adverse_event, pi.notes, pi.newborn_immunisation_id,
+     `WITH newborn_identity AS (
+       SELECT tenant_id, newborn_patient_uid, COUNT(*)::int AS newborn_count
+         FROM maternity_newborns
+        WHERE tenant_id = $2::uuid
+          AND newborn_patient_uid IS NOT NULL
+        GROUP BY tenant_id, newborn_patient_uid
+     ),
+     linked_candidates AS (
+       SELECT ni.id, ni.tenant_id, ni.newborn_id, ni.vaccine_catalogue_id,
+              ni.due_date, ni.status, ni.given_at, ni.given_by,
+              ni.given_by_name, ni.batch_number, ni.manufacturer,
+              ni.site_of_injection, ni.adverse_event, ni.notes,
+              n.newborn_patient_uid, ident.newborn_count,
+              COUNT(*) OVER (
+                PARTITION BY ni.tenant_id, n.newborn_patient_uid,
+                             ni.vaccine_catalogue_id
+              )::int AS dose_count
+         FROM newborn_immunisations ni
+         JOIN maternity_newborns n
+           ON n.id = ni.newborn_id
+          AND n.tenant_id = ni.tenant_id
+         JOIN newborn_identity ident
+           ON ident.tenant_id = n.tenant_id
+          AND ident.newborn_patient_uid = n.newborn_patient_uid
+     )
+     SELECT pi.id, pi.patient_uid, pi.vaccine_catalogue_id,
+            CASE WHEN linked.id IS NOT NULL THEN linked.due_date ELSE pi.due_date END AS due_date,
+            CASE WHEN linked.id IS NOT NULL THEN linked.status ELSE pi.status END AS status,
+            CASE WHEN linked.id IS NOT NULL THEN linked.given_at ELSE pi.given_at END AS given_at,
+            CASE WHEN linked.id IS NOT NULL THEN linked.given_by ELSE pi.given_by END AS given_by,
+            CASE WHEN linked.id IS NOT NULL THEN linked.given_by_name ELSE pi.given_by_name END AS given_by_name,
+            CASE WHEN linked.id IS NOT NULL THEN linked.batch_number ELSE pi.batch_number END AS batch_number,
+            CASE WHEN linked.id IS NOT NULL THEN linked.manufacturer ELSE pi.manufacturer END AS manufacturer,
+            CASE WHEN linked.id IS NOT NULL THEN linked.site_of_injection ELSE pi.site_of_injection END AS site_of_injection,
+            CASE WHEN linked.id IS NOT NULL THEN linked.adverse_event ELSE pi.adverse_event END AS adverse_event,
+            CASE WHEN linked.id IS NOT NULL THEN linked.notes ELSE pi.notes END AS notes,
+            pi.newborn_immunisation_id,
             pi.created_at, pi.updated_at,
             vc.code, vc.display_name, vc.dose_number,
             vc.recommended_age_days, vc.window_days
       FROM patient_immunisations pi
        JOIN vaccine_catalogue vc ON vc.id = pi.vaccine_catalogue_id
         AND vc.tenant_id = pi.tenant_id
+       LEFT JOIN linked_candidates linked
+         ON linked.id = pi.newborn_immunisation_id
+        AND linked.tenant_id = pi.tenant_id
+        AND linked.newborn_patient_uid = pi.patient_uid
+        AND linked.vaccine_catalogue_id = pi.vaccine_catalogue_id
+        AND linked.newborn_count = 1
+        AND linked.dose_count = 1
       WHERE pi.patient_uid = $1::uuid
         AND pi.tenant_id = $2::uuid
-        -- O1 deduped read: a row exactly linked to a newborn dose is owned by
-        -- the newborn immunisation schedule and must not surface here as a
-        -- second, independent patient dose.
-        AND pi.newborn_immunisation_id IS NULL
-      ORDER BY pi.due_date ASC, vc.code ASC, vc.dose_number ASC NULLS FIRST`,
+      ORDER BY due_date ASC, vc.code ASC, vc.dose_number ASC NULLS FIRST`,
     patientUid, tenantOr(tenantId),
   );
   const today = new Date();
@@ -299,21 +309,56 @@ export async function listDueForPatient(patientUid, { asOf = null, tenantId = nu
   const review = await latestSignedUpToDateReview({ patientUid, tenantId });
   const reviewCutoffIso = review && review.as_of <= checkpointIso ? review.as_of : null;
   return prisma.$queryRawUnsafe(
-    `SELECT pi.id, pi.due_date, pi.status, vc.code, vc.display_name,
-            vc.dose_number, vc.window_days,
-            (CASE WHEN pi.due_date <= $2::date THEN 'due_or_overdue'
+     `WITH newborn_identity AS (
+       SELECT tenant_id, newborn_patient_uid, COUNT(*)::int AS newborn_count
+         FROM maternity_newborns
+        WHERE tenant_id = $4::uuid
+          AND newborn_patient_uid IS NOT NULL
+        GROUP BY tenant_id, newborn_patient_uid
+     ),
+     linked_candidates AS (
+       SELECT ni.id, ni.tenant_id, ni.vaccine_catalogue_id,
+              ni.due_date, ni.status, n.newborn_patient_uid,
+              ident.newborn_count,
+              COUNT(*) OVER (
+                PARTITION BY ni.tenant_id, n.newborn_patient_uid,
+                             ni.vaccine_catalogue_id
+              )::int AS dose_count
+         FROM newborn_immunisations ni
+         JOIN maternity_newborns n
+           ON n.id = ni.newborn_id
+          AND n.tenant_id = ni.tenant_id
+         JOIN newborn_identity ident
+           ON ident.tenant_id = n.tenant_id
+          AND ident.newborn_patient_uid = n.newborn_patient_uid
+     ),
+     effective AS (
+       SELECT pi.id,
+              CASE WHEN linked.id IS NOT NULL THEN linked.due_date ELSE pi.due_date END AS due_date,
+              CASE WHEN linked.id IS NOT NULL THEN linked.status ELSE pi.status END AS status,
+              vc.code, vc.display_name, vc.dose_number, vc.window_days
+         FROM patient_immunisations pi
+         JOIN vaccine_catalogue vc
+           ON vc.id = pi.vaccine_catalogue_id
+          AND vc.tenant_id = pi.tenant_id
+         LEFT JOIN linked_candidates linked
+           ON linked.id = pi.newborn_immunisation_id
+          AND linked.tenant_id = pi.tenant_id
+          AND linked.newborn_patient_uid = pi.patient_uid
+          AND linked.vaccine_catalogue_id = pi.vaccine_catalogue_id
+          AND linked.newborn_count = 1
+          AND linked.dose_count = 1
+        WHERE pi.patient_uid = $1::uuid
+          AND pi.tenant_id = $4::uuid
+     )
+     SELECT id, due_date, status, code, display_name,
+            dose_number, window_days,
+            (CASE WHEN due_date <= $2::date THEN 'due_or_overdue'
                   ELSE 'upcoming' END) AS bucket
-       FROM patient_immunisations pi
-       JOIN vaccine_catalogue vc ON vc.id = pi.vaccine_catalogue_id
-        AND vc.tenant_id = pi.tenant_id
-      WHERE pi.patient_uid = $1::uuid
-        AND pi.tenant_id = $4::uuid
-        AND pi.status = 'scheduled'
-        -- O1 deduped read: linked doses belong to the newborn schedule, so they
-        -- never appear as an independent "due" paediatric dose.
-        AND pi.newborn_immunisation_id IS NULL
-        AND ($3::date IS NULL OR pi.due_date > $3::date)
-      ORDER BY pi.due_date ASC`,
+       FROM effective
+      WHERE status = 'scheduled'
+        AND ($3::date IS NULL OR due_date > $3::date)
+      ORDER BY due_date ASC`,
     patientUid, checkpointIso, reviewCutoffIso, tenantOr(tenantId),
   );
 }
