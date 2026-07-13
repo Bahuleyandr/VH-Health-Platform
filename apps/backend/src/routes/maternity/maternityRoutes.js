@@ -284,19 +284,25 @@ router.get('/pregnancies/active/:patientUid', requireStaffAdminOrSelfPatient, wr
 // ANC timeline (visits + supplements + recent kicks) per pregnancy.
 router.get('/pregnancies/:id/timeline', requireStaffAdminOrPatient, wrap(async (req, res) => {
   if (!await ensurePregnancyAccess(req, res, req.params.id)) return null;
-  return mat.getAncTimelineForPregnancy({
+  const timeline = await mat.getAncTimelineForPregnancy({
     tenantId: tenantOf(req),
     pregnancy_id: req.params.id,
   });
+  return isPatient(req.user?.role)
+    ? mat.projectAncTimelineForPatient(timeline)
+    : timeline;
 }));
 
 // Patient-flavored timeline: resolves the active pregnancy first.
-router.get('/timeline/patient/:patientUid', requireStaffAdminOrSelfPatient, wrap(async (req) =>
-  mat.getAncTimelineForPatient({
+router.get('/timeline/patient/:patientUid', requireStaffAdminOrSelfPatient, wrap(async (req) => {
+  const timeline = await mat.getAncTimelineForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
-  }),
-));
+  });
+  return isPatient(req.user?.role)
+    ? mat.projectAncTimelineForPatient(timeline)
+    : timeline;
+}));
 
 // Supplements
 router.post('/supplements', requireStaffOrAdmin, wrap(async (req) =>

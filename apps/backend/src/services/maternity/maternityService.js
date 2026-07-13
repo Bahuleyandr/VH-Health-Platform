@@ -780,6 +780,16 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
   };
 }
 
+export function projectAncTimelineForPatient(timeline) {
+  if (!timeline || typeof timeline !== 'object') return timeline;
+
+  // Neither imaging source has a patient-release contract. Keep the entire
+  // imaging collection out of patient responses until release can be proven.
+  const patientTimeline = { ...timeline };
+  delete patientTimeline.prior_imaging;
+  return patientTimeline;
+}
+
 /**
  * Convenience: timeline for the patient's active pregnancy.
  * Returns null if no ongoing pregnancy exists.
