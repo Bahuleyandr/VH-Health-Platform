@@ -1,11 +1,21 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
-const toIntegerOrNull = (value) => {
-  if (value === null || value === undefined || value === '') return null;
-
-  const parsed = Number(value);
-  return Number.isInteger(parsed) ? parsed : null;
+// notification_outbox.recipient_id is a TEXT column that may carry either an
+// integer users.id or a uuid users.uid — the delivery path resolves both forms
+// (id::text / uid::text matches in notificationOutboxDelivery.js). Preserve any
+// non-blank identifier verbatim as text; blank / null / unsupported types
+// normalize to NULL (phone-only rows are valid).
+const toRecipientIdTextOrNull = (value) => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
+  }
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? String(value) : null;
+  }
+  if (typeof value === 'bigint') return value.toString();
+  return null;
 };
 
 /**
@@ -13,7 +23,7 @@ const toIntegerOrNull = (value) => {
  * Failed notifications can be retried by a background job.
  *
  * Usage:
- *   await notificationOutbox.queue({ type: 'push', recipient: userId, payload: {...} });
+ *   await notificationOutbox.queue({ type: 'push', recipientId: userIdOrUid, title, body, data: {...} });
  *   // Then attempt to send immediately
  *   // If send fails, the outbox entry remains for retry
  */
@@ -21,16 +31,18 @@ class NotificationOutbox {
   /**
    * Queue a notification for delivery.
    * @param {Object} notification - { type: 'push'|'sms'|'email', recipientId, recipientPhone, title, body, data, channel }
+   *   `recipientId` accepts an integer users.id or a uuid users.uid and is
+   *   persisted as text; blank/null normalizes to NULL.
    * @returns {Object} The queued notification record
    */
   async queue(notification) {
     try {
-      const recipientId = toIntegerOrNull(notification.recipientId);
+      const recipientId = toRecipientIdTextOrNull(notification.recipientId);
 
       const result = await prisma.$queryRawUnsafe(
         `INSERT INTO notification_outbox
           (type, recipient_id, recipient_phone, title, body, payload, status, created_at)
-         VALUES ($1, $2::int, $3, $4, $5, $6::jsonb, 'PENDING', NOW())
+         VALUES ($1, $2::text, $3, $4, $5, $6::jsonb, 'PENDING', NOW())
          RETURNING id, status`,
 
           notification.type || 'push',
