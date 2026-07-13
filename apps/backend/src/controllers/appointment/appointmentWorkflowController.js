@@ -3,6 +3,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { computeGestationalAge } from '../../services/maternity/maternityService.js';
+import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -2143,13 +2144,14 @@ export const registerWalkIn = async (req, res) => {
             const computedEdd = edd_date || (lmp_date
               ? new Date(new Date(lmp_date).getTime() + 280 * 86400 * 1000).toISOString().slice(0, 10)
               : null);
-            await tx.$queryRawUnsafe(
+            const pregnancyRows = await tx.$queryRawUnsafe(
               `INSERT INTO maternity_pregnancies
                  (patient_uid, lmp_date, edd_date, edd_method,
                   gravida, parity, living_children, abortions,
                   booking_status, booking_visit_date, status, created_by, tenant_id)
                VALUES ($1::uuid, $2::date, $3::date, 'lmp',
-                       $4, $5, $6, $7, 'booked', $9::date, 'ongoing', $8::uuid, $10::uuid)`,
+                       $4, $5, $6, $7, 'booked', $9::date, 'ongoing', $8::uuid, $10::uuid)
+               RETURNING id, pregnancy_number, status, created_at`,
               patientUid, lmp_date, computedEdd,
               parseInt(gravida, 10) || 1,
               parseInt(parity, 10) || 0,
@@ -2159,6 +2161,41 @@ export const registerWalkIn = async (req, res) => {
               todayDate,
               actingTenantId,
             );
+            const pregnancy = pregnancyRows[0];
+            // M-E — a pregnancy episode born at the walk-in counter must look
+            // exactly like one born through maternityService.createPregnancy
+            // (C2): the same staff-only maternity.pregnancy_created timeline +
+            // audit pair, written in this same transaction so a canonical
+            // failure aborts the whole walk-in instead of leaving the detail
+            // row unrepresented on the patient timeline. Idempotency keys are
+            // derived from the source row, so the pair exists at most once per
+            // pregnancy no matter how the episode was created.
+            await recordCanonicalClinicalEvent({
+              tenantId: actingTenantId,
+              patientUid: String(patientUid),
+              eventType: 'maternity.pregnancy_created',
+              eventStatus: 'ongoing',
+              sourceTable: 'maternity_pregnancies',
+              sourceId: pregnancy.id,
+              resourceType: 'pregnancy',
+              resourceId: pregnancy.id,
+              actorUid: staffUid || null,
+              actorRole: role || null,
+              occurredAt: pregnancy.created_at,
+              visibleToPatient: false,
+              summary: 'Pregnancy episode recorded',
+              payload: {
+                pregnancy_id: pregnancy.id,
+                pregnancy_number: pregnancy.pregnancy_number,
+                status: pregnancy.status,
+              },
+              afterState: {
+                pregnancy_status: pregnancy.status,
+                user_is_pregnant: true,
+              },
+              timelineIdempotencyKey: `maternity_pregnancies:${pregnancy.id}:created`,
+              auditIdempotencyKey: `maternity_pregnancies:${pregnancy.id}:audit:created`,
+            }, { db: tx, strict: true });
           }
           await tx.$executeRawUnsafe(
             `UPDATE users
