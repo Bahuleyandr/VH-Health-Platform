@@ -158,14 +158,16 @@ describe('paediatric immunisation tenant authorization', () => {
   });
 
   it('records doses by id and tenant together', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([{
-      id: 12,
-      patient_uid: PATIENT,
-      status: 'given',
-      given_at: '2026-06-11T00:00:00Z',
-      given_by: STAFF,
-      vaccine_catalogue_id: 9,
-    }]);
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ id: 12, newborn_immunisation_id: null }])
+      .mockResolvedValueOnce([{
+        id: 12,
+        patient_uid: PATIENT,
+        status: 'given',
+        given_at: '2026-06-11T00:00:00Z',
+        given_by: STAFF,
+        vaccine_catalogue_id: 9,
+      }]);
 
     await service.recordDose({
       tenantId: TENANT,
@@ -174,11 +176,104 @@ describe('paediatric immunisation tenant authorization', () => {
       givenBy: STAFF,
     });
 
-    const [sql, ...params] = queryRawUnsafeMock.mock.calls[0];
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock.mock.calls[0][0]).toBe(TENANT);
+    const [lookupSql, ...lookupParams] = queryRawUnsafeMock.mock.calls[0];
+    expect(lookupSql).toContain('FROM patient_immunisations');
+    expect(lookupSql).toContain('tenant_id = $2::uuid');
+    expect(lookupParams).toEqual([12, TENANT]);
+
+    const [sql, ...params] = queryRawUnsafeMock.mock.calls[1];
     expect(sql).toContain('UPDATE patient_immunisations');
     expect(sql).toContain('AND tenant_id = $11::uuid');
+    expect(sql).toContain('AND newborn_immunisation_id IS NULL');
     expect(params[0]).toBe(12);
     expect(params[10]).toBe(TENANT);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('updates only the authoritative newborn row for an exact current link', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ id: 12, newborn_immunisation_id: 77 }])
+      .mockResolvedValueOnce([{
+        id: 12,
+        patient_uid: PATIENT,
+        vaccine_catalogue_id: 9,
+        newborn_immunisation_id: 77,
+      }])
+      .mockResolvedValueOnce([{ id: 77, status: 'scheduled' }])
+      .mockResolvedValueOnce([{
+        status: 'given',
+        given_at: '2026-06-11T00:00:00Z',
+        given_by: STAFF,
+      }]);
+
+    const result = await service.recordDose({
+      tenantId: TENANT,
+      immunisationId: 12,
+      status: 'given',
+      givenAt: '2026-06-11T00:00:00Z',
+      givenBy: STAFF,
+    });
+
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(executeRawUnsafeMock.mock.calls.map(([sql]) => sql)).toEqual([
+      'LOCK TABLE maternity_newborns IN SHARE MODE',
+      'LOCK TABLE newborn_immunisations IN SHARE ROW EXCLUSIVE MODE',
+    ]);
+
+    const [lockedPatientSql, ...lockedPatientParams] = queryRawUnsafeMock.mock.calls[1];
+    expect(lockedPatientSql).toContain('FROM patient_immunisations');
+    expect(lockedPatientSql).toContain('FOR UPDATE');
+    expect(lockedPatientParams).toEqual([12, TENANT]);
+
+    const [exactSql, ...exactParams] = queryRawUnsafeMock.mock.calls[2];
+    expect(exactSql).toContain('JOIN maternity_newborns');
+    expect(exactSql).toContain('JOIN vaccine_catalogue');
+    expect(exactSql).toContain('identity_candidate.newborn_patient_uid = $2::uuid');
+    expect(exactSql).toContain('dose_candidate.vaccine_catalogue_id = $3::int');
+    expect(exactSql).toContain('ni.id = $4::int');
+    expect(exactParams).toEqual([TENANT, PATIENT, 9, 77]);
+
+    const [updateSql, ...updateParams] = queryRawUnsafeMock.mock.calls[3];
+    expect(updateSql).toContain('UPDATE newborn_immunisations');
+    expect(updateSql).not.toContain('UPDATE patient_immunisations');
+    expect(updateSql).toContain("AND status = 'scheduled'");
+    expect(updateParams[0]).toBe(77);
+    expect(updateParams[10]).toBe(TENANT);
+    expect(result).toEqual({
+      id: 12,
+      patient_uid: PATIENT,
+      status: 'given',
+      given_at: '2026-06-11T00:00:00Z',
+      given_by: STAFF,
+      vaccine_catalogue_id: 9,
+    });
+  });
+
+  it('fails closed without an update when a stored link is no longer exact', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ id: 12, newborn_immunisation_id: 77 }])
+      .mockResolvedValueOnce([{
+        id: 12,
+        patient_uid: PATIENT,
+        vaccine_catalogue_id: 9,
+        newborn_immunisation_id: 77,
+      }])
+      .mockResolvedValueOnce([]);
+
+    await expect(service.recordDose({
+      tenantId: TENANT,
+      immunisationId: 12,
+      status: 'given',
+      givenBy: STAFF,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PAEDIATRIC_IMMUNISATION_LINK_NOT_EXACT',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryRawUnsafeMock.mock.calls.some(([sql]) => /^\s*UPDATE\s/im.test(sql))).toBe(false);
   });
 
   it('returns not found when a dose id belongs to another tenant', async () => {

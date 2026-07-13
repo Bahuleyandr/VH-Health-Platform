@@ -26,6 +26,7 @@ import {
   seedScheduleForPatient,
   listForPatient,
   listDueForPatient,
+  recordDose,
 } from '../services/paediatric/paediatricImmunisationService.js';
 import { buildLinkageReport } from '../../scripts/immunisation-linkage-report.mjs';
 
@@ -45,6 +46,12 @@ const P_AMBIGUOUS_AFTER_LINK = 'a1a1a1a1-0000-4000-8000-000000000008';
 const P_OTHER_IDENTITY = 'a1a1a1a1-0000-4000-8000-000000000009';
 const P_RACE = 'a1a1a1a1-0000-4000-8000-000000000010';
 const P_BAD_CATALOGUE = 'a1a1a1a1-0000-4000-8000-000000000011';
+const P_RECORD_LINKED = 'a1a1a1a1-0000-4000-8000-000000000012';
+const P_WRITE_STALE = 'a1a1a1a1-0000-4000-8000-000000000013';
+const P_WRITE_WRONG_IDENTITY = 'a1a1a1a1-0000-4000-8000-000000000014';
+const P_WRITE_AMBIGUOUS = 'a1a1a1a1-0000-4000-8000-000000000015';
+const P_WRITE_CROSS_TENANT = 'a1a1a1a1-0000-4000-8000-000000000016';
+const RECORDER = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4';
 // Cross-tenant: the users row lives in TENANT_B, the (leaky) newborn in TENANT_A.
 const P_ISO = 'b2b2b2b2-0000-4000-8000-000000000001';
 
@@ -545,24 +552,41 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
     });
 
     const before = await prisma.$queryRawUnsafe(
-      `SELECT status, given_at FROM newborn_immunisations WHERE id = $1::int`,
+      `SELECT status, given_at, batch_number
+         FROM newborn_immunisations
+        WHERE id = $1::int`,
       doseId,
     );
 
     await seedScheduleForPatient({ patientUid: P_GIVEN, dob: dobYearsAgo(2), tenantId: TENANT_A });
     await buildLinkageReport({ tenantId: TENANT_A });
 
+    const rows = await patientRows(TENANT_A, P_GIVEN);
+    const bcg = rows.find((r) => r.code === 'BCG');
+    await expect(recordDose({
+      immunisationId: bcg.id,
+      status: 'given',
+      givenAt: '2026-07-13T11:00:00.000Z',
+      givenBy: RECORDER,
+      batchNumber: 'must-not-rewrite',
+      tenantId: TENANT_A,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PAEDIATRIC_IMMUNISATION_HISTORY_FINAL',
+    });
+
     const after = await prisma.$queryRawUnsafe(
-      `SELECT status, given_at FROM newborn_immunisations WHERE id = $1::int`,
+      `SELECT status, given_at, batch_number
+         FROM newborn_immunisations
+        WHERE id = $1::int`,
       doseId,
     );
     // Newborn 'given' history untouched by linkage + report.
     expect(after[0].status).toBe('given');
     expect(new Date(after[0].given_at).toISOString()).toBe(new Date(before[0].given_at).toISOString());
+    expect(after[0].batch_number).toBe(before[0].batch_number);
 
     // Patient row is linked but its own status is NOT copied from the newborn dose.
-    const rows = await patientRows(TENANT_A, P_GIVEN);
-    const bcg = rows.find((r) => r.code === 'BCG');
     expect(bcg.newborn_immunisation_id).toBe(doseId);
     expect(bcg.status).toBe('scheduled');
   }, TEST_TIMEOUT_MS);
@@ -800,5 +824,237 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
       );
       await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS o1_pause_seed_race()');
     }
+  }, TEST_TIMEOUT_MS);
+
+  it('12. records an exact linked dose on the authoritative newborn row and removes it from due', async () => {
+    await insertPatient(TENANT_A, P_RECORD_LINKED, dobYearsAgo(2));
+    const newbornId = await insertNewborn(TENANT_A, P_RECORD_LINKED);
+    const doseId = await insertNewbornDose(TENANT_A, newbornId, cat.a.BCG);
+    await seedScheduleForPatient({
+      patientUid: P_RECORD_LINKED,
+      dob: dobYearsAgo(2),
+      tenantId: TENANT_A,
+    });
+
+    const patientDose = (await patientRows(TENANT_A, P_RECORD_LINKED))
+      .find((row) => row.code === 'BCG');
+    expect(patientDose.newborn_immunisation_id).toBe(doseId);
+
+    const givenAt = '2026-07-13T12:00:00.000Z';
+    const result = await recordDose({
+      immunisationId: patientDose.id,
+      status: 'given',
+      givenAt,
+      givenBy: RECORDER,
+      givenByName: 'O1 Recorder',
+      batchNumber: 'O1-EXACT-001',
+      manufacturer: 'O1 Test Manufacturer',
+      siteOfInjection: 'left_thigh',
+      notes: 'Exact linked write',
+      tenantId: TENANT_A,
+    });
+    expect(result).toMatchObject({
+      id: patientDose.id,
+      patient_uid: P_RECORD_LINKED,
+      status: 'given',
+      given_by: RECORDER,
+      vaccine_catalogue_id: cat.a.BCG,
+    });
+    expect(new Date(result.given_at).toISOString()).toBe(givenAt);
+
+    const authoritative = await prisma.$queryRawUnsafe(
+      `SELECT status, given_at, given_by, given_by_name, batch_number,
+              manufacturer, site_of_injection, notes
+         FROM newborn_immunisations
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid`,
+      doseId, TENANT_A,
+    );
+    expect(authoritative[0]).toMatchObject({
+      status: 'given',
+      given_by: RECORDER,
+      given_by_name: 'O1 Recorder',
+      batch_number: 'O1-EXACT-001',
+      manufacturer: 'O1 Test Manufacturer',
+      site_of_injection: 'left_thigh',
+      notes: 'Exact linked write',
+    });
+    expect(new Date(authoritative[0].given_at).toISOString()).toBe(givenAt);
+
+    const patientStored = await prisma.$queryRawUnsafe(
+      `SELECT status, given_at, given_by, batch_number
+         FROM patient_immunisations
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid`,
+      patientDose.id, TENANT_A,
+    );
+    expect(patientStored[0]).toMatchObject({
+      status: 'scheduled',
+      given_at: null,
+      given_by: null,
+      batch_number: null,
+    });
+
+    const full = await listForPatient(P_RECORD_LINKED, { tenantId: TENANT_A });
+    const visibleBcg = full.filter((row) => row.code === 'BCG');
+    expect(visibleBcg).toHaveLength(1);
+    expect(visibleBcg[0].status).toBe('given');
+    expect(new Date(visibleBcg[0].given_at).toISOString()).toBe(givenAt);
+
+    const due = await listDueForPatient(P_RECORD_LINKED, { tenantId: TENANT_A });
+    expect(due.some((row) => row.code === 'BCG')).toBe(false);
+  }, TEST_TIMEOUT_MS);
+
+  it('13. rejects a stale identity link with zero writes to either history', async () => {
+    await insertPatient(TENANT_A, P_WRITE_STALE, dobYearsAgo(2));
+    await seedScheduleForPatient({
+      patientUid: P_WRITE_STALE,
+      dob: dobYearsAgo(2),
+      tenantId: TENANT_A,
+    });
+    const patientDose = (await patientRows(TENANT_A, P_WRITE_STALE))
+      .find((row) => row.code === 'BCG');
+    const wrongNewborn = await insertNewborn(TENANT_A, P_WRITE_WRONG_IDENTITY);
+    const wrongDose = await insertNewbornDose(TENANT_A, wrongNewborn, cat.a.BCG);
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_immunisations
+          SET newborn_immunisation_id = $1::int
+        WHERE id = $2::int
+          AND tenant_id = $3::uuid`,
+      wrongDose, patientDose.id, TENANT_A,
+    );
+
+    await expect(recordDose({
+      immunisationId: patientDose.id,
+      status: 'given',
+      givenAt: '2026-07-13T13:00:00.000Z',
+      givenBy: RECORDER,
+      tenantId: TENANT_A,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PAEDIATRIC_IMMUNISATION_LINK_NOT_EXACT',
+    });
+
+    const patientAfter = await prisma.$queryRawUnsafe(
+      `SELECT status, given_at, given_by, newborn_immunisation_id
+         FROM patient_immunisations
+        WHERE id = $1::int`,
+      patientDose.id,
+    );
+    expect(patientAfter[0]).toMatchObject({
+      status: 'scheduled',
+      given_at: null,
+      given_by: null,
+      newborn_immunisation_id: wrongDose,
+    });
+    const newbornAfter = await prisma.$queryRawUnsafe(
+      `SELECT status, given_at, given_by
+         FROM newborn_immunisations
+        WHERE id = $1::int`,
+      wrongDose,
+    );
+    expect(newbornAfter[0]).toMatchObject({
+      status: 'scheduled',
+      given_at: null,
+      given_by: null,
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it('14. rejects a newly ambiguous identity with zero writes to either history', async () => {
+    await insertPatient(TENANT_A, P_WRITE_AMBIGUOUS, dobYearsAgo(2));
+    const firstNewborn = await insertNewborn(TENANT_A, P_WRITE_AMBIGUOUS);
+    const firstDose = await insertNewbornDose(TENANT_A, firstNewborn, cat.a.BCG);
+    await seedScheduleForPatient({
+      patientUid: P_WRITE_AMBIGUOUS,
+      dob: dobYearsAgo(2),
+      tenantId: TENANT_A,
+    });
+    const patientDose = (await patientRows(TENANT_A, P_WRITE_AMBIGUOUS))
+      .find((row) => row.code === 'BCG');
+    expect(patientDose.newborn_immunisation_id).toBe(firstDose);
+    await insertNewborn(TENANT_A, P_WRITE_AMBIGUOUS);
+
+    await expect(recordDose({
+      immunisationId: patientDose.id,
+      status: 'given',
+      givenAt: '2026-07-13T14:00:00.000Z',
+      givenBy: RECORDER,
+      tenantId: TENANT_A,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PAEDIATRIC_IMMUNISATION_LINK_NOT_EXACT',
+    });
+
+    const patientAfter = await prisma.$queryRawUnsafe(
+      `SELECT status, given_at, given_by
+         FROM patient_immunisations
+        WHERE id = $1::int`,
+      patientDose.id,
+    );
+    expect(patientAfter[0]).toMatchObject({ status: 'scheduled', given_at: null, given_by: null });
+    const newbornAfter = await prisma.$queryRawUnsafe(
+      `SELECT status, given_at, given_by
+         FROM newborn_immunisations
+        WHERE id = $1::int`,
+      firstDose,
+    );
+    expect(newbornAfter[0]).toMatchObject({ status: 'scheduled', given_at: null, given_by: null });
+  }, TEST_TIMEOUT_MS);
+
+  it('15. rejects a cross-tenant link with zero writes in either tenant', async () => {
+    await insertPatient(TENANT_A, P_WRITE_CROSS_TENANT, dobYearsAgo(2));
+    await seedScheduleForPatient({
+      patientUid: P_WRITE_CROSS_TENANT,
+      dob: dobYearsAgo(2),
+      tenantId: TENANT_A,
+    });
+    const patientDose = (await patientRows(TENANT_A, P_WRITE_CROSS_TENANT))
+      .find((row) => row.code === 'BCG');
+    const foreignNewborn = await insertNewborn(TENANT_B, P_WRITE_CROSS_TENANT);
+    const foreignDose = await insertNewbornDose(TENANT_B, foreignNewborn, cat.a.BCG);
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_immunisations
+          SET newborn_immunisation_id = $1::int
+        WHERE id = $2::int
+          AND tenant_id = $3::uuid`,
+      foreignDose, patientDose.id, TENANT_A,
+    );
+
+    await expect(recordDose({
+      immunisationId: patientDose.id,
+      status: 'given',
+      givenAt: '2026-07-13T15:00:00.000Z',
+      givenBy: RECORDER,
+      tenantId: TENANT_A,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PAEDIATRIC_IMMUNISATION_LINK_NOT_EXACT',
+    });
+
+    const patientAfter = await prisma.$queryRawUnsafe(
+      `SELECT status, given_at, given_by, newborn_immunisation_id
+         FROM patient_immunisations
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid`,
+      patientDose.id, TENANT_A,
+    );
+    expect(patientAfter[0]).toMatchObject({
+      status: 'scheduled',
+      given_at: null,
+      given_by: null,
+      newborn_immunisation_id: foreignDose,
+    });
+    const newbornAfter = await prisma.$queryRawUnsafe(
+      `SELECT status, given_at, given_by, tenant_id
+         FROM newborn_immunisations
+        WHERE id = $1::int`,
+      foreignDose,
+    );
+    expect(newbornAfter[0]).toMatchObject({
+      status: 'scheduled',
+      given_at: null,
+      given_by: null,
+      tenant_id: TENANT_B,
+    });
   }, TEST_TIMEOUT_MS);
 });
