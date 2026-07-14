@@ -39,6 +39,14 @@ describe('Paediatric immunisation schedule reads', () => {
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE patient_uid=$1::uuid`,
+      PATIENT_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE patient_uid=$1::uuid`,
+      PATIENT_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
       `DELETE FROM clinical_notes WHERE patient_uid=$1::uuid AND note_type='immunisation_review'`,
       PATIENT_UID,
     ).catch(() => {});
@@ -71,6 +79,14 @@ describe('Paediatric immunisation schedule reads', () => {
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE patient_uid=$1::uuid`,
+      PATIENT_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE patient_uid=$1::uuid`,
+      PATIENT_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
       `DELETE FROM clinical_notes WHERE patient_uid=$1::uuid AND note_type='immunisation_review'`,
       PATIENT_UID,
     ).catch(() => {});
@@ -84,25 +100,30 @@ describe('Paediatric immunisation schedule reads', () => {
     ).catch(() => {});
   }, PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
 
-  it('lazily seeds a DOB-based schedule instead of returning an empty patient list', async () => {
+  it('keeps GET read-only and returns an empty schedule before explicit seeding', async () => {
     const catalogue = await nurse.get('/api/v1/paediatric/immunisations/catalogue');
     expect(catalogue.statusCode).toBe(200);
     expect(catalogue.body.data.length).toBeGreaterThan(0);
 
     const list = await nurse.get(`/api/v1/paediatric/immunisations/patient/${PATIENT_UID}`);
     expect(list.statusCode).toBe(200);
-    expect(list.body.data.length).toBeGreaterThan(0);
-    expect(list.body.data.every((row) => row.patient_uid === PATIENT_UID)).toBe(true);
-    expect(list.body.data.some((row) => ['due', 'overdue', 'scheduled'].includes(row.display_status))).toBe(true);
+    expect(list.body.data).toEqual([]);
 
     const dbCount = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS count FROM patient_immunisations WHERE patient_uid=$1::uuid`,
       PATIENT_UID,
     );
-    expect(Number(dbCount[0].count)).toBe(list.body.data.length);
+    expect(Number(dbCount[0].count)).toBe(0);
   }, PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
 
-  it('returns due/overdue rows after lazy seeding', async () => {
+  it('returns due/overdue rows after the explicit seed mutation', async () => {
+    await seedScheduleForPatient({
+      patientUid: PATIENT_UID,
+      dob: twoYearOldDob(),
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      actorUid: NURSE_UID,
+      actorRole: 'NURSING_STAFF',
+    });
     const due = await nurse.get(`/api/v1/paediatric/immunisations/patient/${PATIENT_UID}/due`);
     expect(due.statusCode).toBe(200);
     expect(due.body.data.length).toBeGreaterThan(0);

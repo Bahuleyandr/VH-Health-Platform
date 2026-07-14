@@ -48,6 +48,8 @@ router.post('/immunisations/seed', requireStaffOrAdmin, wrap(async (req) =>
     patientUid: req.body.patient_uid,
     dob: req.body.dob,
     tenantId: tenantOf(req),
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
   }),
 ));
 
@@ -62,7 +64,7 @@ router.get('/immunisations/patient/:patientUid/due', requireStaffOrAdmin, wrap(a
 ));
 
 // Record a dose given (or mark missed / refused / contraindicated).
-// Body: { status, given_at?, given_by?, given_by_name?, batch_number?,
+// Body: { status, given_at?, given_by_name?, batch_number?,
 //         manufacturer?, site_of_injection?, adverse_event?, notes? }
 router.post('/immunisations/:id/given', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordDose({
@@ -70,13 +72,14 @@ router.post('/immunisations/:id/given', requireStaffOrAdmin, wrap(async (req) =>
     immunisationId: req.params.id,
     status: req.body.status || 'given',
     givenAt: req.body.given_at,
-    givenBy: req.body.given_by ?? req.user?.uid,
+    givenBy: req.user?.uid,
     givenByName: req.body.given_by_name,
     batchNumber: req.body.batch_number,
     manufacturer: req.body.manufacturer,
     siteOfInjection: req.body.site_of_injection,
     adverseEvent: req.body.adverse_event,
     notes: req.body.notes,
+    actorRole: req.user?.role,
   }),
 ));
 

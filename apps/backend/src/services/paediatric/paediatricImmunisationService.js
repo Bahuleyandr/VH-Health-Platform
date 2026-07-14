@@ -14,9 +14,12 @@
 // All queries here use prisma.$queryRawUnsafe with spread args per the
 // lint:raw-params convention.
 
+import { createHash } from 'node:crypto';
+
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_STATUSES = new Set([
@@ -51,6 +54,45 @@ function dateOnly(value) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function canonicalDoseFingerprint(dose) {
+  const persistedState = {
+    status: dose.status == null ? null : String(dose.status),
+    given_at: dose.given_at ? new Date(dose.given_at).toISOString() : null,
+    given_by: dose.given_by == null ? null : String(dose.given_by),
+    given_by_name: dose.given_by_name == null ? null : String(dose.given_by_name),
+    batch_number: dose.batch_number == null ? null : String(dose.batch_number),
+    manufacturer: dose.manufacturer == null ? null : String(dose.manufacturer),
+    site_of_injection: dose.site_of_injection == null ? null : String(dose.site_of_injection),
+    adverse_event: dose.adverse_event == null ? null : String(dose.adverse_event),
+    notes: dose.notes == null ? null : String(dose.notes),
+  };
+  return createHash('sha256').update(JSON.stringify(persistedState)).digest('hex');
+}
+
+function matchesPersistedDoseRetry(persisted, requested) {
+  if (persisted.status !== requested.status) return false;
+  if (requested.givenAt != null) {
+    const requestedAt = new Date(requested.givenAt);
+    if (Number.isNaN(requestedAt.getTime()) || !persisted.given_at) return false;
+    if (requestedAt.toISOString() !== new Date(persisted.given_at).toISOString()) return false;
+  }
+  const fields = [
+    ['givenBy', 'given_by'],
+    ['givenByName', 'given_by_name'],
+    ['batchNumber', 'batch_number'],
+    ['manufacturer', 'manufacturer'],
+    ['siteOfInjection', 'site_of_injection'],
+    ['adverseEvent', 'adverse_event'],
+    ['notes', 'notes'],
+  ];
+  return fields.every(([requestKey, persistedKey]) => {
+    const value = requested[requestKey];
+    if (value == null) return true;
+    const persistedValue = persisted[persistedKey];
+    return persistedValue != null && String(value) === String(persistedValue);
+  });
+}
+
 async function latestSignedUpToDateReview({ patientUid, tenantId }) {
   const tid = tenantOr(tenantId);
   const rows = await prisma.$queryRawUnsafe(
@@ -74,29 +116,6 @@ async function latestSignedUpToDateReview({ patientUid, tenantId }) {
   return { ...rows[0], as_of: asOf };
 }
 
-async function ensureScheduleSeededForPatient({ patientUid, tenantId }) {
-  const tid = tenantOr(tenantId);
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*)::int AS count
-       FROM patient_immunisations
-      WHERE patient_uid = $1::uuid
-        AND tenant_id = $2::uuid`,
-    patientUid, tid,
-  );
-  if (Number(existing?.[0]?.count || 0) > 0) {
-    return { seeded: false, reason: 'already_seeded' };
-  }
-
-  const patient = await assertPatientInTenant(patientUid, tid);
-  const dob = patient?.birthday;
-  if (!dob) {
-    return { seeded: false, reason: 'missing_dob' };
-  }
-
-  const result = await seedScheduleForPatient({ patientUid, dob, tenantId: tid });
-  return { seeded: true, ...result };
-}
-
 /**
  * Seed a paediatric patient's immunisation schedule from the active
  * vaccine_catalogue. due_date for each row = dob + recommended_age_days.
@@ -116,7 +135,9 @@ async function ensureScheduleSeededForPatient({ patientUid, tenantId }) {
  * re-linked here (no backfill): the ON CONFLICT branch does not touch
  * newborn_immunisation_id.
  */
-export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
+export async function seedScheduleForPatient({
+  patientUid, dob, tenantId, actorUid = null, actorRole = null,
+}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
   if (!dob) throw AppError.badRequest('dob is required');
   const tid = tenantOr(tenantId);
@@ -168,7 +189,8 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
          ON CONFLICT (patient_uid, vaccine_catalogue_id)
          DO UPDATE SET updated_at = patient_immunisations.updated_at
          WHERE patient_immunisations.tenant_id = EXCLUDED.tenant_id
-         RETURNING (xmax = 0) AS was_insert, newborn_immunisation_id
+         RETURNING id, vaccine_catalogue_id, due_date,
+                   (xmax = 0) AS was_insert, newborn_immunisation_id
        )
        SELECT (SELECT COUNT(*)::int FROM active_catalogue) AS total,
               COUNT(*)::int AS touched,
@@ -176,7 +198,16 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
               COUNT(*) FILTER (WHERE NOT was_insert)::int AS updated,
               COUNT(*) FILTER (
                 WHERE was_insert AND newborn_immunisation_id IS NOT NULL
-              )::int AS linked
+              )::int AS linked,
+              COALESCE(
+                jsonb_agg(jsonb_build_object(
+                  'id', id,
+                  'vaccine_catalogue_id', vaccine_catalogue_id,
+                  'due_date', due_date,
+                  'newborn_immunisation_id', newborn_immunisation_id
+                ) ORDER BY id) FILTER (WHERE was_insert),
+                '[]'::jsonb
+              ) AS inserted_rows
          FROM upserted`,
       tid, patientUid, dobIso,
     );
@@ -186,6 +217,34 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
         'Patient immunisation row conflicts with another tenant',
         'PAEDIATRIC_IMMUNISATION_TENANT_CONFLICT',
       );
+    }
+
+    const insertedRows = Array.isArray(result?.inserted_rows) ? result.inserted_rows : [];
+    for (const dose of insertedRows) {
+      await recordCanonicalClinicalEvent({
+        tenantId: tid,
+        patientUid,
+        eventType: 'immunisation.schedule_seeded',
+        eventStatus: 'scheduled',
+        sourceTable: 'patient_immunisations',
+        sourceId: dose.id,
+        resourceType: 'immunisation_dose',
+        resourceId: dose.id,
+        actorUid,
+        actorRole,
+        visibleToPatient: false,
+        summary: 'Immunisation dose scheduled',
+        payload: {
+          immunisation_id: Number(dose.id),
+          vaccine_catalogue_id: Number(dose.vaccine_catalogue_id),
+          due_date: dateOnly(dose.due_date),
+          linked_to_newborn: dose.newborn_immunisation_id != null,
+          status: 'scheduled',
+        },
+        afterState: { status: 'scheduled', due_date: dateOnly(dose.due_date) },
+        timelineIdempotencyKey: `patient_immunisations:${dose.id}:scheduled`,
+        auditIdempotencyKey: `patient_immunisations:${dose.id}:audit:scheduled`,
+      }, { db: tx, strict: true });
     }
     return result;
   });
@@ -213,7 +272,7 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
  */
 export async function listForPatient(patientUid, { tenantId } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
-  await ensureScheduleSeededForPatient({ patientUid, tenantId });
+  await assertPatientInTenant(patientUid, tenantId);
   const rows = await prisma.$queryRawUnsafe(
      `WITH newborn_identity AS (
        SELECT tenant_id, newborn_patient_uid, COUNT(*)::int AS newborn_count
@@ -303,7 +362,7 @@ function computeDisplayStatus(row, today) {
  */
 export async function listDueForPatient(patientUid, { asOf = null, tenantId = null } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
-  await ensureScheduleSeededForPatient({ patientUid, tenantId });
+  await assertPatientInTenant(patientUid, tenantId);
   const checkpoint = asOf ? new Date(asOf) : new Date();
   const checkpointIso = checkpoint.toISOString().slice(0, 10);
   const review = await latestSignedUpToDateReview({ patientUid, tenantId });
@@ -388,6 +447,7 @@ export async function recordDose({
   adverseEvent,
   notes,
   tenantId,
+  actorRole = null,
 }) {
   const tid = tenantOr(tenantId);
   const id = Number.parseInt(immunisationId, 10);
@@ -430,8 +490,11 @@ export async function recordDose({
     if (initial[0].newborn_immunisation_id == null) {
       const patientResult = await tx.$queryRawUnsafe(
         `UPDATE patient_immunisations
-            SET status = $2,
-                given_at = COALESCE($3::timestamptz, given_at),
+            SET status = $2::varchar,
+                given_at = CASE
+                  WHEN $2::varchar = 'given' THEN COALESCE(given_at, $3::timestamptz)
+                  ELSE COALESCE($3::timestamptz, given_at)
+                END,
                 given_by = COALESCE($4::uuid, given_by),
                 given_by_name = COALESCE($5, given_by_name),
                 batch_number = COALESCE($6, batch_number),
@@ -444,7 +507,9 @@ export async function recordDose({
             AND tenant_id = $11::uuid
             AND newborn_immunisation_id IS NULL
           RETURNING id, patient_uid, status, given_at, given_by,
-                    vaccine_catalogue_id`,
+                    given_by_name, batch_number, manufacturer,
+                    site_of_injection, adverse_event, notes,
+                    vaccine_catalogue_id, updated_at`,
         id, ...updateArgs,
       );
       if (!patientResult.length) {
@@ -453,7 +518,44 @@ export async function recordDose({
           'PAEDIATRIC_IMMUNISATION_LINK_CHANGED',
         );
       }
-      return patientResult[0];
+      const dose = patientResult[0];
+      const payload = {
+        immunisation_id: Number(dose.id),
+        vaccine_catalogue_id: Number(dose.vaccine_catalogue_id),
+        status: dose.status,
+      };
+      if (dose.status === 'given') {
+        payload.batch_number = dose.batch_number || null;
+        payload.manufacturer = dose.manufacturer || null;
+        payload.site_of_injection = dose.site_of_injection || null;
+      }
+      const canonicalFingerprint = canonicalDoseFingerprint(dose);
+      await recordCanonicalClinicalEvent({
+        tenantId: tid,
+        patientUid: String(dose.patient_uid),
+        eventType: 'immunisation.dose_recorded',
+        eventStatus: dose.status,
+        sourceTable: 'patient_immunisations',
+        sourceId: dose.id,
+        resourceType: 'immunisation_dose',
+        resourceId: dose.id,
+        actorUid: givenBy || null,
+        actorRole,
+        occurredAt: dose.given_at || dose.updated_at,
+        visibleToPatient: false,
+        summary: 'Immunisation dose recorded',
+        payload,
+        afterState: {
+          status: dose.status,
+          given_at: dose.given_at || null,
+          batch_number: dose.status === 'given' ? dose.batch_number || null : null,
+          manufacturer: dose.status === 'given' ? dose.manufacturer || null : null,
+          site_of_injection: dose.status === 'given' ? dose.site_of_injection || null : null,
+        },
+        timelineIdempotencyKey: `patient_immunisations:${dose.id}:recorded:${canonicalFingerprint}`,
+        auditIdempotencyKey: `patient_immunisations:${dose.id}:audit:recorded:${canonicalFingerprint}`,
+      }, { db: tx, strict: true });
+      return dose;
     }
 
     await tx.$executeRawUnsafe('LOCK TABLE maternity_newborns IN SHARE MODE');
@@ -479,7 +581,9 @@ export async function recordDose({
     }
 
     const exactRows = await tx.$queryRawUnsafe(
-      `SELECT ni.id, ni.status
+      `SELECT ni.id, ni.status, ni.given_at, ni.given_by,
+              ni.given_by_name, ni.batch_number, ni.manufacturer,
+              ni.site_of_injection, ni.adverse_event, ni.notes
          FROM newborn_immunisations ni
          JOIN maternity_newborns n
            ON n.id = ni.newborn_id
@@ -520,6 +624,60 @@ export async function recordDose({
       );
     }
     if (exactRows[0].status !== 'scheduled') {
+      const persistedDose = exactRows[0];
+      const canonicalFingerprint = canonicalDoseFingerprint(persistedDose);
+      const retryKeys = {
+        timeline: `newborn_immunisations:${persistedDose.id}:recorded:${canonicalFingerprint}`,
+        audit: `newborn_immunisations:${persistedDose.id}:audit:recorded:${canonicalFingerprint}`,
+      };
+      const semanticallyIdentical = matchesPersistedDoseRetry(persistedDose, {
+        status,
+        givenAt,
+        givenBy,
+        givenByName,
+        batchNumber,
+        manufacturer,
+        siteOfInjection,
+        adverseEvent,
+        notes,
+      });
+      const canonicalRows = semanticallyIdentical
+        ? await tx.$queryRawUnsafe(
+          `SELECT EXISTS (
+                    SELECT 1
+                      FROM clinical_timeline_events
+                     WHERE tenant_id = $1::uuid
+                       AND patient_uid = $2::uuid
+                       AND source_table = 'newborn_immunisations'
+                       AND source_id = $3::text
+                       AND idempotency_key = $4::text
+                  ) AS timeline_exists,
+                  EXISTS (
+                    SELECT 1
+                      FROM clinical_audit_events
+                     WHERE tenant_id = $1::uuid
+                       AND patient_uid = $2::uuid
+                       AND resource_table = 'newborn_immunisations'
+                       AND resource_id = $3::text
+                       AND idempotency_key = $5::text
+                  ) AS audit_exists`,
+          tid,
+          patientDose.patient_uid,
+          String(exactRows[0].id),
+          retryKeys.timeline,
+          retryKeys.audit,
+        )
+        : [];
+      if (canonicalRows[0]?.timeline_exists && canonicalRows[0]?.audit_exists) {
+        return {
+          id: patientDose.id,
+          patient_uid: patientDose.patient_uid,
+          status: persistedDose.status,
+          given_at: persistedDose.given_at,
+          given_by: persistedDose.given_by,
+          vaccine_catalogue_id: patientDose.vaccine_catalogue_id,
+        };
+      }
       throw AppError.conflict(
         'Linked newborn immunisation history is already final',
         'PAEDIATRIC_IMMUNISATION_HISTORY_FINAL',
@@ -541,7 +699,9 @@ export async function recordDose({
         WHERE id = $1::int
           AND tenant_id = $11::uuid
           AND status = 'scheduled'
-        RETURNING status, given_at, given_by`,
+        RETURNING id, status, given_at, given_by, given_by_name,
+                  batch_number, manufacturer, site_of_injection,
+                  adverse_event, notes, updated_at`,
       Number(patientDose.newborn_immunisation_id), ...updateArgs,
     );
     if (!newbornResult.length) {
@@ -550,12 +710,51 @@ export async function recordDose({
         'PAEDIATRIC_IMMUNISATION_HISTORY_FINAL',
       );
     }
+    const dose = newbornResult[0];
+    const payload = {
+      patient_immunisation_id: Number(patientDose.id),
+      newborn_immunisation_id: Number(dose.id),
+      vaccine_catalogue_id: Number(patientDose.vaccine_catalogue_id),
+      status: dose.status,
+    };
+    if (dose.status === 'given') {
+      payload.batch_number = dose.batch_number || null;
+      payload.manufacturer = dose.manufacturer || null;
+      payload.site_of_injection = dose.site_of_injection || null;
+    }
+    const canonicalFingerprint = canonicalDoseFingerprint(dose);
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(patientDose.patient_uid),
+      eventType: 'immunisation.dose_recorded',
+      eventStatus: dose.status,
+      sourceTable: 'newborn_immunisations',
+      sourceId: dose.id,
+      resourceType: 'immunisation_dose',
+      resourceId: dose.id,
+      actorUid: givenBy || null,
+      actorRole,
+      occurredAt: dose.given_at || dose.updated_at,
+      visibleToPatient: false,
+      summary: 'Immunisation dose recorded',
+      payload,
+      afterState: {
+        status: dose.status,
+        given_at: dose.given_at || null,
+        batch_number: dose.status === 'given' ? dose.batch_number || null : null,
+        manufacturer: dose.status === 'given' ? dose.manufacturer || null : null,
+        site_of_injection: dose.status === 'given' ? dose.site_of_injection || null : null,
+      },
+      timelineIdempotencyKey: `newborn_immunisations:${dose.id}:recorded:${canonicalFingerprint}`,
+      auditIdempotencyKey: `newborn_immunisations:${dose.id}:audit:recorded:${canonicalFingerprint}`,
+    }, { db: tx, strict: true });
+
     return {
       id: patientDose.id,
       patient_uid: patientDose.patient_uid,
-      status: newbornResult[0].status,
-      given_at: newbornResult[0].given_at,
-      given_by: newbornResult[0].given_by,
+      status: dose.status,
+      given_at: dose.given_at,
+      given_by: dose.given_by,
       vaccine_catalogue_id: patientDose.vaccine_catalogue_id,
     };
   });

@@ -13,6 +13,9 @@ const getPregnancyMock = jest.fn(async () => ({
   id: 9,
   patient_uid: '33333333-3333-4333-8333-333333333333',
 }));
+const seedScheduleForNewbornMock = jest.fn(async () => ({ scheduled: 1 }));
+const recordDoseMock = jest.fn(async () => ({ id: 91 }));
+const markScheduleUpToDateMock = jest.fn(async () => ({ id: 92 }));
 
 jest.unstable_mockModule('../../services/maternity/maternityService.js', () => ({
   createPregnancy: createPregnancyMock,
@@ -25,7 +28,11 @@ jest.unstable_mockModule('../../services/maternity/maternityService.js', () => (
   getPregnancy: getPregnancyMock,
 }));
 
-jest.unstable_mockModule('../../services/maternity/immunisationService.js', () => ({}));
+jest.unstable_mockModule('../../services/maternity/immunisationService.js', () => ({
+  seedScheduleForNewborn: seedScheduleForNewbornMock,
+  recordDose: recordDoseMock,
+  markScheduleUpToDate: markScheduleUpToDateMock,
+}));
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
@@ -56,6 +63,9 @@ beforeEach(() => {
   recordFetalKickMock.mockClear();
   recordDeliveryMock.mockClear();
   getPregnancyMock.mockClear();
+  seedScheduleForNewbornMock.mockClear();
+  recordDoseMock.mockClear();
+  markScheduleUpToDateMock.mockClear();
 });
 
 describe('maternity mutation actor context', () => {
@@ -215,5 +225,48 @@ describe('maternity mutation actor context', () => {
     expect(response.statusCode).toBe(403);
     expect(response.body.message).toBe('Staff or admin role required');
     expect(serviceMock).not.toHaveBeenCalled();
+  });
+
+  test('newborn seed and dose canonical actors are pinned to the authenticated user', async () => {
+    const seedResponse = await request(app)
+      .post('/api/v1/maternity/newborns/17/immunisations/seed')
+      .send({ actor_uid: SPOOFED_UID, actor_role: 'SUPER_ADMIN' });
+    const doseResponse = await request(app)
+      .patch('/api/v1/maternity/immunisations/91/record')
+      .send({
+        status: 'given',
+        given_by: SPOOFED_UID,
+        given_by_name: 'Named nurse',
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(seedResponse.statusCode).toBe(200);
+    expect(doseResponse.statusCode).toBe(200);
+    expect(seedScheduleForNewbornMock).toHaveBeenCalledWith(expect.objectContaining({
+      newborn_id: '17',
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+    expect(recordDoseMock).toHaveBeenCalledWith(expect.objectContaining({
+      immunisation_id: '91',
+      given_by: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+  });
+
+  test('up-to-date audit attribution uses the authenticated signer', async () => {
+    const response = await request(app)
+      .post('/api/v1/maternity/immunisations/up-to-date')
+      .send({
+        patient_uid: '33333333-3333-4333-8333-333333333333',
+        signed_by: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(markScheduleUpToDateMock).toHaveBeenCalledWith(expect.objectContaining({
+      signed_by: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
   });
 });

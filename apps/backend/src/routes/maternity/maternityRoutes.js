@@ -221,6 +221,8 @@ router.post('/newborns/:id/immunisations/seed', requireStaffOrAdmin, wrap(async 
   immun.seedScheduleForNewborn({
     tenantId: tenantOf(req),
     newborn_id: req.params.id,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 
@@ -237,6 +239,7 @@ router.patch('/immunisations/:id/record', requireStaffOrAdmin, wrap(async (req) 
     tenantId: tenantOf(req),
     immunisation_id: req.params.id,
     given_by: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 
@@ -262,6 +265,7 @@ router.post('/immunisations/up-to-date', requireStaffOrAdmin, wrap(async (req) =
     signed_by: req.user?.uid,
     signed_by_name: req.user?.name || req.body?.signed_by_name || null,
     notes: req.body?.notes || null,
+    actor_role: req.user?.role,
   }),
 ));
 
