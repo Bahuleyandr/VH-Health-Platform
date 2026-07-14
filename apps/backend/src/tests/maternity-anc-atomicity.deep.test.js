@@ -316,7 +316,7 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     expect(events.audit).toHaveLength(0);
   });
 
-  test('supplement create and retry use one active detail row with one staff-only canonical pair', async () => {
+  test('supplement create, distinct updates, and retries preserve exact canonical coverage', async () => {
     const patientUid = await seedUser({ isPregnant: true });
     const pregnancy = await seedPregnancy({ patientUid });
     const input = {
@@ -333,12 +333,17 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     };
     const first = await recordSupplement(input);
     const second = await recordSupplement(input);
+    await recordSupplement({ ...input, dose: '90 mg' });
+    const fourth = await recordSupplement({ ...input, dose: '120 mg' });
+    const fifth = await recordSupplement({ ...input, dose: '120 mg' });
 
     expect(second.id).toBe(first.id);
     expect(second.continued).toBe(true);
+    expect(fourth.id).toBe(first.id);
+    expect(fifth.id).toBe(first.id);
     expect(await detailCount('maternity_supplements', pregnancy.id)).toBe(1);
     const { timeline, audit } = await canonicalRows(patientUid, 'maternity.supplement_recorded');
-    expect(timeline).toHaveLength(1);
+    expect(timeline).toHaveLength(3);
     expect(timeline[0]).toMatchObject({
       event_status: 'recorded',
       source_id: String(first.id),
@@ -354,7 +359,10 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
       },
     });
     expect(JSON.stringify(timeline[0].payload)).not.toContain('staff-only supplement narrative');
-    expect(audit).toHaveLength(1);
+    expect(timeline.filter(({ event_status }) => event_status === 'continued')).toHaveLength(2);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expect(audit).toHaveLength(3);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
   });
 
   test('supplement detail and timeline roll back when clinical audit persistence fails', async () => {
@@ -455,14 +463,18 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     };
     const first = await setSupplementReminder(input);
     const second = await setSupplementReminder(input);
+    const third = await setSupplementReminder({ ...input, reminder_enabled: true });
+    const fourth = await setSupplementReminder({ ...input, reminder_enabled: true });
 
     expect(first.reminder_enabled).toBe(false);
     expect(second.id).toBe(first.id);
+    expect(third.reminder_enabled).toBe(true);
+    expect(fourth.id).toBe(first.id);
     const { timeline, audit } = await canonicalRows(
       patientUid,
       'maternity.supplement_reminder_updated',
     );
-    expect(timeline).toHaveLength(1);
+    expect(timeline).toHaveLength(2);
     expect(timeline[0]).toMatchObject({
       event_status: 'disabled',
       actor_uid: patientUid,
@@ -474,7 +486,10 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
         reminder_enabled: false,
       },
     });
-    expect(audit).toHaveLength(1);
+    expect(timeline.map(({ event_status }) => event_status).sort()).toEqual(['disabled', 'enabled']);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 2);
+    expect(audit).toHaveLength(2);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 2);
   });
 
   test('reminder preference update rolls back when canonical audit persistence fails', async () => {
@@ -523,11 +538,16 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     };
     const first = await recordFetalKick(input);
     const second = await recordFetalKick(input);
+    await recordFetalKick({ ...input, kick_count: 9 });
+    const fourth = await recordFetalKick({ ...input, kick_count: 10 });
+    const fifth = await recordFetalKick({ ...input, kick_count: 10 });
 
     expect(second.id).toBe(first.id);
+    expect(fourth.id).toBe(first.id);
+    expect(fifth.id).toBe(first.id);
     expect(await detailCount('maternity_fetal_kicks', pregnancy.id)).toBe(1);
     const { timeline, audit } = await canonicalRows(patientUid, 'maternity.fetal_kick_recorded');
-    expect(timeline).toHaveLength(1);
+    expect(timeline).toHaveLength(3);
     expect(timeline[0]).toMatchObject({
       event_status: 'unverified',
       actor_uid: patientUid,
@@ -545,7 +565,10 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     });
     expect(timeline[0].tags).toEqual(expect.arrayContaining(['patient_generated', 'unverified']));
     expect(JSON.stringify(timeline[0].payload)).not.toContain('patient narrative');
-    expect(audit).toHaveLength(1);
+    expect(timeline.map(({ payload }) => payload.kick_count).sort((a, b) => a - b)).toEqual([8, 9, 10]);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expect(audit).toHaveLength(3);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
     expect(audit[0].after_state).toEqual({
       kick_count: 8,
       low_count_flag: true,

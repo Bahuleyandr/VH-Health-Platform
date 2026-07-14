@@ -1071,7 +1071,20 @@ export async function recordSupplement({
       recordedSupplement = rows[0];
     }
 
-    const canonicalVersion = new Date(recordedSupplement.updated_at).toISOString();
+    const canonicalRevision = canonicalStateFingerprint({
+      pregnancy_id: Number(recordedSupplement.pregnancy_id),
+      supplement: recordedSupplement.supplement,
+      dose: recordedSupplement.dose || null,
+      frequency: recordedSupplement.frequency,
+      route: recordedSupplement.route,
+      start_date: recordedSupplement.start_date,
+      end_date: recordedSupplement.end_date || null,
+      reminder_enabled: recordedSupplement.reminder_enabled,
+      notes: recordedSupplement.notes || null,
+      prescribed_by: recordedSupplement.prescribed_by
+        ? String(recordedSupplement.prescribed_by)
+        : null,
+    });
     await recordCanonicalClinicalEvent({
       tenantId: tid,
       patientUid: String(pregnancy.patient_uid),
@@ -1100,8 +1113,8 @@ export async function recordSupplement({
         continued: recordedSupplement.continued,
       },
       tags: ['maternity', 'supplement'],
-      timelineIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:${canonicalVersion}`,
-      auditIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:audit:${canonicalVersion}`,
+      timelineIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:${canonicalRevision}`,
+      auditIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:audit:${canonicalRevision}`,
     }, { db: tx, strict: true });
 
     return recordedSupplement;
@@ -1406,7 +1419,15 @@ export async function recordFetalKick({
     const patientGenerated = String(actor_role || '').toUpperCase() === 'PATIENT'
       || String(canonicalActorUid || '') === String(pregnancy.patient_uid);
     const verificationStatus = patientGenerated ? 'unverified' : 'verified';
-    const canonicalVersion = new Date(fetalKick.updated_at).toISOString();
+    const canonicalRevision = canonicalStateFingerprint({
+      pregnancy_id: Number(fetalKick.pregnancy_id),
+      log_date: fetalKick.log_date,
+      kick_count: Number(fetalKick.kick_count),
+      observation_window_minutes: Number(fetalKick.observation_window_minutes),
+      low_count_flag: fetalKick.low_count_flag,
+      notes: fetalKick.notes || null,
+      recorded_by: fetalKick.recorded_by ? String(fetalKick.recorded_by) : null,
+    });
 
     await recordCanonicalClinicalEvent({
       tenantId: tid,
@@ -1440,8 +1461,8 @@ export async function recordFetalKick({
       tags: patientGenerated
         ? ['maternity', 'fetal-kick', 'patient_generated', 'unverified']
         : ['maternity', 'fetal-kick', 'staff-recorded'],
-      timelineIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:${canonicalVersion}`,
-      auditIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:audit:${canonicalVersion}`,
+      timelineIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:${canonicalRevision}`,
+      auditIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:audit:${canonicalRevision}`,
     }, { db: tx, strict: true });
 
     return fetalKick;
@@ -1666,7 +1687,18 @@ export async function setSupplementReminder({
       reminder_enabled, tid, pregnancyId, supplementId,
     );
     const updated = rows[0];
-    const canonicalVersion = new Date(updated.updated_at).toISOString();
+    const canonicalRevision = canonicalStateFingerprint({
+      pregnancy_id: pregnancyId,
+      supplement: updated.supplement,
+      dose: updated.dose || null,
+      frequency: updated.frequency,
+      route: updated.route,
+      start_date: updated.start_date,
+      end_date: updated.end_date || null,
+      reminder_enabled: updated.reminder_enabled,
+      notes: updated.notes || null,
+      prescribed_by: updated.prescribed_by ? String(updated.prescribed_by) : null,
+    });
 
     await recordCanonicalClinicalEvent({
       tenantId: tid,
@@ -1691,8 +1723,8 @@ export async function setSupplementReminder({
         reminder_enabled: updated.reminder_enabled,
       },
       tags: ['maternity', 'supplement', 'reminder-preference'],
-      timelineIdempotencyKey: `maternity_supplements:${updated.id}:reminder:${canonicalVersion}`,
-      auditIdempotencyKey: `maternity_supplements:${updated.id}:audit:reminder:${canonicalVersion}`,
+      timelineIdempotencyKey: `maternity_supplements:${updated.id}:reminder:${canonicalRevision}`,
+      auditIdempotencyKey: `maternity_supplements:${updated.id}:audit:reminder:${canonicalRevision}`,
     }, { db: tx, strict: true });
 
     return updated;
