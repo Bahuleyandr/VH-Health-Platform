@@ -13,6 +13,8 @@
 // flag on_alert_line=true; below the action line → on_action_line=true
 // → escalate to obstetrician.
 
+import { createHash } from 'crypto';
+
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
@@ -29,6 +31,10 @@ import {
 export { istDateString };
 
 const tenantOr = (tenantId) => requireTenantId(tenantId);
+
+function canonicalStateFingerprint(state) {
+  return createHash('sha256').update(JSON.stringify(state)).digest('hex').slice(0, 32);
+}
 
 // ── OBGyn labour-ward credential gate (credential-hardening 2026-07-13) ──────
 // The responsible obstetrician for a labour-ward act (attending_obstetrician on
@@ -431,23 +437,12 @@ export async function recordAncVisit({
   hb_gm_dl, urine_albumin, urine_sugar,
   iron_folic_acid_given, calcium_given, tt_dose,
   next_visit_date, notes, recorded_by,
+  actor_uid, actor_role,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   if (!visit_date) throw AppError.badRequest('visit_date is required');
   const pregnancy = await assertPregnancyInTenant(tenantId, pregnancy_id);
   const tid = tenantOr(tenantId);
-
-  // Auto-assign visit_number per pregnancy (migration 181). The "ANC
-  // visit #4" label is collapsed onto a single COALESCE/MAX +1 path
-  // so recordAncVisit doesn't need a separate counter table.
-  const nextNumberRow = await prisma.$queryRawUnsafe(
-    `SELECT COALESCE(MAX(visit_number), 0) + 1 AS next_number
-       FROM maternity_anc_visits
-      WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
-    tid,
-    pregnancy.id,
-  );
-  const nextNumber = Number(nextNumberRow?.[0]?.next_number) || 1;
 
   // UPSERT on (pregnancy_id, visit_date). Clinically there is at most
   // one ANC visit per pregnancy per calendar day — additional readings
@@ -460,75 +455,137 @@ export async function recordAncVisit({
   // recorded weight / fundal height / FHR. visit_number stays on the
   // original row. Finding:
   //   2026-05-09-obstetric-anc-patient-duplicate-anc-visit-alarming-bp
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_anc_visits
-       (pregnancy_id, visit_date, visit_number, gestational_age_weeks,
-        weight_kg, bp_systolic, bp_diastolic, pulse_bpm,
-        fundal_height_cm, fetal_heart_rate_bpm, fetal_movements_felt,
-        presentation, edema, pallor,
-        hb_gm_dl, urine_albumin, urine_sugar,
-        iron_folic_acid_given, calcium_given, tt_dose,
-        next_visit_date, notes, recorded_by, tenant_id)
-     VALUES ($1::int, $2::date, $24::int, $3::numeric,
-             $4::numeric, $5::int, $6::int, $7::int,
-             $8::int, $9::int, $10,
-             $11, $12, $13,
-             $14::numeric, $15, $16,
-             $17, $18, $19,
-             $20::date, $21, $22::uuid, $23::uuid)
-     ON CONFLICT (pregnancy_id, visit_date) DO UPDATE SET
-       gestational_age_weeks  = COALESCE(EXCLUDED.gestational_age_weeks, maternity_anc_visits.gestational_age_weeks),
-       weight_kg              = COALESCE(EXCLUDED.weight_kg, maternity_anc_visits.weight_kg),
-       bp_systolic            = COALESCE(EXCLUDED.bp_systolic, maternity_anc_visits.bp_systolic),
-       bp_diastolic           = COALESCE(EXCLUDED.bp_diastolic, maternity_anc_visits.bp_diastolic),
-       pulse_bpm              = COALESCE(EXCLUDED.pulse_bpm, maternity_anc_visits.pulse_bpm),
-       fundal_height_cm       = COALESCE(EXCLUDED.fundal_height_cm, maternity_anc_visits.fundal_height_cm),
-       fetal_heart_rate_bpm   = COALESCE(EXCLUDED.fetal_heart_rate_bpm, maternity_anc_visits.fetal_heart_rate_bpm),
-       fetal_movements_felt   = COALESCE(EXCLUDED.fetal_movements_felt, maternity_anc_visits.fetal_movements_felt),
-       presentation           = COALESCE(EXCLUDED.presentation, maternity_anc_visits.presentation),
-       edema                  = COALESCE(EXCLUDED.edema, maternity_anc_visits.edema),
-       pallor                 = COALESCE(EXCLUDED.pallor, maternity_anc_visits.pallor),
-       hb_gm_dl               = COALESCE(EXCLUDED.hb_gm_dl, maternity_anc_visits.hb_gm_dl),
-       urine_albumin          = COALESCE(EXCLUDED.urine_albumin, maternity_anc_visits.urine_albumin),
-       urine_sugar            = COALESCE(EXCLUDED.urine_sugar, maternity_anc_visits.urine_sugar),
-       iron_folic_acid_given  = maternity_anc_visits.iron_folic_acid_given OR EXCLUDED.iron_folic_acid_given,
-       calcium_given          = maternity_anc_visits.calcium_given OR EXCLUDED.calcium_given,
-       tt_dose                = COALESCE(EXCLUDED.tt_dose, maternity_anc_visits.tt_dose),
-       next_visit_date        = COALESCE(EXCLUDED.next_visit_date, maternity_anc_visits.next_visit_date),
-       notes                  = COALESCE(EXCLUDED.notes, maternity_anc_visits.notes),
-       recorded_by            = COALESCE(EXCLUDED.recorded_by, maternity_anc_visits.recorded_by)
-     RETURNING *`,
-    pregnancy.id, visit_date,
-    gestational_age_weeks ? Number(gestational_age_weeks) : null,
-    weight_kg ? Number(weight_kg) : null,
-    bp_systolic ? Number(bp_systolic) : null,
-    bp_diastolic ? Number(bp_diastolic) : null,
-    pulse_bpm ? Number(pulse_bpm) : null,
-    fundal_height_cm ? Number(fundal_height_cm) : null,
-    fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
-    fetal_movements_felt ?? null,
-    presentation || null, edema || null, pallor || null,
-    hb_gm_dl ? Number(hb_gm_dl) : null,
-    urine_albumin || null, urine_sugar || null,
-    !!iron_folic_acid_given, !!calcium_given, tt_dose || null,
-    next_visit_date || null, notes || null,
-    recorded_by ? String(recorded_by) : null, tid,
-    nextNumber,
-  );
-  const visit = rows[0];
+  const visit = await setTenantTx(tid, async (tx) => {
+    const lockedPregnancies = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int
+        FOR UPDATE`,
+      tid,
+      pregnancy.id,
+    );
+    if (!lockedPregnancies.length) throw AppError.notFound('Pregnancy not found');
+
+    // The pregnancy lock serializes visit-number allocation for this episode.
+    const nextNumberRow = await tx.$queryRawUnsafe(
+      `SELECT COALESCE(MAX(visit_number), 0) + 1 AS next_number
+         FROM maternity_anc_visits
+        WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
+      tid,
+      pregnancy.id,
+    );
+    const nextNumber = Number(nextNumberRow?.[0]?.next_number) || 1;
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO maternity_anc_visits
+         (pregnancy_id, visit_date, visit_number, gestational_age_weeks,
+          weight_kg, bp_systolic, bp_diastolic, pulse_bpm,
+          fundal_height_cm, fetal_heart_rate_bpm, fetal_movements_felt,
+          presentation, edema, pallor,
+          hb_gm_dl, urine_albumin, urine_sugar,
+          iron_folic_acid_given, calcium_given, tt_dose,
+          next_visit_date, notes, recorded_by, tenant_id)
+       VALUES ($1::int, $2::date, $24::int, $3::numeric,
+               $4::numeric, $5::int, $6::int, $7::int,
+               $8::int, $9::int, $10,
+               $11, $12, $13,
+               $14::numeric, $15, $16,
+               $17, $18, $19,
+               $20::date, $21, $22::uuid, $23::uuid)
+       ON CONFLICT (pregnancy_id, visit_date) DO UPDATE SET
+         gestational_age_weeks  = COALESCE(EXCLUDED.gestational_age_weeks, maternity_anc_visits.gestational_age_weeks),
+         weight_kg              = COALESCE(EXCLUDED.weight_kg, maternity_anc_visits.weight_kg),
+         bp_systolic            = COALESCE(EXCLUDED.bp_systolic, maternity_anc_visits.bp_systolic),
+         bp_diastolic           = COALESCE(EXCLUDED.bp_diastolic, maternity_anc_visits.bp_diastolic),
+         pulse_bpm              = COALESCE(EXCLUDED.pulse_bpm, maternity_anc_visits.pulse_bpm),
+         fundal_height_cm       = COALESCE(EXCLUDED.fundal_height_cm, maternity_anc_visits.fundal_height_cm),
+         fetal_heart_rate_bpm   = COALESCE(EXCLUDED.fetal_heart_rate_bpm, maternity_anc_visits.fetal_heart_rate_bpm),
+         fetal_movements_felt   = COALESCE(EXCLUDED.fetal_movements_felt, maternity_anc_visits.fetal_movements_felt),
+         presentation           = COALESCE(EXCLUDED.presentation, maternity_anc_visits.presentation),
+         edema                  = COALESCE(EXCLUDED.edema, maternity_anc_visits.edema),
+         pallor                 = COALESCE(EXCLUDED.pallor, maternity_anc_visits.pallor),
+         hb_gm_dl               = COALESCE(EXCLUDED.hb_gm_dl, maternity_anc_visits.hb_gm_dl),
+         urine_albumin          = COALESCE(EXCLUDED.urine_albumin, maternity_anc_visits.urine_albumin),
+         urine_sugar            = COALESCE(EXCLUDED.urine_sugar, maternity_anc_visits.urine_sugar),
+         iron_folic_acid_given  = maternity_anc_visits.iron_folic_acid_given OR EXCLUDED.iron_folic_acid_given,
+         calcium_given          = maternity_anc_visits.calcium_given OR EXCLUDED.calcium_given,
+         tt_dose                = COALESCE(EXCLUDED.tt_dose, maternity_anc_visits.tt_dose),
+         next_visit_date        = COALESCE(EXCLUDED.next_visit_date, maternity_anc_visits.next_visit_date),
+         notes                  = COALESCE(EXCLUDED.notes, maternity_anc_visits.notes),
+         recorded_by            = COALESCE(EXCLUDED.recorded_by, maternity_anc_visits.recorded_by)
+       RETURNING *`,
+      pregnancy.id, visit_date,
+      gestational_age_weeks ? Number(gestational_age_weeks) : null,
+      weight_kg ? Number(weight_kg) : null,
+      bp_systolic ? Number(bp_systolic) : null,
+      bp_diastolic ? Number(bp_diastolic) : null,
+      pulse_bpm ? Number(pulse_bpm) : null,
+      fundal_height_cm ? Number(fundal_height_cm) : null,
+      fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
+      fetal_movements_felt ?? null,
+      presentation || null, edema || null, pallor || null,
+      hb_gm_dl ? Number(hb_gm_dl) : null,
+      urine_albumin || null, urine_sugar || null,
+      !!iron_folic_acid_given, !!calcium_given, tt_dose || null,
+      next_visit_date || null, notes || null,
+      recorded_by ? String(recorded_by) : null, tid,
+      nextNumber,
+    );
+    const recordedVisit = rows[0];
+    const canonicalRevision = canonicalStateFingerprint(recordedVisit);
+
+    const projected = await tx.$executeRawUnsafe(
+      `UPDATE users
+          SET is_pregnant = TRUE,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      tid,
+      String(pregnancy.patient_uid),
+    );
+    if (projected !== 1) throw AppError.notFound('Patient not found');
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(pregnancy.patient_uid),
+      eventType: 'maternity.anc_visit_recorded',
+      eventStatus: 'recorded',
+      sourceTable: 'maternity_anc_visits',
+      sourceId: recordedVisit.id,
+      resourceType: 'anc_visit',
+      resourceId: recordedVisit.id,
+      actorUid: actor_uid || recorded_by || null,
+      actorRole: actor_role || null,
+      occurredAt: recordedVisit.created_at,
+      visibleToPatient: false,
+      summary: 'ANC visit recorded',
+      payload: {
+        anc_visit_id: recordedVisit.id,
+        pregnancy_id: pregnancy.id,
+        visit_number: recordedVisit.visit_number,
+      },
+      afterState: {
+        anc_visit_recorded: true,
+        user_is_pregnant: true,
+      },
+      tags: ['maternity', 'anc'],
+      timelineIdempotencyKey: `maternity_anc_visits:${recordedVisit.id}:${canonicalRevision}`,
+      auditIdempotencyKey: `maternity_anc_visits:${recordedVisit.id}:audit:${canonicalRevision}`,
+    }, { db: tx, strict: true });
+
+    return recordedVisit;
+  });
 
   // Phase 1.5 best-effort: emit pre-eclampsia alert on BP ≥140/90.
   // Patient-safety hook — finding
   // 2026-05-09-obstetric-anc-nurse-anc-visit-no-preeclampsia-alert.
   // Pregnancy BP thresholds live in vitalSignMonitor's
-  // PREGNANCY_BP_OVERRIDES and only fire when users.is_pregnant=TRUE,
-  // so we set the flag here too. Failure of this hook must NEVER block
-  // visit creation — pattern mirrors maybeEmitTpaCapAlerts.
+  // PREGNANCY_BP_OVERRIDES and only fire when users.is_pregnant=TRUE.
+  // The pregnancy projection is committed with the visit above. Alert
+  // generation remains post-commit and must NEVER block visit creation.
   let alerts = [];
   if (bp_systolic != null || bp_diastolic != null) {
     try {
       const patientRows = await prisma.$queryRawUnsafe(
-        `SELECT u.id, u.is_pregnant
+        `SELECT u.id
            FROM maternity_pregnancies p
            JOIN users u ON u.uid = p.patient_uid
           WHERE p.tenant_id = $1::uuid
@@ -540,15 +597,6 @@ export async function recordAncVisit({
       );
       const patient = patientRows[0];
       if (patient?.id) {
-        if (patient.is_pregnant !== true) {
-          await prisma.$executeRawUnsafe(
-            `UPDATE users
-                SET is_pregnant = TRUE,
-                    updated_at = NOW()
-              WHERE id = $1::int`,
-            patient.id,
-          );
-        }
         let recorderId = null;
         if (recorded_by) {
           const rRows = await prisma.$queryRawUnsafe(
@@ -925,6 +973,7 @@ const DOSE_MAX_LEN = 60;
 export async function recordSupplement({
   tenantId, pregnancy_id, supplement, dose, frequency, route, start_date,
   end_date, reminder_enabled, notes, prescribed_by,
+  actor_uid, actor_role,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   if (!supplement || !VALID_SUPPLEMENTS.has(supplement)) {
@@ -947,53 +996,129 @@ export async function recordSupplement({
   const frequencyValue = frequency || 'once_daily';
   const routeValue = route || 'oral';
 
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id FROM maternity_supplements
-       WHERE tenant_id = $1::uuid
-         AND pregnancy_id = $2::int
-         AND supplement = $3
-         AND (end_date IS NULL OR end_date >= CURRENT_DATE)
-       ORDER BY created_at DESC, id DESC
-       LIMIT 1`,
-    tid, pregnancyId, supplement,
-  );
-  if (existing.length) {
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE maternity_supplements
-          SET dose = COALESCE($4, dose),
-              frequency = $5,
-              route = $6,
-              start_date = COALESCE($7::date, start_date),
-              end_date = COALESCE($8::date, end_date),
-              reminder_enabled = COALESCE($9::boolean, reminder_enabled),
-              notes = COALESCE($10, notes),
-              prescribed_by = $11::uuid,
-              updated_at = NOW()
-        WHERE id = $1::int
-          AND tenant_id = $2::uuid
-          AND pregnancy_id = $3::int
-        RETURNING *, TRUE AS continued`,
-      Number(existing[0].id), tid, pregnancyId,
-      dose || null, frequencyValue, routeValue, startDate,
-      end_date || null, reminder_enabled !== undefined ? reminder_enabled !== false : null,
-      notes || null, String(prescribed_by),
+  return setTenantTx(tid, async (tx) => {
+    const lockedPregnancies = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int
+        FOR UPDATE`,
+      tid,
+      pregnancyId,
     );
-    return rows[0];
-  }
+    if (!lockedPregnancies.length) throw AppError.notFound('Pregnancy not found');
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_supplements
-       (pregnancy_id, supplement, dose, frequency, route, start_date,
-        end_date, reminder_enabled, notes, prescribed_by, tenant_id)
-     VALUES ($1::int, $2, $3, $4, $5, $6::date, $7::date, $8, $9, $10::uuid, $11::uuid)
-     RETURNING *, FALSE AS continued`,
-    pregnancyId, supplement, dose || null,
-    frequencyValue, routeValue,
-    startDate,
-    end_date || null, reminder_enabled !== false, notes || null,
-    String(prescribed_by), tid,
-  );
-  return rows[0];
+    const existing = await tx.$queryRawUnsafe(
+      `SELECT id, pregnancy_id, supplement, dose, frequency, route, start_date,
+              end_date, reminder_enabled, notes, prescribed_by, tenant_id,
+              created_at, updated_at
+         FROM maternity_supplements
+         WHERE tenant_id = $1::uuid
+           AND pregnancy_id = $2::int
+           AND supplement = $3
+           AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+         FOR UPDATE`,
+      tid, pregnancyId, supplement,
+    );
+    let recordedSupplement;
+    if (existing.length) {
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE maternity_supplements
+            SET dose = COALESCE($4, dose),
+                frequency = $5,
+                route = $6,
+                start_date = COALESCE($7::date, start_date),
+                end_date = COALESCE($8::date, end_date),
+                reminder_enabled = COALESCE($9::boolean, reminder_enabled),
+                notes = COALESCE($10, notes),
+                prescribed_by = $11::uuid,
+                updated_at = NOW()
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid
+            AND pregnancy_id = $3::int
+            AND (
+              dose IS DISTINCT FROM COALESCE($4, dose)
+              OR frequency IS DISTINCT FROM $5
+              OR route IS DISTINCT FROM $6
+              OR start_date IS DISTINCT FROM COALESCE($7::date, start_date)
+              OR end_date IS DISTINCT FROM COALESCE($8::date, end_date)
+              OR reminder_enabled IS DISTINCT FROM COALESCE($9::boolean, reminder_enabled)
+              OR notes IS DISTINCT FROM COALESCE($10, notes)
+              OR prescribed_by IS DISTINCT FROM $11::uuid
+            )
+          RETURNING *, TRUE AS continued`,
+        Number(existing[0].id), tid, pregnancyId,
+        dose || null, frequencyValue, routeValue, startDate,
+        end_date || null, reminder_enabled !== undefined ? reminder_enabled !== false : null,
+        notes || null, String(prescribed_by),
+      );
+      if (!rows.length) return { ...existing[0], continued: true };
+      recordedSupplement = rows[0];
+    } else {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO maternity_supplements
+           (pregnancy_id, supplement, dose, frequency, route, start_date,
+            end_date, reminder_enabled, notes, prescribed_by, tenant_id)
+         VALUES ($1::int, $2, $3, $4, $5, $6::date, $7::date, $8, $9, $10::uuid, $11::uuid)
+         RETURNING *, FALSE AS continued`,
+        pregnancyId, supplement, dose || null,
+        frequencyValue, routeValue,
+        startDate,
+        end_date || null, reminder_enabled !== false, notes || null,
+        String(prescribed_by), tid,
+      );
+      recordedSupplement = rows[0];
+    }
+
+    const canonicalRevision = canonicalStateFingerprint({
+      pregnancy_id: Number(recordedSupplement.pregnancy_id),
+      supplement: recordedSupplement.supplement,
+      dose: recordedSupplement.dose || null,
+      frequency: recordedSupplement.frequency,
+      route: recordedSupplement.route,
+      start_date: recordedSupplement.start_date,
+      end_date: recordedSupplement.end_date || null,
+      reminder_enabled: recordedSupplement.reminder_enabled,
+      notes: recordedSupplement.notes || null,
+      prescribed_by: recordedSupplement.prescribed_by
+        ? String(recordedSupplement.prescribed_by)
+        : null,
+    });
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(pregnancy.patient_uid),
+      eventType: 'maternity.supplement_recorded',
+      eventStatus: recordedSupplement.continued ? 'continued' : 'recorded',
+      sourceTable: 'maternity_supplements',
+      sourceId: recordedSupplement.id,
+      resourceType: 'maternity_supplement',
+      resourceId: recordedSupplement.id,
+      actorUid: actor_uid || prescribed_by || null,
+      actorRole: actor_role || null,
+      occurredAt: recordedSupplement.updated_at,
+      visibleToPatient: false,
+      summary: recordedSupplement.continued
+        ? 'Maternity supplement continued'
+        : 'Maternity supplement recorded',
+      payload: {
+        supplement_id: recordedSupplement.id,
+        pregnancy_id: pregnancyId,
+        supplement: recordedSupplement.supplement,
+        frequency: recordedSupplement.frequency,
+        continued: recordedSupplement.continued,
+      },
+      afterState: {
+        reminder_enabled: recordedSupplement.reminder_enabled,
+        continued: recordedSupplement.continued,
+      },
+      tags: ['maternity', 'supplement'],
+      timelineIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:${canonicalRevision}`,
+      auditIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:audit:${canonicalRevision}`,
+    }, { db: tx, strict: true });
+
+    return recordedSupplement;
+  });
 }
 
 // Map common medication names → supplement enum used by maternity_supplements.
@@ -1089,6 +1214,7 @@ export function extractCarriedForwardSupplements(prescriptions) {
  */
 export async function maybePropagateAncSupplements({
   tenantId, patient_uid, medications, prescribed_by,
+  actor_uid, actor_role,
 }) {
   if (!patient_uid || !prescribed_by) return [];
   if (!Array.isArray(medications) || medications.length === 0) return [];
@@ -1108,48 +1234,92 @@ export async function maybePropagateAncSupplements({
   if (!pregRows.length) return [];
   const pregnancyId = Number(pregRows[0].id);
 
-  const created = [];
-  for (const med of medications) {
-    if (!med || typeof med !== 'object') continue;
-    const name = String(med.name || med.medication || med.medicine || '').trim();
-    if (!name) continue;
+  return setTenantTx(tid, async (tx) => {
+    const lockedPregnancies = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int
+        FOR UPDATE`,
+      tid,
+      pregnancyId,
+    );
+    if (!lockedPregnancies.length) throw AppError.notFound('Pregnancy not found');
 
-    const matches = collapseComboSupplementMatches(SUPPLEMENT_PATTERNS
-      .filter(({ re }) => re.test(name))
-      .map(({ kind }) => kind));
-    if (!matches.length) continue;
+    const created = [];
+    for (const med of medications) {
+      if (!med || typeof med !== 'object') continue;
+      const name = String(med.name || med.medication || med.medicine || '').trim();
+      if (!name) continue;
 
-    const freqRaw = String(med.frequency || med.freq || '').toLowerCase().trim();
-    const frequency = FREQ_MAP[freqRaw] || 'once_daily';
-    const dose = String(med.dose || med.dosage || med.strength || '').trim() || null;
+      const matches = collapseComboSupplementMatches(SUPPLEMENT_PATTERNS
+        .filter(({ re }) => re.test(name))
+        .map(({ kind }) => kind));
+      if (!matches.length) continue;
 
-    for (const supplement of matches) {
-      const existing = await prisma.$queryRawUnsafe(
-        `SELECT id FROM maternity_supplements
-           WHERE tenant_id = $1::uuid
-             AND pregnancy_id = $2::int
-             AND supplement = $3
-             AND (end_date IS NULL OR end_date >= CURRENT_DATE)
-           LIMIT 1`,
-        tid, pregnancyId, supplement,
-      );
-      if (existing.length) continue;
+      const freqRaw = String(med.frequency || med.freq || '').toLowerCase().trim();
+      const frequency = FREQ_MAP[freqRaw] || 'once_daily';
+      const dose = String(med.dose || med.dosage || med.strength || '').trim() || null;
 
-      const inserted = await prisma.$queryRawUnsafe(
-        `INSERT INTO maternity_supplements
-           (pregnancy_id, supplement, dose, frequency, route,
-            reminder_enabled, notes, prescribed_by, tenant_id)
-         VALUES ($1::int, $2, $3, $4, 'oral', TRUE,
-                 'Auto-propagated from prescription', $5::uuid, $6::uuid)
-         RETURNING id, supplement, dose, frequency, start_date`,
-        pregnancyId, supplement, dose, frequency,
-        String(prescribed_by), tid,
-      );
-      created.push(inserted[0]);
+      for (const supplement of matches) {
+        const existing = await tx.$queryRawUnsafe(
+          `SELECT id FROM maternity_supplements
+             WHERE tenant_id = $1::uuid
+               AND pregnancy_id = $2::int
+               AND supplement = $3
+               AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+             LIMIT 1`,
+          tid, pregnancyId, supplement,
+        );
+        if (existing.length) continue;
+
+        const inserted = await tx.$queryRawUnsafe(
+          `INSERT INTO maternity_supplements
+             (pregnancy_id, supplement, dose, frequency, route,
+              reminder_enabled, notes, prescribed_by, tenant_id)
+           VALUES ($1::int, $2, $3, $4, 'oral', TRUE,
+                   'Auto-propagated from prescription', $5::uuid, $6::uuid)
+           RETURNING id, supplement, dose, frequency, start_date`,
+          pregnancyId, supplement, dose, frequency,
+          String(prescribed_by), tid,
+        );
+        const propagated = inserted[0];
+
+        await recordCanonicalClinicalEvent({
+          tenantId: tid,
+          patientUid: String(patient_uid),
+          eventType: 'maternity.supplement_recorded',
+          eventSubtype: 'prescription_propagated',
+          eventStatus: 'recorded',
+          sourceTable: 'maternity_supplements',
+          sourceId: propagated.id,
+          resourceType: 'maternity_supplement',
+          resourceId: propagated.id,
+          actorUid: actor_uid || prescribed_by || null,
+          actorRole: actor_role || null,
+          visibleToPatient: false,
+          summary: 'Maternity supplement propagated from prescription',
+          payload: {
+            supplement_id: propagated.id,
+            pregnancy_id: pregnancyId,
+            supplement: propagated.supplement,
+            frequency: propagated.frequency,
+            source_kind: 'prescription',
+          },
+          afterState: {
+            reminder_enabled: true,
+            propagated_from_prescription: true,
+          },
+          tags: ['maternity', 'supplement', 'prescription-propagated'],
+          timelineIdempotencyKey: `maternity_supplements:${propagated.id}:recorded`,
+          auditIdempotencyKey: `maternity_supplements:${propagated.id}:audit:recorded`,
+        }, { db: tx, strict: true });
+
+        created.push(propagated);
+      }
     }
-  }
 
-  return created;
+    return created;
+  });
 }
 
 export async function listSupplements({ tenantId, pregnancy_id, activeOnly = false }) {
@@ -1179,6 +1349,7 @@ export async function listSupplements({ tenantId, pregnancy_id, activeOnly = fal
 export async function recordFetalKick({
   tenantId, pregnancy_id, log_date, kick_count,
   observation_window_minutes, notes, recorded_by,
+  actor_uid, actor_role,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   const tid = tenantOr(tenantId);
@@ -1193,24 +1364,109 @@ export async function recordFetalKick({
   const lowFlag = count < threshold;
   const day = log_date || new Date().toISOString().slice(0, 10);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_fetal_kicks
-       (pregnancy_id, log_date, kick_count, observation_window_minutes,
-        low_count_flag, notes, recorded_by, tenant_id)
-     VALUES ($1::int, $2::date, $3::int, $4::int, $5, $6, $7::uuid, $8::uuid)
-     ON CONFLICT (pregnancy_id, log_date)
-     DO UPDATE SET kick_count = EXCLUDED.kick_count,
-                   observation_window_minutes = EXCLUDED.observation_window_minutes,
-                   low_count_flag = EXCLUDED.low_count_flag,
-                   notes = COALESCE(EXCLUDED.notes, maternity_fetal_kicks.notes),
-                   updated_at = NOW()
-     RETURNING *`,
-    Number(pregnancy.id), day, count, window, lowFlag,
-    notes || null,
-    recorded_by ? String(recorded_by) : null,
-    tid,
-  );
-  return rows[0];
+  return setTenantTx(tid, async (tx) => {
+    const lockedPregnancies = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int
+        FOR UPDATE`,
+      tid,
+      pregnancy.id,
+    );
+    if (!lockedPregnancies.length) throw AppError.notFound('Pregnancy not found');
+
+    const existing = await tx.$queryRawUnsafe(
+      `SELECT id, pregnancy_id, log_date, kick_count, observation_window_minutes,
+              low_count_flag, notes, recorded_by, tenant_id, created_at, updated_at
+         FROM maternity_fetal_kicks
+        WHERE tenant_id = $1::uuid
+          AND pregnancy_id = $2::int
+          AND log_date = $3::date
+        FOR UPDATE`,
+      tid,
+      Number(pregnancy.id),
+      day,
+    );
+    const prior = existing[0] || null;
+    const effectiveNotes = notes || prior?.notes || null;
+    if (prior
+      && Number(prior.kick_count) === count
+      && Number(prior.observation_window_minutes) === window
+      && prior.low_count_flag === lowFlag
+      && (prior.notes || null) === effectiveNotes) {
+      return prior;
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO maternity_fetal_kicks
+         (pregnancy_id, log_date, kick_count, observation_window_minutes,
+          low_count_flag, notes, recorded_by, tenant_id)
+       VALUES ($1::int, $2::date, $3::int, $4::int, $5, $6, $7::uuid, $8::uuid)
+       ON CONFLICT (pregnancy_id, log_date)
+       DO UPDATE SET kick_count = EXCLUDED.kick_count,
+                     observation_window_minutes = EXCLUDED.observation_window_minutes,
+                     low_count_flag = EXCLUDED.low_count_flag,
+                     notes = COALESCE(EXCLUDED.notes, maternity_fetal_kicks.notes),
+                     updated_at = NOW()
+       RETURNING *`,
+      Number(pregnancy.id), day, count, window, lowFlag,
+      notes || null,
+      recorded_by ? String(recorded_by) : null,
+      tid,
+    );
+    const fetalKick = rows[0];
+    const canonicalActorUid = actor_uid || recorded_by || null;
+    const patientGenerated = String(actor_role || '').toUpperCase() === 'PATIENT'
+      || String(canonicalActorUid || '') === String(pregnancy.patient_uid);
+    const verificationStatus = patientGenerated ? 'unverified' : 'verified';
+    const canonicalRevision = canonicalStateFingerprint({
+      pregnancy_id: Number(fetalKick.pregnancy_id),
+      log_date: fetalKick.log_date,
+      kick_count: Number(fetalKick.kick_count),
+      observation_window_minutes: Number(fetalKick.observation_window_minutes),
+      low_count_flag: fetalKick.low_count_flag,
+      notes: fetalKick.notes || null,
+      recorded_by: fetalKick.recorded_by ? String(fetalKick.recorded_by) : null,
+    });
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(pregnancy.patient_uid),
+      eventType: 'maternity.fetal_kick_recorded',
+      eventStatus: patientGenerated ? 'unverified' : 'recorded',
+      sourceTable: 'maternity_fetal_kicks',
+      sourceId: fetalKick.id,
+      resourceType: 'fetal_kick_log',
+      resourceId: fetalKick.id,
+      actorUid: canonicalActorUid,
+      actorRole: actor_role || null,
+      occurredAt: fetalKick.updated_at,
+      visibleToPatient: false,
+      summary: patientGenerated
+        ? 'Patient-generated fetal kick count recorded — unverified'
+        : 'Fetal kick count recorded',
+      payload: {
+        fetal_kick_id: fetalKick.id,
+        pregnancy_id: pregnancy.id,
+        kick_count: fetalKick.kick_count,
+        observation_window_minutes: fetalKick.observation_window_minutes,
+        source_kind: patientGenerated ? 'patient_generated' : 'staff_recorded',
+        verification_status: verificationStatus,
+      },
+      afterState: {
+        kick_count: fetalKick.kick_count,
+        low_count_flag: fetalKick.low_count_flag,
+        verification_status: verificationStatus,
+      },
+      tags: patientGenerated
+        ? ['maternity', 'fetal-kick', 'patient_generated', 'unverified']
+        : ['maternity', 'fetal-kick', 'staff-recorded'],
+      timelineIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:${canonicalRevision}`,
+      auditIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:audit:${canonicalRevision}`,
+    }, { db: tx, strict: true });
+
+    return fetalKick;
+  });
 }
 
 /**
@@ -1390,6 +1646,7 @@ export async function getAncAdvice({
 
 export async function setSupplementReminder({
   tenantId, pregnancy_id, supplement_id, reminder_enabled,
+  actor_uid, actor_role,
 }) {
   const pregnancyId = Number.parseInt(pregnancy_id, 10);
   const supplementId = Number.parseInt(supplement_id, 10);
@@ -1403,20 +1660,75 @@ export async function setSupplementReminder({
     throw AppError.badRequest('reminder_enabled must be a boolean');
   }
   const tid = tenantOr(tenantId);
-  await assertPregnancyInTenant(tid, pregnancyId);
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE maternity_supplements
-        SET reminder_enabled = $1,
-            updated_at = NOW()
-      WHERE tenant_id = $2::uuid
-        AND pregnancy_id = $3::int
-        AND id = $4::int
-      RETURNING id, supplement, dose, frequency, route, start_date, end_date,
-                reminder_enabled, notes, prescribed_by, created_at, updated_at`,
-    reminder_enabled, tid, pregnancyId, supplementId,
-  );
-  if (!rows.length) throw AppError.notFound('Supplement not found');
-  return rows[0];
+  const pregnancy = await assertPregnancyInTenant(tid, pregnancyId);
+  return setTenantTx(tid, async (tx) => {
+    const currentRows = await tx.$queryRawUnsafe(
+      `SELECT id, supplement, dose, frequency, route, start_date, end_date,
+              reminder_enabled, notes, prescribed_by, created_at, updated_at
+         FROM maternity_supplements
+        WHERE tenant_id = $1::uuid
+          AND pregnancy_id = $2::int
+          AND id = $3::int
+        FOR UPDATE`,
+      tid, pregnancyId, supplementId,
+    );
+    if (!currentRows.length) throw AppError.notFound('Supplement not found');
+    if (currentRows[0].reminder_enabled === reminder_enabled) return currentRows[0];
+
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE maternity_supplements
+          SET reminder_enabled = $1,
+              updated_at = NOW()
+        WHERE tenant_id = $2::uuid
+          AND pregnancy_id = $3::int
+          AND id = $4::int
+        RETURNING id, supplement, dose, frequency, route, start_date, end_date,
+                  reminder_enabled, notes, prescribed_by, created_at, updated_at`,
+      reminder_enabled, tid, pregnancyId, supplementId,
+    );
+    const updated = rows[0];
+    const canonicalRevision = canonicalStateFingerprint({
+      pregnancy_id: pregnancyId,
+      supplement: updated.supplement,
+      dose: updated.dose || null,
+      frequency: updated.frequency,
+      route: updated.route,
+      start_date: updated.start_date,
+      end_date: updated.end_date || null,
+      reminder_enabled: updated.reminder_enabled,
+      notes: updated.notes || null,
+      prescribed_by: updated.prescribed_by ? String(updated.prescribed_by) : null,
+    });
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: String(pregnancy.patient_uid),
+      eventType: 'maternity.supplement_reminder_updated',
+      eventStatus: reminder_enabled ? 'enabled' : 'disabled',
+      sourceTable: 'maternity_supplements',
+      sourceId: updated.id,
+      resourceType: 'maternity_supplement',
+      resourceId: updated.id,
+      actorUid: actor_uid || null,
+      actorRole: actor_role || null,
+      occurredAt: updated.updated_at,
+      visibleToPatient: false,
+      summary: 'Maternity supplement reminder preference updated',
+      payload: {
+        supplement_id: updated.id,
+        pregnancy_id: pregnancyId,
+        reminder_enabled: updated.reminder_enabled,
+      },
+      afterState: {
+        reminder_enabled: updated.reminder_enabled,
+      },
+      tags: ['maternity', 'supplement', 'reminder-preference'],
+      timelineIdempotencyKey: `maternity_supplements:${updated.id}:reminder:${canonicalRevision}`,
+      auditIdempotencyKey: `maternity_supplements:${updated.id}:audit:reminder:${canonicalRevision}`,
+    }, { db: tx, strict: true });
+
+    return updated;
+  });
 }
 
 export async function listAncVisits({ tenantId, pregnancy_id }) {
