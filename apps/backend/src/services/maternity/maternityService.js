@@ -2752,11 +2752,19 @@ export async function recordApgar({
       return existingScore;
     }
 
+    // total_score is computed here with migration 155's formula. 155 defined
+    // the column GENERATED ALWAYS AS (sum of COALESCEd components) STORED,
+    // but the regenerated 000_baseline (schema-drift fix 2026-05-12) carries
+    // it as a PLAIN integer — no generation, no default — so every write
+    // through the pre-rework path left it NULL. The service now owns the
+    // formula; the ON CONFLICT arm carries it via EXCLUDED.
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO maternity_apgar_scores
          (newborn_id, time_minute, appearance, pulse, grimace, activity, respiration,
-          recorded_by, tenant_id)
+          total_score, recorded_by, tenant_id)
        VALUES ($1::int, $2::int, $3::int, $4::int, $5::int, $6::int, $7::int,
+               COALESCE($3::int, 0) + COALESCE($4::int, 0) + COALESCE($5::int, 0)
+                 + COALESCE($6::int, 0) + COALESCE($7::int, 0),
                $8::uuid, $9::uuid)
        ON CONFLICT (newborn_id, time_minute) DO UPDATE SET
          appearance = EXCLUDED.appearance,
@@ -2764,6 +2772,7 @@ export async function recordApgar({
          grimace = EXCLUDED.grimace,
          activity = EXCLUDED.activity,
          respiration = EXCLUDED.respiration,
+         total_score = EXCLUDED.total_score,
          recorded_by = EXCLUDED.recorded_by,
          recorded_at = NOW()
        WHERE maternity_apgar_scores.tenant_id = EXCLUDED.tenant_id
