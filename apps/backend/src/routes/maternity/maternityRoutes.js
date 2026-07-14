@@ -114,6 +114,8 @@ router.post('/labor-admissions', requireStaffOrAdmin, wrap(async (req) =>
   mat.admitToLabor({
     ...req.body,
     tenantId: tenantOf(req),
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 
@@ -134,6 +136,8 @@ router.post('/partograph', requireStaffOrAdmin, wrap(async (req) =>
     ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 

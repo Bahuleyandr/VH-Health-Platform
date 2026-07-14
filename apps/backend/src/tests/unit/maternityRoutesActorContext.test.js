@@ -3,10 +3,14 @@ import express from 'express';
 import request from 'supertest';
 
 const createPregnancyMock = jest.fn(async () => ({ id: 41 }));
+const admitToLaborMock = jest.fn(async () => ({ id: 57 }));
+const recordPartographEntryMock = jest.fn(async () => ({ id: 61 }));
 const recordDeliveryMock = jest.fn(async () => ({ id: 73 }));
 
 jest.unstable_mockModule('../../services/maternity/maternityService.js', () => ({
   createPregnancy: createPregnancyMock,
+  admitToLabor: admitToLaborMock,
+  recordPartographEntry: recordPartographEntryMock,
   recordDelivery: recordDeliveryMock,
 }));
 
@@ -21,17 +25,21 @@ const { default: maternityRoutes } = await import('../../routes/maternity/matern
 const ACTOR_UID = '11111111-1111-4111-8111-111111111111';
 const PERFORMER_UID = '22222222-2222-4222-8222-222222222222';
 const SPOOFED_UID = '99999999-9999-4999-8999-999999999999';
+let requestUser = { uid: ACTOR_UID, role: 'NURSING_STAFF' };
 
 const app = express();
 app.use(express.json());
 app.use((req, _res, next) => {
-  req.user = { uid: ACTOR_UID, role: 'NURSING_STAFF' };
+  req.user = requestUser;
   next();
 });
 app.use('/api/v1/maternity', maternityRoutes);
 
 beforeEach(() => {
+  requestUser = { uid: ACTOR_UID, role: 'NURSING_STAFF' };
   createPregnancyMock.mockClear();
+  admitToLaborMock.mockClear();
+  recordPartographEntryMock.mockClear();
   recordDeliveryMock.mockClear();
 });
 
@@ -74,5 +82,58 @@ describe('maternity mutation actor context', () => {
       actor_uid: ACTOR_UID,
       actor_role: 'NURSING_STAFF',
     }));
+  });
+
+  test('labour admission preserves the named obstetrician while auditing the authenticated submitter', async () => {
+    const response = await request(app)
+      .post('/api/v1/maternity/labor-admissions')
+      .send({
+        pregnancy_id: 8,
+        attending_obstetrician: PERFORMER_UID,
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({ id: 57 });
+    expect(admitToLaborMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      attending_obstetrician: PERFORMER_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+  });
+
+  test('partograph recording pins recorder and canonical actor to the authenticated user', async () => {
+    const response = await request(app)
+      .post('/api/v1/maternity/partograph')
+      .send({
+        labor_admission_id: 12,
+        recorded_by: SPOOFED_UID,
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({ id: 61 });
+    expect(recordPartographEntryMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+  });
+
+  test.each([
+    ['/api/v1/maternity/labor-admissions', { pregnancy_id: 8 }, admitToLaborMock],
+    ['/api/v1/maternity/partograph', { labor_admission_id: 12 }, recordPartographEntryMock],
+  ])('preserves staff/admin authorization for %s', async (path, body, serviceMock) => {
+    requestUser = { uid: ACTOR_UID, role: 'PATIENT' };
+
+    const response = await request(app).post(path).send(body);
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body.message).toBe('Staff or admin role required');
+    expect(serviceMock).not.toHaveBeenCalled();
   });
 });
