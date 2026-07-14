@@ -106,6 +106,7 @@ async function latestSignedUpToDateReview({ patientUid, tenantId }) {
        FROM clinical_notes
       WHERE patient_uid = $1::uuid
         AND note_type = 'immunisation_review'
+        AND COALESCE(is_addendum, false) = false
         AND COALESCE(is_signed, false) = true
         AND COALESCE(content->>'status', '') = 'up_to_date'
         AND (tenant_id = $2::uuid OR content->>'tenant_id' = $2::text)

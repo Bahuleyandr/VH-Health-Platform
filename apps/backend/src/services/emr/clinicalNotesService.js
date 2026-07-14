@@ -468,6 +468,14 @@ export async function createNote(data) {
 /**
  * Add an addendum to an existing note (creates a new version row).
  * Signed notes cannot be edited — only addenda are allowed.
+ *
+ * Addenda attach to ANY note type — including service-created types like
+ * immunisation_review that are outside VALID_NOTE_TYPES — and their content
+ * is free-form (validateNoteContent is not applied). Any latest-note-by-type
+ * projection must therefore filter `is_addendum = false`, or an addendum row
+ * shadows its parent (see immunisationService.getImmunisationStatus and
+ * paediatricImmunisationService.latestSignedUpToDateReview).
+ *
  * @param {number} noteId - Original note ID
  * @param {Object} addendumContent - The addendum content (free-form JSON)
  * @param {string} authorUid - UID of the addendum author

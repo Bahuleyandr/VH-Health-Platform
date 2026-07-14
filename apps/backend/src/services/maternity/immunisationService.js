@@ -481,7 +481,10 @@ export async function markScheduleUpToDate({
  * Patient-facing immunisation status — the patient app's immunisation
  * card calls this to compute "up-to-date as of X" without scanning
  * the full newborn_immunisations table. Returns the most recent
- * immunisation_review note for the patient (if any).
+ * immunisation_review note for the patient (if any). Addendum rows are
+ * excluded: clinicalNotesService.addAddendum copies note_type from the
+ * parent with free-form content, so without the is_addendum filter an
+ * addendum would shadow the review and project status 'unknown'.
  */
 export async function getImmunisationStatus({ tenantId, patient_uid }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -492,6 +495,7 @@ export async function getImmunisationStatus({ tenantId, patient_uid }) {
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
         AND note_type = 'immunisation_review'
+        AND COALESCE(is_addendum, false) = false
       ORDER BY created_at DESC
       LIMIT 1`,
     tenantId,
