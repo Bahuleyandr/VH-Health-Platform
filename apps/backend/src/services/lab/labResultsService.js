@@ -17,7 +17,7 @@ import { emitCriticalLabAlertAcknowledged } from '../clinical/canonicalOperation
 // a finalized CRITICAL lab result becomes an assigned, acknowledgement-tracked
 // task so it cannot fall through the cracks. The call is POST-COMMIT + best-effort
 // (Phase 1.5, apps/backend/CLAUDE.md) — it must NEVER block or fail the lab write.
-import { enqueueCriticalResultTask } from '../results/resultsInboxService.js';
+import { enqueueCriticalResultTask, ensureCriticalResultTaskOpen } from '../results/resultsInboxService.js';
 import { emitLabEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
@@ -98,6 +98,12 @@ function valueForCriticalThreshold(value, resultUnit, thresholdUnit) {
 // lab_results row is filed. Terminal states (COMPLETED/CANCELLED) and
 // already-running (IN_PROGRESS) are left alone. See migration 217.
 const INVESTIGATION_PRE_RESULT_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'COLLECTED'];
+
+// Sign-off decisions that mean "the value of record changed" (mig-151
+// vocabulary is verified/rejected/corrected; 'amended' is accepted as the
+// synonym upstream UIs use). These restart the critical-result safety loop
+// post-commit — see the corrected/amended block in signOffResults.
+const CORRECTIVE_SIGNOFF_DECISIONS = new Set(['corrected', 'amended']);
 
 async function resolveInvestigationIdForBooking(client, bookingId, tenantId) {
   if (bookingId == null) return null;
@@ -696,6 +702,59 @@ export async function listPendingSignOff({ tenantId, limit = 100 }) {
   );
 }
 
+// Patient-facing result-notification fan-out: the patient plus, for a
+// dependent minor, the guardian (users.guardian_user_id, migration 202) each
+// get an outbox push/SMS AND an in-app notifications feed row (what
+// GET /api/v1/notifications/my reads). Shared by the verified sign-off
+// ("results ready") and the corrected/amended sign-off ("results updated")
+// paths. Callers wrap it best-effort: a notification failure must never
+// abort a sign-off (the result rows are the canonical record).
+async function notifyPatientResultRecipients({
+  tenantId, patientUid, type, title, patientBody, guardianBody, data,
+}) {
+  const recipients = await prisma.$queryRawUnsafe(
+    `SELECT u.id, u.uid, u.phone, u.name, false AS is_guardian
+       FROM users u
+      WHERE u.uid = $1::uuid AND u.tenant_id = $2::uuid AND u.phone IS NOT NULL
+      UNION
+     SELECT g.id, g.uid, g.phone, g.name, true AS is_guardian
+       FROM users p
+       JOIN users g ON g.id = p.guardian_user_id
+      WHERE p.uid = $1::uuid
+        AND p.tenant_id = $2::uuid
+        AND g.tenant_id = $2::uuid
+        AND g.phone IS NOT NULL`,
+    patientUid, tenantId,
+  );
+  const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
+  for (const rcpt of recipients) {
+    const body = rcpt.is_guardian ? guardianBody : patientBody;
+    await outbox.queue({
+      type,
+      recipientId: rcpt.id,
+      recipientPhone: rcpt.phone,
+      title,
+      body,
+      data,
+    }).catch((e) => logger.warn(`Lab ${type} outbox queue failed for user ${rcpt.id}: ${e.message}`));
+
+    // In-app feed row — what GET /api/v1/notifications/my reads.
+    try {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO notifications
+           (uid, user_id, phone, title, body, type, priority,
+            data, is_read, created_at, updated_at)
+         VALUES ($1::uuid, $2::int, $3, $4, $5, $6,
+                 'NORMAL', $7::jsonb, false, NOW(), NOW())`,
+        rcpt.uid, rcpt.id, normalizePhone(rcpt.phone),
+        title, body, type, JSON.stringify(data),
+      );
+    } catch (e) {
+      logger.warn(`Lab ${type} in-app insert failed for user ${rcpt.id}: ${e.message}`);
+    }
+  }
+}
+
 export async function signOffResults({
   tenantId, signed_off_by, signed_off_by_role, signed_off_by_name,
   signed_off_by_reg, result_ids, decision = 'verified', comments,
@@ -814,59 +873,136 @@ export async function signOffResults({
   if (decision === 'verified') {
     try {
       const resultPatientUid = patient_uid || owned[0].patient_uid;
-      const recipients = await prisma.$queryRawUnsafe(
-        `SELECT u.id, u.uid, u.phone, u.name, false AS is_guardian
-           FROM users u
-          WHERE u.uid = $1::uuid AND u.tenant_id = $2::uuid AND u.phone IS NOT NULL
-          UNION
-         SELECT g.id, g.uid, g.phone, g.name, true AS is_guardian
-           FROM users p
-           JOIN users g ON g.id = p.guardian_user_id
-          WHERE p.uid = $1::uuid
-            AND p.tenant_id = $2::uuid
-            AND g.tenant_id = $2::uuid
-            AND g.phone IS NOT NULL`,
-        resultPatientUid, tenantId,
-      );
-      const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
-      const title = 'Lab results ready';
       const count = ids.length;
       const noun = count === 1 ? 'result' : 'results';
-      const data = {
-        booking_id: booking_id ? Number(booking_id) : null,
-        result_ids: ids,
-        patient_uid: resultPatientUid,
-      };
-      for (const rcpt of recipients) {
-        const body = rcpt.is_guardian
-          ? `Lab ${noun} for your dependent are ready to view (${count}).`
-          : `Your lab ${noun} are ready to view (${count}).`;
-        await outbox.queue({
-          type: 'lab_result_ready',
-          recipientId: rcpt.id,
-          recipientPhone: rcpt.phone,
-          title,
-          body,
-          data,
-        }).catch((e) => logger.warn(`Lab result-ready outbox queue failed for user ${rcpt.id}: ${e.message}`));
-
-        // In-app feed row — what GET /api/v1/notifications/my reads.
-        try {
-          await prisma.$executeRawUnsafe(
-            `INSERT INTO notifications
-               (uid, user_id, phone, title, body, type, priority,
-                data, is_read, created_at, updated_at)
-             VALUES ($1::uuid, $2::int, $3, $4, $5, 'lab_result_ready',
-                     'NORMAL', $6::jsonb, false, NOW(), NOW())`,
-            rcpt.uid, rcpt.id, normalizePhone(rcpt.phone),
-            title, body, JSON.stringify(data),
-          );
-        } catch (e) {
-          logger.warn(`Lab result-ready in-app insert failed for user ${rcpt.id}: ${e.message}`);
-        }
-      }
+      await notifyPatientResultRecipients({
+        tenantId,
+        patientUid: resultPatientUid,
+        type: 'lab_result_ready',
+        title: 'Lab results ready',
+        patientBody: `Your lab ${noun} are ready to view (${count}).`,
+        guardianBody: `Lab ${noun} for your dependent are ready to view (${count}).`,
+        data: {
+          booking_id: booking_id ? Number(booking_id) : null,
+          result_ids: ids,
+          patient_uid: resultPatientUid,
+        },
+      });
     } catch (e) {
       logger.warn(`Lab result-ready notification fan-out failed: ${e?.message}`);
+    }
+  }
+
+  // Corrected/amended sign-off — restart the critical-result safety loop.
+  // Care-pathways program design §11 quick-win 1
+  // (docs/superpowers/specs/2026-07-14-unified-care-pathways-program-design.md):
+  // until now every downstream consequence of a sign-off was gated to
+  // decision==='verified', so a corrected value changed the record silently —
+  // no re-detection, no fresh acknowledgement, no word to the patient.
+  //
+  // Post-commit Phase-1.5 best-effort (apps/backend/CLAUDE.md): the signoff
+  // row + in-tx canonical timeline/audit pair above are the canonical record;
+  // each leg here logs and never aborts the sign-off.
+  if (CORRECTIVE_SIGNOFF_DECISIONS.has(decision)) {
+    let batchRows = [];
+    let alreadyCritical = [];
+    // Leg 1 — re-run critical detection over the corrected values. Only rows
+    // never flagged critical are re-evaluated: a row that already fired keeps
+    // its alert (re-detecting it would duplicate the lab_critical_alerts row
+    // and the clinician push). Newly-flagged rows get the FULL recording-time
+    // loop — alert row, clinician fan-out, and a fresh results-inbox task via
+    // the producer inside detectCriticalsForResults.
+    try {
+      batchRows = await prisma.$queryRawUnsafe(
+        `SELECT id, patient_uid, booking_id, investigation_id, loinc_code,
+                test_code, test_name, value_text, value_numeric, unit,
+                is_critical, release_hold
+           FROM lab_results
+          WHERE id = ANY($1::int[]) AND tenant_id = $2::uuid`,
+        ids, tenantId,
+      );
+      // Snapshot BEFORE detection: detectCriticalsForResults flips
+      // is_critical on the in-memory rows it flags, and those rows already
+      // leave it with an open task — only the previously-critical rows need
+      // the reopen pass below.
+      alreadyCritical = batchRows.filter((r) => r.is_critical === true);
+      const undetected = batchRows.filter((r) => r.is_critical !== true);
+      if (undetected.length) {
+        await detectCriticalsForResults({ tenantId, results: undetected });
+      }
+    } catch (e) {
+      logger.warn(`Corrected-signoff critical re-detection failed (sign-off stands): ${e?.message}`);
+    }
+
+    // Leg 2 — reopen the acknowledgement loop for rows that were ALREADY
+    // critical. The clinician's earlier acknowledgement answered the OLD
+    // value; ensureCriticalResultTaskOpen supersedes an acked task with a
+    // fresh, unacknowledged one and re-arms the critical_result_ack SLA
+    // clock (a still-open task just gets annotated).
+    for (const r of alreadyCritical) {
+      try {
+        let orderingClinicianUid = null;
+        if (r.investigation_id != null) {
+          const ord = await prisma.$queryRawUnsafe(
+            `SELECT requested_by
+               FROM investigations
+              WHERE id = $1::int AND tenant_id = $2::uuid
+              LIMIT 1`,
+            Number(r.investigation_id), tenantId,
+          );
+          orderingClinicianUid = ord[0]?.requested_by || null;
+        }
+        await ensureCriticalResultTaskOpen({
+          tenantId,
+          patientUid: r.patient_uid,
+          source: 'lab_result',
+          resourceType: 'lab_result',
+          resourceId: r.id,
+          severity: 'critical',
+          title: `Critical lab (${decision}): ${r.test_name}`,
+          summary: `${r.test_name} = ${r.value_text}${r.unit ? ` ${r.unit}` : ''} — value ${decision} at pathologist sign-off; re-acknowledgement required.`,
+          orderingClinicianUid,
+          reason: `lab_signoff_${decision}`,
+        });
+      } catch (e) {
+        logger.warn(`Corrected-signoff task reopen failed for result ${r.id} (sign-off stands): ${e?.message}`);
+      }
+    }
+
+    // Leg 3 — tell the patient (and guardian) the record changed, under the
+    // portalAccessService release policy (migration 294): a row a clinician
+    // explicitly held from the patient (release_hold) is never announced.
+    // The auto-release delay / early-release timing keeps governing portal
+    // VISIBILITY exactly as it does for the verified path.
+    try {
+      const byPatient = new Map();
+      for (const r of batchRows) {
+        if (r.release_hold === true) continue;
+        const key = String(r.patient_uid);
+        if (!byPatient.has(key)) byPatient.set(key, []);
+        byPatient.get(key).push(r.id);
+      }
+      for (const [notifyPatientUid, notifyIds] of byPatient) {
+        const count = notifyIds.length;
+        const noun = count === 1 ? 'result' : 'results';
+        const verb = count === 1 ? 'has' : 'have';
+        await notifyPatientResultRecipients({
+          tenantId,
+          patientUid: notifyPatientUid,
+          type: 'lab_result_corrected',
+          title: 'Lab results updated',
+          patientBody: `Your lab ${noun} (${count}) ${verb} been corrected and re-issued. Please review the updated ${noun}.`,
+          guardianBody: `Lab ${noun} (${count}) for your dependent ${verb} been corrected and re-issued.`,
+          data: {
+            booking_id: booking_id ? Number(booking_id) : null,
+            result_ids: notifyIds,
+            patient_uid: notifyPatientUid,
+            signoff_decision: decision,
+          },
+        });
+      }
+    } catch (e) {
+      logger.warn(`Corrected-signoff patient re-notify failed (sign-off stands): ${e?.message}`);
     }
   }
 

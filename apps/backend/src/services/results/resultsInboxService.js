@@ -22,7 +22,7 @@
 // rather than inventing a new SLA system. The mig-118 escalation_rules engine
 // (Wave-1 Task 2) reads those breaches for what-to-do-on-breach.
 
-import { setTenantTx } from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as taskService from '../workflow/taskService.js';
 // Reuse the mig-269 canonical SLA layer (do NOT add a new SLA system).
@@ -98,6 +98,7 @@ export function resolveRoleCode(hint) {
  * @param {string} [params.orderingClinicianUid] primary assignee (ordering clinician).
  * @param {string} [params.careTeamRoleHint]  role fallback when no clinician (abstract or concrete).
  * @param {string} [params.slaKey]            mig-269 SLA rule code (default 'critical_result_ack').
+ * @param {object} [params.extraMetadata]     extra task metadata keys (e.g. reopen provenance).
  * @returns {Promise<{created:boolean, taskId:(number|null), slaInstanceId:(string|number|null), error?:string}>}
  */
 export async function enqueueCriticalResultTask({
@@ -112,6 +113,7 @@ export async function enqueueCriticalResultTask({
   orderingClinicianUid = null,
   careTeamRoleHint = null,
   slaKey = 'critical_result_ack',
+  extraMetadata = null,
 } = {}) {
   const resourceIdStr = resourceId == null ? null : String(resourceId);
   try {
@@ -159,7 +161,7 @@ export async function enqueueCriticalResultTask({
         assignedToUid: orderingClinicianUid || null,
         // Only fall back to a role when there is no ordering clinician.
         assignedToRole: orderingClinicianUid ? null : resolveRoleCode(careTeamRoleHint),
-        metadata: { source, sla_instance_id: slaInstanceId, sla_key: slaKey },
+        metadata: { source, sla_instance_id: slaInstanceId, sla_key: slaKey, ...(extraMetadata || {}) },
         onConflictResourceDoNothing: true,
       });
 
@@ -177,6 +179,191 @@ export async function enqueueCriticalResultTask({
       resourceId: resourceIdStr,
     });
     return { created: false, taskId: null, slaInstanceId: null, error: err?.message };
+  }
+}
+
+/**
+ * Reopen semantics for a corrected/amended result (care-pathways design §11
+ * quick-win 1): make sure an OPEN, UNACKNOWLEDGED ack-task exists for the
+ * resource after its value changed.
+ *
+ * Why the plain producer is not enough: the mig-312 partial unique index
+ * covers status IN ('open','in_progress','blocked') — an ALREADY-ACKNOWLEDGED
+ * task (acknowledge = open→in_progress, taskService.acknowledgeTask) still
+ * occupies the slot, so `enqueueCriticalResultTask` is a silent no-op and the
+ * clinician who acked the OLD value is never asked to look at the NEW one.
+ * There is also no reopen edge in the task state machine (in_progress can only
+ * go to blocked/completed/cancelled), and a completed critical_result_ack SLA
+ * instance never re-activates through startWorkflowSla's ON CONFLICT (one
+ * instance per (rule, resource) forever).
+ *
+ * So this helper:
+ *   1. leaves a still-unacknowledged task (open/overdue) in place — the fresh
+ *      ack window already exists; it only gets a system comment for the audit
+ *      trail;
+ *   2. closes out an acknowledged/in-flight task (in_progress → completed,
+ *      blocked → cancelled) — it answered the superseded value;
+ *   3. re-arms a stopped SLA instance (completed_at back to NULL, fresh
+ *      due_at from the rule's target_minutes) so the escalation engine chases
+ *      the new ack window too;
+ *   4. creates the fresh task via the standard producer, stamping reopen
+ *      provenance (`metadata.reopened_from_task_id`).
+ *
+ * Same contract as the producer: tenant-scoped, idempotent, NEVER throws.
+ *
+ * @returns {Promise<{created:boolean, reopened:boolean, taskId:(number|null),
+ *   supersededTaskId:(number|null), slaInstanceId:(string|number|null), error?:string}>}
+ */
+export async function ensureCriticalResultTaskOpen({
+  tenantId,
+  patientUid = null,
+  source = 'lab_result',
+  resourceType,
+  resourceId,
+  severity = 'critical',
+  title = null,
+  summary = null,
+  orderingClinicianUid = null,
+  careTeamRoleHint = null,
+  slaKey = 'critical_result_ack',
+  reason = 'corrected_result',
+} = {}) {
+  const resourceIdStr = resourceId == null ? null : String(resourceId);
+  try {
+    // Latest active-window task for the resource. 'overdue' is included even
+    // though the mig-312 index excludes it: an overdue task is still an
+    // unacknowledged ack window, and enqueueing next to it would duplicate.
+    const existing = await setTenantTx(tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT id, status, metadata
+           FROM tasks
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = $2
+            AND related_resource_id = $3
+            AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+          ORDER BY id DESC
+          LIMIT 1`,
+        tenantId, resourceType, resourceIdStr,
+      );
+      return rows[0] || null;
+    });
+
+    // Nobody has acknowledged the existing window yet — it now covers the
+    // corrected value. Annotate for the audit trail and stop.
+    if (existing && (existing.status === 'open' || existing.status === 'overdue')) {
+      await taskService.postTaskComment({
+        tenantId,
+        taskId: existing.id,
+        authorUid: null,
+        body: `Result superseded (${reason}) while awaiting acknowledgement — review the updated value before acting.`,
+        bodyKind: 'system_event',
+        metadata: { reason },
+      }).catch((err) => logger.warn('ensureCriticalResultTaskOpen: annotate comment failed', {
+        taskId: existing.id, err: err?.message,
+      }));
+      return {
+        created: false,
+        reopened: false,
+        taskId: existing.id,
+        supersededTaskId: null,
+        slaInstanceId: existing.metadata?.sla_instance_id ?? null,
+      };
+    }
+
+    // An acknowledged (in_progress) or blocked task answered the OLD value:
+    // close it out so the index slot frees for a fresh ack window. Failure
+    // here (e.g. a concurrent completion) is non-fatal — the enqueue below
+    // still either creates the fresh task or no-ops safely.
+    let supersededTaskId = null;
+    if (existing) {
+      supersededTaskId = existing.id;
+      const closeStatus = existing.status === 'blocked' ? 'cancelled' : 'completed';
+      try {
+        await taskService.transitionTask({
+          tenantId,
+          id: existing.id,
+          nextStatus: closeStatus,
+          cancellationReason: closeStatus === 'cancelled'
+            ? `Superseded by ${reason} — a fresh acknowledgement task replaces this one`
+            : null,
+        });
+      } catch (err) {
+        logger.warn('ensureCriticalResultTaskOpen: supersede transition failed', {
+          taskId: existing.id, err: err?.message,
+        });
+      }
+    }
+
+    // Re-arm a stopped SLA clock BEFORE enqueueing: startWorkflowSla's
+    // ON CONFLICT keeps a completed instance completed, so without this the
+    // fresh task would link a dead clock and the escalation engine would
+    // never chase the re-acknowledgement. Runs on the plain singleton (NOT
+    // setTenantTx) for the same RLS reason documented on the producer: the
+    // joined workflow_sla_rules seed row is GLOBAL (tenant_id IS NULL) and
+    // invisible under a pinned tenant GUC. The instance row itself is
+    // tenant-filtered explicitly.
+    await prisma.$executeRawUnsafe(
+      `UPDATE workflow_sla_instances i
+          SET status = 'active',
+              completed_at = NULL,
+              breached_at = NULL,
+              started_at = NOW(),
+              due_at = NOW() + (r.target_minutes * INTERVAL '1 minute'),
+              updated_at = NOW()
+         FROM workflow_sla_rules r
+        WHERE r.id = i.rule_id
+          AND i.tenant_id = $1::uuid
+          AND i.rule_code = $2
+          AND i.source_table = $3
+          AND i.source_id = $4
+          AND i.completed_at IS NOT NULL`,
+      tenantId, slaKey, resourceType, resourceIdStr,
+    );
+
+    const enq = await enqueueCriticalResultTask({
+      tenantId,
+      patientUid,
+      source,
+      resourceType,
+      resourceId,
+      severity,
+      title,
+      summary,
+      orderingClinicianUid,
+      careTeamRoleHint,
+      slaKey,
+      extraMetadata: supersededTaskId
+        ? { reopened_from_task_id: supersededTaskId, reopen_reason: reason }
+        : { reopen_reason: reason },
+    });
+
+    // Forward-link the superseded task to its replacement (audit trail).
+    if (supersededTaskId && enq.taskId) {
+      await taskService.postTaskComment({
+        tenantId,
+        taskId: supersededTaskId,
+        authorUid: null,
+        body: `Superseded (${reason}): re-acknowledgement required on task #${enq.taskId}.`,
+        bodyKind: 'system_event',
+        metadata: { reason, superseded_by_task_id: enq.taskId },
+      }).catch((err) => logger.warn('ensureCriticalResultTaskOpen: supersede comment failed', {
+        taskId: supersededTaskId, err: err?.message,
+      }));
+    }
+
+    return { ...enq, reopened: !!supersededTaskId, supersededTaskId };
+  } catch (err) {
+    // Same contract as the producer: the safety net must never break the
+    // originating clinical write.
+    logger.error('ensureCriticalResultTaskOpen failed', {
+      err: err?.message,
+      resourceType,
+      resourceId: resourceIdStr,
+    });
+    return {
+      created: false, reopened: false, taskId: null,
+      supersededTaskId: null, slaInstanceId: null, error: err?.message,
+    };
   }
 }
 
@@ -384,6 +571,7 @@ export async function promoteLabAutoverification(autoverification = {}, { tenant
 
 export default {
   enqueueCriticalResultTask,
+  ensureCriticalResultTaskOpen,
   promoteTaskCandidate,
   promoteAbnormalTriageResult,
   promoteLabAutoverification,

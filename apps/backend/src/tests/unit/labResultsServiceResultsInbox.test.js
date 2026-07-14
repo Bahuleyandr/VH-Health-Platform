@@ -44,9 +44,12 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeService.js', () => ({
   emitCriticalLabAlertAcknowledged: jest.fn(),
 }));
-// The results-inbox producer — the fault-injection target.
+// The results-inbox producer — the fault-injection target. The mock must
+// mirror every named export labResultsService imports from the module or the
+// suite fails at ESM link time.
 jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => ({
   enqueueCriticalResultTask: enqueueCriticalResultTaskMock,
+  ensureCriticalResultTaskOpen: jest.fn().mockResolvedValue({ created: false, reopened: false, taskId: null }),
 }));
 // Notification fan-out deps — mocked so the alert-write assertion isn't noisy.
 jest.unstable_mockModule('../../services/notification/staffNotificationService.js', () => ({

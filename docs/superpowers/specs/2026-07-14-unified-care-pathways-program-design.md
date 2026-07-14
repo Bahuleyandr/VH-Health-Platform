@@ -702,6 +702,12 @@ updates during ED/Surgery; tenant customisation surface.
    skips critical re-detection, patient re-notify and inbox task
    (`labResultsService.js:814,880`); radiology/AP addenda have no re-ack loop.
    Small, self-contained fix + deep test; also shrinks S2.
+   **LAB HALF SHIPPED — PR #587 (2026-07-14):** corrected/amended sign-off now
+   re-runs detection, reopens the ack loop via
+   `resultsInboxService.ensureCriticalResultTaskOpen` (supersede acked task +
+   re-arm the once-per-resource `critical_result_ack` SLA instance — reuse this
+   helper for the S2 radiology/AP addenda loops), and re-notifies under the
+   release policy. Radiology/AP addenda remain open for S2.
 2. **Referral status drift:** staff/admin UIs render `in_progress/cancelled/
    expired` the backend never writes — align now or fold into S3.
 3. **Outbox dead-letter requeue:** add `failed→pending` redrive to
