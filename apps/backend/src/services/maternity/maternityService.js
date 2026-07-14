@@ -538,6 +538,9 @@ export async function recordAncVisit({
       pregnancy.id,
     );
     const nextNumber = Number(nextNumberRow?.[0]?.next_number) || 1;
+    // updated_at is deliberately absent from the ON CONFLICT SET list (the table
+    // carries none): canonicalStateFingerprint hashes the full returned row, and
+    // A->B->A key-base stability (deep-test-asserted) needs it unstamped — xid8 only splits revisions.
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO maternity_anc_visits
          (pregnancy_id, visit_date, visit_number, gestational_age_weeks,

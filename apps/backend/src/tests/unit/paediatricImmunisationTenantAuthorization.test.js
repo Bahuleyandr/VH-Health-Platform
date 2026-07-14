@@ -339,6 +339,68 @@ describe('paediatric immunisation tenant authorization', () => {
     );
   });
 
+  it('fails closed with LINK_CHANGED when the unlinked guard re-read finds the row concurrently linked', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ id: 12, newborn_immunisation_id: null }])
+      // Concurrent NULL -> set linkage flip: the FOR UPDATE guard re-read is
+      // scoped to newborn_immunisation_id IS NULL, so it now matches zero rows.
+      .mockResolvedValueOnce([]);
+
+    await expect(service.recordDose({
+      tenantId: TENANT,
+      immunisationId: 12,
+      status: 'given',
+      givenBy: STAFF,
+      actorRole: 'NURSING_STAFF',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PAEDIATRIC_IMMUNISATION_LINK_CHANGED',
+    });
+
+    // The zero-row read really was the locked unlinked-branch guard query.
+    const [guardSql, ...guardParams] = queryRawUnsafeMock.mock.calls[1];
+    expect(guardSql).toContain('effective_state_unchanged');
+    expect(guardSql).toContain('p.newborn_immunisation_id IS NULL');
+    expect(guardSql).toContain('FOR UPDATE');
+    expect(guardParams[0]).toBe(12);
+    expect(guardParams[10]).toBe(TENANT);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryRawUnsafeMock.mock.calls.some(([sql]) => /^\s*UPDATE\s/im.test(sql))).toBe(false);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed with LINK_CHANGED when a linked row is concurrently unlinked before the locked re-read', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ id: 12, newborn_immunisation_id: 77 }])
+      // set -> NULL flip under the table locks: the FOR UPDATE re-read of the
+      // patient row reports the link gone before the exactness re-proof runs.
+      .mockResolvedValueOnce([{
+        id: 12,
+        patient_uid: PATIENT,
+        vaccine_catalogue_id: 9,
+        newborn_immunisation_id: null,
+      }]);
+
+    await expect(service.recordDose({
+      tenantId: TENANT,
+      immunisationId: 12,
+      status: 'given',
+      givenBy: STAFF,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PAEDIATRIC_IMMUNISATION_LINK_CHANGED',
+    });
+
+    expect(executeRawUnsafeMock.mock.calls.map(([sql]) => sql)).toEqual([
+      'LOCK TABLE maternity_newborns IN SHARE MODE',
+      'LOCK TABLE newborn_immunisations IN SHARE ROW EXCLUSIVE MODE',
+    ]);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryRawUnsafeMock.mock.calls.some(([sql]) => /^\s*UPDATE\s/im.test(sql))).toBe(false);
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
   it('fails closed without an update when a stored link is no longer exact', async () => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([{ id: 12, newborn_immunisation_id: 77 }])
