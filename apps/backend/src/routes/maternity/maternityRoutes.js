@@ -165,11 +165,17 @@ router.get('/deliveries/:id', requireStaffOrAdmin, wrap(async (req) =>
 ));
 
 // ── Newborn record + Apgar ──────────────────────────────────────────
+// D7 Shape-3: recordNewborn atomically mints the infant identity +
+// guardian link for live/early_neonatal_death outcomes. Actor context is
+// pinned to the authenticated user AFTER the body spread — body-supplied
+// recorded_by/actor fields can never override it.
 router.post('/newborns', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordNewborn({
     ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 

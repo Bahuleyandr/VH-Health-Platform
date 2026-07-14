@@ -129,6 +129,7 @@ Sites audited insert-once on 2026-07-14 (post-#589 adjacent-site audit):
 | Emit site | Fixed key | Why insert-once holds |
 | --- | --- | --- |
 | `maternityService.recordDelivery` | `maternity_deliveries:<id>:recorded` | No UPDATE/DELETE path in product code; routes are POST + GET only. |
+| `maternityService.recordNewborn` | `maternity_newborns:<id>:recorded` | Emit runs once in the tx that mints the row (D7 Shape-3 identity build); no UPDATE/DELETE path in product code (routes are POST + GET only), and outcome corrections are compensating events (B-c1), never in-place edits. |
 | `maternityService.recordPartographEntry` | `maternity_partograph_entries:<id>:recorded` | Append-only observation series; corrections are new entries. |
 | `maternityService.admitToLabor` | `maternity_labor_admissions:<id>:recorded` | Sole post-creation write is the one-way `active->delivered` transition inside `recordDelivery` (guarded, irreversible, surfaced via the delivery event's `afterState`); it never re-emits this key. |
 | `maternity/immunisationService.markScheduleUpToDate` | `clinical_notes:<review.id>:immunisation_review` | Note is born signed; `immunisation_review` is not an editable note type in `clinicalNotesService` (rejected before the admin override — pinned by `src/tests/unit/clinicalNotesUpdate.test.js`), addenda create new rows, repeat reviews insert new rows. |

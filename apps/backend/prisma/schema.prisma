@@ -12606,7 +12606,8 @@ model maternity_newborns {
   newborn_immunisations        newborn_immunisations[]
   nicu_admission_newborn_links nicu_admission_newborn_links[]
 
-  @@index([delivery_id, birth_order], map: "idx_maternity_newborns_delivery")
+  @@unique([delivery_id, birth_order], map: "uq_maternity_newborns_delivery_birth_order")
+  @@unique([tenant_id, newborn_patient_uid], map: "uq_maternity_newborns_tenant_patient_uid", where: raw("(newborn_patient_uid IS NOT NULL)"))
   @@index([newborn_patient_uid], map: "idx_maternity_newborns_patient_uid", where: raw("(newborn_patient_uid IS NOT NULL)"))
   @@index([tenant_id], map: "idx_maternity_newborns_tenant_id")
 }
