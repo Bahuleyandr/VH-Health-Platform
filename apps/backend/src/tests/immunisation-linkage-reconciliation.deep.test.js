@@ -137,7 +137,12 @@ async function insertNewbornDose(tenantId, newbornId, vaccineCatalogueId, {
        (newborn_id, vaccine_catalogue_id, due_date, status, given_at, tenant_id)
      VALUES ($1::int, $2::int, $3::date, $4, $5::timestamptz, $6::uuid)
      RETURNING id`,
-    newbornId, vaccineCatalogueId, dueDate, status, givenAt, tenantId,
+    newbornId, vaccineCatalogueId, dueDate, status,
+    // Bind a Date, not an ISO string: Prisma's raw-param inference
+    // re-serializes datetime-shaped strings through the engine host timezone
+    // (shifts by the OS offset on non-UTC hosts); Date params bind exactly.
+    givenAt == null ? null : new Date(givenAt),
+    tenantId,
   );
   return Number(rows[0].id);
 }
@@ -844,7 +849,8 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
     const result = await recordDose({
       immunisationId: patientDose.id,
       status: 'given',
-      givenAt,
+      // Date param, not ISO string — see insertNewbornDose note.
+      givenAt: new Date(givenAt),
       givenBy: RECORDER,
       givenByName: 'O1 Recorder',
       batchNumber: 'O1-EXACT-001',
