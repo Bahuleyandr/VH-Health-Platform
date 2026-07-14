@@ -1872,6 +1872,14 @@ export async function admitToLabor({
     );
     const laborAdmission = rows[0];
 
+    // Fixed lifecycle key (insert-once, audited 2026-07-14): this emit runs
+    // exactly once, in the tx that mints laborAdmission.id. The row's only
+    // post-creation write is the one-way active->'delivered' transition in
+    // recordDelivery (guarded on status='active', never reversed, surfaced
+    // via the delivery event's afterState) — it does not re-emit this key.
+    // Any future amendment/reopen path must NOT reuse this key: move the
+    // emit to the state-fingerprint + :tx: revision pattern (PR #589; see
+    // docs/CANONICAL_CLINICAL_TIMELINE.md "Idempotency-Key Discipline").
     await recordCanonicalClinicalEvent({
       tenantId: tid,
       patientUid: String(pregnancy.patient_uid),
@@ -2025,6 +2033,12 @@ export async function recordPartographEntry({
     );
     const entry = rows[0];
 
+    // Fixed lifecycle key (insert-once, audited 2026-07-14): partograph
+    // entries are an append-only observation series — no UPDATE path exists
+    // anywhere in product code; corrections are recorded as new entries. A
+    // future in-place amendment path must move this emit to the
+    // state-fingerprint + :tx: revision pattern (PR #589; see
+    // docs/CANONICAL_CLINICAL_TIMELINE.md "Idempotency-Key Discipline").
     await recordCanonicalClinicalEvent({
       tenantId: tid,
       patientUid: String(pregnancy.patient_uid),
@@ -2220,6 +2234,13 @@ export async function recordDelivery({
     );
     const projection = projectionRows[0];
 
+    // Fixed lifecycle key (insert-once, audited 2026-07-14): this emit runs
+    // exactly once, in the tx that mints delivery.id, and
+    // maternity_deliveries has no UPDATE/DELETE path in product code (routes
+    // are POST + GET only). Any future delivery-correction/amendment path
+    // must NOT reuse this key: move the emit to the state-fingerprint +
+    // :tx: revision pattern (PR #589; see
+    // docs/CANONICAL_CLINICAL_TIMELINE.md "Idempotency-Key Discipline").
     await recordCanonicalClinicalEvent({
       tenantId: tid,
       patientUid: String(pregnancy.patient_uid),

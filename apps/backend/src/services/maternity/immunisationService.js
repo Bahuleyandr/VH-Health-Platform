@@ -438,6 +438,16 @@ export async function markScheduleUpToDate({
     );
     const review = rows[0];
 
+    // Fixed lifecycle key (insert-once, audited 2026-07-14): the review note
+    // is born signed and is immutable through every clinical_notes surface —
+    // clinicalNotesService.updateNote rejects note_type='immunisation_review'
+    // before its admin override runs (not an editable type; pinned by
+    // src/tests/unit/clinicalNotesUpdate.test.js), signNote 409s
+    // already-signed notes, addenda create NEW rows, and repeat reviews
+    // insert NEW rows (getImmunisationStatus reads the most recent). If
+    // immunisation_review ever becomes editable in place, move this emit to
+    // the state-fingerprint + :tx: revision pattern (PR #589; see
+    // docs/CANONICAL_CLINICAL_TIMELINE.md "Idempotency-Key Discipline").
     await recordCanonicalClinicalEvent({
       tenantId,
       patientUid: String(patient_uid),

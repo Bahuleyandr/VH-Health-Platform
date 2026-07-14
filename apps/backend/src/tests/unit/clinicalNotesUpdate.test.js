@@ -179,6 +179,39 @@ describe('updateNote — edit gate', () => {
     expect(updateMock).not.toHaveBeenCalled();
   });
 
+  it('rejects immunisation_review rewrites even for ADMIN — insert-once canonical key coupling', async () => {
+    // maternity/immunisationService.markScheduleUpToDate stamps a FIXED
+    // canonical idempotency key (`clinical_notes:<id>:immunisation_review`)
+    // on the strength of this rejection: immunisation_review has no
+    // REQUIRED_CONTENT_FIELDS entry, so validateNoteContent throws before
+    // the admin override and the note row stays insert-once — the fixed key
+    // can never absorb an A->B->A revision. If this test fails because
+    // immunisation_review became editable, that emit must move to the
+    // state-fingerprint + :tx: pattern (PR #589) — see
+    // docs/CANONICAL_CLINICAL_TIMELINE.md "Idempotency-Key Discipline".
+    findUniqueMock.mockResolvedValueOnce({
+      id: 77,
+      note_type: 'immunisation_review',
+      version: 1,
+      content: { status: 'up_to_date', as_of: '2026-07-14', age_group: 'current' },
+      patient_uid: '22222222-2222-4222-8222-222222222222',
+      encounter_id: null,
+      author_uid: ORIGINAL_AUTHOR_UID,
+      author_role: 'STAFF',
+      is_signed: true,
+      appointment_id: null
+    });
+
+    await expect(
+      updateNote(77, { status: 'not_up_to_date' }, EDITOR_UID, 'ADMIN')
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining('Invalid note_type')
+    });
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
   it('throws 400 when editorUid is missing', async () => {
     await expect(updateNote(1, VALID_SOAP_CONTENT, null, 'ADMIN')).rejects.toMatchObject({
       statusCode: 400
