@@ -9,6 +9,7 @@ const admitToLaborMock = jest.fn(async () => ({ id: 57 }));
 const recordPartographEntryMock = jest.fn(async () => ({ id: 61 }));
 const recordFetalKickMock = jest.fn(async () => ({ id: 67 }));
 const recordDeliveryMock = jest.fn(async () => ({ id: 73 }));
+const recordNewbornMock = jest.fn(async () => ({ id: 77, minted_identity: null }));
 const getPregnancyMock = jest.fn(async () => ({
   id: 9,
   patient_uid: '33333333-3333-4333-8333-333333333333',
@@ -25,6 +26,7 @@ jest.unstable_mockModule('../../services/maternity/maternityService.js', () => (
   recordPartographEntry: recordPartographEntryMock,
   recordFetalKick: recordFetalKickMock,
   recordDelivery: recordDeliveryMock,
+  recordNewborn: recordNewbornMock,
   getPregnancy: getPregnancyMock,
 }));
 
@@ -62,6 +64,7 @@ beforeEach(() => {
   recordPartographEntryMock.mockClear();
   recordFetalKickMock.mockClear();
   recordDeliveryMock.mockClear();
+  recordNewbornMock.mockClear();
   getPregnancyMock.mockClear();
   seedScheduleForNewbornMock.mockClear();
   recordDoseMock.mockClear();
@@ -104,6 +107,26 @@ describe('maternity mutation actor context', () => {
     expect(recordDeliveryMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: '00000000-0000-4000-8000-000000000001',
       delivered_by: PERFORMER_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+  });
+
+  test('newborn record pins recorder and canonical actor to the authenticated user (D7 Shape-3)', async () => {
+    const response = await request(app)
+      .post('/api/v1/maternity/newborns')
+      .send({
+        delivery_id: 73,
+        birth_datetime: '2026-07-12T03:20:00.000Z',
+        recorded_by: SPOOFED_UID,
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordNewbornMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      recorded_by: ACTOR_UID,
       actor_uid: ACTOR_UID,
       actor_role: 'NURSING_STAFF',
     }));
