@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
 const executeRawUnsafeMock = jest.fn();
+const recordCanonicalClinicalEventMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -20,6 +21,10 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+}));
+
 const service = await import('../../services/paediatric/paediatricImmunisationService.js');
 const { classifyLinkage } = await import('../../../scripts/immunisation-linkage-report.mjs');
 
@@ -32,6 +37,8 @@ beforeEach(() => {
   queryRawUnsafeMock.mockReset();
   executeRawUnsafeMock.mockReset();
   executeRawUnsafeMock.mockResolvedValue(0);
+  recordCanonicalClinicalEventMock.mockReset();
+  recordCanonicalClinicalEventMock.mockResolvedValue({ timeline: {}, audit: {} });
   setTenantTxMock.mockClear();
 });
 
@@ -66,12 +73,20 @@ describe('paediatric immunisation tenant authorization', () => {
       .mockResolvedValueOnce([{ uid: PATIENT, birthday: '2025-01-01' }]) // assertPatientInTenant
       .mockResolvedValueOnce([{
         total: 1, touched: 1, inserted: 1, updated: 0, linked: 1,
+        inserted_rows: [{
+          id: 12,
+          vaccine_catalogue_id: 9,
+          due_date: '2025-02-12',
+          newborn_immunisation_id: 77,
+        }],
       }]); // atomic exact-resolution + schedule upsert
 
     await service.seedScheduleForPatient({
       patientUid: PATIENT,
       dob: '2025-01-01',
       tenantId: TENANT,
+      actorUid: STAFF,
+      actorRole: 'NURSING_STAFF',
     });
 
     const [patientSql, ...patientParams] = queryRawUnsafeMock.mock.calls[0];
@@ -98,31 +113,35 @@ describe('paediatric immunisation tenant authorization', () => {
     expect(insertParams).toEqual([TENANT, PATIENT, '2025-01-01']);
     expect(executeRawUnsafeMock.mock.invocationCallOrder[0])
       .toBeLessThan(queryRawUnsafeMock.mock.invocationCallOrder[1]);
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT,
+        patientUid: PATIENT,
+        eventType: 'immunisation.schedule_seeded',
+        actorUid: STAFF,
+        actorRole: 'NURSING_STAFF',
+        visibleToPatient: false,
+      }),
+      expect.objectContaining({ db: __prismaDefaultMock, strict: true }),
+    );
   });
 
   it('does not seed or list immunisations for a patient outside the tenant', async () => {
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([{ count: 0 }])
-      .mockResolvedValueOnce([]);
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
 
     await expect(service.listForPatient(PATIENT, { tenantId: OTHER_TENANT }))
       .rejects.toMatchObject({ statusCode: 404, code: 'PAEDIATRIC_PATIENT_NOT_FOUND' });
 
-    const [countSql, ...countParams] = queryRawUnsafeMock.mock.calls[0];
-    expect(countSql).toContain('FROM patient_immunisations');
-    expect(countSql).toContain('tenant_id = $2::uuid');
-    expect(countParams).toEqual([PATIENT, OTHER_TENANT]);
-
-    const [patientSql, ...patientParams] = queryRawUnsafeMock.mock.calls[1];
+    const [patientSql, ...patientParams] = queryRawUnsafeMock.mock.calls[0];
     expect(patientSql).toContain('FROM users');
     expect(patientSql).toContain('tenant_id = $2::uuid');
     expect(patientParams).toEqual([PATIENT, OTHER_TENANT]);
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
-  it('lists patient immunisations only inside the caller tenant', async () => {
+  it('lists patient immunisations only inside the caller tenant without seeding on GET', async () => {
     queryRawUnsafeMock
-      .mockResolvedValueOnce([{ count: 1 }])
+      .mockResolvedValueOnce([{ uid: PATIENT, birthday: '2025-01-01' }])
       .mockResolvedValueOnce([]);
 
     await service.listForPatient(PATIENT, { tenantId: TENANT });
@@ -136,11 +155,13 @@ describe('paediatric immunisation tenant authorization', () => {
     expect(listSql).toContain('linked.dose_count = 1');
     expect(listSql).not.toContain('pi.newborn_immunisation_id IS NULL');
     expect(listParams).toEqual([PATIENT, TENANT]);
+    expect(queryRawUnsafeMock.mock.calls.some(([sql]) => sql.includes('INSERT INTO patient_immunisations'))).toBe(false);
+    expect(setTenantTxMock).not.toHaveBeenCalled();
   });
 
   it('lists due immunisations only inside the caller tenant', async () => {
     queryRawUnsafeMock
-      .mockResolvedValueOnce([{ count: 1 }])
+      .mockResolvedValueOnce([{ uid: PATIENT, birthday: '2025-01-01' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
@@ -166,7 +187,12 @@ describe('paediatric immunisation tenant authorization', () => {
         status: 'given',
         given_at: '2026-06-11T00:00:00Z',
         given_by: STAFF,
+        given_by_name: 'Nurse',
+        batch_number: 'BATCH-1',
+        manufacturer: 'Maker',
+        site_of_injection: 'left_thigh',
         vaccine_catalogue_id: 9,
+        updated_at: '2026-06-11T00:00:00Z',
       }]);
 
     await service.recordDose({
@@ -174,6 +200,10 @@ describe('paediatric immunisation tenant authorization', () => {
       immunisationId: 12,
       status: 'given',
       givenBy: STAFF,
+      actorRole: 'NURSING_STAFF',
+      batchNumber: 'BATCH-1',
+      manufacturer: 'Maker',
+      siteOfInjection: 'left_thigh',
     });
 
     expect(setTenantTxMock).toHaveBeenCalledTimes(1);
@@ -190,6 +220,19 @@ describe('paediatric immunisation tenant authorization', () => {
     expect(params[0]).toBe(12);
     expect(params[10]).toBe(TENANT);
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'immunisation.dose_recorded',
+        actorUid: STAFF,
+        actorRole: 'NURSING_STAFF',
+        payload: expect.objectContaining({
+          batch_number: 'BATCH-1',
+          manufacturer: 'Maker',
+          site_of_injection: 'left_thigh',
+        }),
+      }),
+      expect.objectContaining({ db: __prismaDefaultMock, strict: true }),
+    );
   });
 
   it('updates only the authoritative newborn row for an exact current link', async () => {
@@ -203,9 +246,15 @@ describe('paediatric immunisation tenant authorization', () => {
       }])
       .mockResolvedValueOnce([{ id: 77, status: 'scheduled' }])
       .mockResolvedValueOnce([{
+        id: 77,
         status: 'given',
         given_at: '2026-06-11T00:00:00Z',
         given_by: STAFF,
+        given_by_name: 'Nurse',
+        batch_number: 'BATCH-2',
+        manufacturer: 'Maker',
+        site_of_injection: 'right_thigh',
+        updated_at: '2026-06-11T00:00:00Z',
       }]);
 
     const result = await service.recordDose({
@@ -214,6 +263,10 @@ describe('paediatric immunisation tenant authorization', () => {
       status: 'given',
       givenAt: '2026-06-11T00:00:00Z',
       givenBy: STAFF,
+      actorRole: 'NURSING_STAFF',
+      batchNumber: 'BATCH-2',
+      manufacturer: 'Maker',
+      siteOfInjection: 'right_thigh',
     });
 
     expect(setTenantTxMock).toHaveBeenCalledTimes(1);
@@ -249,6 +302,19 @@ describe('paediatric immunisation tenant authorization', () => {
       given_by: STAFF,
       vaccine_catalogue_id: 9,
     });
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceTable: 'newborn_immunisations',
+        sourceId: 77,
+        actorUid: STAFF,
+        payload: expect.objectContaining({
+          patient_immunisation_id: 12,
+          newborn_immunisation_id: 77,
+          batch_number: 'BATCH-2',
+        }),
+      }),
+      expect.objectContaining({ db: __prismaDefaultMock, strict: true }),
+    );
   });
 
   it('fails closed without an update when a stored link is no longer exact', async () => {
