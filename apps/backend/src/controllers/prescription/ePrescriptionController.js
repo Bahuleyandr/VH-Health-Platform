@@ -1410,9 +1410,12 @@ export const createPrescription = async (req, res) => {
     // projection reads. Without this, prescribing supplements in the
     // standard Rx flow leaves the reminder pipeline silent. Finding:
     //   2026-05-09-obstetric-anc-patient-supplements-missing.
+    // Tenant contract: use the SAME validated tenant the prescription was
+    // written under (prescriptionTenantId), not the incidental
+    // req.user.tenantId alias mirrored on by tenantContextMiddleware.
     try {
       await maybePropagateAncSupplements({
-        tenantId: requireTenantId(req.user?.tenantId),
+        tenantId: prescriptionTenantId,
         patient_uid: patientUid,
         medications,
         prescribed_by: doctorUid,
