@@ -231,6 +231,7 @@ describe('paediatric immunisation tenant authorization', () => {
     expect(guardSql).toContain('p.newborn_immunisation_id IS NULL');
     expect(guardSql).toContain('FOR UPDATE');
     expect(guardParams[0]).toBe(12);
+    expect(guardParams[2]).toBeInstanceOf(Date);
     expect(guardParams[10]).toBe(TENANT);
 
     const [sql, ...params] = queryRawUnsafeMock.mock.calls[2];
@@ -238,6 +239,7 @@ describe('paediatric immunisation tenant authorization', () => {
     expect(sql).toContain('AND tenant_id = $11::uuid');
     expect(sql).toContain('AND newborn_immunisation_id IS NULL');
     expect(params[0]).toBe(12);
+    expect(params[2]).toBe(guardParams[2]);
     expect(params[10]).toBe(TENANT);
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
     expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
