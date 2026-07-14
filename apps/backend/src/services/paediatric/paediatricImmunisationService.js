@@ -469,7 +469,7 @@ export async function recordDose({
 
   const updateArgs = [
     status,
-    givenAt ?? (status === 'given' ? new Date().toISOString() : null),
+    givenAt ?? (status === 'given' ? new Date() : null),
     givenBy ?? null,
     givenByName ?? null,
     batchNumber ?? null,

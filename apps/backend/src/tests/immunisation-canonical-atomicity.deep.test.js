@@ -662,7 +662,8 @@ d('M-D immunisation canonical atomicity', () => {
     const patientUid = await seedUser({ birthday: '2024-03-01' });
     await seedScheduleForPatient({ patientUid, dob: '2024-03-01', tenantId: TENANT_A });
     const dose = await patientDose(patientUid);
-    await recordPatientDose({
+    const beforeGivenAt = Date.now();
+    const recordedDose = await recordPatientDose({
       tenantId: TENANT_A,
       immunisationId: dose.id,
       status: 'given',
@@ -674,6 +675,9 @@ d('M-D immunisation canonical atomicity', () => {
       notes: 'patient dose private narrative',
       actorRole: 'NURSING_STAFF'
     });
+    const afterGivenAt = Date.now();
+    expect(recordedDose.given_at.getTime()).toBeGreaterThanOrEqual(beforeGivenAt);
+    expect(recordedDose.given_at.getTime()).toBeLessThanOrEqual(afterGivenAt);
     const { timeline, audit } = await canonicalRows(
       patientUid,
       'immunisation.dose_recorded',
