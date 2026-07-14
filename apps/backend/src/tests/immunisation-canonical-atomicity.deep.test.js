@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import { jest } from '@jest/globals';
 
@@ -165,6 +165,42 @@ function expectRevisionKeySequence(timeline, audit) {
   expect(auditKeys[0].base).toBe(auditKeys[2].base);
   expect(auditKeys[0].tx).not.toBe(auditKeys[2].tx);
   expect(auditKeys.map(({ tx }) => tx)).toEqual(timelineKeys.map(({ tx }) => tx));
+}
+
+// Replicates the (module-private) canonicalDoseFingerprint the immunisation
+// services hash persisted dose state with. Deliberately duplicated rather than
+// exported: pre-fix bare idempotency keys already stored in prod derive from
+// exactly this shape, so if the service's fingerprint semantics ever drift,
+// this must fail (drift would orphan legacy keys and re-open HISTORY_FINAL
+// 409s on semantically identical retries).
+function persistedDoseFingerprint(dose) {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        status: dose.status == null ? null : String(dose.status),
+        given_at: dose.given_at ? new Date(dose.given_at).toISOString() : null,
+        given_by: dose.given_by == null ? null : String(dose.given_by),
+        given_by_name: dose.given_by_name == null ? null : String(dose.given_by_name),
+        batch_number: dose.batch_number == null ? null : String(dose.batch_number),
+        manufacturer: dose.manufacturer == null ? null : String(dose.manufacturer),
+        site_of_injection: dose.site_of_injection == null ? null : String(dose.site_of_injection),
+        adverse_event: dose.adverse_event == null ? null : String(dose.adverse_event),
+        notes: dose.notes == null ? null : String(dose.notes)
+      })
+    )
+    .digest('hex');
+}
+
+async function persistedNewbornDose(newbornImmunisationId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, given_at, given_by, given_by_name, batch_number,
+            manufacturer, site_of_injection, adverse_event, notes
+       FROM newborn_immunisations
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(newbornImmunisationId),
+    TENANT_A
+  );
+  return rows[0];
 }
 
 async function tupleVersion(table, id) {
@@ -1087,6 +1123,209 @@ d('M-D immunisation canonical atomicity', () => {
     );
     expect(timeline).toHaveLength(1);
     expect(audit).toHaveLength(1);
+  });
+
+  test('legacy bare-key linked history tolerates exact retries and still appends :tx: revisions', async () => {
+    const childUid = await seedUser({ birthday: '2026-06-08' });
+    const newborn = await seedNewborn({ linkedPatientUid: childUid });
+    await seedScheduleForNewborn({ tenantId: TENANT_A, newborn_id: newborn.newbornId });
+    await seedScheduleForPatient({
+      patientUid: childUid,
+      dob: '2026-06-08',
+      tenantId: TENANT_A
+    });
+    const dose = await patientDose(childUid);
+    expect(dose.newborn_immunisation_id).not.toBeNull();
+    const newbornImmunisationId = Number(dose.newborn_immunisation_id);
+
+    // Simulate history recorded BEFORE the canonical revision-sequence fix:
+    // finalize the newborn dose and seed its canonical pair manually via SQL,
+    // with PRE-FIX BARE idempotency keys (state-fingerprint base, no `:tx:`
+    // suffix). The current write path must not participate in constructing
+    // this history. Date param (not ISO string) — raw datetime strings
+    // re-serialize through the engine host timezone on non-UTC hosts.
+    const legacyGivenAt = new Date('2026-07-14T06:30:00Z');
+    await prisma.$executeRawUnsafe(
+      `UPDATE newborn_immunisations
+          SET status = 'given',
+              given_at = $2::timestamptz,
+              given_by = $3::uuid,
+              given_by_name = $4,
+              batch_number = $5,
+              manufacturer = $6,
+              site_of_injection = $7,
+              updated_at = NOW()
+        WHERE id = $1::int AND tenant_id = $8::uuid`,
+      newbornImmunisationId,
+      legacyGivenAt,
+      ACTOR_UID,
+      'M-D Atomic Nurse',
+      'LEGACY-BATCH-1',
+      'Legacy Manufacturer',
+      'left_thigh',
+      TENANT_A
+    );
+    const legacyPersisted = await persistedNewbornDose(newbornImmunisationId);
+    const legacyBase = persistedDoseFingerprint(legacyPersisted);
+    const legacyTimelineKey = `newborn_immunisations:${newbornImmunisationId}:recorded:${legacyBase}`;
+    const legacyAuditKey = `newborn_immunisations:${newbornImmunisationId}:audit:recorded:${legacyBase}`;
+    const legacyFacts = {
+      status: 'given',
+      given_at: legacyGivenAt.toISOString(),
+      batch_number: 'LEGACY-BATCH-1',
+      manufacturer: 'Legacy Manufacturer',
+      site_of_injection: 'left_thigh'
+    };
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO clinical_timeline_events
+         (tenant_id, patient_uid, event_type, event_status, source_table,
+          source_id, resource_type, resource_id, actor_uid, actor_role,
+          occurred_at, visible_to_patient, clinical_summary, payload,
+          idempotency_key)
+       VALUES ($1::uuid, $2::uuid, 'immunisation.dose_recorded', 'given',
+               'newborn_immunisations', $3, 'immunisation_dose', $3,
+               $4::uuid, 'NURSING_STAFF', $5::timestamptz, false,
+               'Immunisation dose recorded', $6::jsonb, $7)`,
+      TENANT_A,
+      childUid,
+      String(newbornImmunisationId),
+      ACTOR_UID,
+      legacyGivenAt,
+      JSON.stringify({
+        immunisation_id: newbornImmunisationId,
+        newborn_id: newborn.newbornId,
+        vaccine_catalogue_id: vaccineId,
+        vaccine_code: 'MD-TEST',
+        dose_number: 1,
+        status: 'given',
+        batch_number: 'LEGACY-BATCH-1',
+        manufacturer: 'Legacy Manufacturer',
+        site_of_injection: 'left_thigh'
+      }),
+      legacyTimelineKey
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO clinical_audit_events
+         (tenant_id, patient_uid, action, action_status, actor_uid, actor_role,
+          resource_type, resource_table, resource_id, after_state,
+          idempotency_key, occurred_at)
+       VALUES ($1::uuid, $2::uuid, 'immunisation.dose_recorded', 'success',
+               $3::uuid, 'NURSING_STAFF', 'immunisation_dose',
+               'newborn_immunisations', $4, $5::jsonb, $6, $7::timestamptz)`,
+      TENANT_A,
+      childUid,
+      ACTOR_UID,
+      String(newbornImmunisationId),
+      JSON.stringify(legacyFacts),
+      legacyAuditKey,
+      legacyGivenAt
+    );
+
+    // A semantically identical patient-side retry must be tolerated by the
+    // exact-legacy-key arm of the retry detection: success, no duplicate
+    // canonical emission, detail tuple untouched.
+    const retryInput = {
+      tenantId: TENANT_A,
+      immunisationId: dose.id,
+      status: 'given',
+      givenAt: legacyGivenAt,
+      givenBy: ACTOR_UID,
+      givenByName: 'M-D Atomic Nurse',
+      batchNumber: 'LEGACY-BATCH-1',
+      manufacturer: 'Legacy Manufacturer',
+      siteOfInjection: 'left_thigh',
+      actorRole: 'NURSING_STAFF'
+    };
+    const tupleBefore = await tupleVersion('newborn_immunisations', newbornImmunisationId);
+    const retry = await recordPatientDose(retryInput);
+    expect(retry).toMatchObject({
+      id: dose.id,
+      patient_uid: childUid,
+      status: 'given',
+      given_by: ACTOR_UID
+    });
+    expect(retry.given_at.toISOString()).toBe('2026-07-14T06:30:00.000Z');
+    expect(await tupleVersion('newborn_immunisations', newbornImmunisationId)).toEqual(tupleBefore);
+    let canonical = await canonicalRows(
+      childUid,
+      'immunisation.dose_recorded',
+      'newborn_immunisations'
+    );
+    expect(canonical.timeline).toHaveLength(1);
+    expect(canonical.audit).toHaveLength(1);
+    expect(canonical.timeline[0].idempotency_key).toBe(legacyTimelineKey);
+    expect(canonical.audit[0].idempotency_key).toBe(legacyAuditKey);
+
+    // Legacy tolerance must not weaken the rewrite guard: a genuinely
+    // different patient-side request still fails closed against final
+    // linked history, changing nothing.
+    await expect(
+      recordPatientDose({ ...retryInput, batchNumber: 'LEGACY-MUST-NOT-REWRITE' })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PAEDIATRIC_IMMUNISATION_HISTORY_FINAL'
+    });
+    expect(await tupleVersion('newborn_immunisations', newbornImmunisationId)).toEqual(tupleBefore);
+    canonical = await canonicalRows(
+      childUid,
+      'immunisation.dose_recorded',
+      'newborn_immunisations'
+    );
+    expect(canonical.timeline).toHaveLength(1);
+    expect(canonical.audit).toHaveLength(1);
+
+    // A genuinely different newborn-side mutation appends a NEW
+    // `:tx:`-suffixed revision pair on top of the untouched legacy pair —
+    // chronology is preserved across the key-format boundary.
+    await recordNewbornDose({
+      tenantId: TENANT_A,
+      immunisation_id: newbornImmunisationId,
+      status: 'given',
+      given_by: ACTOR_UID,
+      given_by_name: 'M-D Atomic Nurse',
+      adverse_event: 'Mild fever, resolved',
+      actor_role: 'NURSING_STAFF'
+    });
+    const mutatedPersisted = await persistedNewbornDose(newbornImmunisationId);
+    const mutatedBase = persistedDoseFingerprint(mutatedPersisted);
+    expect(mutatedBase).not.toBe(legacyBase);
+    canonical = await canonicalRows(
+      childUid,
+      'immunisation.dose_recorded',
+      'newborn_immunisations'
+    );
+    expect(canonical.timeline).toHaveLength(2);
+    expect(canonical.audit).toHaveLength(2);
+    expect(canonical.timeline[0].idempotency_key).toBe(legacyTimelineKey);
+    expect(canonical.audit[0].idempotency_key).toBe(legacyAuditKey);
+    const revisedTimeline = splitRevisionKey(canonical.timeline[1].idempotency_key);
+    const revisedAudit = splitRevisionKey(canonical.audit[1].idempotency_key);
+    expect(revisedTimeline.base).toBe(
+      `newborn_immunisations:${newbornImmunisationId}:recorded:${mutatedBase}`
+    );
+    expect(revisedAudit.base).toBe(
+      `newborn_immunisations:${newbornImmunisationId}:audit:recorded:${mutatedBase}`
+    );
+    expect(revisedTimeline.tx).toMatch(/^\d+$/);
+    expect(revisedAudit.tx).toBe(revisedTimeline.tx);
+
+    // Retrying the now-current facts is matched by the `:tx:`-prefix arm on
+    // top of the legacy row: both key formats coexist without re-emission.
+    const mutatedTuple = await tupleVersion('newborn_immunisations', newbornImmunisationId);
+    const retryAfterRevision = await recordPatientDose(retryInput);
+    expect(retryAfterRevision).toMatchObject({
+      id: dose.id,
+      patient_uid: childUid,
+      status: 'given'
+    });
+    expect(await tupleVersion('newborn_immunisations', newbornImmunisationId)).toEqual(mutatedTuple);
+    canonical = await canonicalRows(
+      childUid,
+      'immunisation.dose_recorded',
+      'newborn_immunisations'
+    );
+    expect(canonical.timeline).toHaveLength(2);
+    expect(canonical.audit).toHaveLength(2);
   });
 
   test('exact-linked patient dose leaves newborn history untouched after a canonical failure', async () => {
