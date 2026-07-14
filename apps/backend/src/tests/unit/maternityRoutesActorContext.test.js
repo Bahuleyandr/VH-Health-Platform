@@ -10,6 +10,8 @@ const recordPartographEntryMock = jest.fn(async () => ({ id: 61 }));
 const recordFetalKickMock = jest.fn(async () => ({ id: 67 }));
 const recordDeliveryMock = jest.fn(async () => ({ id: 73 }));
 const recordNewbornMock = jest.fn(async () => ({ id: 77, minted_identity: null }));
+const recordApgarMock = jest.fn(async () => ({ id: 83 }));
+const recordPostnatalVisitMock = jest.fn(async () => ({ id: 89 }));
 const getPregnancyMock = jest.fn(async () => ({
   id: 9,
   patient_uid: '33333333-3333-4333-8333-333333333333',
@@ -27,6 +29,8 @@ jest.unstable_mockModule('../../services/maternity/maternityService.js', () => (
   recordFetalKick: recordFetalKickMock,
   recordDelivery: recordDeliveryMock,
   recordNewborn: recordNewbornMock,
+  recordApgar: recordApgarMock,
+  recordPostnatalVisit: recordPostnatalVisitMock,
   getPregnancy: getPregnancyMock,
 }));
 
@@ -65,6 +69,8 @@ beforeEach(() => {
   recordFetalKickMock.mockClear();
   recordDeliveryMock.mockClear();
   recordNewbornMock.mockClear();
+  recordApgarMock.mockClear();
+  recordPostnatalVisitMock.mockClear();
   getPregnancyMock.mockClear();
   seedScheduleForNewbornMock.mockClear();
   recordDoseMock.mockClear();
@@ -231,6 +237,44 @@ describe('maternity mutation actor context', () => {
     expect(response.body.data).toEqual({ id: 61 });
     expect(recordPartographEntryMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: '00000000-0000-4000-8000-000000000001',
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+  });
+
+  test('Apgar and postnatal writes pin recorder and canonical actor to the authenticated user', async () => {
+    // /newborns actor pinning is covered by the dedicated D7 Shape-3 test
+    // above; this M-C test owns the Apgar + postnatal routes.
+    const apgarResponse = await request(app)
+      .post('/api/v1/maternity/newborns/79/apgar')
+      .send({
+        time_minute: 5,
+        recorded_by: SPOOFED_UID,
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+    const postnatalResponse = await request(app)
+      .post('/api/v1/maternity/postnatal-visits')
+      .send({
+        delivery_id: 21,
+        recorded_by: SPOOFED_UID,
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(apgarResponse.statusCode).toBe(200);
+    expect(postnatalResponse.statusCode).toBe(200);
+    expect(recordApgarMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      newborn_id: '79',
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+    expect(recordPostnatalVisitMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      delivery_id: 21,
       recorded_by: ACTOR_UID,
       actor_uid: ACTOR_UID,
       actor_role: 'NURSING_STAFF',
