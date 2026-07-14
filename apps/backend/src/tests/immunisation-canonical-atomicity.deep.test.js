@@ -3,7 +3,9 @@ import { createHash, randomUUID } from 'crypto';
 import { jest } from '@jest/globals';
 
 import prisma from '../lib/prisma.js';
+import { addAddendum, signNote } from '../services/emr/clinicalNotesService.js';
 import {
+  getImmunisationStatus,
   markScheduleUpToDate,
   recordDose as recordNewbornDose,
   seedScheduleForNewborn
@@ -620,6 +622,96 @@ d('M-D immunisation canonical atomicity', () => {
     expect(notes).toHaveLength(0);
     expect(events.timeline).toHaveLength(0);
     expect(events.audit).toHaveLength(0);
+  });
+
+  test('getImmunisationStatus ignores addendum rows attached to a review note', async () => {
+    // addAddendum copies note_type from the parent and validates neither
+    // note_type nor content shape, so a free-form addendum CAN attach to an
+    // immunisation_review note. The status projection must keep reading the
+    // review itself (is_addendum = false), not the newest chain row.
+    const patientUid = await seedUser();
+    const review = await markScheduleUpToDate({
+      tenantId: TENANT_A,
+      patient_uid: patientUid,
+      as_of: '2026-07-01',
+      age_group: 'current',
+      signed_by: ACTOR_UID,
+      signed_by_name: 'M-D Atomic Nurse',
+      actor_role: 'NURSING_STAFF'
+    });
+
+    const addendum = await addAddendum(
+      review.id,
+      { text: 'Parent supplied the physical immunisation card; copy filed.' },
+      ACTOR_UID,
+      'DOCTOR',
+      TENANT_A
+    );
+    expect(addendum).toMatchObject({
+      is_addendum: true,
+      note_type: 'immunisation_review'
+    });
+
+    const status = await getImmunisationStatus({ tenantId: TENANT_A, patient_uid: patientUid });
+    expect(status).toMatchObject({
+      status: 'up_to_date',
+      as_of: '2026-07-01',
+      age_group: 'current',
+      note_id: review.id,
+      reviewed: true
+    });
+  });
+
+  test('signed up_to_date addendum content cannot move the paediatric due-list review cutoff', async () => {
+    const patientUid = await seedUser({ birthday: '2024-04-01' });
+    await seedScheduleForPatient({
+      patientUid,
+      dob: '2024-04-01',
+      tenantId: TENANT_A,
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF'
+    });
+    const doseRows = await prisma.$queryRawUnsafe(
+      `SELECT id, due_date::text AS due_date
+         FROM patient_immunisations
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+        ORDER BY due_date ASC
+        LIMIT 1`,
+      TENANT_A,
+      patientUid
+    );
+    expect(doseRows).toHaveLength(1);
+    const dueIso = doseRows[0].due_date;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const shiftDay = (iso, days) =>
+      new Date(new Date(`${iso}T00:00:00Z`).getTime() + days * dayMs).toISOString().slice(0, 10);
+    const reviewAsOf = shiftDay(dueIso, -1); // before the dose is due: hides nothing
+    const addendumAsOf = shiftDay(dueIso, 1); // would swallow the dose if it counted
+    const checkpoint = shiftDay(dueIso, 30);
+
+    const review = await markScheduleUpToDate({
+      tenantId: TENANT_A,
+      patient_uid: patientUid,
+      as_of: reviewAsOf,
+      signed_by: ACTOR_UID,
+      actor_role: 'NURSING_STAFF'
+    });
+    const baseline = await listDueForPatient(patientUid, { tenantId: TENANT_A, asOf: checkpoint });
+    expect(baseline.map((row) => row.id)).toContain(doseRows[0].id);
+
+    // A later SIGNED addendum whose free-form content mimics a review must
+    // not become the effective review cutoff and hide genuinely due doses.
+    const addendum = await addAddendum(
+      review.id,
+      { status: 'up_to_date', as_of: addendumAsOf, text: 'narrative only' },
+      ACTOR_UID,
+      'DOCTOR',
+      TENANT_A
+    );
+    await signNote(addendum.id, ACTOR_UID, { uid: ACTOR_UID, role: 'DOCTOR' }, TENANT_A);
+
+    const after = await listDueForPatient(patientUid, { tenantId: TENANT_A, asOf: checkpoint });
+    expect(after.map((row) => row.id)).toContain(doseRows[0].id);
   });
 
   test('patient schedule seed preserves the exact O1 link and is canonical plus retry-safe', async () => {
