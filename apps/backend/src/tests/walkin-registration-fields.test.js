@@ -98,6 +98,15 @@ async function cleanupFixtures() {
     await prisma
       .$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = ANY($1::uuid[])`, userUids)
       .catch(() => {});
+    // M-E — the ANC walk-in also writes a canonical
+    // maternity.pregnancy_created timeline/audit pair now; sweep it with
+    // the pregnancy row so re-runs stay clean.
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE patient_uid = ANY($1::uuid[])`, userUids)
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM clinical_audit_events WHERE patient_uid = ANY($1::uuid[])`, userUids)
+      .catch(() => {});
     await prisma
       .$executeRawUnsafe(`DELETE FROM patient_allergies WHERE patient_uid = ANY($1::uuid[])`, userUids)
       .catch(() => {});
