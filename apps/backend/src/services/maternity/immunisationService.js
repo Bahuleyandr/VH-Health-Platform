@@ -13,6 +13,11 @@ import {
   currentCanonicalTransactionRevision,
   recordCanonicalClinicalEvent,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  assertExclusiveNewbornLink,
+  assertNewbornIdentitySubject,
+  newbornIdentityRequired,
+} from './newbornIdentity.js';
 
 function dateOnly(value) {
   if (!value) return null;
@@ -75,19 +80,14 @@ export async function seedScheduleForNewborn({
 }) {
   if (!newborn_id) throw AppError.badRequest('newborn_id is required');
 
+  // D7 M-D remediation (signed 2026-07-15): the clinical subject is the
+  // newborn's OWN identity (maternity_newborns.newborn_patient_uid) —
+  // the pre-D7 mother-fallback CASE is removed. Absent link, failed E-3
+  // predicate, or ambiguity rejects the mutation fail-closed; no proxy
+  // writes to the mother's record.
   const newbornRows = await prisma.$queryRawUnsafe(
-    `SELECT n.id, n.birth_datetime, n.outcome,
-            CASE
-              WHEN n.newborn_patient_uid IS NOT NULL
-               AND (
-                 SELECT COUNT(*)
-                   FROM maternity_newborns identity_candidate
-                  WHERE identity_candidate.tenant_id = n.tenant_id
-                    AND identity_candidate.newborn_patient_uid = n.newborn_patient_uid
-               ) = 1
-                THEN n.newborn_patient_uid
-              ELSE p.patient_uid
-            END AS clinical_patient_uid
+    `SELECT n.id, n.birth_datetime, n.outcome, n.newborn_patient_uid,
+            p.patient_uid AS mother_patient_uid
        FROM maternity_newborns n
        JOIN maternity_deliveries d
          ON d.id = n.delivery_id
@@ -104,17 +104,34 @@ export async function seedScheduleForNewborn({
       'Cannot schedule immunisations for a non-live outcome',
     );
   }
-  const patientUid = String(newbornRows[0].clinical_patient_uid);
+  if (!newbornRows[0].newborn_patient_uid) throw newbornIdentityRequired();
+  const motherPatientUid = String(newbornRows[0].mother_patient_uid);
 
   return setTenantTx(tenantId, async (tx) => {
     const lockedNewborns = await tx.$queryRawUnsafe(
-      `SELECT id
+      `SELECT id, newborn_patient_uid
          FROM maternity_newborns
         WHERE id = $1::int AND tenant_id = $2::uuid
         FOR UPDATE`,
       Number(newborn_id), tenantId,
     );
     if (!lockedNewborns.length) throw AppError.notFound('Newborn not found');
+    // E-c1 in-transaction re-check under row locks (newborn row above,
+    // users row inside the assert); migration 577's A-1 unique index is
+    // the structural backstop for link exclusivity.
+    if (!lockedNewborns[0].newborn_patient_uid) throw newbornIdentityRequired();
+    const subjectUid = String(lockedNewborns[0].newborn_patient_uid);
+    await assertNewbornIdentitySubject({
+      db: tx,
+      tenantId,
+      candidateUid: subjectUid,
+      motherPatientUid,
+      forUpdate: true,
+    });
+    await assertExclusiveNewbornLink({
+      db: tx, tenantId, candidateUid: subjectUid, newbornId: Number(newborn_id),
+    });
+    const patientUid = subjectUid;
 
     const inserted = await tx.$queryRawUnsafe(
       `WITH seeded AS (
@@ -209,19 +226,16 @@ export async function recordDose({
     throw AppError.badRequest('given_by_name is required when recording a "given" dose');
   }
 
+  // D7 M-D remediation (signed 2026-07-15): the clinical subject is the
+  // newborn's OWN identity — the pre-D7 mother-fallback CASE is removed.
+  // Absent link, failed E-3 predicate, or ambiguity rejects the mutation
+  // fail-closed BEFORE any write or retry short-circuit; no proxy writes
+  // to the mother's record.
   const contexts = await prisma.$queryRawUnsafe(
     `SELECT i.id,
-            CASE
-              WHEN n.newborn_patient_uid IS NOT NULL
-               AND (
-                 SELECT COUNT(*)
-                   FROM maternity_newborns identity_candidate
-                  WHERE identity_candidate.tenant_id = n.tenant_id
-                    AND identity_candidate.newborn_patient_uid = n.newborn_patient_uid
-               ) = 1
-                THEN n.newborn_patient_uid
-              ELSE p.patient_uid
-            END AS clinical_patient_uid
+            n.id AS newborn_id,
+            n.newborn_patient_uid,
+            p.patient_uid AS mother_patient_uid
        FROM newborn_immunisations i
        JOIN maternity_newborns n
          ON n.id = i.newborn_id
@@ -236,8 +250,37 @@ export async function recordDose({
     Number(immunisation_id), tenantId,
   );
   if (!contexts.length) throw AppError.notFound('Immunisation row not found');
+  if (!contexts[0].newborn_patient_uid) throw newbornIdentityRequired();
+  const motherPatientUid = String(contexts[0].mother_patient_uid);
+  const contextNewbornId = Number(contexts[0].newborn_id);
 
   return setTenantTx(tenantId, async (tx) => {
+    // E-c1 — validate the clinical subject FIRST, under row locks (newborn
+    // row + users row FOR UPDATE), before the retry guard or any write:
+    // a concurrently invalidated identity (deactivation, soft delete,
+    // executed merge) must reject rather than record. Migration 577's A-1
+    // unique index is the structural backstop for link exclusivity.
+    const lockedNewborns = await tx.$queryRawUnsafe(
+      `SELECT id, newborn_patient_uid
+         FROM maternity_newborns
+        WHERE id = $1::int AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      contextNewbornId, tenantId,
+    );
+    if (!lockedNewborns.length) throw AppError.notFound('Newborn not found');
+    if (!lockedNewborns[0].newborn_patient_uid) throw newbornIdentityRequired();
+    const subjectUid = String(lockedNewborns[0].newborn_patient_uid);
+    await assertNewbornIdentitySubject({
+      db: tx,
+      tenantId,
+      candidateUid: subjectUid,
+      motherPatientUid,
+      forUpdate: true,
+    });
+    await assertExclusiveNewbornLink({
+      db: tx, tenantId, candidateUid: subjectUid, newbornId: contextNewbornId,
+    });
+
     // Effective-state no-op guard (canonical revision-sequence fix). Mirror
     // the CASE/COALESCE semantics of the UPDATE below against the locked
     // current row: an exact retry (same effective persisted state) must
@@ -339,7 +382,7 @@ export async function recordDose({
 
     await recordCanonicalClinicalEvent({
       tenantId,
-      patientUid: String(contexts[0].clinical_patient_uid),
+      patientUid: subjectUid,
       eventType: 'immunisation.dose_recorded',
       eventStatus: dose.status,
       sourceTable: 'newborn_immunisations',

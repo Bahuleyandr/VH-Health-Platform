@@ -13,7 +13,7 @@
 // flag on_alert_line=true; below the action line → on_action_line=true
 // → escalate to obstetrician.
 
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
@@ -25,6 +25,13 @@ import {
   recordCanonicalClinicalEvent,
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  assertExclusiveNewbornLink,
+  assertNewbornIdentitySubject,
+  IDENTITY_MINTING_OUTCOMES,
+  NEWBORN_OUTCOMES,
+  newbornIdentityInvalid,
+} from './newbornIdentity.js';
 import {
   assertPrivilegeForGate,
   isGateEnabled,
@@ -2284,6 +2291,58 @@ export async function getDelivery({ tenantId, id }) {
 
 // ── Newborn record + Apgar ──────────────────────────────────────────
 
+// D7 Shape-3 (signed 2026-07-15): "Twin-<n> B/O <mother>" for birth_order
+// >= 2, "B/O <mother>" otherwise; renamed at ordinary registration later
+// (no rename path in this build). users.name is VARCHAR(255).
+function provisionalNewbornName({ motherName, birthOrder }) {
+  const base = String(motherName || '').trim() || 'Unregistered Mother';
+  const qualifier = Number(birthOrder) > 1 ? `Twin-${Number(birthOrder)} ` : '';
+  return `${qualifier}B/O ${base}`.slice(0, 255);
+}
+
+// Synthetic placeholder phone satisfying UNIQUE(users.phone) for the minted
+// infant identity — same impedance fix as the walk-in minor path's DEPEND-
+// prefix; NB- marks birth-workflow identities. VARCHAR(15): 'NB-' + 12 hex.
+function syntheticNewbornPhone() {
+  return `NB-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`;
+}
+
+// Map A-1 unique-index violations (races that slipped past the in-tx
+// prechecks) to clean 409 conflicts instead of raw 500s.
+function mapNewbornUniqueViolation(err) {
+  const text = `${err?.message || ''} ${err?.meta?.message || ''}`;
+  if (!/23505|duplicate key/i.test(text)) return null;
+  if (text.includes('uq_maternity_newborns_delivery_birth_order')) {
+    return AppError.conflict(
+      'A newborn with this birth order is already recorded for this delivery',
+      'MATERNITY_NEWBORN_BIRTH_ORDER_TAKEN',
+    );
+  }
+  if (text.includes('uq_maternity_newborns_tenant_patient_uid')) {
+    return newbornIdentityInvalid('already_linked');
+  }
+  return null;
+}
+
+/**
+ * D7 Shape-3 — the birth workflow atomically creates the infant's patient
+ * identity + guardian link (decision record obgyn-d7-decision-record.md,
+ * SHA-256 E82EEC9A054CA3708A31F48568818BB27F9986D8F5A02C37AF9407F4D5DB9562):
+ *
+ * - Identity is minted when outcome IN ('live','early_neonatal_death') and
+ *   no pre-registered identity is supplied; NEVER for stillbirths (B-2).
+ *   Outcome correction later is compensating-events only (B-c1) — a minted
+ *   identity is never retro-deleted here.
+ * - Guardian: guardian_user_id = the mother's users.id, relationship
+ *   'mother', set atomically with the identity (mig-202 substrate; the
+ *   existing X-Acting-As-Uid guardian chain and /users/dependents pick the
+ *   link up unchanged).
+ * - Guardian(mother) consent evidence is captured through the existing
+ *   patient_consents substrate (type 'treatment', source
+ *   'birth_registration') in the same transaction (G-3).
+ * - Detail row + identity + guardian + consent + one canonical
+ *   timeline/audit pair commit or roll back together (C2 pattern).
+ */
 export async function recordNewborn({
   tenantId, delivery_id, birth_order = 1, birth_datetime, sex,
   birth_weight_g, birth_length_cm, head_circumference_cm, chest_circumference_cm,
@@ -2292,49 +2351,252 @@ export async function recordNewborn({
   cord_clamped_at_min, skin_to_skin_done, breastfeeding_initiated_min,
   vit_k_given, bcg_given, hep_b_given, opv_given,
   congenital_anomaly, congenital_anomaly_desc, recorded_by, notes,
+  actor_uid, actor_role,
 }) {
   if (!delivery_id) throw AppError.badRequest('delivery_id is required');
   if (!birth_datetime) throw AppError.badRequest('birth_datetime is required');
+  const birthOrder = Number.parseInt(birth_order, 10);
+  if (!Number.isInteger(birthOrder) || birthOrder < 1) {
+    throw AppError.badRequest('birth_order must be a positive integer');
+  }
+  const outcomeValue = String(outcome || 'live');
+  if (!NEWBORN_OUTCOMES.includes(outcomeValue)) {
+    throw AppError.badRequest(
+      `outcome must be one of: ${NEWBORN_OUTCOMES.join(', ')}`,
+      'MATERNITY_NEWBORN_OUTCOME_INVALID',
+    );
+  }
   const tid = tenantOr(tenantId);
   const delivery = await assertDeliveryInTenant(tid, delivery_id);
-  if (newborn_patient_uid) await assertPatientInTenant(tid, newborn_patient_uid);
+  const motherUid = String(delivery.patient_uid);
+  const mintsIdentity = IDENTITY_MINTING_OUTCOMES.has(outcomeValue);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_newborns
-       (delivery_id, birth_order, birth_datetime, sex,
-        birth_weight_g, birth_length_cm, head_circumference_cm, chest_circumference_cm,
-        gestational_age_weeks, outcome,
-        resuscitation_done, resuscitation_type, newborn_patient_uid,
-        cord_clamped_at_min, skin_to_skin_done, breastfeeding_initiated_min,
-        vit_k_given, bcg_given, hep_b_given, opv_given,
-        congenital_anomaly, congenital_anomaly_desc, recorded_by, notes, tenant_id)
-     VALUES ($1::int, $2::int, $3::timestamptz, $4,
-             $5::int, $6::numeric, $7::numeric, $8::numeric,
-             $9::numeric, $10,
-             $11, $12, $13::uuid,
-             $14::numeric, $15, $16::int,
-             $17, $18, $19, $20,
-             $21, $22, $23::uuid, $24, $25::uuid)
-     RETURNING *`,
-    Number(delivery.id), Number(birth_order),
-    birth_datetime, sex || null,
-    birth_weight_g ? Number(birth_weight_g) : null,
-    birth_length_cm ? Number(birth_length_cm) : null,
-    head_circumference_cm ? Number(head_circumference_cm) : null,
-    chest_circumference_cm ? Number(chest_circumference_cm) : null,
-    gestational_age_weeks ? Number(gestational_age_weeks) : null,
-    outcome,
-    !!resuscitation_done, resuscitation_type || null,
-    newborn_patient_uid ? String(newborn_patient_uid) : null,
-    cord_clamped_at_min ? Number(cord_clamped_at_min) : null,
-    !!skin_to_skin_done,
-    breastfeeding_initiated_min ? Number(breastfeeding_initiated_min) : null,
-    !!vit_k_given, !!bcg_given, !!hep_b_given, !!opv_given,
-    !!congenital_anomaly, congenital_anomaly_desc || null,
-    recorded_by ? String(recorded_by) : null,
-    notes || null, tid,
-  );
-  return rows[0];
+  // B-2: stillbirths never carry a patient identity — reject an explicit
+  // link outright rather than silently dropping it.
+  if (newborn_patient_uid && !mintsIdentity) {
+    throw newbornIdentityInvalid('identity_forbidden_for_outcome');
+  }
+  // Phase 0 fast-fail on a supplied pre-registered identity; the
+  // authoritative E-c1 re-check runs inside the transaction under locks.
+  if (newborn_patient_uid) {
+    await assertNewbornIdentitySubject({
+      db: prisma,
+      tenantId: tid,
+      candidateUid: newborn_patient_uid,
+      motherPatientUid: motherUid,
+    });
+    await assertExclusiveNewbornLink({
+      db: prisma, tenantId: tid, candidateUid: newborn_patient_uid,
+    });
+  }
+
+  return setTenantTx(tid, async (tx) => {
+    // Lock the mother row first: stable guardian/name source AND a
+    // per-delivery serialisation point, so the birth_order/identity
+    // prechecks below are race-free for concurrent records of the same
+    // delivery. The A-1 unique indexes remain the structural backstop.
+    const motherRows = await tx.$queryRawUnsafe(
+      `SELECT id, uid, name, phone
+         FROM users
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid
+        FOR UPDATE`,
+      tid, motherUid,
+    );
+    if (!motherRows.length) throw AppError.notFound('Mother patient record not found');
+    const mother = motherRows[0];
+
+    const birthOrderClash = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM maternity_newborns
+        WHERE tenant_id = $1::uuid AND delivery_id = $2::int AND birth_order = $3::int
+        LIMIT 1`,
+      tid, Number(delivery.id), birthOrder,
+    );
+    if (birthOrderClash.length) {
+      throw AppError.conflict(
+        'A newborn with this birth order is already recorded for this delivery',
+        'MATERNITY_NEWBORN_BIRTH_ORDER_TAKEN',
+      );
+    }
+
+    let infantUid = newborn_patient_uid ? String(newborn_patient_uid) : null;
+    let mintedIdentity = null;
+    let guardianConsentId = null;
+
+    if (infantUid) {
+      // E-c1 in-transaction re-check of the pre-registered identity under
+      // row locks (users row FOR UPDATE) + exclusivity.
+      await assertNewbornIdentitySubject({
+        db: tx,
+        tenantId: tid,
+        candidateUid: infantUid,
+        motherPatientUid: motherUid,
+        forUpdate: true,
+      });
+      await assertExclusiveNewbornLink({
+        db: tx, tenantId: tid, candidateUid: infantUid,
+      });
+    } else if (mintsIdentity) {
+      const provisionalName = provisionalNewbornName({
+        motherName: mother.name, birthOrder,
+      });
+      const infantRows = await tx.$queryRawUnsafe(
+        `INSERT INTO users
+           (phone, name, birthday, gender, role,
+            is_minor, is_active,
+            guardian_user_id, guardian_name, guardian_phone, guardian_relationship,
+            tenant_id, updated_at)
+         VALUES ($1, $2, $3::date, $4, 'PATIENT',
+                 true, true,
+                 $5::int, $6, $7, 'mother',
+                 $8::uuid, NOW())
+         RETURNING uid, id, name, phone`,
+        syntheticNewbornPhone(),
+        provisionalName,
+        istDateString(new Date(birth_datetime)),
+        sex ? String(sex).slice(0, 20) : null,
+        Number(mother.id),
+        mother.name || null,
+        mother.phone || null,
+        tid,
+      );
+      const infant = infantRows[0];
+      infantUid = String(infant.uid);
+
+      // G-3: guardian(mother) consent evidence through the EXISTING
+      // patient_consents substrate — no new schema. Method 'verbal' with
+      // the recording clinician as witness is the delivery-room capture
+      // shape; a signature image can be attached later through the
+      // existing POST /consent/:id/signatures path.
+      const witnessUid = actor_uid || recorded_by || null;
+      let witnessName = null;
+      if (witnessUid) {
+        const staffRows = await tx.$queryRawUnsafe(
+          `SELECT name FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid LIMIT 1`,
+          tid, String(witnessUid),
+        );
+        witnessName = staffRows[0]?.name || null;
+      }
+      const consentRows = await tx.$queryRawUnsafe(
+        `INSERT INTO patient_consents
+           (patient_uid, consent_type, granted, status, granted_at, granted_by,
+            notes, purpose, data_categories, version, source,
+            consent_method, witness_name, witness_uid, tenant_id,
+            created_at, updated_at)
+         VALUES ($1::uuid, 'treatment', true, 'active', NOW(), 'guardian_mother',
+                 $2, $3, '[]'::jsonb, 'v1', 'birth_registration',
+                 'verbal', $4, $5::uuid, $6::uuid,
+                 NOW(), NOW())
+         RETURNING id`,
+        infantUid,
+        'Guardian (mother) consent for newborn care captured at birth registration (D7 Shape-3 birth workflow).',
+        'Newborn care at birth registration; consent given by the automatic initial guardian (mother).',
+        witnessName,
+        witnessUid ? String(witnessUid) : null,
+        tid,
+      );
+      guardianConsentId = Number(consentRows[0].id);
+
+      mintedIdentity = {
+        patient_uid: infantUid,
+        patient_id: Number(infant.id),
+        provisional_name: infant.name,
+        guardian_user_id: Number(mother.id),
+        guardian_relationship: 'mother',
+        guardian_consent_id: guardianConsentId,
+      };
+    }
+
+    let newborn;
+    try {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO maternity_newborns
+           (delivery_id, birth_order, birth_datetime, sex,
+            birth_weight_g, birth_length_cm, head_circumference_cm, chest_circumference_cm,
+            gestational_age_weeks, outcome,
+            resuscitation_done, resuscitation_type, newborn_patient_uid,
+            cord_clamped_at_min, skin_to_skin_done, breastfeeding_initiated_min,
+            vit_k_given, bcg_given, hep_b_given, opv_given,
+            congenital_anomaly, congenital_anomaly_desc, recorded_by, notes, tenant_id)
+         VALUES ($1::int, $2::int, $3::timestamptz, $4,
+                 $5::int, $6::numeric, $7::numeric, $8::numeric,
+                 $9::numeric, $10,
+                 $11, $12, $13::uuid,
+                 $14::numeric, $15, $16::int,
+                 $17, $18, $19, $20,
+                 $21, $22, $23::uuid, $24, $25::uuid)
+         RETURNING *`,
+        Number(delivery.id), birthOrder,
+        birth_datetime, sex || null,
+        birth_weight_g ? Number(birth_weight_g) : null,
+        birth_length_cm ? Number(birth_length_cm) : null,
+        head_circumference_cm ? Number(head_circumference_cm) : null,
+        chest_circumference_cm ? Number(chest_circumference_cm) : null,
+        gestational_age_weeks ? Number(gestational_age_weeks) : null,
+        outcomeValue,
+        !!resuscitation_done, resuscitation_type || null,
+        infantUid,
+        cord_clamped_at_min ? Number(cord_clamped_at_min) : null,
+        !!skin_to_skin_done,
+        breastfeeding_initiated_min ? Number(breastfeeding_initiated_min) : null,
+        !!vit_k_given, !!bcg_given, !!hep_b_given, !!opv_given,
+        !!congenital_anomaly, congenital_anomaly_desc || null,
+        recorded_by ? String(recorded_by) : null,
+        notes || null, tid,
+      );
+      newborn = rows[0];
+    } catch (err) {
+      throw mapNewbornUniqueViolation(err) || err;
+    }
+
+    // Fixed lifecycle key (insert-once): this emit runs exactly once, in
+    // the tx that mints newborn.id, and maternity_newborns has no
+    // UPDATE/DELETE path in product code (routes are POST + GET only).
+    // Outcome corrections are compensating events (B-c1), never in-place
+    // edits. Any future amendment path must NOT reuse this key: move the
+    // emit to the state-fingerprint + :tx: revision pattern (PR #589; see
+    // docs/CANONICAL_CLINICAL_TIMELINE.md "Idempotency-Key Discipline").
+    //
+    // Subject: the infant identity when one exists (S-2 FULL scope). A
+    // stillbirth never has an identity (B-2), so its birth event is
+    // recorded on the mother's episode — by design, not as a fallback.
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: infantUid || motherUid,
+      eventType: 'maternity.newborn_recorded',
+      eventStatus: 'recorded',
+      sourceTable: 'maternity_newborns',
+      sourceId: newborn.id,
+      resourceType: 'newborn',
+      resourceId: newborn.id,
+      actorUid: actor_uid || recorded_by || null,
+      actorRole: actor_role || null,
+      occurredAt: newborn.birth_datetime,
+      visibleToPatient: false,
+      summary: 'Newborn recorded',
+      payload: {
+        newborn_id: newborn.id,
+        delivery_id: Number(delivery.id),
+        pregnancy_id: Number(delivery.pregnancy_id),
+        birth_order: Number(newborn.birth_order),
+        outcome: newborn.outcome,
+        newborn_patient_uid: infantUid,
+        mother_patient_uid: motherUid,
+        identity_minted: !!mintedIdentity,
+        guardian_user_id: mintedIdentity ? mintedIdentity.guardian_user_id : null,
+        guardian_consent_id: guardianConsentId,
+      },
+      afterState: {
+        outcome: newborn.outcome,
+        newborn_patient_uid: infantUid,
+        identity_minted: !!mintedIdentity,
+      },
+      timelineIdempotencyKey: `maternity_newborns:${newborn.id}:recorded`,
+      auditIdempotencyKey: `maternity_newborns:${newborn.id}:audit:recorded`,
+    }, { db: tx, strict: true });
+
+    return { ...newborn, minted_identity: mintedIdentity };
+  });
 }
 
 export async function recordApgar({

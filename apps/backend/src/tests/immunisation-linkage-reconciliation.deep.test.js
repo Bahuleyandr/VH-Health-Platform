@@ -6,16 +6,25 @@
 // Covers the mandated cases and coordinator regressions:
 //   1. exact link                 — one newborn + one matching newborn dose → back-link written
 //   2. no match                   — walk-in patient (no newborn) → unlinked, normal seed
-//   3. multiple newborns          — >1 newborn for the uid → refuse link, reported
-//   4. multiple dose candidates   — >1 matching newborn dose for the uid → refuse link, reported
+//   3. duplicate identity          — a 2nd newborn for the uid is REJECTED by the D7 A-1
+//                                    unique index (mig 577); the exact link stays unambiguous
+//   4. duplicate dose candidates   — closed structurally: A-1 + the mig-160
+//                                    UNIQUE(newborn_id, vaccine_catalogue_id) reject the rows
 //   5. tenant isolation           — a newborn dose in tenant A never links a seed in tenant B
 //   6. idempotent repeat seed     — re-seeding does not duplicate or re-link; report is stable
 //   7. deduped read               — a linked dose is projected once with authoritative newborn facts
 //   8. administered-history       — a 'given' newborn dose is never mutated/merged/copied by linkage
 //   9. stale link                 — a wrong/no-candidate link cannot hide patient history
-//  10. later ambiguity            — a once-exact link is no longer trusted after identity becomes ambiguous
+//  10. later ambiguity            — can no longer be created (A-1); the exact link stays trusted
 // The unit suite additionally proves the resolution/write race is closed by
 // exactness locks followed by one tenant-transaction INSERT...SELECT.
+//
+// D7 note (2026-07-15, decision record obgyn-d7-decision-record.md): the
+// pre-577 'multiple_newborns'/'multiple_doses' ambiguity states these tests
+// used to fabricate are now impossible to create; the reconciliation
+// report's ambiguity reasons remain in the script for residual pre-577
+// data only, and the service-side LINK_NOT_EXACT guards keep their live
+// coverage through the stale-link and cross-tenant cases (13/15).
 //
 // All fixtures are built with raw SQL against the disposable test DB and the
 // service functions are exercised directly (the import deep-test does the same),
@@ -351,95 +360,68 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
     }]);
   }, TEST_TIMEOUT_MS);
 
-  it('3. refuses to link when the uid maps to multiple newborns', async () => {
+  it('3. A-1 rejects a second newborn for the same identity; the exact link stays unambiguous', async () => {
     await insertPatient(TENANT_A, P_MULTI_NB, dobYearsAgo(2));
     const nb1 = await insertNewborn(TENANT_A, P_MULTI_NB);
-    const nb2 = await insertNewborn(TENANT_A, P_MULTI_NB);
-    await insertNewbornDose(TENANT_A, nb1, cat.a.BCG);
-    // nb2 has no BCG dose — still ambiguous identity, so nothing links.
+    const doseId = await insertNewbornDose(TENANT_A, nb1, cat.a.BCG);
+    // Pre-577 this second row created the 'multiple_newborns' ambiguity the
+    // report had to classify; the D7 A-1 partial unique index
+    // (uq_maternity_newborns_tenant_patient_uid) now rejects it outright.
+    await expect(insertNewborn(TENANT_A, P_MULTI_NB))
+      .rejects.toThrow(/duplicate key|23505/i);
+    const identityRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM maternity_newborns
+        WHERE tenant_id = $1::uuid AND newborn_patient_uid = $2::uuid`,
+      TENANT_A, P_MULTI_NB,
+    );
+    expect(identityRows).toHaveLength(1);
 
     await seedScheduleForPatient({ patientUid: P_MULTI_NB, dob: dobYearsAgo(2), tenantId: TENANT_A });
 
+    // With ambiguity structurally impossible, the seed links exactly.
     const rows = await patientRows(TENANT_A, P_MULTI_NB);
-    expect(rows.every((r) => r.newborn_immunisation_id === null)).toBe(true);
+    const bcg = rows.find((r) => r.code === 'BCG');
+    expect(bcg.newborn_immunisation_id).toBe(doseId);
 
     const report = await buildLinkageReport({ tenantId: TENANT_A });
     const rec = report.records.find(
       (x) => x.patient_uid === P_MULTI_NB && x.code === 'BCG',
     );
     expect(rec).toBeTruthy();
-    expect(rec.reason).toBe('multiple_newborns');
-    expect(rec.newborn_count).toBe(2);
+    expect(rec.reason).toBe('already_linked');
+    expect(rec.newborn_count).toBe(1);
     expect(rec.newborn_dose_count).toBe(1);
-    expect(rec.current_link).toBeNull();
-    expect(rec).toMatchObject({
-      vaccine_catalogue_id: cat.a.BCG,
-      code: 'BCG',
-      dose_number: null,
-      schedule_source: 'uip',
-      source_version: 'test-v1',
-      patient_status: 'scheduled',
-      newborn_id: null,
-      newborn_immunisation_id: null,
-      newborn_due_date: null,
-      newborn_status: null,
-      newborn_given_at: null,
-    });
-    expect(rec.patient_due_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(rec.candidate_newborn_ids).toEqual([nb1, nb2].sort((a, b) => a - b));
-    expect(rec.candidate_newborn_immunisation_ids).toHaveLength(1);
-    expect(rec.candidate_doses).toEqual([{
-      newborn_id: nb1,
-      newborn_immunisation_id: rec.candidate_newborn_immunisation_ids[0],
-      newborn_due_date: '2022-01-01',
-      newborn_status: 'scheduled',
-      newborn_given_at: null,
-    }]);
+    expect(rec.current_link).toBe(doseId);
+    expect(rec.candidate_newborn_ids).toEqual([nb1]);
   }, TEST_TIMEOUT_MS);
 
-  it('4. refuses to link and reports multiple matching dose candidates', async () => {
+  it('4. duplicate dose candidates are structurally closed (A-1 + UNIQUE newborn/vaccine)', async () => {
     await insertPatient(TENANT_A, P_MULTI_DOSE, dobYearsAgo(2));
     const nb1 = await insertNewborn(TENANT_A, P_MULTI_DOSE);
-    const nb2 = await insertNewborn(TENANT_A, P_MULTI_DOSE);
-    await insertNewbornDose(TENANT_A, nb1, cat.a.BCG);
-    await insertNewbornDose(TENANT_A, nb2, cat.a.BCG); // second candidate for same vaccine
+    const doseId = await insertNewbornDose(TENANT_A, nb1, cat.a.BCG);
+    // A second identity row for the uid: rejected by A-1 (mig 577).
+    await expect(insertNewborn(TENANT_A, P_MULTI_DOSE))
+      .rejects.toThrow(/duplicate key|23505/i);
+    // A second dose for the same vaccine on the same newborn: rejected by
+    // the mig-160 UNIQUE(newborn_id, vaccine_catalogue_id).
+    await expect(insertNewbornDose(TENANT_A, nb1, cat.a.BCG))
+      .rejects.toThrow(/duplicate key|23505/i);
 
     await seedScheduleForPatient({ patientUid: P_MULTI_DOSE, dob: dobYearsAgo(2), tenantId: TENANT_A });
 
     const rows = await patientRows(TENANT_A, P_MULTI_DOSE);
     const bcg = rows.find((r) => r.code === 'BCG');
-    expect(bcg.newborn_immunisation_id).toBeNull();
+    expect(bcg.newborn_immunisation_id).toBe(doseId);
 
     const report = await buildLinkageReport({ tenantId: TENANT_A });
     const rec = report.records.find(
       (x) => x.patient_uid === P_MULTI_DOSE && x.code === 'BCG',
     );
     expect(rec).toBeTruthy();
-    // Two matching newborn doses are a deterministic dose ambiguity, even
-    // though they necessarily belong to two newborn identity candidates.
-    expect(rec.newborn_dose_count).toBe(2);
-    expect(rec.reason).toBe('multiple_doses');
-    expect(rec.newborn_count).toBe(2);
-    expect(rec.current_link).toBeNull();
-    expect(rec).toMatchObject({
-      vaccine_catalogue_id: cat.a.BCG,
-      code: 'BCG',
-      schedule_source: 'uip',
-      source_version: 'test-v1',
-      patient_status: 'scheduled',
-      newborn_id: null,
-      newborn_immunisation_id: null,
-      newborn_due_date: null,
-      newborn_status: null,
-    });
-    expect(rec.candidate_newborn_ids).toEqual([nb1, nb2].sort((a, b) => a - b));
-    expect(rec.candidate_newborn_immunisation_ids).toHaveLength(2);
-    expect(rec.candidate_doses).toHaveLength(2);
-    expect(rec.candidate_doses.every((candidate) => (
-      candidate.newborn_due_date === '2022-01-01'
-      && candidate.newborn_status === 'scheduled'
-      && candidate.newborn_given_at === null
-    ))).toBe(true);
+    expect(rec.reason).toBe('already_linked');
+    expect(rec.newborn_count).toBe(1);
+    expect(rec.newborn_dose_count).toBe(1);
+    expect(rec.current_link).toBe(doseId);
   }, TEST_TIMEOUT_MS);
 
   it('5. never links across tenants (dose in A, patient seed in B)', async () => {
@@ -630,7 +612,7 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
     expect(bcg[0].given_at).toBeNull();
   }, TEST_TIMEOUT_MS);
 
-  it('10. reports and stops trusting an exact link after a second newborn makes identity ambiguous', async () => {
+  it('10. an exact link can no longer be made ambiguous after the fact (A-1); it stays trusted', async () => {
     await insertPatient(TENANT_A, P_AMBIGUOUS_AFTER_LINK, dobYearsAgo(2));
     const firstNewborn = await insertNewborn(TENANT_A, P_AMBIGUOUS_AFTER_LINK);
     const firstDose = await insertNewbornDose(TENANT_A, firstNewborn, cat.a.BCG, {
@@ -643,33 +625,29 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
       tenantId: TENANT_A,
     });
 
-    const secondNewborn = await insertNewborn(TENANT_A, P_AMBIGUOUS_AFTER_LINK);
+    // Pre-577 a later second newborn row silently degraded this exact link
+    // to 'multiple_newborns'; the A-1 index now rejects the row instead.
+    await expect(insertNewborn(TENANT_A, P_AMBIGUOUS_AFTER_LINK))
+      .rejects.toThrow(/duplicate key|23505/i);
 
     const report = await buildLinkageReport({ tenantId: TENANT_A });
     const rec = report.records.find(
       (x) => x.patient_uid === P_AMBIGUOUS_AFTER_LINK && x.code === 'BCG',
     );
-    expect(rec.reason).toBe('multiple_newborns');
+    expect(rec.reason).toBe('already_linked');
     expect(rec.current_link).toBe(firstDose);
-    expect(rec.newborn_count).toBe(2);
+    expect(rec.newborn_count).toBe(1);
     expect(rec.newborn_dose_count).toBe(1);
-    expect(rec.candidate_newborn_ids)
-      .toEqual([firstNewborn, secondNewborn].sort((a, b) => a - b));
+    expect(rec.candidate_newborn_ids).toEqual([firstNewborn]);
     expect(rec.candidate_newborn_immunisation_ids).toEqual([firstDose]);
-    expect(rec.candidate_doses).toEqual([{
-      newborn_id: firstNewborn,
-      newborn_immunisation_id: firstDose,
-      newborn_due_date: '2022-01-01',
-      newborn_status: 'given',
-      newborn_given_at: '2022-04-01T05:00:00.000Z',
-    }]);
 
     const full = await listForPatient(P_AMBIGUOUS_AFTER_LINK, { tenantId: TENANT_A });
     const bcg = full.filter((row) => row.code === 'BCG');
     expect(bcg).toHaveLength(1);
-    // Ambiguous newborn history is never projected over the patient row.
-    expect(bcg[0].status).toBe('scheduled');
-    expect(bcg[0].given_at).toBeNull();
+    // The link remains exact, so the authoritative newborn facts keep
+    // projecting over the patient row.
+    expect(bcg[0].status).toBe('given');
+    expect(new Date(bcg[0].given_at).toISOString()).toBe('2022-04-01T05:00:00.000Z');
   }, TEST_TIMEOUT_MS);
 
   it('11. blocks a competing newborn/dose insert until exact resolution and schedule write commit', async () => {
@@ -772,54 +750,46 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
       if (!seedOutcome.ok) throw seedOutcome.error;
       expect(seedOutcome.value.linked).toBe(1);
 
+      // Post-577 the unblocked competing insert hits the A-1 unique index:
+      // the SHARE lock still serialised it behind the seed, and the index
+      // then rejects the duplicate identity row outright.
       const competingOutcome = await competingOutcomePromise;
-      if (!competingOutcome.ok) throw competingOutcome.error;
+      expect(competingOutcome.ok).toBe(false);
+      expect(String(competingOutcome.error?.message || ''))
+        .toMatch(/duplicate key|23505/i);
 
       const rows = await patientRows(TENANT_A, P_RACE);
       const storedBcg = rows.find((row) => row.code === 'BCG');
       expect(storedBcg.newborn_immunisation_id).toBe(firstDose);
       expect(storedBcg.status).toBe('scheduled');
 
+      const afterRace = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS total
+           FROM maternity_newborns
+          WHERE tenant_id = $1::uuid
+            AND newborn_patient_uid = $2::uuid`,
+        TENANT_A, P_RACE,
+      );
+      expect(Number(afterRace[0].total)).toBe(1);
+
       const report = await buildLinkageReport({ tenantId: TENANT_A });
       const rec = report.records.find(
         (record) => record.patient_uid === P_RACE && record.code === 'BCG',
       );
-      expect(rec.reason).toBe('multiple_doses');
+      expect(rec.reason).toBe('already_linked');
       expect(rec.current_link).toBe(firstDose);
-      expect(rec.newborn_count).toBe(2);
-      expect(rec.newborn_dose_count).toBe(2);
-      expect(rec).toMatchObject({
-        vaccine_catalogue_id: cat.a.BCG,
-        code: 'BCG',
-        dose_number: null,
-        schedule_source: 'uip',
-        source_version: 'test-v1',
-        patient_status: 'scheduled',
-        newborn_id: null,
-        newborn_immunisation_id: null,
-        newborn_due_date: null,
-        newborn_status: null,
-      });
-      expect(rec.patient_due_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(rec.candidate_newborn_ids).toEqual(
-        [firstNewborn, competingOutcome.value.newbornId].sort((a, b) => a - b),
-      );
-      expect(rec.candidate_newborn_immunisation_ids).toEqual(
-        [firstDose, competingOutcome.value.doseId].sort((a, b) => a - b),
-      );
-      expect(rec.candidate_doses).toHaveLength(2);
-      expect(rec.candidate_doses.every((candidate) => (
-        candidate.newborn_due_date === '2022-01-01'
-        && ['given', 'scheduled'].includes(candidate.newborn_status)
-      ))).toBe(true);
+      expect(rec.newborn_count).toBe(1);
+      expect(rec.newborn_dose_count).toBe(1);
+      expect(rec.candidate_newborn_ids).toEqual([firstNewborn]);
+      expect(rec.candidate_newborn_immunisation_ids).toEqual([firstDose]);
 
       const full = await listForPatient(P_RACE, { tenantId: TENANT_A });
       const visibleBcg = full.filter((row) => row.code === 'BCG');
       expect(visibleBcg).toHaveLength(1);
-      // Once the later write makes identity ambiguous, the stale link is kept
-      // for evidence but is no longer trusted for the read projection.
-      expect(visibleBcg[0].status).toBe('scheduled');
-      expect(visibleBcg[0].given_at).toBeNull();
+      // The identity never became ambiguous, so the exact link keeps
+      // projecting the authoritative given facts.
+      expect(visibleBcg[0].status).toBe('given');
+      expect(new Date(visibleBcg[0].given_at).toISOString()).toBe('2022-05-01T05:00:00.000Z');
     } finally {
       await Promise.allSettled(
         [seedOutcomePromise, competingOutcomePromise].filter(Boolean),
@@ -966,7 +936,7 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
     });
   }, TEST_TIMEOUT_MS);
 
-  it('14. rejects a newly ambiguous identity with zero writes to either history', async () => {
+  it('14. an ambiguity injection is rejected at the database and the linked write path stays exact', async () => {
     await insertPatient(TENANT_A, P_WRITE_AMBIGUOUS, dobYearsAgo(2));
     const firstNewborn = await insertNewborn(TENANT_A, P_WRITE_AMBIGUOUS);
     const firstDose = await insertNewbornDose(TENANT_A, firstNewborn, cat.a.BCG);
@@ -978,33 +948,36 @@ describe('O1 exact immunisation linkage + reconciliation report', () => {
     const patientDose = (await patientRows(TENANT_A, P_WRITE_AMBIGUOUS))
       .find((row) => row.code === 'BCG');
     expect(patientDose.newborn_immunisation_id).toBe(firstDose);
-    await insertNewborn(TENANT_A, P_WRITE_AMBIGUOUS);
+    // Pre-577 this second row degraded the identity mid-flight and the
+    // service's LINK_NOT_EXACT guard was the only defence (still covered by
+    // cases 13/15 for stale/cross-tenant links); the A-1 index now stops
+    // the ambiguity at its source.
+    await expect(insertNewborn(TENANT_A, P_WRITE_AMBIGUOUS))
+      .rejects.toThrow(/duplicate key|23505/i);
 
-    await expect(recordDose({
+    // The link is still exact, so the linked write path proceeds normally
+    // against the authoritative newborn row.
+    const result = await recordDose({
       immunisationId: patientDose.id,
       status: 'given',
-      givenAt: '2026-07-13T14:00:00.000Z',
+      givenAt: new Date('2026-07-13T14:00:00.000Z'),
       givenBy: RECORDER,
+      givenByName: 'O1 Recorder',
       tenantId: TENANT_A,
-    })).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'PAEDIATRIC_IMMUNISATION_LINK_NOT_EXACT',
     });
-
-    const patientAfter = await prisma.$queryRawUnsafe(
-      `SELECT status, given_at, given_by
-         FROM patient_immunisations
-        WHERE id = $1::int`,
-      patientDose.id,
-    );
-    expect(patientAfter[0]).toMatchObject({ status: 'scheduled', given_at: null, given_by: null });
+    expect(result).toMatchObject({
+      id: patientDose.id,
+      patient_uid: P_WRITE_AMBIGUOUS,
+      status: 'given',
+    });
     const newbornAfter = await prisma.$queryRawUnsafe(
       `SELECT status, given_at, given_by
          FROM newborn_immunisations
         WHERE id = $1::int`,
       firstDose,
     );
-    expect(newbornAfter[0]).toMatchObject({ status: 'scheduled', given_at: null, given_by: null });
+    expect(newbornAfter[0]).toMatchObject({ status: 'given', given_by: RECORDER });
+    expect(new Date(newbornAfter[0].given_at).toISOString()).toBe('2026-07-13T14:00:00.000Z');
   }, TEST_TIMEOUT_MS);
 
   it('15. rejects a cross-tenant link with zero writes in either tenant', async () => {
