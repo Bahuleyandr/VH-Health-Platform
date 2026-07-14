@@ -321,6 +321,47 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
     });
   });
 
+  // ── Scenario B2 — a still-unacknowledged window is never duplicated ──
+  // If the existing task is 'overdue' (the escalation sweep marks past-due
+  // open tasks), the mig-312 partial index no longer covers it — only the
+  // reopen helper's explicit open/overdue check prevents a second window
+  // for the same resource.
+  describe('corrected sign-off with a still-unacknowledged window', () => {
+    it('does not duplicate the task when the existing window is overdue', async () => {
+      const invId = await insertInvestigation(PATIENT_B_UID);
+      const { result } = await labResults.recordResultManual({
+        tenantId: TENANT,
+        performed_by: DOCTOR_UID,
+        performed_by_role: 'DOCTOR',
+        result: {
+          patient_uid: PATIENT_B_UID,
+          investigation_id: invId,
+          test_code: TEST_CODE,
+          test_name: 'Potassium [test]',
+          value_text: '7.8',
+          unit: 'mmol/L',
+          status: 'preliminary',
+        },
+      });
+      resultIds.push(result.id);
+      const before = await openTasksFor(result.id);
+      expect(before.length).toBe(1);
+      await prisma.$executeRawUnsafe(
+        `UPDATE tasks SET status = 'overdue', updated_at = NOW()
+          WHERE id = $1::int AND tenant_id = $2::uuid`,
+        before[0].id, TENANT,
+      );
+
+      await signOff([result.id], 'corrected', PATIENT_B_UID);
+
+      const after = await openTasksFor(result.id);
+      expect(after.length).toBe(1);
+      expect(after[0].id).toBe(before[0].id);
+      expect(['open', 'overdue']).toContain(after[0].status);
+      expect(after[0].metadata?.acknowledged_at).toBeUndefined();
+    });
+  });
+
   // ── Scenario C — patient re-notify honors the release policy ─────────
   // A row a clinician explicitly held from the patient (migration 294,
   // portalAccessService) must NOT be announced; the non-held row in the
