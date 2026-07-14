@@ -20,7 +20,10 @@ import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
-import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+} from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
   assertPrivilegeForGate,
@@ -466,6 +469,66 @@ export async function recordAncVisit({
     );
     if (!lockedPregnancies.length) throw AppError.notFound('Pregnancy not found');
 
+    // Effective-state no-op guard (canonical revision-sequence fix). Compare
+    // the EXACT state the ON CONFLICT UPDATE below would persist (COALESCE /
+    // OR-merge semantics, column-scale casts) against the locked current row.
+    // An exact retry must return before the UPSERT so the visit tuple keeps
+    // its xmin, the users.is_pregnant projection is untouched, and no new
+    // canonical revision is allocated. Evaluated under the pregnancy row lock
+    // (plus FOR UPDATE here) so concurrent identical mutations collapse to
+    // exactly one new revision pair.
+    const guardRows = await tx.$queryRawUnsafe(
+      `SELECT v.*,
+              (
+                    v.gestational_age_weeks IS NOT DISTINCT FROM COALESCE($3::numeric(4,1), v.gestational_age_weeks)
+                AND v.weight_kg             IS NOT DISTINCT FROM COALESCE($4::numeric(5,2), v.weight_kg)
+                AND v.bp_systolic           IS NOT DISTINCT FROM COALESCE($5::int, v.bp_systolic)
+                AND v.bp_diastolic          IS NOT DISTINCT FROM COALESCE($6::int, v.bp_diastolic)
+                AND v.pulse_bpm             IS NOT DISTINCT FROM COALESCE($7::int, v.pulse_bpm)
+                AND v.fundal_height_cm      IS NOT DISTINCT FROM COALESCE($8::int, v.fundal_height_cm)
+                AND v.fetal_heart_rate_bpm  IS NOT DISTINCT FROM COALESCE($9::int, v.fetal_heart_rate_bpm)
+                AND v.fetal_movements_felt  IS NOT DISTINCT FROM COALESCE($10::boolean, v.fetal_movements_felt)
+                AND v.presentation          IS NOT DISTINCT FROM COALESCE($11, v.presentation)
+                AND v.edema                 IS NOT DISTINCT FROM COALESCE($12, v.edema)
+                AND v.pallor                IS NOT DISTINCT FROM COALESCE($13, v.pallor)
+                AND v.hb_gm_dl              IS NOT DISTINCT FROM COALESCE($14::numeric(4,1), v.hb_gm_dl)
+                AND v.urine_albumin         IS NOT DISTINCT FROM COALESCE($15, v.urine_albumin)
+                AND v.urine_sugar           IS NOT DISTINCT FROM COALESCE($16, v.urine_sugar)
+                AND v.iron_folic_acid_given = (v.iron_folic_acid_given OR $17::boolean)
+                AND v.calcium_given         = (v.calcium_given OR $18::boolean)
+                AND v.tt_dose               IS NOT DISTINCT FROM COALESCE($19, v.tt_dose)
+                AND v.next_visit_date       IS NOT DISTINCT FROM COALESCE($20::date, v.next_visit_date)
+                AND v.notes                 IS NOT DISTINCT FROM COALESCE($21, v.notes)
+                AND v.recorded_by           IS NOT DISTINCT FROM COALESCE($22::uuid, v.recorded_by)
+              ) AS effective_state_unchanged
+         FROM maternity_anc_visits v
+        WHERE v.tenant_id = $1::uuid
+          AND v.pregnancy_id = $2::int
+          AND v.visit_date = $23::date
+        FOR UPDATE`,
+      tid,
+      pregnancy.id,
+      gestational_age_weeks ? Number(gestational_age_weeks) : null,
+      weight_kg ? Number(weight_kg) : null,
+      bp_systolic ? Number(bp_systolic) : null,
+      bp_diastolic ? Number(bp_diastolic) : null,
+      pulse_bpm ? Number(pulse_bpm) : null,
+      fundal_height_cm ? Number(fundal_height_cm) : null,
+      fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
+      fetal_movements_felt ?? null,
+      presentation || null, edema || null, pallor || null,
+      hb_gm_dl ? Number(hb_gm_dl) : null,
+      urine_albumin || null, urine_sugar || null,
+      !!iron_folic_acid_given, !!calcium_given, tt_dose || null,
+      next_visit_date || null, notes || null,
+      recorded_by ? String(recorded_by) : null,
+      visit_date,
+    );
+    if (guardRows.length && guardRows[0].effective_state_unchanged === true) {
+      const { effective_state_unchanged: _unchanged, ...existingVisit } = guardRows[0];
+      return existingVisit;
+    }
+
     // The pregnancy lock serializes visit-number allocation for this episode.
     const nextNumberRow = await tx.$queryRawUnsafe(
       `SELECT COALESCE(MAX(visit_number), 0) + 1 AS next_number
@@ -532,6 +595,10 @@ export async function recordAncVisit({
     );
     const recordedVisit = rows[0];
     const canonicalRevision = canonicalStateFingerprint(recordedVisit);
+    // Genuine mutation: pair the state fingerprint with a transaction-unique
+    // xid8 so a later return to a previous state (A -> B -> A) still records
+    // its own canonical revision instead of colliding with revision 1's key.
+    const txRevision = await currentCanonicalTransactionRevision(tx);
 
     const projected = await tx.$executeRawUnsafe(
       `UPDATE users
@@ -567,8 +634,8 @@ export async function recordAncVisit({
         user_is_pregnant: true,
       },
       tags: ['maternity', 'anc'],
-      timelineIdempotencyKey: `maternity_anc_visits:${recordedVisit.id}:${canonicalRevision}`,
-      auditIdempotencyKey: `maternity_anc_visits:${recordedVisit.id}:audit:${canonicalRevision}`,
+      timelineIdempotencyKey: `maternity_anc_visits:${recordedVisit.id}:${canonicalRevision}:tx:${txRevision}`,
+      auditIdempotencyKey: `maternity_anc_visits:${recordedVisit.id}:audit:${canonicalRevision}:tx:${txRevision}`,
     }, { db: tx, strict: true });
 
     return recordedVisit;
@@ -1085,6 +1152,10 @@ export async function recordSupplement({
         ? String(recordedSupplement.prescribed_by)
         : null,
     });
+    // Exact retries returned above without touching the tuple; every write
+    // that reaches this point changed persisted state, so stamp the key with
+    // this transaction's xid8 to keep A -> B -> A revisions distinct.
+    const txRevision = await currentCanonicalTransactionRevision(tx);
     await recordCanonicalClinicalEvent({
       tenantId: tid,
       patientUid: String(pregnancy.patient_uid),
@@ -1113,8 +1184,8 @@ export async function recordSupplement({
         continued: recordedSupplement.continued,
       },
       tags: ['maternity', 'supplement'],
-      timelineIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:${canonicalRevision}`,
-      auditIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:audit:${canonicalRevision}`,
+      timelineIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:${canonicalRevision}:tx:${txRevision}`,
+      auditIdempotencyKey: `maternity_supplements:${recordedSupplement.id}:audit:${canonicalRevision}:tx:${txRevision}`,
     }, { db: tx, strict: true });
 
     return recordedSupplement;
@@ -1428,6 +1499,9 @@ export async function recordFetalKick({
       notes: fetalKick.notes || null,
       recorded_by: fetalKick.recorded_by ? String(fetalKick.recorded_by) : null,
     });
+    // Exact retries returned above via the prior-state guard; this write
+    // changed persisted state, so bind the revision to this transaction.
+    const txRevision = await currentCanonicalTransactionRevision(tx);
 
     await recordCanonicalClinicalEvent({
       tenantId: tid,
@@ -1461,8 +1535,8 @@ export async function recordFetalKick({
       tags: patientGenerated
         ? ['maternity', 'fetal-kick', 'patient_generated', 'unverified']
         : ['maternity', 'fetal-kick', 'staff-recorded'],
-      timelineIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:${canonicalRevision}`,
-      auditIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:audit:${canonicalRevision}`,
+      timelineIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:${canonicalRevision}:tx:${txRevision}`,
+      auditIdempotencyKey: `maternity_fetal_kicks:${fetalKick.id}:audit:${canonicalRevision}:tx:${txRevision}`,
     }, { db: tx, strict: true });
 
     return fetalKick;
@@ -1699,6 +1773,9 @@ export async function setSupplementReminder({
       notes: updated.notes || null,
       prescribed_by: updated.prescribed_by ? String(updated.prescribed_by) : null,
     });
+    // Exact retries returned above via the equality guard; a toggle back to a
+    // previous preference must still record its own canonical revision.
+    const txRevision = await currentCanonicalTransactionRevision(tx);
 
     await recordCanonicalClinicalEvent({
       tenantId: tid,
@@ -1723,8 +1800,8 @@ export async function setSupplementReminder({
         reminder_enabled: updated.reminder_enabled,
       },
       tags: ['maternity', 'supplement', 'reminder-preference'],
-      timelineIdempotencyKey: `maternity_supplements:${updated.id}:reminder:${canonicalRevision}`,
-      auditIdempotencyKey: `maternity_supplements:${updated.id}:audit:reminder:${canonicalRevision}`,
+      timelineIdempotencyKey: `maternity_supplements:${updated.id}:reminder:${canonicalRevision}:tx:${txRevision}`,
+      auditIdempotencyKey: `maternity_supplements:${updated.id}:audit:reminder:${canonicalRevision}:tx:${txRevision}`,
     }, { db: tx, strict: true });
 
     return updated;

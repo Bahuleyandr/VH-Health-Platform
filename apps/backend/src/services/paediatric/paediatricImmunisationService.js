@@ -19,7 +19,10 @@ import { createHash } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+} from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_STATUSES = new Set([
@@ -488,6 +491,51 @@ export async function recordDose({
     if (!initial.length) throw AppError.notFound(`Immunisation row ${id} not found`);
 
     if (initial[0].newborn_immunisation_id == null) {
+      // Effective-state no-op guard (canonical revision-sequence fix).
+      // Mirror the CASE/COALESCE semantics of the UPDATE below against the
+      // row-locked current state: an exact retry must return before the
+      // UPDATE (tuple keeps xmin/updated_at, no canonical revision), and two
+      // concurrent identical mutations collapse because the loser re-reads
+      // the winner's committed state under FOR UPDATE. The lock is taken
+      // only in the unlinked branch — the linked branch below keeps its
+      // table-lock-first ordering.
+      const guardRows = await tx.$queryRawUnsafe(
+        `SELECT p.id, p.patient_uid, p.status, p.given_at, p.given_by,
+                p.given_by_name, p.batch_number, p.manufacturer,
+                p.site_of_injection, p.adverse_event, p.notes,
+                p.vaccine_catalogue_id, p.updated_at,
+                (
+                      p.status IS NOT DISTINCT FROM $2::varchar
+                  AND p.given_at IS NOT DISTINCT FROM (CASE
+                        WHEN $2::varchar = 'given' THEN COALESCE(p.given_at, $3::timestamptz)
+                        ELSE COALESCE($3::timestamptz, p.given_at)
+                      END)
+                  AND p.given_by IS NOT DISTINCT FROM COALESCE($4::uuid, p.given_by)
+                  AND p.given_by_name IS NOT DISTINCT FROM COALESCE($5, p.given_by_name)
+                  AND p.batch_number IS NOT DISTINCT FROM COALESCE($6, p.batch_number)
+                  AND p.manufacturer IS NOT DISTINCT FROM COALESCE($7, p.manufacturer)
+                  AND p.site_of_injection IS NOT DISTINCT FROM COALESCE($8, p.site_of_injection)
+                  AND p.adverse_event IS NOT DISTINCT FROM COALESCE($9, p.adverse_event)
+                  AND p.notes IS NOT DISTINCT FROM COALESCE($10, p.notes)
+                ) AS effective_state_unchanged
+           FROM patient_immunisations p
+          WHERE p.id = $1::int
+            AND p.tenant_id = $11::uuid
+            AND p.newborn_immunisation_id IS NULL
+          FOR UPDATE`,
+        id, ...updateArgs,
+      );
+      if (!guardRows.length) {
+        throw AppError.conflict(
+          'Immunisation linkage changed while the dose was being recorded',
+          'PAEDIATRIC_IMMUNISATION_LINK_CHANGED',
+        );
+      }
+      if (guardRows[0].effective_state_unchanged === true) {
+        const { effective_state_unchanged: _unchanged, ...existingDose } = guardRows[0];
+        return existingDose;
+      }
+
       const patientResult = await tx.$queryRawUnsafe(
         `UPDATE patient_immunisations
             SET status = $2::varchar,
@@ -530,6 +578,10 @@ export async function recordDose({
         payload.site_of_injection = dose.site_of_injection || null;
       }
       const canonicalFingerprint = canonicalDoseFingerprint(dose);
+      // Genuine mutation: bind the revision to this transaction's xid8 so an
+      // A -> B -> A return to earlier cold-chain facts still records its own
+      // timeline/audit revision instead of colliding with revision 1's key.
+      const txRevision = await currentCanonicalTransactionRevision(tx);
       await recordCanonicalClinicalEvent({
         tenantId: tid,
         patientUid: String(dose.patient_uid),
@@ -552,8 +604,8 @@ export async function recordDose({
           manufacturer: dose.status === 'given' ? dose.manufacturer || null : null,
           site_of_injection: dose.status === 'given' ? dose.site_of_injection || null : null,
         },
-        timelineIdempotencyKey: `patient_immunisations:${dose.id}:recorded:${canonicalFingerprint}`,
-        auditIdempotencyKey: `patient_immunisations:${dose.id}:audit:recorded:${canonicalFingerprint}`,
+        timelineIdempotencyKey: `patient_immunisations:${dose.id}:recorded:${canonicalFingerprint}:tx:${txRevision}`,
+        auditIdempotencyKey: `patient_immunisations:${dose.id}:audit:recorded:${canonicalFingerprint}:tx:${txRevision}`,
       }, { db: tx, strict: true });
       return dose;
     }
@@ -626,6 +678,11 @@ export async function recordDose({
     if (exactRows[0].status !== 'scheduled') {
       const persistedDose = exactRows[0];
       const canonicalFingerprint = canonicalDoseFingerprint(persistedDose);
+      // Newborn-dose revisions written after the canonical revision-sequence
+      // fix carry a `:tx:<xid8>` suffix on top of the state-fingerprint base;
+      // rows written before it are the bare base. A semantically identical
+      // retry must recognise both, so match the exact legacy key OR any
+      // xid8-suffixed key sharing this persisted-state base.
       const retryKeys = {
         timeline: `newborn_immunisations:${persistedDose.id}:recorded:${canonicalFingerprint}`,
         audit: `newborn_immunisations:${persistedDose.id}:audit:recorded:${canonicalFingerprint}`,
@@ -650,7 +707,8 @@ export async function recordDose({
                        AND patient_uid = $2::uuid
                        AND source_table = 'newborn_immunisations'
                        AND source_id = $3::text
-                       AND idempotency_key = $4::text
+                       AND (idempotency_key = $4::text
+                            OR left(idempotency_key, length($6::text)) = $6::text)
                   ) AS timeline_exists,
                   EXISTS (
                     SELECT 1
@@ -659,13 +717,16 @@ export async function recordDose({
                        AND patient_uid = $2::uuid
                        AND resource_table = 'newborn_immunisations'
                        AND resource_id = $3::text
-                       AND idempotency_key = $5::text
+                       AND (idempotency_key = $5::text
+                            OR left(idempotency_key, length($7::text)) = $7::text)
                   ) AS audit_exists`,
           tid,
           patientDose.patient_uid,
           String(exactRows[0].id),
           retryKeys.timeline,
           retryKeys.audit,
+          `${retryKeys.timeline}:tx:`,
+          `${retryKeys.audit}:tx:`,
         )
         : [];
       if (canonicalRows[0]?.timeline_exists && canonicalRows[0]?.audit_exists) {
@@ -723,6 +784,9 @@ export async function recordDose({
       payload.site_of_injection = dose.site_of_injection || null;
     }
     const canonicalFingerprint = canonicalDoseFingerprint(dose);
+    // Same xid8 stamping as the unlinked branch so the shared
+    // newborn_immunisations key namespace stays uniform going forward.
+    const txRevision = await currentCanonicalTransactionRevision(tx);
     await recordCanonicalClinicalEvent({
       tenantId: tid,
       patientUid: String(patientDose.patient_uid),
@@ -745,8 +809,8 @@ export async function recordDose({
         manufacturer: dose.status === 'given' ? dose.manufacturer || null : null,
         site_of_injection: dose.status === 'given' ? dose.site_of_injection || null : null,
       },
-      timelineIdempotencyKey: `newborn_immunisations:${dose.id}:recorded:${canonicalFingerprint}`,
-      auditIdempotencyKey: `newborn_immunisations:${dose.id}:audit:recorded:${canonicalFingerprint}`,
+      timelineIdempotencyKey: `newborn_immunisations:${dose.id}:recorded:${canonicalFingerprint}:tx:${txRevision}`,
+      auditIdempotencyKey: `newborn_immunisations:${dose.id}:audit:recorded:${canonicalFingerprint}:tx:${txRevision}`,
     }, { db: tx, strict: true });
 
     return {
