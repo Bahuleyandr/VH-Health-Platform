@@ -94,6 +94,49 @@ must write all required records in the same transaction:
 If any one of these writes fails, the workflow should roll back rather than
 leaving the detail table and timeline/audit layer out of sync.
 
+## Idempotency-Key Discipline
+
+`clinical_timeline_events.idempotency_key` and
+`clinical_audit_events.idempotency_key` are unique. The timeline writer
+absorbs a duplicate key via `ON CONFLICT (idempotency_key)` and the audit
+writer via a `DO NOTHING` + readback, so a key that repeats never records a
+second revision. That absorption is a feature for exact retries and a defect
+for genuine mutations — pick the key family accordingly:
+
+- **Insert-once lifecycle events** use a fixed key,
+  `<detail_table>:<id>[:qualifier]` (for example
+  `maternity_deliveries:<id>:recorded`). Correct only while the emit runs
+  exactly once per detail row — in the same transaction as the INSERT that
+  mints the id — and the record has no in-place amendment/correction path.
+- **Amendable records** (anything whose mutation path re-emits for the same
+  detail row) must use the PR #589 revision pattern:
+  `<detail_table>:<id>[:qualifier]:<state-fingerprint>:tx:<xid8>`, where the
+  `:tx:` suffix comes from
+  `canonicalClinicalPlatformService.currentCanonicalTransactionRevision(tx)`
+  inside the same tenant transaction, paired with an effective-state no-op
+  guard under a `FOR UPDATE` lock so exact retries return before any write.
+  Without the `:tx:` suffix, an A->B->A edit sequence regenerates revision
+  1's key on the return to A and the third revision is silently absorbed.
+
+The coupling rule: **a fixed key is a claim that the record is insert-once.**
+Adding any amendment, correction, or reopen path to such a record invalidates
+that claim — the new mutation path must either move the emit to the
+fingerprint + `:tx:` pattern or emit a distinct qualifier for the new
+lifecycle event. Never let a mutation re-emit an existing fixed key.
+
+Sites audited insert-once on 2026-07-14 (post-#589 adjacent-site audit):
+
+| Emit site | Fixed key | Why insert-once holds |
+| --- | --- | --- |
+| `maternityService.recordDelivery` | `maternity_deliveries:<id>:recorded` | No UPDATE/DELETE path in product code; routes are POST + GET only. |
+| `maternityService.recordPartographEntry` | `maternity_partograph_entries:<id>:recorded` | Append-only observation series; corrections are new entries. |
+| `maternityService.admitToLabor` | `maternity_labor_admissions:<id>:recorded` | Sole post-creation write is the one-way `active->delivered` transition inside `recordDelivery` (guarded, irreversible, surfaced via the delivery event's `afterState`); it never re-emits this key. |
+| `maternity/immunisationService.markScheduleUpToDate` | `clinical_notes:<review.id>:immunisation_review` | Note is born signed; `immunisation_review` is not an editable note type in `clinicalNotesService` (rejected before the admin override — pinned by `src/tests/unit/clinicalNotesUpdate.test.js`), addenda create new rows, repeat reviews insert new rows. |
+
+Families already on the fingerprint + `:tx:` pattern (PR #589): ANC visits,
+maternity supplements, supplement reminder preferences, fetal-kick logs,
+maternity newborn doses, paediatric unlinked patient doses.
+
 ## Encounter Lifecycle
 
 OP and IP work should attach to a formal encounter whenever possible.
