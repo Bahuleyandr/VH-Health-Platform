@@ -39,26 +39,37 @@ const TEST_TIMEOUT_MS = 60_000;
 
 jest.setTimeout(TEST_TIMEOUT_MS);
 
+// expectedRevisions reflects the #589 canonical revision regime for the six
+// fixed families: exact retries no-op (no canonical pair), every genuine
+// mutation owns one `<state-fingerprint>:tx:<xid8>`-keyed pair. The ANC visit
+// carries 3 revisions because the revision-semantics step below drives one
+// A -> B -> A cycle through the staff API (initial + B + back-to-A); the
+// remaining events are written exactly once in this journey.
 const LANDED_CANONICAL_EVENTS = [
   {
     eventType: 'maternity.pregnancy_created',
-    sourceTable: 'maternity_pregnancies'
+    sourceTable: 'maternity_pregnancies',
+    expectedRevisions: 1
   },
   {
     eventType: 'maternity.anc_visit_recorded',
-    sourceTable: 'maternity_anc_visits'
+    sourceTable: 'maternity_anc_visits',
+    expectedRevisions: 3
   },
   {
     eventType: 'maternity.labor_admission_recorded',
-    sourceTable: 'maternity_labor_admissions'
+    sourceTable: 'maternity_labor_admissions',
+    expectedRevisions: 1
   },
   {
     eventType: 'maternity.partograph_entry_recorded',
-    sourceTable: 'maternity_partograph_entries'
+    sourceTable: 'maternity_partograph_entries',
+    expectedRevisions: 1
   },
   {
     eventType: 'maternity.delivery_recorded',
-    sourceTable: 'maternity_deliveries'
+    sourceTable: 'maternity_deliveries',
+    expectedRevisions: 1
   }
 ];
 
@@ -92,13 +103,14 @@ async function outboundCounts() {
 async function canonicalPair({ patientUid, eventType, sourceTable, sourceId }) {
   const timeline = await prisma.$queryRawUnsafe(
     `SELECT event_type, event_status, source_table, source_id, actor_uid,
-            actor_role, visible_to_patient, payload
+            actor_role, visible_to_patient, payload, idempotency_key
        FROM clinical_timeline_events
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
         AND event_type = $3
         AND source_table = $4
-        AND source_id = $5`,
+        AND source_id = $5
+      ORDER BY created_at`,
     DEFAULT_TENANT,
     patientUid,
     eventType,
@@ -107,18 +119,99 @@ async function canonicalPair({ patientUid, eventType, sourceTable, sourceId }) {
   );
   const audit = await prisma.$queryRawUnsafe(
     `SELECT action, action_status, resource_table, resource_id, actor_uid,
-            actor_role, after_state
+            actor_role, after_state, idempotency_key
        FROM clinical_audit_events
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
         AND action = $3
         AND resource_table = $4
-        AND resource_id = $5`,
+        AND resource_id = $5
+      ORDER BY created_at`,
     DEFAULT_TENANT,
     patientUid,
     eventType,
     sourceTable,
     String(sourceId)
+  );
+  return { timeline, audit };
+}
+
+// Split `<state-fingerprint-base>:tx:<xid8>` revision keys (#589 regime for
+// the six fixed canonical families). Genuine mutations carry a
+// transaction-unique numeric xid8 suffix; the base keeps the persisted-state
+// fingerprint, so A -> B -> A revisions 1 and 3 share a base while still
+// owning distinct revision pairs. Mirrors the authoritative helper in
+// maternity-anc-atomicity.deep.test.js / immunisation-canonical-atomicity.deep.test.js.
+function splitRevisionKey(key) {
+  const marker = String(key).lastIndexOf(':tx:');
+  if (marker === -1) return { base: String(key), tx: null };
+  return { base: String(key).slice(0, marker), tx: String(key).slice(marker + 4) };
+}
+
+// Tuple-identity probe: maternity_anc_visits has NO updated_at column (see the
+// service comment in recordAncVisit), so exact-retry stability is asserted via
+// xmin plus the full row image. `- 'alerts'` mirrors the deep-test helper.
+async function ancVisitTupleVersion(visitId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT xmin::text AS xmin, to_jsonb(v) - 'alerts' AS row_state
+       FROM maternity_anc_visits v
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(visitId),
+    DEFAULT_TENANT
+  );
+  return { xmin: rows[0].xmin, row_state: JSON.stringify(rows[0].row_state) };
+}
+
+async function newbornDoseTupleVersion(newbornImmunisationId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT xmin::text AS xmin, updated_at, to_jsonb(n) AS row_state
+       FROM newborn_immunisations n
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(newbornImmunisationId),
+    DEFAULT_TENANT
+  );
+  return {
+    xmin: rows[0].xmin,
+    updated_at: new Date(rows[0].updated_at).toISOString(),
+    row_state: JSON.stringify(rows[0].row_state)
+  };
+}
+
+async function userProjectionVersion(uid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT xmin::text AS xmin, updated_at, is_pregnant
+       FROM users
+      WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+    DEFAULT_TENANT,
+    uid
+  );
+  return {
+    xmin: rows[0].xmin,
+    updated_at: new Date(rows[0].updated_at).toISOString(),
+    is_pregnant: rows[0].is_pregnant
+  };
+}
+
+async function ancCanonicalRevisions(patientUid) {
+  const timeline = await prisma.$queryRawUnsafe(
+    `SELECT source_id, idempotency_key
+       FROM clinical_timeline_events
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND event_type = 'maternity.anc_visit_recorded'
+      ORDER BY created_at`,
+    DEFAULT_TENANT,
+    patientUid
+  );
+  const audit = await prisma.$queryRawUnsafe(
+    `SELECT resource_id, idempotency_key
+       FROM clinical_audit_events
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND action = 'maternity.anc_visit_recorded'
+      ORDER BY created_at`,
+    DEFAULT_TENANT,
+    patientUid
   );
   return { timeline, audit };
 }
@@ -336,6 +429,7 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
   let motherId;
   let pregnancyId;
   let ancVisitId;
+  let ancVisitPayload;
   let laborId;
   let partographId;
   let deliveryId;
@@ -483,7 +577,7 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     pregnancyId = Number(pregnancy.body.data.id);
     canonicalSourceIds.set('maternity.pregnancy_created', pregnancyId);
 
-    const anc = await doctor.post('/api/v1/maternity/anc-visits').send({
+    ancVisitPayload = {
       pregnancy_id: pregnancyId,
       visit_date: birthDate,
       gestational_age_weeks: 36,
@@ -493,7 +587,8 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       fetal_heart_rate_bpm: 146,
       fetal_movements_felt: true,
       presentation: 'cephalic'
-    });
+    };
+    const anc = await doctor.post('/api/v1/maternity/anc-visits').send(ancVisitPayload);
     expect(anc.statusCode).toBe(200);
     ancVisitId = Number(anc.body.data.id);
     expect(ancVisitId).toBeGreaterThan(0);
@@ -512,6 +607,93 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       is_pregnant: true,
       pregnancy_lmp_date: lmpDate
     });
+  });
+
+  it('replays exact ANC retries as no-ops and records A-B-A as three distinct revisions', async () => {
+    // Approved #589 regime (canonical revision-sequence fix, merged 4c160af47)
+    // exercised once end-to-end through the staff API; the exhaustive matrix
+    // lives in maternity-anc-atomicity.deep.test.js. Exact retries return via
+    // the effective-state guard: the visit tuple keeps its xmin (the table has
+    // no updated_at), the users.is_pregnant projection is untouched, and no
+    // canonical pair is emitted. Genuine mutations stamp
+    // `<state-fingerprint>:tx:<xid8>` keys on BOTH canonical tables, so an
+    // A -> B -> A cycle yields three distinct revision pairs whose first and
+    // third keys share a fingerprint base.
+    const tupleBefore = await ancVisitTupleVersion(ancVisitId);
+    const userBefore = await userProjectionVersion(MOTHER_UID);
+    const baseline = await ancCanonicalRevisions(MOTHER_UID);
+    expect(baseline.timeline).toHaveLength(1);
+    expect(baseline.audit).toHaveLength(1);
+
+    const exactRetry = await doctor.post('/api/v1/maternity/anc-visits').send(ancVisitPayload);
+    expect(exactRetry.statusCode).toBe(200);
+    expect(Number(exactRetry.body.data.id)).toBe(ancVisitId);
+
+    const tupleAfterRetry = await ancVisitTupleVersion(ancVisitId);
+    expect(tupleAfterRetry.xmin).toBe(tupleBefore.xmin);
+    expect(tupleAfterRetry.row_state).toBe(tupleBefore.row_state);
+    const userAfterRetry = await userProjectionVersion(MOTHER_UID);
+    expect(userAfterRetry.xmin).toBe(userBefore.xmin);
+    expect(userAfterRetry.updated_at).toBe(userBefore.updated_at);
+    expect(userAfterRetry.is_pregnant).toBe(true);
+    const afterRetry = await ancCanonicalRevisions(MOTHER_UID);
+    expect(afterRetry.timeline).toHaveLength(1);
+    expect(afterRetry.audit).toHaveLength(1);
+
+    // B keeps BP below the 140/90 pre-eclampsia alert threshold so the
+    // journey's notification-free invariant is not disturbed.
+    const stateB = await doctor
+      .post('/api/v1/maternity/anc-visits')
+      .send({ ...ancVisitPayload, bp_systolic: 122 });
+    expect(stateB.statusCode).toBe(200);
+    expect(Number(stateB.body.data.id)).toBe(ancVisitId);
+    const backToA = await doctor.post('/api/v1/maternity/anc-visits').send(ancVisitPayload);
+    expect(backToA.statusCode).toBe(200);
+    expect(Number(backToA.body.data.id)).toBe(ancVisitId);
+
+    // Still exactly one same-day visit row, restored byte-for-byte to state A
+    // (the UPSERT merges on (pregnancy_id, visit_date)); the tuple was
+    // genuinely rewritten along the way.
+    const visits = await prisma.$queryRawUnsafe(
+      `SELECT id, bp_systolic
+         FROM maternity_anc_visits
+        WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
+      DEFAULT_TENANT,
+      pregnancyId
+    );
+    expect(visits).toHaveLength(1);
+    expect(Number(visits[0].id)).toBe(ancVisitId);
+    expect(visits[0].bp_systolic).toBe(118);
+    const tupleFinal = await ancVisitTupleVersion(ancVisitId);
+    expect(tupleFinal.row_state).toBe(tupleBefore.row_state);
+    expect(tupleFinal.xmin).not.toBe(tupleBefore.xmin);
+
+    const revisions = await ancCanonicalRevisions(MOTHER_UID);
+    expect(revisions.timeline).toHaveLength(3);
+    expect(revisions.audit).toHaveLength(3);
+    expect(revisions.timeline.every(row => row.source_id === String(ancVisitId))).toBe(true);
+    expect(revisions.audit.every(row => row.resource_id === String(ancVisitId))).toBe(true);
+    expect(new Set(revisions.timeline.map(row => row.idempotency_key)).size).toBe(3);
+    expect(new Set(revisions.audit.map(row => row.idempotency_key)).size).toBe(3);
+
+    const timelineKeys = revisions.timeline.map(row => splitRevisionKey(row.idempotency_key));
+    const auditKeys = revisions.audit.map(row => splitRevisionKey(row.idempotency_key));
+    expect(timelineKeys.every(({ tx }) => tx && /^\d+$/.test(tx))).toBe(true);
+    expect(auditKeys.every(({ tx }) => tx && /^\d+$/.test(tx))).toBe(true);
+    expect(
+      timelineKeys.every(({ base }) => base.startsWith(`maternity_anc_visits:${ancVisitId}:`))
+    ).toBe(true);
+    expect(
+      auditKeys.every(({ base }) => base.startsWith(`maternity_anc_visits:${ancVisitId}:audit:`))
+    ).toBe(true);
+    // Revisions 1 and 3 share the persisted-state base but not the xid; the
+    // timeline and audit halves of each mutation share one transaction.
+    expect(timelineKeys[0].base).toBe(timelineKeys[2].base);
+    expect(timelineKeys[1].base).not.toBe(timelineKeys[0].base);
+    expect(timelineKeys[0].tx).not.toBe(timelineKeys[2].tx);
+    expect(auditKeys[0].base).toBe(auditKeys[2].base);
+    expect(auditKeys[0].tx).not.toBe(auditKeys[2].tx);
+    expect(auditKeys.map(({ tx }) => tx)).toEqual(timelineKeys.map(({ tx }) => tx));
   });
 
   it('rejects cross-tenant pregnancy reads and ANC writes without side effects', async () => {
@@ -620,7 +802,8 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
            FROM clinical_timeline_events
           WHERE tenant_id = $1::uuid
             AND patient_uid = $2::uuid
-            AND event_type = $3`,
+            AND event_type = $3
+          ORDER BY created_at`,
         DEFAULT_TENANT,
         MOTHER_UID,
         expected.eventType
@@ -631,34 +814,37 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
            FROM clinical_audit_events
           WHERE tenant_id = $1::uuid
             AND patient_uid = $2::uuid
-            AND action = $3`,
+            AND action = $3
+          ORDER BY created_at`,
         DEFAULT_TENANT,
         MOTHER_UID,
         expected.eventType
       );
-      expect(timeline).toHaveLength(1);
-      expect(audit).toHaveLength(1);
-      expect(timeline[0]).toMatchObject({
-        event_type: expected.eventType,
-        source_table: expected.sourceTable,
-        source_id: String(canonicalSourceIds.get(expected.eventType)),
-        actor_uid: DOCTOR_UID,
-        actor_role: 'DOCTOR',
-        visible_to_patient: false
-      });
-      expect(audit[0]).toMatchObject({
-        action: expected.eventType,
-        resource_table: expected.sourceTable,
-        resource_id: String(canonicalSourceIds.get(expected.eventType)),
-        actor_uid: DOCTOR_UID,
-        actor_role: 'DOCTOR',
-        action_status: 'success'
-      });
-      const canonicalText = JSON.stringify([
-        timeline[0].payload,
-        audit[0].after_state,
-        audit[0].metadata
-      ]);
+      // Per-family revision counts under the #589 regime — every genuine
+      // mutation owns exactly one timeline+audit pair, exact retries none.
+      expect(timeline).toHaveLength(expected.expectedRevisions);
+      expect(audit).toHaveLength(expected.expectedRevisions);
+      for (const row of timeline) {
+        expect(row).toMatchObject({
+          event_type: expected.eventType,
+          source_table: expected.sourceTable,
+          source_id: String(canonicalSourceIds.get(expected.eventType)),
+          actor_uid: DOCTOR_UID,
+          actor_role: 'DOCTOR',
+          visible_to_patient: false
+        });
+      }
+      for (const row of audit) {
+        expect(row).toMatchObject({
+          action: expected.eventType,
+          resource_table: expected.sourceTable,
+          resource_id: String(canonicalSourceIds.get(expected.eventType)),
+          actor_uid: DOCTOR_UID,
+          actor_role: 'DOCTOR',
+          action_status: 'success'
+        });
+      }
+      const canonicalText = JSON.stringify({ timeline, audit });
       for (const privateMarker of PRIVATE_MARKERS) {
         expect(canonicalText).not.toContain(privateMarker);
       }
@@ -857,6 +1043,11 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     expect(twinOneDose).toHaveLength(1);
     expect(Number(twinOneDose[0].newborn_id)).toBe(twinOneId);
 
+    // Subject attribution (patientUid here): the seed's clinical_patient_uid
+    // CASE resolves to the NEWBORN's own patient UID because the identity is
+    // present and unambiguous in-tenant; absent/ambiguous identities fall back
+    // to the MOTHER. This pins UNAPPROVED status-quo subject attribution
+    // pending decision D7 — will change with the signed shape.
     const newbornSeedCanonical = await canonicalPair({
       patientUid: TWIN_ONE_UID,
       eventType: 'immunisation.schedule_seeded',
@@ -911,10 +1102,23 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       .post(`/api/v1/paediatric/immunisations/${twinOneDose[0].patient_immunisation_id}/given`)
       .send(doseInput);
     expect(recorded.statusCode).toBe(200);
+
+    // #589 exact-retry semantics: a semantically identical retry succeeds as
+    // a no-op — the linked newborn tuple keeps its xmin/updated_at/row image
+    // and no new canonical pair is emitted (asserted below).
+    const doseTupleBefore = await newbornDoseTupleVersion(
+      twinOneDose[0].newborn_immunisation_id
+    );
     const exactRetry = await doctor
       .post(`/api/v1/paediatric/immunisations/${twinOneDose[0].patient_immunisation_id}/given`)
       .send(doseInput);
     expect(exactRetry.statusCode).toBe(200);
+    const doseTupleAfterRetry = await newbornDoseTupleVersion(
+      twinOneDose[0].newborn_immunisation_id
+    );
+    expect(doseTupleAfterRetry.xmin).toBe(doseTupleBefore.xmin);
+    expect(doseTupleAfterRetry.updated_at).toBe(doseTupleBefore.updated_at);
+    expect(doseTupleAfterRetry.row_state).toBe(doseTupleBefore.row_state);
 
     const stored = await prisma.$queryRawUnsafe(
       `SELECT pi.status AS patient_status, pi.given_at AS patient_given_at,
@@ -928,13 +1132,20 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     expect(stored[0].patient_status).toBe('scheduled');
     expect(stored[0].patient_given_at).toBeNull();
     expect(stored[0].newborn_status).toBe('given');
-    expect(stored[0].newborn_given_at).toBeTruthy();
+    // #590: given_at is a Date-typed instant end-to-end, so the stored value
+    // equals the submitted instant exactly, including on non-UTC hosts.
+    expect(new Date(stored[0].newborn_given_at).toISOString()).toBe(
+      `${birthDate}T12:00:00.000Z`
+    );
     expect(stored[0]).toMatchObject({
       batch_number: `JRN-${RUN}`,
       manufacturer: `Journey Manufacturer ${RUN}`,
       site_of_injection: 'left_thigh'
     });
 
+    // Subject attribution (patientUid here) follows the exact tenant-scoped
+    // newborn linkage; this pins UNAPPROVED status-quo subject attribution
+    // pending decision D7 — will change with the signed shape.
     const doseCanonical = await canonicalPair({
       patientUid: TWIN_ONE_UID,
       eventType: 'immunisation.dose_recorded',
@@ -943,6 +1154,24 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     });
     expect(doseCanonical.timeline).toHaveLength(1);
     expect(doseCanonical.audit).toHaveLength(1);
+    // #589 key regime: the genuine dose mutation owns one revision pair keyed
+    // `<table>:<id>:recorded:<sha256-state-fingerprint>:tx:<xid8>` (audit adds
+    // the `:audit:` segment); the exact retry above added none.
+    expect(doseCanonical.timeline[0].idempotency_key).toMatch(
+      new RegExp(
+        `^newborn_immunisations:${Number(twinOneDose[0].newborn_immunisation_id)}` +
+          ':recorded:[0-9a-f]{64}:tx:\\d+$'
+      )
+    );
+    expect(doseCanonical.audit[0].idempotency_key).toMatch(
+      new RegExp(
+        `^newborn_immunisations:${Number(twinOneDose[0].newborn_immunisation_id)}` +
+          ':audit:recorded:[0-9a-f]{64}:tx:\\d+$'
+      )
+    );
+    expect(splitRevisionKey(doseCanonical.timeline[0].idempotency_key).tx).toBe(
+      splitRevisionKey(doseCanonical.audit[0].idempotency_key).tx
+    );
     expect(doseCanonical.timeline[0]).toMatchObject({
       event_status: 'given',
       actor_uid: DOCTOR_UID,
@@ -994,6 +1223,10 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       DEFAULT_TENANT,
       twinTwoId
     );
+    // Ambiguous infant identity (two newborns claiming one patient UID) makes
+    // the linked write refuse with 409 instead of guessing a subject. This
+    // pins UNAPPROVED status-quo subject attribution pending decision D7 —
+    // will change with the signed shape.
     const ambiguousRetry = await doctor
       .post(`/api/v1/paediatric/immunisations/${twinOneDose[0].patient_immunisation_id}/given`)
       .send(doseInput);
