@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto';
 
+import { jest } from '@jest/globals';
+
 import prisma from '../lib/prisma.js';
 import {
   maybePropagateAncSupplements,
@@ -165,6 +167,61 @@ async function detailCount(table, pregnancyId) {
   return Number(rows[0].count);
 }
 
+// Split `<state-fingerprint-base>:tx:<xid8>` revision keys. Every genuine
+// mutation must carry a transaction-unique xid8 suffix; the base keeps the
+// persisted-state fingerprint so A->B->A revisions share bases 1 and 3.
+function splitRevisionKey(key) {
+  const marker = String(key).lastIndexOf(':tx:');
+  if (marker === -1) return { base: String(key), tx: null };
+  return { base: String(key).slice(0, marker), tx: String(key).slice(marker + 4) };
+}
+
+function expectRevisionKeySequence(timeline, audit) {
+  const timelineKeys = timeline.map(({ idempotency_key }) => splitRevisionKey(idempotency_key));
+  const auditKeys = audit.map(({ idempotency_key }) => splitRevisionKey(idempotency_key));
+  // Every genuine revision carries a numeric xid8 suffix.
+  expect(timelineKeys.every(({ tx }) => tx && /^\d+$/.test(tx))).toBe(true);
+  expect(auditKeys.every(({ tx }) => tx && /^\d+$/.test(tx))).toBe(true);
+  // Revisions 1 and 3 share the persisted-state hash base but not the xid.
+  expect(timelineKeys[0].base).toBe(timelineKeys[2].base);
+  expect(timelineKeys[1].base).not.toBe(timelineKeys[0].base);
+  expect(timelineKeys[0].tx).not.toBe(timelineKeys[2].tx);
+  expect(auditKeys[0].base).toBe(auditKeys[2].base);
+  expect(auditKeys[0].tx).not.toBe(auditKeys[2].tx);
+  // Timeline and audit rows of one mutation share the same transaction xid.
+  expect(auditKeys.map(({ tx }) => tx)).toEqual(timelineKeys.map(({ tx }) => tx));
+}
+
+async function tupleVersion(table, id) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT xmin::text AS xmin, created_at,
+            to_jsonb(t) - 'alerts' AS row_state
+       FROM ${table} t
+      WHERE id = $1::int`,
+    Number(id),
+  );
+  return {
+    xmin: rows[0].xmin,
+    created_at: new Date(rows[0].created_at).toISOString(),
+    row_state: JSON.stringify(rows[0].row_state),
+  };
+}
+
+async function userProjectionVersion(uid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT xmin::text AS xmin, updated_at, is_pregnant
+       FROM users
+      WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+    TENANT_A,
+    uid,
+  );
+  return {
+    xmin: rows[0].xmin,
+    updated_at: new Date(rows[0].updated_at).toISOString(),
+    is_pregnant: rows[0].is_pregnant,
+  };
+}
+
 async function cleanup() {
   for (const entry of [...installedTriggers]) await dropFailureTrigger(entry);
   if (createdUserUids.length) {
@@ -262,6 +319,122 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     });
   });
 
+  test('ANC A-to-B-to-A revisions each persist once while exact retries dedupe', async () => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    const input = {
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      visit_date: '2026-05-19',
+      weight_kg: 63.4,
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    };
+
+    await recordAncVisit(input);
+    await recordAncVisit(input);
+    await recordAncVisit({ ...input, weight_kg: 64.1 });
+    await recordAncVisit({ ...input, weight_kg: 64.1 });
+    await recordAncVisit(input);
+    await recordAncVisit(input);
+
+    const visits = await prisma.$queryRawUnsafe(
+      `SELECT id, weight_kg::text AS weight_kg
+         FROM maternity_anc_visits
+        WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(visits).toHaveLength(1);
+    expect(Number(visits[0].weight_kg)).toBe(63.4);
+
+    const { timeline, audit } = await canonicalRows(patientUid, 'maternity.anc_visit_recorded');
+    expect(timeline).toHaveLength(3);
+    expect(audit).toHaveLength(3);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expectRevisionKeySequence(timeline, audit);
+  });
+
+  test('ANC exact retry leaves the visit tuple and the pregnancy projection untouched', async () => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    const input = {
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      visit_date: '2026-05-21',
+      weight_kg: 62.8,
+      notes: 'tuple stability baseline',
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    };
+    const visit = await recordAncVisit(input);
+
+    const visitBefore = await tupleVersion('maternity_anc_visits', visit.id);
+    const userBefore = await userProjectionVersion(patientUid);
+    await recordAncVisit(input);
+    const visitAfter = await tupleVersion('maternity_anc_visits', visit.id);
+    const userAfter = await userProjectionVersion(patientUid);
+
+    expect(visitAfter.xmin).toBe(visitBefore.xmin);
+    expect(visitAfter.row_state).toBe(visitBefore.row_state);
+    expect(userAfter.xmin).toBe(userBefore.xmin);
+    expect(userAfter.updated_at).toBe(userBefore.updated_at);
+    expect(userAfter.is_pregnant).toBe(true);
+
+    const { timeline, audit } = await canonicalRows(patientUid, 'maternity.anc_visit_recorded');
+    expect(timeline).toHaveLength(1);
+    expect(audit).toHaveLength(1);
+  });
+
+  test('concurrent ANC mutations collapse identical writes and keep distinct writes unique', async () => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    const input = {
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      visit_date: '2026-05-22',
+      weight_kg: 63.0,
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    };
+    await recordAncVisit(input);
+
+    await Promise.all([
+      recordAncVisit({ ...input, weight_kg: 66.2 }),
+      recordAncVisit({ ...input, weight_kg: 66.2 }),
+    ]);
+    let { timeline, audit } = await canonicalRows(patientUid, 'maternity.anc_visit_recorded');
+    expect(timeline).toHaveLength(2);
+    expect(audit).toHaveLength(2);
+
+    await Promise.all([
+      recordAncVisit({ ...input, weight_kg: 67.3 }),
+      recordAncVisit({ ...input, weight_kg: 68.4 }),
+    ]);
+    ({ timeline, audit } = await canonicalRows(patientUid, 'maternity.anc_visit_recorded'));
+    expect(timeline).toHaveLength(4);
+    expect(audit).toHaveLength(4);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 4);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 4);
+    const timelineTx = timeline.map(({ idempotency_key }) => splitRevisionKey(idempotency_key).tx);
+    const auditTx = audit.map(({ idempotency_key }) => splitRevisionKey(idempotency_key).tx);
+    expect(new Set(timelineTx)).toEqual(new Set(auditTx));
+
+    const visits = await prisma.$queryRawUnsafe(
+      `SELECT weight_kg::text AS weight_kg
+         FROM maternity_anc_visits
+        WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(visits).toHaveLength(1);
+    expect([67.3, 68.4]).toContain(Number(visits[0].weight_kg));
+  });
+
   test('ANC visit and pregnancy projection roll back when canonical timeline persistence fails', async () => {
     const patientUid = await seedUser();
     const pregnancy = await seedPregnancy({ patientUid });
@@ -332,15 +505,21 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
       actor_role: 'NURSING_STAFF',
     };
     const first = await recordSupplement(input);
+    const tupleBefore = await tupleVersion('maternity_supplements', first.id);
     const second = await recordSupplement(input);
+    const tupleAfterRetry = await tupleVersion('maternity_supplements', first.id);
     await recordSupplement({ ...input, dose: '90 mg' });
-    const fourth = await recordSupplement({ ...input, dose: '120 mg' });
-    const fifth = await recordSupplement({ ...input, dose: '120 mg' });
+    await recordSupplement({ ...input, dose: '90 mg' });
+    const fourth = await recordSupplement(input);
+    const fifth = await recordSupplement(input);
 
     expect(second.id).toBe(first.id);
     expect(second.continued).toBe(true);
+    expect(tupleAfterRetry.xmin).toBe(tupleBefore.xmin);
+    expect(tupleAfterRetry.row_state).toBe(tupleBefore.row_state);
     expect(fourth.id).toBe(first.id);
     expect(fifth.id).toBe(first.id);
+    expect(String(fifth.dose)).toBe('60 mg');
     expect(await detailCount('maternity_supplements', pregnancy.id)).toBe(1);
     const { timeline, audit } = await canonicalRows(patientUid, 'maternity.supplement_recorded');
     expect(timeline).toHaveLength(3);
@@ -360,9 +539,54 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     });
     expect(JSON.stringify(timeline[0].payload)).not.toContain('staff-only supplement narrative');
     expect(timeline.filter(({ event_status }) => event_status === 'continued')).toHaveLength(2);
+    expect(timeline.map(({ payload }) => payload.continued)).toEqual([false, true, true]);
     expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
     expect(audit).toHaveLength(3);
     expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expectRevisionKeySequence(timeline, audit);
+  });
+
+  test('concurrent supplement updates collapse identical writes and keep distinct writes unique', async () => {
+    const patientUid = await seedUser({ isPregnant: true });
+    const pregnancy = await seedPregnancy({ patientUid });
+    const input = {
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      supplement: 'iron',
+      dose: '60 mg',
+      frequency: 'once_daily',
+      start_date: '2026-05-17',
+      prescribed_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    };
+    await recordSupplement(input);
+
+    await Promise.all([
+      recordSupplement({ ...input, dose: '120 mg' }),
+      recordSupplement({ ...input, dose: '120 mg' }),
+    ]);
+    let { timeline, audit } = await canonicalRows(patientUid, 'maternity.supplement_recorded');
+    expect(timeline).toHaveLength(2);
+    expect(audit).toHaveLength(2);
+
+    await Promise.all([
+      recordSupplement({ ...input, dose: '150 mg' }),
+      recordSupplement({ ...input, dose: '180 mg' }),
+    ]);
+    ({ timeline, audit } = await canonicalRows(patientUid, 'maternity.supplement_recorded'));
+    expect(timeline).toHaveLength(4);
+    expect(audit).toHaveLength(4);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 4);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 4);
+    expect(await detailCount('maternity_supplements', pregnancy.id)).toBe(1);
+    const stored = await prisma.$queryRawUnsafe(
+      `SELECT dose FROM maternity_supplements
+        WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(['150 mg', '180 mg']).toContain(stored[0].dose);
   });
 
   test('supplement detail and timeline roll back when clinical audit persistence fails', async () => {
@@ -462,19 +686,29 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
       actor_role: 'PATIENT',
     };
     const first = await setSupplementReminder(input);
+    const tupleBefore = await tupleVersion('maternity_supplements', supplement.id);
     const second = await setSupplementReminder(input);
+    const tupleAfterRetry = await tupleVersion('maternity_supplements', supplement.id);
     const third = await setSupplementReminder({ ...input, reminder_enabled: true });
-    const fourth = await setSupplementReminder({ ...input, reminder_enabled: true });
+    const thirdRetry = await setSupplementReminder({ ...input, reminder_enabled: true });
+    const fourth = await setSupplementReminder(input);
+    const fifth = await setSupplementReminder(input);
 
     expect(first.reminder_enabled).toBe(false);
     expect(second.id).toBe(first.id);
+    expect(tupleAfterRetry.xmin).toBe(tupleBefore.xmin);
+    expect(tupleAfterRetry.row_state).toBe(tupleBefore.row_state);
     expect(third.reminder_enabled).toBe(true);
+    expect(thirdRetry.reminder_enabled).toBe(true);
     expect(fourth.id).toBe(first.id);
+    expect(fourth.reminder_enabled).toBe(false);
+    expect(fifth.id).toBe(first.id);
+    expect(fifth.reminder_enabled).toBe(false);
     const { timeline, audit } = await canonicalRows(
       patientUid,
       'maternity.supplement_reminder_updated',
     );
-    expect(timeline).toHaveLength(2);
+    expect(timeline).toHaveLength(3);
     expect(timeline[0]).toMatchObject({
       event_status: 'disabled',
       actor_uid: patientUid,
@@ -486,10 +720,65 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
         reminder_enabled: false,
       },
     });
-    expect(timeline.map(({ event_status }) => event_status).sort()).toEqual(['disabled', 'enabled']);
-    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 2);
+    expect(timeline.map(({ event_status }) => event_status)).toEqual(['disabled', 'enabled', 'disabled']);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expect(audit).toHaveLength(3);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expectRevisionKeySequence(timeline, audit);
+  });
+
+  test('concurrent reminder toggles never collide on canonical revision keys', async () => {
+    const patientUid = await seedUser({ isPregnant: true });
+    const pregnancy = await seedPregnancy({ patientUid });
+    const supplement = await seedSupplement({ pregnancyId: pregnancy.id });
+    const input = {
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      supplement_id: supplement.id,
+      actor_uid: patientUid,
+      actor_role: 'PATIENT',
+    };
+    await setSupplementReminder({ ...input, reminder_enabled: false });
+
+    // Concurrent identical toggles collapse to exactly one revision pair.
+    await Promise.all([
+      setSupplementReminder({ ...input, reminder_enabled: true }),
+      setSupplementReminder({ ...input, reminder_enabled: true }),
+    ]);
+    let { timeline, audit } = await canonicalRows(
+      patientUid,
+      'maternity.supplement_reminder_updated',
+    );
+    expect(timeline).toHaveLength(2);
     expect(audit).toHaveLength(2);
-    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 2);
+
+    // A boolean surface cannot make opposing concurrent writes both genuine
+    // in a fixed order, so assert coherence rather than a fixed count: keys
+    // stay unique and the newest revision matches the persisted state.
+    await Promise.all([
+      setSupplementReminder({ ...input, reminder_enabled: false }),
+      setSupplementReminder({ ...input, reminder_enabled: true }),
+    ]);
+    ({ timeline, audit } = await canonicalRows(
+      patientUid,
+      'maternity.supplement_reminder_updated',
+    ));
+    expect(timeline.length).toBeGreaterThanOrEqual(3);
+    expect(timeline.length).toBeLessThanOrEqual(4);
+    expect(audit.length).toBe(timeline.length);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key)))
+      .toHaveProperty('size', timeline.length);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key)))
+      .toHaveProperty('size', audit.length);
+    const stored = await prisma.$queryRawUnsafe(
+      `SELECT reminder_enabled FROM maternity_supplements WHERE id = $1::int`,
+      Number(supplement.id),
+    );
+    // Order-free coherence: from the enabled state, a lone genuine phase-2
+    // write can only be the disable (an enable would no-op), so 3 total
+    // revisions imply final disabled; 4 revisions mean disable-then-enable
+    // both landed, so the persisted state must be enabled.
+    expect(stored[0].reminder_enabled).toBe(timeline.length === 4);
   });
 
   test('reminder preference update rolls back when canonical audit persistence fails', async () => {
@@ -537,14 +826,20 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
       actor_role: 'PATIENT',
     };
     const first = await recordFetalKick(input);
+    const tupleBefore = await tupleVersion('maternity_fetal_kicks', first.id);
     const second = await recordFetalKick(input);
+    const tupleAfterRetry = await tupleVersion('maternity_fetal_kicks', first.id);
     await recordFetalKick({ ...input, kick_count: 9 });
-    const fourth = await recordFetalKick({ ...input, kick_count: 10 });
-    const fifth = await recordFetalKick({ ...input, kick_count: 10 });
+    await recordFetalKick({ ...input, kick_count: 9 });
+    const fourth = await recordFetalKick(input);
+    const fifth = await recordFetalKick(input);
 
     expect(second.id).toBe(first.id);
+    expect(tupleAfterRetry.xmin).toBe(tupleBefore.xmin);
+    expect(tupleAfterRetry.row_state).toBe(tupleBefore.row_state);
     expect(fourth.id).toBe(first.id);
     expect(fifth.id).toBe(first.id);
+    expect(Number(fifth.kick_count)).toBe(8);
     expect(await detailCount('maternity_fetal_kicks', pregnancy.id)).toBe(1);
     const { timeline, audit } = await canonicalRows(patientUid, 'maternity.fetal_kick_recorded');
     expect(timeline).toHaveLength(3);
@@ -565,15 +860,201 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     });
     expect(timeline[0].tags).toEqual(expect.arrayContaining(['patient_generated', 'unverified']));
     expect(JSON.stringify(timeline[0].payload)).not.toContain('patient narrative');
-    expect(timeline.map(({ payload }) => payload.kick_count).sort((a, b) => a - b)).toEqual([8, 9, 10]);
+    expect(timeline.map(({ payload }) => payload.kick_count)).toEqual([8, 9, 8]);
     expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
     expect(audit).toHaveLength(3);
     expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expectRevisionKeySequence(timeline, audit);
     expect(audit[0].after_state).toEqual({
       kick_count: 8,
       low_count_flag: true,
       verification_status: 'unverified',
     });
+  });
+
+  test('concurrent fetal-kick writes collapse identical entries and keep distinct entries unique', async () => {
+    const patientUid = await seedUser({ isPregnant: true });
+    const pregnancy = await seedPregnancy({ patientUid });
+    const input = {
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      log_date: '2026-05-20',
+      kick_count: 8,
+      observation_window_minutes: 720,
+      recorded_by: patientUid,
+      actor_uid: patientUid,
+      actor_role: 'PATIENT',
+    };
+    await recordFetalKick(input);
+
+    await Promise.all([
+      recordFetalKick({ ...input, kick_count: 11 }),
+      recordFetalKick({ ...input, kick_count: 11 }),
+    ]);
+    let { timeline, audit } = await canonicalRows(patientUid, 'maternity.fetal_kick_recorded');
+    expect(timeline).toHaveLength(2);
+    expect(audit).toHaveLength(2);
+
+    await Promise.all([
+      recordFetalKick({ ...input, kick_count: 12 }),
+      recordFetalKick({ ...input, kick_count: 13 }),
+    ]);
+    ({ timeline, audit } = await canonicalRows(patientUid, 'maternity.fetal_kick_recorded'));
+    expect(timeline).toHaveLength(4);
+    expect(audit).toHaveLength(4);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 4);
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 4);
+    expect(await detailCount('maternity_fetal_kicks', pregnancy.id)).toBe(1);
+    const stored = await prisma.$queryRawUnsafe(
+      `SELECT kick_count FROM maternity_fetal_kicks
+        WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect([12, 13]).toContain(Number(stored[0].kick_count));
+  });
+
+  test('supplement, reminder, and fetal-kick mutations reject a pregnancy from another tenant', async () => {
+    const patientUid = await seedUser({ tenantId: TENANT_B });
+    const pregnancy = await seedPregnancy({ patientUid, tenantId: TENANT_B });
+    const supplement = await seedSupplement({ pregnancyId: pregnancy.id, tenantId: TENANT_B });
+
+    await expect(recordSupplement({
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      supplement: 'calcium',
+      dose: '500 mg',
+      prescribed_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(setSupplementReminder({
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      supplement_id: supplement.id,
+      reminder_enabled: false,
+      actor_uid: patientUid,
+      actor_role: 'PATIENT',
+    })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(recordFetalKick({
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      log_date: '2026-05-21',
+      kick_count: 9,
+      recorded_by: patientUid,
+      actor_uid: patientUid,
+      actor_role: 'PATIENT',
+    })).rejects.toMatchObject({ statusCode: 404 });
+
+    const supplements = await prisma.$queryRawUnsafe(
+      `SELECT id, reminder_enabled FROM maternity_supplements WHERE pregnancy_id = $1::int`,
+      Number(pregnancy.id),
+    );
+    expect(supplements).toHaveLength(1);
+    expect(supplements[0].reminder_enabled).toBe(true);
+    const kicks = await prisma.$queryRawUnsafe(
+      `SELECT id FROM maternity_fetal_kicks WHERE pregnancy_id = $1::int`,
+      Number(pregnancy.id),
+    );
+    expect(kicks).toHaveLength(0);
+    for (const eventType of [
+      'maternity.supplement_recorded',
+      'maternity.supplement_reminder_updated',
+      'maternity.fetal_kick_recorded',
+    ]) {
+      const events = await canonicalRows(patientUid, eventType);
+      expect(events.timeline).toHaveLength(0);
+      expect(events.audit).toHaveLength(0);
+    }
+  });
+
+  test('a frozen JS clock still yields distinct genuine canonical revisions', async () => {
+    const patientUid = await seedUser({ isPregnant: true });
+    const pregnancy = await seedPregnancy({ patientUid });
+    const supplement = await seedSupplement({ pregnancyId: pregnancy.id });
+
+    jest.useFakeTimers({
+      now: new Date('2026-07-14T10:00:00.000Z'),
+      doNotFake: [
+        'hrtime', 'nextTick', 'performance', 'queueMicrotask',
+        'requestAnimationFrame', 'cancelAnimationFrame',
+        'requestIdleCallback', 'cancelIdleCallback',
+        'setImmediate', 'clearImmediate',
+        'setInterval', 'clearInterval',
+        'setTimeout', 'clearTimeout',
+      ],
+    });
+    try {
+      expect(Date.now()).toBe(new Date('2026-07-14T10:00:00.000Z').getTime());
+
+      const ancInput = {
+        tenantId: TENANT_A,
+        pregnancy_id: pregnancy.id,
+        visit_date: '2026-05-23',
+        weight_kg: 63.4,
+        recorded_by: ACTOR_UID,
+        actor_uid: ACTOR_UID,
+        actor_role: 'NURSING_STAFF',
+      };
+      await recordAncVisit(ancInput);
+      await recordAncVisit({ ...ancInput, weight_kg: 64.1 });
+      await recordAncVisit(ancInput);
+
+      const supplementInput = {
+        tenantId: TENANT_A,
+        pregnancy_id: pregnancy.id,
+        supplement: 'calcium',
+        dose: '500 mg',
+        frequency: 'once_daily',
+        start_date: '2026-05-23',
+        prescribed_by: ACTOR_UID,
+        actor_uid: ACTOR_UID,
+        actor_role: 'NURSING_STAFF',
+      };
+      await recordSupplement(supplementInput);
+      await recordSupplement({ ...supplementInput, dose: '750 mg' });
+      await recordSupplement(supplementInput);
+
+      const reminderInput = {
+        tenantId: TENANT_A,
+        pregnancy_id: pregnancy.id,
+        supplement_id: supplement.id,
+        actor_uid: patientUid,
+        actor_role: 'PATIENT',
+      };
+      await setSupplementReminder({ ...reminderInput, reminder_enabled: false });
+      await setSupplementReminder({ ...reminderInput, reminder_enabled: true });
+      await setSupplementReminder({ ...reminderInput, reminder_enabled: false });
+
+      const kickInput = {
+        tenantId: TENANT_A,
+        pregnancy_id: pregnancy.id,
+        log_date: '2026-05-23',
+        kick_count: 8,
+        observation_window_minutes: 720,
+        recorded_by: patientUid,
+        actor_uid: patientUid,
+        actor_role: 'PATIENT',
+      };
+      await recordFetalKick(kickInput);
+      await recordFetalKick({ ...kickInput, kick_count: 9 });
+      await recordFetalKick(kickInput);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    for (const eventType of [
+      'maternity.anc_visit_recorded',
+      'maternity.supplement_recorded',
+      'maternity.supplement_reminder_updated',
+      'maternity.fetal_kick_recorded',
+    ]) {
+      const { timeline, audit } = await canonicalRows(patientUid, eventType);
+      expect(timeline).toHaveLength(3);
+      expect(audit).toHaveLength(3);
+      expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+      expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    }
   });
 
   test('fetal-kick detail rolls back when canonical timeline persistence fails', async () => {

@@ -9,7 +9,10 @@ import { createHash } from 'node:crypto';
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+} from '../clinical/canonicalClinicalPlatformService.js';
 
 function dateOnly(value) {
   if (!value) return null;
@@ -235,6 +238,49 @@ export async function recordDose({
   if (!contexts.length) throw AppError.notFound('Immunisation row not found');
 
   return setTenantTx(tenantId, async (tx) => {
+    // Effective-state no-op guard (canonical revision-sequence fix). Mirror
+    // the CASE/COALESCE semantics of the UPDATE below against the locked
+    // current row: an exact retry (same effective persisted state) must
+    // return before the UPDATE so the tuple keeps its xmin/updated_at and no
+    // canonical revision is allocated. FOR UPDATE makes two concurrent
+    // identical mutations collapse — the loser re-reads the winner's
+    // committed state and no-ops.
+    const guardRows = await tx.$queryRawUnsafe(
+      `SELECT n.*,
+              (
+                    n.status IS NOT DISTINCT FROM $1::varchar
+                AND n.given_at IS NOT DISTINCT FROM (CASE
+                      WHEN $1::varchar = 'given' THEN COALESCE(n.given_at, NOW())
+                      ELSE n.given_at
+                    END)
+                AND n.given_by IS NOT DISTINCT FROM COALESCE($2::uuid, n.given_by)
+                AND n.given_by_name IS NOT DISTINCT FROM COALESCE($3, n.given_by_name)
+                AND n.batch_number IS NOT DISTINCT FROM COALESCE($4, n.batch_number)
+                AND n.manufacturer IS NOT DISTINCT FROM COALESCE($5, n.manufacturer)
+                AND n.site_of_injection IS NOT DISTINCT FROM COALESCE($6, n.site_of_injection)
+                AND n.adverse_event IS NOT DISTINCT FROM COALESCE($7, n.adverse_event)
+                AND n.notes IS NOT DISTINCT FROM COALESCE($8, n.notes)
+              ) AS effective_state_unchanged
+         FROM newborn_immunisations n
+        WHERE n.id = $9::int AND n.tenant_id = $10::uuid
+        FOR UPDATE`,
+      status,
+      given_by ? String(given_by) : null,
+      given_by_name || null,
+      batch_number || null,
+      manufacturer || null,
+      site_of_injection || null,
+      adverse_event || null,
+      notes || null,
+      Number(immunisation_id),
+      tenantId,
+    );
+    if (!guardRows.length) throw AppError.notFound('Immunisation row not found');
+    if (guardRows[0].effective_state_unchanged === true) {
+      const { effective_state_unchanged: _unchanged, ...existingDose } = guardRows[0];
+      return existingDose;
+    }
+
     const rows = await tx.$queryRawUnsafe(
       `UPDATE newborn_immunisations
           SET status = $1::varchar,
@@ -286,6 +332,10 @@ export async function recordDose({
       payload.site_of_injection = dose.site_of_injection || null;
     }
     const canonicalFingerprint = canonicalDoseFingerprint(dose);
+    // Genuine mutation (the guard above returned for exact retries): bind the
+    // revision to this transaction's xid8 so an A -> B -> A return to earlier
+    // cold-chain facts still records its own timeline/audit revision.
+    const txRevision = await currentCanonicalTransactionRevision(tx);
 
     await recordCanonicalClinicalEvent({
       tenantId,
@@ -309,8 +359,8 @@ export async function recordDose({
         manufacturer: dose.status === 'given' ? dose.manufacturer || null : null,
         site_of_injection: dose.status === 'given' ? dose.site_of_injection || null : null,
       },
-      timelineIdempotencyKey: `newborn_immunisations:${dose.id}:recorded:${canonicalFingerprint}`,
-      auditIdempotencyKey: `newborn_immunisations:${dose.id}:audit:recorded:${canonicalFingerprint}`,
+      timelineIdempotencyKey: `newborn_immunisations:${dose.id}:recorded:${canonicalFingerprint}:tx:${txRevision}`,
+      auditIdempotencyKey: `newborn_immunisations:${dose.id}:audit:recorded:${canonicalFingerprint}:tx:${txRevision}`,
     }, { db: tx, strict: true });
 
     return dose;

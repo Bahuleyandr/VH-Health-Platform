@@ -559,6 +559,27 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
   }
 }
 
+/**
+ * Transaction-unique revision token for canonical idempotency keys.
+ *
+ * State-fingerprint keys alone cannot represent A -> B -> A edit sequences:
+ * returning to a previously persisted state regenerates the old key, the
+ * ON CONFLICT paths above read the OLD rows back as success, and the return
+ * to A never gets its own timeline/audit revision. Callers that stamp
+ * fingerprint keys for genuine detail mutations must append
+ * `:tx:<xid8>` using this token, obtained INSIDE the same tenant
+ * transaction as the detail write, so every committed mutation owns exactly
+ * one new revision pair while exact retries are handled by effective-state
+ * no-op guards before any canonical emit.
+ */
+export async function currentCanonicalTransactionRevision(db) {
+  const client = dbClient(db);
+  const rows = await client.$queryRawUnsafe(
+    'SELECT pg_current_xact_id()::text AS revision',
+  );
+  return String(rows[0].revision);
+}
+
 export async function recordCanonicalClinicalEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
   const patientIdentityProvided = input.patientUid != null || input.patient_uid != null;

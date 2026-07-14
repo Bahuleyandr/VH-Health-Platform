@@ -34,8 +34,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
+let mockTxRevision = 0;
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: jest.fn(),
+  // Monotonic like pg_current_xact_id() so revision keys stay unique per write.
+  currentCanonicalTransactionRevision: jest.fn(async () => String(++mockTxRevision)),
 }));
 
 jest.unstable_mockModule('../../services/staff/credentialingService.js', () => ({

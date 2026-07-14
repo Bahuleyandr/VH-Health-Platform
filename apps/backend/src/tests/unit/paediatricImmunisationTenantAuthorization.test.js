@@ -21,8 +21,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
+let mockTxRevision = 0;
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+  // Monotonic like pg_current_xact_id() so revision keys stay unique per write.
+  currentCanonicalTransactionRevision: jest.fn(async () => String(++mockTxRevision)),
 }));
 
 const service = await import('../../services/paediatric/paediatricImmunisationService.js');
@@ -181,6 +184,15 @@ describe('paediatric immunisation tenant authorization', () => {
   it('records doses by id and tenant together', async () => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([{ id: 12, newborn_immunisation_id: null }])
+      // Effective-state no-op guard: a genuine change proceeds to the UPDATE.
+      .mockResolvedValueOnce([{
+        id: 12,
+        patient_uid: PATIENT,
+        status: 'scheduled',
+        given_at: null,
+        vaccine_catalogue_id: 9,
+        effective_state_unchanged: false,
+      }])
       .mockResolvedValueOnce([{
         id: 12,
         patient_uid: PATIENT,
@@ -213,7 +225,15 @@ describe('paediatric immunisation tenant authorization', () => {
     expect(lookupSql).toContain('tenant_id = $2::uuid');
     expect(lookupParams).toEqual([12, TENANT]);
 
-    const [sql, ...params] = queryRawUnsafeMock.mock.calls[1];
+    const [guardSql, ...guardParams] = queryRawUnsafeMock.mock.calls[1];
+    expect(guardSql).toContain('effective_state_unchanged');
+    expect(guardSql).toContain('p.tenant_id = $11::uuid');
+    expect(guardSql).toContain('p.newborn_immunisation_id IS NULL');
+    expect(guardSql).toContain('FOR UPDATE');
+    expect(guardParams[0]).toBe(12);
+    expect(guardParams[10]).toBe(TENANT);
+
+    const [sql, ...params] = queryRawUnsafeMock.mock.calls[2];
     expect(sql).toContain('UPDATE patient_immunisations');
     expect(sql).toContain('AND tenant_id = $11::uuid');
     expect(sql).toContain('AND newborn_immunisation_id IS NULL');

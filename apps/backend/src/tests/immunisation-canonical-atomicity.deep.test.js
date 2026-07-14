@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto';
 
+import { jest } from '@jest/globals';
+
 import prisma from '../lib/prisma.js';
 import {
   markScheduleUpToDate,
@@ -124,7 +126,7 @@ async function canonicalRows(patientUid, eventType, sourceTable = null) {
   const params = [patientUid, eventType, sourceTable];
   const timeline = await prisma.$queryRawUnsafe(
     `SELECT event_type, event_status, source_table, source_id, actor_uid,
-            actor_role, visible_to_patient, payload
+            actor_role, visible_to_patient, payload, idempotency_key
        FROM clinical_timeline_events
       WHERE patient_uid = $1::uuid AND event_type = $2
         AND ($3::text IS NULL OR source_table = $3)
@@ -132,7 +134,8 @@ async function canonicalRows(patientUid, eventType, sourceTable = null) {
     ...params
   );
   const audit = await prisma.$queryRawUnsafe(
-    `SELECT action, resource_table, resource_id, actor_uid, actor_role, after_state
+    `SELECT action, resource_table, resource_id, actor_uid, actor_role, after_state,
+            idempotency_key
        FROM clinical_audit_events
       WHERE patient_uid = $1::uuid AND action = $2
         AND ($3::text IS NULL OR resource_table = $3)
@@ -140,6 +143,42 @@ async function canonicalRows(patientUid, eventType, sourceTable = null) {
     ...params
   );
   return { timeline, audit };
+}
+
+// Split `<state-fingerprint-base>:tx:<xid8>` revision keys. Genuine dose
+// mutations must carry a transaction-unique xid8 suffix while A->B->A
+// revisions 1 and 3 share the persisted-state hash base.
+function splitRevisionKey(key) {
+  const marker = String(key).lastIndexOf(':tx:');
+  if (marker === -1) return { base: String(key), tx: null };
+  return { base: String(key).slice(0, marker), tx: String(key).slice(marker + 4) };
+}
+
+function expectRevisionKeySequence(timeline, audit) {
+  const timelineKeys = timeline.map(({ idempotency_key }) => splitRevisionKey(idempotency_key));
+  const auditKeys = audit.map(({ idempotency_key }) => splitRevisionKey(idempotency_key));
+  expect(timelineKeys.every(({ tx }) => tx && /^\d+$/.test(tx))).toBe(true);
+  expect(auditKeys.every(({ tx }) => tx && /^\d+$/.test(tx))).toBe(true);
+  expect(timelineKeys[0].base).toBe(timelineKeys[2].base);
+  expect(timelineKeys[1].base).not.toBe(timelineKeys[0].base);
+  expect(timelineKeys[0].tx).not.toBe(timelineKeys[2].tx);
+  expect(auditKeys[0].base).toBe(auditKeys[2].base);
+  expect(auditKeys[0].tx).not.toBe(auditKeys[2].tx);
+  expect(auditKeys.map(({ tx }) => tx)).toEqual(timelineKeys.map(({ tx }) => tx));
+}
+
+async function tupleVersion(table, id) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT xmin::text AS xmin, updated_at, to_jsonb(t) AS row_state
+       FROM ${table} t
+      WHERE id = $1::int`,
+    Number(id)
+  );
+  return {
+    xmin: rows[0].xmin,
+    updated_at: new Date(rows[0].updated_at).toISOString(),
+    row_state: JSON.stringify(rows[0].row_state)
+  };
 }
 
 async function patientDose(patientUid) {
@@ -373,7 +412,12 @@ d('M-D immunisation canonical atomicity', () => {
       actor_role: 'NURSING_STAFF'
     };
     await recordNewbornDose(input);
+    const tupleBefore = await tupleVersion('newborn_immunisations', doses[0].id);
     await recordNewbornDose(input);
+    const tupleAfterRetry = await tupleVersion('newborn_immunisations', doses[0].id);
+    expect(tupleAfterRetry.xmin).toBe(tupleBefore.xmin);
+    expect(tupleAfterRetry.updated_at).toBe(tupleBefore.updated_at);
+    expect(tupleAfterRetry.row_state).toBe(tupleBefore.row_state);
     const exactRetryRows = await canonicalRows(
       childUid,
       'immunisation.dose_recorded',
@@ -382,23 +426,47 @@ d('M-D immunisation canonical atomicity', () => {
     expect(exactRetryRows.timeline).toHaveLength(1);
     expect(exactRetryRows.audit).toHaveLength(1);
 
-    await recordNewbornDose({
+    const revised = {
       ...input,
       batch_number: 'NB-BATCH-2',
       manufacturer: 'NB Manufacturer Revised',
       site_of_injection: 'right_thigh'
-    });
+    };
+    await recordNewbornDose(revised);
+    await recordNewbornDose(revised);
+    await recordNewbornDose(input);
+    await recordNewbornDose(input);
     const { timeline, audit } = await canonicalRows(
       childUid,
       'immunisation.dose_recorded',
       'newborn_immunisations'
     );
-    expect(timeline).toHaveLength(2);
-    expect(audit).toHaveLength(2);
+    expect(timeline).toHaveLength(3);
+    expect(audit).toHaveLength(3);
     expect(timeline.map((row) => row.payload.batch_number)).toEqual([
       'NB-BATCH-1',
-      'NB-BATCH-2'
+      'NB-BATCH-2',
+      'NB-BATCH-1'
     ]);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty(
+      'size',
+      3
+    );
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 3);
+    expectRevisionKeySequence(timeline, audit);
+    const storedDose = await prisma.$queryRawUnsafe(
+      `SELECT status, batch_number, manufacturer, site_of_injection
+         FROM newborn_immunisations
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(doses[0].id),
+      TENANT_A
+    );
+    expect(storedDose[0]).toMatchObject({
+      status: 'given',
+      batch_number: 'NB-BATCH-1',
+      manufacturer: 'NB Manufacturer',
+      site_of_injection: 'left_thigh'
+    });
     expect(timeline[1]).toMatchObject({
       actor_uid: ACTOR_UID,
       actor_role: 'NURSING_STAFF',
@@ -633,7 +701,10 @@ d('M-D immunisation canonical atomicity', () => {
     const patientUid = await seedUser({ birthday: '2024-03-15' });
     await seedScheduleForPatient({ patientUid, dob: '2024-03-15', tenantId: TENANT_A });
     const dose = await patientDose(patientUid);
-    const firstGivenAt = '2026-07-14T04:30:00Z';
+    // Pass a Date, not an ISO string: Prisma's raw-param inference re-serializes
+    // datetime-shaped strings through the engine host timezone (double-shifts on
+    // non-UTC Windows hosts); Date params bind exactly.
+    const firstGivenAt = new Date('2026-07-14T04:30:00Z');
 
     await recordPatientDose({
       tenantId: TENANT_A,
@@ -645,16 +716,24 @@ d('M-D immunisation canonical atomicity', () => {
       batchNumber: 'PT-RETRY-1',
       actorRole: 'NURSING_STAFF'
     });
+    // A different request-side givenAt is still an effective-state retry for a
+    // 'given' dose: the persisted given_at is COALESCE-retained, so nothing in
+    // the tuple would change. The write must be a pure no-op.
+    const tupleBefore = await tupleVersion('patient_immunisations', dose.id);
     await recordPatientDose({
       tenantId: TENANT_A,
       immunisationId: dose.id,
       status: 'given',
-      givenAt: '2026-07-14T05:30:00Z',
+      givenAt: new Date('2026-07-14T05:30:00Z'),
       givenBy: ACTOR_UID,
       givenByName: 'M-D Atomic Nurse',
       batchNumber: 'PT-RETRY-1',
       actorRole: 'NURSING_STAFF'
     });
+    const tupleAfterRetry = await tupleVersion('patient_immunisations', dose.id);
+    expect(tupleAfterRetry.xmin).toBe(tupleBefore.xmin);
+    expect(tupleAfterRetry.updated_at).toBe(tupleBefore.updated_at);
+    expect(tupleAfterRetry.row_state).toBe(tupleBefore.row_state);
 
     let canonical = await canonicalRows(
       patientUid,
@@ -668,26 +747,49 @@ d('M-D immunisation canonical atomicity', () => {
       tenantId: TENANT_A,
       immunisationId: dose.id,
       status: 'given',
-      givenAt: '2026-07-14T08:30:00Z',
+      givenAt: new Date('2026-07-14T08:30:00Z'),
       givenBy: ACTOR_UID,
       givenByName: 'M-D Atomic Nurse',
       batchNumber: 'PT-RETRY-2',
-      manufacturer: 'Patient Manufacturer Revised',
-      siteOfInjection: 'right_thigh',
+      actorRole: 'NURSING_STAFF'
+    });
+    await recordPatientDose({
+      tenantId: TENANT_A,
+      immunisationId: dose.id,
+      status: 'given',
+      givenBy: ACTOR_UID,
+      givenByName: 'M-D Atomic Nurse',
+      batchNumber: 'PT-RETRY-2',
+      actorRole: 'NURSING_STAFF'
+    });
+    await recordPatientDose({
+      tenantId: TENANT_A,
+      immunisationId: dose.id,
+      status: 'given',
+      givenBy: ACTOR_UID,
+      givenByName: 'M-D Atomic Nurse',
+      batchNumber: 'PT-RETRY-1',
+      actorRole: 'NURSING_STAFF'
+    });
+    await recordPatientDose({
+      tenantId: TENANT_A,
+      immunisationId: dose.id,
+      status: 'given',
+      givenBy: ACTOR_UID,
+      givenByName: 'M-D Atomic Nurse',
+      batchNumber: 'PT-RETRY-1',
       actorRole: 'NURSING_STAFF'
     });
 
     const stored = await prisma.$queryRawUnsafe(
-      `SELECT given_at, batch_number, manufacturer, site_of_injection
+      `SELECT given_at, batch_number
          FROM patient_immunisations
         WHERE id = $1::int AND tenant_id = $2::uuid`,
       dose.id,
       TENANT_A
     );
     expect(stored[0]).toMatchObject({
-      batch_number: 'PT-RETRY-2',
-      manufacturer: 'Patient Manufacturer Revised',
-      site_of_injection: 'right_thigh'
+      batch_number: 'PT-RETRY-1'
     });
     expect(stored[0].given_at.toISOString()).toBe('2026-07-14T04:30:00.000Z');
     canonical = await canonicalRows(
@@ -695,12 +797,210 @@ d('M-D immunisation canonical atomicity', () => {
       'immunisation.dose_recorded',
       'patient_immunisations'
     );
-    expect(canonical.timeline).toHaveLength(2);
-    expect(canonical.audit).toHaveLength(2);
+    expect(canonical.timeline).toHaveLength(3);
+    expect(canonical.audit).toHaveLength(3);
     expect(canonical.timeline.map((row) => row.payload.batch_number)).toEqual([
       'PT-RETRY-1',
-      'PT-RETRY-2'
+      'PT-RETRY-2',
+      'PT-RETRY-1'
     ]);
+    expect(
+      new Set(canonical.timeline.map(({ idempotency_key }) => idempotency_key))
+    ).toHaveProperty('size', 3);
+    expect(
+      new Set(canonical.audit.map(({ idempotency_key }) => idempotency_key))
+    ).toHaveProperty('size', 3);
+    expectRevisionKeySequence(canonical.timeline, canonical.audit);
+  });
+
+  test('concurrent newborn dose mutations collapse identical writes and keep distinct writes unique', async () => {
+    const childUid = await seedUser();
+    const newborn = await seedNewborn({ linkedPatientUid: childUid });
+    await seedScheduleForNewborn({ tenantId: TENANT_A, newborn_id: newborn.newbornId });
+    const doses = await prisma.$queryRawUnsafe(
+      `SELECT id FROM newborn_immunisations WHERE newborn_id = $1::int`,
+      newborn.newbornId
+    );
+    const input = {
+      tenantId: TENANT_A,
+      immunisation_id: doses[0].id,
+      status: 'given',
+      given_by: ACTOR_UID,
+      given_by_name: 'M-D Atomic Nurse',
+      batch_number: 'NB-CONC-BASE',
+      actor_role: 'NURSING_STAFF'
+    };
+    await recordNewbornDose(input);
+
+    await Promise.all([
+      recordNewbornDose({ ...input, batch_number: 'NB-CONC-SAME' }),
+      recordNewbornDose({ ...input, batch_number: 'NB-CONC-SAME' })
+    ]);
+    let { timeline, audit } = await canonicalRows(
+      childUid,
+      'immunisation.dose_recorded',
+      'newborn_immunisations'
+    );
+    expect(timeline).toHaveLength(2);
+    expect(audit).toHaveLength(2);
+
+    await Promise.all([
+      recordNewbornDose({ ...input, batch_number: 'NB-CONC-X' }),
+      recordNewbornDose({ ...input, batch_number: 'NB-CONC-Y' })
+    ]);
+    ({ timeline, audit } = await canonicalRows(
+      childUid,
+      'immunisation.dose_recorded',
+      'newborn_immunisations'
+    ));
+    expect(timeline).toHaveLength(4);
+    expect(audit).toHaveLength(4);
+    expect(new Set(timeline.map(({ idempotency_key }) => idempotency_key))).toHaveProperty(
+      'size',
+      4
+    );
+    expect(new Set(audit.map(({ idempotency_key }) => idempotency_key))).toHaveProperty('size', 4);
+    const stored = await prisma.$queryRawUnsafe(
+      `SELECT batch_number FROM newborn_immunisations WHERE id = $1::int`,
+      Number(doses[0].id)
+    );
+    expect(['NB-CONC-X', 'NB-CONC-Y']).toContain(stored[0].batch_number);
+  });
+
+  test('concurrent unlinked patient dose mutations collapse identical writes and keep distinct writes unique', async () => {
+    const patientUid = await seedUser({ birthday: '2024-03-20' });
+    await seedScheduleForPatient({ patientUid, dob: '2024-03-20', tenantId: TENANT_A });
+    const dose = await patientDose(patientUid);
+    const input = {
+      tenantId: TENANT_A,
+      immunisationId: dose.id,
+      status: 'given',
+      givenAt: new Date('2026-07-14T03:15:00Z'),
+      givenBy: ACTOR_UID,
+      givenByName: 'M-D Atomic Nurse',
+      batchNumber: 'PT-CONC-BASE',
+      actorRole: 'NURSING_STAFF'
+    };
+    await recordPatientDose(input);
+
+    await Promise.all([
+      recordPatientDose({ ...input, batchNumber: 'PT-CONC-SAME' }),
+      recordPatientDose({ ...input, batchNumber: 'PT-CONC-SAME' })
+    ]);
+    let canonical = await canonicalRows(
+      patientUid,
+      'immunisation.dose_recorded',
+      'patient_immunisations'
+    );
+    expect(canonical.timeline).toHaveLength(2);
+    expect(canonical.audit).toHaveLength(2);
+
+    await Promise.all([
+      recordPatientDose({ ...input, batchNumber: 'PT-CONC-X' }),
+      recordPatientDose({ ...input, batchNumber: 'PT-CONC-Y' })
+    ]);
+    canonical = await canonicalRows(
+      patientUid,
+      'immunisation.dose_recorded',
+      'patient_immunisations'
+    );
+    expect(canonical.timeline).toHaveLength(4);
+    expect(canonical.audit).toHaveLength(4);
+    expect(
+      new Set(canonical.timeline.map(({ idempotency_key }) => idempotency_key))
+    ).toHaveProperty('size', 4);
+    expect(
+      new Set(canonical.audit.map(({ idempotency_key }) => idempotency_key))
+    ).toHaveProperty('size', 4);
+    const stored = await prisma.$queryRawUnsafe(
+      `SELECT batch_number FROM patient_immunisations WHERE id = $1::int`,
+      Number(dose.id)
+    );
+    expect(['PT-CONC-X', 'PT-CONC-Y']).toContain(stored[0].batch_number);
+  });
+
+  test('a frozen JS clock still yields distinct genuine dose revisions', async () => {
+    const childUid = await seedUser();
+    const newborn = await seedNewborn({ linkedPatientUid: childUid });
+    await seedScheduleForNewborn({ tenantId: TENANT_A, newborn_id: newborn.newbornId });
+    const newbornDoses = await prisma.$queryRawUnsafe(
+      `SELECT id FROM newborn_immunisations WHERE newborn_id = $1::int`,
+      newborn.newbornId
+    );
+    const patientUid = await seedUser({ birthday: '2024-04-15' });
+    await seedScheduleForPatient({ patientUid, dob: '2024-04-15', tenantId: TENANT_A });
+    const unlinkedDose = await patientDose(patientUid);
+
+    jest.useFakeTimers({
+      now: new Date('2026-07-14T10:00:00.000Z'),
+      doNotFake: [
+        'hrtime', 'nextTick', 'performance', 'queueMicrotask',
+        'requestAnimationFrame', 'cancelAnimationFrame',
+        'requestIdleCallback', 'cancelIdleCallback',
+        'setImmediate', 'clearImmediate',
+        'setInterval', 'clearInterval',
+        'setTimeout', 'clearTimeout'
+      ]
+    });
+    try {
+      expect(Date.now()).toBe(new Date('2026-07-14T10:00:00.000Z').getTime());
+
+      const newbornInput = {
+        tenantId: TENANT_A,
+        immunisation_id: newbornDoses[0].id,
+        status: 'given',
+        given_by: ACTOR_UID,
+        given_by_name: 'M-D Atomic Nurse',
+        batch_number: 'NB-FROZEN-1',
+        actor_role: 'NURSING_STAFF'
+      };
+      await recordNewbornDose(newbornInput);
+      await recordNewbornDose({ ...newbornInput, batch_number: 'NB-FROZEN-2' });
+      await recordNewbornDose(newbornInput);
+
+      const patientInput = {
+        tenantId: TENANT_A,
+        immunisationId: unlinkedDose.id,
+        status: 'given',
+        givenBy: ACTOR_UID,
+        givenByName: 'M-D Atomic Nurse',
+        batchNumber: 'PT-FROZEN-1',
+        actorRole: 'NURSING_STAFF'
+      };
+      await recordPatientDose(patientInput);
+      await recordPatientDose({ ...patientInput, batchNumber: 'PT-FROZEN-2' });
+      await recordPatientDose(patientInput);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    const newbornCanonical = await canonicalRows(
+      childUid,
+      'immunisation.dose_recorded',
+      'newborn_immunisations'
+    );
+    expect(newbornCanonical.timeline).toHaveLength(3);
+    expect(newbornCanonical.audit).toHaveLength(3);
+    expect(
+      new Set(newbornCanonical.timeline.map(({ idempotency_key }) => idempotency_key))
+    ).toHaveProperty('size', 3);
+    expect(
+      new Set(newbornCanonical.audit.map(({ idempotency_key }) => idempotency_key))
+    ).toHaveProperty('size', 3);
+
+    const patientCanonical = await canonicalRows(
+      patientUid,
+      'immunisation.dose_recorded',
+      'patient_immunisations'
+    );
+    expect(patientCanonical.timeline).toHaveLength(3);
+    expect(patientCanonical.audit).toHaveLength(3);
+    expect(
+      new Set(patientCanonical.timeline.map(({ idempotency_key }) => idempotency_key))
+    ).toHaveProperty('size', 3);
+    expect(
+      new Set(patientCanonical.audit.map(({ idempotency_key }) => idempotency_key))
+    ).toHaveProperty('size', 3);
   });
 
   test('patient dose update rolls back after a canonical failure', async () => {
@@ -743,7 +1043,7 @@ d('M-D immunisation canonical atomicity', () => {
       tenantId: TENANT_A,
       immunisationId: dose.id,
       status: 'given',
-      givenAt: '2026-07-14T06:30:00Z',
+      givenAt: new Date('2026-07-14T06:30:00Z'),
       givenBy: ACTOR_UID,
       givenByName: 'M-D Atomic Nurse',
       batchNumber: 'LINKED-RETRY-1',
