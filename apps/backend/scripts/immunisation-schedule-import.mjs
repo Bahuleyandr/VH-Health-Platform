@@ -3,9 +3,36 @@
 //
 // Usage:
 //   node scripts/immunisation-schedule-import.mjs --tenant <uuid> --schedule uip|iap|both --version 2026
+//   (preflight only; add --apply to write, and --retire-survivors to disposition
+//    catalogue rows that the incoming pack does not contain)
 //
 // The importer is intentionally operator-run. Existing patient/newborn schedule
 // rows are never updated; only vaccine_catalogue rows change for future seeds.
+//
+// FORK GUARD -----------------------------------------------------------------
+// Catalogue rows are matched on (tenant_id, code, dose_number) and the retire
+// pass only ever saw rows whose schedule_source matched the pack being imported.
+// Against the migration-160 seed (29 rows, all schedule_source='custom') that
+// meant an import FORKED the catalogue instead of replacing it:
+//
+//   * mig-160 seeds BCG with dose_number = NULL; the UIP pack ships BCG dose 1,
+//     so the probe could not match and a SECOND active BCG row was inserted.
+//   * the UIP pack ships PENTA while mig-160 carries the decomposed DPT/HEPB/HIB
+//     components. Being 'custom', they were never retired and stayed active, so
+//     every newly seeded child was booked for pentavalent AND each of its three
+//     component antigens. Same shape for IPV vs FIPV.
+//
+// The guard enforces one invariant, and it needs no clinical knowledge to do it:
+//
+//     after a run, every ACTIVE catalogue row must belong to the incoming pack.
+//
+// Any active row left outside the pack is a "survivor". Survivors are exactly
+// the fork, and the importer now refuses to run while any exist unless the
+// operator explicitly dispositions them with --retire-survivors. Note this
+// deliberately does NOT need a component/antigen map: DPT/HEPB/HIB are caught
+// because they are active rows absent from the incoming pack, not because the
+// importer knows PENTA contains them. Choosing an antigen-equivalence policy is
+// decision D6 and is not engineering's to make.
 
 import path from 'node:path';
 import process from 'node:process';
@@ -13,6 +40,26 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
 const VALID_SCHEDULES = new Set(['uip', 'iap', 'both']);
+
+export const FORK_GUARD_CODE = 'IMMUNISATION_IMPORT_WOULD_FORK_CATALOGUE';
+
+export class ImportForkError extends Error {
+  constructor(plan) {
+    const survivorList = plan.survivors
+      .map((r) => `${r.code}${r.dose_number == null ? '' : ` dose ${r.dose_number}`} (${r.schedule_source})`)
+      .join(', ');
+    super(
+      `${FORK_GUARD_CODE}: ${plan.survivors.length} active catalogue row(s) are not in the incoming pack `
+      + `and would remain active alongside it: ${survivorList}. `
+      + 'Re-run with --retire-survivors to retire them, or resolve decision D6 first.',
+    );
+    this.name = 'ImportForkError';
+    this.code = FORK_GUARD_CODE;
+    this.survivors = plan.survivors;
+    this.collisions = plan.collisions;
+    this.plan = plan;
+  }
+}
 
 export const UIP_SCHEDULE_ROWS = Object.freeze([
   ['uip', 'BCG', 'BCG', 1, 0, 365, 'Single dose at birth'],
@@ -82,18 +129,24 @@ export const IAP_SCHEDULE_ROWS = Object.freeze([
   : row));
 
 function parseArgs(argv) {
-  const args = { dryRun: false };
+  // Preflight is the default. Writing requires --apply.
+  const args = { apply: false, retireSurvivors: false };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--tenant') args.tenantId = argv[++i];
     else if (a === '--schedule') args.schedule = argv[++i];
     else if (a === '--version') args.version = argv[++i];
-    else if (a === '--dry-run') args.dryRun = true;
+    else if (a === '--apply') args.apply = true;
+    else if (a === '--retire-survivors') args.retireSurvivors = true;
+    // --dry-run is retained for the documented runbook invocation; it is now
+    // the default, so it is accepted as an explicit no-op.
+    else if (a === '--dry-run') args.apply = false;
     else {
       console.error(`Unknown argument: ${a}`);
       process.exit(2);
     }
   }
+  args.dryRun = !args.apply;
   return args;
 }
 
@@ -212,29 +265,153 @@ async function upsertCatalogueRow(client, tenantId, row, version) {
   );
 }
 
-async function retireMissingRows(client, tenantId, schedule, importedKeys, dryRun) {
-  const sources = sourcesFor(schedule);
+function isImportableRow(row, schedule) {
+  return sourcesFor(schedule).includes(row.schedule_source)
+    && Boolean(row.code)
+    && Boolean(row.display_name)
+    && Number.isInteger(row.recommended_age_days)
+    && row.recommended_age_days >= 0
+    && Number.isInteger(row.window_days)
+    && row.window_days >= 0;
+}
+
+async function retireRowIds(client, ids) {
+  if (!ids.length) return 0;
+  const res = await client.query(
+    `UPDATE vaccine_catalogue
+        SET active = FALSE,
+            retired_at = NOW()
+      WHERE id = ANY($1::int[])`,
+    [ids],
+  );
+  return res.rowCount;
+}
+
+async function retireMissingRows(client, tenantId, schedule, importedKeys) {
   const active = await client.query(
     `SELECT id, code, dose_number
        FROM vaccine_catalogue
       WHERE tenant_id = $1::uuid
         AND schedule_source = ANY($2::text[])
         AND active = TRUE`,
-    [tenantId, sources],
+    [tenantId, sourcesFor(schedule)],
   );
   const retireIds = active.rows
     .filter((row) => !importedKeys.has(keyFor(row)))
     .map((row) => row.id);
-  if (!dryRun && retireIds.length) {
-    await client.query(
-      `UPDATE vaccine_catalogue
-          SET active = FALSE,
-              retired_at = NOW()
-        WHERE id = ANY($1::int[])`,
-      [retireIds],
-    );
+  return retireRowIds(client, retireIds);
+}
+
+async function fetchCatalogue(client, tenantId) {
+  const res = await client.query(
+    `SELECT vc.id, vc.code, vc.dose_number, vc.display_name, vc.recommended_age_days,
+            vc.window_days, vc.description, vc.active, vc.schedule_source,
+            (SELECT COUNT(*)::int FROM newborn_immunisations ni
+              WHERE ni.vaccine_catalogue_id = vc.id)
+          + (SELECT COUNT(*)::int FROM patient_immunisations pi
+              WHERE pi.vaccine_catalogue_id = vc.id) AS referencing_doses
+       FROM vaccine_catalogue vc
+      WHERE vc.tenant_id = $1::uuid
+      ORDER BY vc.id`,
+    [tenantId],
+  );
+  return res.rows;
+}
+
+/**
+ * Read-only preflight. Computes exactly what an import would do, without
+ * writing anything. `survivors` is the fork: active rows the incoming pack does
+ * not contain and that nothing in the run would retire.
+ *
+ * The client must NOT already be inside a transaction.
+ */
+export async function planImport(client, { tenantId, schedule, rows = null }) {
+  const scheduleRows = (rows || buildScheduleRows(schedule)).map(normalizeRow);
+  const importable = scheduleRows.filter((row) => isImportableRow(row, schedule));
+  const existing = await fetchCatalogue(client, tenantId);
+
+  const byKey = new Map(existing.map((row) => [keyFor(row), row]));
+  const importedKeys = new Set(importable.map(keyFor));
+  const packSources = sourcesFor(schedule);
+
+  const inserts = [];
+  const updates = [];
+  for (const row of importable) {
+    // The probe deliberately ignores `active`, mirroring upsertCatalogueRow:
+    // re-importing a retired vaccine reactivates its existing row.
+    const match = byKey.get(keyFor(row));
+    if (!match) {
+      inserts.push(row);
+      continue;
+    }
+    const before = {
+      display_name: match.display_name,
+      recommended_age_days: match.recommended_age_days,
+      window_days: match.window_days,
+      description: match.description,
+      active: match.active,
+      schedule_source: match.schedule_source,
+    };
+    const after = {
+      display_name: row.display_name,
+      recommended_age_days: row.recommended_age_days,
+      window_days: row.window_days,
+      description: row.description,
+      active: true,
+      schedule_source: row.schedule_source,
+    };
+    updates.push({
+      id: match.id,
+      code: row.code,
+      dose_number: row.dose_number,
+      before,
+      after,
+      changed: Object.keys(after).filter((field) => before[field] !== after[field]),
+      // Reads join the LIVE catalogue row, so changing an age or window here
+      // retro-changes how these already-seeded doses render and whether they
+      // read as overdue. The operator is shown the blast radius.
+      referencing_doses: match.referencing_doses,
+    });
   }
-  return retireIds.length;
+
+  // Already handled by the retire pass: active, in-source, absent from the pack.
+  const retires = existing.filter((row) => row.active
+    && packSources.includes(row.schedule_source)
+    && !importedKeys.has(keyFor(row)));
+
+  // THE FORK: active rows outside the incoming pack that nothing would retire.
+  const survivors = existing.filter((row) => row.active
+    && !packSources.includes(row.schedule_source)
+    && !importedKeys.has(keyFor(row)));
+
+  // Dose-identity collisions: the pack and the catalogue disagree on whether a
+  // vaccine's dose is numbered at all (mig-160 BCG dose NULL vs UIP BCG dose 1).
+  // Always a subset of `survivors`, but surfaced as its own class because it
+  // signals an authority-level disagreement about dose identity (decision D6).
+  const collisions = [];
+  for (const row of existing) {
+    if (!row.active) continue;
+    const clash = importable.find((incoming) => incoming.code === row.code
+      && (incoming.dose_number == null) !== (row.dose_number == null));
+    if (clash) {
+      collisions.push({
+        code: row.code,
+        existing_id: row.id,
+        existing_dose_number: row.dose_number,
+        incoming_dose_number: clash.dose_number,
+      });
+    }
+  }
+
+  return {
+    inserts,
+    updates,
+    retires,
+    survivors,
+    collisions,
+    processed: scheduleRows.length,
+    skipped: scheduleRows.length - importable.length,
+  };
 }
 
 export async function importScheduleRows({
@@ -244,39 +421,56 @@ export async function importScheduleRows({
   version,
   dryRun = false,
   rows = null,
+  retireSurvivors = false,
 }) {
   const scheduleRows = (rows || buildScheduleRows(schedule)).map(normalizeRow);
-  const stats = { processed: 0, upserted: 0, retired: 0, skipped: 0, failed: 0 };
+  const importable = scheduleRows.filter((row) => isImportableRow(row, schedule));
+  const plan = await planImport(client, { tenantId, schedule, rows: scheduleRows });
+
+  const stats = {
+    processed: plan.processed,
+    upserted: 0,
+    retired: 0,
+    skipped: plan.skipped,
+    failed: 0,
+  };
   const batchId = await createBatch(client, { tenantId, schedule, version, dryRun, rows: scheduleRows });
+
+  // Fork guard: refuse before writing anything, and record the refused attempt.
+  if (plan.survivors.length && !retireSurvivors) {
+    const err = new ImportForkError(plan);
+    stats.failed = 1;
+    await finishBatch(client, batchId, 'failed', stats, err.message);
+    throw err;
+  }
+
+  if (dryRun) {
+    await finishBatch(client, batchId, 'completed', stats);
+    return { batchId, status: 'completed', dryRun: true, plan, ...stats };
+  }
+
+  // Every catalogue mutation commits or none does. The batch row is written
+  // outside this transaction on purpose, so the audit trail survives a rollback.
   try {
-    const importedKeys = new Set();
-    for (const row of scheduleRows) {
-      stats.processed += 1;
-      if (!sourcesFor(schedule).includes(row.schedule_source)
-        || !row.code
-        || !row.display_name
-        || !Number.isInteger(row.recommended_age_days)
-        || row.recommended_age_days < 0
-        || !Number.isInteger(row.window_days)
-        || row.window_days < 0) {
-        stats.skipped += 1;
-        continue;
-      }
-      importedKeys.add(keyFor(row));
-      if (!dryRun) {
-        await upsertCatalogueRow(client, tenantId, row, version);
-        stats.upserted += 1;
-      }
+    await client.query('BEGIN');
+    for (const row of importable) {
+      await upsertCatalogueRow(client, tenantId, row, version);
+      stats.upserted += 1;
     }
-    stats.retired = await retireMissingRows(client, tenantId, schedule, importedKeys, dryRun);
-    const status = stats.failed > 0 ? 'partial' : 'completed';
-    await finishBatch(client, batchId, status, stats);
-    return { batchId, status, ...stats };
+    stats.retired = await retireMissingRows(client, tenantId, schedule, new Set(importable.map(keyFor)));
+    if (retireSurvivors && plan.survivors.length) {
+      stats.retired += await retireRowIds(client, plan.survivors.map((row) => row.id));
+    }
+    await client.query('COMMIT');
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     stats.failed += 1;
     await finishBatch(client, batchId, 'failed', stats, err.message || String(err));
     throw err;
   }
+
+  await finishBatch(client, batchId, 'completed', stats);
+  return { batchId, status: 'completed', plan, ...stats };
 }
 
 async function main() {
@@ -302,16 +496,88 @@ async function main() {
   const startedAt = Date.now();
   try {
     const result = await importScheduleRows({ client, ...args });
+    printPlan(result.plan);
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
-      `${args.dryRun ? '[dry-run] ' : ''}${args.schedule} schedule ${args.version}: ` +
-      `processed ${result.processed}` +
-      `${args.dryRun ? '' : `, upserted ${result.upserted}, retired ${result.retired}`}` +
-      `, skipped ${result.skipped} in ${secs}s (batch ${result.batchId})`,
+      `\n${args.dryRun ? '[PREFLIGHT — nothing written] ' : '[APPLIED] '}`
+      + `${args.schedule} schedule ${args.version}: processed ${result.processed}`
+      + `${args.dryRun ? '' : `, upserted ${result.upserted}, retired ${result.retired}`}`
+      + `, skipped ${result.skipped} in ${secs}s (batch ${result.batchId})`,
     );
+    if (args.dryRun) {
+      console.log('Re-run with --apply to write these changes.');
+    }
     console.log('Clinical sign-off reminder: attach the named clinician approval to the tenant import evidence.');
+  } catch (err) {
+    if (err.code === FORK_GUARD_CODE) {
+      console.error('\nREFUSED — this import would FORK the catalogue.\n');
+      console.error(`${err.survivors.length} active row(s) are not in the incoming pack and nothing in this run`);
+      console.error('would retire them. They would stay active alongside the pack, so children seeded after');
+      console.error('this import would be booked for BOTH schedules:\n');
+      for (const row of err.survivors) {
+        console.error(`  - ${describeRow(row)}  [schedule_source=${row.schedule_source}]`);
+      }
+      if (err.collisions.length) {
+        console.error('\nDose-identity collisions (the pack and the catalogue disagree on whether the dose is');
+        console.error('numbered — the probe cannot match them, so the pack row would be inserted as a duplicate):\n');
+        for (const c of err.collisions) {
+          console.error(`  - ${c.code}: catalogue dose=${c.existing_dose_number ?? 'NULL'} vs pack dose=${c.incoming_dose_number ?? 'NULL'}`);
+        }
+      }
+      console.error('\nResolve by either:');
+      console.error('  * re-running with --retire-survivors to retire the rows above, or');
+      console.error('  * resolving decision D6 (immunisation authority) first — combining packs needs a signed');
+      console.error('    antigen-equivalence policy, which engineering must not invent.');
+      await client.end();
+      process.exit(3);
+    }
+    throw err;
   } finally {
-    await client.end();
+    await client.end().catch(() => {});
+  }
+}
+
+function describeRow(row) {
+  return `${row.code}${row.dose_number == null ? ' (no dose number)' : ` dose ${row.dose_number}`}`;
+}
+
+function printPlan(plan) {
+  if (!plan) return;
+  console.log('\n=== PREFLIGHT DIFF ===');
+
+  console.log(`\nINSERT (${plan.inserts.length}) — new catalogue rows:`);
+  for (const row of plan.inserts) {
+    console.log(`  + ${describeRow(row)} @ ${row.recommended_age_days}d (window ${row.window_days}d)`);
+  }
+
+  const changed = plan.updates.filter((u) => u.changed.length);
+  console.log(`\nUPDATE IN PLACE (${changed.length} of ${plan.updates.length} matched rows would change):`);
+  for (const u of changed) {
+    const timingChanged = u.changed.includes('recommended_age_days') || u.changed.includes('window_days');
+    console.log(`  ~ ${describeRow(u)}: ${u.changed.join(', ')}`);
+    if (timingChanged) {
+      console.log(`      age ${u.before.recommended_age_days}d -> ${u.after.recommended_age_days}d, `
+        + `window ${u.before.window_days}d -> ${u.after.window_days}d`);
+      if (u.referencing_doses > 0) {
+        console.log(`      WARNING: ${u.referencing_doses} already-seeded dose row(s) reference this catalogue row.`);
+        console.log('      Their due_date is fixed at seed time and will NOT move, but every read surface joins');
+        console.log('      the live catalogue row — so their displayed age/window, and whether they read as');
+        console.log('      overdue, will change retroactively.');
+      }
+    }
+  }
+
+  console.log(`\nRETIRE (${plan.retires.length}) — in-pack-source rows absent from this pack:`);
+  for (const row of plan.retires) {
+    console.log(`  - ${describeRow(row)}  [schedule_source=${row.schedule_source}]`);
+  }
+
+  console.log(`\nSURVIVORS (${plan.survivors.length}) — active rows OUTSIDE the incoming pack:`);
+  for (const row of plan.survivors) {
+    console.log(`  ! ${describeRow(row)}  [schedule_source=${row.schedule_source}]`);
+  }
+  if (plan.survivors.length) {
+    console.log('    These would remain active alongside the pack (a FORK) unless --retire-survivors is given.');
   }
 }
 
