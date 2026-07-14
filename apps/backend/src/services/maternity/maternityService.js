@@ -31,6 +31,7 @@ import {
   IDENTITY_MINTING_OUTCOMES,
   NEWBORN_OUTCOMES,
   newbornIdentityInvalid,
+  newbornIdentityRequired,
 } from './newbornIdentity.js';
 import {
   assertPrivilegeForGate,
@@ -2324,6 +2325,77 @@ function mapNewbornUniqueViolation(err) {
   return null;
 }
 
+// Newborn context for infant-scope canonical subject resolution: the newborn
+// row plus the delivery mother's patient uid (the E-3 mother-exclusion arm).
+async function loadNewbornSubjectContext(db, tenantId, newbornId) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT n.id, n.delivery_id, n.outcome, n.newborn_patient_uid,
+            p.patient_uid AS mother_patient_uid
+       FROM maternity_newborns n
+       JOIN maternity_deliveries d
+         ON d.id = n.delivery_id
+        AND d.tenant_id = n.tenant_id
+       JOIN maternity_pregnancies p
+         ON p.id = d.pregnancy_id
+        AND p.tenant_id = n.tenant_id
+      WHERE n.tenant_id = $1::uuid
+        AND n.id = $2::int`,
+    tenantId,
+    Number(newbornId),
+  );
+  return rows[0] || null;
+}
+
+/**
+ * D7 S-2 FULL scope (signed 2026-07-15): resolve and validate the canonical
+ * subject for an infant-scope maternity write, inside the caller's tenant
+ * transaction.
+ *
+ * Locks the newborn row FOR UPDATE (the per-newborn serialisation point,
+ * mirroring the immunisation paths), re-checks the identity link, enforces
+ * B-2 outcome gating, then runs the signed E-3 predicate (users row FOR
+ * UPDATE) and the E-c1 exclusivity re-check with migration 577's A-1 unique
+ * index as the structural backstop. Absent link, failed predicate, or
+ * ambiguity rejects fail-closed (409 NEWBORN_IDENTITY_REQUIRED /
+ * NEWBORN_IDENTITY_INVALID) — no proxy writes, no mother fallback.
+ *
+ * Returns the validated infant subject uid.
+ */
+async function assertInfantScopeSubject(tx, { tenantId, newbornId, motherPatientUid }) {
+  const lockedNewborns = await tx.$queryRawUnsafe(
+    `SELECT id, newborn_patient_uid, outcome
+       FROM maternity_newborns
+      WHERE id = $1::int AND tenant_id = $2::uuid
+      FOR UPDATE`,
+    Number(newbornId),
+    tenantId,
+  );
+  if (!lockedNewborns.length) throw AppError.notFound('Newborn not found');
+  if (!lockedNewborns[0].newborn_patient_uid) throw newbornIdentityRequired();
+  // B-2: identities exist only for babies who lived ('live',
+  // 'early_neonatal_death'); a stillbirth row carrying one is residual
+  // invalid data and stays rejected. B-r1 keeps early-neonatal-death events
+  // attributed to the baby's own identity.
+  if (!IDENTITY_MINTING_OUTCOMES.has(String(lockedNewborns[0].outcome))) {
+    throw newbornIdentityInvalid('identity_forbidden_for_outcome');
+  }
+  const subjectUid = String(lockedNewborns[0].newborn_patient_uid);
+  await assertNewbornIdentitySubject({
+    db: tx,
+    tenantId,
+    candidateUid: subjectUid,
+    motherPatientUid,
+    forUpdate: true,
+  });
+  await assertExclusiveNewbornLink({
+    db: tx,
+    tenantId,
+    candidateUid: subjectUid,
+    newbornId: Number(newbornId),
+  });
+  return subjectUid;
+}
+
 /**
  * D7 Shape-3 — the birth workflow atomically creates the infant's patient
  * identity + guardian link (decision record obgyn-d7-decision-record.md,
@@ -2599,8 +2671,21 @@ export async function recordNewborn({
   });
 }
 
+/**
+ * D7 M-C rework (signed 2026-07-15): an Apgar score is an infant-scope
+ * clinical write — the canonical subject is the newborn's OWN patient
+ * identity (S-2 FULL scope), validated through the signed E-3/E-c1 checks
+ * in-transaction. Detail UPSERT + one staff-only canonical timeline/audit
+ * pair commit or roll back together.
+ *
+ * The (newborn_id, time_minute) UPSERT makes this an AMENDABLE record, so
+ * canonical keys follow the PR #589 revision pattern (state fingerprint +
+ * `:tx:<xid8>`) behind an effective-state no-op guard — exact retries
+ * return before any write; A -> B -> A edits keep distinct revision keys.
+ */
 export async function recordApgar({
-  tenantId, newborn_id, time_minute, appearance, pulse, grimace, activity, respiration, recorded_by,
+  tenantId, newborn_id, time_minute, appearance, pulse, grimace, activity, respiration,
+  recorded_by, actor_uid, actor_role,
 }) {
   if (!newborn_id) throw AppError.badRequest('newborn_id is required');
   if (![1, 5, 10].includes(Number(time_minute))) {
@@ -2612,29 +2697,141 @@ export async function recordApgar({
       throw AppError.badRequest(`${k} must be 0-2`);
     }
   }
-  const newborn = await assertNewbornInTenant(tenantId, newborn_id);
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_apgar_scores
-       (newborn_id, time_minute, appearance, pulse, grimace, activity, respiration, recorded_by)
-     VALUES ($1::int, $2::int, $3::int, $4::int, $5::int, $6::int, $7::int, $8::uuid)
-     ON CONFLICT (newborn_id, time_minute) DO UPDATE SET
-       appearance = EXCLUDED.appearance,
-       pulse = EXCLUDED.pulse,
-       grimace = EXCLUDED.grimace,
-       activity = EXCLUDED.activity,
-       respiration = EXCLUDED.respiration,
-       recorded_by = EXCLUDED.recorded_by,
-       recorded_at = NOW()
-     RETURNING *`,
-    Number(newborn.id), Number(time_minute),
-    appearance != null ? Number(appearance) : null,
-    pulse != null ? Number(pulse) : null,
-    grimace != null ? Number(grimace) : null,
-    activity != null ? Number(activity) : null,
-    respiration != null ? Number(respiration) : null,
-    recorded_by ? String(recorded_by) : null,
-  );
-  return rows[0];
+  const tid = tenantOr(tenantId);
+  const newborn = await assertNewbornInTenant(tid, newborn_id);
+  // Fail fast on an absent identity link (B-2: a stillbirth newborn never
+  // has one); the authoritative re-checks run in-transaction under locks.
+  if (!newborn.newborn_patient_uid) throw newbornIdentityRequired();
+  const context = await loadNewbornSubjectContext(prisma, tid, newborn.id);
+  if (!context) throw AppError.notFound('Newborn not found');
+  const motherPatientUid = String(context.mother_patient_uid);
+
+  const incoming = {
+    appearance: appearance != null ? Number(appearance) : null,
+    pulse: pulse != null ? Number(pulse) : null,
+    grimace: grimace != null ? Number(grimace) : null,
+    activity: activity != null ? Number(activity) : null,
+    respiration: respiration != null ? Number(respiration) : null,
+    recorded_by: recorded_by ? String(recorded_by) : null,
+  };
+
+  return setTenantTx(tid, async (tx) => {
+    const subjectUid = await assertInfantScopeSubject(tx, {
+      tenantId: tid,
+      newbornId: newborn.id,
+      motherPatientUid,
+    });
+
+    // Effective-state no-op guard (canonical revision-sequence discipline,
+    // PR #589): compare the EXACT state the ON CONFLICT UPDATE below would
+    // persist (direct EXCLUDED overwrites) against the current row, locked
+    // FOR UPDATE under the newborn row lock taken above. An exact retry
+    // returns before the UPSERT so the row keeps its xmin, recorded_at is
+    // not re-stamped, and no new canonical revision is allocated.
+    const guardRows = await tx.$queryRawUnsafe(
+      `SELECT a.*,
+              (
+                    a.appearance  IS NOT DISTINCT FROM $4::int
+                AND a.pulse       IS NOT DISTINCT FROM $5::int
+                AND a.grimace     IS NOT DISTINCT FROM $6::int
+                AND a.activity    IS NOT DISTINCT FROM $7::int
+                AND a.respiration IS NOT DISTINCT FROM $8::int
+                AND a.recorded_by IS NOT DISTINCT FROM $9::uuid
+              ) AS effective_state_unchanged
+         FROM maternity_apgar_scores a
+        WHERE a.tenant_id = $1::uuid
+          AND a.newborn_id = $2::int
+          AND a.time_minute = $3::int
+        FOR UPDATE`,
+      tid, Number(newborn.id), Number(time_minute),
+      incoming.appearance, incoming.pulse, incoming.grimace,
+      incoming.activity, incoming.respiration, incoming.recorded_by,
+    );
+    if (guardRows.length && guardRows[0].effective_state_unchanged === true) {
+      const { effective_state_unchanged: _unchanged, ...existingScore } = guardRows[0];
+      return existingScore;
+    }
+
+    // total_score is computed here with migration 155's formula. 155 defined
+    // the column GENERATED ALWAYS AS (sum of COALESCEd components) STORED,
+    // but the regenerated 000_baseline (schema-drift fix 2026-05-12) carries
+    // it as a PLAIN integer — no generation, no default — so every write
+    // through the pre-rework path left it NULL. The service now owns the
+    // formula; the ON CONFLICT arm carries it via EXCLUDED.
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO maternity_apgar_scores
+         (newborn_id, time_minute, appearance, pulse, grimace, activity, respiration,
+          total_score, recorded_by, tenant_id)
+       VALUES ($1::int, $2::int, $3::int, $4::int, $5::int, $6::int, $7::int,
+               COALESCE($3::int, 0) + COALESCE($4::int, 0) + COALESCE($5::int, 0)
+                 + COALESCE($6::int, 0) + COALESCE($7::int, 0),
+               $8::uuid, $9::uuid)
+       ON CONFLICT (newborn_id, time_minute) DO UPDATE SET
+         appearance = EXCLUDED.appearance,
+         pulse = EXCLUDED.pulse,
+         grimace = EXCLUDED.grimace,
+         activity = EXCLUDED.activity,
+         respiration = EXCLUDED.respiration,
+         total_score = EXCLUDED.total_score,
+         recorded_by = EXCLUDED.recorded_by,
+         recorded_at = NOW()
+       WHERE maternity_apgar_scores.tenant_id = EXCLUDED.tenant_id
+       RETURNING *`,
+      Number(newborn.id), Number(time_minute),
+      incoming.appearance, incoming.pulse, incoming.grimace,
+      incoming.activity, incoming.respiration, incoming.recorded_by,
+      tid,
+    );
+    if (!rows.length) throw AppError.notFound('Apgar score not found');
+    const apgar = rows[0];
+
+    // Genuine mutation on an amendable row: fingerprint the CLINICAL state
+    // only (recorded_at is a stamp, not state — hashing it would break
+    // A -> B -> A key-base stability) and pair it with the transaction-
+    // unique xid8 so every committed mutation owns exactly one revision.
+    const canonicalRevision = canonicalStateFingerprint({
+      newborn_id: Number(apgar.newborn_id),
+      time_minute: Number(apgar.time_minute),
+      appearance: apgar.appearance == null ? null : Number(apgar.appearance),
+      pulse: apgar.pulse == null ? null : Number(apgar.pulse),
+      grimace: apgar.grimace == null ? null : Number(apgar.grimace),
+      activity: apgar.activity == null ? null : Number(apgar.activity),
+      respiration: apgar.respiration == null ? null : Number(apgar.respiration),
+      total_score: apgar.total_score == null ? null : Number(apgar.total_score),
+      recorded_by: apgar.recorded_by ? String(apgar.recorded_by) : null,
+    });
+    const txRevision = await currentCanonicalTransactionRevision(tx);
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: subjectUid,
+      eventType: 'maternity.apgar_recorded',
+      eventStatus: 'recorded',
+      sourceTable: 'maternity_apgar_scores',
+      sourceId: apgar.id,
+      resourceType: 'apgar_score',
+      resourceId: apgar.id,
+      actorUid: actor_uid || recorded_by || null,
+      actorRole: actor_role || null,
+      occurredAt: apgar.recorded_at,
+      visibleToPatient: false,
+      summary: 'Apgar score recorded',
+      payload: {
+        apgar_score_id: apgar.id,
+        newborn_id: Number(apgar.newborn_id),
+        time_minute: Number(apgar.time_minute),
+        total_score: apgar.total_score == null ? null : Number(apgar.total_score),
+      },
+      afterState: {
+        total_score: apgar.total_score == null ? null : Number(apgar.total_score),
+      },
+      tags: ['maternity', 'newborn', 'apgar'],
+      timelineIdempotencyKey: `maternity_apgar_scores:${apgar.id}:${canonicalRevision}:tx:${txRevision}`,
+      auditIdempotencyKey: `maternity_apgar_scores:${apgar.id}:audit:${canonicalRevision}:tx:${txRevision}`,
+    }, { db: tx, strict: true });
+
+    return apgar;
+  });
 }
 
 export async function getNewbornBundle({ tenantId, id }) {
@@ -2668,6 +2865,32 @@ export async function listNewbornsForDelivery({ tenantId, delivery_id }) {
 
 // ── Postnatal visits ────────────────────────────────────────────────
 
+const POSTNATAL_VISIT_KINDS = Object.freeze(['mother', 'baby', 'both']);
+
+const numberOrNull = (value) => (value == null ? null : Number(value));
+
+/**
+ * D7 M-C rework (signed 2026-07-15) — postnatal visits under the B-i rule:
+ *
+ * - visit_kind 'mother'  -> ONE canonical pair, subject = the mother.
+ * - visit_kind 'baby'    -> ONE canonical pair, subject = the infant's OWN
+ *   identity (S-2 FULL scope; E-3/E-c1-validated in-transaction).
+ * - visit_kind 'both'    -> ONE detail row, TWO canonical pairs (B-i dual
+ *   pairs): a maternal event carrying ONLY maternal facts and an infant
+ *   event carrying ONLY infant facts, with per-subject idempotency keys.
+ *   Detail row + both pairs commit or roll back together.
+ *
+ * F-1: a 'both' visit with no linked newborn is rejected (the baby record
+ * always exists under Shape 3 — staff link the baby first); 'baby' visits
+ * carry the same requirement. F-t1: the linked newborn must belong to this
+ * visit's delivery (mother-plus-twins = one visit per infant). F-n1: shared
+ * free-text notes / red-flags stay detail-row-only — never in either
+ * canonical payload.
+ *
+ * Rows are insert-once (POST + GET routes only, no amendment path), so the
+ * canonical emits use fixed per-subject lifecycle keys — see the
+ * Idempotency-Key Discipline table in docs/CANONICAL_CLINICAL_TIMELINE.md.
+ */
 export async function recordPostnatalVisit({
   tenantId, delivery_id, visit_at, visit_kind = 'mother', newborn_id,
   mother_temp_c, mother_pulse_bpm, mother_bp_systolic, mother_bp_diastolic,
@@ -2675,46 +2898,161 @@ export async function recordPostnatalVisit({
   baby_weight_g, baby_temperature_c, baby_feeding, baby_jaundice,
   baby_passed_meconium, baby_passed_urine, baby_cord_status,
   red_flags, notes, recorded_by,
+  actor_uid, actor_role,
 }) {
   if (!delivery_id) throw AppError.badRequest('delivery_id is required');
+  const visitKind = String(visit_kind || 'mother');
+  if (!POSTNATAL_VISIT_KINDS.includes(visitKind)) {
+    throw AppError.badRequest(
+      `visit_kind must be one of: ${POSTNATAL_VISIT_KINDS.join(', ')}`,
+    );
+  }
   const tid = tenantOr(tenantId);
   const delivery = await assertDeliveryInTenant(tid, delivery_id);
-  const newborn = newborn_id ? await assertNewbornInTenant(tid, newborn_id, delivery.id) : null;
+  const motherUid = String(delivery.patient_uid);
+  const infantScope = visitKind === 'baby' || visitKind === 'both';
+  const maternalScope = visitKind === 'mother' || visitKind === 'both';
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO maternity_postnatal_visits
-       (delivery_id, visit_at, visit_kind, newborn_id,
-        mother_temp_c, mother_pulse_bpm, mother_bp_systolic, mother_bp_diastolic,
-        uterine_involution, lochia, perineum_status, breastfeeding_status,
-        baby_weight_g, baby_temperature_c, baby_feeding, baby_jaundice,
-        baby_passed_meconium, baby_passed_urine, baby_cord_status,
-        red_flags, notes, recorded_by, tenant_id)
-     VALUES ($1::int, $2::timestamptz, $3, $4::int,
-             $5::numeric, $6::int, $7::int, $8::int,
-             $9, $10, $11, $12,
-             $13::int, $14::numeric, $15, $16,
-             $17, $18, $19,
-             $20::text[], $21, $22::uuid, $23::uuid)
-     RETURNING *`,
-    Number(delivery.id),
-    visit_at || new Date().toISOString(),
-    visit_kind,
-    newborn ? Number(newborn.id) : null,
-    mother_temp_c ? Number(mother_temp_c) : null,
-    mother_pulse_bpm ? Number(mother_pulse_bpm) : null,
-    mother_bp_systolic ? Number(mother_bp_systolic) : null,
-    mother_bp_diastolic ? Number(mother_bp_diastolic) : null,
-    uterine_involution || null, lochia || null,
-    perineum_status || null, breastfeeding_status || null,
-    baby_weight_g ? Number(baby_weight_g) : null,
-    baby_temperature_c ? Number(baby_temperature_c) : null,
-    baby_feeding || null, baby_jaundice || null,
-    baby_passed_meconium ?? null, baby_passed_urine ?? null,
-    baby_cord_status || null,
-    red_flags || null, notes || null,
-    recorded_by ? String(recorded_by) : null, tid,
-  );
-  return rows[0];
+  // F-1 (signed): infant-scope visits REQUIRE the newborn link.
+  if (infantScope && !newborn_id) {
+    throw AppError.conflict(
+      `A '${visitKind}' postnatal visit requires a linked newborn record`,
+      'MATERNITY_POSTNATAL_NEWBORN_LINK_REQUIRED',
+    );
+  }
+  // F-t1: assertNewbornInTenant(deliveryId) rejects a newborn from another
+  // delivery with a 403.
+  const newborn = newborn_id
+    ? await assertNewbornInTenant(tid, newborn_id, delivery.id)
+    : null;
+  // Fail fast on an absent identity link for infant-scope writes (B-2: a
+  // stillbirth newborn never has one); the authoritative E-3/E-c1 checks
+  // re-run in-transaction under row locks.
+  if (infantScope && !newborn.newborn_patient_uid) throw newbornIdentityRequired();
+
+  return setTenantTx(tid, async (tx) => {
+    const infantSubjectUid = infantScope
+      ? await assertInfantScopeSubject(tx, {
+        tenantId: tid,
+        newbornId: newborn.id,
+        motherPatientUid: motherUid,
+      })
+      : null;
+
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO maternity_postnatal_visits
+         (delivery_id, visit_at, visit_kind, newborn_id,
+          mother_temp_c, mother_pulse_bpm, mother_bp_systolic, mother_bp_diastolic,
+          uterine_involution, lochia, perineum_status, breastfeeding_status,
+          baby_weight_g, baby_temperature_c, baby_feeding, baby_jaundice,
+          baby_passed_meconium, baby_passed_urine, baby_cord_status,
+          red_flags, notes, recorded_by, tenant_id)
+       VALUES ($1::int, $2::timestamptz, $3, $4::int,
+               $5::numeric, $6::int, $7::int, $8::int,
+               $9, $10, $11, $12,
+               $13::int, $14::numeric, $15, $16,
+               $17, $18, $19,
+               $20::text[], $21, $22::uuid, $23::uuid)
+       RETURNING *`,
+      Number(delivery.id),
+      visit_at || new Date().toISOString(),
+      visitKind,
+      newborn ? Number(newborn.id) : null,
+      mother_temp_c ? Number(mother_temp_c) : null,
+      mother_pulse_bpm ? Number(mother_pulse_bpm) : null,
+      mother_bp_systolic ? Number(mother_bp_systolic) : null,
+      mother_bp_diastolic ? Number(mother_bp_diastolic) : null,
+      uterine_involution || null, lochia || null,
+      perineum_status || null, breastfeeding_status || null,
+      baby_weight_g ? Number(baby_weight_g) : null,
+      baby_temperature_c ? Number(baby_temperature_c) : null,
+      baby_feeding || null, baby_jaundice || null,
+      baby_passed_meconium ?? null, baby_passed_urine ?? null,
+      baby_cord_status || null,
+      red_flags || null, notes || null,
+      recorded_by ? String(recorded_by) : null, tid,
+    );
+    const visit = rows[0];
+
+    const eventBase = {
+      tenantId: tid,
+      eventType: 'maternity.postnatal_visit_recorded',
+      eventStatus: 'recorded',
+      sourceTable: 'maternity_postnatal_visits',
+      sourceId: visit.id,
+      resourceType: 'postnatal_visit',
+      resourceId: visit.id,
+      actorUid: actor_uid || recorded_by || null,
+      actorRole: actor_role || null,
+      occurredAt: visit.visit_at,
+      visibleToPatient: false,
+      tags: ['maternity', 'postnatal'],
+    };
+
+    // Maternal pair: ONLY maternal facts (strict per-subject payload
+    // separation; F-n1 keeps notes/red-flags out of both payloads).
+    if (maternalScope) {
+      await recordCanonicalClinicalEvent({
+        ...eventBase,
+        patientUid: motherUid,
+        summary: 'Postnatal visit recorded (mother)',
+        payload: {
+          postnatal_visit_id: visit.id,
+          delivery_id: Number(delivery.id),
+          visit_kind: visitKind,
+          subject_scope: 'mother',
+          mother_temp_c: numberOrNull(visit.mother_temp_c),
+          mother_pulse_bpm: numberOrNull(visit.mother_pulse_bpm),
+          mother_bp_systolic: numberOrNull(visit.mother_bp_systolic),
+          mother_bp_diastolic: numberOrNull(visit.mother_bp_diastolic),
+          uterine_involution: visit.uterine_involution || null,
+          lochia: visit.lochia || null,
+          perineum_status: visit.perineum_status || null,
+          breastfeeding_status: visit.breastfeeding_status || null,
+        },
+        afterState: {
+          postnatal_visit_recorded: true,
+          visit_kind: visitKind,
+          subject_scope: 'mother',
+        },
+        timelineIdempotencyKey: `maternity_postnatal_visits:${visit.id}:mother:recorded`,
+        auditIdempotencyKey: `maternity_postnatal_visits:${visit.id}:mother:audit:recorded`,
+      }, { db: tx, strict: true });
+    }
+
+    // Infant pair: ONLY infant facts, attributed to the infant's own
+    // validated identity (never the mother — no proxy, no fallback).
+    if (infantScope) {
+      await recordCanonicalClinicalEvent({
+        ...eventBase,
+        patientUid: infantSubjectUid,
+        summary: 'Postnatal visit recorded (baby)',
+        payload: {
+          postnatal_visit_id: visit.id,
+          delivery_id: Number(delivery.id),
+          visit_kind: visitKind,
+          subject_scope: 'infant',
+          newborn_id: Number(newborn.id),
+          baby_weight_g: numberOrNull(visit.baby_weight_g),
+          baby_temperature_c: numberOrNull(visit.baby_temperature_c),
+          baby_feeding: visit.baby_feeding || null,
+          baby_jaundice: visit.baby_jaundice || null,
+          baby_passed_meconium: visit.baby_passed_meconium ?? null,
+          baby_passed_urine: visit.baby_passed_urine ?? null,
+          baby_cord_status: visit.baby_cord_status || null,
+        },
+        afterState: {
+          postnatal_visit_recorded: true,
+          visit_kind: visitKind,
+          subject_scope: 'infant',
+        },
+        timelineIdempotencyKey: `maternity_postnatal_visits:${visit.id}:infant:recorded`,
+        auditIdempotencyKey: `maternity_postnatal_visits:${visit.id}:infant:audit:recorded`,
+      }, { db: tx, strict: true });
+    }
+
+    return visit;
+  });
 }
 
 export async function listPostnatalVisits({ tenantId, delivery_id }) {

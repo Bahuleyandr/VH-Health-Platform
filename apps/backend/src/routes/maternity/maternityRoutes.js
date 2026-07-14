@@ -196,6 +196,8 @@ router.post('/newborns/:id/apgar', requireStaffOrAdmin, wrap(async (req) =>
     tenantId: tenantOf(req),
     newborn_id: req.params.id,
     recorded_by: req.user?.uid,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 
@@ -205,6 +207,8 @@ router.post('/postnatal-visits', requireStaffOrAdmin, wrap(async (req) =>
     ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 

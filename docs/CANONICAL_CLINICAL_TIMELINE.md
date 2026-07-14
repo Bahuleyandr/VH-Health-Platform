@@ -133,10 +133,14 @@ Sites audited insert-once on 2026-07-14 (post-#589 adjacent-site audit):
 | `maternityService.recordPartographEntry` | `maternity_partograph_entries:<id>:recorded` | Append-only observation series; corrections are new entries. |
 | `maternityService.admitToLabor` | `maternity_labor_admissions:<id>:recorded` | Sole post-creation write is the one-way `active->delivered` transition inside `recordDelivery` (guarded, irreversible, surfaced via the delivery event's `afterState`); it never re-emits this key. |
 | `maternity/immunisationService.markScheduleUpToDate` | `clinical_notes:<review.id>:immunisation_review` | Note is born signed; `immunisation_review` is not an editable note type in `clinicalNotesService` (rejected before the admin override — pinned by `src/tests/unit/clinicalNotesUpdate.test.js`), addenda create new rows, repeat reviews insert new rows. |
+| `maternityService.recordPostnatalVisit` (maternal pair) | `maternity_postnatal_visits:<id>:mother:recorded` | Visits are point-in-time rows: POST + GET routes only, no UPDATE/DELETE path in product code. The `mother`/`infant` scope qualifiers keep the B-i dual pairs of a `'both'` visit (D7, signed 2026-07-15) on distinct per-subject keys against one detail row. |
+| `maternityService.recordPostnatalVisit` (infant pair) | `maternity_postnatal_visits:<id>:infant:recorded` | Same insert-once argument as the maternal pair; subject is the newborn's own E-3-validated identity. |
 
 Families already on the fingerprint + `:tx:` pattern (PR #589): ANC visits,
 maternity supplements, supplement reminder preferences, fetal-kick logs,
-maternity newborn doses, paediatric unlinked patient doses.
+maternity newborn doses, paediatric unlinked patient doses, maternity Apgar
+scores (D7 M-C rework — the `(newborn_id, time_minute)` UPSERT makes the row
+amendable).
 
 ## Encounter Lifecycle
 
