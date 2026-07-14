@@ -3,15 +3,26 @@ import express from 'express';
 import request from 'supertest';
 
 const createPregnancyMock = jest.fn(async () => ({ id: 41 }));
+const recordAncVisitMock = jest.fn(async () => ({ id: 49 }));
+const recordSupplementMock = jest.fn(async () => ({ id: 53 }));
 const admitToLaborMock = jest.fn(async () => ({ id: 57 }));
 const recordPartographEntryMock = jest.fn(async () => ({ id: 61 }));
+const recordFetalKickMock = jest.fn(async () => ({ id: 67 }));
 const recordDeliveryMock = jest.fn(async () => ({ id: 73 }));
+const getPregnancyMock = jest.fn(async () => ({
+  id: 9,
+  patient_uid: '33333333-3333-4333-8333-333333333333',
+}));
 
 jest.unstable_mockModule('../../services/maternity/maternityService.js', () => ({
   createPregnancy: createPregnancyMock,
+  recordAncVisit: recordAncVisitMock,
+  recordSupplement: recordSupplementMock,
   admitToLabor: admitToLaborMock,
   recordPartographEntry: recordPartographEntryMock,
+  recordFetalKick: recordFetalKickMock,
   recordDelivery: recordDeliveryMock,
+  getPregnancy: getPregnancyMock,
 }));
 
 jest.unstable_mockModule('../../services/maternity/immunisationService.js', () => ({}));
@@ -38,9 +49,13 @@ app.use('/api/v1/maternity', maternityRoutes);
 beforeEach(() => {
   requestUser = { uid: ACTOR_UID, role: 'NURSING_STAFF' };
   createPregnancyMock.mockClear();
+  recordAncVisitMock.mockClear();
+  recordSupplementMock.mockClear();
   admitToLaborMock.mockClear();
   recordPartographEntryMock.mockClear();
+  recordFetalKickMock.mockClear();
   recordDeliveryMock.mockClear();
+  getPregnancyMock.mockClear();
 });
 
 describe('maternity mutation actor context', () => {
@@ -81,6 +96,71 @@ describe('maternity mutation actor context', () => {
       delivered_by: PERFORMER_UID,
       actor_uid: ACTOR_UID,
       actor_role: 'NURSING_STAFF',
+    }));
+  });
+
+  test('ANC visit pins recorder and canonical actor to the authenticated user', async () => {
+    const response = await request(app)
+      .post('/api/v1/maternity/anc-visits')
+      .send({
+        pregnancy_id: 9,
+        visit_date: '2026-05-14',
+        recorded_by: SPOOFED_UID,
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordAncVisitMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+  });
+
+  test('supplement recording pins prescriber and canonical actor to the authenticated user', async () => {
+    const response = await request(app)
+      .post('/api/v1/maternity/supplements')
+      .send({
+        pregnancy_id: 9,
+        supplement: 'iron',
+        prescribed_by: SPOOFED_UID,
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordSupplementMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      prescribed_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    }));
+  });
+
+  test('patient fetal-kick recording pins the patient actor despite spoofed body fields', async () => {
+    requestUser = {
+      uid: '33333333-3333-4333-8333-333333333333',
+      role: 'PATIENT',
+    };
+    const response = await request(app)
+      .post('/api/v1/maternity/fetal-kicks')
+      .send({
+        pregnancy_id: 9,
+        kick_count: 8,
+        recorded_by: SPOOFED_UID,
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(getPregnancyMock).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
+    expect(recordFetalKickMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      recorded_by: requestUser.uid,
+      actor_uid: requestUser.uid,
+      actor_role: 'PATIENT',
     }));
   });
 

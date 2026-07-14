@@ -630,6 +630,8 @@ router.post('/maternity/fetal-kicks', requirePatient, wrap(async (req) => {
     observation_window_minutes: req.body.observation_window_minutes,
     notes: req.body.notes,
     recorded_by: patientUidOf(req),
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   });
 }));
 
@@ -640,6 +642,8 @@ router.patch('/maternity/supplements/:id/reminder', requirePatient, wrap(async (
     pregnancy_id: active.id,
     supplement_id: req.params.id,
     reminder_enabled: req.body.reminder_enabled,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   });
 }));
 

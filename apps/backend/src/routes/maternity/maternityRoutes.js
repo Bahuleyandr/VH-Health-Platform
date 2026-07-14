@@ -99,6 +99,8 @@ router.post('/anc-visits', requireStaffOrAdmin, wrap(async (req) =>
     ...req.body,
     tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 
@@ -318,6 +320,8 @@ router.post('/supplements', requireStaffOrAdmin, wrap(async (req) =>
     ...req.body,
     tenantId: tenantOf(req),
     prescribed_by: req.user?.uid,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   }),
 ));
 
@@ -347,6 +351,8 @@ router.post('/fetal-kicks', requireStaffAdminOrPatient, wrap(async (req, res) =>
     ...req.body,
     tenantId: tenantOf(req),
     recorded_by: recordedBy,
+    actor_uid: req.user?.uid,
+    actor_role: req.user?.role,
   });
 }));
 

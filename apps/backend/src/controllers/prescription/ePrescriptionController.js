@@ -1415,7 +1415,9 @@ export const createPrescription = async (req, res) => {
         tenantId: requireTenantId(req.user?.tenantId),
         patient_uid: patientUid,
         medications,
-        prescribed_by: doctorUid
+        prescribed_by: doctorUid,
+        actor_uid: req.user?.uid || doctorUid,
+        actor_role: req.user?.role
       });
     } catch (suppErr) {
       logger.warn('ANC supplement propagation failed:', {
