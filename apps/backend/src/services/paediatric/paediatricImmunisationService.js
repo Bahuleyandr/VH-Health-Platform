@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { scheduleNotConfiguredError } from '../immunisation/catalogueStatus.js';
 import {
   currentCanonicalTransactionRevision,
   recordCanonicalClinicalEvent,
@@ -257,6 +258,13 @@ export async function seedScheduleForPatient({
   const inserted = Number(counts?.inserted || 0);
   const updated = Number(counts?.updated || 0);
   const linked = Number(counts?.linked || 0);
+
+  // D6-R2: `total` is the active-catalogue row count the seed query already
+  // computed. Zero means the facility has no configured schedule — fail closed
+  // instead of returning a silently empty {inserted:0, total:0}. Keyed on total
+  // (catalogue population), never on inserted, so an idempotent re-seed of a
+  // populated catalogue (inserted=0, total>0) is still a success.
+  if (total === 0) throw scheduleNotConfiguredError();
 
   logger.info(`Paediatric immunisation schedule seeded for patient=${patientUid} inserted=${inserted} updated=${updated} linked=${linked}`);
   return { patient_uid: patientUid, inserted, updated, linked, total };

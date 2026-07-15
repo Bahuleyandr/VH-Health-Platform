@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { assertScheduleConfigured } from '../immunisation/catalogueStatus.js';
 import {
   currentCanonicalTransactionRevision,
   recordCanonicalClinicalEvent,
@@ -106,6 +107,9 @@ export async function seedScheduleForNewborn({
   }
   if (!newbornRows[0].newborn_patient_uid) throw newbornIdentityRequired();
   const motherPatientUid = String(newbornRows[0].mother_patient_uid);
+  // D6-R2: fail closed on an unconfigured facility rather than returning a
+  // silently empty {scheduled:0} schedule.
+  await assertScheduleConfigured(tenantId);
 
   return setTenantTx(tenantId, async (tx) => {
     const lockedNewborns = await tx.$queryRawUnsafe(
