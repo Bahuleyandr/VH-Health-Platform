@@ -22,6 +22,7 @@ import bcrypt from 'bcrypt';
 import prisma from '../src/lib/prisma.js';
 import { getTenantBySlug, createTenant, updateTenant } from '../src/services/tenant/tenantService.js';
 import { provisionTenantKek } from '../src/services/security/tenantKekProvider.js';
+import { getActiveCatalogueCount } from '../src/services/immunisation/catalogueStatus.js';
 
 function parseArgs(argv) {
   // Flat model: base host is the apex (vhhealth.app); the per-tenant API host is
@@ -155,6 +156,24 @@ async function main() {
       }),
     );
     console.log('  5. STEMI targets ………… seeded (door-to-ECG 10, door-to-balloon 90; pathway disabled)');
+  }
+
+  // ── Step 6: Immunisation schedule check (read-only) ──────────────────────
+  // Onboarding does NOT seed a vaccine catalogue — choosing a pack (UIP / IAP /
+  // custom) is the unsigned D6 clinical decision. We only REPORT the gap so the
+  // operator knows a schedule import (after clinical sign-off) is still owed;
+  // until then the seeders fail closed with IMMUNISATION_SCHEDULE_NOT_CONFIGURED.
+  if (args.dryRun) {
+    console.log('  6. Immunisation schedule WOULD check catalogue (onboarding seeds none — D6 sign-off owed)');
+  } else {
+    const catalogueCount = await getActiveCatalogueCount(tenantId);
+    if (catalogueCount === 0) {
+      console.log('  6. Immunisation schedule ⚠ NOT configured — no active vaccine_catalogue rows.');
+      console.log('       Run scripts/immunisation-schedule-import.mjs (after clinical D6 sign-off) before staff');
+      console.log('       can seed newborn/paediatric schedules; until then those calls fail closed (422).');
+    } else {
+      console.log(`  6. Immunisation schedule ${catalogueCount} active catalogue row(s) present.`);
+    }
   }
 
   // ── Summary + next steps ─────────────────────────────────────────────────
