@@ -14,17 +14,21 @@ import {
   seedUser
 } from './_journeyHarness.js';
 
+// This journey walks the SIGNED D7 Shape-3 spine end-to-end (decision record
+// obgyn-d7-decision-record.md, SHA-256 E82EEC9A054CA3708A31F48568818BB2
+// 7F9986D8F5A02C37AF9407F4D5DB9562): pregnancy -> labour -> delivery ->
+// recordNewborn (atomic infant identity minting, "B/O <mother>" naming,
+// guardian=mother, consent evidence) -> immunisation seed+dose on the
+// INFANT subject (M-D fail-closed, no mother fallback) -> Apgar (#589
+// revision keys, service-computed total_score) -> postnatal visits under
+// the B-i dual-pair rule with F-1 link-required rejection.
 const RUN = runSuffix();
 const TENANT_B = `c7b00000-0000-4000-8000-${RUN.padStart(12, '0')}`;
 const MOTHER_UID = `c7000001-0000-4000-8000-${RUN.padStart(12, '0')}`;
-const TWIN_ONE_UID = `c7000002-0000-4000-8000-${RUN.padStart(12, '0')}`;
-const TWIN_TWO_UID = `c7000003-0000-4000-8000-${RUN.padStart(12, '0')}`;
 const DOCTOR_UID = `c7000004-0000-4000-8000-${RUN.padStart(12, '0')}`;
 const TENANT_B_DOCTOR_UID = `c7000005-0000-4000-8000-${RUN.padStart(12, '0')}`;
 
 const MOTHER_PHONE = `96801${RUN}`;
-const TWIN_ONE_PHONE = `96802${RUN}`;
-const TWIN_TWO_PHONE = `96803${RUN}`;
 const DOCTOR_PHONE = `96804${RUN}`;
 const TENANT_B_DOCTOR_PHONE = `96805${RUN}`;
 const VACCINE_CODE = `JRNBCG${RUN}`;
@@ -34,8 +38,24 @@ const PRIVATE_LABOUR = `JOURNEY_PRIVATE_LABOUR_${RUN}`;
 const PRIVATE_PARTOGRAPH = `JOURNEY_PRIVATE_PARTOGRAPH_${RUN}`;
 const PRIVATE_DELIVERY = `JOURNEY_PRIVATE_DELIVERY_${RUN}`;
 const PRIVATE_IMMUNISATION = `JOURNEY_PRIVATE_IMMUNISATION_${RUN}`;
-const PRIVATE_MARKERS = [PRIVATE_IMAGING, PRIVATE_LABOUR, PRIVATE_PARTOGRAPH, PRIVATE_DELIVERY];
+const PRIVATE_POSTNATAL = `JOURNEY_PRIVATE_POSTNATAL_${RUN}`;
+const PRIVATE_RED_FLAG = `JOURNEY_PRIVATE_REDFLAG_${RUN}`;
+const PRIVATE_MARKERS = [
+  PRIVATE_IMAGING,
+  PRIVATE_LABOUR,
+  PRIVATE_PARTOGRAPH,
+  PRIVATE_DELIVERY,
+  PRIVATE_POSTNATAL,
+  PRIVATE_RED_FLAG
+];
 const TEST_TIMEOUT_MS = 60_000;
+
+// #589 revision-key regimes for the amendable infant-scope families landed by
+// R1/R2 (PR #595/#596): `<table>:<id>:<fingerprint>:tx:<xid8>`. Apgar
+// fingerprints are 32 hex chars (canonicalStateFingerprint), dose fingerprints
+// 64 (full sha256) — both carry the transaction-unique xid8 suffix.
+const APGAR_TIMELINE_KEY_RE = /^maternity_apgar_scores:\d+:[0-9a-f]{32}:tx:\d+$/;
+const APGAR_AUDIT_KEY_RE = /^maternity_apgar_scores:\d+:audit:[0-9a-f]{32}:tx:\d+$/;
 
 jest.setTimeout(TEST_TIMEOUT_MS);
 
@@ -85,7 +105,8 @@ function clientForTenant(role, { uid, id, phone, tenantId }) {
   const auth = req => req.set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`);
   return {
     get: path => auth(request(app).get(path)),
-    post: path => auth(request(app).post(path))
+    post: path => auth(request(app).post(path)),
+    patch: path => auth(request(app).patch(path))
   };
 }
 
@@ -134,6 +155,55 @@ async function canonicalPair({ patientUid, eventType, sourceTable, sourceId }) {
     String(sourceId)
   );
   return { timeline, audit };
+}
+
+// All canonical rows for one subject + event family, ordered. Used for the
+// signed D7 subject-attribution assertions (infant-vs-mother separation).
+async function subjectEvents(patientUid, eventType) {
+  const timeline = await prisma.$queryRawUnsafe(
+    `SELECT source_id, idempotency_key, payload, visible_to_patient,
+            actor_uid, actor_role
+       FROM clinical_timeline_events
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND event_type = $3
+      ORDER BY created_at, id`,
+    DEFAULT_TENANT,
+    patientUid,
+    eventType
+  );
+  const audit = await prisma.$queryRawUnsafe(
+    `SELECT resource_id, idempotency_key, after_state, action_status,
+            actor_uid, actor_role
+       FROM clinical_audit_events
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND action = $3
+      ORDER BY created_at, id`,
+    DEFAULT_TENANT,
+    patientUid,
+    eventType
+  );
+  return { timeline, audit };
+}
+
+// Shape 3 mints the infant identities at recordNewborn time, so their uids
+// are only known at runtime. Resolve them through the mother's maternity
+// chain — works in beforeAll (empty on a fresh run) and afterAll alike, and
+// MUST run before the maternity_newborns rows are deleted.
+async function resolveMintedInfantUids() {
+  const rows = await prisma
+    .$queryRawUnsafe(
+      `SELECT DISTINCT n.newborn_patient_uid AS uid
+         FROM maternity_newborns n
+         JOIN maternity_deliveries d ON d.id = n.delivery_id
+         JOIN maternity_pregnancies p ON p.id = d.pregnancy_id
+        WHERE p.patient_uid = $1::uuid
+          AND n.newborn_patient_uid IS NOT NULL`,
+      MOTHER_UID
+    )
+    .catch(() => []);
+  return rows.map(row => String(row.uid));
 }
 
 // Split `<state-fingerprint-base>:tx:<xid8>` revision keys (#589 regime for
@@ -217,16 +287,12 @@ async function ancCanonicalRevisions(patientUid) {
 }
 
 async function cleanupFixture() {
-  const patientUids = [MOTHER_UID, TWIN_ONE_UID, TWIN_TWO_UID];
-  const newbornPatientUids = [TWIN_ONE_UID, TWIN_TWO_UID];
+  // Resolve the Shape-3 minted infant identities BEFORE deleting the
+  // maternity rows that link to them.
+  const infantUids = await resolveMintedInfantUids();
+  const patientUids = [MOTHER_UID, ...infantUids];
   const allUids = [...patientUids, DOCTOR_UID, TENANT_B_DOCTOR_UID];
-  const phones = [
-    MOTHER_PHONE,
-    TWIN_ONE_PHONE,
-    TWIN_TWO_PHONE,
-    DOCTOR_PHONE,
-    TENANT_B_DOCTOR_PHONE
-  ];
+  const phones = [MOTHER_PHONE, DOCTOR_PHONE, TENANT_B_DOCTOR_PHONE];
   const swallow = promise => promise.catch(() => {});
 
   await swallow(
@@ -249,7 +315,7 @@ async function cleanupFixture() {
     prisma.$executeRawUnsafe(
       `DELETE FROM patient_immunisations
       WHERE patient_uid = ANY($1::uuid[])`,
-      newbornPatientUids
+      patientUids
     )
   );
   await swallow(
@@ -418,6 +484,23 @@ async function cleanupFixture() {
       patientUids
     )
   );
+  // Shape-3 residue: minted guardian consents, then the self-FK guardian
+  // link (users.guardian_user_id -> mother) before the users delete.
+  await swallow(
+    prisma.$executeRawUnsafe(
+      `DELETE FROM patient_consents
+      WHERE patient_uid = ANY($1::uuid[])`,
+      patientUids
+    )
+  );
+  if (infantUids.length) {
+    await swallow(
+      prisma.$executeRawUnsafe(
+        `UPDATE users SET guardian_user_id = NULL WHERE uid = ANY($1::uuid[])`,
+        infantUids
+      )
+    );
+  }
   await swallow(prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, allUids));
   await swallow(prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_B));
 }
@@ -435,6 +518,9 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
   let deliveryId;
   let twinOneId;
   let twinTwoId;
+  let twinOneUid; // minted by Shape-3 at recordNewborn — runtime-only
+  let twinTwoUid; // minted by Shape-3 at recordNewborn — runtime-only
+  let bothVisitId;
   let vaccineCatalogueId;
   let birthDate;
   let baselineOutboxCount;
@@ -460,6 +546,9 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       `OBGyn Journey Tenant B ${RUN}`
     );
 
+    // Shape 3 (signed D7): NO pre-registered twin identities. The birth
+    // workflow mints the infants' patient records atomically at
+    // recordNewborn; the journey asserts the minted identities below.
     const mother = await seedUser({
       uid: MOTHER_UID,
       phone: MOTHER_PHONE,
@@ -468,22 +557,6 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       gender: 'Female'
     });
     motherId = Number(mother.id);
-    const twinOne = await seedUser({
-      uid: TWIN_ONE_UID,
-      phone: TWIN_ONE_PHONE,
-      name: `OBGyn Twin One ${RUN}`,
-      role: 'PATIENT',
-      gender: 'Female',
-      extraCols: { birthday: birthDate }
-    });
-    await seedUser({
-      uid: TWIN_TWO_UID,
-      phone: TWIN_TWO_PHONE,
-      name: `OBGyn Twin Two ${RUN}`,
-      role: 'PATIENT',
-      gender: 'Male',
-      extraCols: { birthday: birthDate }
-    });
     const doctorRow = await seedUser({
       uid: DOCTOR_UID,
       phone: DOCTOR_PHONE,
@@ -552,7 +625,7 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       DEFAULT_TENANT
     );
     vaccineCatalogueId = Number(catalogue[0].id);
-    expect(Number(twinOne.id)).toBeGreaterThan(0);
+    expect(vaccineCatalogueId).toBeGreaterThan(0);
   }, TEST_TIMEOUT_MS);
 
   afterAll(async () => {
@@ -866,32 +939,156 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     });
   });
 
-  it('records twins, Apgar scores and mother/baby postnatal visits', async () => {
-    const twinOne = await doctor.post('/api/v1/maternity/newborns').send({
-      delivery_id: deliveryId,
-      birth_order: 1,
-      birth_datetime: `${birthDate}T05:01:00.000Z`,
-      sex: 'female',
-      birth_weight_g: 2480,
-      outcome: 'live',
-      newborn_patient_uid: TWIN_ONE_UID
-    });
-    expect(twinOne.statusCode).toBe(200);
-    twinOneId = Number(twinOne.body.data.id);
+  it('mints Shape-3 infant identities at birth with guardian links, consent evidence and canonical pairs', async () => {
+    // Signed D7 S-1 Shape 3: recordNewborn atomically creates the infant's
+    // OWN patient identity (no newborn_patient_uid supplied), the mother as
+    // automatic initial guardian (G-1), guardian(mother) consent evidence
+    // through patient_consents (G-3) and one insert-once canonical pair
+    // whose subject is the INFANT.
+    const twinInputs = [
+      {
+        birth_order: 1,
+        birth_datetime: `${birthDate}T05:01:00.000Z`,
+        sex: 'female',
+        birth_weight_g: 2480,
+        expectedName: `B/O OBGyn Mother ${RUN}`
+      },
+      {
+        birth_order: 2,
+        birth_datetime: `${birthDate}T05:04:00.000Z`,
+        sex: 'male',
+        birth_weight_g: 2360,
+        expectedName: `Twin-2 B/O OBGyn Mother ${RUN}`
+      }
+    ];
+    const minted = [];
+    for (const input of twinInputs) {
+      const response = await doctor.post('/api/v1/maternity/newborns').send({
+        delivery_id: deliveryId,
+        birth_order: input.birth_order,
+        birth_datetime: input.birth_datetime,
+        sex: input.sex,
+        birth_weight_g: input.birth_weight_g,
+        outcome: 'live'
+      });
+      expect(response.statusCode).toBe(200);
+      const newborn = response.body.data;
+      const infantUid = String(newborn.newborn_patient_uid);
+      expect(newborn.minted_identity).toMatchObject({
+        patient_uid: infantUid,
+        guardian_user_id: motherId,
+        guardian_relationship: 'mother',
+        provisional_name: input.expectedName
+      });
+      expect(newborn.minted_identity.guardian_consent_id).toEqual(expect.any(Number));
 
-    const twinTwo = await doctor.post('/api/v1/maternity/newborns').send({
-      delivery_id: deliveryId,
-      birth_order: 2,
-      birth_datetime: `${birthDate}T05:04:00.000Z`,
-      sex: 'male',
-      birth_weight_g: 2360,
-      outcome: 'live',
-      newborn_patient_uid: TWIN_TWO_UID
-    });
-    expect(twinTwo.statusCode).toBe(200);
-    twinTwoId = Number(twinTwo.body.data.id);
+      // Minted users row: PATIENT minor, active, provisional B/O name,
+      // synthetic NB- phone, guardian link to the mother (mig-202 substrate).
+      const infantRows = await prisma.$queryRawUnsafe(
+        `SELECT role, is_minor, is_active, is_deleted, name, gender, phone,
+                birthday::text AS birthday, guardian_user_id, guardian_name,
+                guardian_relationship, tenant_id
+           FROM users
+          WHERE uid = $1::uuid`,
+        infantUid
+      );
+      expect(infantRows).toHaveLength(1);
+      expect(infantRows[0]).toMatchObject({
+        role: 'PATIENT',
+        is_minor: true,
+        is_active: true,
+        is_deleted: false,
+        name: input.expectedName,
+        gender: input.sex,
+        guardian_user_id: motherId,
+        guardian_name: `OBGyn Mother ${RUN}`,
+        guardian_relationship: 'mother',
+        birthday: birthDate
+      });
+      expect(String(infantRows[0].tenant_id)).toBe(DEFAULT_TENANT);
+      expect(infantRows[0].phone).toMatch(/^NB-[0-9A-F]{12}$/);
 
-    for (const newbornId of [twinOneId, twinTwoId]) {
+      // G-3 consent evidence through the EXISTING patient_consents substrate.
+      const consents = await prisma.$queryRawUnsafe(
+        `SELECT id, consent_type, granted, status, granted_by, source,
+                consent_method, witness_uid, witness_name
+           FROM patient_consents
+          WHERE patient_uid = $1::uuid`,
+        infantUid
+      );
+      expect(consents).toHaveLength(1);
+      expect(consents[0]).toMatchObject({
+        consent_type: 'treatment',
+        granted: true,
+        status: 'active',
+        granted_by: 'guardian_mother',
+        source: 'birth_registration',
+        consent_method: 'verbal',
+        witness_uid: DOCTOR_UID,
+        witness_name: `OBGyn Doctor ${RUN}`
+      });
+      expect(Number(consents[0].id)).toBe(newborn.minted_identity.guardian_consent_id);
+
+      // Exactly one staff-only canonical pair, subject = the INFANT, on the
+      // insert-once fixed lifecycle keys (Idempotency-Key Discipline).
+      const pair = await canonicalPair({
+        patientUid: infantUid,
+        eventType: 'maternity.newborn_recorded',
+        sourceTable: 'maternity_newborns',
+        sourceId: newborn.id
+      });
+      expect(pair.timeline).toHaveLength(1);
+      expect(pair.audit).toHaveLength(1);
+      expect(pair.timeline[0]).toMatchObject({
+        event_status: 'recorded',
+        actor_uid: DOCTOR_UID,
+        actor_role: 'DOCTOR',
+        visible_to_patient: false,
+        idempotency_key: `maternity_newborns:${Number(newborn.id)}:recorded`,
+        payload: expect.objectContaining({
+          newborn_id: Number(newborn.id),
+          delivery_id: deliveryId,
+          pregnancy_id: pregnancyId,
+          birth_order: input.birth_order,
+          outcome: 'live',
+          newborn_patient_uid: infantUid,
+          mother_patient_uid: MOTHER_UID,
+          identity_minted: true,
+          guardian_user_id: motherId,
+          guardian_consent_id: newborn.minted_identity.guardian_consent_id
+        })
+      });
+      expect(pair.audit[0]).toMatchObject({
+        action_status: 'success',
+        actor_uid: DOCTOR_UID,
+        actor_role: 'DOCTOR',
+        idempotency_key: `maternity_newborns:${Number(newborn.id)}:audit:recorded`
+      });
+      // Minimal structured payload — no provisional-name / mother-name leak.
+      expect(JSON.stringify(pair.timeline[0].payload)).not.toContain(`OBGyn Mother ${RUN}`);
+
+      minted.push({ id: Number(newborn.id), uid: infantUid, phone: infantRows[0].phone });
+    }
+
+    [twinOneId, twinTwoId] = [minted[0].id, minted[1].id];
+    [twinOneUid, twinTwoUid] = [minted[0].uid, minted[1].uid];
+    expect(twinOneUid).not.toBe(twinTwoUid);
+    expect(minted[0].phone).not.toBe(minted[1].phone);
+
+    // A live-minted birth never lands the event on the mother's episode
+    // (mother-subject newborn events exist only for stillbirths, by design).
+    const motherNewbornEvents = await subjectEvents(MOTHER_UID, 'maternity.newborn_recorded');
+    expect(motherNewbornEvents.timeline).toHaveLength(0);
+    expect(motherNewbornEvents.audit).toHaveLength(0);
+  });
+
+  it('records Apgar and postnatal visits on the infant identities with B-i dual pairs and F-1', async () => {
+    // Apgar: infant-scope write on the minted identity; total_score is
+    // service-computed; keys follow the #589 fingerprint+tx revision regime.
+    for (const [newbornId, infantUid] of [
+      [twinOneId, twinOneUid],
+      [twinTwoId, twinTwoUid]
+    ]) {
       for (const timeMinute of [1, 5]) {
         const apgar = await doctor.post(`/api/v1/maternity/newborns/${newbornId}/apgar`).send({
           time_minute: timeMinute,
@@ -909,16 +1106,35 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
             pulse: 2,
             grimace: 2,
             activity: 2,
-            respiration: 2
+            respiration: 2,
+            total_score: timeMinute === 1 ? 9 : 10
           })
         );
-        const componentTotal = ['appearance', 'pulse', 'grimace', 'activity', 'respiration']
-          .map(component => Number(apgar.body.data[component]))
-          .reduce((sum, score) => sum + score, 0);
-        expect(componentTotal).toBe(timeMinute === 1 ? 9 : 10);
+      }
+
+      const apgarEvents = await subjectEvents(infantUid, 'maternity.apgar_recorded');
+      expect(apgarEvents.timeline).toHaveLength(2);
+      expect(apgarEvents.audit).toHaveLength(2);
+      expect(apgarEvents.timeline.map(row => row.payload.total_score)).toEqual([9, 10]);
+      for (const [index, row] of apgarEvents.timeline.entries()) {
+        expect(row.visible_to_patient).toBe(false);
+        expect(row).toMatchObject({ actor_uid: DOCTOR_UID, actor_role: 'DOCTOR' });
+        expect(row.idempotency_key).toMatch(APGAR_TIMELINE_KEY_RE);
+        expect(apgarEvents.audit[index].idempotency_key).toMatch(APGAR_AUDIT_KEY_RE);
+        // The timeline and audit halves of each mutation share one transaction.
+        expect(splitRevisionKey(apgarEvents.audit[index].idempotency_key).tx).toBe(
+          splitRevisionKey(row.idempotency_key).tx
+        );
       }
     }
+    const motherApgarEvents = await subjectEvents(MOTHER_UID, 'maternity.apgar_recorded');
+    expect(motherApgarEvents.timeline).toHaveLength(0);
+    expect(motherApgarEvents.audit).toHaveLength(0);
 
+    // Postnatal composition under the signed B-i rule: 'mother' -> one
+    // maternal pair; 'both' -> ONE detail row, TWO canonical pairs with
+    // strict per-subject payload separation (F-n1 keeps shared notes /
+    // red-flags detail-row-only); 'baby' -> one infant pair.
     const motherVisit = await doctor.post('/api/v1/maternity/postnatal-visits').send({
       delivery_id: deliveryId,
       visit_at: `${birthDate}T11:00:00.000Z`,
@@ -928,22 +1144,120 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       breastfeeding_status: 'initiated'
     });
     expect(motherVisit.statusCode).toBe(200);
+    const motherVisitId = Number(motherVisit.body.data.id);
 
-    for (const [newbornId, weight] of [
-      [twinOneId, 2460],
-      [twinTwoId, 2340]
-    ]) {
-      const babyVisit = await doctor.post('/api/v1/maternity/postnatal-visits').send({
-        delivery_id: deliveryId,
-        newborn_id: newbornId,
-        visit_at: `${birthDate}T11:15:00.000Z`,
-        visit_kind: 'baby',
-        baby_weight_g: weight,
-        baby_temperature_c: 36.7,
-        baby_feeding: 'breastfeeding'
-      });
-      expect(babyVisit.statusCode).toBe(200);
+    const bothVisit = await doctor.post('/api/v1/maternity/postnatal-visits').send({
+      delivery_id: deliveryId,
+      newborn_id: twinOneId,
+      visit_at: `${birthDate}T11:15:00.000Z`,
+      visit_kind: 'both',
+      mother_temp_c: 36.9,
+      mother_pulse_bpm: 84,
+      mother_bp_systolic: 121,
+      mother_bp_diastolic: 79,
+      breastfeeding_status: 'established',
+      baby_weight_g: 2460,
+      baby_temperature_c: 36.7,
+      baby_feeding: 'breastfeeding',
+      baby_jaundice: 'none',
+      baby_passed_meconium: true,
+      baby_passed_urine: true,
+      baby_cord_status: 'healthy',
+      red_flags: [PRIVATE_RED_FLAG],
+      notes: PRIVATE_POSTNATAL
+    });
+    expect(bothVisit.statusCode).toBe(200);
+    bothVisitId = Number(bothVisit.body.data.id);
+    // Shared free text persists on the DETAIL row only (F-n1).
+    expect(bothVisit.body.data.notes).toBe(PRIVATE_POSTNATAL);
+    expect(bothVisit.body.data.red_flags).toEqual([PRIVATE_RED_FLAG]);
+
+    const babyVisit = await doctor.post('/api/v1/maternity/postnatal-visits').send({
+      delivery_id: deliveryId,
+      newborn_id: twinTwoId,
+      visit_at: `${birthDate}T11:30:00.000Z`,
+      visit_kind: 'baby',
+      baby_weight_g: 2340,
+      baby_temperature_c: 36.7,
+      baby_feeding: 'breastfeeding'
+    });
+    expect(babyVisit.statusCode).toBe(200);
+    const babyVisitId = Number(babyVisit.body.data.id);
+
+    // Per-subject composition: mother = 2 maternal pairs (mother visit +
+    // the maternal half of 'both'); twin one = the infant half of 'both';
+    // twin two = the 'baby' visit pair. Fixed per-subject lifecycle keys.
+    const motherPostnatal = await subjectEvents(MOTHER_UID, 'maternity.postnatal_visit_recorded');
+    expect(motherPostnatal.timeline).toHaveLength(2);
+    expect(motherPostnatal.audit).toHaveLength(2);
+    expect(motherPostnatal.timeline.map(row => row.idempotency_key)).toEqual([
+      `maternity_postnatal_visits:${motherVisitId}:mother:recorded`,
+      `maternity_postnatal_visits:${bothVisitId}:mother:recorded`
+    ]);
+
+    const twinOnePostnatal = await subjectEvents(twinOneUid, 'maternity.postnatal_visit_recorded');
+    expect(twinOnePostnatal.timeline).toHaveLength(1);
+    expect(twinOnePostnatal.audit).toHaveLength(1);
+    expect(twinOnePostnatal.timeline[0].idempotency_key).toBe(
+      `maternity_postnatal_visits:${bothVisitId}:infant:recorded`
+    );
+    expect(twinOnePostnatal.audit[0].idempotency_key).toBe(
+      `maternity_postnatal_visits:${bothVisitId}:infant:audit:recorded`
+    );
+
+    const twinTwoPostnatal = await subjectEvents(twinTwoUid, 'maternity.postnatal_visit_recorded');
+    expect(twinTwoPostnatal.timeline).toHaveLength(1);
+    expect(twinTwoPostnatal.timeline[0].idempotency_key).toBe(
+      `maternity_postnatal_visits:${babyVisitId}:infant:recorded`
+    );
+
+    // B-i dual pairs over ONE detail row, with strict per-subject payload
+    // separation and F-n1 exclusion of shared narrative from BOTH pairs.
+    const maternalHalf = motherPostnatal.timeline.find(
+      row => row.source_id === String(bothVisitId)
+    );
+    const maternalAuditHalf = motherPostnatal.audit.find(
+      row => row.resource_id === String(bothVisitId)
+    );
+    expect(maternalHalf.payload).toMatchObject({
+      postnatal_visit_id: bothVisitId,
+      visit_kind: 'both',
+      subject_scope: 'mother',
+      mother_temp_c: 36.9,
+      mother_pulse_bpm: 84,
+      breastfeeding_status: 'established'
+    });
+    const infantHalf = twinOnePostnatal.timeline[0];
+    expect(infantHalf.payload).toMatchObject({
+      postnatal_visit_id: bothVisitId,
+      visit_kind: 'both',
+      subject_scope: 'infant',
+      newborn_id: twinOneId,
+      baby_weight_g: 2460,
+      baby_temperature_c: 36.7,
+      baby_feeding: 'breastfeeding'
+    });
+    const maternalText = JSON.stringify([maternalHalf.payload, maternalAuditHalf.after_state]);
+    const infantText = JSON.stringify([infantHalf.payload, twinOnePostnatal.audit[0].after_state]);
+    const sharedSecrets = [PRIVATE_POSTNATAL, PRIVATE_RED_FLAG, 'notes', 'red_flags'];
+    for (const excluded of [...sharedSecrets, 'baby_weight_g', 'baby_temperature_c', 'baby_feeding']) {
+      expect(maternalText).not.toContain(excluded);
     }
+    for (const excluded of [...sharedSecrets, 'mother_temp_c', 'mother_pulse_bpm', 'breastfeeding_status']) {
+      expect(infantText).not.toContain(excluded);
+    }
+
+    // F-1 (signed): a 'both' visit with NO newborn link is rejected — the
+    // baby record always exists under Shape 3; staff link it first.
+    const linkless = await doctor.post('/api/v1/maternity/postnatal-visits').send({
+      delivery_id: deliveryId,
+      visit_at: `${birthDate}T11:45:00.000Z`,
+      visit_kind: 'both',
+      mother_temp_c: 36.8,
+      baby_weight_g: 2400
+    });
+    expect(linkless.statusCode).toBe(409);
+    expect(linkless.body.code).toBe('MATERNITY_POSTNATAL_NEWBORN_LINK_REQUIRED');
 
     const newborns = await doctor.get(`/api/v1/maternity/newborns/delivery/${deliveryId}`);
     expect(newborns.statusCode).toBe(200);
@@ -955,7 +1269,7 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     expect(postnatal.body.data).toHaveLength(3);
   });
 
-  it('explicitly seeds, reads and records exact O1 links with M-D canonical coverage', async () => {
+  it('explicitly seeds, reads and records exact O1 links with signed fail-closed infant subjects', async () => {
     for (const newbornId of [twinOneId, twinTwoId]) {
       const first = await doctor
         .post(`/api/v1/maternity/newborns/${newbornId}/immunisations/seed`)
@@ -988,7 +1302,7 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       expect(Number(afterRead[0].total)).toBe(Number(beforeRead[0].total));
     }
 
-    for (const patientUid of [TWIN_ONE_UID, TWIN_TWO_UID]) {
+    for (const patientUid of [twinOneUid, twinTwoUid]) {
       const first = await doctor.post('/api/v1/paediatric/immunisations/seed').send({
         patient_uid: patientUid,
         dob: birthDate
@@ -1037,19 +1351,19 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
           AND pi.patient_uid = $2::uuid
           AND pi.vaccine_catalogue_id = $3::int`,
       DEFAULT_TENANT,
-      TWIN_ONE_UID,
+      twinOneUid,
       vaccineCatalogueId
     );
     expect(twinOneDose).toHaveLength(1);
     expect(Number(twinOneDose[0].newborn_id)).toBe(twinOneId);
 
-    // Subject attribution (patientUid here): the seed's clinical_patient_uid
-    // CASE resolves to the NEWBORN's own patient UID because the identity is
-    // present and unambiguous in-tenant; absent/ambiguous identities fall back
-    // to the MOTHER. This pins UNAPPROVED status-quo subject attribution
-    // pending decision D7 — will change with the signed shape.
+    // SIGNED D7 subject rule (S-2 FULL scope + M-D remediation, PR #595):
+    // the canonical subject of every newborn-linked immunisation event is
+    // the infant's OWN minted identity — the pre-D7 mother-fallback CASE is
+    // REMOVED. Absent, invalid or ambiguous identity REJECTS fail-closed
+    // (asserted further down); it never attributes to the mother.
     const newbornSeedCanonical = await canonicalPair({
-      patientUid: TWIN_ONE_UID,
+      patientUid: twinOneUid,
       eventType: 'immunisation.schedule_seeded',
       sourceTable: 'newborn_immunisations',
       sourceId: twinOneDose[0].newborn_immunisation_id
@@ -1069,7 +1383,7 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     });
 
     const patientSeedCanonical = await canonicalPair({
-      patientUid: TWIN_ONE_UID,
+      patientUid: twinOneUid,
       eventType: 'immunisation.schedule_seeded',
       sourceTable: 'patient_immunisations',
       sourceId: twinOneDose[0].patient_immunisation_id
@@ -1143,11 +1457,11 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       site_of_injection: 'left_thigh'
     });
 
-    // Subject attribution (patientUid here) follows the exact tenant-scoped
-    // newborn linkage; this pins UNAPPROVED status-quo subject attribution
-    // pending decision D7 — will change with the signed shape.
+    // SIGNED D7 subject rule: the dose event's canonical subject is the
+    // infant's OWN minted identity via the exact tenant-scoped newborn
+    // linkage — fail-closed, never the mother (M-D remediation, PR #595).
     const doseCanonical = await canonicalPair({
-      patientUid: TWIN_ONE_UID,
+      patientUid: twinOneUid,
       eventType: 'immunisation.dose_recorded',
       sourceTable: 'newborn_immunisations',
       sourceId: twinOneDose[0].newborn_immunisation_id
@@ -1198,70 +1512,132 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     });
     expect(JSON.stringify(doseCanonical)).not.toContain(PRIVATE_IMMUNISATION);
 
-    const deduped = await doctor.get(`/api/v1/paediatric/immunisations/patient/${TWIN_ONE_UID}`);
+    const deduped = await doctor.get(`/api/v1/paediatric/immunisations/patient/${twinOneUid}`);
     expect(deduped.statusCode).toBe(200);
     const visibleDose = deduped.body.data.filter(row => row.code === VACCINE_CODE);
     expect(visibleDose).toHaveLength(1);
     expect(visibleDose[0].status).toBe('given');
 
-    const newbornHistoryBeforeAmbiguity = await prisma.$queryRawUnsafe(
-      `SELECT id, status, given_at, batch_number, manufacturer, site_of_injection
-         FROM newborn_immunisations
-        WHERE tenant_id = $1::uuid
-          AND vaccine_catalogue_id = $2::int
-          AND newborn_id = ANY($3::int[])
+    // ── Signed fail-closed identity rules (replaces the pre-D7 ambiguity
+    // pin: the two-newborns-one-uid fixture that step corrupted into place
+    // is STRUCTURALLY UNSEEDABLE post-mig-577) ────────────────────────────
+
+    // (a) A-1 (mig 577): the partial unique index on
+    // (tenant_id, newborn_patient_uid) rejects the old ambiguity fixture at
+    // the DB layer, so "two newborns claiming one identity" can no longer
+    // exist for the service paths to arbitrate.
+    let uniqueViolation = null;
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE maternity_newborns
+            SET newborn_patient_uid = $1::uuid
+          WHERE tenant_id = $2::uuid AND id = $3::int`,
+        twinOneUid,
+        DEFAULT_TENANT,
+        twinTwoId
+      );
+    } catch (err) {
+      uniqueViolation = err;
+    }
+    expect(uniqueViolation).not.toBeNull();
+    expect(`${uniqueViolation.message} ${uniqueViolation.meta?.message || ''}`).toMatch(
+      /uq_maternity_newborns_tenant_patient_uid|duplicate key/
+    );
+    const links = await prisma.$queryRawUnsafe(
+      `SELECT id, newborn_patient_uid
+         FROM maternity_newborns
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])
         ORDER BY id`,
       DEFAULT_TENANT,
-      vaccineCatalogueId,
       [twinOneId, twinTwoId]
     );
+    expect(links.map(row => String(row.newborn_patient_uid))).toEqual([twinOneUid, twinTwoUid]);
+
+    // (b) Link-less newborn (residual pre-577-style row, seeded via raw SQL
+    // because the product path always mints under Shape 3): any immunisation
+    // write REJECTS 409 NEWBORN_IDENTITY_REQUIRED with zero writes — no
+    // proxy attribution to the mother.
+    const linklessRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO maternity_newborns
+         (delivery_id, birth_order, birth_datetime, outcome, recorded_by, tenant_id)
+       VALUES ($1::int, 3, $2::timestamptz, 'live', $3::uuid, $4::uuid)
+       RETURNING id`,
+      deliveryId,
+      `${birthDate}T05:07:00.000Z`,
+      DOCTOR_UID,
+      DEFAULT_TENANT
+    );
+    const linklessNewbornId = Number(linklessRows[0].id);
+    const linklessSeed = await doctor
+      .post(`/api/v1/maternity/newborns/${linklessNewbornId}/immunisations/seed`)
+      .send({});
+    expect(linklessSeed.statusCode).toBe(409);
+    expect(linklessSeed.body.code).toBe('NEWBORN_IDENTITY_REQUIRED');
+    const linklessDoses = await prisma.$queryRawUnsafe(
+      `SELECT id FROM newborn_immunisations
+        WHERE tenant_id = $1::uuid AND newborn_id = $2::int`,
+      DEFAULT_TENANT,
+      linklessNewbornId
+    );
+    expect(linklessDoses).toHaveLength(0);
+
+    // (c) Invalidated identity (E-3): soft-delete twin two's minted record,
+    // then attempt the newborn-keyed dose write — 409
+    // NEWBORN_IDENTITY_INVALID(deleted), tuple untouched, zero canonical
+    // rows. Restore the identity afterwards.
+    const twinTwoDoseRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM newborn_immunisations
+        WHERE tenant_id = $1::uuid
+          AND newborn_id = $2::int
+          AND vaccine_catalogue_id = $3::int`,
+      DEFAULT_TENANT,
+      twinTwoId,
+      vaccineCatalogueId
+    );
+    expect(twinTwoDoseRows).toHaveLength(1);
+    const twinTwoDoseId = Number(twinTwoDoseRows[0].id);
+    const twinTwoTupleBefore = await newbornDoseTupleVersion(twinTwoDoseId);
     await prisma.$executeRawUnsafe(
-      `UPDATE maternity_newborns
-          SET newborn_patient_uid = $1::uuid
-        WHERE tenant_id = $2::uuid AND id = $3::int`,
-      TWIN_ONE_UID,
+      `UPDATE users SET is_deleted = true, deleted_at = NOW()
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
       DEFAULT_TENANT,
-      twinTwoId
+      twinTwoUid
     );
-    // Ambiguous infant identity (two newborns claiming one patient UID) makes
-    // the linked write refuse with 409 instead of guessing a subject. This
-    // pins UNAPPROVED status-quo subject attribution pending decision D7 —
-    // will change with the signed shape.
-    const ambiguousRetry = await doctor
-      .post(`/api/v1/paediatric/immunisations/${twinOneDose[0].patient_immunisation_id}/given`)
-      .send(doseInput);
-    expect(ambiguousRetry.statusCode).toBe(409);
-    expect(ambiguousRetry.body.message).toContain('no longer an exact tenant-scoped match');
-    const newbornHistoryAfterAmbiguity = await prisma.$queryRawUnsafe(
-      `SELECT id, status, given_at, batch_number, manufacturer, site_of_injection
-         FROM newborn_immunisations
-        WHERE tenant_id = $1::uuid
-          AND vaccine_catalogue_id = $2::int
-          AND newborn_id = ANY($3::int[])
-        ORDER BY id`,
+    const invalidatedDose = await doctor
+      .patch(`/api/v1/maternity/immunisations/${twinTwoDoseId}/record`)
+      .send({ status: 'given', given_by_name: `OBGyn Doctor ${RUN}` });
+    expect(invalidatedDose.statusCode).toBe(409);
+    expect(invalidatedDose.body.code).toBe('NEWBORN_IDENTITY_INVALID');
+    expect(invalidatedDose.body.details).toMatchObject({ reason: 'deleted' });
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET is_deleted = false, deleted_at = NULL
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
       DEFAULT_TENANT,
-      vaccineCatalogueId,
-      [twinOneId, twinTwoId]
+      twinTwoUid
     );
-    expect(newbornHistoryAfterAmbiguity).toEqual(newbornHistoryBeforeAmbiguity);
-    const canonicalAfterAmbiguity = await canonicalPair({
-      patientUid: TWIN_ONE_UID,
-      eventType: 'immunisation.dose_recorded',
-      sourceTable: 'newborn_immunisations',
-      sourceId: twinOneDose[0].newborn_immunisation_id
-    });
-    expect(canonicalAfterAmbiguity.timeline).toHaveLength(1);
-    expect(canonicalAfterAmbiguity.audit).toHaveLength(1);
+    const twinTwoTupleAfter = await newbornDoseTupleVersion(twinTwoDoseId);
+    expect(twinTwoTupleAfter).toEqual(twinTwoTupleBefore);
+    const twinTwoDoseEvents = await subjectEvents(twinTwoUid, 'immunisation.dose_recorded');
+    expect(twinTwoDoseEvents.timeline).toHaveLength(0);
+    expect(twinTwoDoseEvents.audit).toHaveLength(0);
+
+    // No proxy attribution EVER: across every seed/dose above (including
+    // the two rejections) the MOTHER carries zero immunisation events.
+    for (const eventType of ['immunisation.schedule_seeded', 'immunisation.dose_recorded']) {
+      const motherEvents = await subjectEvents(MOTHER_UID, eventType);
+      expect(motherEvents.timeline).toHaveLength(0);
+      expect(motherEvents.audit).toHaveLength(0);
+    }
 
     const foreignRead = await tenantBDoctor.get(
-      `/api/v1/paediatric/immunisations/patient/${TWIN_ONE_UID}`
+      `/api/v1/paediatric/immunisations/patient/${twinOneUid}`
     );
     expect(foreignRead.statusCode).toBe(404);
     const foreignRows = await prisma.$queryRawUnsafe(
       `SELECT id FROM patient_immunisations
         WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
       TENANT_B,
-      TWIN_ONE_UID
+      twinOneUid
     );
     expect(foreignRows).toHaveLength(0);
   });
@@ -1269,6 +1645,11 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
   it('keeps the completed journey staff-only, patient-safe and notification-free', async () => {
     const canonicalPatientRead = await patient.get(`/api/v1/emr/timeline/${MOTHER_UID}`);
     expect(canonicalPatientRead.statusCode).toBe(403);
+    // X-1/G-4 (signed): the guardian mother's PORTAL proxy path is the only
+    // patient-side view; the canonical EMR timeline stays staff-only even
+    // for the infant's guardian until D3 broadens patient projections.
+    const infantCanonicalPatientRead = await patient.get(`/api/v1/emr/timeline/${twinOneUid}`);
+    expect(infantCanonicalPatientRead.statusCode).toBe(403);
     const canonicalStaffRead = await doctor.get(`/api/v1/emr/timeline/${MOTHER_UID}`);
     expect(canonicalStaffRead.statusCode).toBe(200);
 
@@ -1286,16 +1667,28 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       }
     }
 
+    // Staff-only invariant across the WHOLE signed spine: every canonical
+    // event this journey produced — mother-subject families plus the
+    // infant-subject families landed by R1/R2 — stays visible_to_patient
+    // = false for the mother AND both minted infants.
+    const journeyEventTypes = [
+      ...LANDED_CANONICAL_EVENTS.map(({ eventType }) => eventType),
+      'maternity.newborn_recorded',
+      'maternity.apgar_recorded',
+      'maternity.postnatal_visit_recorded',
+      'immunisation.schedule_seeded',
+      'immunisation.dose_recorded'
+    ];
     const visibleMaternityEvents = await prisma.$queryRawUnsafe(
       `SELECT event_type
          FROM clinical_timeline_events
         WHERE tenant_id = $1::uuid
-          AND patient_uid = $2::uuid
+          AND patient_uid = ANY($2::uuid[])
           AND event_type = ANY($3::text[])
           AND visible_to_patient = true`,
       DEFAULT_TENANT,
-      MOTHER_UID,
-      LANDED_CANONICAL_EVENTS.map(({ eventType }) => eventType)
+      [MOTHER_UID, twinOneUid, twinTwoUid],
+      journeyEventTypes
     );
     expect(visibleMaternityEvents).toHaveLength(0);
 
