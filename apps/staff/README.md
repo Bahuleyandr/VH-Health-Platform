@@ -8,7 +8,7 @@ administration, investigations, pharmacy, HR tasks, alerts, and offline sync.
 
 | Area | Current choice |
 | --- | --- |
-| Framework | Flutter 3.41 |
+| Framework | Flutter 3.44.0 |
 | Auth | Employee ID/password with backend JWT and refresh token |
 | Routing | `go_router` |
 | Shared code | `vhhealth_core` through the root Dart pub workspace |
