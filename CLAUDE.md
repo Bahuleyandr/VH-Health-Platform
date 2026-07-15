@@ -10,8 +10,8 @@ shared Dart package they all consume.
 |---|---|---|
 | `apps/backend` | Node.js 22 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
 | `apps/admin` | Next.js 16 + React 19 + TypeScript | Admin/super-admin web portal |
-| `apps/patient` | Flutter 3.41 + Firebase OTP | Patient mobile app |
-| `apps/staff` | Flutter 3.41 + staff JWT | Staff/clinical mobile app |
+| `apps/patient` | Flutter 3.44.0 + Firebase OTP | Patient mobile app |
+| `apps/staff` | Flutter 3.44.0 + staff JWT | Staff/clinical mobile app |
 | `packages/vhhealth_core` | Dart shared package | API client, shared types, codegen target |
 
 ## History
@@ -80,6 +80,10 @@ cd ../..
 dart pub get                                               # Flutter workspace
 melos bootstrap
 ```
+
+After changing the pinned Flutter version, run `melos run clean` before the
+next test run. Flutter otherwise can reuse `build/unit_test_assets` generated
+by the previous SDK, including engine-versioned Material shaders.
 
 ### Daily commands
 
