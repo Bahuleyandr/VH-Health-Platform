@@ -24,9 +24,24 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
+      // AppError (statusCode set): surface the machine-readable `code` and
+      // structured `details` so clients receive the documented
+      // { success, message, code, details } envelope (apps/backend/CLAUDE.md).
+      // The helper lifts topLevel.* to the response root and nests the rest
+      // under `details`. No `safe` flag is passed, so message sanitization is
+      // byte-for-byte identical to the previous behaviour.
+      if (err.statusCode) {
+        return error(res, err.message, err.statusCode, {
+          ...(err.code ? { topLevel: { code: err.code } } : {}),
+          ...(err.details || {}),
+        });
+      }
+      // Unexpected (non-AppError): log the full error server-side and return a
+      // generic message. Never pass raw err.message to the client — sanitize
+      // only genericises 5xx in production, so relaying err.message here would
+      // leak internals on non-prod (test/staging) deployments.
       logger.error('maternity route error:', err);
-      return error(res, err.message || 'Maternity error', 500);
+      return error(res, 'Maternity error', 500);
     }
   };
 }
