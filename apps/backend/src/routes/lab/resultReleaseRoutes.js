@@ -5,14 +5,12 @@
 // touch these; their visibility is computed in the portal queries.
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import {
   setResultReleaseHold,
   releaseResultNow,
 } from '../../services/portal/portalAccessService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -25,11 +23,7 @@ function tenantOf(req) {
 }
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Result release ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.patch('/:id/hold', async (req, res) => {
