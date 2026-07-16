@@ -9,7 +9,7 @@ import { checkAppointmentPermission } from '../../utils/appointment/appointmentH
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 function tenantOf(req) {
@@ -202,13 +202,15 @@ export const createAppointment = async (req, res) => {
     }, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_BOOKED, HTTP_STATUS.CREATED);
   } catch (err) {
     if (err.statusCode) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to book appointment');
     }
     if (err.isConflict) {
-      return error(res, 'Time slot already booked', HTTP_STATUS.CONFLICT, { conflicting_appointment_id: err.conflictingId });
+      return error(res, 'Time slot already booked', HTTP_STATUS.CONFLICT, {
+        conflicting_appointment_id: err.conflictingId,
+        ...(err.code ? { topLevel: { code: err.code } } : {}),
+      });
     }
-    logger.error('Error creating appointment:', err);
-    error(res, 'Failed to book appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to book appointment');
   }
 };
 
@@ -422,13 +424,12 @@ export const rescheduleAppointment = async (req, res) => {
   } catch (err) {
     const conflict = conflictDetailsFromError(err);
     if (conflict) {
-      return error(res, 'Time slot already booked', conflict.statusCode, conflict.details);
+      return error(res, 'Time slot already booked', conflict.statusCode, {
+        ...conflict.details,
+        ...(err.code ? { topLevel: { code: err.code } } : {}),
+      });
     }
-    if (err.statusCode) {
-      return error(res, err.message, err.statusCode);
-    }
-    logger.error('Error rescheduling appointment:', err);
-    error(res, 'Failed to reschedule appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to reschedule appointment');
   }
 };
 

@@ -8,7 +8,7 @@ import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { canWriteAppointmentClinical } from '../../utils/appointment/appointmentHelpers.js';
 import { isDoctor } from '../../utils/roleHelpers.js';
@@ -364,9 +364,7 @@ export const confirmAppointment = async (req, res) => {
     emitAppointmentEvent('confirm', { tenantId });
     success(res, result[0], `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Confirm Appointment Error:', err);
-    error(res, 'Failed to confirm appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to confirm appointment');
   }
 };
 
@@ -412,9 +410,7 @@ export const markNoShow = async (req, res) => {
     emitAppointmentEvent('no-show', { tenantId });
     success(res, result, 'Marked as no-show');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Mark No-Show Error:', err);
-    error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed');
   }
 };
 
@@ -611,9 +607,7 @@ export const rescheduleAppointment = async (req, res) => {
       appointment: replacement,
     }, 'Appointment rescheduled');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Reschedule Appointment Error:', err);
-    error(res, 'Failed to reschedule appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to reschedule appointment');
   }
 };
 
@@ -727,9 +721,7 @@ export const completeAppointment = async (req, res) => {
     emitAppointmentEvent('complete', { tenantId });
     success(res, result, 'Appointment completed');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Complete Appointment Error:', err);
-    error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed');
   }
 };
 
@@ -793,9 +785,7 @@ export const cancelAppointment = async (req, res) => {
     emitAppointmentEvent('cancel', { tenantId });
     success(res, result, 'Appointment cancelled');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Cancel Appointment Error:', err);
-    error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed');
   }
 };
 

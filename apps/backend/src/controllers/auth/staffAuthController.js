@@ -9,7 +9,7 @@ import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 // the same payload the rest of the staff routes use, instead of crashing
 // with `StaffAuthService.getStaffProfile is not a function`.
 import { getStaffProfile as fetchStaffProfile } from '../../services/staff/staffService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 // Staff login with employee ID and password
 export const login = async (req, res) => {
@@ -154,11 +154,7 @@ export const updateProfile = async (req, res) => {
     const result = await StaffAuthService.updateOwnProfile(staffUid, req.body, req);
     success(res, result, 'Profile updated');
   } catch (err) {
-    if (err?.statusCode) {
-      return error(res, err.message, err.statusCode);
-    }
-    logger.error('Update Profile Error:', err);
-    error(res, 'Failed to update profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to update profile');
   }
 };
 
@@ -169,11 +165,7 @@ export const changePassword = async (req, res) => {
     const result = await StaffAuthService.changeOwnPassword(staffUid, currentPassword, newPassword, req);
     success(res, result, 'Password changed');
   } catch (err) {
-    if (err?.statusCode) {
-      return error(res, err.message, err.statusCode);
-    }
-    logger.error('Change Password Error:', err);
-    error(res, 'Failed to change password', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to change password');
   }
 };
 
