@@ -3,9 +3,8 @@
 // Sprint 16 — PM-JAY workflow.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as pmjay from '../../services/insurance/pmjayService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -22,9 +21,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('pmjay route error:', err);
-      return error(res, err.message || 'PMJAY error', 500);
+      return relayAppError(res, err, 'PMJAY error');
     }
   };
 }

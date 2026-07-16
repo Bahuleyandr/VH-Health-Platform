@@ -1,10 +1,9 @@
 // src/routes/clinical/dialysisRoutes.js — Sprint 22 + roadmap D7 depth
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as svc from '../../services/clinical/dialysisService.js';
 import { ingestMachineObservations } from '../../services/clinical/dialysisMachineService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin, isStaff, isDoctor } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -23,9 +22,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('dialysis route error:', err);
-      return error(res, err.message || 'Dialysis error', 500);
+      return relayAppError(res, err, 'Dialysis error');
     }
   };
 }

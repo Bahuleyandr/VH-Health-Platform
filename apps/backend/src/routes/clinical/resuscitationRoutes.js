@@ -15,9 +15,8 @@
 // per-tenant resuscitation_settings.enabled flag inside the service.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as resus from '../../services/clinical/resuscitationEventService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -35,11 +34,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      // AppError-shaped errors carry safe caller-targeted messages; anything
-      // else is logged server-side and returned generic (no err.message leak).
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('resuscitation route error:', err);
-      return error(res, 'An internal server error occurred. Please try again later.', 500);
+      return relayAppError(res, err, 'An internal server error occurred. Please try again later.');
     }
   };
 }

@@ -6,9 +6,8 @@
 // patientAccessGuard (matches the OR-board sibling mount).
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as clinicalAlerts from '../../services/clinical/clinicalAlertsService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -25,9 +24,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('clinical-alerts route error:', err);
-      return error(res, 'An internal server error occurred. Please try again later.', 500);
+      return relayAppError(res, err, 'An internal server error occurred. Please try again later.');
     }
   };
 }

@@ -12,7 +12,6 @@ import { Router } from 'express';
 import { getPatientAppointments } from '../../controllers/appointment/appointmentListController.js';
 import { getMyPrescriptions } from '../../controllers/prescription/ePrescriptionController.js';
 import { getHealthRecordsByPhone } from '../../controllers/record/patientRecordController.js';
-import logger from '../../logging/logger.js';
 import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
 import * as portalAccess from '../../services/portal/portalAccessService.js';
@@ -27,7 +26,7 @@ import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import { singleUpload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { uploadFileToR2 } from '../../utils/r2Storage.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const router = Router();
@@ -47,9 +46,11 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('patient portal route error:', err);
-      return error(res, err.message || 'Portal error', 500);
+      // Shared relay (responseHelper.relayAppError): surfaces AppError
+      // code+details per the documented envelope; non-AppErrors get a logged
+      // generic 500 that never relays raw err.message (the old branch leaked
+      // it on non-prod deployments, where sanitize passes 5xx through).
+      return relayAppError(res, err, 'Portal error');
     }
   };
 }
@@ -222,7 +223,7 @@ router.post('/bills/:id/payment-link', requirePatient, wrap(async (req) =>
 // Patient-facing invoice PDF download. Streams the generated binary
 // rather than going through `wrap`/`success` which assume a JSON
 // envelope. PHI access is logged so HIPAA audit captures the download.
-router.get('/bills/:id/pdf', requirePatient, async (req, res, next) => {
+router.get('/bills/:id/pdf', requirePatient, async (req, res) => {
   try {
     const buffer = await portal.generateMyInvoicePdfBuffer({
       tenantId: tenantOf(req),
@@ -244,9 +245,10 @@ router.get('/bills/:id/pdf', requirePatient, async (req, res, next) => {
     res.setHeader('Content-Length', buffer.length);
     return res.send(buffer);
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('patient bill PDF error:', err);
-    return next(err);
+    // Nothing above can throw after headers are written, so responding here
+    // is safe. relayAppError also replaces the old `next(err)` fallthrough:
+    // the global handler relayed raw err.message on non-prod deployments.
+    return relayAppError(res, err, 'patient bill PDF error');
   }
 });
 
@@ -282,7 +284,7 @@ router.get('/discharge-summaries/admission/:admissionId', requirePatient, wrap(a
 // (scoped by patient_uid). Declared BEFORE /discharge-summaries/:id so
 // the more-specific /pdf + /download paths win the route match.
 // PHI access logged as EXPORT for HIPAA audit.
-async function sendMyDischargeSummaryPdf(req, res, next) {
+async function sendMyDischargeSummaryPdf(req, res) {
   try {
     const buffer = await portal.generateMyDischargeSummaryPdfBuffer({
       tenantId: tenantOf(req),
@@ -304,9 +306,10 @@ async function sendMyDischargeSummaryPdf(req, res, next) {
     res.setHeader('Content-Length', buffer.length);
     return res.send(buffer);
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('patient discharge summary PDF error:', err);
-    return next(err);
+    // Nothing above can throw after headers are written, so responding here
+    // is safe. relayAppError also replaces the old `next(err)` fallthrough:
+    // the global handler relayed raw err.message on non-prod deployments.
+    return relayAppError(res, err, 'patient discharge summary PDF error');
   }
 }
 
@@ -568,7 +571,7 @@ router.get('/lab-orders/:id', requirePatient, wrap(async (req) =>
 
 // Binary PDF stream — bypass `wrap`/`success` which assume a JSON
 // envelope. PHI access is logged so HIPAA audit captures the download.
-router.get('/lab-orders/:id/pdf', requirePatient, async (req, res, next) => {
+router.get('/lab-orders/:id/pdf', requirePatient, async (req, res) => {
   try {
     const buffer = await portal.generateMyLabOrderPdfBuffer({
       patient_uid: patientUidOf(req),
@@ -590,9 +593,10 @@ router.get('/lab-orders/:id/pdf', requirePatient, async (req, res, next) => {
     res.setHeader('Content-Length', buffer.length);
     return res.send(buffer);
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('patient lab report PDF error:', err);
-    return next(err);
+    // Nothing above can throw after headers are written, so responding here
+    // is safe. relayAppError also replaces the old `next(err)` fallthrough:
+    // the global handler relayed raw err.message on non-prod deployments.
+    return relayAppError(res, err, 'patient lab report PDF error');
   }
 });
 

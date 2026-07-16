@@ -5,9 +5,8 @@
 // remains for back-compat (it exposes /categories/list).
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as inv from '../../services/pharmacy/inventoryV2Service.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import {
   ADMIN,
   PHARMACY_INCHARGE,
@@ -51,9 +50,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('inventoryV2 route error:', err);
-      return error(res, err.message || 'Inventory error', 500);
+      return relayAppError(res, err, 'Inventory error');
     }
   };
 }

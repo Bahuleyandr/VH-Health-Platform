@@ -9,13 +9,12 @@
 // Refund approval requires ADMIN.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as billing from '../../services/billing/billingV2Service.js';
 import * as cashDrawer from '../../services/billing/cashDrawerService.js';
 import * as payLinks from '../../services/billing/paymentLinkService.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -50,9 +49,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('billingV2 route error:', err);
-      return error(res, err.message || 'Billing error', 500);
+      return relayAppError(res, err, 'Billing error');
     }
   };
 }
@@ -313,7 +310,7 @@ router.post('/invoices/:id/void', requireAdmin, wrap(async (req) => {
 // envelope. The tax invoice is the GST-breakup billing document; the
 // receipt is a payment-confirmation summary. See finding:
 //   2026-05-10-surgical-day-care-billing-no-receipt-tax-invoice-reprint
-router.get('/invoices/:id/tax-invoice-pdf', requireStaffOrAdmin, async (req, res, next) => {
+router.get('/invoices/:id/tax-invoice-pdf', requireStaffOrAdmin, async (req, res) => {
   try {
     const invoiceId = Number(req.params.id);
     if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
@@ -327,13 +324,11 @@ router.get('/invoices/:id/tax-invoice-pdf', requireStaffOrAdmin, async (req, res
     res.setHeader('Content-Length', buffer.length);
     return res.send(buffer);
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('billingV2 tax-invoice PDF error:', err);
-    return next(err);
+    return relayAppError(res, err, 'billingV2 tax-invoice PDF error');
   }
 });
 
-router.get('/invoices/:id/receipt-pdf', requireStaffOrAdmin, async (req, res, next) => {
+router.get('/invoices/:id/receipt-pdf', requireStaffOrAdmin, async (req, res) => {
   try {
     const invoiceId = Number(req.params.id);
     if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
@@ -347,9 +342,7 @@ router.get('/invoices/:id/receipt-pdf', requireStaffOrAdmin, async (req, res, ne
     res.setHeader('Content-Length', buffer.length);
     return res.send(buffer);
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('billingV2 receipt PDF error:', err);
-    return next(err);
+    return relayAppError(res, err, 'billingV2 receipt PDF error');
   }
 });
 
