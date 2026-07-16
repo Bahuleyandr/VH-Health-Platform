@@ -404,6 +404,17 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   stemi_activations: {
     activation_source: 'prehospital_handover',
   },
+  // mig 414: body_custody_release_has_method requires release_method whenever
+  // event_type = 'release'. checkedValue() scans the table's CHECK definitions
+  // in pg_constraint order — which is UNORDERED — and event_type appears in
+  // two of them: the IN-list (first literal 'receive', row passes) and the
+  // conditional CHECK (first literal 'release', row fails because the nullable
+  // release_method is never filled). Whichever definition the catalog returns
+  // first decided pass vs fail — the intermittent 801/802 seeded-coverage
+  // failure. Pin the safe branch deterministically.
+  body_custody_events: {
+    event_type: 'receive',
+  },
   // migs 563-565: keep the generic cath usage row on the non-batch,
   // non-implant branch while satisfying its tenant-composite references.
   cath_consumable_catalog: {
