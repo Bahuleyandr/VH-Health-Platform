@@ -22,9 +22,26 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
+      // AppError (statusCode set): surface the machine-readable `code` and
+      // structured `details` so clients receive the documented
+      // { success, message, code, details } envelope (apps/backend/CLAUDE.md).
+      // Same fix as maternityRoutes' wrap (#598) — this file's copy of the
+      // pasted pattern kept dropping both, which left the D6-R2 422 anonymous
+      // and the #589 retry-triple 409s (HISTORY_FINAL / LINK_CHANGED /
+      // LINK_NOT_EXACT) indistinguishable on the wire. The helper lifts
+      // topLevel.* to the response root and nests the rest under `details`.
+      if (err.statusCode) {
+        return error(res, err.message, err.statusCode, {
+          ...(err.code ? { topLevel: { code: err.code } } : {}),
+          ...(err.details || {}),
+        });
+      }
+      // Unexpected (non-AppError): log the full error server-side and return a
+      // generic message. Never pass raw err.message to the client — sanitize
+      // only genericises 5xx in production, so relaying err.message here would
+      // leak internals on non-prod (test/staging) deployments.
       logger.error('paediatric immunisation route error:', err);
-      return error(res, err.message || 'Paediatric immunisation error', 500);
+      return error(res, 'Paediatric immunisation error', 500);
     }
   };
 }
