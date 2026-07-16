@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as linenLaundry from '../../services/linen/linenLaundryService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
 
 const router = Router();
 
@@ -21,14 +20,7 @@ function wrap(handler, { status = 200, message = 'Success' } = {}) {
       if (res.headersSent) return undefined;
       return success(res, data, message, status);
     } catch (err) {
-      if (err.statusCode) {
-        const details = err.details && typeof err.details === 'object'
-          ? { ...err.details, topLevel: { code: err.code } }
-          : { topLevel: { code: err.code } };
-        return error(res, err.message, err.statusCode, details);
-      }
-      logger.error('Linen/laundry route error', { err });
-      return error(res, 'Linen/laundry request failed', 500);
+      return relayAppError(res, err, 'Linen/laundry request failed');
     }
   };
 }

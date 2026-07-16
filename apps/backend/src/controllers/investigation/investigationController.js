@@ -4,10 +4,9 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
-import { AppError } from '../../utils/AppError.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 // List investigations with filtering
 export const listInvestigations = async (req, res) => {
@@ -62,16 +61,13 @@ export const listInvestigations = async (req, res) => {
     }, 'Investigations retrieved successfully');
 
   } catch (err) {
-    logger.error('List Investigations Error:', err);
     if (err.message === 'USER_NOT_FOUND') {
+      logger.error('List Investigations Error:', err);
       return error(res, 'User not found', 404);
     }
     // Operational AppErrors (e.g. a malformed patient_uid → 400) carry a safe
     // client message + status; surface them instead of masking as a 500.
-    if (err instanceof AppError) {
-      return error(res, err.message, err.statusCode, err.details);
-    }
-    error(res, 'Failed to retrieve investigations', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to retrieve investigations');
   }
 };
 
@@ -290,7 +286,7 @@ export const markInvestigationCollected = async (req, res) => {
     success(res, row, 'Sample collected');
   } catch (err) {
     if (err?.isOperational && err?.statusCode) {
-      return error(res, err.message, err.statusCode, err?.code ? { code: err.code } : undefined);
+      return relayAppError(res, err, 'Failed to mark sample collected');
     }
     logger.error('markInvestigationCollected error:', { err: err?.message, stack: err?.stack });
     error(res, 'Failed to mark sample collected', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -385,10 +381,7 @@ export const addInvestigationResults = async (req, res) => {
     // Surface 409 RESULTS_ALREADY_SUBMITTED + 400 RE_RUN_REASON_REQUIRED
     // from the service so callers can drive the explicit-re-run UX.
     if (err?.isOperational && err?.statusCode && err?.code) {
-      return error(res, err.message, err.statusCode, {
-        code: err.code,
-        ...(err.details && typeof err.details === 'object' ? err.details : {}),
-      });
+      return relayAppError(res, err, 'Failed to add investigation results');
     }
     logger.error('Add Results Error:', err);
     error(res, 'Failed to add investigation results', HTTP_STATUS.INTERNAL_SERVER_ERROR);

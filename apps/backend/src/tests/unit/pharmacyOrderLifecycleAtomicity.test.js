@@ -35,6 +35,7 @@ jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
 jest.unstable_mockModule('../../utils/responseHelper.js', () => ({
   success,
   error,
+  relayAppError: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({ logAudit }));

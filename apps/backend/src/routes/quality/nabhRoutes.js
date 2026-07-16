@@ -4,7 +4,6 @@
 // (app.js). Quality officers + leadership + admin territory.
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import {
   computeIndicators,
   snapshotIndicators,
@@ -15,7 +14,7 @@ import {
   packToPdfBuffer,
 } from '../../services/quality/nabhIndicatorService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { ROLES, isAdmin, isLeadership } from '../../utils/roleHelpers.js';
 
@@ -33,11 +32,7 @@ function gate(req, res) {
 }
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`NABH ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 function periodPackFilename(from, to, extension) {

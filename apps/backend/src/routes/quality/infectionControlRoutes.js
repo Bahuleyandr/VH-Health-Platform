@@ -3,7 +3,6 @@
 // Mounted at /api/v1/infection-control behind the IC/quality role gate.
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import {
   isolationBoard,
   listIsolationOrders,
@@ -27,8 +26,7 @@ import {
   listHandHygieneAudits,
 } from '../../services/quality/infectionControlWorkbenchService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
@@ -40,11 +38,7 @@ function actor(req) {
 }
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Infection control ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.get('/isolation-board', async (req, res) => {
