@@ -16,7 +16,7 @@ import {
   completeTransfusion,
   recordReaction,
 } from '../../services/bloodbank/transfusionSafetyService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { requiredUUID, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
 import { emitBloodBankEvent } from '../../utils/websocket/realtimeEmitter.js';
@@ -24,7 +24,7 @@ import { emitBloodBankEvent } from '../../utils/websocket/realtimeEmitter.js';
 // Shared failure mapper for the B5 closed-loop endpoints.
 function handleLoopFailure(res, next, err, context) {
   if (err instanceof AppError || err?.isOperational) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+    return relayAppError(res, err, `Transfusion loop ${context} failed`);
   }
   logger.error(`Transfusion loop ${context} failed:`, { error: err.message });
   return next(err);
@@ -32,7 +32,7 @@ function handleLoopFailure(res, next, err, context) {
 
 function handleDonorFailure(res, next, err, context) {
   if (err instanceof AppError || err?.isOperational) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+    return relayAppError(res, err, `Donor intake ${context} failed`);
   }
   logger.error(`Donor intake ${context} failed:`, { error: err.message });
   return next(err);
@@ -40,7 +40,7 @@ function handleDonorFailure(res, next, err, context) {
 
 function handleProcessingFailure(res, next, err, context) {
   if (err instanceof AppError || err?.isOperational) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+    return relayAppError(res, err, `Donor processing ${context} failed`);
   }
   logger.error(`Donor processing ${context} failed:`, { error: err.message });
   return next(err);
@@ -238,7 +238,7 @@ router.post('/request', requiredUUID('patient_uid'), requiredEnum('blood_group',
     return success(res, result, 'Blood request created successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to create blood request');
     }
     logger.error('Failed to create blood request:', { error: err.message });
     next(err);
@@ -262,7 +262,7 @@ router.put('/:id/cross-match', paramId(), validate, async (req, res, next) => {
     return success(res, result, 'Cross-match result recorded successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to record cross-match');
     }
     logger.error('Failed to record cross-match:', { error: err.message });
     next(err);
@@ -285,7 +285,7 @@ router.put('/:id/issue', paramId(), validate, async (req, res, next) => {
     return success(res, result, 'Blood issued successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to issue blood');
     }
     logger.error('Failed to issue blood:', { error: err.message });
     next(err);
@@ -309,7 +309,7 @@ router.put('/:id/transfused', paramId(), validate, async (req, res, next) => {
     return success(res, result, 'Transfusion recorded successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to record transfusion');
     }
     logger.error('Failed to record transfusion:', { error: err.message });
     next(err);
@@ -439,7 +439,7 @@ router.get('/inventory', async (req, res, next) => {
     return success(res, inventory, 'Blood inventory retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get blood inventory');
     }
     logger.error('Failed to get blood inventory:', { error: err.message });
     next(err);
@@ -465,7 +465,7 @@ router.get('/pending', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get pending blood requests');
     }
     logger.error('Failed to get pending blood requests:', { error: err.message });
     next(err);
