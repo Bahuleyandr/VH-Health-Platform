@@ -8,7 +8,6 @@
 //   GET  /audit-chain/verify                — admin: verify the hash chain
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import {
   signDocument,
   verifyDocumentSignature,
@@ -16,8 +15,7 @@ import {
   verifyAuditChain,
 } from '../../services/clinical/documentIntegrityService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isDoctor } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
@@ -25,11 +23,7 @@ const router = express.Router();
 const canSign = (role) => isDoctor(role) || isAdmin(role) || role === 'SUPER_ADMIN';
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Integrity ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.post('/sign', async (req, res) => {
