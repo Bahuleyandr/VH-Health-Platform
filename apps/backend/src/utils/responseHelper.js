@@ -151,6 +151,44 @@ export function success(res, data, message = 'Success', status = 200, meta = {})
  *                      May be `{ safe: true, ...rest }` to opt out of
  *                      5xx scrubbing when the message is confirmed safe.
  */
+/**
+ * Relay a caught route/controller error as the documented envelope.
+ *
+ * The single implementation of the pattern PRs #598 (maternity) and #602
+ * (paediatric) fixed file-locally: dozens of route catch blocks used to call
+ * `error(res, err.message, err.statusCode)` with no 4th arg, silently dropping
+ * `err.code` and `err.details` — so clients never saw the machine-readable
+ * codes services deliberately attach (AppError contract, apps/backend/CLAUDE.md).
+ *
+ * Behaviour (byte-equivalent to the two reference fixes):
+ *  - `err.statusCode` set (AppError or AppError-shaped): relay message +
+ *    status; lift `err.code` to the response root via the topLevel mechanism;
+ *    nest `err.details` under `details`. No `safe` flag is passed, so message
+ *    sanitization is identical to the pre-helper behaviour.
+ *  - Anything else (programming error): log the full error server-side with
+ *    the caller's label and return a hand-written generic 500. Never relay raw
+ *    `err.message` — sanitize only genericises 5xx in production, so relaying
+ *    would leak internals on non-prod (test/staging) deployments.
+ *
+ * @param {Response} res - Express response
+ * @param {Error} err - The caught error
+ * @param {string} generic - Caller's generic 500 message; doubles as the
+ *                           server-side log label (`\`${generic}:\``)
+ */
+export function relayAppError(res, err, generic = 'Request failed') {
+  if (err && err.statusCode) {
+    const payload = {
+      ...(err.code ? { topLevel: { code: err.code } } : {}),
+      ...(err.details || {}),
+    };
+    // Pass null when there is nothing to relay — a bare statusCode error
+    // (no code, no details) must not produce a spurious `details: {}` key.
+    return error(res, err.message, err.statusCode, Object.keys(payload).length ? payload : null);
+  }
+  logger.error(`${generic}:`, err);
+  return error(res, generic, 500);
+}
+
 export function error(res, message = 'Internal server error', statusCode = 500, details = null) {
   let safeFlag = false;
   let outDetails = details;

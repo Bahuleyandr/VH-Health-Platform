@@ -4,10 +4,9 @@
 // /api/v1/maternity/*.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as mat from '../../services/maternity/maternityService.js';
 import * as immun from '../../services/maternity/immunisationService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isPatient, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -24,24 +23,11 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      // AppError (statusCode set): surface the machine-readable `code` and
-      // structured `details` so clients receive the documented
-      // { success, message, code, details } envelope (apps/backend/CLAUDE.md).
-      // The helper lifts topLevel.* to the response root and nests the rest
-      // under `details`. No `safe` flag is passed, so message sanitization is
-      // byte-for-byte identical to the previous behaviour.
-      if (err.statusCode) {
-        return error(res, err.message, err.statusCode, {
-          ...(err.code ? { topLevel: { code: err.code } } : {}),
-          ...(err.details || {}),
-        });
-      }
-      // Unexpected (non-AppError): log the full error server-side and return a
-      // generic message. Never pass raw err.message to the client — sanitize
-      // only genericises 5xx in production, so relaying err.message here would
-      // leak internals on non-prod (test/staging) deployments.
-      logger.error('maternity route error:', err);
-      return error(res, 'Maternity error', 500);
+      // Shared relay (responseHelper.relayAppError): surfaces AppError
+      // code+details per the documented envelope; non-AppErrors get a logged
+      // generic 500 that never relays raw err.message. Extracted from this
+      // file's #598 fix so exactly one implementation of the pattern exists.
+      return relayAppError(res, err, 'Maternity error');
     }
   };
 }

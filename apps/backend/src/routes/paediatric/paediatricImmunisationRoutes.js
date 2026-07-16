@@ -3,9 +3,8 @@
 // A10 — paediatric immunisation routes. Mounted at /api/v1/paediatric/*.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as svc from '../../services/paediatric/paediatricImmunisationService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -22,26 +21,11 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      // AppError (statusCode set): surface the machine-readable `code` and
-      // structured `details` so clients receive the documented
-      // { success, message, code, details } envelope (apps/backend/CLAUDE.md).
-      // Same fix as maternityRoutes' wrap (#598) — this file's copy of the
-      // pasted pattern kept dropping both, which left the D6-R2 422 anonymous
-      // and the #589 retry-triple 409s (HISTORY_FINAL / LINK_CHANGED /
-      // LINK_NOT_EXACT) indistinguishable on the wire. The helper lifts
-      // topLevel.* to the response root and nests the rest under `details`.
-      if (err.statusCode) {
-        return error(res, err.message, err.statusCode, {
-          ...(err.code ? { topLevel: { code: err.code } } : {}),
-          ...(err.details || {}),
-        });
-      }
-      // Unexpected (non-AppError): log the full error server-side and return a
-      // generic message. Never pass raw err.message to the client — sanitize
-      // only genericises 5xx in production, so relaying err.message here would
-      // leak internals on non-prod (test/staging) deployments.
-      logger.error('paediatric immunisation route error:', err);
-      return error(res, 'Paediatric immunisation error', 500);
+      // Shared relay (responseHelper.relayAppError): surfaces AppError
+      // code+details per the documented envelope; non-AppErrors get a logged
+      // generic 500 that never relays raw err.message. Extracted from this
+      // file's #602 fix so exactly one implementation of the pattern exists.
+      return relayAppError(res, err, 'Paediatric immunisation error');
     }
   };
 }
