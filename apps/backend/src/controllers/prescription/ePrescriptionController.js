@@ -22,7 +22,7 @@ import {
   formatTemperatureForDisplay,
   generatePrescriptionPDFBuffer,
 } from '../../services/prescription/prescriptionPdfHelper.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { requireTenantId } from '../../services/tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
@@ -1454,8 +1454,8 @@ export const createPrescription = async (req, res) => {
       HTTP_STATUS.CREATED
     );
   } catch (err) {
-    if (err instanceof AppError) {
-      return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+    if (err?.statusCode) {
+      return relayAppError(res, err, 'Failed to create prescription');
     }
     // Log enough context to actually diagnose the next swarm 500. The
     // previous catch logged the bare Error and surfaced a generic
@@ -1681,11 +1681,7 @@ export const updatePrescription = async (req, res) => {
 
     success(res, updated, 'Prescription updated');
   } catch (err) {
-    if (err instanceof AppError) {
-      return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-    }
-    logger.error('Update prescription error:', err);
-    error(res, 'Failed to update prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to update prescription');
   }
 };
 
@@ -1809,11 +1805,7 @@ export const signPrescription = async (req, res) => {
 
     success(res, signed, 'Prescription signed and locked');
   } catch (err) {
-    if (err instanceof AppError) {
-      return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-    }
-    logger.error('Sign prescription error:', err);
-    error(res, 'Failed to sign prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to sign prescription');
   }
 };
 

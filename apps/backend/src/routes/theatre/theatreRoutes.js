@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import theatreService from '../../services/theatre/theatreService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitOrBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
@@ -50,7 +50,7 @@ router.post('/schedule', requiredUUID('patient_uid'), requiredString('procedure_
     return success(res, schedule, 'Surgery scheduled successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Theatre error');
     }
     logger.error('Failed to schedule surgery:', { error: err.message });
     next(err);
@@ -74,7 +74,7 @@ router.get('/today', async (req, res, next) => {
     return success(res, schedules, 'Today OT schedule retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Theatre error');
     }
     logger.error('Failed to get OT schedule:', { error: err.message });
     next(err);
@@ -92,7 +92,7 @@ router.get('/availability', async (req, res, next) => {
     return success(res, result, 'OT room availability retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Theatre error');
     }
     logger.error('Failed to get OT room availability:', { error: err.message });
     next(err);
@@ -115,7 +115,7 @@ router.put('/:id/status', paramId(), validate, async (req, res, next) => {
     return success(res, result, 'Surgery status updated successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Theatre error');
     }
     logger.error('Failed to update surgery status:', { error: err.message });
     next(err);
@@ -139,7 +139,7 @@ router.put('/:id/checklist', paramId(), validate, async (req, res, next) => {
     return success(res, result, 'Pre-op checklist updated successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Theatre error');
     }
     logger.error('Failed to update pre-op checklist:', { error: err.message });
     next(err);
@@ -160,7 +160,7 @@ router.delete('/:id', paramId(), validate, async (req, res, next) => {
     return success(res, result, 'Surgery cancelled successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Theatre error');
     }
     logger.error('Failed to cancel surgery:', { error: err.message });
     next(err);

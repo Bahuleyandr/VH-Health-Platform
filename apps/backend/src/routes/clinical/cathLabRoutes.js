@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import cathSchedulingRoutes from './cathSchedulingRoutes.js';
-import logger from '../../logging/logger.js';
 import {
   addContrastRadiationRecord,
   addDeviceLink,
@@ -39,8 +38,7 @@ import { renderCathReportPdf } from '../../services/documents/cathReportPdfServi
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import {
   canEditCathReport,
   canOpenCathViewer,
@@ -114,11 +112,7 @@ const requireViewerAccess = roleGuard(
 );
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Cath-lab ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.get('/report-templates', requireReportRead, async (req, res) => {

@@ -7,7 +7,6 @@
 // quality) below.
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import {
   listCodeSystems,
   searchConcepts,
@@ -25,8 +24,7 @@ import {
   setTenantTerminologySettings,
 } from '../../services/terminology/terminologySettingsService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { ROLES, isAdmin } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
@@ -52,11 +50,7 @@ export const TERMINOLOGY_CURATOR_ROLES = [
 const isCurator = (role) => isAdmin(role) || TERMINOLOGY_CURATOR_ROLES.includes(role);
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Terminology ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.get('/code-systems', async (req, res) => {

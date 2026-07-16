@@ -6,7 +6,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
 import { probePharmacyCap, shouldBlockDispense } from '../../services/pharmacy/pharmacyCapService.js';
@@ -332,7 +332,7 @@ export const confirmOrder = async (req, res) => {
     // which input was wrong.
     // Finding: 2026-05-09-pediatric-opd-pharmacy-confirm-500
     if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, err.details);
+      return relayAppError(res, err, 'Failed to confirm order');
     }
     if (err && typeof err.code === 'string' && err.code.startsWith('23')) {
       logger.error('Confirm pharmacy order DB constraint:', { code: err.code, detail: err.detail, constraint: err.constraint });

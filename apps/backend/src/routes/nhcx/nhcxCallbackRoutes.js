@@ -15,7 +15,7 @@ import {
   resolveTenantByNHCXParticipantCode,
 } from '../../services/nhcx/nhcxTenantConfigService.js';
 import { processNHCXCallback } from '../../services/nhcx/nhcxInboundCallbackService.js';
-import { error, success } from '../../utils/responseHelper.js';
+import { error, relayAppError, success } from '../../utils/responseHelper.js';
 import { assertSharedReplayOnce, verifySignedRequest } from '../../utils/signedRequest.js';
 
 const callbackRouter = Router();
@@ -109,7 +109,8 @@ async function validateNHCXRequest(req, res, next) {
       code: err.code,
       error: err.message,
     });
-    return error(res, err.message, err.statusCode || 401);
+    if (err.statusCode) return relayAppError(res, err, 'NHCX callback authenticity check failed');
+    return error(res, err.message, 401);
   }
 
   req.tenantId = tenantId;
@@ -138,7 +139,7 @@ async function handleCallback(req, res, next) {
       processed: result.processed === true,
     }, 'NHCX callback accepted', 202);
   } catch (err) {
-    if (err.isOperational) return error(res, err.message, err.statusCode);
+    if (err.isOperational) return relayAppError(res, err, 'NHCX callback processing failed');
     logger.error('NHCX callback processing failed', { path: req.path, error: err.message });
     return next(err);
   }

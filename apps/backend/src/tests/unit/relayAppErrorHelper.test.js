@@ -82,6 +82,18 @@ describe('relayAppError', () => {
     expect(loggerErrorMock).toHaveBeenCalledWith('Dialysis error:', expect.any(Error));
   });
 
+  test('opts.safe is consumed by error(), never serialized to the client', () => {
+    // Shape only — the behavioural pin for safe (prod 5xx message survival)
+    // lives in relayAppErrorSafeProd.test.js, which imports the helper under
+    // NODE_ENV=production where safe actually changes the outcome.
+    const res = mockRes();
+    relayAppError(res, AppError.conflict('Bed already occupied', 'BED_OCCUPIED', { bedId: 7 }), 'Bed error', { safe: true });
+    const body = res.json.mock.calls[0][0];
+    expect(body).not.toHaveProperty('safe');
+    expect(body.details).toEqual({ bedId: 7 });
+    expect(body.code).toBe('BED_OCCUPIED');
+  });
+
   test('default label when the caller passes none', () => {
     const res = mockRes();
     relayAppError(res, new Error('boom'));

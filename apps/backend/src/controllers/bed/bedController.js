@@ -2,7 +2,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import bedService from '../../services/bed/bedService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { emitBedEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { logAudit } from '../../utils/logAudit.js';
 
@@ -38,11 +38,7 @@ export const createWard = async (req, res) => {
     emitBedEvent('ward-created', ward);
     success(res, { ward }, 'Ward created', HTTP_STATUS.CREATED);
   } catch (err) {
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, { safe: true, ...(err.details || {}) });
-    }
-    logger.error('Error creating ward:', err);
-    error(res, 'Failed to create ward', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to create ward', { safe: true });
   }
 };
 
@@ -73,11 +69,7 @@ export const deleteWard = async (req, res) => {
     emitBedEvent('ward-deleted', deleted);
     success(res, { ward: deleted }, 'Ward deleted');
   } catch (err) {
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, { safe: true, ...(err.details || {}) });
-    }
-    logger.error('Error deleting ward:', err);
-    error(res, 'Failed to delete ward', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to delete ward', { safe: true });
   }
 };
 
@@ -93,11 +85,7 @@ export const listBeds = async (req, res) => {
       scope: result.scope,
     });
   } catch (err) {
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, err.details);
-    }
-    logger.error('Error listing beds:', err);
-    error(res, 'Failed to list beds', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to list beds');
   }
 };
 
@@ -111,11 +99,7 @@ export const getBedsByWard = async (req, res) => {
       scope: result.scope,
     });
   } catch (err) {
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, err.details);
-    }
-    logger.error('Error getting beds by ward:', err);
-    error(res, 'Failed to get beds', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to get beds');
   }
 };
 
@@ -154,11 +138,7 @@ export const createBed = async (req, res) => {
     emitBedEvent('bed-created', bed);
     success(res, { bed }, 'Bed created', HTTP_STATUS.CREATED);
   } catch (err) {
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, { safe: true, ...(err.details || {}) });
-    }
-    logger.error('Error creating bed:', err);
-    error(res, 'Failed to create bed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to create bed', { safe: true });
   }
 };
 
@@ -193,11 +173,7 @@ export const deleteBed = async (req, res) => {
     emitBedEvent('bed-deleted', deleted);
     success(res, { bed: deleted }, 'Bed deleted');
   } catch (err) {
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, { safe: true, ...(err.details || {}) });
-    }
-    logger.error('Error deleting bed:', err);
-    error(res, 'Failed to delete bed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to delete bed', { safe: true });
   }
 };
 
@@ -220,11 +196,7 @@ export const admitPatient = async (req, res) => {
     success(res, { bed }, 'Patient admitted');
   } catch (err) {
     // Surface AppError (e.g. ICU tier forbidden) so the actor sees the real reason.
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, err.details);
-    }
-    logger.error('Error admitting patient:', err);
-    error(res, 'Failed to admit patient', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to admit patient');
   }
 };
 
@@ -244,11 +216,7 @@ export const dischargePatient = async (req, res) => {
     emitBedEvent('patient-discharged', bed);
     success(res, { bed }, 'Patient discharged');
   } catch (err) {
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, err.details);
-    }
-    logger.error('Error discharging patient:', err);
-    error(res, 'Failed to discharge patient', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to discharge patient');
   }
 };
 
@@ -274,10 +242,6 @@ export const updateBedNotes = async (req, res) => {
     emitBedEvent('bed-notes-updated', bed);
     success(res, { bed }, 'Bed notes updated');
   } catch (err) {
-    if (err && typeof err.statusCode === 'number') {
-      return error(res, err.message, err.statusCode, err.details);
-    }
-    logger.error('Error updating bed notes:', err);
-    error(res, 'Failed to update bed notes', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to update bed notes');
   }
 };

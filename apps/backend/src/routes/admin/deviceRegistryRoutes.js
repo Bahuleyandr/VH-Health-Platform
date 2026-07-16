@@ -1,9 +1,8 @@
 // src/routes/admin/deviceRegistryRoutes.js
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { canManageIntegrations, isAdmin } from '../../utils/roleHelpers.js';
 import {
@@ -30,11 +29,7 @@ function requireManage(req, res, next) {
 }
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Device registry ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.get('/', async (req, res) => {

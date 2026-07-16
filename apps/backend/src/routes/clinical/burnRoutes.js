@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as burns from '../../services/clinical/burnCareService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
 
 const router = Router();
 
@@ -26,9 +25,7 @@ function wrap(handler, { status = 200, message = 'Success' } = {}) {
       const data = await handler(req, res);
       return success(res, data, message, status);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode, err.details);
-      logger.error('burn route error:', err);
-      return error(res, 'An internal server error occurred. Please try again later.', 500);
+      return relayAppError(res, err, 'An internal server error occurred. Please try again later.');
     }
   };
 }

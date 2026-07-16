@@ -5,7 +5,6 @@
 // the privilege check.
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import { upload, validateFileContent, validateGenericDocumentUpload } from '../../middleware/uploadMiddleware.js';
 import {
   addCredential,
@@ -24,8 +23,7 @@ import {
   upsertPrivilegeCatalog,
 } from '../../services/staff/credentialingService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { ROLES, isAdmin, isLeadership } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -39,11 +37,7 @@ function tenantOf(req) {
 }
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Credentialing ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.post('/', async (req, res) => {

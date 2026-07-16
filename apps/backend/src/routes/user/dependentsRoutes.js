@@ -10,7 +10,7 @@ import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import { DependentsService } from '../../services/user/dependentsService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -33,7 +33,7 @@ function ensureAuthedUserId(req) {
 
 function handleError(res, err, context) {
   if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details || undefined);
+    return relayAppError(res, err, 'Internal server error');
   }
   logger.error(context, err);
   return error(res, 'Internal server error', HTTP_STATUS.INTERNAL_SERVER_ERROR);

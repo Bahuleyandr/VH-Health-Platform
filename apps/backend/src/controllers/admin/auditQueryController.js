@@ -10,7 +10,7 @@ import {
   recordAuditConsoleAccess,
 } from '../../services/compliance/auditAccountabilityService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 // GET /api/v1/admin/audit/logs
 // Query params: user_id, module, action, method, status_code, success, from, to, limit, offset, search
@@ -90,7 +90,7 @@ export const getAuditLogs = async (req, res) => {
 
 function auditError(res, err, operation) {
   if (err?.isOperational && err?.statusCode) {
-    return error(res, err.message, err.statusCode, { code: err.code });
+    return relayAppError(res, err, `Failed to ${operation.toLowerCase()}`);
   }
   logger.error(`${operation} Error:`, err);
   return error(res, `Failed to ${operation.toLowerCase()}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);

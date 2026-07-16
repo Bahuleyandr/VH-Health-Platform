@@ -7,7 +7,7 @@ import logger from '../../logging/logger.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import referralService from '../../services/referral/referralService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isDoctor, isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 
@@ -93,7 +93,7 @@ router.post('/', rejectMobileClinicalWrite, requiredUUID('patient_uid'), require
     return success(res, referral, 'Referral created successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to create referral:', { error: err.message });
     next(err);
@@ -128,7 +128,7 @@ router.get('/incoming', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to get incoming referrals:', { error: err.message });
     next(err);
@@ -163,7 +163,7 @@ router.get('/outgoing', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to get outgoing referrals:', { error: err.message });
     next(err);
@@ -190,7 +190,7 @@ router.get('/consultants', async (req, res, next) => {
     return success(res, consultants, 'Consultants retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to search referral consultants:', { error: err.message });
     next(err);
@@ -225,7 +225,7 @@ router.get('/audit', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to get referral audit:', { error: err.message });
     next(err);
@@ -250,7 +250,7 @@ router.put('/:id/seen', rejectMobileClinicalWrite, paramId(), validate, async (r
     return success(res, referral, 'Referral marked as seen');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to mark referral as seen:', { error: err.message });
     next(err);
@@ -275,7 +275,7 @@ router.put('/:id/accept', rejectMobileClinicalWrite, paramId(), validate, async 
     return success(res, referral, 'Referral accepted successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to accept referral:', { error: err.message });
     next(err);
@@ -305,7 +305,7 @@ router.put('/:id/complete', rejectMobileClinicalWrite, paramId(), validate, asyn
     return success(res, referral, 'Referral completed successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to complete referral:', { error: err.message });
     next(err);
@@ -335,7 +335,7 @@ router.put('/:id/decline', rejectMobileClinicalWrite, paramId(), requiredString(
     return success(res, referral, 'Referral declined');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to decline referral:', { error: err.message });
     next(err);
@@ -368,7 +368,7 @@ router.get('/patient/:uid', patientAccessGuard('REFERRAL', { careTeamModeGoverne
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to get patient referrals:', { error: err.message });
     next(err);

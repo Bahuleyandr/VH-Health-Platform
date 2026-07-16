@@ -4,7 +4,6 @@
 // /api/v1/hl7-feeds (app.js); admin/integration territory.
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import {
   listSubscriptions,
   createSubscription,
@@ -14,8 +13,7 @@ import {
   deliverPendingFeedMessages,
 } from '../../services/hl7/hl7OutboundService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { canManageIntegrations, isAdmin } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
@@ -24,11 +22,7 @@ const canManage = (role) => canManageIntegrations(role) || isAdmin(role) || role
 const requestTenantId = (req) => req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`HL7 feeds ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.get('/subscriptions', async (req, res) => {

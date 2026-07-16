@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import dietaryService from '../../services/dietary/dietaryService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -44,7 +44,7 @@ router.post('/orders', requiredUUID('patient_uid'), requiredString('diet_type', 
     return success(res, order, 'Diet order created successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to create diet order');
     }
     logger.error('Failed to create diet order:', { error: err.message });
     next(err);
@@ -71,7 +71,7 @@ router.get('/worklist', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get diet worklist');
     }
     logger.error('Failed to get diet worklist:', { error: err.message });
     next(err);
@@ -101,7 +101,7 @@ router.put('/:id', paramId(), validate, async (req, res, next) => {
     return success(res, result, 'Diet order updated successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to update diet order');
     }
     logger.error('Failed to update diet order:', { error: err.message });
     next(err);
@@ -127,7 +127,7 @@ router.get('/patient/:uid', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get patient diet history');
     }
     logger.error('Failed to get patient diet history:', { error: err.message });
     next(err);

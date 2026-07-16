@@ -8,7 +8,7 @@ import { Router } from 'express';
 import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import logger from '../../logging/logger.js';
 import abdmService from '../../services/abdm/abdmService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
@@ -109,7 +109,8 @@ async function validateABDMRequest(req, res, next) {
       code: err.code,
       error: err.message,
     });
-    return error(res, err.message, err.statusCode || 401);
+    if (err.statusCode) return relayAppError(res, err, 'ABDM callback authenticity check failed');
+    return error(res, err.message, 401);
   }
 
   // Hand the resolved tenant to the downstream handler (it still re-derives the
@@ -178,10 +179,7 @@ callbackRouter.post('/consent/on-notify', async (req, res, next) => {
     return success(res, { consentId: consent.consent_id }, 'Consent request received', 202);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode, {
-        ...(err.details || {}),
-        topLevel: { code: err.code },
-      });
+      return relayAppError(res, err, 'Failed to handle ABDM consent notification');
     }
     logger.error('Failed to handle ABDM consent notification', { error: err.message });
     next(err);
@@ -211,7 +209,7 @@ callbackRouter.post('/health-info/on-request', async (req, res, next) => {
     return success(res, { transactionId: result.transaction_id }, 'Data request accepted', 202);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to handle ABDM data request');
     }
     logger.error('Failed to handle ABDM data request', { error: err.message });
     next(err);
@@ -265,7 +263,7 @@ patientRouter.post('/register-abha', async (req, res, next) => {
     return success(res, result, 'ABHA linked to patient successfully', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to register ABHA');
     }
     logger.error('Failed to register ABHA', { error: err.message });
     next(err);
@@ -294,7 +292,7 @@ patientRouter.post('/verify-abha', async (req, res, next) => {
     return success(res, result, 'ABHA verification result', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to verify ABHA');
     }
     logger.error('Failed to verify ABHA', { error: err.message });
     next(err);
@@ -317,7 +315,7 @@ patientRouter.get('/patient-by-abha/:abhaNumber', async (req, res, next) => {
     return success(res, patient, 'Patient found', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to lookup patient by ABHA');
     }
     logger.error('Failed to lookup patient by ABHA', { error: err.message });
     next(err);
@@ -338,7 +336,7 @@ patientRouter.get('/status', async (req, res, next) => {
     return success(res, status, 'ABDM status retrieved', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get ABDM status');
     }
     logger.error('Failed to get ABDM status', { error: err.message });
     next(err);
@@ -362,7 +360,7 @@ patientRouter.get('/consent-requests', async (req, res, next) => {
     return success(res, requests, 'ABDM consent requests retrieved', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to list ABDM consent requests');
     }
     logger.error('Failed to list ABDM consent requests', { error: err.message });
     next(err);
@@ -385,7 +383,7 @@ patientRouter.get('/consents', async (req, res, next) => {
     return success(res, consents, 'ABDM consents retrieved', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get ABDM consents');
     }
     logger.error('Failed to get ABDM consents', { error: err.message });
     next(err);
@@ -410,7 +408,7 @@ patientRouter.post('/consents/:id/grant', async (req, res, next) => {
     return success(res, result, 'Consent granted successfully', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to grant ABDM consent');
     }
     logger.error('Failed to grant ABDM consent', { error: err.message });
     next(err);
@@ -436,7 +434,7 @@ patientRouter.post('/consents/:id/deny', async (req, res, next) => {
     return success(res, result, 'Consent denied', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to deny ABDM consent');
     }
     logger.error('Failed to deny ABDM consent', { error: err.message });
     next(err);
@@ -461,7 +459,7 @@ patientRouter.post('/consents/:id/revoke', async (req, res, next) => {
     return success(res, result, 'Consent revoked successfully', 200);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to revoke ABDM consent');
     }
     logger.error('Failed to revoke ABDM consent', { error: err.message });
     next(err);

@@ -174,12 +174,19 @@ export function success(res, data, message = 'Success', status = 200, meta = {})
  * @param {Error} err - The caught error
  * @param {string} generic - Caller's generic 500 message; doubles as the
  *                           server-side log label (`\`${generic}:\``)
+ * @param {{ safe?: boolean }} opts - `safe: true` marks the AppError's message
+ *                           as confirmed hand-written-safe, so a 5xx message
+ *                           survives production sanitization (the bedController
+ *                           contract). Consumed by error(); never serialized.
  */
-export function relayAppError(res, err, generic = 'Request failed') {
+export function relayAppError(res, err, generic = 'Request failed', opts = {}) {
   if (err && err.statusCode) {
     const payload = {
       ...(err.code ? { topLevel: { code: err.code } } : {}),
       ...(err.details || {}),
+      // Last so a service-authored details object cannot un-set the caller's
+      // explicit safe declaration.
+      ...(opts.safe === true ? { safe: true } : {}),
     };
     // Pass null when there is nothing to relay — a bare statusCode error
     // (no code, no details) must not produce a spurious `details: {}` key.

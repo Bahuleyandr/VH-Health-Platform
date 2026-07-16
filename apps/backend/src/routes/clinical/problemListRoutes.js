@@ -6,7 +6,6 @@
 // problems but do not own the list).
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import {
   listProblems,
@@ -17,8 +16,7 @@ import {
 } from '../../services/clinical/problemListService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isDoctor } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
@@ -45,11 +43,7 @@ const guardDiagnosisPromotionWrite = patientAccessGuardForResource('DIAGNOSIS', 
 });
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Problem list ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 router.get('/patient/:patientUid', guardProblemView, async (req, res) => {

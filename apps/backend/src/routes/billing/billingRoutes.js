@@ -7,7 +7,7 @@ import logger from '../../logging/logger.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import billingService from '../../services/billing/billingService.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isPatient, isStaff } from '../../utils/roleHelpers.js';
 import { requiredUUID, requiredString, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -71,7 +71,7 @@ router.post('/invoice', requireIdempotencyKey({ required: false, scope: 'invoice
     return success(res, invoice, 'Invoice created successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to create invoice');
     }
     logger.error('Failed to create invoice:', { error: err.message });
     next(err);
@@ -107,7 +107,7 @@ router.get('/invoices/patient/:patientUid', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get patient invoices');
     }
     logger.error('Failed to get patient invoices:', { error: err.message });
     next(err);
@@ -136,7 +136,7 @@ router.get('/invoice/:id', async (req, res, next) => {
     return success(res, invoice, 'Invoice detail retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get invoice detail');
     }
     logger.error('Failed to get invoice detail:', { error: err.message });
     next(err);
@@ -181,7 +181,7 @@ router.post('/invoice/:id/payment', requireIdempotencyKey({ required: false, sco
     return success(res, result, 'Payment recorded successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to record payment');
     }
     logger.error('Failed to record payment:', { error: err.message });
     next(err);
@@ -214,7 +214,7 @@ router.get('/revenue', async (req, res, next) => {
     return success(res, stats, 'Revenue statistics retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get revenue stats');
     }
     logger.error('Failed to get revenue stats:', { error: err.message });
     next(err);
@@ -253,7 +253,7 @@ router.post('/insurance/claim', requireIdempotencyKey({ required: false, scope: 
     return success(res, claim, 'Insurance claim submitted successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to submit insurance claim');
     }
     logger.error('Failed to submit insurance claim:', { error: err.message });
     next(err);
@@ -290,7 +290,7 @@ router.get('/insurance/claims', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get insurance claims');
     }
     logger.error('Failed to get insurance claims:', { error: err.message });
     next(err);
@@ -369,7 +369,7 @@ router.put('/insurance/claim/:id', paramId(), validate, async (req, res, next) =
     return success(res, claim, 'Insurance claim updated successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to update insurance claim');
     }
     logger.error('Failed to update insurance claim:', { error: err.message });
     next(err);
@@ -423,7 +423,7 @@ router.post(
       return success(res, created, 'Enhancement claim opened', 201);
     } catch (err) {
       if (err.isOperational) {
-        return error(res, err.message, err.statusCode);
+        return relayAppError(res, err, 'Failed to open enhancement claim');
       }
       logger.error('Failed to open enhancement claim:', { error: err.message });
       next(err);

@@ -5,7 +5,7 @@ import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import pathologyService from '../../services/pathology/pathologyService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { paramId, requiredUUID } from '../../validators/sharedValidators.js';
 import { emitPathologyEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { canSignApReport } from '../../utils/roleHelpers.js';
@@ -40,7 +40,7 @@ function actorUid(req) {
 }
 
 function handleOperationalError(res, err) {
-  return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+  return relayAppError(res, err, 'Pathology error');
 }
 
 router.get('/worklist', async (req, res, next) => {

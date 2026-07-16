@@ -6,7 +6,7 @@ import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import radiologyService from '../../services/radiology/radiologyService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 import { emitRadiologyEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { canSignRadiologyReport } from '../../utils/roleHelpers.js';
@@ -43,7 +43,7 @@ function actorRole(req) {
 }
 
 function handleOperationalError(res, err) {
-  return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+  return relayAppError(res, err, 'Radiology error');
 }
 
 /**

@@ -4,7 +4,6 @@
 // /api/v1/ophthalmology (app.js) behind clinical-staff RBAC + PHI logging.
 
 import express from 'express';
-import logger from '../../logging/logger.js';
 import {
   recordExam,
   addRefraction,
@@ -14,17 +13,12 @@ import {
   generateSpectaclesPrescriptionPdf,
 } from '../../services/clinical/ophthalmologyService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { AppError } from '../../utils/AppError.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
 function handleFailure(res, err, context) {
-  if (err instanceof AppError) {
-    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
-  }
-  logger.error(`Ophthalmology ${context} failed:`, err);
-  return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  return relayAppError(res, err, `Failed to ${context}`);
 }
 
 const ctx = (req) => ({ actorUid: req.user?.uid || null, actorRole: req.user?.role || null });

@@ -28,7 +28,7 @@ import logger from '../../logging/logger.js';
 import prisma from '../../lib/prisma.js';
 import * as claims from '../../services/insurance/claimsService.js';
 import { normalizeClinicalJustification, ENHANCEMENT_JUSTIFICATION_TEMPLATE } from '../../services/insurance/clinicalJustificationTemplate.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 // mergeParams: true — `:admissionId` is declared on the parent mount in
@@ -150,7 +150,7 @@ router.get('/', async (req, res) => {
     const bundle = await buildEnhancementChain(parent);
     return success(res, { admission_id: admissionId, ...bundle });
   } catch (err) {
-    if (err.isOperational) return error(res, err.message, err.statusCode);
+    if (err.isOperational) return relayAppError(res, err, 'Failed to read TPA enhancement chain');
     logger.error('admission tpa-enhancement GET failed', { error: err.message });
     return error(res, 'Failed to read TPA enhancement chain', 500);
   }
@@ -241,7 +241,7 @@ router.post('/', async (req, res) => {
       201,
     );
   } catch (err) {
-    if (err.isOperational) return error(res, err.message, err.statusCode);
+    if (err.isOperational) return relayAppError(res, err, 'Failed to open enhancement preauth');
     logger.error('admission tpa-enhancement POST failed', { error: err.message });
     return error(res, 'Failed to open enhancement preauth', 500);
   }
@@ -293,7 +293,7 @@ router.post('/:preauthId/submit', async (req, res) => {
 
     return success(res, submitted, 'Pre-auth submitted to TPA');
   } catch (err) {
-    if (err.isOperational) return error(res, err.message, err.statusCode);
+    if (err.isOperational) return relayAppError(res, err, 'Failed to submit pre-auth');
     logger.error('admission tpa-enhancement submit failed', { error: err.message });
     return error(res, 'Failed to submit pre-auth', 500);
   }

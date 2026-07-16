@@ -8,8 +8,7 @@ import logger from '../logging/logger.js';
 import { requireRole } from '../middleware/rbacMiddleware.js';
 import { deriveTenantIdFromRequest } from '../services/security/accessDecisionService.js';
 import { executeErasure, checkLegalHold } from '../services/gdpr/dataErasureService.js';
-import { AppError } from '../utils/AppError.js';
-import { success, error } from '../utils/responseHelper.js';
+import { success, error, relayAppError } from '../utils/responseHelper.js';
 
 const router = Router();
 
@@ -55,11 +54,7 @@ router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
 
     return success(res, result, 'Data erasure completed');
   } catch (err) {
-    if (err instanceof AppError) {
-      return error(res, err.message, err.statusCode, { code: err.code, ...(err.details || {}) });
-    }
-    logger.error('GDPR erasure route error:', err);
-    return error(res, 'Data erasure failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Data erasure failed');
   }
 });
 

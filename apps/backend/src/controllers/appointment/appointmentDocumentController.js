@@ -15,7 +15,7 @@ import { DEFAULT_TENANT_ID, resolveTenantOrThrow } from '../../services/tenant/t
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { uploadFileToR2, getSignedFileUrl, getFileFromR2, deleteObject } from '../../utils/r2Storage.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 function asJsonObject(value, fallback = null) {
   if (!value) return fallback;
@@ -606,9 +606,7 @@ export const getPatientAllRecords = async (req, res) => {
 
     success(res, grouped, 'All records fetched');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Get Patient Records Error:', err);
-    error(res, 'Failed to fetch records', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to fetch records');
   }
 };
 
@@ -688,9 +686,7 @@ export const uploadPatientRecord = async (req, res) => {
 
     success(res, { ...result[0], ai_extraction: aiExtraction }, 'Record uploaded');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Patient Upload Error:', err);
-    error(res, 'Failed to upload record', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to upload record');
   }
 };
 
@@ -723,12 +719,11 @@ export const getPatientRecordExtraction = async (req, res) => {
       ai_extraction: record.ai_extraction,
     }, 'Record extraction fetched');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
+    if (err?.statusCode) return relayAppError(res, err, 'Failed to fetch extraction');
     if (isMissingSchemaError(err)) {
       return error(res, 'Extraction draft not found for this record', HTTP_STATUS.NOT_FOUND);
     }
-    logger.error('Get Patient Record Extraction Error:', err);
-    error(res, 'Failed to fetch extraction', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to fetch extraction');
   }
 };
 
@@ -819,12 +814,11 @@ export const processPatientRecordExtraction = async (req, res) => {
       processed: Boolean(refreshed.ai_intake_id),
     }, refreshed.ai_intake_id ? 'Record extraction processed' : 'Record extraction unavailable');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
+    if (err?.statusCode) return relayAppError(res, err, 'Failed to process extraction');
     if (isMissingSchemaError(err)) {
       return error(res, 'Extraction draft not found for this record', HTTP_STATUS.NOT_FOUND);
     }
-    logger.error('Process Patient Record Extraction Error:', err);
-    error(res, 'Failed to process extraction', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to process extraction');
   }
 };
 
@@ -862,9 +856,7 @@ export const reviewPatientRecordExtraction = async (req, res) => {
       },
     }, 'Record extraction review saved');
   } catch (err) {
-    if (err?.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Review Patient Record Extraction Error:', err);
-    error(res, 'Failed to review extraction', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to review extraction');
   }
 };
 

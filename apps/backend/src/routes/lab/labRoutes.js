@@ -5,12 +5,11 @@
 // which is the inbound transport for analyzer ORU messages.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as lab from '../../services/lab/labResultsService.js';
 import * as labClosedLoop from '../../services/lab/labClosedLoopService.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import * as investigationOrderService from '../../services/investigation/orderService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isClinical, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -28,12 +27,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) {
-        const details = err.details ?? (err.code ? { code: err.code } : null);
-        return error(res, err.message, err.statusCode, details);
-      }
-      logger.error('lab route error:', err);
-      return error(res, err.message || 'Lab error', 500);
+      return relayAppError(res, err, 'Lab error');
     }
   };
 }

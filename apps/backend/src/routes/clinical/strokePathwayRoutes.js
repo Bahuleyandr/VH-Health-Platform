@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import {
   createActivation,
   getActivation,
@@ -12,7 +11,7 @@ import {
   updateActivationStatus,
 } from '../../services/clinical/strokePathwayService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
 const router = Router();
@@ -36,15 +35,7 @@ function wrap(handler) {
       if (res.headersSent) return undefined;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) {
-        return error(res, err.message, err.statusCode, {
-          code: err.code,
-          details: err.details,
-          safe: true,
-        });
-      }
-      logger.error('stroke pathway route error:', err);
-      return error(res, 'An internal server error occurred. Please try again later.', 500);
+      return relayAppError(res, err, 'An internal server error occurred. Please try again later.', { safe: true });
     }
   };
 }

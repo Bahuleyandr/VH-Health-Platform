@@ -7,7 +7,7 @@ import * as sosService from '../services/sosService.js';
 import { DEFAULT_TENANT_ID, resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { isAdmin } from '../utils/roleHelpers.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
-import { success, error } from '../utils/responseHelper.js';
+import { success, error, relayAppError } from '../utils/responseHelper.js';
 
 export const parseNearbyCoordinates = (query = {}) => {
   const rawLatitude = query.latitude ?? query.lat;
@@ -102,11 +102,7 @@ export const createEmergencyAlert = async (req, res) => {
     );
 
   } catch (err) {
-    if (err.statusCode) {
-      return error(res, err.message, err.statusCode);
-    }
-    logger.error('SOS Alert Creation Error:', err.stack || err.toString());
-    error(res, 'Failed to process emergency alert. Please call emergency services directly.', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to process emergency alert. Please call emergency services directly.');
   }
 };
 
@@ -130,11 +126,7 @@ export const updateEmergencyContact = async (req, res) => {
     success(res, result, 'Emergency contact information updated successfully');
 
   } catch (err) {
-    if (err.statusCode) {
-      return error(res, err.message, err.statusCode);
-    }
-    logger.error('Update Emergency Contact Error:', err);
-    error(res, 'Failed to update emergency contact information', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to update emergency contact information');
   }
 };
 export const getEmergencyContact = async (req, res) => {

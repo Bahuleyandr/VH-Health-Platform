@@ -4,9 +4,8 @@
 // /api/v1/discharge-summaries/*.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as discharge from '../../services/discharge/dischargeService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff, isDoctor } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -23,22 +22,8 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode, errorDetails(err));
-      logger.error('discharge route error:', err);
-      return error(res, err.message || 'Discharge summary error', 500);
+      return relayAppError(res, err, 'Discharge summary error');
     }
-  };
-}
-
-function errorDetails(err) {
-  if (!err?.code && !err?.details) return null;
-  return {
-    ...(err.code ? { code: err.code } : {}),
-    ...(err.details && typeof err.details === 'object'
-      ? err.details
-      : err.details != null
-        ? { details: err.details }
-        : {}),
   };
 }
 
