@@ -10,7 +10,7 @@ import {
   listServiceRecoveryTasks,
   refreshNpsRollups,
 } from '../../services/feedback/npsService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isStaff, isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import { requiredString, requiredEnum, requiredDate, requiredUUID, paramId } from '../../validators/sharedValidators.js';
 
@@ -71,7 +71,7 @@ router.post('/incidents',
     return success(res, incident, 'Incident reported successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to report quality incident:', { error: err.message });
     next(err);
@@ -104,7 +104,7 @@ router.get('/incidents', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to get quality incidents:', { error: err.message });
     next(err);
@@ -136,7 +136,7 @@ router.put('/incidents/:id', paramId(), validate, async (req, res, next) => {
     return success(res, incident, 'Incident updated successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to update quality incident:', { error: err.message });
     next(err);
@@ -158,7 +158,7 @@ router.get('/dashboard', async (req, res, next) => {
     return success(res, dashboard, 'Quality dashboard retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to get quality dashboard:', { error: err.message });
     next(err);
@@ -184,7 +184,7 @@ router.get('/nps/dashboard', async (req, res, next) => {
     return success(res, dashboard, 'NPS dashboard retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to get NPS dashboard:', { error: err.message });
     next(err);
@@ -212,7 +212,7 @@ router.get('/nps/service-recovery', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to get NPS service recovery queue:', { error: err.message });
     next(err);
@@ -240,7 +240,7 @@ router.post('/nps/rollups/rebuild', async (req, res, next) => {
     return success(res, result, 'NPS rollups refreshed');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to rebuild NPS rollups:', { error: err.message });
     next(err);
@@ -286,7 +286,7 @@ router.post('/infection-control/cases',
     return success(res, infectionCase, 'Infection case reported successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to report infection case:', { error: err.message });
     next(err);
@@ -320,7 +320,7 @@ router.get('/infection-control/surveillance', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to get infection surveillance:', { error: err.message });
     next(err);
@@ -343,7 +343,7 @@ router.get('/infection-control/outbreaks', async (req, res, next) => {
     return success(res, outbreaks, 'Outbreak alerts retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Quality error');
     }
     logger.error('Failed to get outbreak alerts:', { error: err.message });
     next(err);
