@@ -159,7 +159,10 @@ describe('clinical printing pack', () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.body.success).toBe(false);
-    expect(res.body.details?.code).toBe('DISCHARGE_SUMMARY_NOT_SIGNED');
+    // relayAppError port (dischargeRoutes): the machine-readable code moved
+    // from the nested details.code to the envelope root per the documented
+    // { success, message, code, details } contract.
+    expect(res.body.code).toBe('DISCHARGE_SUMMARY_NOT_SIGNED');
   });
 
   it('streams signed discharge summary PDF bytes with structural text', async () => {
