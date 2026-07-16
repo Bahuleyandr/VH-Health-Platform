@@ -10,7 +10,7 @@ import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import prisma from '../lib/prisma.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
-import { success, error } from '../utils/responseHelper.js';
+import { success, error, relayAppError } from '../utils/responseHelper.js';
 import { isClinical, isAdmin } from '../utils/roleHelpers.js';
 import { parseListQuery } from '../utils/listQuery.js';
 import { submitNpsResponse as submitNpsResponseService } from '../services/feedback/npsService.js';
@@ -80,11 +80,7 @@ export async function submitFeedback(req, res) {
 
     success(res, result, 'Feedback submitted successfully');
   } catch (err) {
-    if (err.statusCode) {
-      return error(res, err.message, err.statusCode);
-    }
-    logger.error(err.stack || err.toString());
-    error(res, 'Failed to submit feedback');
+    return relayAppError(res, err, 'Failed to submit feedback');
   }
 }
 
@@ -132,9 +128,9 @@ export async function getMyFeedback(req, res) {
     }, 'Feedback history retrieved successfully');
 
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Get Feedback Error:', err);
-    error(res, 'Failed to retrieve feedback', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Shared relay: surfaces AppError code+details per the documented
+    // envelope; non-AppErrors get a logged generic 500 (never err.message).
+    return relayAppError(res, err, 'Failed to retrieve feedback');
   }
 }
 
@@ -151,9 +147,9 @@ export async function getMyStats(req, res) {
     }, 'Feedback statistics retrieved successfully');
 
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Feedback Stats Error:', err);
-    error(res, 'Failed to retrieve feedback statistics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Shared relay: surfaces AppError code+details per the documented
+    // envelope; non-AppErrors get a logged generic 500 (never err.message).
+    return relayAppError(res, err, 'Failed to retrieve feedback statistics');
   }
 }
 
@@ -339,9 +335,9 @@ export async function submitFeedbackEnhanced(req, res) {
     }, RESPONSE_MESSAGES.FEEDBACK_SUBMITTED);
 
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Submit Feedback Error:', err.stack || err.toString());
-    error(res, 'Failed to submit feedback', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Shared relay: surfaces AppError code+details per the documented
+    // envelope; non-AppErrors get a logged generic 500 (never err.message).
+    return relayAppError(res, err, 'Failed to submit feedback');
   }
 }
 
@@ -375,9 +371,9 @@ export async function submitQuickRating(req, res) {
     }, 'Quick rating submitted successfully');
 
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    logger.error('Quick Rating Error:', err);
-    error(res, 'Failed to submit rating', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Shared relay: surfaces AppError code+details per the documented
+    // envelope; non-AppErrors get a logged generic 500 (never err.message).
+    return relayAppError(res, err, 'Failed to submit rating');
   }
 }
 
@@ -418,9 +414,9 @@ export async function submitNpsResponse(req, res) {
       serviceRecoveryTask: result.recoveryTask || null,
     }, 'NPS response submitted successfully', 201);
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode, err.details);
-    logger.error('Submit NPS Response Error:', err);
-    return error(res, 'Failed to submit NPS response', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Variant site: previously forwarded err.details but still dropped
+    // err.code — the relay carries both.
+    return relayAppError(res, err, 'Failed to submit NPS response');
   }
 }
 

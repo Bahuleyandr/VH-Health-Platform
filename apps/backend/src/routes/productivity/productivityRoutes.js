@@ -7,11 +7,10 @@
 //   - clinical calculators — pure compute, one endpoint per calculator
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as phrases from '../../services/productivity/smartPhrasesService.js';
 import * as orderSets from '../../services/productivity/orderSetsService.js';
 import { CALCULATORS } from '../../services/productivity/clinicalCalculators.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff, isDoctor } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -32,9 +31,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('productivity route error:', err);
-      return error(res, err.message || 'Productivity error', 500);
+      return relayAppError(res, err, 'Productivity error');
     }
   };
 }

@@ -1,11 +1,10 @@
 // src/routes/clinical/icuRoutes.js — Sprint 19
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as icu from '../../services/clinical/icuService.js';
 import * as icuChart from '../../services/clinical/icuChartingService.js';
 import * as nicuChart from '../../services/clinical/nicuPicuChartingService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff, isLeadership } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitIcuBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
@@ -23,14 +22,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      // AppError-shaped errors are intentionally surfaced (badRequest /
-      // notFound / forbidden carry safe, caller-targeted messages).
-      // Anything else is logged server-side and returned as a generic
-      // 500 — raw `err.message` from Prisma / pg leaks SQL fragments,
-      // bind-parameter shapes, and schema details. Security checklist.
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('icu route error:', err);
-      return error(res, 'An internal server error occurred. Please try again later.', 500);
+      return relayAppError(res, err, 'An internal server error occurred. Please try again later.');
     }
   };
 }

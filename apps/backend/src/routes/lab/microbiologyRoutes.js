@@ -1,9 +1,8 @@
 // src/routes/lab/microbiologyRoutes.js — Sprint 17
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as micro from '../../services/lab/microbiologyService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitMicroEvent } from '../../utils/websocket/realtimeEmitter.js';
@@ -21,9 +20,10 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('micro route error:', err);
-      return error(res, err.message || 'Microbiology error', 500);
+      // Shared relay (responseHelper.relayAppError): surfaces AppError
+      // code+details per the documented envelope; non-AppErrors get a logged
+      // generic 500 that never relays raw err.message.
+      return relayAppError(res, err, 'Microbiology error');
     }
   };
 }

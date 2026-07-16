@@ -17,7 +17,7 @@ import {
 } from '../../services/clinical/clinicalAssessmentService.js';
 import { computePercentile } from '../../services/clinical/growthPercentileService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
@@ -172,8 +172,7 @@ router.get('/growth/percentile', async (req, res) => {
     });
     return success(res, result, 'Growth percentile computed');
   } catch (err) {
-    if (err.statusCode) return error(res, err.message, err.statusCode);
-    return error(res, err.message || 'Compute failed', 500);
+    return relayAppError(res, err, 'Compute failed');
   }
 });
 

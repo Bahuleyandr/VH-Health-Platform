@@ -3,9 +3,8 @@
 // Sprint 15 — NEWS2 + Braden + Morse + sepsis screen.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as svc from '../../services/clinical/nursingAssessmentService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -22,9 +21,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('nursing-assessment route error:', err);
-      return error(res, err.message || 'Assessment error', 500);
+      return relayAppError(res, err, 'Assessment error');
     }
   };
 }

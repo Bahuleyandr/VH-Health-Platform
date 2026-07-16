@@ -6,9 +6,8 @@
 // docs and are unchanged.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as orBoard from '../../services/theatre/orBoardService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitOrBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
@@ -26,9 +25,10 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('orBoard route error:', err);
-      return error(res, err.message || 'OR board error', 500);
+      // Shared relay (responseHelper.relayAppError): surfaces AppError
+      // code+details per the documented envelope; non-AppErrors get a logged
+      // generic 500 that never relays raw err.message.
+      return relayAppError(res, err, 'OR board error');
     }
   };
 }

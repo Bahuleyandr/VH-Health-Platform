@@ -13,9 +13,8 @@
 // See finding 2026-05-08-lab-walk-in-lab-tech-no-structured-results.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as panelSvc from '../../services/lab/labPanelService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -32,20 +31,12 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      // CLAUDE.md security checklist forbids surfacing err.message to
-      // clients on 500s. The earlier behaviour leaked Prisma's
-      // `Cannot read properties of undefined (reading 'findMany')`
-      // when the client was generated against an older schema —
-      // exactly the symptom in finding
-      // 2026-05-10-lab-walk-in-lab-tech-result-submit-500. Log
-      // server-side, return a generic message + requestId.
-      logger.error('lab panel route error:', {
-        requestId: req.id,
-        err: err?.message,
-        stack: err?.stack,
-      });
-      return error(res, 'Lab panel error', 500, { requestId: req.id });
+      // Shared relay (responseHelper.relayAppError): surfaces AppError
+      // code+details per the documented envelope; non-AppErrors get a logged
+      // generic 500 that never relays raw err.message (finding
+      // 2026-05-10-lab-walk-in-lab-tech-result-submit-500). error() still
+      // stamps requestId on the envelope root.
+      return relayAppError(res, err, 'Lab panel error');
     }
   };
 }

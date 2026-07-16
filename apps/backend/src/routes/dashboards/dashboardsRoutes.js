@@ -8,7 +8,6 @@
 //     iframe-embedded dashboards.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import prisma from '../../lib/prisma.js';
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import * as snapshot from '../../services/dashboards/snapshotService.js';
@@ -18,7 +17,7 @@ import {
   listDashboardCatalog,
   listDatasetCatalog,
 } from '../../services/dashboards/analyticsCatalogService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -39,9 +38,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('dashboards route error:', err);
-      return error(res, err.message || 'Dashboard error', 500);
+      return relayAppError(res, err, 'Dashboard error');
     }
   };
 }

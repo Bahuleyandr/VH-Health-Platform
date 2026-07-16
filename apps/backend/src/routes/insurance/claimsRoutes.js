@@ -4,12 +4,11 @@
 // Mounted at /api/v1/insurance/*.
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as claims from '../../services/insurance/claimsService.js';
 import * as capsService from '../../services/insurance/claimCapsService.js';
 import * as packages from '../../services/insurance/packagesService.js';
 import { ENHANCEMENT_JUSTIFICATION_TEMPLATE } from '../../services/insurance/clinicalJustificationTemplate.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -26,9 +25,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('insurance route error:', err);
-      return error(res, err.message || 'Insurance error', 500);
+      return relayAppError(res, err, 'Insurance error');
     }
   };
 }

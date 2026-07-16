@@ -1,9 +1,8 @@
 // src/routes/clinical/deathCertificationRoutes.js — Sprint 21
 
 import { Router } from 'express';
-import logger from '../../logging/logger.js';
 import * as svc from '../../services/clinical/deathCertificationService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -20,9 +19,7 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('death-certification route error:', err);
-      return error(res, err.message || 'Death certification error', 500);
+      return relayAppError(res, err, 'Death certification error');
     }
   };
 }
