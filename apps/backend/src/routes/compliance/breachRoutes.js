@@ -25,7 +25,7 @@ import {
   listDataRetentionPolicies,
   upsertDataRetentionPolicy,
 } from '../../services/compliance/dataRetentionPolicyService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { ADMIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
@@ -86,7 +86,7 @@ router.get('/breach/:id', async (req, res, next) => {
     return success(res, result, 'Breach details retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to get breach');
     }
     logger.error('Failed to get breach:', { error: err.message });
     next(err);
@@ -140,7 +140,7 @@ router.post('/breach/report', requiredString('description', 2000), requiredEnum(
     return success(res, breach, 'Data breach reported successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to report breach');
     }
     logger.error('Failed to report breach:', { error: err.message });
     next(err);
@@ -167,7 +167,7 @@ router.put('/breach/:id/contain', paramId(), validate, async (req, res, next) =>
     return success(res, breach, 'Breach marked as contained');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to contain breach');
     }
     logger.error('Failed to contain breach:', { error: err.message });
     next(err);
@@ -194,7 +194,7 @@ router.put('/breach/:id/resolve', paramId(), validate, async (req, res, next) =>
     return success(res, breach, 'Breach marked as resolved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return relayAppError(res, err, 'Failed to resolve breach');
     }
     logger.error('Failed to resolve breach:', { error: err.message });
     next(err);

@@ -32,7 +32,7 @@ import {
   revokeBreakGlass,
   listActiveBreakGlass,
 } from '../../services/security/breakGlassService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import {
   requiredUUID,
@@ -94,11 +94,7 @@ async function activateHandler(req, res) {
 
     return success(res, row, 'Break-glass access activated', 201);
   } catch (err) {
-    if (err?.statusCode) {
-      return error(res, err.message, err.statusCode, err.details || null);
-    }
-    logger.error('Break-glass activation failed:', { error: err?.message });
-    return error(res, 'Failed to activate break-glass access', 500);
+    return relayAppError(res, err, 'Failed to activate break-glass access');
   }
 }
 
@@ -127,11 +123,7 @@ async function revokeHandler(req, res) {
 
     return success(res, row, 'Break-glass access revoked');
   } catch (err) {
-    if (err?.statusCode) {
-      return error(res, err.message, err.statusCode, err.details || null);
-    }
-    logger.error('Break-glass revoke failed:', { error: err?.message });
-    return error(res, 'Failed to revoke break-glass access', 500);
+    return relayAppError(res, err, 'Failed to revoke break-glass access');
   }
 }
 
