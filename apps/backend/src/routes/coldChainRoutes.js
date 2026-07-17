@@ -112,6 +112,7 @@ coldChainRoutes.post('/excursions/:id/acknowledge', async (req, res) => {
       tenantId: requestTenantId(req),
       id: req.params.id,
       actorUid: req.user?.uid || null,
+      actorRoles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
     });
     return success(res, { excursion }, 'Cold-chain excursion acknowledged');
   } catch (err) {

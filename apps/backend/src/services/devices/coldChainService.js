@@ -772,7 +772,7 @@ export async function ingestColdChainReading(input = {}, context = {}) {
   return result;
 }
 
-export async function acknowledgeColdChainExcursion({ tenantId, id, actorUid } = {}) {
+export async function acknowledgeColdChainExcursion({ tenantId, id, actorUid, actorRoles = [] } = {}) {
   const tid = requireTenantId(tenantId);
   const excursionId = normalizePositiveInt(id, 'excursion_id', { required: true });
   const result = await setTenantTx(tid, async (tx) => {
@@ -793,7 +793,19 @@ export async function acknowledgeColdChainExcursion({ tenantId, id, actorUid } =
     const excursion = rows[0];
     if (!excursion) throw AppError.notFound('Open cold-chain excursion not found', 'COLD_CHAIN_EXCURSION_NOT_FOUND');
     if (excursion.task_id) {
-      await acknowledgeTask({ tenantId: tid, id: excursion.task_id, actorUid });
+      // The excursion acknowledge is itself route-authorized (COLD_CHAIN_ROUTE_ROLES)
+      // and audited on the excursion row; acking its linked coordination task is a
+      // side-effect of that action. Pass the actor's roles so a responder holding
+      // the task's assigned role records as a normal role-ack; a different but
+      // route-authorized cold-chain responder records as an audited override
+      // (rather than 403-ing and rolling back the excursion acknowledge).
+      await acknowledgeTask({
+        tenantId: tid,
+        id: excursion.task_id,
+        actorUid,
+        actorRoles,
+        overrideReason: 'Acknowledged via cold-chain excursion acknowledgement',
+      });
     }
     const unit = await findUnit(tx, { tenantId: tid, unitId: excursion.unit_id });
     return { unit, excursion };

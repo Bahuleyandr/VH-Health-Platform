@@ -148,6 +148,8 @@ describe('coldChainService invariants', () => {
       tenantId: TENANT_ID,
       id: 55,
       actorUid: ACTOR_UID,
+      actorRoles: [],
+      overrideReason: 'Acknowledged via cold-chain excursion acknowledgement',
     });
     expect(emitColdChainEventMock).toHaveBeenCalledWith('excursion-acknowledged', expect.objectContaining({
       tenantId: TENANT_ID,
