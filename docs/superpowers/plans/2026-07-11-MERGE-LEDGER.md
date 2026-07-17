@@ -20,8 +20,10 @@ how, and hands off the pending items with enough context to finish them.
 
 ## 1. How to merge
 
-1. **CI:** watch the PR's **`lint-and-test / Backend lint + test`** job (that's the
-   meaningful gate for the 21-file route sweep). ⚠ Per project CI lore: the
+1. **CI:** watch the PR's **`lint-and-test / Backend lint + static checks`** job
+   plus the three **`lint-and-test / Backend tests (shard k/3)`** jobs (the old
+   single `Backend lint + test` job was split 2026-07-17; all four together are
+   the meaningful gate for the 21-file route sweep). ⚠ Per project CI lore: the
    *canonical* backend suite is flaky and `gh run watch --exit-status` LIES —
    re-query `gh pr checks 555` rather than trusting a single watch exit. Semgrep /
    secret-scans / dependency-review should be green.
