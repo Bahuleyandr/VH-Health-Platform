@@ -1,5 +1,18 @@
 name: Reusable Backend Lint and Test
 
+# Split (2026-07-17): the single lint-and-test job outgrew its wall-clock cap
+# twice (#595/#599 cancelled at 45m; 46m1s against the raised 60m cap on
+# #604's run) because the full chunked jest suite ran in ONE job and grows
+# with every merged suite. Now: `static-checks` carries every non-test gate
+# (~15m), and `test` fans the chunked suite across a shard matrix via
+# JEST_CI_SHARD (deterministic interleave; math pinned by
+# apps/backend/src/tests/unit/jestShardPartition.test.js). Each shard runs
+# its slice of the chunks after its own DB setup — far from any timeout.
+# To scale, edit ONLY the `shard:` list below: the divisor is derived from
+# strategy.job-total (the matrix size), so shard count and divisor cannot
+# drift apart. Callers are unaffected: a caller-side `needs: lint-and-test`
+# waits for every job in this file.
+
 on:
   workflow_call:
     inputs:
@@ -20,15 +33,25 @@ on:
 permissions:
   contents: read
 
+env:
+  API_KEY: test-api-key
+  JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
+  NODE_ENV: test
+  VH_ALLOW_NON_TEST_DATA_SEED: 'true'
+  # Mandatory at-rest encryption keys (validateEnv requires them, min 32
+  # chars). The jest harness pins these in-process via jest.setup.cjs, but
+  # the OpenAPI drift step boots the app fresh through generate-openapi.mjs,
+  # so they must be present at the job env too or validateEnv aborts the
+  # spec regeneration. CI-only dummies — same values as smoke-e2e.yml.
+  FIELD_ENCRYPTION_KEY: ci-field-encryption-key-32-chars-minimum
+  TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-32-chars-minimum
+  BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
+
 jobs:
-  lint-and-test:
-    name: Backend lint + test
+  static-checks:
+    name: Backend lint + static checks
     runs-on: ubuntu-latest
-    # The in-band jest suite crossed the old 45-min cap in July 2026 (#595
-    # cancelled at 45m17s, #596 passed at 44m38s, #599 cancelled at 45m3s) and
-    # grows with every merged suite. 60 restores headroom; the durable fix is
-    # splitting this job or deferring to the repo-owned chunked Canonical CI.
-    timeout-minutes: 60
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: apps/backend
@@ -50,18 +73,6 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
-      API_KEY: test-api-key
-      JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
-      NODE_ENV: test
-      VH_ALLOW_NON_TEST_DATA_SEED: 'true'
-      # Mandatory at-rest encryption keys (validateEnv requires them, min 32
-      # chars). The jest harness pins these in-process via jest.setup.cjs, but
-      # the OpenAPI drift step boots the app fresh through generate-openapi.mjs,
-      # so they must be present at the job env too or validateEnv aborts the
-      # spec regeneration. CI-only dummies — same values as smoke-e2e.yml.
-      FIELD_ENCRYPTION_KEY: ci-field-encryption-key-32-chars-minimum
-      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-32-chars-minimum
-      BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
 
     steps:
       - uses: actions/checkout@v6
@@ -138,9 +149,84 @@ jobs:
       - name: Schema drift check (table allowlist)
         run: node scripts/ci-schema-drift.mjs
 
-      - name: Run tests
-        # Run the full suite in deterministic chunks so the GitHub runner can
-        # release heap between groups without dropping any test files.
+      - name: Notify Discord on failure
+        if: failure() && inputs.notify_on_failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **${{ inputs.notification_label }} static checks failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true
+
+  test:
+    name: Backend tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      # One shard's failure must not cancel the others — every run reports
+      # each shard's real result.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: vhhealth
+          POSTGRES_PASSWORD: ${{ github.run_id }}
+          POSTGRES_DB: vhhealth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vhhealth"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.5.0'
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Enable pgvector extension
+        run: npm run db:ensure-pgvector
+
+      - name: Apply raw migrations + seed lookup data
+        run: node scripts/ci-setup-db.mjs
+
+      - name: Seed comprehensive test data
+        run: npm run seed:test-data
+
+      - name: Run tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+        # Deterministic interleave over the chunked suite: every shard
+        # discovers the same code-unit-sorted file list and runs the chunks
+        # where (chunk-1) % job-total === shard-1. Complete/disjoint/balanced
+        # properties are unit-pinned in jestShardPartition.test.js; the runner
+        # refuses to combine JEST_CI_SHARD with the START/END chunk window.
+        # strategy.job-total IS the matrix size, so the divisor can never
+        # drift from the shard list (adversarial-review finding #1).
+        env:
+          JEST_CI_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: npm run test:ci
 
       - name: Notify Discord on failure
@@ -153,5 +239,5 @@ jobs:
             exit 0
           fi
           curl -s -H "Content-Type: application/json" \
-            -d "{\"content\": \"🔴 **${{ inputs.notification_label }} failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            -d "{\"content\": \"🔴 **${{ inputs.notification_label }} test shard ${{ matrix.shard }}/${{ strategy.job-total }} failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
             "$DISCORD_WEBHOOK_URL" || true

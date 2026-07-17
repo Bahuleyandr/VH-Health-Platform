@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseShardSpec, chunkBelongsToShard } from './lib/jestShard.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
@@ -51,6 +52,22 @@ if (!Number.isInteger(startChunk) || startChunk < 1) {
 
 if (endChunk !== null && (!Number.isInteger(endChunk) || endChunk < startChunk)) {
   console.error(`JEST_CI_END_CHUNK must be an integer >= JEST_CI_START_CHUNK; received ${process.env.JEST_CI_END_CHUNK}`);
+  process.exit(1);
+}
+
+// CI matrix sharding: JEST_CI_SHARD="k/N" interleaves chunks across N parallel
+// jobs (chunk c -> shard ((c-1) % N) + 1; math pinned by
+// src/tests/unit/jestShardPartition.test.js). Mutually exclusive with the
+// START/END chunk window — composing them silently drops chunks, so refuse.
+let shard = null;
+try {
+  shard = parseShardSpec(process.env.JEST_CI_SHARD);
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
+if (shard && (startChunk > 1 || endChunk !== null)) {
+  console.error('JEST_CI_SHARD cannot be combined with JEST_CI_START_CHUNK/JEST_CI_END_CHUNK.');
   process.exit(1);
 }
 
@@ -111,7 +128,12 @@ const testFiles = (listResult.stdout || '')
   .split(/\r?\n/)
   .map((line) => line.trim())
   .filter(Boolean)
-  .sort((a, b) => a.localeCompare(b));
+  // Code-unit comparison, NOT localeCompare: shard coverage requires every
+  // matrix runner to derive a byte-identical order, and localeCompare depends
+  // on the Node build's ICU data (linguistic collation reorders this very
+  // file list vs code-unit order). Code-unit order is deterministic across
+  // platforms, locales, and Node/ICU versions by construction.
+  .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
 if (testFiles.length === 0) {
   console.error('Jest did not discover any test files.');
@@ -137,9 +159,17 @@ if (isolatedTestPatterns.length > 0) {
 if (startChunk > 1 || endChunk !== null) {
   console.log(`Running chunk window ${startChunk}-${endChunk ?? chunkCount} for local triage.`);
 }
+if (shard) {
+  console.log(`Shard ${shard.shardIndex}/${shard.shardCount}: running chunks where (chunk-1) % ${shard.shardCount} === ${shard.shardIndex - 1}.`);
+}
 
+let executedChunks = 0;
 for (let index = firstIndex; index < lastIndexExclusive; index += chunkSize) {
   const chunkNumber = Math.floor(index / chunkSize) + 1;
+  if (shard && !chunkBelongsToShard(chunkNumber, shard.shardIndex, shard.shardCount)) {
+    continue;
+  }
+  executedChunks += 1;
   const chunk = testFiles.slice(index, index + chunkSize);
   console.log(`\n[Jest CI] Chunk ${chunkNumber}/${chunkCount}: ${chunk.length} file(s)`);
   const executionGroups = executionGroupsForChunk(chunk);
@@ -169,4 +199,12 @@ for (let index = firstIndex; index < lastIndexExclusive; index += chunkSize) {
   }
 }
 
-console.log('\n[Jest CI] All chunks passed.');
+if (shard) {
+  if (executedChunks === 0) {
+    console.log(`\n[Jest CI] Shard ${shard.shardIndex}/${shard.shardCount}: no chunks assigned (suite has ${chunkCount} chunk(s)) — nothing to run.`);
+  } else {
+    console.log(`\n[Jest CI] Shard ${shard.shardIndex}/${shard.shardCount}: all ${executedChunks} assigned chunk(s) of ${chunkCount} passed.`);
+  }
+} else {
+  console.log('\n[Jest CI] All chunks passed.');
+}
