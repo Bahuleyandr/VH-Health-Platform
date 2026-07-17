@@ -320,8 +320,10 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     expect(['active', 'breached']).toContain(before.status);
     expect(before.completed_at).toBeNull();
 
+    // The task is assigned to the ordering clinician (DOCTOR_UID); acknowledge as
+    // that assignee (post-authorization, a non-assignee non-role caller is 403).
     const acked = await taskService.acknowledgeTask({
-      tenantId: DEFAULT_TENANT_ID, id: taskId, actorUid: DUTY_UID,
+      tenantId: DEFAULT_TENANT_ID, id: taskId, actorUid: DOCTOR_UID,
     });
     expect(acked.status).toBe('in_progress');
 

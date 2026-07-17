@@ -23,6 +23,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { isAdmin } from '../../utils/roleHelpers.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -450,13 +451,49 @@ export async function transitionTask({
  * fast idempotent no-op (returns the task unchanged). A completed/cancelled
  * task cannot be acknowledged → AppError.invalidTransition (409).
  */
-export async function acknowledgeTask({ tenantId = null, id, actorUid = null } = {}) {
+function actorRolesUpper(actorRoles) {
+  const arr = Array.isArray(actorRoles) ? actorRoles : (actorRoles ? [actorRoles] : []);
+  return arr.map((r) => String(r || '').trim().toUpperCase()).filter(Boolean);
+}
+
+// Who may acknowledge a task — and thereby STOP its escalation/SLA clock.
+// Acknowledgement silences the safety net, so it must be authorized: only the
+// assignee, a holder of the task's assigned role, an ADMIN/SUPER_ADMIN operating
+// the task-administration surface, or an explicit AUDITED override actor (who
+// must supply a reason) may proceed. A bare same-tenant clinical-staff caller
+// with none of these is REJECTED — otherwise any staffer could acknowledge (and
+// silence the escalation on) another clinician's critical-result task. Returns
+// { mode } on success; throws AppError.forbidden (generic, no task PHI) otherwise.
+function resolveAckAuthorization(taskRow, { actorUid = null, actorRoles = [], overrideReason = null } = {}) {
+  const roles = actorRolesUpper(actorRoles);
+  const callerUid = actorUid ? String(actorUid).toLowerCase() : null;
+  const assignedUid = taskRow?.assigned_to_uid ? String(taskRow.assigned_to_uid).toLowerCase() : null;
+  const assignedRole = taskRow?.assigned_to_role ? String(taskRow.assigned_to_role).trim().toUpperCase() : null;
+
+  if (callerUid && assignedUid && callerUid === assignedUid) return { mode: 'assignee' };
+  if (assignedRole && roles.includes(assignedRole)) return { mode: 'role' };
+  if (roles.some((r) => isAdmin(r)) || roles.includes('SUPER_ADMIN')) return { mode: 'admin' };
+
+  const reason = safeText(overrideReason, SHORT_MAX);
+  if (reason) return { mode: 'override', reason };
+
+  throw AppError.forbidden('Not authorized to acknowledge this task');
+}
+
+export async function acknowledgeTask({
+  tenantId = null, id, actorUid = null, actorRoles = [], overrideReason = null,
+} = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
   const ackUid = maybeUuid(actorUid, 'actor_uid');
 
   // Pre-read for a clean, intention-revealing error before attempting the write.
   const current = await getTask({ tenantId: tid, id: taskId });
+
+  // Authorize BEFORE any idempotent return, so an unauthorized caller neither
+  // stops the clock nor learns the task's state/PHI. Throws forbidden otherwise.
+  const authz = resolveAckAuthorization(current, { actorUid: ackUid, actorRoles, overrideReason });
+
   // Already acknowledged → idempotent no-op (do not re-stamp / re-comment).
   if (current.status === 'in_progress') return current;
   // Terminal states can never be acknowledged.
@@ -467,19 +504,26 @@ export async function acknowledgeTask({ tenantId = null, id, actorUid = null } =
   // Atomic state change: guard the acknowledgeable statuses IN the UPDATE so a
   // concurrent completion/cancel (or a racing acker) cannot be flipped back to
   // in_progress between the pre-read and the write (TOCTOU). RETURNING yields no
-  // row when the guard excludes the current status.
+  // row when the guard excludes the current status. `acknowledged_via` records
+  // the authorization mode; an override also stamps its reason (audit trail).
   const ackedAt = new Date().toISOString();
+  const overrideReasonValue = authz.mode === 'override' ? authz.reason : null;
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE tasks
         SET status = 'in_progress',
             metadata = COALESCE(metadata, '{}'::jsonb)
-              || jsonb_build_object('acknowledged_at', $1::text, 'acknowledged_by', $2::text),
+              || jsonb_build_object('acknowledged_at', $1::text, 'acknowledged_by', $2::text, 'acknowledged_via', $3::text)
+              || CASE WHEN $4::text IS NOT NULL
+                      THEN jsonb_build_object('acknowledge_override_reason', $4::text)
+                      ELSE '{}'::jsonb END,
             updated_at = NOW()
-      WHERE id = $3 AND tenant_id = $4::uuid
+      WHERE id = $5 AND tenant_id = $6::uuid
         AND status IN ('open', 'overdue')
       RETURNING ${TASK_RETURNING}`,
     ackedAt,
     ackUid,
+    authz.mode,
+    overrideReasonValue,
     taskId,
     tid,
   );
@@ -503,13 +547,17 @@ export async function acknowledgeTask({ tenantId = null, id, actorUid = null } =
   // Append a state_change audit comment (best-effort: an acknowledged task must
   // not be un-acknowledged just because the comment insert failed).
   try {
+    const overrideNote = authz.mode === 'override' ? ` [override: ${authz.reason}]` : '';
     await postTaskComment({
       tenantId: tid,
       taskId,
       authorUid: ackUid,
-      body: `Task acknowledged (${current.status} → in_progress)`,
+      body: `Task acknowledged (${current.status} → in_progress) via ${authz.mode}${overrideNote}`,
       bodyKind: 'state_change',
-      metadata: { from: current.status, to: 'in_progress', acknowledged_at: ackedAt },
+      metadata: {
+        from: current.status, to: 'in_progress', acknowledged_at: ackedAt, via: authz.mode,
+        ...(authz.mode === 'override' ? { override_reason: authz.reason } : {}),
+      },
     });
   } catch (err) {
     // Comment is an audit nicety, not load-bearing — log with context, do not rethrow.
@@ -1333,6 +1381,7 @@ export const __testing__ = {
   WORKFLOW_STATUSES,
   WORKFLOW_STEP_KINDS,
   APPROVAL_STATUSES,
+  resolveAckAuthorization,
 };
 
 export default {

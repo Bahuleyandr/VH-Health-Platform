@@ -128,7 +128,7 @@ describe('createTask', () => {
 
 describe('acknowledgeTask', () => {
   it('moves open -> in_progress, stamps metadata.acknowledged_at, posts a state_change comment', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', metadata: {} }]); // getTask
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: USER, metadata: {} }]); // getTask
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress', metadata: { acknowledged_at: 'x' } }]); // UPDATE
     queryUnsafeMock.mockResolvedValueOnce([{ id: 10, body_kind: 'state_change' }]); // comment insert
 
@@ -147,7 +147,7 @@ describe('acknowledgeTask', () => {
   });
 
   it('acknowledges an overdue task (overdue -> in_progress)', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'overdue', metadata: {} }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'overdue', assigned_to_uid: USER, metadata: {} }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 11 }]);
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
@@ -155,17 +155,94 @@ describe('acknowledgeTask', () => {
   });
 
   it('throws invalidTransition when the task is already completed', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed', metadata: {} }]); // getTask
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed', assigned_to_uid: USER, metadata: {} }]); // getTask
     await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER }))
       .rejects.toMatchObject({ statusCode: 400, code: 'INVALID_STATE_TRANSITION' });
   });
 
   it('is idempotent on an already-acknowledged (in_progress) task — no error', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress', metadata: { acknowledged_at: 'earlier' } }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress', assigned_to_uid: USER, metadata: { acknowledged_at: 'earlier' } }]);
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
     expect(row.status).toBe('in_progress');
     // Only the getTask read ran; no second UPDATE/comment for an already-acked task.
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('acknowledgeTask authorization', () => {
+  const OTHER = '99999999-9999-4999-8999-999999999999';
+  const SLA_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  it('rejects a caller who is neither assignee, role-holder, nor override — and never runs the clock-stopping UPDATE', async () => {
+    // Task belongs to a DIFFERENT clinician and is linked to an SLA instance.
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1, status: 'open', assigned_to_uid: OTHER, assigned_to_role: 'DOCTOR',
+      metadata: { sla_instance_id: SLA_ID },
+    }]); // getTask
+    await expect(acknowledgeTask({
+      tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['NURSING_STAFF'],
+    })).rejects.toMatchObject({ statusCode: 403 });
+    // Only the getTask read ran: no UPDATE tasks (status flip) and therefore no
+    // completeLinkedSla UPDATE — the escalation clock is NOT stopped.
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows the assignee (by uid)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: USER, metadata: {} }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5 }]);
+    const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, actorRoles: [] });
+    expect(row.status).toBe('in_progress');
+  });
+
+  it('allows a holder of the assigned role even when the assignee uid differs', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: OTHER, assigned_to_role: 'DUTY_DOCTOR', metadata: {} }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 6 }]);
+    const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['DUTY_DOCTOR'] });
+    expect(row.status).toBe('in_progress');
+  });
+
+  it('allows an ADMIN task-administrator on any task', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: OTHER, assigned_to_role: 'DOCTOR', metadata: {} }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7 }]);
+    const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['ADMIN'] });
+    expect(row.status).toBe('in_progress');
+  });
+
+  it('allows an explicit audited override and records the reason on the UPDATE + audit comment', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: OTHER, assigned_to_role: 'DOCTOR', metadata: {} }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 8 }]);
+    const row = await acknowledgeTask({
+      tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['NURSING_STAFF'],
+      overrideReason: 'covering for the on-call doctor',
+    });
+    expect(row.status).toBe('in_progress');
+    // The override reason is bound as an UPDATE param (metadata provenance)...
+    expect(queryUnsafeMock.mock.calls[1].slice(1)).toContain('covering for the on-call doctor');
+    // ...and appears in the state_change audit comment body.
+    const commentArgs = queryUnsafeMock.mock.calls[2].slice(1);
+    expect(commentArgs.some((p) => typeof p === 'string' && p.includes('override'))).toBe(true);
+  });
+
+  it('rejects an unassigned task with no override (no assignee, no role, no admin)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: null, assigned_to_role: null, metadata: {} }]);
+    await expect(acknowledgeTask({
+      tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['DOCTOR'],
+    })).rejects.toMatchObject({ statusCode: 403 });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolveAckAuthorization (pure) — assignee/role/admin/override modes and rejection', () => {
+    const { resolveAckAuthorization } = __testing__;
+    expect(resolveAckAuthorization({ assigned_to_uid: USER }, { actorUid: USER }).mode).toBe('assignee');
+    expect(resolveAckAuthorization({ assigned_to_role: 'DOCTOR' }, { actorUid: OTHER, actorRoles: ['DOCTOR'] }).mode).toBe('role');
+    expect(resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: ['SUPER_ADMIN'] }).mode).toBe('admin');
+    expect(resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: [], overrideReason: 'why' }).mode).toBe('override');
+    expect(() => resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: ['NURSING_STAFF'] }))
+      .toThrow(/Not authorized/);
   });
 });
 

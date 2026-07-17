@@ -49,6 +49,8 @@ router.post('/tasks/:id/acknowledge', async (req, res, next) => {
       tenantId: req.tenantId,
       id: req.params.id,
       actorUid: req.user?.uid || null,
+      actorRoles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
+      overrideReason: req.body?.override_reason || null,
     });
     return success(res, row, 'Task acknowledged');
   } catch (err) { return next(err); }
