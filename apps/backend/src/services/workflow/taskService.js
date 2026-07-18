@@ -20,7 +20,7 @@
  * rules + automation rules write rows; admins approve / dispatch them.
  */
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
@@ -689,8 +689,11 @@ async function reconcileInProgressAcknowledgement({
               END,
               metadata = COALESCE(sla.metadata, '{}'::jsonb)
                 || jsonb_build_object('completed_via', 'task_ack'::text, 'completed_by_task', authorized_task.id)
-                || CASE WHEN $4::text IS NOT NULL
-                        THEN jsonb_build_object('acknowledged_by', $4::text)
+                || CASE WHEN COALESCE(NULLIF(authorized_task.metadata->>'acknowledged_by', ''), $4::text) IS NOT NULL
+                        THEN jsonb_build_object(
+                          'acknowledged_by',
+                          COALESCE(NULLIF(authorized_task.metadata->>'acknowledged_by', ''), $4::text)
+                        )
                         ELSE '{}'::jsonb END,
               updated_at = NOW()
          FROM authorized_task
@@ -698,6 +701,7 @@ async function reconcileInProgressAcknowledgement({
           AND sla.id = (authorized_task.metadata->>'sla_instance_id')::uuid
           AND sla.tenant_id = $2::uuid
           AND sla.status NOT IN ('completed', 'cancelled')
+          AND sla.completed_at IS NULL
         RETURNING sla.id
      )
      SELECT ${TASK_RETURNING}
@@ -907,9 +911,15 @@ async function acknowledgeTaskInternal({
 export async function acknowledgeTask({
   tenantId = null, id, actorUid = null, actorRoles = [], breakGlassId = null, tx = null,
 } = {}) {
-  return acknowledgeTaskInternal({
-    tenantId, id, actorUid, actorRoles, breakGlassId, tx,
-  });
+  const args = { tenantId, id, actorUid, actorRoles, breakGlassId, tx };
+  if (tx) return acknowledgeTaskInternal(args);
+
+  const tid = resolveTenantId({ tenantId });
+  return setTenantTx(tid, (tenantTx) => acknowledgeTaskInternal({
+    ...args,
+    tenantId: tid,
+    tx: tenantTx,
+  }));
 }
 
 export async function acknowledgeColdChainTaskFromTrustedWorkflow({

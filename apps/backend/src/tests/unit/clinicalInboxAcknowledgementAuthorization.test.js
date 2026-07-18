@@ -99,4 +99,30 @@ describe('POST /api/v1/clinical-inbox/tasks/:id/acknowledge authorization', () =
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
     expect(finishedPhiContext).toBeNull();
   });
+
+  it('authorizes before idempotent repair and cannot stop an unauthorized in-progress task SLA', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 72,
+      status: 'in_progress',
+      title: 'Already acknowledged critical result for a different clinician',
+      assigned_to_uid: OTHER_UID,
+      assigned_to_role: 'DOCTOR',
+      patient_uid: PATIENT_UID,
+      metadata: { sla_instance_id: SLA_ID, acknowledged_at: '2026-07-18T08:00:00.000Z' },
+    }]);
+
+    const response = await request(app)
+      .post('/api/v1/clinical-inbox/tasks/72/acknowledge')
+      .send({});
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toMatchObject({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Not authorized to acknowledge this task',
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/critical result|patient|clinician/i);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/^SELECT[\s\S]+FROM tasks/i);
+  });
 });

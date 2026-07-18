@@ -11,10 +11,11 @@ import { jest } from '@jest/globals';
 const queryUnsafeMock = jest.fn();
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(__prismaDefaultMock));
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
-  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
@@ -56,6 +57,7 @@ const APPROVER_B = '33333333-3333-4333-8333-333333333333';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  setTenantTxMock.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -135,6 +137,7 @@ describe('acknowledgeTask', () => {
 
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
     expect(row.status).toBe('in_progress');
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
 
     const updateSql = queryUnsafeMock.mock.calls[1][0];
     expect(updateSql).toMatch(/UPDATE tasks/);
@@ -166,7 +169,11 @@ describe('acknowledgeTask', () => {
       id: 1,
       status: 'in_progress',
       assigned_to_uid: USER,
-      metadata: { acknowledged_at: 'earlier', sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+      metadata: {
+        acknowledged_at: 'earlier',
+        acknowledged_by: USER,
+        sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
     };
     queryUnsafeMock
       .mockResolvedValueOnce([task])
@@ -179,8 +186,39 @@ describe('acknowledgeTask', () => {
       expect.stringMatching(/^SELECT[\s\S]+FROM tasks/i),
       expect.stringMatching(/^WITH authorized_task[\s\S]+UPDATE workflow_sla_instances/i),
     ]);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/sla\.completed_at IS NULL/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/authorized_task\.metadata->>'acknowledged_by'/);
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO task_comments/i.test(sql))).toBe(false);
+  });
+
+  it.each([
+    ['linked SLA', 2, 'SLA write failed'],
+    ['audit comment', 3, 'comment write failed'],
+  ])('propagates a %s failure through its own tenant transaction', async (_label, failingCall, message) => {
+    const responses = [
+      [{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: USER,
+        metadata: { sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+      }],
+      [{
+        id: 1,
+        status: 'in_progress',
+        metadata: { sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+      }],
+      [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', status: 'completed' }],
+      [{ id: 10, body_kind: 'state_change' }],
+    ];
+    responses.forEach((response, index) => {
+      if (index === failingCall) queryUnsafeMock.mockRejectedValueOnce(new Error(message));
+      else queryUnsafeMock.mockResolvedValueOnce(response);
+    });
+
+    await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER }))
+      .rejects.toThrow(message);
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
   });
 });
 
@@ -516,6 +554,7 @@ describe('acknowledgeTask authorization', () => {
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, tx });
 
     expect(row.status).toBe('in_progress');
+    expect(setTenantTxMock).not.toHaveBeenCalled();
     expect(queryUnsafeMock).not.toHaveBeenCalled();
     expect(txQuery).toHaveBeenCalledTimes(4);
     expect(txQuery.mock.calls.map(([sql]) => sql)).toEqual([
