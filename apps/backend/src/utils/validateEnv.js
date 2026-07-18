@@ -299,6 +299,11 @@ export const envSchema = Joi.object({
     .optional()
     .label('CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED'),
 
+  PATHWAY_PROJECTOR_SHADOW_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('PATHWAY_PROJECTOR_SHADOW_ENABLED'),
+
   // External clinical-AI PHI egress region allowlist (comma-separated, e.g.
   // `US,AP`). FAIL-CLOSED default (audit 2026-06-18): when empty/unset, a tenant
   // that carries a region is DENIED external use — external egress is allowed

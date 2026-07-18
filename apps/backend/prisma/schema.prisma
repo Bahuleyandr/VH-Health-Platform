@@ -5032,6 +5032,20 @@ model escalation_rules {
   @@index([tenant_id, is_active, scope], map: "idx_escalation_rules_tenant_active")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model event_consumer_offsets {
+  consumer_key               String    @unique(map: "uq_event_consumer_offsets_live_consumer", where: raw("(intake_retired_at IS NULL)")) @db.VarChar(120)
+  generation                 Int
+  historical_cutoff_event_id BigInt
+  backfill_cursor_event_id   BigInt    @default(0)
+  backfill_completed_at      DateTime? @db.Timestamptz(6)
+  intake_retired_at          DateTime? @db.Timestamptz(6)
+  registered_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@id([consumer_key, generation])
+}
+
 model event_outbox {
   id             BigInt    @id @default(autoincrement())
   event_type     String    @db.VarChar(120)
@@ -10127,6 +10141,7 @@ model tenants {
   packages                                   packages[]
   pain_assessments                           pain_assessments[]
   password_reset_otps                        password_reset_otps[]
+  pathway_projector_inbox                    pathway_projector_inbox[]
   patient_access_audit_log                   patient_access_audit_log[]
   patient_access_break_glass                 patient_access_break_glass[]
   patient_access_break_glass_status_history  patient_access_break_glass_status_history[]
@@ -23553,6 +23568,30 @@ model cath_consumables_billing_settings {
   created_at             DateTime  @default(now()) @db.Timestamptz(6)
   updated_at             DateTime  @default(now()) @db.Timestamptz(6)
   tenants                tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pathway_projector_inbox {
+  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consumer_key     String    @db.VarChar(120)
+  generation       Int
+  event_id         BigInt
+  status           String    @default("pending") @db.VarChar(20)
+  attempts         Int       @default(0)
+  lease_owner      String?   @db.Uuid
+  lease_expires_at DateTime? @db.Timestamptz(6)
+  next_attempt_at  DateTime  @default(now()) @db.Timestamptz(6)
+  last_error       String?
+  outcome_at       DateTime? @db.Timestamptz(6)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
+
+  @@id([tenant_id, consumer_key, generation, event_id])
+  @@index([consumer_key, generation, next_attempt_at, event_id], map: "idx_pathway_projector_inbox_pending", where: raw("(((status)::text = 'pending'::text) AND (lease_owner IS NULL))"))
+  @@index([consumer_key, generation, lease_expires_at, event_id], map: "idx_pathway_projector_inbox_stale", where: raw("(((status)::text = 'pending'::text) AND (lease_owner IS NOT NULL))"))
+  @@index([tenant_id, consumer_key, generation, status, event_id], map: "idx_pathway_projector_inbox_tenant_ops")
+  @@index([consumer_key, generation, status, created_at, lease_owner], map: "idx_pathway_projector_inbox_metrics", where: raw("((status)::text = ANY ((ARRAY['pending'::character varying, 'dead'::character varying])::text[]))"))
 }
 
 enum transplant_organ_type {

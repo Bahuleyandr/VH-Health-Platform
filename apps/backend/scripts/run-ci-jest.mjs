@@ -15,13 +15,21 @@ const startChunk = Number(process.env.JEST_CI_START_CHUNK || 1);
 const endChunk = process.env.JEST_CI_END_CHUNK
   ? Number(process.env.JEST_CI_END_CHUNK)
   : null;
-const isolatedTestPatterns = String(
+const mandatoryIsolatedTestPatterns = [
+  'pathway-event-delivery.deep.test.js',
+  'pathway-projector-replay.deep.test.js',
+];
+const configuredIsolatedTestPatterns = String(
   process.env.JEST_CI_ISOLATED_TESTS
-    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js',
+    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js,pathway-event-delivery.deep.test.js,pathway-projector-replay.deep.test.js',
 )
   .split(',')
   .map((pattern) => pattern.trim())
   .filter(Boolean);
+const isolatedTestPatterns = [...new Set([
+  ...configuredIsolatedTestPatterns,
+  ...mandatoryIsolatedTestPatterns,
+])];
 const passthroughArgs = process.argv.slice(2);
 const maxBuffer = 64 * 1024 * 1024;
 
@@ -205,6 +213,11 @@ if (shard) {
   } else {
     console.log(`\n[Jest CI] Shard ${shard.shardIndex}/${shard.shardCount}: all ${executedChunks} assigned chunk(s) of ${chunkCount} passed.`);
   }
-} else {
+} else if (executedChunks === chunkCount) {
   console.log('\n[Jest CI] All chunks passed.');
+} else {
+  console.log(
+    `\n[Jest CI] Partial chunk window passed: ${executedChunks} of ${chunkCount} discovered chunk(s) ran; ` +
+    `${chunkCount - executedChunks} chunk(s) were not run.`,
+  );
 }

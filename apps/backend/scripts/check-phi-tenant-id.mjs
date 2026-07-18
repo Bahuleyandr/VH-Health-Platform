@@ -99,11 +99,15 @@ function readPoliciedTables() {
     const text = raw.replace(/--[^\n]*/g, '');
     if (!text.includes('tenant_isolation')) continue;
 
-    // (a) explicit ON <ident>
-    const explicitRe = /CREATE\s+POLICY\s+tenant_isolation\s+ON\s+(?:"([^"]+)"|(\w+))/gi;
+    // (a) explicit ON <ident> or ON public.<ident>. Prisma models in this
+    // repository map to the public schema, so policies in any other explicit
+    // schema must not satisfy the coverage check.
+    const explicitRe = /CREATE\s+POLICY\s+tenant_isolation\s+ON\s+(?:(?:"([^"]+)"|(\w+))\s*\.\s*)?(?:"([^"]+)"|(\w+))/gi;
     let e;
     while ((e = explicitRe.exec(text)) !== null) {
-      const name = e[1] || e[2];
+      const schema = e[1] || e[2];
+      const name = e[3] || e[4];
+      if (schema && schema.toLowerCase() !== 'public') continue;
       if (name && name !== '%I' && name.toLowerCase() !== 'i') policied.add(name);
     }
 

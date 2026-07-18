@@ -997,6 +997,7 @@ export async function ensureTenantRlsRuntimeRoleGrants() {
   const sql = `
 DO $$
 BEGIN
+  PERFORM pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true);
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
     BEGIN
       CREATE ROLE ${role} NOLOGIN;
@@ -1025,6 +1026,21 @@ BEGIN
     EXCEPTION WHEN insufficient_privilege THEN
       RAISE NOTICE 'default-privilege grants for ${role} skipped (insufficient privilege)';
     END;
+    BEGIN
+      REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+      REVOKE CREATE ON SCHEMA public FROM ${role};
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'public schema CREATE revoke for ${role} skipped (insufficient privilege)';
+    END;
+    IF pg_catalog.to_regprocedure('public.pathway_projector_enqueue_new_event()') IS NOT NULL THEN
+      BEGIN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.pathway_projector_enqueue_new_event()
+          FROM ${role};
+      EXCEPTION WHEN insufficient_privilege OR undefined_function THEN
+        RAISE NOTICE 'pathway projector trigger-function revoke for ${role} skipped';
+      END;
+    END IF;
   END IF;
 END
 $$;`;
