@@ -21,6 +21,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 const {
+  acknowledgeColdChainTaskFromTrustedWorkflow,
   acknowledgeTask,
   createApproval,
   createTask,
@@ -160,18 +161,33 @@ describe('acknowledgeTask', () => {
       .rejects.toMatchObject({ statusCode: 400, code: 'INVALID_STATE_TRANSITION' });
   });
 
-  it('is idempotent on an already-acknowledged (in_progress) task — no error', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress', assigned_to_uid: USER, metadata: { acknowledged_at: 'earlier' } }]);
+  it('idempotently repairs the linked SLA for an already-acknowledged task without re-stamping or commenting', async () => {
+    const task = {
+      id: 1,
+      status: 'in_progress',
+      assigned_to_uid: USER,
+      metadata: { acknowledged_at: 'earlier', sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([task]);
+
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
+
     expect(row.status).toBe('in_progress');
-    // Only the getTask read ran; no second UPDATE/comment for an already-acked task.
-    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls.map(([sql]) => sql)).toEqual([
+      expect.stringMatching(/^SELECT[\s\S]+FROM tasks/i),
+      expect.stringMatching(/^WITH authorized_task[\s\S]+UPDATE workflow_sla_instances/i),
+    ]);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO task_comments/i.test(sql))).toBe(false);
   });
 });
 
 describe('acknowledgeTask authorization', () => {
   const OTHER = '99999999-9999-4999-8999-999999999999';
   const SLA_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const PATIENT = '44444444-4444-4444-8444-444444444444';
 
   it('rejects a caller who is neither assignee, role-holder, nor override — and never runs the clock-stopping UPDATE', async () => {
     // Task belongs to a DIFFERENT clinician and is linked to an SLA instance.
@@ -185,6 +201,77 @@ describe('acknowledgeTask authorization', () => {
     // Only the getTask read ran: no UPDATE tasks (status flip) and therefore no
     // completeLinkedSla UPDATE — the escalation clock is NOT stopped.
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('revalidates assignee authority in the guarded UPDATE and denies a concurrent reassignment', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: USER,
+        assigned_to_role: 'DOCTOR',
+        metadata: { sla_instance_id: SLA_ID },
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: OTHER,
+        assigned_to_role: 'DOCTOR',
+        metadata: { sla_instance_id: SLA_ID },
+      }]);
+
+    await expect(acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: [],
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    const updateCall = queryUnsafeMock.mock.calls[1];
+    expect(updateCall[0]).toMatch(/UPDATE tasks/i);
+    expect(updateCall[0]).toMatch(/'assignee'[\s\S]+assigned_to_uid/i);
+    expect(updateCall.slice(1)).toEqual(expect.arrayContaining(['assignee', USER]));
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('retries the guarded update through a still-valid administrator mode after reassignment', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: USER,
+        assigned_to_role: 'DOCTOR',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'overdue',
+        assigned_to_uid: OTHER,
+        assigned_to_role: 'DOCTOR',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([{ id: 1, status: 'in_progress', metadata: {} }])
+      .mockResolvedValueOnce([{ id: 12, body_kind: 'state_change' }]);
+
+    const row = await acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['ADMIN'],
+    });
+
+    expect(row.status).toBe('in_progress');
+    expect(queryUnsafeMock.mock.calls[1].slice(1)[2]).toBe('assignee');
+    expect(queryUnsafeMock.mock.calls[3].slice(1)[2]).toBe('admin');
+    expect(queryUnsafeMock.mock.calls[4][4]).toMatch(/overdue → in_progress/);
+    expect(JSON.parse(queryUnsafeMock.mock.calls[4][6])).toMatchObject({
+      from: 'overdue',
+      to: 'in_progress',
+      via: 'admin',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(5);
   });
 
   it('allows the assignee (by uid)', async () => {
@@ -201,6 +288,8 @@ describe('acknowledgeTask authorization', () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 6 }]);
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['DUTY_DOCTOR'] });
     expect(row.status).toBe('in_progress');
+    expect(queryUnsafeMock.mock.calls[1].slice(1)[2]).toBe('role');
+    expect(queryUnsafeMock.mock.calls[1].slice(1)[4]).toBe('DUTY_DOCTOR');
   });
 
   it('allows an ADMIN task-administrator on any task', async () => {
@@ -211,20 +300,263 @@ describe('acknowledgeTask authorization', () => {
     expect(row.status).toBe('in_progress');
   });
 
-  it('allows an explicit audited override and records the reason on the UPDATE + audit comment', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: OTHER, assigned_to_role: 'DOCTOR', metadata: {} }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 8 }]);
-    const row = await acknowledgeTask({
+  it('rejects a reason-only nursing override and never updates the task or linked SLA', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: OTHER,
+        assigned_to_role: 'DOCTOR',
+        patient_uid: PATIENT,
+        metadata: { sla_instance_id: SLA_ID },
+      }])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'in_progress',
+        patient_uid: PATIENT,
+        metadata: { sla_instance_id: SLA_ID },
+      }])
+      .mockResolvedValueOnce([{ id: SLA_ID, status: 'completed' }])
+      .mockResolvedValueOnce([{ id: 8, body_kind: 'state_change' }]);
+
+    await expect(acknowledgeTask({
       tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['NURSING_STAFF'],
       overrideReason: 'covering for the on-call doctor',
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    // The task read is the only query: arbitrary text must not authorize the
+    // task UPDATE or stop its linked SLA clock.
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/^SELECT[\s\S]+FROM tasks/i);
+  });
+
+  it('rejects an oversized break-glass selector before querying its table', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'open',
+      assigned_to_uid: OTHER,
+      assigned_to_role: 'DOCTOR',
+      patient_uid: PATIENT,
+      metadata: { sla_instance_id: SLA_ID },
+    }]);
+
+    await expect(acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['CMO'],
+      breakGlassId: 2_147_483_648,
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/^SELECT[\s\S]+FROM tasks/i);
+  });
+
+  it('does not expose the trusted-workflow override on the public acknowledgeTask entrypoint', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'open',
+      assigned_to_uid: OTHER,
+      related_resource_type: 'cold_chain_excursions',
+      related_resource_id: '7',
+      metadata: {},
+    }]);
+
+    await expect(acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['NURSING_STAFF'],
+      trustedOverride: {
+        source: 'cold_chain_excursion_ack',
+        reason: 'Acknowledged via cold-chain excursion acknowledgement',
+        id: '7',
+      },
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a CMO override only through the exact active patient break-glass record and durably records its provenance', async () => {
+    const breakGlassReason = 'Emergency coverage';
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: OTHER,
+        assigned_to_role: 'DOCTOR',
+        patient_uid: PATIENT,
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([{ id: 41, actor_role: 'CMO', reason: breakGlassReason }])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'in_progress',
+        patient_uid: PATIENT,
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([{ id: 8, body_kind: 'state_change' }]);
+
+    const row = await acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['CMO'],
+      breakGlassId: 41,
     });
+
     expect(row.status).toBe('in_progress');
-    // The override reason is bound as an UPDATE param (metadata provenance)...
-    expect(queryUnsafeMock.mock.calls[1].slice(1)).toContain('covering for the on-call doctor');
-    // ...and appears in the state_change audit comment body.
-    const commentArgs = queryUnsafeMock.mock.calls[2].slice(1);
-    expect(commentArgs.some((p) => typeof p === 'string' && p.includes('override'))).toBe(true);
+
+    const breakGlassCall = queryUnsafeMock.mock.calls.find(([sql]) => /FROM patient_access_break_glass/i.test(sql));
+    expect(breakGlassCall).toBeDefined();
+    expect(breakGlassCall[0]).toMatch(/tenant_id\s*=\s*\$\d+::uuid/i);
+    expect(breakGlassCall[0]).toMatch(/patient_uid\s*=\s*\$\d+::uuid/i);
+    expect(breakGlassCall[0]).toMatch(/actor_uid\s*=\s*\$\d+::uuid/i);
+    expect(breakGlassCall[0]).toMatch(/id\s*=\s*\$\d+::(?:int|bigint)/i);
+    expect(breakGlassCall[0]).toMatch(/status\s*=\s*'active'/i);
+    expect(breakGlassCall[0]).toMatch(/expires_at\s*>\s*NOW\(\)/i);
+    expect(breakGlassCall[0]).toMatch(/actor_role/i);
+    expect(breakGlassCall[0]).toMatch(/reason/i);
+    expect(breakGlassCall.slice(1)).toEqual(expect.arrayContaining([TENANT, PATIENT, USER, 41]));
+
+    const updateCall = queryUnsafeMock.mock.calls.find(([sql]) => /UPDATE tasks/i.test(sql));
+    expect(updateCall[0]).toMatch(/acknowledge_override_source/i);
+    expect(updateCall[0]).toMatch(/acknowledge_override_id/i);
+    expect(updateCall[0]).toMatch(/acknowledge_override_reason/i);
+    expect(updateCall[0]).toMatch(/EXISTS[\s\S]+FROM patient_access_break_glass/i);
+    expect(updateCall[0]).toMatch(/bg\.status\s*=\s*'active'/i);
+    expect(updateCall[0]).toMatch(/bg\.expires_at\s*>\s*NOW\(\)/i);
+    expect(updateCall.slice(1)).toEqual(expect.arrayContaining([
+      'patient_access_break_glass',
+      '41',
+      breakGlassReason,
+    ]));
+
+    const commentCall = queryUnsafeMock.mock.calls.find(([sql]) => /INSERT INTO task_comments/i.test(sql));
+    const commentMetadataJson = commentCall.slice(1)
+      .find((value) => typeof value === 'string' && value.includes('"override_source"'));
+    expect(JSON.parse(commentMetadataJson)).toMatchObject({
+      via: 'override',
+      override_source: 'patient_access_break_glass',
+      override_id: '41',
+      override_reason: breakGlassReason,
+    });
+  });
+
+  it('rejects an absent or expired break-glass record without touching the task or SLA', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: OTHER,
+        assigned_to_role: 'DOCTOR',
+        patient_uid: PATIENT,
+        metadata: { sla_instance_id: SLA_ID },
+      }])
+      .mockResolvedValueOnce([]);
+
+    await expect(acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['CMO'],
+      breakGlassId: 41,
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/FROM patient_access_break_glass/i);
+  });
+
+  it('rejects a break-glass record whose activating role is not in the caller signed roles', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: OTHER,
+        assigned_to_role: 'DOCTOR',
+        patient_uid: PATIENT,
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([{
+        id: 41,
+        actor_role: 'MEDICAL_SUPERINTENDENT',
+        reason: 'Emergency coverage',
+      }]);
+
+    await expect(acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['CMO'],
+      breakGlassId: 41,
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses a supplied tx client for the task read, guarded update, linked SLA, and audit comment', async () => {
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: USER,
+        patient_uid: PATIENT,
+        metadata: { sla_instance_id: SLA_ID },
+      }])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'in_progress',
+        patient_uid: PATIENT,
+        metadata: { sla_instance_id: SLA_ID },
+      }])
+      .mockResolvedValueOnce([{ id: SLA_ID, status: 'completed' }])
+      .mockResolvedValueOnce([{ id: 9, body_kind: 'state_change' }]);
+    const tx = { $queryRawUnsafe: txQuery };
+
+    const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, tx });
+
+    expect(row.status).toBe('in_progress');
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+    expect(txQuery).toHaveBeenCalledTimes(4);
+    expect(txQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      expect.stringMatching(/^SELECT[\s\S]+FROM tasks/i),
+      expect.stringMatching(/UPDATE tasks/i),
+      expect.stringMatching(/UPDATE workflow_sla_instances/i),
+      expect.stringMatching(/INSERT INTO task_comments/i),
+    ]);
+  });
+
+  it.each([
+    ['linked SLA', 2, 'tx SLA write failed'],
+    ['audit comment', 3, 'tx comment write failed'],
+  ])('does not swallow a supplied transaction failure from the %s write', async (_label, failingCall, message) => {
+    const responses = [
+      [{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: USER,
+        patient_uid: PATIENT,
+        metadata: { sla_instance_id: SLA_ID },
+      }],
+      [{
+        id: 1,
+        status: 'in_progress',
+        patient_uid: PATIENT,
+        metadata: { sla_instance_id: SLA_ID },
+      }],
+      [{ id: SLA_ID, status: 'completed' }],
+      [{ id: 9, body_kind: 'state_change' }],
+    ];
+    const txQuery = jest.fn();
+    responses.forEach((response, index) => {
+      if (index === failingCall) txQuery.mockRejectedValueOnce(new Error(message));
+      else txQuery.mockResolvedValueOnce(response);
+    });
+    const tx = { $queryRawUnsafe: txQuery };
+
+    await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, tx }))
+      .rejects.toThrow(message);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
 
   it('rejects an unassigned task with no override (no assignee, no role, no admin)', async () => {
@@ -240,9 +572,123 @@ describe('acknowledgeTask authorization', () => {
     expect(resolveAckAuthorization({ assigned_to_uid: USER }, { actorUid: USER }).mode).toBe('assignee');
     expect(resolveAckAuthorization({ assigned_to_role: 'DOCTOR' }, { actorUid: OTHER, actorRoles: ['DOCTOR'] }).mode).toBe('role');
     expect(resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: ['SUPER_ADMIN'] }).mode).toBe('admin');
-    expect(resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: [], overrideReason: 'why' }).mode).toBe('override');
+    expect(() => resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: [], overrideReason: 'why' }))
+      .toThrow(/Not authorized/);
     expect(() => resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: ['NURSING_STAFF'] }))
       .toThrow(/Not authorized/);
+  });
+});
+
+describe('acknowledgeColdChainTaskFromTrustedWorkflow', () => {
+  const OTHER = '99999999-9999-4999-8999-999999999999';
+
+  it('records normal role authority when the responder holds the task assignment', async () => {
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{
+        id: 55,
+        status: 'open',
+        assigned_to_uid: OTHER,
+        assigned_to_role: 'PHARMACY_STAFF',
+        related_resource_type: 'cold_chain_excursions',
+        related_resource_id: '7',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([{ id: 55, status: 'in_progress', metadata: {} }])
+      .mockResolvedValueOnce([{ id: 9, body_kind: 'state_change' }]);
+    const tx = { $queryRawUnsafe: txQuery };
+
+    await acknowledgeColdChainTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 55,
+      actorUid: USER,
+      actorRoles: ['PHARMACY_STAFF'],
+      excursionId: 7,
+      tx,
+    });
+
+    const updateParams = txQuery.mock.calls[1].slice(1);
+    expect(updateParams[2]).toBe('role');
+    expect(updateParams[4]).toBe('PHARMACY_STAFF');
+    expect(updateParams[5]).toBeNull();
+    expect(updateParams[9]).toBe('7');
+  });
+
+  it('binds a trusted cold-chain acknowledgement to the linked excursion and its supplied tx', async () => {
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{
+        id: 55,
+        status: 'open',
+        assigned_to_uid: OTHER,
+        related_resource_type: 'cold_chain_excursions',
+        related_resource_id: '7',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([{
+        id: 55,
+        status: 'in_progress',
+        related_resource_type: 'cold_chain_excursions',
+        related_resource_id: '7',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([{ id: 10, body_kind: 'state_change' }]);
+    const tx = { $queryRawUnsafe: txQuery };
+    const row = await acknowledgeColdChainTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 55,
+      actorUid: USER,
+      actorRoles: ['PHARMACY_STAFF'],
+      excursionId: 7,
+      tx,
+    });
+
+    expect(row.status).toBe('in_progress');
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+    expect(txQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      expect.stringMatching(/^SELECT[\s\S]+FROM tasks/i),
+      expect.stringMatching(/UPDATE tasks/i),
+      expect.stringMatching(/INSERT INTO task_comments/i),
+    ]);
+    expect(txQuery.mock.calls[1][0]).toMatch(/acknowledge_override_source/i);
+    expect(txQuery.mock.calls[1].slice(1)[2]).toBe('override');
+    expect(txQuery.mock.calls[1].slice(1)).toEqual(expect.arrayContaining([
+      'cold_chain_excursion_ack',
+      '7',
+      'Acknowledged via cold-chain excursion acknowledgement',
+    ]));
+  });
+
+  it('rejects a trusted cold-chain acknowledgement when the task is linked to another excursion', async () => {
+    const txQuery = jest.fn().mockResolvedValueOnce([{
+      id: 55,
+      status: 'open',
+      assigned_to_uid: OTHER,
+      related_resource_type: 'cold_chain_excursions',
+      related_resource_id: '8',
+      metadata: {},
+    }]);
+    const tx = { $queryRawUnsafe: txQuery };
+
+    await expect(acknowledgeColdChainTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 55,
+      actorUid: USER,
+      excursionId: 7,
+      tx,
+    })).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(txQuery).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects the trusted entrypoint without the caller transaction', async () => {
+    await expect(acknowledgeColdChainTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 55,
+      actorUid: USER,
+      excursionId: 7,
+    })).rejects.toMatchObject({ statusCode: 500, code: 'TRUSTED_TASK_ACK_TRANSACTION_REQUIRED' });
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
 });
 

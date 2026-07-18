@@ -3,6 +3,7 @@ import { jest } from '@jest/globals';
 const queryRawMock = jest.fn();
 const executeRawMock = jest.fn();
 const acknowledgeTaskMock = jest.fn();
+const acknowledgeColdChainTaskFromTrustedWorkflowMock = jest.fn();
 const transitionTaskMock = jest.fn();
 const createTaskMock = jest.fn();
 const startWorkflowSlaMock = jest.fn();
@@ -15,9 +16,14 @@ const mockPrisma = {
   $executeRawUnsafe: executeRawMock,
 };
 
+const tenantTxClient = {
+  $queryRawUnsafe: queryRawMock,
+  $executeRawUnsafe: executeRawMock,
+};
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
-  setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
+  setTenantTx: async (_tenantId, fn) => fn(tenantTxClient),
 }));
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
@@ -29,6 +35,7 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   acknowledgeTask: acknowledgeTaskMock,
+  acknowledgeColdChainTaskFromTrustedWorkflow: acknowledgeColdChainTaskFromTrustedWorkflowMock,
   transitionTask: transitionTaskMock,
   createTask: createTaskMock,
 }));
@@ -65,6 +72,7 @@ describe('coldChainService invariants', () => {
     queryRawMock.mockReset();
     executeRawMock.mockReset();
     acknowledgeTaskMock.mockReset().mockResolvedValue({ id: 55, status: 'in_progress' });
+    acknowledgeColdChainTaskFromTrustedWorkflowMock.mockReset().mockResolvedValue({ id: 55, status: 'in_progress' });
     transitionTaskMock.mockReset().mockResolvedValue({ id: 55, status: 'completed' });
     createTaskMock.mockReset().mockResolvedValue({ id: 77 });
     startWorkflowSlaMock.mockReset().mockResolvedValue({
@@ -122,7 +130,7 @@ describe('coldChainService invariants', () => {
     ].join('\n'));
   });
 
-  it('acknowledges the linked workflow task so escalation stops', async () => {
+  it('acknowledges the linked workflow task through the trusted cold-chain entrypoint on the exact tenant tx', async () => {
     queryRawMock
       .mockResolvedValueOnce([{
         id: 7,
@@ -142,20 +150,43 @@ describe('coldChainService invariants', () => {
       tenantId: TENANT_ID,
       id: 7,
       actorUid: ACTOR_UID,
+      actorRoles: ['PHARMACY_STAFF'],
     })).resolves.toMatchObject({ id: 7, status: 'acknowledged' });
 
-    expect(acknowledgeTaskMock).toHaveBeenCalledWith({
+    expect(acknowledgeColdChainTaskFromTrustedWorkflowMock).toHaveBeenCalledWith({
       tenantId: TENANT_ID,
       id: 55,
       actorUid: ACTOR_UID,
-      actorRoles: [],
-      overrideReason: 'Acknowledged via cold-chain excursion acknowledgement',
+      actorRoles: ['PHARMACY_STAFF'],
+      excursionId: 7,
+      tx: tenantTxClient,
     });
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
     expect(emitColdChainEventMock).toHaveBeenCalledWith('excursion-acknowledged', expect.objectContaining({
       tenantId: TENANT_ID,
       unitId: 3,
       excursionId: 7,
     }));
+  });
+
+  it('does not emit the post-commit excursion event when linked task acknowledgement aborts', async () => {
+    queryRawMock.mockResolvedValueOnce([{
+      id: 7,
+      unit_id: 3,
+      task_id: 55,
+      status: 'acknowledged',
+      severity: 'critical',
+    }]);
+    acknowledgeColdChainTaskFromTrustedWorkflowMock.mockRejectedValueOnce(new Error('task acknowledgement failed'));
+
+    await expect(acknowledgeColdChainExcursion({
+      tenantId: TENANT_ID,
+      id: 7,
+      actorUid: ACTOR_UID,
+      actorRoles: ['PHARMACY_STAFF'],
+    })).rejects.toThrow('task acknowledgement failed');
+
+    expect(emitColdChainEventMock).not.toHaveBeenCalled();
   });
 
   it('opens silent-sensor warnings through task, notification, and realtime rails', async () => {
@@ -200,7 +231,7 @@ describe('coldChainService invariants', () => {
       ruleCode: 'cold_chain_excursion_ack',
       sourceTable: 'cold_chain_excursions',
       sourceId: '44',
-    }), { db: mockPrisma });
+    }), { db: tenantTxClient });
     expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT_ID,
       taskKind: 'review',

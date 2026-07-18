@@ -9799,6 +9799,18 @@
           }
         }
       },
+      "ClinicalInboxTaskAcknowledgeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "break_glass_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Optional active patient-access break-glass record bound to the caller and task patient."
+          }
+        }
+      },
       "ClinicalNote": {
         "type": "object",
         "additionalProperties": true,
@@ -63177,6 +63189,8 @@
             }
           }
         },
+        "summary": "Acknowledge a clinical inbox task",
+        "description": "Stops the linked escalation clock only when the caller has task assignment, assigned-role, task-administrator, or durable patient break-glass authority.",
         "parameters": [
           {
             "name": "id",
@@ -63186,7 +63200,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalInboxTaskAcknowledgeRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/clinical/ambient/encounters": {

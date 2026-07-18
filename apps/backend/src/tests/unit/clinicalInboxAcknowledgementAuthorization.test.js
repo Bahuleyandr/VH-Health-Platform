@@ -1,0 +1,102 @@
+import { jest } from '@jest/globals';
+import express from 'express';
+import request from 'supertest';
+
+const queryUnsafeMock = jest.fn();
+const prismaMock = { $queryRawUnsafe: queryUnsafeMock };
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: prismaMock,
+  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
+  setTenant: async (_tenantId, fn) => fn(prismaMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
+  pickTenantClient: () => prismaMock,
+}));
+
+const { default: clinicalInboxRoutes } = await import('../../routes/clinicalInboxRoutes.js');
+const { errorHandlerMiddleware } = await import('../../middleware/errorHandlerMiddleware.js');
+
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const ACTOR_UID = '11111111-1111-4111-8111-111111111111';
+const OTHER_UID = '99999999-9999-4999-8999-999999999999';
+const PATIENT_UID = '44444444-4444-4444-8444-444444444444';
+const SLA_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+let finishedPhiContext = null;
+const app = express();
+app.use(express.json());
+app.use((req, _res, next) => {
+  req.id = 'clinical-inbox-authz-test';
+  req.tenantId = TENANT_ID;
+  req.user = { uid: ACTOR_UID, role: 'NURSING_STAFF', roles: ['NURSING_STAFF'] };
+  next();
+});
+app.use((req, res, next) => {
+  res.on('finish', () => { finishedPhiContext = req.phiContext || null; });
+  next();
+});
+app.use('/api/v1/clinical-inbox', clinicalInboxRoutes);
+app.use(errorHandlerMiddleware);
+
+beforeEach(() => {
+  queryUnsafeMock.mockReset();
+  finishedPhiContext = null;
+});
+
+describe('POST /api/v1/clinical-inbox/tasks/:id/acknowledge authorization', () => {
+  it('returns a generic 403 for an arbitrary override reason without updating the task or SLA', async () => {
+    // The extra successful write responses make the vulnerable reason-only path
+    // reach 200; the fixed path must reject immediately after the task read.
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 71,
+        status: 'open',
+        title: 'Critical result for a different clinician',
+        assigned_to_uid: OTHER_UID,
+        assigned_to_role: 'DOCTOR',
+        patient_uid: PATIENT_UID,
+        metadata: { sla_instance_id: SLA_ID },
+      }])
+      .mockResolvedValueOnce([{
+        id: 71,
+        status: 'in_progress',
+        patient_uid: PATIENT_UID,
+        metadata: { sla_instance_id: SLA_ID },
+      }])
+      .mockResolvedValueOnce([{ id: SLA_ID, status: 'completed' }])
+      .mockResolvedValueOnce([{ id: 15, body_kind: 'state_change' }]);
+
+    const response = await request(app)
+      .post('/api/v1/clinical-inbox/tasks/71/acknowledge')
+      .send({ override_reason: 'I am covering for the on-call doctor' });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toMatchObject({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Not authorized to acknowledge this task',
+      requestId: 'clinical-inbox-authz-test',
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/Critical result|patient|clinician/i);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/^SELECT[\s\S]+FROM tasks/i);
+    expect(finishedPhiContext).toMatchObject({ patientUid: PATIENT_UID });
+  });
+
+  it('normalizes a missing task to the same generic 403 instead of exposing a 404 oracle', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    const response = await request(app)
+      .post('/api/v1/clinical-inbox/tasks/404/acknowledge')
+      .send({});
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toMatchObject({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Not authorized to acknowledge this task',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(finishedPhiContext).toBeNull();
+  });
+});

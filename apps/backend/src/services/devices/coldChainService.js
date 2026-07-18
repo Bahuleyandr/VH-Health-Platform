@@ -7,7 +7,11 @@ import { notificationOutbox } from '../../utils/notifications/notificationOutbox
 import { emitColdChainEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { authenticateDeviceCredential } from './deviceRegistryService.js';
-import { createTask, transitionTask, acknowledgeTask } from '../workflow/taskService.js';
+import {
+  acknowledgeColdChainTaskFromTrustedWorkflow,
+  createTask,
+  transitionTask,
+} from '../workflow/taskService.js';
 import { startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
 
 const COLD_CHAIN_SLA_KEY = 'cold_chain_excursion_ack';
@@ -799,12 +803,13 @@ export async function acknowledgeColdChainExcursion({ tenantId, id, actorUid, ac
       // the task's assigned role records as a normal role-ack; a different but
       // route-authorized cold-chain responder records as an audited override
       // (rather than 403-ing and rolling back the excursion acknowledge).
-      await acknowledgeTask({
+      await acknowledgeColdChainTaskFromTrustedWorkflow({
         tenantId: tid,
         id: excursion.task_id,
         actorUid,
         actorRoles,
-        overrideReason: 'Acknowledged via cold-chain excursion acknowledgement',
+        excursionId: excursion.id,
+        tx,
       });
     }
     const unit = await findUnit(tx, { tenantId: tid, unitId: excursion.unit_id });

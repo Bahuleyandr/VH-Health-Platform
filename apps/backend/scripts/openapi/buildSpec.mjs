@@ -66,7 +66,7 @@ function buildOperation(method, openApiPath, opId, ov) {
   }
   if (ov && ov.request) {
     op.requestBody = {
-      required: true,
+      required: ov.requestRequired !== false,
       content: { 'application/json': { schema: { $ref: `#/components/schemas/${ov.request}` } } },
     };
   }

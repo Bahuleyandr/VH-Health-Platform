@@ -12,7 +12,7 @@ abstract class ClinicalInboxApi {
 
   Future<ClinicalInboxResult> listInboxTasks({int limit = 100});
 
-  Future<ClinicalInboxTask> acknowledgeTask(String id);
+  Future<ClinicalInboxTask> acknowledgeTask(String id, {int? breakGlassId});
 }
 
 class ClinicalInboxApiService extends ClinicalInboxApi {
@@ -42,10 +42,13 @@ class ClinicalInboxApiService extends ClinicalInboxApi {
   }
 
   @override
-  Future<ClinicalInboxTask> acknowledgeTask(String id) async {
+  Future<ClinicalInboxTask> acknowledgeTask(
+    String id, {
+    int? breakGlassId,
+  }) async {
     final resp = await ApiClient.post(
       '/clinical-inbox/tasks/$id/acknowledge',
-      body: const {},
+      body: {'break_glass_id': ?breakGlassId},
     );
     if (!resp.isSuccess) {
       throw Exception(resp.failureMessage('Could not acknowledge task'));

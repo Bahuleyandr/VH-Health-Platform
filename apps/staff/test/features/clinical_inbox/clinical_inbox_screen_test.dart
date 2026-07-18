@@ -142,7 +142,10 @@ class _FakeClinicalInboxApi extends ClinicalInboxApi {
   }
 
   @override
-  Future<ClinicalInboxTask> acknowledgeTask(String id) async {
+  Future<ClinicalInboxTask> acknowledgeTask(
+    String id, {
+    int? breakGlassId,
+  }) async {
     acknowledgeCalls += 1;
     final delay = acknowledgeDelay;
     if (delay != null) await delay;
