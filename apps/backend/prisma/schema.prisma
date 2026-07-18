@@ -917,9 +917,9 @@ model approvals {
   metadata              Json           @default("{}")
   created_at            DateTime       @default(now()) @db.Timestamptz(6)
   updated_at            DateTime       @default(now()) @db.Timestamptz(6)
-  tasks                 tasks?         @relation(fields: [task_id], references: [id], onUpdate: NoAction)
   tenants               tenants        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  workflow_runs         workflow_runs? @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
+  tasks                 tasks?         @relation(fields: [tenant_id, task_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_task_tenant")
+  workflow_runs         workflow_runs? @relation(fields: [tenant_id, workflow_run_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_workflow_run_tenant")
 
   @@unique([tenant_id, approval_kind, subject_resource_type, subject_resource_id], map: "uq_pending_credential_privilege_approval", where: raw("(((approval_kind)::text = 'credential_privilege_grant'::text) AND ((status)::text = 'pending'::text) AND (subject_resource_id IS NOT NULL))"))
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_approvals_tenant_status")
@@ -9573,7 +9573,7 @@ model task_comments {
   body_kind  String   @default("comment") @db.VarChar(20)
   metadata   Json     @default("{}")
   created_at DateTime @default(now()) @db.Timestamptz(6)
-  tasks      tasks    @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tasks      tasks    @relation(fields: [tenant_id, task_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_task_comments_task_tenant")
   tenants    tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([task_id, created_at], map: "idx_task_comments_task")
@@ -9612,13 +9612,14 @@ model tasks {
   cold_chain_excursions      cold_chain_excursions[]
   engagement_follow_up_steps engagement_follow_up_steps[]
   task_comments              task_comments[]
-  tasks                      tasks?                       @relation("tasksTotasks", fields: [parent_task_id], references: [id], onUpdate: NoAction)
+  tasks                      tasks?                       @relation("tasksTotasks", fields: [tenant_id, parent_task_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_tasks_parent_tenant")
   other_tasks                tasks[]                      @relation("tasksTotasks")
+  workflow_runs              workflow_runs?               @relation(fields: [tenant_id, workflow_run_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_tasks_workflow_run_tenant")
+  workflow_steps             workflow_steps?              @relation(fields: [tenant_id, workflow_step_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_tasks_workflow_step_tenant")
   tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  workflow_runs              workflow_runs?               @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
-  workflow_steps             workflow_steps?              @relation(fields: [workflow_step_id], references: [id], onUpdate: NoAction)
 
   @@unique([tenant_id, related_resource_type, related_resource_id], map: "uq_task_open_per_resource", where: raw("(((status)::text = ANY ((ARRAY['open'::character varying, 'in_progress'::character varying, 'blocked'::character varying])::text[])) AND (related_resource_type IS NOT NULL) AND (related_resource_id IS NOT NULL))"))
+  @@unique([tenant_id, id], map: "ux_tasks_tenant_id")
   @@index([tenant_id, status, priority, due_at], map: "idx_tasks_tenant_status")
   @@index([tenant_id, assigned_to_uid, status], map: "idx_tasks_assigned", where: raw("(assigned_to_uid IS NOT NULL)"))
   @@index([tenant_id, due_at], map: "idx_tasks_due", where: raw("((due_at IS NOT NULL) AND ((status)::text = ANY (ARRAY[('open'::character varying)::text, ('in_progress'::character varying)::text, ('blocked'::character varying)::text])))"))
@@ -11387,7 +11388,7 @@ model workflow_definitions {
   steps         Json            @default("[]")
   triggers      Json            @default("[]")
   defaults      Json            @default("{}")
-  is_active     Boolean         @default(true)
+  is_active     Boolean         @default(false)
   created_by    String?         @db.Uuid
   created_at    DateTime        @default(now()) @db.Timestamptz(6)
   updated_at    DateTime        @default(now()) @db.Timestamptz(6)
@@ -11395,6 +11396,7 @@ model workflow_definitions {
   workflow_runs workflow_runs[]
 
   @@unique([tenant_id, workflow_key, version])
+  @@unique([tenant_id, id], map: "ux_workflow_definitions_tenant_id")
   @@index([tenant_id, is_active, workflow_key], map: "idx_workflow_defs_tenant_active")
   @@index([tenant_id, category], map: "idx_workflow_defs_category", where: raw("(category IS NOT NULL)"))
 }
@@ -11421,10 +11423,11 @@ model workflow_runs {
   updated_at             DateTime              @default(now()) @db.Timestamptz(6)
   approvals              approvals[]
   tasks                  tasks[]
+  workflow_definitions   workflow_definitions? @relation(fields: [tenant_id, workflow_definition_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_workflow_runs_definition_tenant")
   tenants                tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  workflow_definitions   workflow_definitions? @relation(fields: [workflow_definition_id], references: [id], onUpdate: NoAction)
   workflow_steps         workflow_steps[]
 
+  @@unique([tenant_id, id], map: "ux_workflow_runs_tenant_id")
   @@index([tenant_id, workflow_key, workflow_version, started_at(sort: Desc)], map: "idx_workflow_runs_key_version")
   @@index([tenant_id, status, started_at(sort: Desc)], map: "idx_workflow_runs_tenant_status")
   @@index([tenant_id, status, due_at], map: "idx_workflow_runs_due", where: raw("((due_at IS NOT NULL) AND ((status)::text = ANY (ARRAY[('started'::character varying)::text, ('running'::character varying)::text, ('blocked'::character varying)::text])))"))
@@ -11451,10 +11454,11 @@ model workflow_steps {
   created_at      DateTime      @default(now()) @db.Timestamptz(6)
   updated_at      DateTime      @default(now()) @db.Timestamptz(6)
   tasks           tasks[]
+  workflow_runs   workflow_runs @relation(fields: [tenant_id, workflow_run_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_workflow_steps_run_tenant")
   tenants         tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  workflow_runs   workflow_runs @relation(fields: [workflow_run_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([workflow_run_id, step_key])
+  @@unique([tenant_id, id], map: "ux_workflow_steps_tenant_id")
   @@index([workflow_run_id, ordering, step_key], map: "idx_workflow_steps_run_order")
   @@index([tenant_id, status, due_at], map: "idx_workflow_steps_tenant_status")
   @@index([tenant_id, assigned_to, status], map: "idx_workflow_steps_assigned", where: raw("(assigned_to IS NOT NULL)"))

@@ -13,6 +13,7 @@
 
 import express from 'express';
 
+import { AppError } from '../../utils/AppError.js';
 import { success } from '../../utils/responseHelper.js';
 import {
   acknowledgeTask,
@@ -44,6 +45,19 @@ import {
 
 const router = express.Router();
 
+function requireAuthenticatedActorUid(req) {
+  const actorUid = req.user?.uid || null;
+  if (!actorUid) throw AppError.unauthorized('Authenticated actor is required');
+  return actorUid;
+}
+
+function authenticatedActorRoles(req) {
+  const roles = req.user?.roles;
+  if (Array.isArray(roles) && roles.length > 0) return roles;
+  if (roles && !Array.isArray(roles)) return [roles];
+  return req.user?.role ? [req.user.role] : [];
+}
+
 // Tasks
 router.post('/tasks', async (req, res, next) => {
   try {
@@ -63,7 +77,7 @@ router.post('/tasks', async (req, res, next) => {
       priority: b.priority,
       assignedToUid: b.assigned_to_uid,
       assignedToRole: b.assigned_to_role,
-      createdBy: b.created_by || req.user?.uid || null,
+      createdBy: requireAuthenticatedActorUid(req),
       dueAt: b.due_at,
       slaDefinitionId: b.sla_definition_id,
       metadata: b.metadata,
@@ -101,7 +115,7 @@ router.get('/tasks/inbox', async (req, res, next) => {
     const result = await listInboxTasks({
       tenantId: req.tenantId,
       assigneeUid: req.user?.uid || null,
-      roles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
+      roles: authenticatedActorRoles(req),
       limit: req.query.limit,
     });
     return success(res, result, 'Inbox retrieved');
@@ -117,7 +131,7 @@ router.post('/tasks/:id/acknowledge', async (req, res, next) => {
       tenantId: req.tenantId,
       id: req.params.id,
       actorUid: req.user?.uid || null,
-      actorRoles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
+      actorRoles: authenticatedActorRoles(req),
     });
     return success(res, row, 'Task acknowledged');
   } catch (err) { return next(err); }
@@ -137,6 +151,7 @@ router.patch('/tasks/:id/transition', async (req, res, next) => {
       id: req.params.id,
       nextStatus: req.body?.next_status,
       cancellationReason: req.body?.cancellation_reason,
+      actorUid: requireAuthenticatedActorUid(req),
     });
     return success(res, row, 'Task transitioned');
   } catch (err) { return next(err); }
@@ -194,7 +209,7 @@ router.post('/workflow-definitions', async (req, res, next) => {
       triggers: b.triggers,
       defaults: b.defaults,
       isActive: b.is_active,
-      createdBy: req.user?.uid || null,
+      createdBy: requireAuthenticatedActorUid(req),
     });
     return success(res, row, 'Workflow definition saved', 201);
   } catch (err) { return next(err); }
@@ -222,7 +237,7 @@ router.post('/workflow-runs', async (req, res, next) => {
       triggerPayload: b.trigger_payload,
       context: b.context,
       dueAt: b.due_at,
-      initiatedBy: req.user?.uid || null,
+      initiatedBy: requireAuthenticatedActorUid(req),
       metadata: b.metadata,
     });
     return success(res, row, 'Workflow run started', 201);
@@ -249,6 +264,7 @@ router.patch('/workflow-runs/:id/transition', async (req, res, next) => {
       nextStatus: req.body?.next_status,
       failureReason: req.body?.failure_reason,
       currentStepKey: req.body?.current_step_key ?? null,
+      actorUid: requireAuthenticatedActorUid(req),
     });
     return success(res, row, 'Workflow run transitioned');
   } catch (err) { return next(err); }
@@ -273,6 +289,7 @@ router.patch('/workflow-runs/:id/steps/:stepKey/transition', async (req, res, ne
       nextStatus: req.body?.next_status,
       outcome: req.body?.outcome,
       outcomePayload: req.body?.outcome_payload,
+      actorUid: requireAuthenticatedActorUid(req),
     });
     return success(res, row, 'Step transitioned');
   } catch (err) { return next(err); }
@@ -316,7 +333,8 @@ router.post('/approvals/:id/decide', async (req, res, next) => {
     const row = await recordApprovalDecision({
       tenantId: req.tenantId,
       id: req.params.id,
-      approverUid: req.user?.uid || req.body?.approver_uid,
+      actorUid: requireAuthenticatedActorUid(req),
+      actorRoles: authenticatedActorRoles(req),
       decision: req.body?.decision,
       rejectionReason: req.body?.rejection_reason,
     });

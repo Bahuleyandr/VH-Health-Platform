@@ -28,6 +28,9 @@ const SLOT_STATUSES = ['available', 'occupied', 'cleaning', 'maintenance', 'reti
 const CUSTODY_EVENT_TYPES = ['receive', 'store', 'release'];
 const RELEASE_METHODS = ['family', 'mortuary_van', 'unclaimed_to_municipality'];
 const UNCLAIMED_SLA_KEY = 'mortuary_unclaimed_body';
+const TASK_TERMINAL_STATUSES = new Set(['completed', 'cancelled']);
+const TASK_COMPLETABLE_STATUSES = new Set(['open', 'in_progress', 'overdue']);
+const TASK_ADVANCE_ATTEMPTS = 4;
 
 async function assertPatientInTenant(tenantId, patientUid) {
   const rows = await prisma.$queryRawUnsafe(
@@ -281,23 +284,33 @@ async function completeUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = n
     UNCLAIMED_SLA_KEY,
   );
   for (const task of rows) {
-    let currentStatus = task.status;
-    if (currentStatus === 'blocked') {
-      const unblocked = await taskService.transitionTask({
-        tenantId: tid,
-        id: task.id,
-        nextStatus: 'in_progress',
-        tx,
-      });
-      currentStatus = unblocked.status;
+    let current = task;
+    let lastConflict = null;
+    for (let attempt = 0; attempt < TASK_ADVANCE_ATTEMPTS; attempt += 1) {
+      if (TASK_TERMINAL_STATUSES.has(current.status)) break;
+      const nextStatus = current.status === 'blocked'
+        ? 'in_progress'
+        : (TASK_COMPLETABLE_STATUSES.has(current.status) ? 'completed' : null);
+      if (!nextStatus) break;
+      try {
+        current = await taskService.transitionTask({
+          tenantId: tid,
+          id: task.id,
+          nextStatus,
+          tx,
+        });
+        lastConflict = null;
+      } catch (err) {
+        if (!['INVALID_STATE_TRANSITION', 'TASK_TRANSITION_CONFLICT'].includes(err?.code)) throw err;
+        if (err.code === 'TASK_TRANSITION_CONFLICT') lastConflict = err;
+        current = await taskService.getTask({ tenantId: tid, id: task.id, tx });
+      }
     }
-    if (currentStatus !== 'completed' && currentStatus !== 'cancelled') {
-      await taskService.transitionTask({
-        tenantId: tid,
-        id: task.id,
-        nextStatus: 'completed',
-        tx,
-      });
+    if (!TASK_TERMINAL_STATUSES.has(current.status)) {
+      throw lastConflict || AppError.conflict(
+        'Unclaimed-body task could not reach a terminal status',
+        'TASK_COMPLETION_CONFLICT',
+      );
     }
   }
   void actorUid;

@@ -10,6 +10,7 @@ import { authenticateDeviceCredential } from './deviceRegistryService.js';
 import {
   acknowledgeColdChainTaskFromTrustedWorkflow,
   createTask,
+  getTask,
   transitionTask,
 } from '../workflow/taskService.js';
 import { startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
@@ -264,17 +265,25 @@ async function latestReading(tx, { tenantId, unitId }) {
 
 async function completeTaskIfPossible({ tenantId, taskId, tx }) {
   if (!taskId) return null;
-  try {
-    return await transitionTask({
-      tenantId,
-      id: taskId,
-      nextStatus: 'completed',
-      tx,
-    });
-  } catch (err) {
-    if (err instanceof AppError && err.code === 'INVALID_STATE_TRANSITION') return null;
-    throw err;
+  let lastConflict = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await transitionTask({
+        tenantId,
+        id: taskId,
+        nextStatus: 'completed',
+        tx,
+      });
+    } catch (err) {
+      if (err instanceof AppError && err.code === 'INVALID_STATE_TRANSITION') return null;
+      if (!(err instanceof AppError) || err.code !== 'TASK_TRANSITION_CONFLICT') throw err;
+      lastConflict = err;
+      const latest = await getTask({ tenantId, id: taskId, tx });
+      if (latest.status === 'completed' || latest.status === 'cancelled') return latest;
+      if (!['open', 'in_progress', 'overdue'].includes(latest.status)) return null;
+    }
   }
+  throw lastConflict;
 }
 
 async function wireAlertRails(tx, { tenantId, unit, excursion, actorUid = null, eventKind }) {
