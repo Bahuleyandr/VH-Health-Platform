@@ -1,6 +1,6 @@
 # Unified Care Pathways — Program Design (v3)
 
-Status: **Standalone normative design baseline for owner review — no code changed.**
+Status: **Standalone normative design baseline for owner review; independent quick-win status is tracked in §11.**
 
 Provenance and review history:
 - v1: GPT‑5.6‑Sol chat draft "VH Health Unified Care Pathways Plan" (read-only at `1e9618f52`).
@@ -31,7 +31,7 @@ and later). The v2 file-exclusion lanes are historical; §4.2 replaces them with
 |---|---|---|---|
 | C1 (P0) | Wave‑1 cursor = `event_consumer_offsets` scalar high-water over `event_outbox.id` (§3.3) | **A scalar `id` watermark loses events.** `event_outbox.id` is `BIGSERIAL` (mig 009); a sequence value is allocated at INSERT, before commit, so commit order ≠ id order. A poller doing `WHERE id > :hw ORDER BY id` can advance past a higher id that committed first, then never see a lower id that committed later. Confirmed by construction. | **§3.3 rewritten** to a durable per-event inbox ledger + anti-join sweep; the scalar offset is advisory scan-bound only and may never suppress an event. |
 | C2 (P0) | "runtime build list" (v2 §3.4) implied but did not specify the executor; `care_pathway_instances` "1:1 workflow_runs" left state ownership ambiguous | Correct: v2 named no executor and two candidate state homes. | **§3.4a** specifies one deterministic registered-handler executor; **§3.5** declares `workflow_runs`/`workflow_steps` the *sole* mutable execution state and `care_pathway_instances` a 1:1 context/closure companion. |
-| C3 (P0) | "task-first rule: every human-actionable stage materializes a `tasks` row" + "generic breach sweep for orphaned SLA instances" | Too broad. Patient/guardian/external/automated-wait stages must not become synthetic staff tasks; a **table-wide** breach sweep would collide with domain-owned clocks (porter marks its own SLA breached — `porterTransportService.js:~1423-1547`; stroke/STEMI own theirs). Also a live authz hole: `POST /clinical-inbox/tasks/:id/acknowledge` (`clinicalInboxRoutes.js:46-55`) passes an arbitrary `:id` into `acknowledgeTask` (`taskService.js:453-501`), which has **no assignee/role check** and stops the SLA clock — any same-tenant clinical-staff user can silence escalation on another clinician's critical-result task. | **§3.4b/§3.7** scope task-first to internal accountable work, make breach reconciliation **opt-in per registered rule** (domain clocks excluded), require every task to declare its SLA-completion semantics, and require assignee/role/override authorization on acknowledge (also §11 quick-win). |
+| C3 (P0) | "task-first rule: every human-actionable stage materializes a `tasks` row" + "generic breach sweep for orphaned SLA instances" | Too broad. Patient/guardian/external/automated-wait stages must not become synthetic staff tasks; a **table-wide** breach sweep would collide with domain-owned clocks (porter marks its own SLA breached — `porterTransportService.js:~1423-1547`; stroke/STEMI own theirs). The review also found an acknowledgement authz hole: `POST /clinical-inbox/tasks/:id/acknowledge` could stop another clinician's escalation clock. | **§3.4b/§3.7** scope task-first to internal accountable work, make breach reconciliation **opt-in per registered rule** (domain clocks excluded), and require every task to declare its SLA-completion semantics. The live acknowledgement hole is now closed as quick-win #2 (§11); spine conformance must preserve that boundary. |
 | C4 (P0) | "Stroke(506)/STEMI(559) … append-only, sequence-numbered, SLA/canonical FKs → copy their shape" | **Materially wrong for Stroke.** Verified: STEMI `stemi_pathway_events` (mig 559) has `sequence_number` (unique per activation), FK to `workflow_sla_instances`, FK to `clinical_audit_events`, append-only ("in-place mutation is blocked"). Stroke `stroke_pathway_events` (mig 506, full file read) has **no** sequence, **no** SLA FK, **no** audit FK, **no** append-only trigger, and carries `updated_at` — it is mutable. | **§3.6/§4.1 corrected:** copy the **STEMI** ledger shape specifically; the coexistence boundary is **domain-clock ownership**, not "intra- vs cross-encounter"; Stroke is documented as a weaker mutable table (its own hardening is a separate, owner-gated decision). |
 | C5 (P0) | Diagnostics pilot = extend the lab critical loop | Correct, but "end-to-end closed loop" overstated: lab critical detection/tasking is **post-commit best-effort** (Phase 1.5, `labResultsService.js` critical path), so the safety task can be lost if the process dies post-commit; task-inbox ack and `lab_critical_alerts` ack are **two** state machines; and the #587 reopen helper supersedes whenever called — correction-that-normalizes must be defined. | **§5.1** adds Diagnostics activation prerequisites: durable in-tx (or durably-reconciled) safety task, one authoritative acknowledgement, actor authorization, structured signed criticality/amendment-delta, and explicit critical↔normal correction semantics. |
 | C6 (P0) | v2 said pathway flows/branches/closure/metrics/matrices were "adopted from Sol §5" / "per Sol" | Correct defect: those references point at a chat-only draft not in the repo. | **§5–§8, §12** inline the full corrected normative content; this document stands alone. |
@@ -85,7 +85,7 @@ Two reliability classes, named by the platform's existing convention (`apps/back
 | Asset | State | Evidence |
 |---|---|---|
 | `workflow_definitions/runs/steps` (mig 118) | Dormant CRUD scaffolding; JSONB steps; **no executor**; non-atomic start; blind transitions; no history; no duplicate-run guard | `taskService.js:745-814` (run INSERT then per-step INSERT loop, malformed steps silently skipped `:791`, dup swallowed `:806`); blind UPDATEs `:847-878`, `:901-939`; admin-only CRUD `tasksWorkflowRoutes.js:182-278` |
-| `tasks` + `task_comments` | **Live.** Transition map exists (`:47`, checked `:389-401`) but read-then-write TOCTOU (`:422`); `acknowledgeTask` CAS-guards the UPDATE (`:472-485`) **but does not authorize the caller** (C3); one-open-task-per-resource dedup (mig 312) | producers: `resultsInboxService.js`, `deathCertificationService.js`, `coldChainService.js`, cath/NPS/teleconsult |
+| `tasks` + `task_comments` | **Live.** Transition map exists (`:47`, checked `:389-401`) but generic transition read-then-write TOCTOU remains (`:422`). `acknowledgeTask` now authorizes assignee/assigned-role/admin or an exact active break-glass record, revalidates authority in its CAS, masks task-existence denials, and carries transactional SLA/comment writes for trusted workflows (quick-win #2); one-open-task-per-resource dedup (mig 312) | producers: `resultsInboxService.js`, `deathCertificationService.js`, `coldChainService.js`, cath/NPS/teleconsult |
 | `approvals` | Live in credential-privilege approval with a transactional lock (`credentialingService.js:~330-446`); shared table also used by the workflow CRUD | as cited |
 | `escalation_rules` + engine | **Live**, seeded (mig 312); cron `*/2` (`scheduler.js:~706`); evaluates **`scope='task'` only**; orphan backfill covers **`critical_result_ack` only** (`escalationEngineService.js:~401-604`); fires via `notificationOutbox` | as cited |
 | `sla_definitions` (mig 118) + `automation_rules` (mig 118) | Dormant, zero consumers | grep-verified |
@@ -253,9 +253,11 @@ confirms none today — keep it that way; only registered trigger/condition/acti
    durable idempotency key on start (copy `uq_task_open_per_resource`).
 6. Actor provenance: actor always from `req.user`; fix the two body-actor seams
    (`tasksWorkflowRoutes.js:66,318`); transitions record the actor (today they accept none).
-7. **Task/approval acknowledgement authorization (C3, live hole):** `acknowledgeTask` and any
-   task/approval mutation must verify the caller is the assignee, holds the assigned role, or is an
-   audited override actor — because acknowledgement stops the SLA/escalation clock.
+7. **Task/approval acknowledgement authorization (C3):** the live `acknowledgeTask` baseline now
+   verifies the current assignee/assigned role/admin or an exact active, unexpired patient break-glass
+   record; cold-chain uses a separate transaction-required, resource-bound trusted entrypoint. Every
+   pathway task/approval mutation must preserve the same server-verified authority rule because
+   acknowledgement stops the SLA/escalation clock.
 8. Route surface: pathway mutations move off the ADMIN-only workflow CRUD router onto pathway routes
    with role gates + `patientAccessGuard` + `phiAccessLogger` (the OR-board audit lesson).
 9. Definition lifecycle: activation = approval action (reuse `approvals`); active instances pin
@@ -792,10 +794,15 @@ inpatient post-discharge contact policy; pending-result transfer ownership.
    are append-only with no re-ack loop; reuse the `ensureCriticalResultTaskOpen` reopen semantics.
    *(Lab correction/ack conformance — the C5 unify-and-authorize work — folds into S2, not a pre-PR
    quick win any more.)*
-2. **Acknowledge-authorization hole (C3, live safety control):** `POST /clinical-inbox/tasks/:id/
-   acknowledge` stops a critical-result escalation clock with no assignee/role check — any same-tenant
-   clinical-staff user can silence another clinician's task. Add assignee/role/audited-override
-   authorization + a regression test. Self-contained; worth fixing regardless of the program.
+2. **Acknowledge-authorization hole — shipped:** acknowledgement is limited to the current assignee,
+   current assigned-role holder, or task administrator. A human override requires the exact active,
+   unexpired `patient_access_break_glass` row bound to tenant + task patient + actor + eligible signed
+   role; caller-supplied reason text is never authority. The guarded UPDATE revalidates that authority,
+   missing/forbidden task ids share a generic 403, and patient context reaches the PHI audit without
+   entering the response. Cold-chain uses a separate allowlisted, excursion-bound entrypoint and keeps
+   excursion + task + SLA + audit comment in one tenant transaction; authorized retries repair a legacy
+   `in_progress` task whose linked SLA clock remained active. Unit, journey and real-PostgreSQL rollback
+   regressions cover these invariants.
 3. **Referral status drift:** staff/admin UIs render `in_progress/cancelled/expired` the backend never
    writes — align now or fold into S3.
 4. **Outbox dead-letter redrive:** add the leased, CAS `failed→pending` redrive to `eventOutboxRoutes.js`

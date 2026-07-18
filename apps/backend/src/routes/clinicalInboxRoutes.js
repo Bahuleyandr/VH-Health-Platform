@@ -20,10 +20,16 @@
 
 import express from 'express';
 
+import { AppError } from '../utils/AppError.js';
 import { success } from '../utils/responseHelper.js';
 import { acknowledgeTask, listInboxTasks } from '../services/workflow/taskService.js';
 
 const router = express.Router();
+
+function setPhiPatientContext(req, patientUid) {
+  if (!patientUid) return;
+  req.phiContext = { ...(req.phiContext || {}), patientUid: String(patientUid) };
+}
 
 // GET /tasks/inbox — the caller's open / in_progress / overdue work (assignee =
 // me OR my role), ordered by priority then due_at. Thin wrapper over
@@ -50,10 +56,19 @@ router.post('/tasks/:id/acknowledge', async (req, res, next) => {
       id: req.params.id,
       actorUid: req.user?.uid || null,
       actorRoles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
-      overrideReason: req.body?.override_reason || null,
+      breakGlassId: req.body?.break_glass_id ?? null,
     });
+    setPhiPatientContext(req, row?.patient_uid);
     return success(res, row, 'Task acknowledged');
-  } catch (err) { return next(err); }
+  } catch (err) {
+    setPhiPatientContext(req, err?.phiPatientUid);
+    // A missing id and a forbidden existing task are deliberately
+    // indistinguishable on this PHI-bearing clinical surface.
+    if (err?.statusCode === 404) {
+      return next(AppError.forbidden('Not authorized to acknowledge this task'));
+    }
+    return next(err);
+  }
 });
 
 export default router;

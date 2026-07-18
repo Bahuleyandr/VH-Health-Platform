@@ -70,12 +70,15 @@ class ClinicalInboxProvider extends ChangeNotifier {
     } while (_refreshPending);
   }
 
-  Future<void> acknowledge(String id) async {
+  Future<void> acknowledge(String id, {int? breakGlassId}) async {
     if (_acknowledgingIds.contains(id)) return;
     _acknowledgingIds.add(id);
     notifyListeners();
     try {
-      final updated = await _api.acknowledgeTask(id);
+      final updated = await _api.acknowledgeTask(
+        id,
+        breakGlassId: breakGlassId,
+      );
       _tasks = _sortTasks([
         for (final task in _tasks) task.id == id ? updated : task,
       ]);
