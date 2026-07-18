@@ -2,9 +2,10 @@
 // Proves collectReliabilityMetrics() reads the real reliability tables and that
 // serializeReliabilityMetrics() reports the correct values. Seeds event_outbox
 // (pending + failed/dead-letter), notification_outbox (PENDING), and
-// webhook_deliveries (pending/failed/dead) under a unique marker, runs the
-// collector, and asserts the gauge values reflect AT LEAST the seeded rows
-// (other suites may add rows — assert >= seeded, and exact for the unique-age).
+// webhook_deliveries (pending/failed/dead), and pathway_projector_inbox
+// (pending/leased/dead) under a unique marker, runs the collector, and asserts
+// the gauge values reflect AT LEAST the seeded rows (other suites may add rows,
+// so assert >= seeded).
 //
 // Seed-column reconciliation (vs real QA schema):
 //   event_outbox        — NOT-NULL-no-default cols = event_type, aggregate_type
@@ -35,6 +36,7 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE aggregate_type = $1`, MARK).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM webhook_deliveries WHERE event_type = $1`, MARK).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM notification_outbox WHERE type = $1`, MARK).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM pathway_projector_inbox WHERE consumer_key = $1`, MARK).catch(() => {});
 }
 
 d('reliability metrics collector (QA DB)', () => {
@@ -59,6 +61,16 @@ d('reliability metrics collector (QA DB)', () => {
        VALUES ($1, 'relmetrics', 'relmetrics', 'PENDING', now())`,
       MARK,
     ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO pathway_projector_inbox
+         (consumer_key, generation, event_id, status, lease_owner, lease_expires_at, outcome_at, created_at)
+       VALUES
+         ($1, 1, 1, 'pending', NULL, NULL, NULL, now() - interval '1 hour'),
+         ($1, 1, 2, 'pending', $2::uuid, now() + interval '5 minutes', NULL, now()),
+         ($1, 1, 3, 'dead', NULL, NULL, now(), now())`,
+      MARK,
+      randomUUID(),
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -79,5 +91,14 @@ d('reliability metrics collector (QA DB)', () => {
     const out = serializeReliabilityMetrics();
     expect(gaugeValue(out, 'webhook_deliveries_dead_rows')).toBeGreaterThanOrEqual(1);
     expect(gaugeValue(out, 'db_circuit_breaker_open')).toBe(0);
+  }, 30_000);
+
+  it('reports pathway projector pending/oldest-age/leased/dead gauges', async () => {
+    await collectReliabilityMetrics();
+    const out = serializeReliabilityMetrics();
+    expect(gaugeValue(out, 'pathway_projector_inbox_pending_rows')).toBeGreaterThanOrEqual(2);
+    expect(gaugeValue(out, 'pathway_projector_inbox_oldest_pending_age_seconds')).toBeGreaterThanOrEqual(3000);
+    expect(gaugeValue(out, 'pathway_projector_inbox_leased_rows')).toBeGreaterThanOrEqual(1);
+    expect(gaugeValue(out, 'pathway_projector_inbox_dead_rows')).toBeGreaterThanOrEqual(1);
   }, 30_000);
 });

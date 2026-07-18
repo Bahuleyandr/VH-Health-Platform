@@ -4,7 +4,7 @@
 
 **Goal:** Add a default-off, shadow/no-op Pathway projector inbox that losslessly records every retained `event_outbox` row once per generation, observes six verified in-transaction anchors, ignores every other event, and never changes webhook or clinical behavior.
 
-**Architecture:** A new RLS-protected `pathway_projector_inbox` table is filled by a bounded floorless anti-join. Workers claim due rows with leases and `FOR UPDATE SKIP LOCKED`; attempts increment atomically on claim. Each row joins back to `event_outbox` on event id **and tenant id**, runs a generation-immutable no-op observer or records `ignored`, and CAS-commits the terminal result inside `setTenantTx`. Failure/reaper schedules retry or dead-letter without incrementing attempts again. Replay always uses a new generation. Delivery is lossless but unordered.
+**Architecture:** A new RLS-protected `pathway_projector_inbox` table is filled by a bounded floorless anti-join. Workers claim due rows with leases and `FOR UPDATE SKIP LOCKED`; attempts increment atomically on claim. Each row joins back to `event_outbox` on event id **and tenant id**, runs a generation-immutable no-op observer or records `ignored`, and CAS-commits the terminal result inside `setTenantTx`. Owner token plus attempt epoch fence every completion path. Failure/reaper schedules retry or dead-letter without incrementing attempts again. Replay always uses a new generation. Delivery is lossless but unordered.
 
 **Tech stack:** Node ESM, PostgreSQL 17 raw-SQL migration, Prisma, Jest with real-Postgres deep tests, existing scheduler/advisory-lock and reliability-metrics infrastructure.
 
@@ -330,7 +330,7 @@ On missing/mismatched source, throw a bounded internal error. Do not terminally 
 
 - [ ] **Step 4: Implement failure and reaper transitions.**
 
-Use the seven-step backoff from the design. Failure/reaper must inspect the already-incremented `attempts`; neither increments it. Clear the owner token and expiry and schedule `next_attempt_at`, or set `dead` at the cap. Reaping is what revokes an expired token; until then the owner may still finish. Truncate/sanitize `last_error`; never include payload, patient uid, aggregate id, SQL, or stack.
+Use the six retry delays from the design, then make the seventh failed claim terminal `dead` without scheduling another retry. Failure/reaper must inspect the already-incremented `attempts`; neither increments it. Clear the owner token and expiry and schedule `next_attempt_at`, or set `dead` at the cap. Reaping is what revokes an expired claim; until then the owner may still finish. Fence processing, failure, terminal CAS, and reaping on both owner token and attempt epoch so deliberate UUID reuse cannot revive stale work. Truncate/sanitize `last_error`; never include payload, patient uid, aggregate id, SQL, or stack.
 
 - [ ] **Step 5: Run the complete lossless deep suite to GREEN and lint the service.**
 - [ ] **Step 6: Commit Task 4.**

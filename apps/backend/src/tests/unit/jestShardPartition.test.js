@@ -17,12 +17,18 @@ import { parseShardSpec, chunkBelongsToShard } from '../../../scripts/lib/jestSh
 const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const runnerPath = path.join(backendRoot, 'scripts', 'run-ci-jest.mjs');
 
-function runRunner(env) {
+function runRunner(env, args = []) {
   // These paths exit during env validation, BEFORE the expensive --listTests
   // call, so spawning the real script is fast (<1s).
-  return spawnSync(process.execPath, [runnerPath], {
+  return spawnSync(process.execPath, [runnerPath, ...args], {
     cwd: backendRoot,
-    env: { ...process.env, ...env },
+    env: {
+      ...process.env,
+      JEST_CI_SHARD: '',
+      JEST_CI_START_CHUNK: '',
+      JEST_CI_END_CHUNK: '',
+      ...env,
+    },
     encoding: 'utf8',
     timeout: 30_000,
   });
@@ -106,5 +112,37 @@ describe('run-ci-jest.mjs shard wiring (integration, instant-exit paths)', () =>
     const res = runRunner({ JEST_CI_SHARD: '1/3', JEST_CI_START_CHUNK: '5' });
     expect(res.status).toBe(1);
     expect(`${res.stdout}${res.stderr}`).toMatch(/cannot be combined with JEST_CI_START_CHUNK/);
+  });
+
+  test('a partial non-sharded chunk window does not print the full-suite success marker', () => {
+    const res = runRunner(
+      { JEST_CI_CHUNK_SIZE: '1', JEST_CI_START_CHUNK: '1', JEST_CI_END_CHUNK: '1' },
+      [
+        '--listTests',
+        'src/tests/unit/abdmEnvGate.test.js',
+        'src/tests/unit/adherenceHeuristic.test.js',
+      ],
+    );
+    const output = `${res.stdout}${res.stderr}`;
+
+    expect(res.status).toBe(0);
+    expect(output).toMatch(/Partial chunk window passed: 1 of 2 discovered chunk\(s\) ran/);
+    expect(output).not.toContain('[Jest CI] All chunks passed.');
+  });
+
+  test('the full-suite success marker is retained when every discovered chunk ran', () => {
+    const res = runRunner(
+      { JEST_CI_CHUNK_SIZE: '1' },
+      [
+        '--listTests',
+        'src/tests/unit/abdmEnvGate.test.js',
+        'src/tests/unit/adherenceHeuristic.test.js',
+      ],
+    );
+    const output = `${res.stdout}${res.stderr}`;
+
+    expect(res.status).toBe(0);
+    expect(output).toContain('[Jest CI] All chunks passed.');
+    expect(output).not.toContain('[Jest CI] Partial chunk window passed:');
   });
 });

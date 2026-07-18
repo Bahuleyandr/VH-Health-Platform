@@ -423,10 +423,15 @@ export async function drainNotificationOutbox({ limit = 50 } = {}) {
  * @param {Object} [opts]
  * @param {number} [opts.limit=100] Max rows per drain tick.
  * @param {Function} [opts.enqueueImpl] Override for enqueueDelivery (tests).
+ * @param {Function} [opts.claimImpl] Override for claimPendingEvents (tests).
  * @returns {{ claimed:number, delivered:number, failed:number, enqueued:number }}
  */
-export async function drainEventOutbox({ limit = 100, enqueueImpl = enqueueDelivery } = {}) {
-  const batch = await claimPendingEvents(limit);
+export async function drainEventOutbox({
+  limit = 100,
+  enqueueImpl = enqueueDelivery,
+  claimImpl = claimPendingEvents,
+} = {}) {
+  const batch = await claimImpl(limit);
   if (!batch.length) return { claimed: 0, delivered: 0, failed: 0, enqueued: 0 };
 
   let delivered = 0;
@@ -596,6 +601,23 @@ if (process.env.NODE_ENV !== 'test') {
   // then signs + POSTs the enqueued deliveries.
   registerCron('*/2 * * * *', withJobLock('event-outbox-drain', async () => {
     await drainEventOutbox({ limit: 100 });
+  }));
+
+  // Every 2 minutes — default-off S1a shadow projector. The implementation is
+  // loaded only when explicitly enabled so the scheduler's eager module graph
+  // and existing partial-module test mocks remain unchanged.
+  registerCron('*/2 * * * *', withJobLock('pathway-projector-shadow', async () => {
+    if (String(process.env.PATHWAY_PROJECTOR_SHADOW_ENABLED || '').toLowerCase() !== 'true') return;
+    const { runPathwayProjectorShadowTick } = await import('../services/events/pathwayProjectorService.js');
+    await runPathwayProjectorShadowTick();
+  }));
+
+  // Every 5 minutes — reclaim expired S1a inbox leases. This is separately
+  // locked from the shadow tick and remains inert under the default-off flag.
+  registerCron('*/5 * * * *', withJobLock('pathway-projector-stale-lease-reaper', async () => {
+    if (String(process.env.PATHWAY_PROJECTOR_SHADOW_ENABLED || '').toLowerCase() !== 'true') return;
+    const { reapStaleInboxLeases } = await import('../services/events/pathwayProjectorService.js');
+    await reapStaleInboxLeases();
   }));
 
   // 🚨 Every 10 minutes - escalate unread critical notifications so safety

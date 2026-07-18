@@ -162,18 +162,23 @@ export async function claimPendingEvents(limit = DEFAULT_LIMIT) {
   const safeLimit = clampLimit(limit);
   try {
     return await prisma.$queryRawUnsafe(
-      `UPDATE event_outbox
+      `WITH due AS (
+         SELECT id
+           FROM event_outbox
+          WHERE status = 'pending'
+            AND available_at <= NOW()
+          ORDER BY available_at ASC, id ASC
+          FOR UPDATE SKIP LOCKED
+          LIMIT $1::integer
+       )
+       UPDATE event_outbox AS event
           SET status = 'processing'
-        WHERE id IN (
-          SELECT id FROM event_outbox
-           WHERE status = 'pending'
-             AND available_at <= NOW()
-           ORDER BY available_at ASC, id ASC
-           FOR UPDATE SKIP LOCKED
-           LIMIT $1
-        )
-        RETURNING id, event_type, aggregate_type, aggregate_id, patient_uid,
-                  payload, status, attempts, available_at, tenant_id`,
+         FROM due
+        WHERE event.id = due.id
+        RETURNING event.id, event.event_type, event.aggregate_type,
+                  event.aggregate_id, event.patient_uid, event.payload,
+                  event.status, event.attempts, event.available_at,
+                  event.tenant_id`,
       safeLimit,
     );
   } catch (err) {

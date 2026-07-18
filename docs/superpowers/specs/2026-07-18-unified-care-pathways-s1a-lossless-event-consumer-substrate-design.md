@@ -1,7 +1,7 @@
 # Unified Care Pathways — S1a Lossless Event-Consumer Substrate Design
 
 - **Date:** 2026-07-18
-- **Status:** Approved slice design; implementation has not started.
+- **Status:** Implemented by the accompanying S1a change; default-off pending review and rollout evidence.
 - **Grounding revision:** `f826fe09647667f76c0b3e8c0345876b70de4318`.
 - **Parent design:** [Unified Care Pathways — Program Design v3](./2026-07-14-unified-care-pathways-program-design.md), especially §3.3 and §7 S1a.
 - **Posture:** backend-only, default-off, shadow/no-op only.
@@ -119,13 +119,13 @@ It adds no trigger, uniqueness rule, FK, or write to `webhook_deliveries`.
 
 Generation-1 registry membership is exactly the six anchors in §1. Each handler is a pure no-op observer. A matching row becomes `handled`; all other event types become `ignored` with no error.
 
-Registry construction rejects duplicate or malformed registrations instead of silently overwriting them. Membership and semantics are immutable for a generation. Adding/removing a type or changing its meaning requires a generation bump so old evidence remains interpretable.
+Registry construction rejects duplicate or malformed registrations instead of silently overwriting them. A process binds exactly one constructor-built registry object to each generation, and generation 1 additionally requires the canonical exported registry. Membership and semantics are immutable for a generation. Adding/removing a type or changing its meaning requires a generation bump so old evidence remains interpretable.
 
 ### 3.5 Tenant isolation and fail-closed source join
 
 Fleet-wide discovery/claiming runs inside the scheduler's super-admin job context and copies the source `tenant_id` explicitly.
 
-Each claimed row is processed with `setTenantTx(tenantId, ...)`. Inside that transaction the worker joins inbox to `event_outbox` on **both** `event_id` and `tenant_id`, verifies the matching owner token, invokes the registered observer, and CAS-writes the terminal outcome.
+Each claimed row is processed with `setTenantTx(tenantId, ...)`. Inside that transaction the worker joins inbox to `event_outbox` on **both** `event_id` and `tenant_id`, verifies the matching owner token **and claim-attempt epoch**, invokes the registered observer, and CAS-writes the terminal outcome.
 
 There is intentionally no event FK. If the source row is missing or its tenant differs, processing fails closed, records a bounded retry/dead-letter error, and never marks the inbox row `ignored` or `handled`.
 
@@ -144,9 +144,10 @@ Defaults mirror the existing outbox retry posture:
 - batch 100, capped at 200;
 - lease 5 minutes;
 - maximum claims 7;
-- backoff 30 seconds, 2 minutes, 10 minutes, 30 minutes, 1 hour, 4 hours, 8 hours.
+- retry backoff below the cap: 30 seconds, 2 minutes, 10 minutes, 30 minutes, 1 hour, then 4 hours;
+- the seventh failed claim is terminal `dead`, so no eighth-hour retry is scheduled.
 
-An expired claim below the cap has its owner token and expiry cleared and retry scheduled. At the cap it becomes `dead`. The reaper is the authority that revokes an expired owner token; the next claim installs a new token. A worker may finish after the timestamp passes if its token has not been reaped, but it cannot commit after reaping/reclaim because terminal CAS requires its still-current owner token. Wall-clock expiry is not part of the processing or terminal predicate.
+An expired claim below the cap has its owner token and expiry cleared and retry scheduled. At the cap it becomes `dead`. The reaper is the authority that revokes an expired owner token; the next claim installs its token and increments the attempt epoch. A worker may finish after the timestamp passes if its claim has not been reaped, but it cannot commit after reaping/reclaim because terminal and failure CAS require both its still-current owner token and attempt epoch. The epoch fence remains effective even if a later claim deliberately reuses the same UUID. Wall-clock expiry is not part of the processing or terminal predicate.
 
 ### 3.7 Replay and retention
 

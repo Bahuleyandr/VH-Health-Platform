@@ -283,10 +283,13 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 563–566 | NL13-P1d cath consumables/implants + billing hook | **on main** (#558) |
 | 567–568 | NL13-P1e cath quick wins (readiness evidence, order sets, follow-up loops) | **on main** (#556, used 567; 568 unused gap — do not reuse) |
 | 569–571 | NL13-P1f cath scheduling + dose/complication registries | **on main** (#557) |
-| 572 | Audit sign-off group: radiation-oncology credential-gate activation (owner-confirmed credential-based, env-flag enforcement default-off) | `feat/nl-signoff-group` |
-| 573 | Audit sign-off group: Code-STEMI target seed (owner-confirmed ACC/AHA+ESC; door-to-ECG 10, door-to-balloon 90; pathway stays disabled) | `feat/nl-signoff-group` |
-| 574 | Credential-hardening: OBGyn labour-ward privilege seed (worked-example specialty gate; obstetrics scope, grantable, enforcement env-flagged off) | `feat/credential-hardening` |
-| 575+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
+| 572 | Audit sign-off group: radiation-oncology credential-gate activation (owner-confirmed credential-based, env-flag enforcement default-off) | **on main** |
+| 573 | Audit sign-off group: Code-STEMI target seed (owner-confirmed ACC/AHA+ESC; door-to-ECG 10, door-to-balloon 90; pathway stays disabled) | **on main** |
+| 574 (two full filenames) | Credential-hardening OBGyn labour-ward privilege seed + unified audit read model | **on main**; existing prefix collision, both filenames are independently tracked |
+| 575–576 | Unified audit housekeeping triggers + retention-policy baseline | **on main** |
+| 577 | OBGyn newborn identity constraints | **on main** |
+| 578 | Unified Care Pathways S1a lossless event-consumer substrate | reserved by `feat/care-pathways-s1a-inbox-ledger` |
+| 579+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.

@@ -20,6 +20,10 @@ const notificationOutboxPending = new Gauge('notification_outbox_pending_rows', 
 const webhookPending = new Gauge('webhook_deliveries_pending_rows', 'webhook_deliveries rows in pending status');
 const webhookFailed = new Gauge('webhook_deliveries_failed_rows', 'webhook_deliveries rows in failed status (retrying)');
 const webhookDead = new Gauge('webhook_deliveries_dead_rows', 'webhook_deliveries rows in the terminal dead status (undelivered)');
+const pathwayProjectorInboxPending = new Gauge('pathway_projector_inbox_pending_rows', 'Pathway projector inbox rows awaiting a terminal outcome');
+const pathwayProjectorInboxOldestAge = new Gauge('pathway_projector_inbox_oldest_pending_age_seconds', 'Age of the oldest pending Pathway projector inbox row (seconds); 0 when none');
+const pathwayProjectorInboxLeased = new Gauge('pathway_projector_inbox_leased_rows', 'Pending Pathway projector inbox rows with a worker lease token');
+const pathwayProjectorInboxDead = new Gauge('pathway_projector_inbox_dead_rows', 'Pathway projector inbox rows in the terminal dead status');
 const dbBreakerOpen = new Gauge('db_circuit_breaker_open', 'Whether any Prisma client circuit breaker is open (1=open, 0=closed)');
 const dbReadReplicaLagSeconds = new Gauge('db_read_replica_lag_seconds', 'Approximate read-replica replay lag observed through prismaReadOnly (seconds); emitted only when DATABASE_READ_URL is configured');
 const deviceRegistryActiveDevices = new Gauge('device_registry_active_devices', 'Active registered clinical devices');
@@ -124,6 +128,19 @@ export async function collectReliabilityMetrics() {
     webhookFailed.set({}, Number(wd?.failed ?? 0));
     webhookDead.set({}, Number(wd?.dead ?? 0));
 
+    const [pi] = await prisma.$queryRawUnsafe(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+        COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending')))::bigint, 0) AS oldest_age,
+        COUNT(*) FILTER (WHERE status = 'pending' AND lease_owner IS NOT NULL) AS leased,
+        COUNT(*) FILTER (WHERE status = 'dead') AS dead
+      FROM pathway_projector_inbox
+    `);
+    pathwayProjectorInboxPending.set({}, Number(pi?.pending ?? 0));
+    pathwayProjectorInboxOldestAge.set({}, Number(pi?.oldest_age ?? 0));
+    pathwayProjectorInboxLeased.set({}, Number(pi?.leased ?? 0));
+    pathwayProjectorInboxDead.set({}, Number(pi?.dead ?? 0));
+
     const [dm] = await prisma.$queryRawUnsafe(`
       WITH registry AS (
         SELECT
@@ -196,6 +213,8 @@ export function serializeReliabilityMetrics() {
     eventOutboxPending, eventOutboxOldestAge, eventOutboxDeadLetter,
     notificationOutboxPending,
     webhookPending, webhookFailed, webhookDead,
+    pathwayProjectorInboxPending, pathwayProjectorInboxOldestAge,
+    pathwayProjectorInboxLeased, pathwayProjectorInboxDead,
     deviceRegistryActiveDevices, deviceSilentDevices, deviceVitalsUnverifiedRows,
     deviceAssociationsActive, deviceUnassociatedMessages, deviceSamplesSuppressed,
     coldChainOpenExcursions,
@@ -204,6 +223,6 @@ export function serializeReliabilityMetrics() {
     ledgerReconciliationDrift,
     noteDraftJanitorDeletions, noteDraftSaveErrors,
   ];
-  if (hasReadReplicaDsn()) metrics.splice(8, 0, dbReadReplicaLagSeconds);
+  if (hasReadReplicaDsn()) metrics.splice(12, 0, dbReadReplicaLagSeconds);
   return metrics.map((m) => m.serialize()).filter(Boolean).join('\n\n') + '\n';
 }
