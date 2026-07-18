@@ -29,7 +29,7 @@ and later). The v2 file-exclusion lanes are historical; §4.2 replaces them with
 
 | # | v2 said | Re-verified finding | Resolution in v3 |
 |---|---|---|---|
-| C1 (P0) | Wave‑1 cursor = `event_consumer_offsets` scalar high-water over `event_outbox.id` (§3.3) | **A scalar `id` watermark loses events.** `event_outbox.id` is `BIGSERIAL` (mig 009); a sequence value is allocated at INSERT, before commit, so commit order ≠ id order. A poller doing `WHERE id > :hw ORDER BY id` can advance past a higher id that committed first, then never see a lower id that committed later. Confirmed by construction. | **§3.3 rewritten** to a durable per-event inbox ledger + anti-join sweep; the scalar offset is advisory scan-bound only and may never suppress an event. |
+| C1 (P0) | Wave‑1 cursor = `event_consumer_offsets` scalar high-water over `event_outbox.id` (§3.3) | **A scalar live `id` watermark loses events.** `event_outbox.id` is `BIGSERIAL` (mig 009); a sequence value is allocated at INSERT, before commit, so commit order ≠ id order. A poller doing `WHERE id > :hw ORDER BY id` can advance past a higher id that committed first, then never see a lower id that committed later. Confirmed by construction. | **§3.3 rewritten** to one live-intake generation per consumer, commit-coupled `AFTER INSERT` fanout, and persistent bounded keyset backfill through a fixed cutoff. A scalar live high-water remains rejected; replay is a lock-fenced handoff to a fresh higher generation. |
 | C2 (P0) | "runtime build list" (v2 §3.4) implied but did not specify the executor; `care_pathway_instances` "1:1 workflow_runs" left state ownership ambiguous | Correct: v2 named no executor and two candidate state homes. | **§3.4a** specifies one deterministic registered-handler executor; **§3.5** declares `workflow_runs`/`workflow_steps` the *sole* mutable execution state and `care_pathway_instances` a 1:1 context/closure companion. |
 | C3 (P0) | "task-first rule: every human-actionable stage materializes a `tasks` row" + "generic breach sweep for orphaned SLA instances" | Too broad. Patient/guardian/external/automated-wait stages must not become synthetic staff tasks; a **table-wide** breach sweep would collide with domain-owned clocks (porter marks its own SLA breached — `porterTransportService.js:~1423-1547`; stroke/STEMI own theirs). The review also found an acknowledgement authz hole: `POST /clinical-inbox/tasks/:id/acknowledge` could stop another clinician's escalation clock. | **§3.4b/§3.7** scope task-first to internal accountable work, make breach reconciliation **opt-in per registered rule** (domain clocks excluded), and require every task to declare its SLA-completion semantics. The live acknowledgement hole is now closed as quick-win #2 (§11); spine conformance must preserve that boundary. |
 | C4 (P0) | "Stroke(506)/STEMI(559) … append-only, sequence-numbered, SLA/canonical FKs → copy their shape" | **Materially wrong for Stroke.** Verified: STEMI `stemi_pathway_events` (mig 559) has `sequence_number` (unique per activation), FK to `workflow_sla_instances`, FK to `clinical_audit_events`, append-only ("in-place mutation is blocked"). Stroke `stroke_pathway_events` (mig 506, full file read) has **no** sequence, **no** SLA FK, **no** audit FK, **no** append-only trigger, and carries `updated_at` — it is mutable. | **§3.6/§4.1 corrected:** copy the **STEMI** ledger shape specifically; the coexistence boundary is **domain-clock ownership**, not "intra- vs cross-encounter"; Stroke is documented as a weaker mutable table (its own hardening is a separate, owner-gated decision). |
@@ -38,13 +38,15 @@ and later). The v2 file-exclusion lanes are historical; §4.2 replaces them with
 
 Re-verified factual corrections (were imprecise or stale in v2 / the working memory):
 - `event_outbox` rows are **retained** (`delivered`/`failed`), not deleted — say "status-mutates rows for the webhook pipeline," not "destructively consumes."
-- "No cursor exists **anywhere**" → "no independent **`event_outbox`** consumer cursor exists" (SIEM export has unrelated cursor prior art).
+- At the round-2 grounding revision, no independent **`event_outbox`** consumer cursor existed (the SIEM
+  export has unrelated cursor prior art). S1a now adds `event_consumer_offsets` specifically as explicit
+  generation registration + fixed-cutoff historical progress; it is not a scalar live completeness cursor.
 - The `(status, available_at, id)` index does **not** provide a bare `WHERE id > X ORDER BY id` scan — the **primary-key** index does (`id` is non-leading in the composite).
 - Stroke/STEMI/cath pathways are **route-mounted and tenant-gated (default disabled)**, not "clinically live."
 - "Zero definitions ever created" → "no in-repo seed or programmed producer of `workflow_definitions`; a deployed-DB row count requires preflight" (a repo grep can't prove an operator never hand-created one).
 - The `taskService.js:1083` "engine left to a follow-up" comment concerns the **escalation/SLA/automation‑rule** CRUD section, **not** the workflow-run executor. The no-executor claim for `workflow_runs`/`workflow_steps` still holds (the service only has `startWorkflowRun` + blind `transitionWorkflowRun/Step`, no advance/dispatch), but the correct anchor is that absence, not `:1083`.
 - **mig 352 exists and changes the #587 RLS lore:** `352_workflow_sla_rules_global_policy.sql` rewrote the `workflow_sla_rules` `tenant_isolation` policy so global (`tenant_id IS NULL`) rules are **visible under a set tenant GUC** (they were hidden by the mig‑304 generic policy, silently skipping canonical SLA starts inside `setTenantTx`). Future reopen/SLA work must **not** copy the pre‑352 plain-singleton bypass the #587 helper used; that rationale is now obsolete.
-- Next free migration number is **578** at this review (577 taken by `577_obgyn_newborn_identity_constraints.sql`); the two files sharing `574` remain — derive the next number at build time from `ls apps/backend/src/migrations | sort -V`.
+- S1a reserves migration **578** (`578_pathway_projector_inbox.sql`); the next-free number is **579 at this revision**. The two files sharing `574` remain — always re-derive the next number at build time from `ls apps/backend/src/migrations | sort -V` and never reuse the colliding prefix.
 
 ---
 
@@ -147,7 +149,7 @@ surgical-day-care (discharge, with follow-up/consults test-seeded), lab-walk-in 
 flowchart LR
     A["Domain mutation<br/>(order, referral, admission, theatre, appointment)"] --> B["Atomic clinical truth (Phase 1)<br/>detail + canonical timeline + audit<br/>+ required SLA/task in-tx"]
     B --> C["event_outbox row<br/>(in-tx via publishEvent{tx} for<br/>pathway-anchor events)"]
-    C --> D["Pathway inbox ledger<br/>(per-event work rows;<br/>anti-join sweep = completeness)"]
+    C --> D["Pathway inbox ledger<br/>(registered generation;<br/>AFTER INSERT fanout + bounded cutoff backfill)"]
     D --> E["Idempotent registered-handler projector<br/>(lease + CAS; outcome + projection in one tx)"]
     E --> F["Pathway RUNTIME (executor)<br/>workflow_runs/steps = sole state<br/>+ care_pathway_instances (context/closure)<br/>+ care_pathway_transition_events (evidence)"]
     E --> G["care_handoff_instances"]
@@ -168,7 +170,7 @@ flowchart LR
 | Approvals | `approvals` | + CAS + authorization |
 | Time limits | **mig-269 `workflow_sla_instances` / `workflow_sla_rules`** | not mig-118 `sla_definitions` (leave dormant) |
 | Escalation | `escalation_rules` + engine, `scope='task'` | per-rule reconciliation (§3.7); needs a matching tenant rule row |
-| Event→pathway triggers | **new inbox-ledger projector** (§3.3) | `automation_rules` stays dormant — D2 |
+| Event→pathway triggers | **new inbox-ledger projector** (§3.3) | `automation_rules` remains dormant in S1a; unresolved D2 gates S1b |
 | Longitudinal goals / follow-ups | `care_plans*`, `follow_up_plans` (incl. dormant `origin_kind='er_visit'/'ot_case'` seams) | |
 | Clinical history | `clinical_timeline_events`, `clinical_audit_events` | unchanged invariant |
 | Business events | `event_outbox` (+ inbox ledger) | |
@@ -180,53 +182,84 @@ flowchart LR
 
 ### 3.3 Event-delivery substrate — lossless inbox ledger (S1a; replaces the v2 scalar cursor)
 
-**Why the scalar cursor fails (C1):** `event_outbox.id` is `BIGSERIAL`. A sequence value is allocated
-when a row is first INSERTed, *before* the surrounding transaction commits, and commit order is not
-sequence order. A consumer that reads `WHERE id > :high_water ORDER BY id` and advances `high_water`
-to the max id seen will permanently skip any row whose id was allocated earlier but committed later
-than an id it already passed. A scalar high-water mark is therefore **not a completeness contract**.
+**Why the scalar live cursor fails (C1):** `event_outbox.id` is `BIGSERIAL`. A sequence value is
+allocated when a row is first INSERTed, *before* the surrounding transaction commits, and commit order
+is not sequence order. A consumer that reads `WHERE id > :high_water ORDER BY id` and advances
+`high_water` to the max id seen can permanently skip a lower id that commits later. A scalar live
+high-water mark is therefore **not a completeness contract**.
 
-**Design (durable per-event work ledger + anti-join sweep):**
+**Design (registered generation + transaction-coupled fanout + bounded historical backfill):**
 
-- **Table `pathway_projector_inbox`**: `(tenant_id, consumer_key, generation, event_id BIGINT,
-  status ['pending'|'handled'|'ignored'|'dead'], attempts INT, lease_owner, lease_expires_at,
-  next_attempt_at, last_error, outcome_at, created_at)`, PK/unique `(consumer_key, generation, event_id)`,
-  GUC-reading tenant default + Pattern‑A RLS **in the same migration** (do not repeat the mig‑304 retrofit gap).
-- **Completeness by anti-join, not by offset.** A claimer finds work with
-  `SELECT e.id FROM event_outbox e LEFT JOIN pathway_projector_inbox i
-   ON i.event_id = e.id AND i.consumer_key=$k AND i.generation=$g
-   WHERE i.event_id IS NULL ORDER BY e.id LIMIT n`, inserting `pending` inbox rows.
-   Because the anti-join finds **every** committed outbox row lacking an inbox row regardless of id order,
-  a late-committing lower id is still discovered. **S1a has no scan floor:** count equality below a
-  candidate floor is not proof because an allocated-but-uncommitted lower id is absent from both counts.
-  Every bounded batch therefore performs the floorless anti-join across all retained rows. A future fast
-  path may use a floor only if an independent cyclic/full sweep that ignores it remains the completeness
-  contract.
-- **Idempotent processing.** A worker claims `pending` rows with a lease
-  (`UPDATE … SET lease_owner, lease_expires_at WHERE status='pending' AND (lease_expires_at IS NULL OR
-  lease_expires_at < now()) … FOR UPDATE SKIP LOCKED`), invokes the **registered handler** for the
-  event type, and commits the projection change **and** the terminal inbox outcome
-  (`handled`/`ignored`) in **one tenant transaction**. Unknown event types → `ignored` (recorded, not
-  silently dropped). A stale-lease **reaper** reclaims abandoned leases; poison events (attempts over a
-  cap) go `dead` and surface in the recovery workbench (§3.9).
-- **Replay = new generation, not rewind.** A projection rebuild bumps `generation` → a fresh inbox +
-  shadow projection; the old generation is retained for comparison. Cursor rewind alone is not replay.
+- **Explicit, default-off registration.** Migration 578 creates no consumer generation. The first
+  flag-enabled S1a tick explicitly registers `(consumer_key, generation)` in the global, non-PHI
+  `event_consumer_offsets` table. Each generation owns a fixed `historical_cutoff_event_id`, a
+  persistent `backfill_cursor_event_id`, completion timestamps, and nullable `intake_retired_at`.
+  A partial unique constraint permits exactly one row with `intake_retired_at IS NULL` per consumer.
+  Turning the worker flag off later pauses backfill/processing/reaping but does **not** retire that live
+  intake row; trigger capture continues and re-enabling drains the backlog.
+- **A race-free registration boundary.** Registration begins by taking `SHARE ROW EXCLUSIVE` on
+  `event_outbox`. That lock waits for earlier INSERT transactions holding row-exclusive table locks to
+  finish. Registration then rechecks, captures the committed `MAX(id)` as its fixed cutoff, and commits
+  before blocked future INSERTs resume. Consequently, every pre-registration insert is inside the
+  historical cutoff and every later insert sees the live generation's trigger fanout. This is why
+  the fixed backfill cursor is safe while a scalar **live** high-water remains rejected.
+- **Lock-fenced generation handoff.** A move to a fresh higher generation uses the same table lock and
+  fails without mutation unless the prior live generation's historical backfill is complete. One
+  transaction stamps the prior row's `intake_retired_at`, registers the new
+  generation at the committed fixed cutoff, and then releases blocked inserts. Events at or before the
+  cutover are covered by the new generation's backfill; later inserts fan out only to the new live row.
+  Retirement freezes future intake and cannot be reversed; another replay requires a fresh higher
+  generation. An already-running old tick may still claim/terminalize its finite existing pending work, and its
+  terminal rows remain CAS-immutable. Planned cutover evidence should show zero old pending rows, but this is an operational
+  recommendation, not a database precondition: a race/residual remains finite, retained, and visible via
+  a dedicated retired-generation pending gauge rather than blocking lifecycle liveness.
+- **Commit-coupled live ingestion.** A hardened `AFTER INSERT` trigger writes one
+  `pathway_projector_inbox` row for the consumer's sole non-retired generation in the same transaction as the new
+  `event_outbox` row; rollback removes both. The trigger copies `tenant_id` and `event_id`, uses
+  tenant-inclusive conflict identity, and does **not** mutate source/webhook fields or
+  `webhook_deliveries`.
+- **Definer trust boundary.** Before installing the trigger definer, migration 578 fails closed if a
+  colliding relation/index/function name has the wrong owner, kind, or trigger-function shape. The
+  definer pins `search_path = pg_catalog, pg_temp`, schema-qualifies application relations, and uses a
+  catalog-qualified relation/operation guard. Migration/deployment/boot provisioning revoke direct
+  function execution and remove schema-`public` `CREATE` from `PUBLIC` and runtime/application roles;
+  boot re-revokes these privileges after broad grants.
+- **Persistent bounded historical backfill.** The backfiller keyset-scans only
+  `backfill_cursor_event_id < id <= historical_cutoff_event_id` in bounded pages. Inbox inserts and cursor
+  advancement commit together, and progress advances to the last source row scanned even when every
+  inbox insert conflicts. The trigger covers every post-registration insert, including an explicitly
+  supplied id below the persisted backfill cursor; the cursor is historical progress, not the live
+  completeness contract.
+- **Tenant-safe terminal ledger.** `pathway_projector_inbox` has identity
+  `(tenant_id, consumer_key, generation, event_id)`, Pattern-A RLS, and tenant-inclusive keys in every
+  conflict, claim, reaper, processing and terminal-CAS path. A worker invokes the immutable registered
+  handler and commits its projection change plus `handled`/`ignored` outcome in one tenant transaction;
+  poison rows retry and then become `dead`.
+- **Claim on dispatch.** The scheduled runner has one dispatch slot. It claims one row only when that
+  slot is ready and processes it immediately; queued rows remain unleased with `attempts` unchanged.
+  `maxBatches × claimLimit` is a per-tick safety cap, not a throughput promise. Shadow activation requires
+  representative backlog-recovery/load evidence before concurrency is tuned.
+- **Replay = handoff to a fresh higher generation, not rewind.** Prior offsets/inbox evidence are
+  retained with `intake_retired_at`; only the new generation receives live intake. The handoff preflight
+  is an activation gate, not a best-effort cleanup.
 - **BIGINT safety.** `event_outbox.id` exceeds JS safe-integer range in principle — carry it as a string
-  across the JS/wire boundary (the money-ledger BigInt lesson); compare/scan in SQL.
-- **Coexistence.** The existing webhook drain and its `status` column are untouched — the inbox ledger
-  reads `event_outbox` but never mutates it. **S1a exit evidence must prove the webhook drain is
-  unchanged and that every committed outbox event receives exactly one terminal inbox outcome per
-  consumer generation** (inverted-commit-order, duplicate-delivery, two-worker-race, crash-boundary,
-  stale-lease, tenant-isolation, missing-event-recovery, and above-safe-integer tests).
+  across the JS/wire boundary and compare/scan in SQL.
+- **Coexistence and observability.** The webhook drain remains authoritative for outbox delivery status.
+  S1a operational metrics are scoped to the configured consumer and current generation, with a separate
+  `pathway_projector_inbox_retired_pending_rows` debt gauge; retained retired-generation replay evidence remains directly
+  queryable. **S1a exit evidence must prove** registration-boundary
+  atomicity, trigger rollback, persistent bounded backfill/restart, tenant-poison isolation, duplicate and
+  two-worker races, crash/stale-worker fencing, successful/failed generation handoff, no retired fanout,
+  canonical-runner migration recording without connection search-path drift, hostile-object catalog
+  preflight, definer search-path/operator hardening, deployment/boot schema-`CREATE` denial and
+  trigger-function re-revocation, BIGINT safety, and unchanged webhook fields.
 - **Emitter gaps to close per pathway** (in-tx `publishEvent({tx})` at the domain write): appointment
   lifecycle (none today) for OP; ED visit transitions; theatre case transitions where missing; referral
   lifecycle; and signed clinical lab-result lifecycle. At this revision, the verified in-transaction
   pathway anchors are handover create/acknowledge, prehospital-handover create/accept, and discharge-
   summary save/sign; the AI lab-autoverification event is not a clinical result-lifecycle emitter.
-- **Decision D1:** projector source = the outbox inbox-ledger (recommended — advances T2 #3, one event
-  spine, generation-replay) vs a cursor over `clinical_timeline_events` (append-only + in-tx guaranteed,
-  but clinical-only and not a queue). Recommendation: outbox + inbox ledger, with pathway-anchor emitters
-  made in-tx.
+- **Decision D1 is adopted for S1a:** projector source = `event_outbox` plus the registered-generation
+  inbox ledger. This resolves D1 for this substrate; it does not imply approval of D2, D8 or D9.
 
 ### 3.4 Runtime
 
@@ -387,7 +420,7 @@ server-side match; sensitive categories need their own release policy (owner inp
   tasks/notifications/patient surface; active = full). Flips are operator actions in the GO_LIVE flip
   registry.
 - **Reconciliation sweep** (cron, `withJobLock`, per-tenant `setTenantTx`) detecting: domain records
-  without instances; instances without source records; **inbox rows missing** (anti-join lag); stages
+  without instances; instances without source records; **inbox ingestion/backfill gaps**; stages
   stuck beyond policy; missing safety tasks/SLA rows; terminal domain records with active stages;
   handoffs accepted-not-completed; completed-not-acknowledged responses; outbox/notification/inbox dead
   letters; duplicate active instances. Results append to `care_pathway_reconciliation_checks` (clone mig
@@ -443,7 +476,7 @@ checklist.
 Leave dormant and mark non-authoritative for v1; the projector's registered, code-reviewed handlers
 are the trigger mechanism (type-checked review beats a DB-row rule engine that invites unreviewed
 behavior). Alternative: per-tenant trigger tuning *through* `automation_rules` rows. Owner call;
-default = leave dormant.
+engineering recommendation = leave dormant. D2 remains explicitly unresolved and gates S1b, not S1a.
 
 ---
 
@@ -683,18 +716,24 @@ ended. Enforced by the closure evaluator, not by convention.
 ## 7. Delivery plan
 
 Per repo convention, **each slice gets its own spec + implementation plan** before build; migration
-numbers come from the registry at build time (578 next free at this review; 574 collision exists).
+numbers come from the registry at build time. S1a reserves 578, so 579 is next-free at this revision;
+the existing 574 collision remains and neither prefix may ever be reused.
 
-- **S0 — Decision dossier (thin).** §2 + §5 are the six-pathway current-state audit. Remaining S0:
-  **sign D1, D2, D8, D9** (architectural — they gate substrate); name the clinical + operational owner
-  per pilot pathway; sign the pilot pathways' closure semantics + patient-visibility. **D3–D7 gate their
-  respective clinical slices, not S0/S1.** No engineering-invented timings. (Resolves the v2 S0
-  "D1–D7" vs "D1/D2 don't block S1" contradiction.)
-- **S1a — Lossless event-consumer substrate (shadow).** The §3.3 inbox ledger + anti-join reconciler +
-  a **no-op** registered-handler projector (records handled/ignored, creates no instances/tasks/
-  notifications/patient state) + lease/reaper/dead-letter/retention + BIGINT-safe handling + generation
-  replay. **Gate = the S1a exit evidence in §3.3** (inverted-commit-order, duplicate, two-worker race,
-  crash, stale lease, tenant isolation, webhook-drain-unchanged, missing-event recovery, above-safe-int).
+- **S0 — Decision dossier (thin).** §2 + §5 are the six-pathway current-state audit. **D1 is adopted
+  and resolved for S1a.** D2 remains explicitly unresolved and gates S1b. D8 and D9 remain explicitly
+  unresolved and gate their named Stroke/STEMI and OBGyn integrations, not the S1a substrate. Name the
+  clinical + operational owner per pilot pathway and sign the pilot pathways' closure semantics +
+  patient-visibility. **D3–D7 gate their respective clinical slices.** No engineering-invented timings.
+- **S1a — Lossless event-consumer substrate (shadow).** The §3.3 one-live-generation registration and
+  lock-fenced handoff, commit-coupled `AFTER INSERT` fanout, persistent bounded cutoff backfill and per-event inbox ledger + a
+  **no-op** registered-handler projector (records handled/ignored, creates no instances/tasks/
+  notifications/patient state) + claim-on-dispatch lease/reaper/dead-letter/retention + BIGINT-safe
+  handling + generation replay. **Gate = the S1a exit evidence in §3.3**, including the registration
+  lock boundary, trigger rollback, cursor restart/progress, explicit post-cursor low-id capture,
+  tenant-poison isolation, duplicate/two-worker races, stale-worker fencing, handoff rejection/success,
+  retired-generation fanout suppression, catalog preflight plus deployment/boot definer-privilege
+  hardening, webhook coexistence and
+  representative backlog-recovery/load evidence.
 - **S1b — Minimal runtime + task/SLA contract.** The §3.4a executor + §3.4b build items (atomic start,
   CAS transitions, transition events, instance/handoff/governance tables, duplicate guard, actor
   provenance, **acknowledge authorization**, per-rule breach reconciliation) + mode resolver +
@@ -730,7 +769,12 @@ rules; backend CI is now sharded (static-checks + 3× shard jobs).
 ## 8. Test strategy
 
 - **Spine conformance suite (S1a/S1b):** `pathway-event-delivery.deep.test.js` (the §3.3 losslessness
-  matrix — inverted commit order the decisive case); `pathway-spine-substrate.deep.test.js` (atomic start
+  matrix — registration waits for an earlier uncommitted insert, trigger/source rollback is atomic,
+  keyset backfill resumes, a post-cursor explicit low id is trigger-captured, and handoff either fails
+  atomically or leaves exactly one new live-intake generation; dynamic hostile-precreation migration
+  cases prove wrong-owner table/index/function collisions abort before trigger installation, and
+  deployment/boot privilege invariants are separately pinned);
+  `pathway-spine-substrate.deep.test.js` (atomic start
   incl. induced mid-materialization failure → zero rows; illegal transition rejected; concurrent
   transition — exactly one wins; duplicate episode start → conflict; acknowledge-authorization; actor
   attribution; tenant isolation + RLS; IDOR); `pathway-projector-replay.deep.test.js` (same event twice
@@ -753,15 +797,15 @@ clinical values/thresholds are inferred by engineering.
 
 | # | Decision | Recommendation | Gates |
 |---|---|---|---|
-| D1 | Projector source | `event_outbox` + **inbox ledger** (reject the scalar cursor) | S1a |
-| D2 | `automation_rules` fate | Leave dormant; registered handlers only | S1b |
+| D1 | Projector source | **Adopted for S1a:** `event_outbox` + registered-generation inbox ledger; reject a scalar live cursor | Resolved for S1a |
+| D2 | `automation_rules` fate | **Unresolved:** recommend leaving dormant; registered handlers only | Gates S1b |
 | D3 | Pending results at discharge | Keep today's **hard block** as default; named-owner discharge only as a governed override (accepted ownership + task/SLA + reason/audit + unsafe-result exclusions) | S4 |
 | D4 | Normal-result auto-closure | Allow **conditionally** (signed/final, no critical/abnormal/addendum/repeat flag, approved release policy); patient viewing ≠ clinician ack | S2 |
 | D5 | Abnormal-noncritical action | Require named clinician review + structured disposition (incl. documented no-further-action); do not close solely on release | S2 |
 | D6 | Referral ack/transfer | Require originator acknowledgement unless ownership is explicitly accepted; signed structured response; define absence/re-route/external-return/lost-to-follow-up | S3 |
 | D7 | Surgical `sign_in` | Gate before anaesthesia, with an audited break-glass path; checklist + roles owner-defined | S5 |
-| D8 | Stroke/STEMI | Preserve domain-clock authority in v1; STEMI unchanged; Stroke integrity hardening = separate scoped decision or documented risk acceptance; do **not** treat their schemas as equivalent | S1b/S5 |
-| D9 | OBGyn sequencing | Rails-first; one shared reminder/SLA/handoff contract; OBGyn consumes it; ANC/immunisation gated on rail conformance + signed OBGyn semantics | S1b+ |
+| D8 | Stroke/STEMI | **Unresolved:** recommend preserving domain-clock authority in v1; STEMI unchanged; Stroke integrity hardening = separate scoped decision or documented risk acceptance; do **not** treat their schemas as equivalent | Gates named S1b/S5 integration |
+| D9 | OBGyn sequencing | **Unresolved:** recommend rails-first; one shared reminder/SLA/handoff contract; OBGyn consumes it; ANC/immunisation gated on rail conformance + signed OBGyn semantics | Gates named OBGyn integration |
 
 Standing owner list (unresolved, no engineering defaults): SLA targets + business-hours + escalation
 recipients per pathway; patient/guardian visibility + notification policy; meaning of patient
@@ -781,8 +825,11 @@ inpatient post-discharge contact policy; pending-result transfer ownership.
   integrity properties).
 - Every active stage has an accountable person/role; every safety-critical handoff is acknowledged or
   escalated; every terminal state has closure evidence; required child work cannot be silently abandoned.
-- Event delivery is **lossless** (inbox-ledger anti-join proof, inverted-commit-order case); duplicate/
-  retry/concurrency protections proven on PostgreSQL; canonical timeline/audit/task/SLA coverage complete;
+- Event delivery is **lossless** (registration/handoff lock boundary + sole-live trigger + fixed-cutoff
+  keyset-backfill proof); planned handoff evidence is zero pending, while any racing retired debt remains
+  explicit in `pathway_projector_inbox_retired_pending_rows`; duplicate/
+  retry/concurrency protections and catalog/definer/role-provisioning hardening proven; canonical
+  timeline/audit/task/SLA coverage complete;
   task acknowledgement is authorized and distinct from clinical completion; patient projections
   allowlisted + privacy-tested; reconciliation detects and surfaces drift with durable evidence rows;
   staff recover failed/stuck work without database surgery; patient apps show understandable next steps.

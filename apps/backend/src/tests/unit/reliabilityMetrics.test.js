@@ -23,6 +23,7 @@ describe('reliabilityMetrics serialization', () => {
       'pathway_projector_inbox_oldest_pending_age_seconds',
       'pathway_projector_inbox_leased_rows',
       'pathway_projector_inbox_dead_rows',
+      'pathway_projector_inbox_retired_pending_rows',
       'db_circuit_breaker_open',
       'ws_broadcast_dropped_total',
       'ws_fanout_subscriber_errors_total',

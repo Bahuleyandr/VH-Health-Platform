@@ -5,6 +5,7 @@ import pg from 'pg';
 import path from 'path';
 import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
 import purgeArchives from '../../admin/purge-archives.js';
+import { isPathwayProjectorShadowEnabled } from '../config/pathwayProjectorConfig.js';
 import prisma from '../lib/prisma.js';
 import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
@@ -607,7 +608,7 @@ if (process.env.NODE_ENV !== 'test') {
   // loaded only when explicitly enabled so the scheduler's eager module graph
   // and existing partial-module test mocks remain unchanged.
   registerCron('*/2 * * * *', withJobLock('pathway-projector-shadow', async () => {
-    if (String(process.env.PATHWAY_PROJECTOR_SHADOW_ENABLED || '').toLowerCase() !== 'true') return;
+    if (!isPathwayProjectorShadowEnabled()) return;
     const { runPathwayProjectorShadowTick } = await import('../services/events/pathwayProjectorService.js');
     await runPathwayProjectorShadowTick();
   }));
@@ -615,7 +616,7 @@ if (process.env.NODE_ENV !== 'test') {
   // Every 5 minutes — reclaim expired S1a inbox leases. This is separately
   // locked from the shadow tick and remains inert under the default-off flag.
   registerCron('*/5 * * * *', withJobLock('pathway-projector-stale-lease-reaper', async () => {
-    if (String(process.env.PATHWAY_PROJECTOR_SHADOW_ENABLED || '').toLowerCase() !== 'true') return;
+    if (!isPathwayProjectorShadowEnabled()) return;
     const { reapStaleInboxLeases } = await import('../services/events/pathwayProjectorService.js');
     await reapStaleInboxLeases();
   }));

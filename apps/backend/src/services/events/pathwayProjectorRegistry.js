@@ -1,5 +1,12 @@
-export const PATHWAY_PROJECTOR_CONSUMER_KEY = 'care_pathway_projector';
-export const PATHWAY_PROJECTOR_GENERATION = 1;
+import {
+  PATHWAY_PROJECTOR_CONSUMER_KEY,
+  PATHWAY_PROJECTOR_GENERATION,
+} from '../../config/pathwayProjectorConfig.js';
+
+export {
+  PATHWAY_PROJECTOR_CONSUMER_KEY,
+  PATHWAY_PROJECTOR_GENERATION,
+} from '../../config/pathwayProjectorConfig.js';
 
 export const PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES = Object.freeze([
   'clinical.handover.created',

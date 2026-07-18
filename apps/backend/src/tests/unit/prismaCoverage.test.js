@@ -1056,6 +1056,22 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(base.$executeRawUnsafe).toHaveBeenCalledWith(
         expect.stringContaining('CREATE ROLE vhhealth_app'),
       );
+      const grantSql = base.$executeRawUnsafe.mock.calls[0][0];
+      expect(grantSql).toContain(
+        "pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true)",
+      );
+      expect(grantSql).toContain(
+        'REVOKE CREATE ON SCHEMA public FROM PUBLIC',
+      );
+      expect(grantSql).toContain(
+        'REVOKE CREATE ON SCHEMA public FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        "pg_catalog.to_regprocedure('public.pathway_projector_enqueue_new_event()')",
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON FUNCTION public.pathway_projector_enqueue_new_event()\n          FROM vhhealth_app',
+      );
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Tenant RLS runtime role grants ensured',
         { role: 'vhhealth_app' },

@@ -13,7 +13,11 @@ describe('S1a Pathway projector scheduler wiring', () => {
     expect(scheduler).toContain(
       "registerCron('*/5 * * * *', withJobLock('pathway-projector-stale-lease-reaper'",
     );
-    expect(scheduler.match(/PATHWAY_PROJECTOR_SHADOW_ENABLED/g)).toHaveLength(2);
+    expect(scheduler).toContain(
+      "import { isPathwayProjectorShadowEnabled } from '../config/pathwayProjectorConfig.js';",
+    );
+    expect(scheduler.match(/if \(!isPathwayProjectorShadowEnabled\(\)\) return;/g)).toHaveLength(2);
+    expect(scheduler).not.toContain('process.env.PATHWAY_PROJECTOR_SHADOW_ENABLED');
     expect(scheduler.match(/await import\('\.\.\/services\/events\/pathwayProjectorService\.js'\)/g))
       .toHaveLength(2);
     expect(scheduler).not.toMatch(/^import .*pathwayProjectorService\.js/m);

@@ -97,8 +97,11 @@ describe('pathwayProjectorRegistry', () => {
 
   it('requires constructor provenance for every generation before database work', async () => {
     const queryRaw = jest.fn();
+    const prismaMock = { $queryRawUnsafe: queryRaw };
+    const transaction = jest.fn(async (callback) => callback(prismaMock));
+    prismaMock.$transaction = transaction;
     jest.unstable_mockModule('../../lib/prisma.js', () => ({
-      default: { $queryRawUnsafe: queryRaw },
+      default: prismaMock,
       setTenantTx: jest.fn(),
     }));
     const { runPathwayProjectorShadowTick } = await import(
@@ -130,7 +133,20 @@ describe('pathwayProjectorRegistry', () => {
     expect(queryRaw).not.toHaveBeenCalled();
 
     expect(isPathwayProjectorRegistry(generationTwoRegistry)).toBe(true);
-    queryRaw.mockResolvedValue([]);
+    const completedOffset = {
+      consumer_key: PATHWAY_PROJECTOR_CONSUMER_KEY,
+      generation: 2,
+      historical_cutoff_event_id: '0',
+      backfill_cursor_event_id: '0',
+      backfill_completed_at: new Date(),
+      registered_at: new Date(),
+      updated_at: new Date(),
+    };
+    queryRaw
+      .mockResolvedValueOnce([completedOffset])
+      .mockResolvedValueOnce([completedOffset])
+      .mockResolvedValueOnce([completedOffset])
+      .mockResolvedValueOnce([]);
     await expect(runPathwayProjectorShadowTick({
       generation: 2,
       registry: generationTwoRegistry,
@@ -142,7 +158,8 @@ describe('pathwayProjectorRegistry', () => {
       retried: 0,
       dead: 0,
     });
-    expect(queryRaw).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(queryRaw).toHaveBeenCalledTimes(4);
   });
 
   it('fences every claimed-row completion path on the attempt epoch', () => {

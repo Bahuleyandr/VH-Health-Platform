@@ -113,9 +113,17 @@ d('event_outbox drain (deep)', () => {
         `DELETE FROM pathway_projector_inbox WHERE consumer_key = $1`,
         PATHWAY_CONSUMER,
       );
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM event_consumer_offsets WHERE consumer_key = $1`,
+        PATHWAY_CONSUMER,
+      );
       if (insertedEventIds.length) {
         // ::bigint[] (not ::int[]) — the suite now seeds BigInt-range ids that
         // overflow int, and the FK column is BIGINT (mig 347). Bind as strings.
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM pathway_projector_inbox WHERE event_id = ANY($1::bigint[])`,
+          insertedEventIds.map(String),
+        );
         await prisma.$executeRawUnsafe(
           `DELETE FROM webhook_deliveries WHERE event_outbox_id = ANY($1::bigint[])`,
           insertedEventIds.map(String),
@@ -232,7 +240,7 @@ d('event_outbox drain (deep)', () => {
         generation: 1,
         limit: 200,
       });
-      if (rows.length === 0) {
+      if (rows.completed) {
         await prisma.$executeRawUnsafe(
           `UPDATE pathway_projector_inbox
               SET status = 'ignored', outcome_at = COALESCE(outcome_at, NOW())

@@ -288,8 +288,8 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 574 (two full filenames) | Credential-hardening OBGyn labour-ward privilege seed + unified audit read model | **on main**; existing prefix collision, both filenames are independently tracked |
 | 575–576 | Unified audit housekeeping triggers + retention-policy baseline | **on main** |
 | 577 | OBGyn newborn identity constraints | **on main** |
-| 578 | Unified Care Pathways S1a lossless event-consumer substrate | reserved by `feat/care-pathways-s1a-inbox-ledger` |
-| 579+ | UNASSIGNED — next contiguous block (record in the launching docs PR) | — |
+| 578 | Unified Care Pathways S1a single-live-generation inbox, lock-fenced handoff, bounded backfill, and catalog/definer/role-provisioning-hardened trigger fanout | reserved by `feat/care-pathways-s1a-inbox-ledger`; 578 is consumed by this slice |
+| 579+ | UNASSIGNED — **579 is next-free at this revision** (record the actual next block in the launching docs PR; never reuse either 574 filename) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.

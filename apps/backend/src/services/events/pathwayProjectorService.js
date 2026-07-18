@@ -116,6 +116,144 @@ function requireRegistry(registry, generation) {
   return registry;
 }
 
+function materializationResult(rows, {
+  completed,
+  scanned,
+  historicalCutoffEventId,
+  backfillCursorEventId,
+}) {
+  Object.defineProperties(rows, {
+    completed: { value: completed, enumerable: false },
+    scanned: { value: scanned, enumerable: false },
+    historical_cutoff_event_id: { value: historicalCutoffEventId, enumerable: false },
+    backfill_cursor_event_id: { value: backfillCursorEventId, enumerable: false },
+  });
+  return rows;
+}
+
+async function readEventConsumerOffset(db, consumerKey, generation, { lock = false } = {}) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT consumer_key,
+            generation,
+            historical_cutoff_event_id::text,
+            backfill_cursor_event_id::text,
+            backfill_completed_at,
+            intake_retired_at,
+            registered_at,
+            updated_at
+       FROM event_consumer_offsets
+      WHERE consumer_key = $1::text
+        AND generation = $2::integer
+      ${lock ? 'FOR UPDATE' : ''}`,
+    consumerKey,
+    generation,
+  );
+  return rows[0] || null;
+}
+
+export async function registerEventConsumer({
+  consumerKey = PATHWAY_PROJECTOR_CONSUMER_KEY,
+  generation = PATHWAY_PROJECTOR_GENERATION,
+} = {}) {
+  const safeConsumerKey = requireConsumerKey(consumerKey);
+  const safeGeneration = requireGeneration(generation);
+  const registered = await readEventConsumerOffset(prisma, safeConsumerKey, safeGeneration);
+  if (registered && !registered.intake_retired_at) return registered;
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      'LOCK TABLE public.event_outbox IN SHARE ROW EXCLUSIVE MODE',
+    );
+    const afterLock = await readEventConsumerOffset(tx, safeConsumerKey, safeGeneration);
+    if (afterLock && !afterLock.intake_retired_at) return afterLock;
+    if (afterLock?.intake_retired_at) {
+      throw AppError.conflict(
+        'Projector consumer generation is retired',
+        'PATHWAY_PROJECTOR_GENERATION_RETIRED',
+      );
+    }
+
+    const knownRegistrations = await tx.$queryRawUnsafe(
+      `SELECT consumer_key,
+              generation,
+              backfill_completed_at,
+              intake_retired_at
+         FROM event_consumer_offsets
+        WHERE consumer_key = $1::text
+        ORDER BY generation
+        FOR UPDATE`,
+      safeConsumerKey,
+    );
+    const highestKnownGeneration = knownRegistrations.at(-1)?.generation ?? 0;
+    if (safeGeneration <= highestKnownGeneration) {
+      throw AppError.conflict(
+        'Projector consumer generation must advance monotonically',
+        'PATHWAY_PROJECTOR_GENERATION_OUT_OF_ORDER',
+      );
+    }
+
+    const liveRegistrations = knownRegistrations.filter(
+      (registration) => !registration.intake_retired_at,
+    );
+    if (liveRegistrations.length > 1) {
+      throw AppError.internal(
+        'Projector consumer has multiple live generations',
+        'PATHWAY_PROJECTOR_LIFECYCLE_INVARIANT_VIOLATION',
+      );
+    }
+    const liveRegistration = liveRegistrations[0] || null;
+    if (liveRegistration && !liveRegistration.backfill_completed_at) {
+      throw AppError.conflict(
+        'Projector consumer generation handoff is blocked by incomplete backfill',
+        'PATHWAY_PROJECTOR_GENERATION_HANDOFF_BLOCKED',
+      );
+    }
+
+    if (liveRegistration) {
+      const retired = await tx.$queryRawUnsafe(
+        `UPDATE event_consumer_offsets
+            SET intake_retired_at = NOW(),
+                updated_at = NOW()
+          WHERE consumer_key = $1::text
+            AND generation = $2::integer
+            AND intake_retired_at IS NULL
+        RETURNING generation`,
+        safeConsumerKey,
+        liveRegistration.generation,
+      );
+      if (retired.length !== 1) {
+        throw AppError.internal(
+          'Projector consumer generation handoff lost its lifecycle fence',
+          'PATHWAY_PROJECTOR_LIFECYCLE_FENCE_LOST',
+        );
+      }
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO event_consumer_offsets
+         (consumer_key, generation, historical_cutoff_event_id,
+          backfill_cursor_event_id, backfill_completed_at)
+       SELECT $1::text,
+              $2::integer,
+              COALESCE(MAX(id), 0),
+              0,
+              CASE WHEN MAX(id) IS NULL THEN NOW() ELSE NULL END
+         FROM event_outbox
+       RETURNING consumer_key,
+                 generation,
+                 historical_cutoff_event_id::text,
+                 backfill_cursor_event_id::text,
+                 backfill_completed_at,
+                 intake_retired_at,
+                 registered_at,
+                 updated_at`,
+      safeConsumerKey,
+      safeGeneration,
+    );
+    return rows[0];
+  });
+}
+
 export async function materializeMissingInboxRows({
   consumerKey = PATHWAY_PROJECTOR_CONSUMER_KEY,
   generation = PATHWAY_PROJECTOR_GENERATION,
@@ -124,27 +262,97 @@ export async function materializeMissingInboxRows({
   const safeConsumerKey = requireConsumerKey(consumerKey);
   const safeGeneration = requireGeneration(generation);
   const safeLimit = boundedInteger(limit, DEFAULT_BATCH_LIMIT, MAX_BATCH_LIMIT);
+  await registerEventConsumer({
+    consumerKey: safeConsumerKey,
+    generation: safeGeneration,
+  });
 
-  return prisma.$queryRawUnsafe(
-    `INSERT INTO pathway_projector_inbox
-       (tenant_id, consumer_key, generation, event_id)
-     SELECT e.tenant_id, $1::text, $2::integer, e.id
-       FROM event_outbox e
-      WHERE NOT EXISTS (
-        SELECT 1
-          FROM pathway_projector_inbox i
-         WHERE i.consumer_key = $1::text
-           AND i.generation = $2::integer
-           AND i.event_id = e.id
-      )
-      ORDER BY e.id
-      LIMIT $3::integer
-     ON CONFLICT (consumer_key, generation, event_id) DO NOTHING
-     RETURNING event_id::text, tenant_id::text`,
-    safeConsumerKey,
-    safeGeneration,
-    safeLimit,
-  );
+  return prisma.$transaction(async (tx) => {
+    const offset = await readEventConsumerOffset(
+      tx,
+      safeConsumerKey,
+      safeGeneration,
+      { lock: true },
+    );
+    if (!offset) {
+      throw AppError.internal(
+        'Projector consumer registration unavailable',
+        'PATHWAY_PROJECTOR_REGISTRATION_UNAVAILABLE',
+      );
+    }
+    if (offset.intake_retired_at) {
+      throw AppError.conflict(
+        'Projector consumer generation is retired',
+        'PATHWAY_PROJECTOR_GENERATION_RETIRED',
+      );
+    }
+    if (offset.backfill_completed_at) {
+      return materializationResult([], {
+        completed: true,
+        scanned: 0,
+        historicalCutoffEventId: offset.historical_cutoff_event_id,
+        backfillCursorEventId: offset.backfill_cursor_event_id,
+      });
+    }
+
+    const scanned = await tx.$queryRawUnsafe(
+      `SELECT tenant_id::text, id::text AS event_id
+         FROM event_outbox
+        WHERE id > $1::bigint
+          AND id <= $2::bigint
+        ORDER BY id
+        LIMIT $3::integer`,
+      offset.backfill_cursor_event_id,
+      offset.historical_cutoff_event_id,
+      safeLimit,
+    );
+
+    let inserted = [];
+    if (scanned.length > 0) {
+      inserted = await tx.$queryRawUnsafe(
+        `INSERT INTO pathway_projector_inbox
+           (tenant_id, consumer_key, generation, event_id)
+         SELECT source.tenant_id, $1::text, $2::integer, source.event_id
+           FROM unnest($3::uuid[], $4::bigint[]) AS source(tenant_id, event_id)
+         ON CONFLICT (tenant_id, consumer_key, generation, event_id) DO NOTHING
+         RETURNING event_id::text, tenant_id::text`,
+        safeConsumerKey,
+        safeGeneration,
+        scanned.map((row) => row.tenant_id),
+        scanned.map((row) => row.event_id),
+      );
+    }
+
+    const lastScannedEventId = scanned.at(-1)?.event_id
+      ?? offset.historical_cutoff_event_id;
+    const completed = scanned.length === 0
+      || lastScannedEventId === offset.historical_cutoff_event_id;
+    const progress = await tx.$queryRawUnsafe(
+      `UPDATE event_consumer_offsets
+          SET backfill_cursor_event_id = $3::bigint,
+              backfill_completed_at = CASE
+                WHEN $4::boolean THEN COALESCE(backfill_completed_at, NOW())
+                ELSE backfill_completed_at
+              END,
+              updated_at = NOW()
+        WHERE consumer_key = $1::text
+          AND generation = $2::integer
+        RETURNING historical_cutoff_event_id::text,
+                  backfill_cursor_event_id::text,
+                  backfill_completed_at`,
+      safeConsumerKey,
+      safeGeneration,
+      lastScannedEventId,
+      completed,
+    );
+
+    return materializationResult(inserted, {
+      completed: Boolean(progress[0]?.backfill_completed_at),
+      scanned: scanned.length,
+      historicalCutoffEventId: progress[0].historical_cutoff_event_id,
+      backfillCursorEventId: progress[0].backfill_cursor_event_id,
+    });
+  });
 }
 
 export async function claimDueInboxRows({
@@ -161,10 +369,10 @@ export async function claimDueInboxRows({
   const safeLeaseOwner = requireUuid(leaseOwner, 'lease owner');
 
   return prisma.$queryRawUnsafe(
-    `WITH due AS (
-       SELECT consumer_key, generation, event_id
+     `WITH due AS (
+       SELECT tenant_id, consumer_key, generation, event_id
          FROM pathway_projector_inbox
-         WHERE consumer_key = $1::text
+        WHERE consumer_key = $1::text
           AND generation = $2::integer
           AND status = 'pending'
           AND next_attempt_at <= NOW()
@@ -181,6 +389,7 @@ export async function claimDueInboxRows({
       WHERE i.consumer_key = due.consumer_key
         AND i.generation = due.generation
         AND i.event_id = due.event_id
+        AND i.tenant_id = due.tenant_id
      RETURNING i.consumer_key,
                i.generation,
                i.event_id::text,
@@ -227,7 +436,7 @@ async function recordProcessingFailure({ claim, error, maxAttempts = DEFAULT_MAX
         AND status = 'pending'
         AND lease_owner = $5::uuid
         AND attempts = $6::integer
-      RETURNING event_id::text, tenant_id::text, status, attempts, next_attempt_at, outcome_at`,
+       RETURNING event_id::text, tenant_id::text, status, attempts, next_attempt_at, outcome_at`,
     claim.consumer_key,
     claim.generation,
     claim.event_id,
@@ -331,9 +540,9 @@ export async function processClaimedInboxRow({
             AND event_id = $3::bigint
             AND tenant_id = $4::uuid
             AND status = 'pending'
-            AND lease_owner = $5::uuid
-            AND attempts = $6::integer
-          RETURNING event_id::text, tenant_id::text, status, attempts, outcome_at`,
+             AND lease_owner = $5::uuid
+             AND attempts = $6::integer
+           RETURNING event_id::text, tenant_id::text, status, attempts, outcome_at`,
         normalizedClaim.consumer_key,
         normalizedClaim.generation,
         normalizedClaim.event_id,
@@ -376,10 +585,10 @@ export async function reapStaleInboxLeases({
   const safeMaxAttempts = boundedInteger(maxAttempts, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS);
 
   const rows = await prisma.$queryRawUnsafe(
-    `WITH stale AS (
-       SELECT consumer_key, generation, event_id, attempts, lease_owner
+     `WITH stale AS (
+       SELECT tenant_id, consumer_key, generation, event_id, attempts, lease_owner
          FROM pathway_projector_inbox
-         WHERE consumer_key = $1::text
+        WHERE consumer_key = $1::text
           AND generation = $2::integer
           AND status = 'pending'
           AND lease_owner IS NOT NULL
@@ -412,6 +621,7 @@ export async function reapStaleInboxLeases({
       WHERE i.consumer_key = stale.consumer_key
         AND i.generation = stale.generation
         AND i.event_id = stale.event_id
+        AND i.tenant_id = stale.tenant_id
         AND i.lease_owner = stale.lease_owner
         AND i.attempts = stale.attempts
      RETURNING i.event_id::text, i.tenant_id::text, i.status, i.attempts,
@@ -460,6 +670,11 @@ export async function runPathwayProjectorShadowTick({
     dead: 0,
   };
 
+  await registerEventConsumer({
+    consumerKey: safeConsumerKey,
+    generation: safeGeneration,
+  });
+
   for (let batch = 0; batch < safeMaxBatches; batch += 1) {
     const rows = await materializeMissingInboxRows({
       consumerKey: safeConsumerKey,
@@ -467,18 +682,20 @@ export async function runPathwayProjectorShadowTick({
       limit: safeMaterializeLimit,
     });
     counts.materialized += rows.length;
-    if (rows.length === 0) break;
+    if (rows.completed) break;
   }
 
-  const claims = await claimDueInboxRows({
-    consumerKey: safeConsumerKey,
-    generation: safeGeneration,
-    limit: safeClaimLimit,
-    leaseSeconds: safeLeaseSeconds,
-  });
-  counts.claimed = claims.length;
-
-  for (const claim of claims) {
+  const maxDispatches = safeMaxBatches * safeClaimLimit;
+  for (let dispatch = 0; dispatch < maxDispatches; dispatch += 1) {
+    const claims = await claimDueInboxRows({
+      consumerKey: safeConsumerKey,
+      generation: safeGeneration,
+      limit: 1,
+      leaseSeconds: safeLeaseSeconds,
+    });
+    if (claims.length === 0) break;
+    counts.claimed += 1;
+    const [claim] = claims;
     try {
       const outcome = await processClaimedInboxRow({ claim, registry: safeRegistry });
       if (outcome.status === 'pending') {
@@ -503,6 +720,7 @@ export async function runPathwayProjectorShadowTick({
 }
 
 export default {
+  registerEventConsumer,
   materializeMissingInboxRows,
   claimDueInboxRows,
   processClaimedInboxRow,
