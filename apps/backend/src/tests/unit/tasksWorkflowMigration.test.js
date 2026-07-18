@@ -20,6 +20,10 @@ const HARDENING_MIGRATION_PATH = path.resolve(
   __dirname,
   '../../migrations/579_workflow_runtime_hardening.sql',
 );
+const SEEDER_PATH = path.resolve(
+  __dirname,
+  '../../../scripts/seed-comprehensive-test-data.mjs',
+);
 
 describe('migration 118 — tasks / workflow / approval foundation', () => {
   let sql;
@@ -114,8 +118,10 @@ describe('migration 118 — tasks / workflow / approval foundation', () => {
 
 describe('migration 579 — tenant-safe dormant workflow runtime', () => {
   let sql;
+  let seeder;
   beforeAll(() => {
     sql = fs.readFileSync(HARDENING_MIGRATION_PATH, 'utf8');
+    seeder = fs.readFileSync(SEEDER_PATH, 'utf8');
   });
 
   it('exists with a transactional, non-trivial body', () => {
@@ -178,5 +184,17 @@ describe('migration 579 — tenant-safe dormant workflow runtime', () => {
   it('does not create or seed workflow data', () => {
     expect(sql).not.toMatch(/\bCREATE TABLE\b/i);
     expect(sql).not.toMatch(/\bINSERT\s+INTO\s+(workflow_definitions|workflow_runs|workflow_steps|tasks|approvals)\b/i);
+  });
+
+  it('keeps composite foreign-key columns positionally paired in the generic seeder', () => {
+    expect(seeder).toMatch(
+      /unnest\(fk\.conkey\) WITH ORDINALITY AS child_key\(attnum, position\)/i,
+    );
+    expect(seeder).toMatch(
+      /unnest\(fk\.confkey\) WITH ORDINALITY AS parent_key\(attnum, position\)[\s\S]*?parent_key\.position = child_key\.position/i,
+    );
+    expect(seeder).toMatch(/child_column\.attnum = child_key\.attnum/i);
+    expect(seeder).toMatch(/parent_column\.attnum = parent_key\.attnum/i);
+    expect(seeder).not.toMatch(/information_schema\.constraint_column_usage/i);
   });
 });
