@@ -353,6 +353,9 @@
     }
   },
   "overrides": {
+    "onnxruntime-node": {
+      "adm-zip": "0.6.0"
+    },
     "@google-cloud/firestore": "^8.5.0",
     "gaxios": "^7.1.4",
     "google-gax": "^5.0.6",
