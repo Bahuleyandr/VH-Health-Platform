@@ -20,10 +20,11 @@
  * rules + automation rules write rows; admins approve / dispatch them.
  */
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
+import { roleCanBreakGlass } from '../security/breakGlassService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -156,15 +157,18 @@ function normalizeTimestamp(value, label) {
 // rule_code/source key — and is a no-op for an instance already in a terminal
 // state, so a second ack / an ack-then-complete never reopens or double-stamps.
 //
-// Best-effort + never-throws: a failed SLA completion must not undo or block the
-// task state change that already succeeded. Returns the updated instance row (or
-// null when there is no linked instance / nothing to complete).
+// Standalone task changes keep this best-effort for backward compatibility. A
+// caller-supplied transaction makes the SLA write load-bearing: PostgreSQL marks
+// a transaction aborted after any failed statement, so swallowing that error
+// would only defer the failure and obscure which write broke atomicity.
 //
 // We resolve by metadata.sla_instance_id (a uuid). A direct UPDATE (rather than
 // importing completeWorkflowSla) keeps taskService free of the canonical
 // platform service's heavy transitive import graph — the same ESM-circular
 // concern resultsInboxService documents for startWorkflowSla.
-async function completeLinkedSla({ tenantId, taskRow, db = null, completedBy = null }) {
+async function completeLinkedSla({
+  tenantId, taskRow, db = null, completedBy = null, strict = false,
+}) {
   const slaInstanceId = taskRow?.metadata?.sla_instance_id;
   if (!slaInstanceId) return null;
   const client = db || prisma;
@@ -194,6 +198,7 @@ async function completeLinkedSla({ tenantId, taskRow, db = null, completedBy = n
     );
     return rows[0] || null;
   } catch (err) {
+    if (strict) throw err;
     if (isMissingSchemaError(err)) return null;
     logger.warn('completeLinkedSla: SLA completion failed', {
       taskId: taskRow?.id, slaInstanceId, err: err?.message,
@@ -432,10 +437,10 @@ export async function transitionTask({
   // critical result directly (or the engine's auto_resolve) must close the
   // linked mig-269 instance, not just acknowledging it. Runs on the SAME db
   // client (the caller's tx when provided) so it commits atomically with the
-  // transition. Best-effort + never-throws — a failed SLA completion must not
-  // roll back a completed/cancelled task.
+  // transition. Standalone callers keep best-effort behavior; a supplied
+  // transaction makes the linked SLA update part of the same atomic change.
   if (cleanNext === 'completed' || cleanNext === 'cancelled') {
-    await completeLinkedSla({ tenantId: tid, taskRow: rows[0], db });
+    await completeLinkedSla({ tenantId: tid, taskRow: rows[0], db, strict: Boolean(tx) });
   }
   return rows[0];
 }
@@ -447,55 +452,350 @@ export async function transitionTask({
  * This is the results-inbox "assignee saw it / stopped the escalation clock"
  * action (design §4.5). It is a thin, intention-revealing wrapper over the
  * existing state machine: the engine treats an in_progress task as acked, so
- * no new status is introduced. Already-acknowledged (in_progress) tasks are a
- * fast idempotent no-op (returns the task unchanged). A completed/cancelled
- * task cannot be acknowledged → AppError.invalidTransition (409).
+ * no new status is introduced. Already-acknowledged (in_progress) tasks are
+ * returned without re-stamping or duplicating the audit comment; the same
+ * authority-checked statement repairs any legacy active linked SLA. A
+ * completed/cancelled task cannot be acknowledged → AppError.invalidTransition
+ * (400).
  */
 function actorRolesUpper(actorRoles) {
   const arr = Array.isArray(actorRoles) ? actorRoles : (actorRoles ? [actorRoles] : []);
   return arr.map((r) => String(r || '').trim().toUpperCase()).filter(Boolean);
 }
 
+const ACK_FORBIDDEN_MESSAGE = 'Not authorized to acknowledge this task';
+const COLD_CHAIN_ACK_SOURCE = 'cold_chain_excursion_ack';
+const COLD_CHAIN_ACK_REASON = 'Acknowledged via cold-chain excursion acknowledgement';
+const POSTGRES_INT_MAX = 2_147_483_647;
+
+function ackForbidden(taskRow = null) {
+  const err = AppError.forbidden(ACK_FORBIDDEN_MESSAGE);
+  if (taskRow?.patient_uid) {
+    // Internal-only context for phiAccessLogger. Keep it non-enumerable so the
+    // generic 403 response cannot disclose which patient owns a probed task id.
+    Object.defineProperty(err, 'phiPatientUid', {
+      value: String(taskRow.patient_uid),
+      enumerable: false,
+    });
+  }
+  return err;
+}
+
 // Who may acknowledge a task — and thereby STOP its escalation/SLA clock.
-// Acknowledgement silences the safety net, so it must be authorized: only the
-// assignee, a holder of the task's assigned role, an ADMIN/SUPER_ADMIN operating
-// the task-administration surface, or an explicit AUDITED override actor (who
-// must supply a reason) may proceed. A bare same-tenant clinical-staff caller
-// with none of these is REJECTED — otherwise any staffer could acknowledge (and
-// silence the escalation on) another clinician's critical-result task. Returns
-// { mode } on success; throws AppError.forbidden (generic, no task PHI) otherwise.
-function resolveAckAuthorization(taskRow, { actorUid = null, actorRoles = [], overrideReason = null } = {}) {
+// Caller text is never authority. Normal authority comes from assignment or task
+// administration; an override must already have been verified against a durable
+// server-side authority record before it reaches this resolver.
+function resolveDirectAckAuthorization(taskRow, { actorUid = null, actorRoles = [] } = {}) {
   const roles = actorRolesUpper(actorRoles);
   const callerUid = actorUid ? String(actorUid).toLowerCase() : null;
   const assignedUid = taskRow?.assigned_to_uid ? String(taskRow.assigned_to_uid).toLowerCase() : null;
   const assignedRole = taskRow?.assigned_to_role ? String(taskRow.assigned_to_role).trim().toUpperCase() : null;
 
   if (callerUid && assignedUid && callerUid === assignedUid) return { mode: 'assignee' };
-  if (assignedRole && roles.includes(assignedRole)) return { mode: 'role' };
+  if (assignedRole && roles.includes(assignedRole)) return { mode: 'role', assignedRole };
   if (roles.some((r) => isAdmin(r)) || roles.includes('SUPER_ADMIN')) return { mode: 'admin' };
-
-  const reason = safeText(overrideReason, SHORT_MAX);
-  if (reason) return { mode: 'override', reason };
-
-  throw AppError.forbidden('Not authorized to acknowledge this task');
+  return null;
 }
 
-export async function acknowledgeTask({
-  tenantId = null, id, actorUid = null, actorRoles = [], overrideReason = null,
+function resolveAckAuthorization(taskRow, {
+  actorUid = null, actorRoles = [], verifiedOverride = null,
+} = {}) {
+  const direct = resolveDirectAckAuthorization(taskRow, { actorUid, actorRoles });
+  if (direct) return direct;
+  if (verifiedOverride?.source && verifiedOverride?.id && verifiedOverride?.reason) {
+    return { mode: 'override', ...verifiedOverride };
+  }
+  throw ackForbidden(taskRow);
+}
+
+async function loadVerifiedPatientBreakGlass({
+  tenantId, taskRow, actorUid, actorRoles, breakGlassId, db,
+}) {
+  const numericId = Number(breakGlassId);
+  if (
+    !Number.isSafeInteger(numericId)
+    || numericId <= 0
+    || numericId > POSTGRES_INT_MAX
+    || !taskRow?.patient_uid
+    || !actorUid
+  ) return null;
+
+  const roles = actorRolesUpper(actorRoles);
+  if (!roles.some((role) => roleCanBreakGlass(role))) return null;
+
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, actor_role, reason
+       FROM patient_access_break_glass
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND actor_uid = $3::uuid
+        AND id = $4::int
+        AND status = 'active'
+        AND expires_at > NOW()
+      LIMIT 1`,
+    tenantId,
+    taskRow.patient_uid,
+    actorUid,
+    numericId,
+  );
+  const row = rows[0];
+  const sessionRole = row?.actor_role ? String(row.actor_role).trim().toUpperCase() : null;
+  const reason = safeText(row?.reason, TEXT_MAX);
+  if (!row || !sessionRole || !roles.includes(sessionRole) || !roleCanBreakGlass(sessionRole) || !reason) return null;
+
+  return {
+    source: 'patient_access_break_glass',
+    id: String(row.id),
+    reason,
+    sessionRole,
+  };
+}
+
+function resolveTrustedWorkflowOverride(taskRow, trustedOverride) {
+  const source = safeText(trustedOverride?.source, 120);
+  const resourceId = safeText(trustedOverride?.id, 120);
+  const reason = safeText(trustedOverride?.reason, TEXT_MAX);
+  if (
+    source !== COLD_CHAIN_ACK_SOURCE
+    || reason !== COLD_CHAIN_ACK_REASON
+    || taskRow?.related_resource_type !== 'cold_chain_excursions'
+    || String(taskRow?.related_resource_id || '') !== resourceId
+  ) return null;
+
+  return { source, id: resourceId, reason };
+}
+
+async function resolveVerifiedAckAuthorization({
+  tenantId,
+  taskRow,
+  actorUid,
+  actorRoles,
+  breakGlassId,
+  trustedOverride,
+  db,
+}) {
+  let verifiedOverride = null;
+  if (trustedOverride) {
+    verifiedOverride = resolveTrustedWorkflowOverride(taskRow, trustedOverride);
+    if (!verifiedOverride) throw ackForbidden(taskRow);
+  }
+
+  let authz = resolveDirectAckAuthorization(taskRow, { actorUid, actorRoles });
+  if (!authz && !verifiedOverride && breakGlassId !== null && breakGlassId !== undefined) {
+    verifiedOverride = await loadVerifiedPatientBreakGlass({
+      tenantId,
+      taskRow,
+      actorUid,
+      actorRoles,
+      breakGlassId,
+      db,
+    });
+  }
+
+  authz ||= resolveAckAuthorization(taskRow, {
+    actorUid,
+    actorRoles,
+    verifiedOverride,
+  });
+  return { authz, verifiedOverride };
+}
+
+// Shared by the state-changing CAS and the idempotent-repair read. This makes
+// the database statement that stops (or repairs) the SLA clock re-check the
+// exact authority selected from the pre-read instead of trusting stale state.
+const ACK_AUTHORITY_PREDICATE = `
+  (
+    ($3::text = 'assignee' AND tasks.assigned_to_uid = $4::uuid)
+    OR ($3::text = 'role' AND UPPER(TRIM(tasks.assigned_to_role)) = $5::text)
+    OR $3::text = 'admin'
+    OR (
+      $3::text = 'override'
+      AND (
+        (
+          $6::text = 'patient_access_break_glass'
+          AND EXISTS (
+            SELECT 1
+              FROM patient_access_break_glass bg
+             WHERE bg.id = $11::int
+               AND bg.tenant_id = $2::uuid
+               AND bg.patient_uid = tasks.patient_uid
+               AND bg.actor_uid = $4::uuid
+               AND UPPER(TRIM(bg.actor_role)) = $9::text
+               AND bg.reason = $8::text
+               AND bg.status = 'active'
+               AND bg.expires_at > NOW()
+          )
+        )
+        OR (
+          $6::text = 'cold_chain_excursion_ack'
+          AND tasks.related_resource_type = 'cold_chain_excursions'
+          AND tasks.related_resource_id = $7::text
+        )
+      )
+    )
+  )
+  AND (
+    $10::text IS NULL
+    OR (
+      tasks.related_resource_type = 'cold_chain_excursions'
+      AND tasks.related_resource_id = $10::text
+    )
+  )`;
+
+function ackAuthorityParams({ tenantId, taskId, actorUid, authz, trustedResourceId = null }) {
+  return [
+    taskId,
+    tenantId,
+    authz.mode,
+    actorUid,
+    authz.assignedRole || null,
+    authz.source || null,
+    authz.id || null,
+    authz.reason || null,
+    authz.sessionRole || null,
+    trustedResourceId,
+    authz.source === 'patient_access_break_glass' ? Number(authz.id) : null,
+  ];
+}
+
+async function reconcileInProgressAcknowledgement({
+  tenantId,
+  taskId,
+  actorUid,
+  authz,
+  trustedResourceId,
+  taskRow,
+  db,
+}) {
+  const authorityParams = ackAuthorityParams({
+    tenantId, taskId, actorUid, authz, trustedResourceId,
+  });
+  const rows = await db.$queryRawUnsafe(
+    `WITH authorized_task AS MATERIALIZED (
+       SELECT ${TASK_RETURNING}
+         FROM tasks
+        WHERE tasks.id = $1
+          AND tasks.tenant_id = $2::uuid
+          AND tasks.status = 'in_progress'
+          AND ${ACK_AUTHORITY_PREDICATE}
+        LIMIT 1
+     ), completed_sla AS (
+       UPDATE workflow_sla_instances AS sla
+          SET status = CASE WHEN sla.due_at IS NOT NULL AND NOW() > sla.due_at THEN 'breached' ELSE 'completed' END,
+              completed_at = NOW(),
+              breached_at = CASE
+                WHEN sla.due_at IS NOT NULL AND NOW() > sla.due_at THEN COALESCE(sla.breached_at, NOW())
+                ELSE sla.breached_at
+              END,
+              metadata = COALESCE(sla.metadata, '{}'::jsonb)
+                || jsonb_build_object('completed_via', 'task_ack'::text, 'completed_by_task', authorized_task.id)
+                || CASE WHEN COALESCE(NULLIF(authorized_task.metadata->>'acknowledged_by', ''), $4::text) IS NOT NULL
+                        THEN jsonb_build_object(
+                          'acknowledged_by',
+                          COALESCE(NULLIF(authorized_task.metadata->>'acknowledged_by', ''), $4::text)
+                        )
+                        ELSE '{}'::jsonb END,
+              updated_at = NOW()
+         FROM authorized_task
+        WHERE NULLIF(authorized_task.metadata->>'sla_instance_id', '') IS NOT NULL
+          AND sla.id = (authorized_task.metadata->>'sla_instance_id')::uuid
+          AND sla.tenant_id = $2::uuid
+          AND sla.status NOT IN ('completed', 'cancelled')
+          AND sla.completed_at IS NULL
+        RETURNING sla.id
+     )
+     SELECT ${TASK_RETURNING}
+       FROM authorized_task`,
+    ...authorityParams,
+  );
+  const current = rows[0];
+  if (!current) throw ackForbidden(taskRow);
+  return current;
+}
+
+async function updateTaskForAcknowledgement({
+  tenantId,
+  taskId,
+  actorUid,
+  authz,
+  trustedResourceId,
+  acknowledgedAt,
+  db,
+}) {
+  const authorityParams = ackAuthorityParams({
+    tenantId, taskId, actorUid, authz, trustedResourceId,
+  });
+  return db.$queryRawUnsafe(
+    `WITH ack_input AS (
+       SELECT $12::text AS acknowledged_at
+     )
+     UPDATE tasks
+        SET status = 'in_progress',
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('acknowledged_at', ack_input.acknowledged_at, 'acknowledged_by', $4::text, 'acknowledged_via', $3::text)
+              || CASE WHEN $6::text IS NOT NULL
+                      THEN jsonb_build_object(
+                        'acknowledge_override_source', $6::text,
+                        'acknowledge_override_id', $7::text,
+                        'acknowledge_override_reason', $8::text
+                      )
+                      ELSE '{}'::jsonb END,
+            updated_at = NOW()
+       FROM ack_input
+      WHERE tasks.id = $1 AND tasks.tenant_id = $2::uuid
+        AND tasks.status IN ('open', 'overdue')
+        AND ${ACK_AUTHORITY_PREDICATE}
+      RETURNING ${TASK_RETURNING}`,
+    ...authorityParams,
+    acknowledgedAt,
+  );
+}
+
+async function acknowledgeTaskInternal({
+  tenantId = null,
+  id,
+  actorUid = null,
+  actorRoles = [],
+  breakGlassId = null,
+  trustedOverride = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
   const ackUid = maybeUuid(actorUid, 'actor_uid');
+  const db = tx || prisma;
 
   // Pre-read for a clean, intention-revealing error before attempting the write.
-  const current = await getTask({ tenantId: tid, id: taskId });
+  const current = await getTask({ tenantId: tid, id: taskId, tx });
 
   // Authorize BEFORE any idempotent return, so an unauthorized caller neither
   // stops the clock nor learns the task's state/PHI. Throws forbidden otherwise.
-  const authz = resolveAckAuthorization(current, { actorUid: ackUid, actorRoles, overrideReason });
+  const { authz, verifiedOverride } = await resolveVerifiedAckAuthorization({
+    tenantId: tid,
+    taskRow: current,
+    actorUid: ackUid,
+    actorRoles,
+    breakGlassId,
+    trustedOverride,
+    db,
+  });
+  let effectiveAuthz = authz;
+  let effectiveTrustedResourceId = trustedOverride ? verifiedOverride.id : null;
+  let effectiveFromStatus = current.status;
 
-  // Already acknowledged → idempotent no-op (do not re-stamp / re-comment).
-  if (current.status === 'in_progress') return current;
+  // Already acknowledged → do not re-stamp or duplicate the comment, but repair
+  // a legacy task/SLA split after atomically re-checking current authority.
+  if (current.status === 'in_progress') {
+    return reconcileInProgressAcknowledgement({
+      tenantId: tid,
+      taskId,
+      actorUid: ackUid,
+      authz: effectiveAuthz,
+      trustedResourceId: effectiveTrustedResourceId,
+      taskRow: current,
+      db,
+    });
+  }
   // Terminal states can never be acknowledged.
   if (current.status === 'completed' || current.status === 'cancelled') {
     throw AppError.invalidTransition(current.status, 'in_progress', TASK_TRANSITIONS[current.status] || []);
@@ -505,65 +805,145 @@ export async function acknowledgeTask({
   // concurrent completion/cancel (or a racing acker) cannot be flipped back to
   // in_progress between the pre-read and the write (TOCTOU). RETURNING yields no
   // row when the guard excludes the current status. `acknowledged_via` records
-  // the authorization mode; an override also stamps its reason (audit trail).
+  // the authorization mode; a verified override stamps its durable authority
+  // source, record id, and server-loaded reason.
   const ackedAt = new Date().toISOString();
-  const overrideReasonValue = authz.mode === 'override' ? authz.reason : null;
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE tasks
-        SET status = 'in_progress',
-            metadata = COALESCE(metadata, '{}'::jsonb)
-              || jsonb_build_object('acknowledged_at', $1::text, 'acknowledged_by', $2::text, 'acknowledged_via', $3::text)
-              || CASE WHEN $4::text IS NOT NULL
-                      THEN jsonb_build_object('acknowledge_override_reason', $4::text)
-                      ELSE '{}'::jsonb END,
-            updated_at = NOW()
-      WHERE id = $5 AND tenant_id = $6::uuid
-        AND status IN ('open', 'overdue')
-      RETURNING ${TASK_RETURNING}`,
-    ackedAt,
-    ackUid,
-    authz.mode,
-    overrideReasonValue,
+  let rows = await updateTaskForAcknowledgement({
+    tenantId: tid,
     taskId,
-    tid,
-  );
+    actorUid: ackUid,
+    authz: effectiveAuthz,
+    trustedResourceId: effectiveTrustedResourceId,
+    acknowledgedAt: ackedAt,
+    db,
+  });
   if (!rows[0]) {
-    // The guarded UPDATE matched nothing: either the task vanished or its status
-    // moved out of ('open','overdue') concurrently. Re-read to disambiguate.
-    const after = await getTask({ tenantId: tid, id: taskId });
-    // A concurrent acker already moved it to in_progress → idempotent success.
-    if (after.status === 'in_progress') return after;
-    // Otherwise it was completed/cancelled out from under us → not acknowledgeable.
-    throw AppError.invalidTransition(after.status, 'in_progress', TASK_TRANSITIONS[after.status] || []);
+    // The guarded UPDATE matched nothing: status or authority changed. Re-read
+    // without returning task details until current authority is re-established.
+    const after = await getTask({ tenantId: tid, id: taskId, tx });
+    const fresh = await resolveVerifiedAckAuthorization({
+      tenantId: tid,
+      taskRow: after,
+      actorUid: ackUid,
+      actorRoles,
+      breakGlassId,
+      trustedOverride,
+      db,
+    });
+    if (after.status === 'in_progress') {
+      return reconcileInProgressAcknowledgement({
+        tenantId: tid,
+        taskId,
+        actorUid: ackUid,
+        authz: fresh.authz,
+        trustedResourceId: trustedOverride ? fresh.verifiedOverride.id : null,
+        taskRow: after,
+        db,
+      });
+    }
+    if (after.status === 'open' || after.status === 'overdue') {
+      // The selected authority can change while another valid mode remains
+      // (for example, an assignee who is also an administrator). Retry the CAS
+      // once with freshly resolved authority before returning a generic denial.
+      effectiveAuthz = fresh.authz;
+      effectiveTrustedResourceId = trustedOverride ? fresh.verifiedOverride.id : null;
+      rows = await updateTaskForAcknowledgement({
+        tenantId: tid,
+        taskId,
+        actorUid: ackUid,
+        authz: effectiveAuthz,
+        trustedResourceId: effectiveTrustedResourceId,
+        acknowledgedAt: ackedAt,
+        db,
+      });
+      if (!rows[0]) throw ackForbidden(after);
+      effectiveFromStatus = after.status;
+    } else {
+      // Otherwise it was completed/cancelled out from under us → not acknowledgeable.
+      throw AppError.invalidTransition(after.status, 'in_progress', TASK_TRANSITIONS[after.status] || []);
+    }
   }
 
   // Acknowledging a critical result STOPS the SLA clock (audit C-3): complete
   // the linked mig-269 instance so it leaves 'active'/'breached' and the
   // escalation backfill stops re-creating a task for this already-handled
-  // result. Best-effort + never-throws — an acked task must not be un-acked
-  // because the SLA completion failed.
-  await completeLinkedSla({ tenantId: tid, taskRow: rows[0], completedBy: ackUid });
+  // result. Inside a caller transaction both this write and the audit comment
+  // are load-bearing so all acknowledgement state commits or rolls back as one.
+  await completeLinkedSla({
+    tenantId: tid,
+    taskRow: rows[0],
+    db,
+    completedBy: ackUid,
+    strict: Boolean(tx),
+  });
 
-  // Append a state_change audit comment (best-effort: an acknowledged task must
-  // not be un-acknowledged just because the comment insert failed).
-  try {
-    const overrideNote = authz.mode === 'override' ? ` [override: ${authz.reason}]` : '';
-    await postTaskComment({
-      tenantId: tid,
-      taskId,
-      authorUid: ackUid,
-      body: `Task acknowledged (${current.status} → in_progress) via ${authz.mode}${overrideNote}`,
-      bodyKind: 'state_change',
-      metadata: {
-        from: current.status, to: 'in_progress', acknowledged_at: ackedAt, via: authz.mode,
-        ...(authz.mode === 'override' ? { override_reason: authz.reason } : {}),
-      },
-    });
-  } catch (err) {
-    // Comment is an audit nicety, not load-bearing — log with context, do not rethrow.
-    logger.warn('acknowledgeTask: state_change comment failed', { taskId, err: err?.message });
+  const overrideNote = effectiveAuthz.mode === 'override'
+    ? ` [override ${effectiveAuthz.source}:${effectiveAuthz.id}: ${effectiveAuthz.reason}]`
+    : '';
+  const commentWrite = () => postTaskComment({
+    tenantId: tid,
+    taskId,
+    authorUid: ackUid,
+    body: `Task acknowledged (${effectiveFromStatus} → in_progress) via ${effectiveAuthz.mode}${overrideNote}`,
+    bodyKind: 'state_change',
+    metadata: {
+      from: effectiveFromStatus, to: 'in_progress', acknowledged_at: ackedAt, via: effectiveAuthz.mode,
+      ...(effectiveAuthz.mode === 'override' ? {
+        override_source: effectiveAuthz.source,
+        override_id: effectiveAuthz.id,
+        override_reason: effectiveAuthz.reason,
+      } : {}),
+    },
+    tx,
+  });
+  if (tx) {
+    await commentWrite();
+  } else {
+    try {
+      await commentWrite();
+    } catch (err) {
+      logger.warn('acknowledgeTask: state_change comment failed', { taskId, err: err?.message });
+    }
   }
   return rows[0];
+}
+
+export async function acknowledgeTask({
+  tenantId = null, id, actorUid = null, actorRoles = [], breakGlassId = null, tx = null,
+} = {}) {
+  const args = { tenantId, id, actorUid, actorRoles, breakGlassId, tx };
+  if (tx) return acknowledgeTaskInternal(args);
+
+  const tid = resolveTenantId({ tenantId });
+  return setTenantTx(tid, (tenantTx) => acknowledgeTaskInternal({
+    ...args,
+    tenantId: tid,
+    tx: tenantTx,
+  }));
+}
+
+export async function acknowledgeColdChainTaskFromTrustedWorkflow({
+  tenantId = null,
+  id,
+  actorUid = null,
+  actorRoles = [],
+  excursionId,
+  tx = null,
+} = {}) {
+  if (!tx) {
+    throw AppError.internal(
+      'Trusted workflow acknowledgement requires a transaction',
+      'TRUSTED_TASK_ACK_TRANSACTION_REQUIRED',
+    );
+  }
+  const trustedOverride = {
+    source: COLD_CHAIN_ACK_SOURCE,
+    reason: COLD_CHAIN_ACK_REASON,
+    id: String(excursionId),
+  };
+  return acknowledgeTaskInternal({
+    tenantId, id, actorUid, actorRoles, trustedOverride, tx,
+  });
 }
 
 /**
@@ -656,13 +1036,15 @@ export async function postTaskComment({
   tenantId = null, taskId,
   authorUid = null, body, bodyKind = 'comment',
   metadata = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const cleanTaskId = normalizeId(taskId, 'task_id');
   const cleanBody = safeText(body);
   if (!cleanBody) throw AppError.badRequest('body is required');
+  const db = tx || prisma;
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `INSERT INTO task_comments
          (tenant_id, task_id, author_uid, body, body_kind, metadata)
        VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6::jsonb)
@@ -1391,6 +1773,7 @@ export default {
   getTask,
   transitionTask,
   acknowledgeTask,
+  acknowledgeColdChainTaskFromTrustedWorkflow,
   reassignTask,
   postTaskComment,
   listTaskComments,

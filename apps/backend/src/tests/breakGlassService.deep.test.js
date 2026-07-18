@@ -38,6 +38,7 @@ const {
   sweepExpiredBreakGlass,
 } = await import('../services/security/breakGlassService.js');
 const { authorizePatientAccessRequest } = await import('../services/security/accessDecisionService.js');
+const { acknowledgeTask, createTask } = await import('../services/workflow/taskService.js');
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -78,6 +79,13 @@ async function historyRows(breakGlassId) {
 }
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM task_comments
+      WHERE task_id IN (SELECT id FROM tasks WHERE patient_uid = $1::uuid)`, PATIENT_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT_UID,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM patient_access_break_glass_status_history WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
@@ -196,6 +204,51 @@ d('PHI break-glass lifecycle (deep, real engine/DB)', () => {
     expect(decision.allowed).toBe(true);
     expect(decision.accessSource).toBe('break_glass');
     expect(decision.accessDecision).toBe('break_glass');
+  });
+
+  it('uses the exact active break-glass row to acknowledge another role task', async () => {
+    const [active] = await listActiveBreakGlass({
+      tenantId: DEFAULT_TENANT_ID,
+      patientUid: PATIENT_UID,
+    });
+    const task = await createTask({
+      tenantId: DEFAULT_TENANT_ID,
+      title: `BG acknowledgement task ${SUFFIX}`,
+      patientUid: PATIENT_UID,
+      assignedToRole: 'DOCTOR',
+      createdBy: ACTOR_UID,
+      metadata: { test: 'break_glass_task_acknowledgement' },
+    });
+
+    const acknowledged = await acknowledgeTask({
+      tenantId: DEFAULT_TENANT_ID,
+      id: task.id,
+      actorUid: ACTOR_UID,
+      actorRoles: ['CMO'],
+      breakGlassId: active.id,
+    });
+
+    expect(acknowledged.status).toBe('in_progress');
+    expect(acknowledged.metadata).toMatchObject({
+      acknowledged_via: 'override',
+      acknowledge_override_source: 'patient_access_break_glass',
+      acknowledge_override_id: String(active.id),
+      acknowledge_override_reason: active.reason,
+    });
+
+    const comments = await prisma.$queryRawUnsafe(
+      `SELECT metadata
+         FROM task_comments
+        WHERE tenant_id = $1::uuid AND task_id = $2`,
+      DEFAULT_TENANT_ID,
+      task.id,
+    );
+    expect(comments).toHaveLength(1);
+    expect(comments[0].metadata).toMatchObject({
+      via: 'override',
+      override_source: 'patient_access_break_glass',
+      override_id: String(active.id),
+    });
   });
 
   it('REVOKE flips the row to revoked + writes history; re-revoke 404s', async () => {

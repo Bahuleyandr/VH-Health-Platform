@@ -70,7 +70,7 @@ class _SmokeClinicalInboxApi extends ClinicalInboxApi {
   }
 
   @override
-  Future<ClinicalInboxTask> acknowledgeTask(String id) {
+  Future<ClinicalInboxTask> acknowledgeTask(String id, {int? breakGlassId}) {
     throw UnimplementedError('Smoke test has no inbox tasks to acknowledge');
   }
 }
