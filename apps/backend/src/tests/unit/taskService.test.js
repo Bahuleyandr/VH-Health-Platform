@@ -776,6 +776,28 @@ describe('TASK_TRANSITIONS map', () => {
   });
 });
 
+describe('workflow transition maps', () => {
+  it('allows active run progress while keeping terminal runs immutable', () => {
+    expect(__testing__.WORKFLOW_RUN_TRANSITIONS.started).toContain('running');
+    expect(__testing__.WORKFLOW_RUN_TRANSITIONS.started).not.toContain('completed');
+    expect(__testing__.WORKFLOW_RUN_TRANSITIONS.running).toContain('completed');
+    expect(__testing__.WORKFLOW_RUN_TRANSITIONS.blocked).not.toContain('completed');
+    expect(__testing__.WORKFLOW_RUN_TRANSITIONS.completed).toEqual([]);
+    expect(__testing__.WORKFLOW_RUN_TRANSITIONS.cancelled).toEqual([]);
+    expect(__testing__.WORKFLOW_RUN_TRANSITIONS.failed).toEqual([]);
+  });
+
+  it('allows pending step progress while keeping terminal steps immutable', () => {
+    expect(__testing__.WORKFLOW_STEP_TRANSITIONS.pending).toContain('in_progress');
+    expect(__testing__.WORKFLOW_STEP_TRANSITIONS.pending).not.toContain('completed');
+    expect(__testing__.WORKFLOW_STEP_TRANSITIONS.in_progress).toContain('completed');
+    expect(__testing__.WORKFLOW_STEP_TRANSITIONS.blocked).not.toContain('completed');
+    expect(__testing__.WORKFLOW_STEP_TRANSITIONS.completed).toEqual([]);
+    expect(__testing__.WORKFLOW_STEP_TRANSITIONS.skipped).toEqual([]);
+    expect(__testing__.WORKFLOW_STEP_TRANSITIONS.failed).toEqual([]);
+  });
+});
+
 describe('transitionTask', () => {
   it('rejects illegal transition (completed -> open)', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
@@ -790,6 +812,9 @@ describe('transitionTask', () => {
     expect(row.status).toBe('completed');
     const sql = queryUnsafeMock.mock.calls[1][0];
     expect(sql).toMatch(/completed_at = \$\d::timestamptz/);
+    expect(sql).toMatch(/AND status = \$\d/);
+    expect(queryUnsafeMock.mock.calls[1]).toContain('open');
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
   });
 
   it('records cancellation_reason on cancel', async () => {
@@ -800,6 +825,51 @@ describe('transitionTask', () => {
     });
     const params = queryUnsafeMock.mock.calls[1].slice(1);
     expect(params).toContain('duplicate');
+  });
+
+  it('validates an explicitly supplied server actor before mutation', async () => {
+    await expect(transitionTask({
+      tenantId: TENANT, id: 1, nextStatus: 'completed', actorUid: null,
+    })).rejects.toMatchObject({ statusCode: 401 });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a compare-and-set loser as conflict when the tenant row still exists', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open' }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
+    await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'TASK_TRANSITION_CONFLICT' });
+  });
+
+  it('propagates linked SLA failure through the task transition transaction', async () => {
+    const task = {
+      id: 1,
+      status: 'open',
+      metadata: { sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+    };
+    queryUnsafeMock.mockResolvedValueOnce([task]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...task, status: 'completed' }]);
+    queryUnsafeMock.mockRejectedValueOnce(new Error('SLA write failed'));
+
+    await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' }))
+      .rejects.toThrow('SLA write failed');
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
+  });
+
+  it('preserves a supplied transaction without nesting setTenantTx', async () => {
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: 1, status: 'open', metadata: {} }])
+      .mockResolvedValueOnce([{ id: 1, status: 'completed', metadata: {} }]);
+    const tx = { $queryRawUnsafe: txQuery };
+
+    const row = await transitionTask({
+      tenantId: TENANT, id: 1, nextStatus: 'completed', tx,
+    });
+
+    expect(row.status).toBe('completed');
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
 });
 
@@ -874,26 +944,67 @@ describe('createWorkflowDefinition', () => {
       steps: [{ step_key: 'review_lab', step_kind: 'task' }],
     });
     expect(row.version).toBe(1);
+    expect(queryUnsafeMock.mock.calls[0]).toContain(false);
+  });
+
+  it('rejects active definitions until governance activation exists', async () => {
+    await expect(createWorkflowDefinition({
+      tenantId: TENANT,
+      workflowKey: 'follow_up_v1',
+      steps: [{ step_key: 'review_lab', step_kind: 'task' }],
+      isActive: true,
+    })).rejects.toMatchObject({ code: 'WORKFLOW_DEFINITION_ACTIVATION_UNAVAILABLE' });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('validates the complete definition contract before insert', async () => {
+    await expect(createWorkflowDefinition({
+      tenantId: TENANT,
+      workflowKey: 'follow_up_v1',
+      steps: [{ step_key: 'review_lab', step_kind: 'unsupported' }],
+    })).rejects.toMatchObject({ code: 'INVALID_WORKFLOW_DEFINITION' });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects stored triggers while the registered trigger set is empty', async () => {
+    await expect(createWorkflowDefinition({
+      tenantId: TENANT,
+      workflowKey: 'follow_up_v1',
+      steps: [{ step_key: 'review_lab', step_kind: 'task' }],
+      triggers: [{ event_type: 'lab.result.signed_off' }],
+    })).rejects.toMatchObject({ code: 'WORKFLOW_TRIGGER_ACTIVATION_UNAVAILABLE' });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
 
   it('throws conflict on duplicate (key, version)', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
     await expect(createWorkflowDefinition({
       tenantId: TENANT, workflowKey: 'follow_up_v1', version: 1,
+      steps: [{ step_key: 'review_lab', step_kind: 'task' }],
     })).rejects.toThrow(/already exists/);
   });
 });
 
 describe('startWorkflowRun materializes steps', () => {
+  it('requires an initiator before opening the tenant transaction', async () => {
+    await expect(startWorkflowRun({ tenantId: TENANT, workflowDefinitionId: 99 }))
+      .rejects.toMatchObject({ statusCode: 401 });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
   it('throws 404 when definition missing', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]); // definition lookup
-    await expect(startWorkflowRun({ tenantId: TENANT, workflowDefinitionId: 99 }))
+    await expect(startWorkflowRun({
+      tenantId: TENANT, workflowDefinitionId: 99, initiatedBy: USER,
+    }))
       .rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('materializes each definition step into workflow_steps', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, workflow_key: 'follow_up_v1', version: 1,
+      is_active: true,
       steps: [
         { step_key: 'review', step_kind: 'task', display_name: 'Review' },
         { step_key: 'approve', step_kind: 'approval' },
@@ -903,21 +1014,66 @@ describe('startWorkflowRun materializes steps', () => {
     queryUnsafeMock.mockResolvedValueOnce([]); // step 1 insert
     queryUnsafeMock.mockResolvedValueOnce([]); // step 2 insert
     const run = await startWorkflowRun({
-      tenantId: TENANT, workflowDefinitionId: 1,
+      tenantId: TENANT, workflowDefinitionId: 1, initiatedBy: USER,
     });
     expect(run.id).toBe(5);
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FOR SHARE/);
     const stepInsertSql = queryUnsafeMock.mock.calls[2][0];
     expect(stepInsertSql).toMatch(/INSERT INTO workflow_steps/);
   });
 
-  it('skips invalid step entries silently', async () => {
+  it('rejects an inactive definition before inserting a run', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
-      id: 1, workflow_key: 'k', version: 1, steps: [null, { step_key: 'x', step_kind: 'fake' }],
+      id: 1, workflow_key: 'k', version: 1, is_active: false,
+      steps: [{ step_key: 'review', step_kind: 'task' }],
+    }]);
+    await expect(startWorkflowRun({
+      tenantId: TENANT, workflowDefinitionId: 1, initiatedBy: USER,
+    }))
+      .rejects.toMatchObject({ code: 'INACTIVE_WORKFLOW_DEFINITION' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed stored steps before inserting a run', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1, workflow_key: 'k', version: 1, is_active: true,
+      steps: [null, { step_key: 'x', step_kind: 'fake' }],
+    }]);
+    await expect(startWorkflowRun({
+      tenantId: TENANT, workflowDefinitionId: 1, initiatedBy: USER,
+    }))
+      .rejects.toMatchObject({ code: 'INVALID_WORKFLOW_DEFINITION' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a legacy stored definition with unregistered triggers before run insert', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      workflow_key: 'k',
+      version: 1,
+      is_active: true,
+      steps: [{ step_key: 'review', step_kind: 'task' }],
+      triggers: [{ event_type: 'lab.result.signed_off' }],
+    }]);
+    await expect(startWorkflowRun({
+      tenantId: TENANT, workflowDefinitionId: 1, initiatedBy: USER,
+    }))
+      .rejects.toMatchObject({ code: 'WORKFLOW_TRIGGER_ACTIVATION_UNAVAILABLE' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not swallow a step materialization failure', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1, workflow_key: 'k', version: 1, is_active: true,
+      steps: [{ step_key: 'review', step_kind: 'task' }],
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 5 }]);
-    // Both step entries invalid (null + bad enum) — should throw on the bad enum during normalization.
-    await expect(startWorkflowRun({ tenantId: TENANT, workflowDefinitionId: 1 }))
-      .rejects.toThrow(/step_kind must be one of/);
+    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    await expect(startWorkflowRun({
+      tenantId: TENANT, workflowDefinitionId: 1, initiatedBy: USER,
+    }))
+      .rejects.toThrow(/duplicate key value/);
   });
 });
 
@@ -929,32 +1085,110 @@ describe('transitionWorkflowRun', () => {
   });
 
   it('flips to completed + stamps ended_at', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'running' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
-    await transitionWorkflowRun({ tenantId: TENANT, id: 1, nextStatus: 'completed' });
-    const sql = queryUnsafeMock.mock.calls[0][0];
+    await transitionWorkflowRun({
+      tenantId: TENANT, id: 1, nextStatus: 'completed', actorUid: USER,
+    });
+    const sql = queryUnsafeMock.mock.calls[1][0];
     expect(sql).toMatch(/ended_at = \$\d::timestamptz/);
+    expect(sql).toMatch(/AND status = \$\d/);
+    expect(queryUnsafeMock.mock.calls[1]).toContain('running');
   });
 
   it('captures failure_reason on failure', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'running' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'failed', failure_reason: 'timeout' }]);
     await transitionWorkflowRun({
-      tenantId: TENANT, id: 1, nextStatus: 'failed', failureReason: 'timeout',
+      tenantId: TENANT, id: 1, nextStatus: 'failed', failureReason: 'timeout', actorUid: USER,
     });
-    const params = queryUnsafeMock.mock.calls[0].slice(1);
+    const params = queryUnsafeMock.mock.calls[1].slice(1);
     expect(params).toContain('timeout');
+  });
+
+  it('requires an authenticated actor before reading the run', async () => {
+    await expect(transitionWorkflowRun({ tenantId: TENANT, id: 1, nextStatus: 'completed' }))
+      .rejects.toMatchObject({ statusCode: 401 });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps terminal run states immutable', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
+    await expect(transitionWorkflowRun({
+      tenantId: TENANT, id: 1, nextStatus: 'running', actorUid: USER,
+    })).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a compare-and-set loser as conflict', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'running' }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+    await expect(transitionWorkflowRun({
+      tenantId: TENANT, id: 1, nextStatus: 'completed', actorUid: USER,
+    })).rejects.toMatchObject({ code: 'WORKFLOW_RUN_TRANSITION_CONFLICT' });
   });
 });
 
 describe('transitionWorkflowStep + listWorkflowSteps + listWorkflowRuns', () => {
   it('transitionWorkflowStep stamps completed_at on completed', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, step_key: 'review', status: 'completed' }]);
     await transitionWorkflowStep({
       tenantId: TENANT, workflowRunId: 1, stepKey: 'review', nextStatus: 'completed',
-      outcome: 'approved',
+      outcome: 'approved', actorUid: USER,
     });
-    const sql = queryUnsafeMock.mock.calls[0][0];
+    const sql = queryUnsafeMock.mock.calls[1][0];
     expect(sql).toMatch(/completed_at = \$\d::timestamptz/);
     expect(sql).toMatch(/outcome = \$\d/);
+    expect(sql).toMatch(/AND status = \$\d/);
+  });
+
+  it('preserves the original started_at when a blocked step resumes', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'blocked' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
+
+    await transitionWorkflowStep({
+      tenantId: TENANT,
+      workflowRunId: 1,
+      stepKey: 'review',
+      nextStatus: 'in_progress',
+      actorUid: USER,
+    });
+
+    expect(queryUnsafeMock.mock.calls[1][0])
+      .toMatch(/started_at = COALESCE\(started_at, \$\d::timestamptz\)/);
+  });
+
+  it('requires an authenticated actor before reading the step', async () => {
+    await expect(transitionWorkflowStep({
+      tenantId: TENANT, workflowRunId: 1, stepKey: 'review', nextStatus: 'completed',
+    })).rejects.toMatchObject({ statusCode: 401 });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps terminal step states immutable', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
+    await expect(transitionWorkflowStep({
+      tenantId: TENANT,
+      workflowRunId: 1,
+      stepKey: 'review',
+      nextStatus: 'in_progress',
+      actorUid: USER,
+    })).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' });
+  });
+
+  it('reports a compare-and-set loser as conflict', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+    await expect(transitionWorkflowStep({
+      tenantId: TENANT,
+      workflowRunId: 1,
+      stepKey: 'review',
+      nextStatus: 'completed',
+      actorUid: USER,
+    })).rejects.toMatchObject({ code: 'WORKFLOW_STEP_TRANSITION_CONFLICT' });
   });
 
   it('listWorkflowSteps degrades to empty on schema-missing', async () => {
@@ -995,25 +1229,86 @@ describe('createApproval', () => {
     });
     expect(row.required_approvers).toBe(1);
   });
+
+  it('rejects domain-owned credential grants before inserting', async () => {
+    await expect(createApproval({
+      tenantId: TENANT,
+      approvalKind: ' CREDENTIAL_PRIVILEGE_GRANT ',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DOMAIN_OWNED_APPROVAL_KIND',
+    });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('recordApprovalDecision', () => {
-  it('rejects missing approver_uid', async () => {
+  it('rejects a missing authenticated actor', async () => {
     await expect(recordApprovalDecision({ tenantId: TENANT, id: 1, decision: 'approve' }))
-      .rejects.toThrow(/approver_uid is required/);
+      .rejects.toMatchObject({ statusCode: 401 });
   });
 
   it('rejects invalid decision', async () => {
     await expect(recordApprovalDecision({
-      tenantId: TENANT, id: 1, approverUid: APPROVER_A, decision: 'maybe',
+      tenantId: TENANT, id: 1, actorUid: APPROVER_A, decision: 'maybe',
     })).rejects.toThrow(/decision must be "approve" or "reject"/);
+  });
+
+  it('rejects domain-owned credential grants after the locked read and before mutation', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'pending',
+      approval_kind: 'credential_privilege_grant',
+      expires_at: null,
+      is_expired: false,
+    }]);
+
+    await expect(recordApprovalDecision({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: APPROVER_A,
+      decision: 'approve',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DOMAIN_OWNED_APPROVAL_KIND',
+    });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/approval_kind/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/expires_at/);
+    expect(queryUnsafeMock.mock.calls[0][0])
+      .toMatch(/expires_at\s+IS\s+NOT\s+NULL\s+AND\s+expires_at\s*<=\s*NOW\(\)/i);
+  });
+
+  it('rejects an expired pending approval using the database expiry result', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'pending',
+      approval_kind: 'discharge_clearance',
+      approved_by: [],
+      required_approvers: 1,
+      expires_at: '2026-07-18T00:00:00.000Z',
+      is_expired: true,
+    }]);
+
+    await expect(recordApprovalDecision({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: APPROVER_A,
+      decision: 'approve',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'APPROVAL_EXPIRED',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects when already decided', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'approved' }]);
     await expect(recordApprovalDecision({
-      tenantId: TENANT, id: 1, approverUid: APPROVER_A, decision: 'approve',
+      tenantId: TENANT, id: 1, actorUid: APPROVER_A, decision: 'approve',
     })).rejects.toThrow(/already approved/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FOR UPDATE/);
   });
 
   it('rejects double-approve from same approver', async () => {
@@ -1022,8 +1317,24 @@ describe('recordApprovalDecision', () => {
       approved_by: [{ uid: APPROVER_A, at: new Date().toISOString() }],
     }]);
     await expect(recordApprovalDecision({
-      tenantId: TENANT, id: 1, approverUid: APPROVER_A, decision: 'approve',
+      tenantId: TENANT, id: 1, actorUid: APPROVER_A, decision: 'approve',
     })).rejects.toThrow(/already approved this gate/);
+  });
+
+  it('rejects a mixed-case UUID replay from the same approver', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'pending',
+      required_approvers: 2,
+      approved_by: [{ uid: APPROVER_A.toUpperCase(), at: new Date().toISOString() }],
+    }]);
+    await expect(recordApprovalDecision({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: APPROVER_A,
+      decision: 'approve',
+    })).rejects.toThrow(/already approved this gate/);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
   it('keeps pending status until quorum reached', async () => {
@@ -1032,9 +1343,11 @@ describe('recordApprovalDecision', () => {
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'pending', approved_by: [{ uid: APPROVER_A }] }]);
     const row = await recordApprovalDecision({
-      tenantId: TENANT, id: 1, approverUid: APPROVER_A, decision: 'approve',
+      tenantId: TENANT, id: 1, actorUid: APPROVER_A, decision: 'approve',
     });
     expect(row.status).toBe('pending');
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/status = 'pending'/);
   });
 
   it('flips to approved when quorum met', async () => {
@@ -1044,7 +1357,7 @@ describe('recordApprovalDecision', () => {
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'approved' }]);
     const row = await recordApprovalDecision({
-      tenantId: TENANT, id: 1, approverUid: APPROVER_B, decision: 'approve',
+      tenantId: TENANT, id: 1, actorUid: APPROVER_B, decision: 'approve',
     });
     expect(row.status).toBe('approved');
   });
@@ -1055,11 +1368,69 @@ describe('recordApprovalDecision', () => {
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'rejected' }]);
     await recordApprovalDecision({
-      tenantId: TENANT, id: 1, approverUid: APPROVER_A, decision: 'reject',
+      tenantId: TENANT, id: 1, actorUid: APPROVER_A, decision: 'reject',
       rejectionReason: 'incomplete chart',
     });
     const params = queryUnsafeMock.mock.calls[1].slice(1);
     expect(params).toContain('incomplete chart');
+  });
+
+  it('enforces required_role inside the locked transaction', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'pending',
+      required_approvers: 1,
+      required_role: 'CMO',
+      approved_by: [],
+    }]);
+    await expect(recordApprovalDecision({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: APPROVER_A,
+      actorRoles: ['DOCTOR'],
+      decision: 'approve',
+    })).rejects.toMatchObject({ statusCode: 403 });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows ADMIN and SUPER_ADMIN to administer a role-gated approval', async () => {
+    for (const role of ['ADMIN', 'SUPER_ADMIN']) {
+      queryUnsafeMock.mockResolvedValueOnce([{
+        id: 1,
+        status: 'pending',
+        required_approvers: 1,
+        required_role: 'CMO',
+        approved_by: [],
+      }]);
+      queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'approved' }]);
+      const row = await recordApprovalDecision({
+        tenantId: TENANT,
+        id: 1,
+        actorUid: APPROVER_A,
+        actorRoles: [role],
+        decision: 'approve',
+      });
+      expect(row.status).toBe('approved');
+    }
+  });
+
+  it('allows a holder of required_role to approve', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'pending',
+      required_approvers: 1,
+      required_role: 'CMO',
+      approved_by: [],
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'approved' }]);
+    const row = await recordApprovalDecision({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: APPROVER_A,
+      actorRoles: ['cmo'],
+      decision: 'approve',
+    });
+    expect(row.status).toBe('approved');
   });
 
   it('listApprovals filters by workflow_run_id', async () => {

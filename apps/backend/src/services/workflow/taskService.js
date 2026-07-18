@@ -26,6 +26,12 @@ import { AppError } from '../../utils/AppError.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
 import { roleCanBreakGlass } from '../security/breakGlassService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  WORKFLOW_STEP_KINDS,
+  validateWorkflowDefinitionSteps,
+} from './workflowDefinitionContract.js';
+
+export { WORKFLOW_STEP_KINDS };
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -38,13 +44,16 @@ export const TASK_STATUSES = ['open', 'in_progress', 'blocked', 'completed', 'ca
 export const TASK_COMMENT_KINDS = ['comment', 'system_event', 'state_change'];
 export const WORKFLOW_TRIGGER_KINDS = ['manual', 'event', 'schedule', 'api', 'subgraph'];
 export const WORKFLOW_STATUSES = ['started', 'running', 'blocked', 'completed', 'cancelled', 'failed'];
-export const WORKFLOW_STEP_KINDS = ['task', 'approval', 'automation', 'wait', 'subworkflow', 'ai_call'];
 export const WORKFLOW_STEP_STATUSES = ['pending', 'in_progress', 'blocked', 'completed', 'skipped', 'failed'];
 export const APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'cancelled', 'expired'];
 export const ESCALATION_SCOPES = ['task', 'workflow_step', 'approval'];
 export const ESCALATION_TRIGGERS = ['sla_breach', 'no_progress_after', 'pending_too_long', 'on_status_change'];
 export const ESCALATION_ACTIONS = ['notify', 'reassign', 'escalate_priority', 'auto_resolve', 'webhook'];
 export const AUTOMATION_ACTIONS = ['create_task', 'start_workflow', 'create_approval', 'webhook', 'notify'];
+
+const GENERIC_RUNTIME_DENIED_APPROVAL_KINDS = new Set([
+  'credential_privilege_grant',
+]);
 
 const TASK_TRANSITIONS = {
   open: ['in_progress', 'blocked', 'completed', 'cancelled'],
@@ -53,6 +62,24 @@ const TASK_TRANSITIONS = {
   completed: [],
   cancelled: [],
   overdue: ['in_progress', 'completed', 'cancelled'],
+};
+
+const WORKFLOW_RUN_TRANSITIONS = {
+  started: ['running', 'cancelled', 'failed'],
+  running: ['blocked', 'completed', 'cancelled', 'failed'],
+  blocked: ['running', 'cancelled', 'failed'],
+  completed: [],
+  cancelled: [],
+  failed: [],
+};
+
+const WORKFLOW_STEP_TRANSITIONS = {
+  pending: ['in_progress', 'blocked', 'skipped', 'failed'],
+  in_progress: ['blocked', 'completed', 'skipped', 'failed'],
+  blocked: ['in_progress', 'skipped', 'failed'],
+  completed: [],
+  skipped: [],
+  failed: [],
 };
 
 function resolveTenantId(options = {}) {
@@ -89,6 +116,22 @@ function maybeUuid(value, label = 'uid') {
     throw AppError.badRequest(`${label} must be a UUID`);
   }
   return text;
+}
+
+function requireActorUid(value, label = 'actor_uid') {
+  const uid = maybeUuid(value, label);
+  if (!uid) throw AppError.unauthorized('Authenticated actor is required');
+  return uid;
+}
+
+function assertGenericApprovalKindAllowed(value) {
+  const normalizedKind = String(value || '').trim().toLowerCase();
+  if (GENERIC_RUNTIME_DENIED_APPROVAL_KINDS.has(normalizedKind)) {
+    throw AppError.conflict(
+      'Approval must be managed through its owning domain workflow',
+      'DOMAIN_OWNED_APPROVAL_KIND',
+    );
+  }
 }
 
 function normalizeLimit(value, fallback = DEFAULT_LIST_LIMIT, max = MAX_LIST_LIMIT) {
@@ -157,10 +200,10 @@ function normalizeTimestamp(value, label) {
 // rule_code/source key — and is a no-op for an instance already in a terminal
 // state, so a second ack / an ack-then-complete never reopens or double-stamps.
 //
-// Standalone task changes keep this best-effort for backward compatibility. A
-// caller-supplied transaction makes the SLA write load-bearing: PostgreSQL marks
-// a transaction aborted after any failed statement, so swallowing that error
-// would only defer the failure and obscure which write broke atomicity.
+// Task mutations run this inside their tenant transaction. PostgreSQL marks a
+// transaction aborted after any failed statement, so the caller uses strict
+// mode and surfaces the original error instead of obscuring which write broke
+// atomicity.
 //
 // We resolve by metadata.sla_instance_id (a uuid). A direct UPDATE (rather than
 // importing completeWorkflowSla) keeps taskService free of the canonical
@@ -395,12 +438,27 @@ export async function getTask({ tenantId = null, id, tx = null } = {}) {
 export async function transitionTask({
   tenantId = null, id, nextStatus,
   cancellationReason = null,
+  actorUid = undefined,
   tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
   const cleanNext = normalizeEnum(nextStatus, TASK_STATUSES, 'next_status', { required: true });
-  const db = tx || prisma;
+  // ADMIN HTTP callers always pass actorUid (including null when authentication
+  // context is absent), which is validated here. Trusted in-process task
+  // producers omit the property until S1b-b adds durable user/system events.
+  if (actorUid !== undefined) requireActorUid(actorUid);
+  if (!tx) {
+    return setTenantTx(tid, (scopedTx) => transitionTask({
+      tenantId: tid,
+      id: taskId,
+      nextStatus: cleanNext,
+      cancellationReason,
+      actorUid,
+      tx: scopedTx,
+    }));
+  }
+  const db = tx;
 
   const current = await getTask({ tenantId: tid, id: taskId, tx });
   const allowed = TASK_TRANSITIONS[current.status] || [];
@@ -424,23 +482,27 @@ export async function transitionTask({
   }
   params.push(taskId);
   params.push(tid);
+  params.push(current.status);
 
   const rows = await db.$queryRawUnsafe(
     `UPDATE tasks SET ${updates.join(', ')}
-     WHERE id = $${params.length - 1} AND tenant_id = $${params.length}::uuid
+     WHERE id = $${params.length - 2}
+       AND tenant_id = $${params.length - 1}::uuid
+       AND status = $${params.length}
      RETURNING ${TASK_RETURNING}`,
     ...params,
   );
-  if (!rows[0]) throw AppError.notFound('Task not found');
+  if (!rows[0]) {
+    await getTask({ tenantId: tid, id: taskId, tx });
+    throw AppError.conflict('Task status changed before transition completed', 'TASK_TRANSITION_CONFLICT');
+  }
 
   // A terminal transition also STOPS the SLA clock (audit C-3): resolving a
   // critical result directly (or the engine's auto_resolve) must close the
   // linked mig-269 instance, not just acknowledging it. Runs on the SAME db
-  // client (the caller's tx when provided) so it commits atomically with the
-  // transition. Standalone callers keep best-effort behavior; a supplied
-  // transaction makes the linked SLA update part of the same atomic change.
+  // client so it commits atomically with the transition.
   if (cleanNext === 'completed' || cleanNext === 'cancelled') {
-    await completeLinkedSla({ tenantId: tid, taskRow: rows[0], db, strict: Boolean(tx) });
+    await completeLinkedSla({ tenantId: tid, taskRow: rows[0], db, strict: true });
   }
   return rows[0];
 }
@@ -1101,13 +1163,28 @@ export async function createWorkflowDefinition({
   steps = null,
   triggers = null,
   defaults = null,
-  isActive = true,
+  isActive = false,
   createdBy = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const cleanKey = safeText(workflowKey, 120);
   if (!cleanKey) throw AppError.badRequest('workflow_key is required');
   const cleanVersion = normalizeInt(version, 'version', { min: 1, max: 1000 }) || 1;
+  const normalizedSteps = validateWorkflowDefinitionSteps(steps);
+  const normalizedTriggers = normalizeJsonArray(triggers, 'triggers');
+  if (normalizedTriggers.length > 0) {
+    throw AppError.badRequest(
+      'Workflow definition triggers are unavailable until registered handlers exist',
+      'WORKFLOW_TRIGGER_ACTIVATION_UNAVAILABLE',
+    );
+  }
+  const cleanIsActive = normalizeBoolean(isActive, false);
+  if (cleanIsActive) {
+    throw AppError.badRequest(
+      'New workflow definitions must be inactive until governance activation is available',
+      'WORKFLOW_DEFINITION_ACTIVATION_UNAVAILABLE',
+    );
+  }
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO workflow_definitions
@@ -1118,10 +1195,10 @@ export async function createWorkflowDefinition({
       tid, cleanKey, cleanVersion,
       safeText(displayName, SHORT_MAX), safeText(description),
       safeText(category, 80),
-      JSON.stringify(steps ? normalizeJsonArray(steps, 'steps') : []),
-      JSON.stringify(triggers ? normalizeJsonArray(triggers, 'triggers') : []),
+      JSON.stringify(normalizedSteps),
+      JSON.stringify(normalizedTriggers),
       JSON.stringify(normalizeJsonObject(defaults, 'defaults')),
-      normalizeBoolean(isActive, true),
+      false,
       maybeUuid(createdBy, 'created_by'),
     );
     return rows[0];
@@ -1184,59 +1261,64 @@ export async function startWorkflowRun({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const defId = normalizeId(workflowDefinitionId, 'workflow_definition_id');
-  const def = await prisma.$queryRawUnsafe(
-    `SELECT id, workflow_key, version, steps FROM workflow_definitions
-     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-    defId, tid,
-  );
-  if (!def[0]) throw AppError.notFound('Workflow definition not found');
-  const definition = def[0];
-
+  const cleanInitiatedBy = requireActorUid(initiatedBy, 'initiated_by');
   try {
-    const runRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO workflow_runs
-         (tenant_id, workflow_definition_id, workflow_key, workflow_version,
-          trigger_kind, trigger_payload, status, context,
-          due_at, initiated_by, metadata)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, 'started', $7::jsonb,
-         $8::timestamptz, $9::uuid, $10::jsonb)
-       RETURNING ${WORKFLOW_RUN_RETURNING}`,
-      tid, definition.id, definition.workflow_key, definition.version,
-      normalizeEnum(triggerKind, WORKFLOW_TRIGGER_KINDS, 'trigger_kind') || 'manual',
-      JSON.stringify(normalizeJsonObject(triggerPayload, 'trigger_payload')),
-      JSON.stringify(normalizeJsonObject(context, 'context')),
-      normalizeTimestamp(dueAt, 'due_at'),
-      maybeUuid(initiatedBy, 'initiated_by'),
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    const run = runRows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const definitions = await tx.$queryRawUnsafe(
+        `SELECT id, workflow_key, version, steps, triggers, is_active FROM workflow_definitions
+         WHERE id = $1 AND tenant_id = $2::uuid
+         LIMIT 1
+         FOR SHARE`,
+        defId, tid,
+      );
+      if (!definitions[0]) throw AppError.notFound('Workflow definition not found');
+      const definition = definitions[0];
+      if (!definition.is_active) {
+        throw AppError.badRequest('Workflow definition is inactive', 'INACTIVE_WORKFLOW_DEFINITION');
+      }
+      const normalizedSteps = validateWorkflowDefinitionSteps(definition.steps);
+      const normalizedTriggers = normalizeJsonArray(definition.triggers, 'triggers');
+      if (normalizedTriggers.length > 0) {
+        throw AppError.badRequest(
+          'Workflow definition contains unregistered triggers',
+          'WORKFLOW_TRIGGER_ACTIVATION_UNAVAILABLE',
+        );
+      }
 
-    // Materialize steps from definition into workflow_steps.
-    const stepArr = Array.isArray(definition.steps) ? definition.steps : [];
-    let order = 0;
-    for (const step of stepArr) {
-      if (!step || typeof step !== 'object') continue;
-      const stepKey = safeText(step.step_key || step.key, 120);
-      const stepKind = normalizeEnum(step.step_kind || step.kind, WORKFLOW_STEP_KINDS, 'step.step_kind');
-      if (!stepKey || !stepKind) continue;
-      try {
-        await prisma.$queryRawUnsafe(
+      const runRows = await tx.$queryRawUnsafe(
+        `INSERT INTO workflow_runs
+           (tenant_id, workflow_definition_id, workflow_key, workflow_version,
+            trigger_kind, trigger_payload, status, context,
+            due_at, initiated_by, metadata)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, 'started', $7::jsonb,
+           $8::timestamptz, $9::uuid, $10::jsonb)
+         RETURNING ${WORKFLOW_RUN_RETURNING}`,
+        tid, definition.id, definition.workflow_key, definition.version,
+        normalizeEnum(triggerKind, WORKFLOW_TRIGGER_KINDS, 'trigger_kind') || 'manual',
+        JSON.stringify(normalizeJsonObject(triggerPayload, 'trigger_payload')),
+        JSON.stringify(normalizeJsonObject(context, 'context')),
+        normalizeTimestamp(dueAt, 'due_at'),
+        cleanInitiatedBy,
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const run = runRows[0];
+
+      for (const [order, step] of normalizedSteps.entries()) {
+        await tx.$queryRawUnsafe(
           `INSERT INTO workflow_steps
              (tenant_id, workflow_run_id, step_key, display_name, step_kind,
-              status, ordering, assigned_role, due_at, metadata)
-           VALUES ($1::uuid, $2, $3, $4, $5, 'pending', $6, $7, $8::timestamptz, $9::jsonb)`,
-          tid, run.id, stepKey,
-          safeText(step.display_name || step.title, SHORT_MAX),
-          stepKind, order++,
-          safeText(step.assigned_role, 80),
-          normalizeTimestamp(step.due_at, 'step.due_at'),
-          JSON.stringify(normalizeJsonObject(step.metadata, 'step.metadata')),
+               status, ordering, assigned_role, due_at, metadata)
+            VALUES ($1::uuid, $2, $3, $4, $5, 'pending', $6, $7, $8::timestamptz, $9::jsonb)`,
+          tid, run.id, step.step_key,
+          step.display_name,
+          step.step_kind, order,
+          step.assigned_role,
+          step.due_at,
+          JSON.stringify(step.metadata),
         );
-      } catch (err) {
-        if (!/duplicate key value/i.test(String(err?.message || ''))) throw err;
       }
-    }
-    return run;
+      return run;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -1277,10 +1359,23 @@ export async function listWorkflowRuns({
 export async function transitionWorkflowRun({
   tenantId = null, id, nextStatus,
   failureReason = null, currentStepKey = null,
+  actorUid = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const runId = normalizeId(id, 'workflow_run id');
   const cleanStatus = normalizeEnum(nextStatus, WORKFLOW_STATUSES, 'next_status', { required: true });
+  requireActorUid(actorUid);
+  const currentRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status FROM workflow_runs
+     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    runId, tid,
+  );
+  if (!currentRows[0]) throw AppError.notFound('Workflow run not found');
+  const currentStatus = currentRows[0].status;
+  const allowed = WORKFLOW_RUN_TRANSITIONS[currentStatus] || [];
+  if (!allowed.includes(cleanStatus)) {
+    throw AppError.invalidTransition(currentStatus, cleanStatus, allowed);
+  }
   const updates = ['status = $1', 'updated_at = NOW()'];
   const params = [cleanStatus];
   if (currentStepKey !== null) {
@@ -1297,13 +1392,27 @@ export async function transitionWorkflowRun({
   }
   params.push(runId);
   params.push(tid);
+  params.push(currentStatus);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE workflow_runs SET ${updates.join(', ')}
-     WHERE id = $${params.length - 1} AND tenant_id = $${params.length}::uuid
+     WHERE id = $${params.length - 2}
+       AND tenant_id = $${params.length - 1}::uuid
+       AND status = $${params.length}
      RETURNING ${WORKFLOW_RUN_RETURNING}`,
     ...params,
   );
-  if (!rows[0]) throw AppError.notFound('Workflow run not found');
+  if (!rows[0]) {
+    const latest = await prisma.$queryRawUnsafe(
+      `SELECT id FROM workflow_runs
+       WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+      runId, tid,
+    );
+    if (!latest[0]) throw AppError.notFound('Workflow run not found');
+    throw AppError.conflict(
+      'Workflow run status changed before transition completed',
+      'WORKFLOW_RUN_TRANSITION_CONFLICT',
+    );
+  }
   return rows[0];
 }
 
@@ -1331,15 +1440,30 @@ export async function listWorkflowSteps({ tenantId = null, workflowRunId } = {})
 export async function transitionWorkflowStep({
   tenantId = null, workflowRunId, stepKey, nextStatus,
   outcome = null, outcomePayload = null,
+  actorUid = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const runId = normalizeId(workflowRunId, 'workflow_run_id');
   const cleanStatus = normalizeEnum(nextStatus, WORKFLOW_STEP_STATUSES, 'next_status', { required: true });
+  requireActorUid(actorUid);
+  const cleanStepKey = safeText(stepKey, 120);
+  if (!cleanStepKey) throw AppError.badRequest('step_key is required');
+  const currentRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status FROM workflow_steps
+     WHERE workflow_run_id = $1 AND step_key = $2 AND tenant_id = $3::uuid LIMIT 1`,
+    runId, cleanStepKey, tid,
+  );
+  if (!currentRows[0]) throw AppError.notFound('Workflow step not found');
+  const currentStatus = currentRows[0].status;
+  const allowed = WORKFLOW_STEP_TRANSITIONS[currentStatus] || [];
+  if (!allowed.includes(cleanStatus)) {
+    throw AppError.invalidTransition(currentStatus, cleanStatus, allowed);
+  }
   const updates = ['status = $1', 'updated_at = NOW()'];
   const params = [cleanStatus];
   if (cleanStatus === 'in_progress') {
     params.push(new Date().toISOString());
-    updates.push(`started_at = $${params.length}::timestamptz`);
+    updates.push(`started_at = COALESCE(started_at, $${params.length}::timestamptz)`);
   }
   if (cleanStatus === 'completed' || cleanStatus === 'skipped' || cleanStatus === 'failed') {
     params.push(new Date().toISOString());
@@ -1354,17 +1478,30 @@ export async function transitionWorkflowStep({
     updates.push(`outcome_payload = $${params.length}::jsonb`);
   }
   params.push(runId);
-  params.push(safeText(stepKey, 120));
+  params.push(cleanStepKey);
   params.push(tid);
+  params.push(currentStatus);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE workflow_steps SET ${updates.join(', ')}
-     WHERE workflow_run_id = $${params.length - 2}
-       AND step_key = $${params.length - 1}
-       AND tenant_id = $${params.length}::uuid
+     WHERE workflow_run_id = $${params.length - 3}
+       AND step_key = $${params.length - 2}
+       AND tenant_id = $${params.length - 1}::uuid
+       AND status = $${params.length}
      RETURNING id, tenant_id, workflow_run_id, step_key, status, outcome, outcome_payload, completed_at`,
     ...params,
   );
-  if (!rows[0]) throw AppError.notFound('Workflow step not found');
+  if (!rows[0]) {
+    const latest = await prisma.$queryRawUnsafe(
+      `SELECT id FROM workflow_steps
+       WHERE workflow_run_id = $1 AND step_key = $2 AND tenant_id = $3::uuid LIMIT 1`,
+      runId, cleanStepKey, tid,
+    );
+    if (!latest[0]) throw AppError.notFound('Workflow step not found');
+    throw AppError.conflict(
+      'Workflow step status changed before transition completed',
+      'WORKFLOW_STEP_TRANSITION_CONFLICT',
+    );
+  }
   return rows[0];
 }
 
@@ -1393,6 +1530,7 @@ export async function createApproval({
   const tid = resolveTenantId({ tenantId });
   const cleanKind = safeText(approvalKind, 80);
   if (!cleanKind) throw AppError.badRequest('approval_kind is required');
+  assertGenericApprovalKindAllowed(cleanKind);
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO approvals
@@ -1420,58 +1558,82 @@ export async function createApproval({
 }
 
 export async function recordApprovalDecision({
-  tenantId = null, id, approverUid, decision, rejectionReason = null,
+  tenantId = null, id, actorUid, actorRoles = [], decision, rejectionReason = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const apId = normalizeId(id, 'approval id');
-  const cleanApprover = maybeUuid(approverUid, 'approver_uid');
-  if (!cleanApprover) throw AppError.badRequest('approver_uid is required');
+  const cleanApprover = requireActorUid(actorUid).toLowerCase();
+  const roles = actorRolesUpper(actorRoles);
   if (decision !== 'approve' && decision !== 'reject') {
     throw AppError.badRequest('decision must be "approve" or "reject"');
   }
 
-  const current = await prisma.$queryRawUnsafe(
-    `SELECT id, status, approved_by, required_approvers FROM approvals
-     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-    apId, tid,
-  );
-  if (!current[0]) throw AppError.notFound('Approval not found');
-  if (current[0].status !== 'pending') {
-    throw AppError.badRequest(`Approval already ${current[0].status}`);
-  }
-
-  if (decision === 'reject') {
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE approvals
-       SET status = 'rejected', rejection_reason = $1, decided_at = NOW(), updated_at = NOW()
-       WHERE id = $2 AND tenant_id = $3::uuid
-       RETURNING ${APPROVAL_RETURNING}`,
-      safeText(rejectionReason), apId, tid,
+  return setTenantTx(tid, async (tx) => {
+    const current = await tx.$queryRawUnsafe(
+      `SELECT id, status, approval_kind, approved_by, required_approvers, required_role,
+              expires_at,
+              (expires_at IS NOT NULL AND expires_at <= NOW()) AS is_expired
+         FROM approvals
+       WHERE id = $1 AND tenant_id = $2::uuid
+       FOR UPDATE`,
+      apId, tid,
     );
+    if (!current[0]) throw AppError.notFound('Approval not found');
+    assertGenericApprovalKindAllowed(current[0].approval_kind);
+    if (current[0].status !== 'pending') {
+      throw AppError.badRequest(`Approval already ${current[0].status}`);
+    }
+    if (current[0].is_expired) {
+      throw AppError.conflict('Approval has expired', 'APPROVAL_EXPIRED');
+    }
+
+    const requiredRole = safeText(current[0].required_role, 80)?.toUpperCase() || null;
+    const isTaskAdministrator = roles.some((role) => isAdmin(role)) || roles.includes('SUPER_ADMIN');
+    if (requiredRole && !roles.includes(requiredRole) && !isTaskAdministrator) {
+      throw AppError.forbidden('Not authorized to decide this approval');
+    }
+
+    if (decision === 'reject') {
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE approvals
+         SET status = 'rejected', rejection_reason = $1, decided_at = NOW(), updated_at = NOW()
+         WHERE id = $2 AND tenant_id = $3::uuid AND status = 'pending'
+         RETURNING ${APPROVAL_RETURNING}`,
+        safeText(rejectionReason), apId, tid,
+      );
+      if (!rows[0]) {
+        throw AppError.conflict('Approval status changed before decision completed', 'APPROVAL_DECISION_CONFLICT');
+      }
+      return rows[0];
+    }
+
+    const existingApprovers = Array.isArray(current[0].approved_by) ? current[0].approved_by : [];
+    if (existingApprovers.some(
+      (entry) => String(entry?.uid || '').toLowerCase() === cleanApprover,
+    )) {
+      throw AppError.badRequest('Approver has already approved this gate');
+    }
+    const next = [...existingApprovers, { uid: cleanApprover, at: new Date().toISOString() }];
+    const required = Number(current[0].required_approvers || 1);
+    const reachQuorum = next.length >= required;
+
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE approvals
+       SET approved_by = $1::jsonb,
+           status = $2,
+           decided_at = ${reachQuorum ? 'NOW()' : 'NULL'},
+           updated_at = NOW()
+       WHERE id = $3 AND tenant_id = $4::uuid AND status = 'pending'
+       RETURNING ${APPROVAL_RETURNING}`,
+      JSON.stringify(next),
+      reachQuorum ? 'approved' : 'pending',
+      apId, tid,
+    );
+    if (!rows[0]) {
+      throw AppError.conflict('Approval status changed before decision completed', 'APPROVAL_DECISION_CONFLICT');
+    }
     return rows[0];
-  }
-
-  const existingApprovers = Array.isArray(current[0].approved_by) ? current[0].approved_by : [];
-  if (existingApprovers.some((entry) => entry?.uid === cleanApprover)) {
-    throw AppError.badRequest('Approver has already approved this gate');
-  }
-  const next = [...existingApprovers, { uid: cleanApprover, at: new Date().toISOString() }];
-  const required = Number(current[0].required_approvers || 1);
-  const reachQuorum = next.length >= required;
-
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE approvals
-     SET approved_by = $1::jsonb,
-         status = $2,
-         decided_at = ${reachQuorum ? 'NOW()' : 'NULL'},
-         updated_at = NOW()
-     WHERE id = $3 AND tenant_id = $4::uuid
-     RETURNING ${APPROVAL_RETURNING}`,
-    JSON.stringify(next),
-    reachQuorum ? 'approved' : 'pending',
-    apId, tid,
-  );
-  return rows[0];
+  });
 }
 
 export async function listApprovals({
@@ -1760,6 +1922,8 @@ export const __testing__ = {
   TASK_TRANSITIONS,
   TASK_PRIORITIES,
   TASK_KINDS,
+  WORKFLOW_RUN_TRANSITIONS,
+  WORKFLOW_STEP_TRANSITIONS,
   WORKFLOW_STATUSES,
   WORKFLOW_STEP_KINDS,
   APPROVAL_STATUSES,

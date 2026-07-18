@@ -232,19 +232,33 @@ async function getMetadata() {
   `);
 
   const fks = await client.query(`
-    SELECT tc.table_name,
-           kcu.column_name,
-           ccu.table_name AS foreign_table_name,
-           ccu.column_name AS foreign_column_name
-      FROM information_schema.table_constraints tc
-      JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-       AND tc.table_schema = kcu.table_schema
-      JOIN information_schema.constraint_column_usage ccu
-        ON ccu.constraint_name = tc.constraint_name
-       AND ccu.table_schema = tc.table_schema
-     WHERE tc.constraint_type = 'FOREIGN KEY'
-       AND tc.table_schema = 'public'
+    SELECT child_table.relname AS table_name,
+           child_column.attname AS column_name,
+           parent_table.relname AS foreign_table_name,
+           parent_column.attname AS foreign_column_name
+      FROM pg_constraint fk
+      JOIN pg_class child_table
+        ON child_table.oid = fk.conrelid
+      JOIN pg_namespace child_namespace
+        ON child_namespace.oid = child_table.relnamespace
+      JOIN pg_class parent_table
+        ON parent_table.oid = fk.confrelid
+      JOIN pg_namespace parent_namespace
+        ON parent_namespace.oid = parent_table.relnamespace
+      JOIN LATERAL unnest(fk.conkey) WITH ORDINALITY AS child_key(attnum, position)
+        ON TRUE
+      JOIN LATERAL unnest(fk.confkey) WITH ORDINALITY AS parent_key(attnum, position)
+        ON parent_key.position = child_key.position
+      JOIN pg_attribute child_column
+        ON child_column.attrelid = child_table.oid
+       AND child_column.attnum = child_key.attnum
+      JOIN pg_attribute parent_column
+        ON parent_column.attrelid = parent_table.oid
+       AND parent_column.attnum = parent_key.attnum
+     WHERE fk.contype = 'f'
+       AND child_namespace.nspname = 'public'
+       AND parent_namespace.nspname = 'public'
+     ORDER BY child_table.relname, fk.conname, child_key.position
   `);
 
   const checks = await client.query(`

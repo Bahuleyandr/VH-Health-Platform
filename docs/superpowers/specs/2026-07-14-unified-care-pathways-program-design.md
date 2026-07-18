@@ -170,7 +170,7 @@ flowchart LR
 | Approvals | `approvals` | + CAS + authorization |
 | Time limits | **mig-269 `workflow_sla_instances` / `workflow_sla_rules`** | not mig-118 `sla_definitions` (leave dormant) |
 | Escalation | `escalation_rules` + engine, `scope='task'` | per-rule reconciliation (§3.7); needs a matching tenant rule row |
-| Event→pathway triggers | **new inbox-ledger projector** (§3.3) | `automation_rules` remains dormant in S1a; unresolved D2 gates S1b |
+| Event→pathway triggers | **new inbox-ledger projector** (§3.3) | D2 resolved 2026-07-18: S1b uses registered handlers; `automation_rules` remains dormant and non-authoritative |
 | Longitudinal goals / follow-ups | `care_plans*`, `follow_up_plans` (incl. dormant `origin_kind='er_visit'/'ot_case'` seams) | |
 | Clinical history | `clinical_timeline_events`, `clinical_audit_events` | unchanged invariant |
 | Business events | `event_outbox` (+ inbox ledger) | |
@@ -259,7 +259,8 @@ high-water mark is therefore **not a completeness contract**.
   pathway anchors are handover create/acknowledge, prehospital-handover create/accept, and discharge-
   summary save/sign; the AI lab-autoverification event is not a clinical result-lifecycle emitter.
 - **Decision D1 is adopted for S1a:** projector source = `event_outbox` plus the registered-generation
-  inbox ledger. This resolves D1 for this substrate; it does not imply approval of D2, D8 or D9.
+  inbox ledger. D1 did not imply D2, D8 or D9; the owner separately approved D2, D8 and D9 on
+  2026-07-18 as recorded in §9.
 
 ### 3.4 Runtime
 
@@ -450,9 +451,9 @@ domain clock, internal milestone task, or parallel domain instance.
 Integrity is **not equivalent** across them: **STEMI** (`stemi_pathway_events`, mig 559) is the
 append-only, sequence-numbered, SLA/audit-FK ledger the spine's `care_pathway_transition_events` copies.
 **Stroke** (`stroke_pathway_events`, mig 506) has no sequence, no SLA/audit FK, no append-only trigger,
-and is mutable — so it is **not** the shape to clone, and its own integrity hardening is a separate,
-owner-gated decision (D8), not something this program assumes or requires. STEMI's pending-clock
-semantics (mig 562) are limited to three STEMI rules — do not generalize them.
+and is mutable — so it is **not** the shape to clone. D8 preserves both domain-owned clocks and keeps
+Stroke integrity hardening as a separate scoped workstream rather than silently changing it here.
+STEMI's pending-clock semantics (mig 562) are limited to three STEMI rules — do not generalize them.
 
 ### 4.2 OBGyn convergence (train complete)
 
@@ -475,8 +476,8 @@ checklist.
 
 Leave dormant and mark non-authoritative for v1; the projector's registered, code-reviewed handlers
 are the trigger mechanism (type-checked review beats a DB-row rule engine that invites unreviewed
-behavior). Alternative: per-tenant trigger tuning *through* `automation_rules` rows. Owner call;
-engineering recommendation = leave dormant. D2 remains explicitly unresolved and gates S1b, not S1a.
+behavior). The owner approved this recommendation on 2026-07-18 (D2). `automation_rules` remains
+dormant and non-authoritative; S1b uses registered handlers only.
 
 ---
 
@@ -720,8 +721,9 @@ numbers come from the registry at build time. S1a reserves 578, so 579 is next-f
 the existing 574 collision remains and neither prefix may ever be reused.
 
 - **S0 — Decision dossier (thin).** §2 + §5 are the six-pathway current-state audit. **D1 is adopted
-  and resolved for S1a.** D2 remains explicitly unresolved and gates S1b. D8 and D9 remain explicitly
-  unresolved and gate their named Stroke/STEMI and OBGyn integrations, not the S1a substrate. Name the
+  and resolved for S1a.** D2, D8 and D9 were owner-approved on 2026-07-18: registered handlers remain
+  authoritative while `automation_rules` stays dormant; Stroke/STEMI retain their domain authority
+  with Stroke hardening separate; OBGyn follows rails-first integration. Name the
   clinical + operational owner per pilot pathway and sign the pilot pathways' closure semantics +
   patient-visibility. **D3–D7 gate their respective clinical slices.** No engineering-invented timings.
 - **S1a — Lossless event-consumer substrate (shadow).** The §3.3 one-live-generation registration and
@@ -734,11 +736,22 @@ the existing 574 collision remains and neither prefix may ever be reused.
   retired-generation fanout suppression, catalog preflight plus deployment/boot definer-privilege
   hardening, webhook coexistence and
   representative backlog-recovery/load evidence.
-- **S1b — Minimal runtime + task/SLA contract.** The §3.4a executor + §3.4b build items (atomic start,
-  CAS transitions, transition events, instance/handoff/governance tables, duplicate guard, actor
-  provenance, **acknowledge authorization**, per-rule breach reconciliation) + mode resolver +
-  reconciliation table/sweep + outbox redrive. Gate: substrate conformance suite green (§8), full
-  chunked gate green.
+- **S1b — Minimal runtime + task/SLA contract.** Deliver this risk boundary as bounded sub-slices; S1b
+  is not complete until all are green:
+  - **S1b-a — dormant correctness kernel:** strict inactive definitions, atomic start, tenant-qualified
+    integrity, legal/CAS transitions, serialized approval decisions, server-derived actors and the
+    read-only default-off mode resolver. It seeds/activates nothing and has no projector/runtime caller.
+  - **S1b-b — pathway execution spine:** companion instance/transition/handoff/governance tables, the
+    deterministic registered-handler executor, duplicate episode/idempotency guards, task/approval
+    materialisation, typed task/SLA semantics, same-run graph-coherence preflight and enforcement for
+    optional task/run/step and approval/run/task links, pathway routes and immutable transition evidence.
+  - **S1b-c — reconciliation and activation evidence:** registered per-pathway/per-rule checks, breach
+    reconciliation, evidence-versioned sweep rows/metrics and recovery tooling; an absent check registry
+    is an error and can never produce clean activation evidence.
+  - **S1b-r — live outbox recovery hardening:** claim leases and stale-worker fencing, stale-processing
+    reaping, atomic idempotent subscription fan-out, webhook-delivery uniqueness and reasoned/audited
+    dead-letter redrive. A bare `failed -> pending` reset is forbidden.
+  Overall gate: substrate conformance suite green (§8), full chunked gate green.
 - **S2 — Diagnostics pilot (first end-to-end).** Shadow projection → reconciliation clean → the C5
   activation prerequisites → staff loop (radiology/AP inbox extension, disposition record, amendment
   reopen) → patient projection delta → evidence-gated shadow→active. Gate: no unowned/unacknowledged
@@ -798,14 +811,14 @@ clinical values/thresholds are inferred by engineering.
 | # | Decision | Recommendation | Gates |
 |---|---|---|---|
 | D1 | Projector source | **Adopted for S1a:** `event_outbox` + registered-generation inbox ledger; reject a scalar live cursor | Resolved for S1a |
-| D2 | `automation_rules` fate | **Unresolved:** recommend leaving dormant; registered handlers only | Gates S1b |
+| D2 | `automation_rules` fate | **Owner-approved 2026-07-18:** leave dormant and non-authoritative; registered handlers only | Resolved; S1b may proceed |
 | D3 | Pending results at discharge | Keep today's **hard block** as default; named-owner discharge only as a governed override (accepted ownership + task/SLA + reason/audit + unsafe-result exclusions) | S4 |
 | D4 | Normal-result auto-closure | Allow **conditionally** (signed/final, no critical/abnormal/addendum/repeat flag, approved release policy); patient viewing ≠ clinician ack | S2 |
 | D5 | Abnormal-noncritical action | Require named clinician review + structured disposition (incl. documented no-further-action); do not close solely on release | S2 |
 | D6 | Referral ack/transfer | Require originator acknowledgement unless ownership is explicitly accepted; signed structured response; define absence/re-route/external-return/lost-to-follow-up | S3 |
 | D7 | Surgical `sign_in` | Gate before anaesthesia, with an audited break-glass path; checklist + roles owner-defined | S5 |
-| D8 | Stroke/STEMI | **Unresolved:** recommend preserving domain-clock authority in v1; STEMI unchanged; Stroke integrity hardening = separate scoped decision or documented risk acceptance; do **not** treat their schemas as equivalent | Gates named S1b/S5 integration |
-| D9 | OBGyn sequencing | **Unresolved:** recommend rails-first; one shared reminder/SLA/handoff contract; OBGyn consumes it; ANC/immunisation gated on rail conformance + signed OBGyn semantics | Gates named OBGyn integration |
+| D8 | Stroke/STEMI | **Owner-approved 2026-07-18:** preserve domain-clock authority in v1; STEMI unchanged; Stroke integrity hardening is a separate scoped workstream; do **not** treat their schemas as equivalent | Resolved for coexistence; separate Stroke hardening remains required |
+| D9 | OBGyn sequencing | **Owner-approved 2026-07-18:** rails-first; one shared reminder/SLA/handoff contract; OBGyn consumes it; ANC/immunisation remain gated on rail conformance + signed OBGyn semantics | Resolved for sequencing; OBGyn clinical semantics remain separately gated |
 
 Standing owner list (unresolved, no engineering defaults): SLA targets + business-hours + escalation
 recipients per pathway; patient/guardian visibility + notification policy; meaning of patient

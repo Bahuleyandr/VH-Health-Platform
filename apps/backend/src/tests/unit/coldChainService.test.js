@@ -1,10 +1,13 @@
 import { jest } from '@jest/globals';
 
+import { AppError } from '../../utils/AppError.js';
+
 const queryRawMock = jest.fn();
 const executeRawMock = jest.fn();
 const acknowledgeTaskMock = jest.fn();
 const acknowledgeColdChainTaskFromTrustedWorkflowMock = jest.fn();
 const transitionTaskMock = jest.fn();
+const getTaskMock = jest.fn();
 const createTaskMock = jest.fn();
 const startWorkflowSlaMock = jest.fn();
 const queueNotificationMock = jest.fn();
@@ -37,6 +40,7 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   acknowledgeTask: acknowledgeTaskMock,
   acknowledgeColdChainTaskFromTrustedWorkflow: acknowledgeColdChainTaskFromTrustedWorkflowMock,
   transitionTask: transitionTaskMock,
+  getTask: getTaskMock,
   createTask: createTaskMock,
 }));
 
@@ -61,6 +65,7 @@ const {
   acknowledgeColdChainExcursion,
   breachSurvivedGrace,
   buildTemperatureRegisterCsv,
+  recordColdChainCorrectiveAction,
   runSilentSensorWatchdog,
 } = await import('../../services/devices/coldChainService.js');
 
@@ -74,6 +79,7 @@ describe('coldChainService invariants', () => {
     acknowledgeTaskMock.mockReset().mockResolvedValue({ id: 55, status: 'in_progress' });
     acknowledgeColdChainTaskFromTrustedWorkflowMock.mockReset().mockResolvedValue({ id: 55, status: 'in_progress' });
     transitionTaskMock.mockReset().mockResolvedValue({ id: 55, status: 'completed' });
+    getTaskMock.mockReset();
     createTaskMock.mockReset().mockResolvedValue({ id: 77 });
     startWorkflowSlaMock.mockReset().mockResolvedValue({
       id: '33333333-3333-4333-8333-333333333333',
@@ -187,6 +193,77 @@ describe('coldChainService invariants', () => {
     })).rejects.toThrow('task acknowledgement failed');
 
     expect(emitColdChainEventMock).not.toHaveBeenCalled();
+  });
+
+  it('continues excursion closure after a task CAS loser verifies terminal state in the same tx', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{
+        id: 7,
+        unit_id: 3,
+        task_id: 55,
+        status: 'acknowledged',
+        corrective_action: 'Moved stock to backup fridge',
+      }])
+      .mockResolvedValueOnce([{
+        id: 3,
+        min_temp_c: 2,
+        max_temp_c: 8,
+      }])
+      .mockResolvedValueOnce([{
+        recorded_at: '2026-07-07T10:30:00.000Z',
+        temp_c: 4,
+      }])
+      .mockResolvedValueOnce([{
+        id: 7,
+        unit_id: 3,
+        task_id: 55,
+        status: 'closed',
+      }]);
+    transitionTaskMock.mockRejectedValueOnce(
+      AppError.conflict('Task status changed', 'TASK_TRANSITION_CONFLICT'),
+    );
+    getTaskMock.mockResolvedValueOnce({ id: 55, status: 'completed' });
+
+    const result = await recordColdChainCorrectiveAction({
+      tenantId: TENANT_ID,
+      id: 7,
+      correctiveAction: 'Moved stock to backup fridge',
+      actorUid: ACTOR_UID,
+    });
+
+    expect(result.status).toBe('closed');
+    expect(getTaskMock).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      id: 55,
+      tx: tenantTxClient,
+    });
+    expect(queryRawMock.mock.calls[3][0]).toMatch(/SET status = 'closed'/);
+  });
+
+  it('retries completion only when the CAS re-read remains legally completable', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{
+        id: 7,
+        unit_id: 3,
+        task_id: 55,
+        status: 'acknowledged',
+        corrective_action: 'Moved stock to backup fridge',
+      }])
+      .mockResolvedValueOnce([{ id: 3, min_temp_c: 2, max_temp_c: 8 }])
+      .mockResolvedValueOnce([{ recorded_at: '2026-07-07T10:30:00.000Z', temp_c: 4 }])
+      .mockResolvedValueOnce([{ id: 7, status: 'closed' }]);
+    transitionTaskMock
+      .mockRejectedValueOnce(AppError.conflict('Task status changed', 'TASK_TRANSITION_CONFLICT'))
+      .mockResolvedValueOnce({ id: 55, status: 'completed' });
+    getTaskMock.mockResolvedValueOnce({ id: 55, status: 'in_progress' });
+
+    await expect(recordColdChainCorrectiveAction({
+      tenantId: TENANT_ID,
+      id: 7,
+      correctiveAction: 'Moved stock to backup fridge',
+      actorUid: ACTOR_UID,
+    })).resolves.toMatchObject({ status: 'closed' });
+    expect(transitionTaskMock).toHaveBeenCalledTimes(2);
   });
 
   it('opens silent-sensor warnings through task, notification, and realtime rails', async () => {

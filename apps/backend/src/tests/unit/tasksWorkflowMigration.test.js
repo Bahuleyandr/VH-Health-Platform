@@ -16,6 +16,14 @@ const MIGRATION_PATH = path.resolve(
   __dirname,
   '../../migrations/118_tasks_workflow_foundation.sql',
 );
+const HARDENING_MIGRATION_PATH = path.resolve(
+  __dirname,
+  '../../migrations/579_workflow_runtime_hardening.sql',
+);
+const SEEDER_PATH = path.resolve(
+  __dirname,
+  '../../../scripts/seed-comprehensive-test-data.mjs',
+);
 
 describe('migration 118 — tasks / workflow / approval foundation', () => {
   let sql;
@@ -105,5 +113,88 @@ describe('migration 118 — tasks / workflow / approval foundation', () => {
 
   it('tasks due-date index is partial (status in open|in_progress|blocked)', () => {
     expect(sql).toMatch(/idx_tasks_due[\s\S]*WHERE due_at IS NOT NULL AND status IN \('open', 'in_progress', 'blocked'\)/i);
+  });
+});
+
+describe('migration 579 — tenant-safe dormant workflow runtime', () => {
+  let sql;
+  let seeder;
+  beforeAll(() => {
+    sql = fs.readFileSync(HARDENING_MIGRATION_PATH, 'utf8');
+    seeder = fs.readFileSync(SEEDER_PATH, 'utf8');
+  });
+
+  it('exists with a transactional, non-trivial body', () => {
+    expect(sql.length).toBeGreaterThan(4000);
+    expect(sql).toMatch(/^\s*(?:--[^\n]*\n)*\s*BEGIN;[\s\S]*COMMIT;\s*$/m);
+  });
+
+  it.each([
+    ['workflow_runs', 'workflow_definition_id', 'workflow_definitions'],
+    ['workflow_steps', 'workflow_run_id', 'workflow_runs'],
+    ['tasks', 'workflow_run_id', 'workflow_runs'],
+    ['tasks', 'workflow_step_id', 'workflow_steps'],
+    ['tasks', 'parent_task_id', 'tasks'],
+    ['task_comments', 'task_id', 'tasks'],
+    ['approvals', 'workflow_run_id', 'workflow_runs'],
+    ['approvals', 'task_id', 'tasks'],
+  ])('fails closed on a cross-tenant %s.%s link to %s', (child, column, parent) => {
+    expect(sql).toMatch(new RegExp(
+      `FROM\\s+${child}\\s+AS child[\\s\\S]*?JOIN\\s+${parent}\\s+AS parent[\\s\\S]*?parent\\.id = child\\.${column}[\\s\\S]*?child\\.tenant_id IS DISTINCT FROM parent\\.tenant_id[\\s\\S]*?RAISE EXCEPTION[\\s\\S]*?${child}\\.${column} crosses tenants`,
+      'i',
+    ));
+  });
+
+  it.each([
+    ['workflow_definitions', 'ux_workflow_definitions_tenant_id'],
+    ['workflow_runs', 'ux_workflow_runs_tenant_id'],
+    ['workflow_steps', 'ux_workflow_steps_tenant_id'],
+    ['tasks', 'ux_tasks_tenant_id'],
+  ])('adds a tenant/id unique key to %s', (table, index) => {
+    expect(sql).toMatch(new RegExp(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ${index}\\s+ON ${table} \\(tenant_id, id\\)`,
+      'i',
+    ));
+  });
+
+  it.each([
+    ['workflow_runs', 'workflow_definition_id', 'workflow_definitions', 'SET NULL \\(workflow_definition_id\\)'],
+    ['workflow_steps', 'workflow_run_id', 'workflow_runs', 'CASCADE'],
+    ['tasks', 'workflow_run_id', 'workflow_runs', 'SET NULL \\(workflow_run_id\\)'],
+    ['tasks', 'workflow_step_id', 'workflow_steps', 'SET NULL \\(workflow_step_id\\)'],
+    ['tasks', 'parent_task_id', 'tasks', 'SET NULL \\(parent_task_id\\)'],
+    ['task_comments', 'task_id', 'tasks', 'CASCADE'],
+    ['approvals', 'workflow_run_id', 'workflow_runs', 'SET NULL \\(workflow_run_id\\)'],
+    ['approvals', 'task_id', 'tasks', 'SET NULL \\(task_id\\)'],
+  ])(
+    'tenant-qualifies %s.%s and preserves its delete behavior',
+    (child, column, parent, deleteBehavior) => {
+      expect(sql).toMatch(new RegExp(
+        `ALTER TABLE ${child}[\\s\\S]*?FOREIGN KEY \\(tenant_id, ${column}\\)[\\s\\S]*?REFERENCES ${parent} \\(tenant_id, id\\)[\\s\\S]*?ON DELETE ${deleteBehavior}`,
+        'i',
+      ));
+    },
+  );
+
+  it('makes only newly inserted workflow definitions inactive by default', () => {
+    expect(sql).toMatch(/ALTER TABLE workflow_definitions\s+ALTER COLUMN is_active SET DEFAULT false;/i);
+    expect(sql).not.toMatch(/\bUPDATE\s+workflow_definitions\b/i);
+  });
+
+  it('does not create or seed workflow data', () => {
+    expect(sql).not.toMatch(/\bCREATE TABLE\b/i);
+    expect(sql).not.toMatch(/\bINSERT\s+INTO\s+(workflow_definitions|workflow_runs|workflow_steps|tasks|approvals)\b/i);
+  });
+
+  it('keeps composite foreign-key columns positionally paired in the generic seeder', () => {
+    expect(seeder).toMatch(
+      /unnest\(fk\.conkey\) WITH ORDINALITY AS child_key\(attnum, position\)/i,
+    );
+    expect(seeder).toMatch(
+      /unnest\(fk\.confkey\) WITH ORDINALITY AS parent_key\(attnum, position\)[\s\S]*?parent_key\.position = child_key\.position/i,
+    );
+    expect(seeder).toMatch(/child_column\.attnum = child_key\.attnum/i);
+    expect(seeder).toMatch(/parent_column\.attnum = parent_key\.attnum/i);
+    expect(seeder).not.toMatch(/information_schema\.constraint_column_usage/i);
   });
 });
