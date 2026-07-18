@@ -195,12 +195,13 @@ than an id it already passed. A scalar high-water mark is therefore **not a comp
 - **Completeness by anti-join, not by offset.** A claimer finds work with
   `SELECT e.id FROM event_outbox e LEFT JOIN pathway_projector_inbox i
    ON i.event_id = e.id AND i.consumer_key=$k AND i.generation=$g
-   WHERE i.event_id IS NULL AND e.id > :scan_floor ORDER BY e.id LIMIT n`, inserting `pending` inbox rows.
-  Because the anti-join finds **every** committed outbox row lacking an inbox row regardless of id order,
-  a late-committing lower id is still discovered. `scan_floor` is **advisory** — it may be advanced only
-  to an id below which the inbox provably has no gaps (e.g. `max w such that
-  count(inbox ≤ w) = count(outbox ≤ w)`), and may **never** suppress an event. A periodic full
-  reconciler anti-joins from the retention horizon to catch anything a windowed sweep missed.
+   WHERE i.event_id IS NULL ORDER BY e.id LIMIT n`, inserting `pending` inbox rows.
+   Because the anti-join finds **every** committed outbox row lacking an inbox row regardless of id order,
+  a late-committing lower id is still discovered. **S1a has no scan floor:** count equality below a
+  candidate floor is not proof because an allocated-but-uncommitted lower id is absent from both counts.
+  Every bounded batch therefore performs the floorless anti-join across all retained rows. A future fast
+  path may use a floor only if an independent cyclic/full sweep that ignores it remains the completeness
+  contract.
 - **Idempotent processing.** A worker claims `pending` rows with a lease
   (`UPDATE … SET lease_owner, lease_expires_at WHERE status='pending' AND (lease_expires_at IS NULL OR
   lease_expires_at < now()) … FOR UPDATE SKIP LOCKED`), invokes the **registered handler** for the
@@ -218,8 +219,10 @@ than an id it already passed. A scalar high-water mark is therefore **not a comp
   consumer generation** (inverted-commit-order, duplicate-delivery, two-worker-race, crash-boundary,
   stale-lease, tenant-isolation, missing-event-recovery, and above-safe-integer tests).
 - **Emitter gaps to close per pathway** (in-tx `publishEvent({tx})` at the domain write): appointment
-  lifecycle (none today) for OP; ED visit transitions; theatre case transitions where missing. Referral
-  and lab already emit.
+  lifecycle (none today) for OP; ED visit transitions; theatre case transitions where missing; referral
+  lifecycle; and signed clinical lab-result lifecycle. At this revision, the verified in-transaction
+  pathway anchors are handover create/acknowledge, prehospital-handover create/accept, and discharge-
+  summary save/sign; the AI lab-autoverification event is not a clinical result-lifecycle emitter.
 - **Decision D1:** projector source = the outbox inbox-ledger (recommended — advances T2 #3, one event
   spine, generation-replay) vs a cursor over `clinical_timeline_events` (append-only + in-tx guaranteed,
   but clinical-only and not a queue). Recommendation: outbox + inbox ledger, with pathway-anchor emitters
