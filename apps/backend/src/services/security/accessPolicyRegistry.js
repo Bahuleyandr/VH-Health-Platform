@@ -310,6 +310,7 @@ export function policyCodeForRecordType(recordType = 'PHI') {
   if (normalized === 'ADMISSION') return ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW;
   if (normalized === 'BED_BOARD' || normalized === 'BED_MANAGEMENT') return ACCESS_POLICY_CODES.PATIENT_BED_VIEW;
   if (normalized === 'CLINICAL_WORKFLOW'
+    || normalized === 'CARE_PATHWAY'
     || normalized === 'EMR'
     || normalized === 'CLINICAL_NOTE'
     || normalized === 'CLINICAL_ORDER'

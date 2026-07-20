@@ -103,6 +103,30 @@ describe('tenantContextMiddleware — claim resolution', () => {
     expect(req.tenantId).toBe(TENANT_A);
   });
 
+  it('accepts a DB-backed API client only when its tenant matches the JWT tenant', async () => {
+    const req = makeReq({
+      apiClientTenantId: TENANT_A,
+      user: { uid: 'u1', role: 'DOCTOR', tenant_id: TENANT_A },
+    });
+    let nextErr = 'unset';
+    await tenantContextMiddleware(req, {}, (e) => { nextErr = e; });
+    expect(nextErr).toBeUndefined();
+    expect(req.tenantId).toBe(TENANT_A);
+  });
+
+  it('rejects a DB-backed API client from another tenant before tenant data is loaded', async () => {
+    const req = makeReq({
+      apiClientTenantId: TENANT_A,
+      user: { uid: 'u1', role: 'DOCTOR', tenant_id: TENANT_B },
+    });
+    let nextErr;
+    await tenantContextMiddleware(req, {}, (e) => { nextErr = e; });
+    expect(nextErr).toBeDefined();
+    expect(nextErr.statusCode).toBe(403);
+    expect(nextErr.code).toBe('TENANT_API_CLIENT_MISMATCH');
+    expect(mockGetTenantById).not.toHaveBeenCalled();
+  });
+
   it('falls back to the default tenant for unauthenticated requests', async () => {
     mockGetTenantById.mockResolvedValue({ id: DEFAULT_TENANT_ID, status: 'active', region: 'IN' });
     const req = makeReq({ user: undefined });
@@ -140,6 +164,23 @@ describe('tenantContextMiddleware — SUPER_ADMIN override', () => {
       expect.stringContaining('TENANT_OVERRIDE_USED'),
       'admin', TENANT_B, TENANT_A, 'debugging a P1 incident', 'req-1', '127.0.0.1',
     );
+  });
+
+  it('rejects a cross-tenant DB API client override without recording successful-override evidence', async () => {
+    const req = makeReq({
+      apiClientTenantId: TENANT_A,
+      user: { uid: 'admin', role: 'SUPER_ADMIN', tenant_id: TENANT_A },
+      headers: { 'x-tenant-id': TENANT_B, 'x-tenant-override-reason': 'debugging a P1 incident' },
+    });
+    let nextErr;
+    await tenantContextMiddleware(req, {}, (e) => { nextErr = e; });
+    await new Promise((r) => setImmediate(r));
+
+    expect(nextErr).toBeDefined();
+    expect(nextErr.statusCode).toBe(403);
+    expect(nextErr.code).toBe('TENANT_API_CLIENT_MISMATCH');
+    expect(mockGetTenantById).not.toHaveBeenCalled();
+    expect(mockExecuteRawUnsafe).not.toHaveBeenCalled();
   });
 
   it('swallows an audit-write failure without blocking the override', async () => {

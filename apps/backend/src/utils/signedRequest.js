@@ -78,6 +78,7 @@ export function verifySignedRequest({
   codePrefix = 'SIGNED_REQUEST',
   toleranceMs = DEFAULT_TOLERANCE_MS,
   replayNamespace = 'signed-request',
+  claimLocalReplay = true,
 } = {}) {
   if (!secret) {
     throw new AppError(`${context} signing secret is not configured`, 503, `${codePrefix}_SECRET_NOT_CONFIGURED`);
@@ -100,7 +101,9 @@ export function verifySignedRequest({
     throw AppError.unauthorized(`${context} signature is invalid`, `${codePrefix}_SIGNATURE_INVALID`);
   }
 
-  rememberReplayKey(`${replayNamespace}:${rid}:${ts}:${provided}`, toleranceMs, codePrefix, context);
+  if (claimLocalReplay) {
+    rememberReplayKey(`${replayNamespace}:${rid}:${ts}:${provided}`, toleranceMs, codePrefix, context);
+  }
   return true;
 }
 

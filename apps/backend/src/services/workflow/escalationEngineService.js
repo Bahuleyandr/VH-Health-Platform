@@ -9,7 +9,7 @@
 // / breached mig-269 SLA instances and FIRES the configured actions.
 //
 // What it does, per sweep (design §4.3):
-//   (a) marks open/in_progress/blocked tasks past due_at as 'overdue';
+//   (a) marks open/blocked tasks past due_at as 'overdue';
 //   (b) for each active escalation_rules row (scope='task'), finds matching
 //       tasks whose trigger holds and fires action_kind ONCE PER TIER;
 //   (c) backfill backstop: a breached critical_result_ack SLA instance with no
@@ -18,7 +18,7 @@
 //
 // SLA breach detection (design §6 — two SLA systems coexist by design):
 //   The clinical clock is mig-269 `workflow_sla_instances`. A task links its
-//   instance via metadata.sla_instance_id. The engine treats the linked
+//   instance via tasks.workflow_sla_instance_id. The engine treats the linked
 //   instance as breached when its status='breached' (set by the mig-269
 //   reconciliation), OR — defensively — when it is still 'active' but already
 //   past due_at, OR when the generic-task column tasks.sla_breached_at is set
@@ -52,10 +52,9 @@ import { enqueueCriticalResultTask, resolveRoleCode } from '../results/resultsIn
 const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 5000;
 
-// Statuses an escalation can still act on. in_progress is the ACKED state
-// (design §4.5: acknowledge = open→in_progress STOPS the clock), so it is
-// deliberately excluded — an acknowledged task is never escalated further.
-// completed/cancelled are terminal. 'overdue' IS escalatable.
+// Acknowledgement-mode tasks leave escalation at in_progress. Domain-evidence
+// tasks remain actionable there until their registered evidence completes the
+// linked SLA, so candidate SQL adds that one typed exception.
 const ESCALATABLE_STATUSES = ['open', 'overdue', 'blocked'];
 
 // The mig-269 rule_code that is the critical-result clock; also the sla_key the
@@ -201,8 +200,8 @@ function alreadyFired(taskMetadata, ruleId) {
 }
 
 // match_filter is a jsonb subset that must be satisfied by the task. We support
-// the two keys the seed uses: task_kind (a tasks column) and sla_key (lives in
-// tasks.metadata.sla_key). A filter key absent from the rule is not constrained.
+// the two keys the seed uses: task_kind and the linked SLA rule code. A filter
+// key absent from the rule is not constrained.
 function matchesFilter(taskRow, matchFilter) {
   const filter = matchFilter && typeof matchFilter === 'object' ? matchFilter : {};
   if (filter.task_kind != null && String(taskRow.task_kind) !== String(filter.task_kind)) {
@@ -212,7 +211,7 @@ function matchesFilter(taskRow, matchFilter) {
     return false;
   }
   if (filter.sla_key != null) {
-    const taskSlaKey = taskRow.metadata?.sla_key;
+    const taskSlaKey = taskRow.sla_rule_code;
     if (String(taskSlaKey ?? '') !== String(filter.sla_key)) return false;
   }
   return true;
@@ -251,6 +250,9 @@ function triggerHolds(taskRow, ruleRow, now) {
  * auto_resolve      → taskService.transitionTask → 'completed'.
  */
 async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
+  // S1b-b preserves the existing outward notification/webhook taxonomy for all
+  // task rules. A generic clinical-task taxonomy needs owner-approved S1b-c
+  // recipient and notification policy before it can become externally visible.
   const payload = ruleRow.action_payload && typeof ruleRow.action_payload === 'object'
     ? ruleRow.action_payload
     : {};
@@ -273,6 +275,9 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
     const role = resolveRoleCode(payload.notify_role || payload.role);
     await taskService.reassignTask({ tenantId, id: taskRow.id, assignedToRole: role, tx });
   } else if (action === 'auto_resolve') {
+    if (taskRow.workflow_sla_instance_id || taskRow.sla_completion_semantics !== 'none') {
+      throw new Error('Linked-SLA tasks cannot be auto-resolved by the generic escalation engine');
+    }
     await taskService.transitionTask({
       tenantId,
       id: taskRow.id,
@@ -454,9 +459,11 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
 
         for (const ruleRow of (Array.isArray(rules) ? rules : [])) {
           // Candidate tasks: escalatable status, NOT acked/terminal; left-join
-          // the linked mig-269 instance (metadata.sla_instance_id) for the breach
+          // the linked mig-269 instance (workflow_sla_instance_id) for the breach
           // signal. For sla_breach rules we require SOME breach signal
-          // (instance breached, instance active+overdue, or tasks.sla_breached_at)
+          // (registered instance breached, active-but-past-due under this task
+          // rule, or tasks.sla_breached_at). This evaluates a matching task; it
+          // does not reconcile table-wide SLA status (deferred to S1b-c).
           // — the precise per-tier window is then checked in JS (triggerHolds)
           // so `now` stays injectable. pending_too_long rules skip the SLA join.
           let candidates;
@@ -467,18 +474,31 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
                         t.patient_uid, t.assigned_to_uid, t.assigned_to_role,
                         t.related_resource_type, t.related_resource_id,
                         t.due_at, t.sla_breached_at, t.created_at, t.metadata,
-                        s.status AS sla_status,
+                        t.workflow_sla_instance_id, t.sla_completion_semantics,
+                        s.status AS sla_status, s.rule_code AS sla_rule_code,
                         COALESCE(s.breached_at, s.due_at, t.sla_breached_at) AS breach_at
                    FROM tasks t
                    LEFT JOIN workflow_sla_instances s
-                     ON s.id = NULLIF(t.metadata->>'sla_instance_id', '')::uuid
-                  WHERE t.tenant_id = $1::uuid
-                    AND t.status IN ('open', 'overdue', 'blocked')
-                    AND (
-                      s.status = 'breached'
-                      OR (s.status = 'active' AND s.due_at IS NOT NULL AND s.due_at < $2::timestamptz)
-                      OR t.sla_breached_at IS NOT NULL
-                    )
+                     ON s.id = t.workflow_sla_instance_id
+                    AND s.tenant_id = t.tenant_id
+                   WHERE t.tenant_id = $1::uuid
+                     AND (
+                       t.status IN ('open', 'overdue', 'blocked')
+                       OR (
+                         t.status = 'in_progress'
+                         AND t.sla_completion_semantics = 'domain_evidence'
+                       )
+                     )
+                     AND s.completed_at IS NULL
+                     AND (
+                       s.status = 'breached'
+                       OR (
+                         s.status = 'active'
+                         AND s.due_at IS NOT NULL
+                         AND s.due_at < $2::timestamptz
+                       )
+                       OR t.sla_breached_at IS NOT NULL
+                     )
                   ORDER BY t.id ASC
                   LIMIT $3::int`,
                 tenantId,
@@ -491,10 +511,17 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
                         t.patient_uid, t.assigned_to_uid, t.assigned_to_role,
                         t.related_resource_type, t.related_resource_id,
                         t.due_at, t.sla_breached_at, t.created_at, t.metadata,
-                        NULL AS sla_status, NULL AS breach_at
+                        t.workflow_sla_instance_id, t.sla_completion_semantics,
+                        NULL AS sla_status, NULL AS sla_rule_code, NULL AS breach_at
                    FROM tasks t
                   WHERE t.tenant_id = $1::uuid
-                    AND t.status IN ('open', 'overdue', 'blocked')
+                     AND (
+                       t.status IN ('open', 'overdue', 'blocked')
+                       OR (
+                         t.status = 'in_progress'
+                         AND t.sla_completion_semantics = 'domain_evidence'
+                       )
+                     )
                   ORDER BY t.id ASC
                   LIMIT $2::int`,
                 tenantId,
@@ -529,22 +556,24 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
         }
 
         // (c) Backfill backstop: breached critical_result_ack instances with NO
-        // task linking back to them (metadata.sla_instance_id) → re-create the
+        // actionable task linking back to them (workflow_sla_instance_id) → re-create the
         // task via the producer. Closes the net if a producer hook ever failed.
         //
         // TWO exclusions so we never re-alert an already-handled result (audit
-        // C-3): skip an instance if EITHER (1) a task already links it via
-        // metadata.sla_instance_id (its own producer-created task), OR (2) a
-        // TERMINAL (completed/cancelled) task already exists for the same
-        // (source_table, source_id) resource. The producer's ON CONFLICT only
-        // de-dupes OPEN tasks (the mig-312 partial unique index predicate is
-        // status IN open/in_progress/blocked), so without guard (2) a stale
+        // C-3): skip an instance if EITHER (1) a non-cancelled task already
+        // links it via workflow_sla_instance_id (its own producer-created task),
+        // OR (2) a completed task already exists for the same
+        // (source_table, source_id) resource. Cancellation is work withdrawal,
+        // not acknowledgement evidence; an active SLA behind a cancelled task
+        // must be eligible for task re-materialization. The producer's ON CONFLICT only
+        // de-dupes active tasks (migration 580 expands the partial unique index
+        // through overdue), so without guard (2) a stale
         // breached instance whose task was acked→completed would spawn a FRESH
         // open task for a result a clinician already actioned — the exact
         // false-re-alert the audit flags. Acking now completes the linked
         // instance too (taskService.completeLinkedSla), so the common path is
         // already covered by status; (2) is the belt-and-braces for any instance
-        // that stayed breached after its task reached a terminal state.
+        // that stayed breached after its task was completed.
         let orphans;
         try {
           orphans = await tx.$queryRawUnsafe(
@@ -553,23 +582,29 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
                FROM workflow_sla_instances s
               WHERE s.tenant_id = $1::uuid
                 AND s.rule_code = $2
-                AND (
-                  s.status = 'breached'
-                  OR (s.status = 'active' AND s.due_at IS NOT NULL AND s.due_at < $3::timestamptz)
-                )
+                AND s.completed_at IS NULL
+                 AND (
+                   s.status = 'breached'
+                   OR (
+                     s.status = 'active'
+                     AND s.due_at IS NOT NULL
+                     AND s.due_at < $3::timestamptz
+                   )
+                 )
                 AND s.source_table IS NOT NULL
                 AND s.source_id IS NOT NULL
                 AND NOT EXISTS (
                   SELECT 1 FROM tasks t
                    WHERE t.tenant_id = s.tenant_id
-                     AND t.metadata->>'sla_instance_id' = s.id::text
+                     AND t.workflow_sla_instance_id = s.id
+                     AND t.status <> 'cancelled'
                 )
                 AND NOT EXISTS (
                   SELECT 1 FROM tasks t2
                    WHERE t2.tenant_id = s.tenant_id
-                     AND t2.related_resource_type = s.source_table
-                     AND t2.related_resource_id = s.source_id
-                     AND t2.status IN ('completed', 'cancelled')
+                      AND t2.related_resource_type = s.source_table
+                      AND t2.related_resource_id = s.source_id
+                      AND t2.status = 'completed'
                 )
               ORDER BY s.id ASC
               LIMIT $4::int`,
@@ -609,7 +644,12 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
     }
   }
 
-  if (counters.escalated || counters.autoResolved || counters.backfilled || counters.markedOverdue) {
+  if (
+    counters.escalated
+    || counters.autoResolved
+    || counters.backfilled
+    || counters.markedOverdue
+  ) {
     logger.info('escalation sweep complete', { ...counters });
   }
   try {

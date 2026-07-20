@@ -132,6 +132,7 @@ describe('policyCodeForRecordType — safe fallback is unchanged', () => {
     expect(policyCodeForRecordType('BED_BOARD')).toBe(ACCESS_POLICY_CODES.PATIENT_BED_VIEW);
     expect(policyCodeForRecordType('BED_MANAGEMENT')).toBe(ACCESS_POLICY_CODES.PATIENT_BED_VIEW);
     expect(policyCodeForRecordType('CLINICAL_NOTE')).toBe(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS);
+    expect(policyCodeForRecordType('CARE_PATHWAY')).toBe(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS);
     expect(policyCodeForRecordType('CLINICAL_ORDER')).toBe(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS);
     expect(policyCodeForRecordType('VITAL_SIGN')).toBe(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS);
     expect(policyCodeForRecordType('MAR')).toBe(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS);

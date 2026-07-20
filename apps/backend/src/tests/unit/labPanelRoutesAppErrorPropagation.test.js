@@ -18,6 +18,8 @@ import { AppError } from '../../utils/AppError.js';
 
 const recordLabPanelMock = jest.fn();
 const getLabPanelMock = jest.fn();
+const claimIdempotencyKeyMock = jest.fn();
+const finaliseIdempotencyKeyMock = jest.fn();
 
 jest.unstable_mockModule('../../services/lab/labPanelService.js', () => ({
   recordLabPanel: recordLabPanelMock,
@@ -32,13 +34,25 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
 }));
 
+jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () => ({
+  claimIdempotencyKey: claimIdempotencyKeyMock,
+  finaliseIdempotencyKey: finaliseIdempotencyKeyMock,
+  hashRequestBody: () => 'a'.repeat(64),
+  isValidIdempotencyKey: () => true,
+  releaseIdempotencyKey: jest.fn(),
+}));
+
 const { default: labPanelRoutes } = await import('../../routes/lab/labPanelRoutes.js');
 
 const app = express();
 app.use(express.json());
 app.use((req, _res, next) => {
   req.id = 'test-request-id';
-  req.user = { uid: '11111111-1111-4111-8111-111111111111', role: 'LAB_STAFF' };
+  req.tenantId = '00000000-0000-4000-8000-000000000001';
+  req.user = {
+    uid: '11111111-1111-4111-8111-111111111111',
+    role: req.get('x-test-role') || 'LAB_STAFF',
+  };
   next();
 });
 app.use('/api/v1/lab', labPanelRoutes);
@@ -46,6 +60,10 @@ app.use('/api/v1/lab', labPanelRoutes);
 beforeEach(() => {
   recordLabPanelMock.mockReset();
   getLabPanelMock.mockReset();
+  claimIdempotencyKeyMock.mockReset();
+  finaliseIdempotencyKeyMock.mockReset();
+  claimIdempotencyKeyMock.mockResolvedValue({ state: 'claimed', id: 91 });
+  finaliseIdempotencyKeyMock.mockResolvedValue({ id: 91, status: 'failed' });
 });
 
 describe('lab panel route wrap() surfaces AppError code + details', () => {
@@ -58,9 +76,11 @@ describe('lab panel route wrap() surfaces AppError code + details', () => {
 
     const response = await request(app)
       .post('/api/v1/lab/panels')
+      .set('Idempotency-Key', 'lab-panel-route-test')
       .send({
         panelCode: 'CBC',
         patientUid: '22222222-2222-4222-8222-222222222222',
+        investigationId: 17,
         analytes: [{ test_code: 'HGB', test_name: 'Hemoglobin', value_numeric: 13.2 }],
       });
 
@@ -69,6 +89,54 @@ describe('lab panel route wrap() surfaces AppError code + details', () => {
     expect(response.body.code).toBe('LAB_PANEL_ALREADY_FINALISED');
     expect(response.body.details).toEqual({ reason: 'x' });
     expect(response.body.requestId).toBe('test-request-id');
+    expect(recordLabPanelMock).toHaveBeenCalledWith(expect.objectContaining({
+      performedByUid: '11111111-1111-4111-8111-111111111111',
+      performedByRole: 'LAB_STAFF',
+      idempotencyKey: 'lab-panel-route-test',
+      requestBodySha256: 'a'.repeat(64),
+      httpIdempotencyClaimId: 91,
+      requestId: 'test-request-id',
+    }));
+    expect(claimIdempotencyKeyMock).toHaveBeenCalledWith({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      userUid: '11111111-1111-4111-8111-111111111111',
+      requestKey: 'lab-panel-route-test',
+      requestMethod: 'POST',
+      requestPath: '/api/v1/lab/panels',
+      requestBodyHash: 'a'.repeat(64),
+    });
+  });
+
+  test('requires an idempotency key before invoking the clinical write', async () => {
+    const response = await request(app)
+      .post('/api/v1/lab/panels')
+      .send({
+        panelCode: 'CBC',
+        patientUid: '22222222-2222-4222-8222-222222222222',
+        investigationId: 17,
+        analytes: [{ test_code: 'HGB', test_name: 'Hemoglobin', value_numeric: 13.2 }],
+      });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.message).toMatch(/Idempotency-Key/i);
+    expect(recordLabPanelMock).not.toHaveBeenCalled();
+  });
+
+  test.each(['DOCTOR', 'NURSING_STAFF'])('%s cannot author a manual lab panel', async (role) => {
+    const response = await request(app)
+      .post('/api/v1/lab/panels')
+      .set('x-test-role', role)
+      .set('Idempotency-Key', `lab-panel-role-${role}`)
+      .send({
+        panelCode: 'CBC',
+        patientUid: '22222222-2222-4222-8222-222222222222',
+        investigationId: 17,
+        analytes: [{ test_code: 'HGB', test_name: 'Hemoglobin', value_numeric: 13.2 }],
+      });
+
+    expect(response.statusCode).toBe(403);
+    expect(recordLabPanelMock).not.toHaveBeenCalled();
+    expect(claimIdempotencyKeyMock).not.toHaveBeenCalled();
   });
 
   test('unexpected (non-AppError) error returns the generic 500 and never leaks err.message', async () => {

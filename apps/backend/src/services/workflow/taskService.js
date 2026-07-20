@@ -30,6 +30,7 @@ import {
   WORKFLOW_STEP_KINDS,
   validateWorkflowDefinitionSteps,
 } from './workflowDefinitionContract.js';
+import { assertWorkflowJsonBudget } from './workflowJsonGuard.js';
 
 export { WORKFLOW_STEP_KINDS };
 
@@ -37,11 +38,14 @@ const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
 const TEXT_MAX = 8000;
 const SHORT_MAX = 255;
+const HANDLER_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.v[1-9][0-9]*$/;
 
 export const TASK_KINDS = ['general', 'follow_up', 'review', 'escalation', 'verification', 'admin', 'consent', 'investigation', 'other'];
 export const TASK_PRIORITIES = ['low', 'normal', 'high', 'critical'];
 export const TASK_STATUSES = ['open', 'in_progress', 'blocked', 'completed', 'cancelled', 'overdue'];
+export const TASK_SLA_COMPLETION_SEMANTICS = ['none', 'acknowledgement', 'domain_evidence'];
 export const TASK_COMMENT_KINDS = ['comment', 'system_event', 'state_change'];
+export const LAB_CRITICAL_ALERT_ACK_CONTRACT_VERSION = 2;
 export const WORKFLOW_TRIGGER_KINDS = ['manual', 'event', 'schedule', 'api', 'subgraph'];
 export const WORKFLOW_STATUSES = ['started', 'running', 'blocked', 'completed', 'cancelled', 'failed'];
 export const WORKFLOW_STEP_STATUSES = ['pending', 'in_progress', 'blocked', 'completed', 'skipped', 'failed'];
@@ -51,7 +55,15 @@ export const ESCALATION_TRIGGERS = ['sla_breach', 'no_progress_after', 'pending_
 export const ESCALATION_ACTIONS = ['notify', 'reassign', 'escalate_priority', 'auto_resolve', 'webhook'];
 export const AUTOMATION_ACTIONS = ['create_task', 'start_workflow', 'create_approval', 'webhook', 'notify'];
 
+const DOMAIN_EVIDENCE_COMPLETION_AUTHORITY = Symbol('DOMAIN_EVIDENCE_COMPLETION_AUTHORITY');
+const TASK_SLA_SOURCE_BINDING_AUTHORITY = Symbol('TASK_SLA_SOURCE_BINDING_AUTHORITY');
+const ACKNOWLEDGEMENT_TRANSITION_AUTHORITY = Symbol('ACKNOWLEDGEMENT_TRANSITION_AUTHORITY');
+const LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY = Symbol(
+  'LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY',
+);
+
 const GENERIC_RUNTIME_DENIED_APPROVAL_KINDS = new Set([
+  'care_pathway_definition_governance',
   'credential_privilege_grant',
 ]);
 
@@ -146,6 +158,27 @@ function normalizeJsonObject(value, label) {
   return value;
 }
 
+const RESERVED_TASK_METADATA_KEYS = new Set([
+  'workflow_sla_instance_id',
+  'sla_completion_semantics',
+  'stage_occurrence_key',
+  // Legacy task/SLA links were stored here. The typed column is authoritative;
+  // accepting this key would recreate an ambiguous second contract.
+  'sla_instance_id',
+]);
+
+function normalizeTaskMetadata(value) {
+  const metadata = normalizeJsonObject(value, 'metadata');
+  const reservedKey = Object.keys(metadata).find((key) => RESERVED_TASK_METADATA_KEYS.has(key));
+  if (reservedKey) {
+    throw AppError.badRequest(
+      `metadata.${reservedKey} is reserved; use the typed task/SLA fields`,
+      'TASK_METADATA_KEY_RESERVED',
+    );
+  }
+  return metadata;
+}
+
 function normalizeJsonArray(value, label) {
   if (value === null || value === undefined) return [];
   if (!Array.isArray(value)) {
@@ -185,59 +218,380 @@ function normalizeInt(value, label, { min = null, max = null } = {}) {
 
 function normalizeTimestamp(value, label) {
   if (value === null || value === undefined || value === '') return null;
-  const date = value instanceof Date ? value : new Date(String(value));
+  const date = value instanceof Date
+    ? value
+    : (typeof value === 'number' ? new Date(value) : new Date(String(value)));
   if (Number.isNaN(date.getTime())) throw AppError.badRequest(`${label} must be a valid timestamp`);
-  return date.toISOString();
+  // The driver-adapter raw path can reinterpret Date/string timestamp
+  // parameters in the process timezone. Bind epoch milliseconds and convert
+  // inside PostgreSQL so the stored timestamptz preserves the caller's instant.
+  return date.getTime();
 }
 
-// Complete the mig-269 workflow_sla_instances row a task links via
-// metadata.sla_instance_id, so acknowledging / completing a critical result
-// STOPS the SLA clock (audit C-3): otherwise the instance stays active/breached
-// forever and the escalation backfill keeps re-creating a task for an
-// already-handled result. Mirrors canonicalClinicalPlatformService.completeWorkflowSla's
-// terminal-status logic (breached if past due_at, else completed) but targets
-// the instance by its id (the task's canonical link) rather than the
-// rule_code/source key — and is a no-op for an instance already in a terminal
-// state, so a second ack / an ack-then-complete never reopens or double-stamps.
-//
-// Task mutations run this inside their tenant transaction. PostgreSQL marks a
-// transaction aborted after any failed statement, so the caller uses strict
-// mode and surfaces the original error instead of obscuring which write broke
-// atomicity.
-//
-// We resolve by metadata.sla_instance_id (a uuid). A direct UPDATE (rather than
-// importing completeWorkflowSla) keeps taskService free of the canonical
-// platform service's heavy transitive import graph — the same ESM-circular
-// concern resultsInboxService documents for startWorkflowSla.
-async function completeLinkedSla({
-  tenantId, taskRow, db = null, completedBy = null, strict = false,
+function parseDurableTimestamp(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeStrictPositiveId(value, label) {
+  const text = typeof value === 'number'
+    ? (Number.isSafeInteger(value) ? String(value) : '')
+    : (typeof value === 'bigint' ? value.toString() : value);
+  if (typeof text !== 'string' || !/^[1-9]\d*$/.test(text)) {
+    throw AppError.badRequest(
+      `${label} must be a canonical positive integer`,
+      'PATHWAY_TASK_CONTEXT_INVALID',
+    );
+  }
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed)) {
+    throw AppError.badRequest(
+      `${label} exceeds the supported integer range`,
+      'PATHWAY_TASK_CONTEXT_INVALID',
+    );
+  }
+  return parsed;
+}
+
+function requireCanonicalHandlerId(value) {
+  if (
+    typeof value !== 'string'
+    || value.length > 120
+    || value.trim() !== value
+    || !HANDLER_ID_PATTERN.test(value)
+  ) {
+    throw AppError.badRequest(
+      'condition_handler must be a versioned canonical handler id',
+      'PATHWAY_HANDLER_CONTRACT_INVALID',
+    );
+  }
+  return value;
+}
+
+function cloneBudgetedWorkflowJson(value, label, code) {
+  assertWorkflowJsonBudget(value, {
+    label,
+    onViolation: ({ kind, message }) => {
+      throw AppError.badRequest(message, code, { field: label, violation: kind });
+    },
+  });
+  return JSON.parse(JSON.stringify(value));
+}
+
+async function normalizePathwayEvidenceProvenance(actor, signal) {
+  const cleanActor = cloneBudgetedWorkflowJson(
+    normalizeJsonObject(actor, 'actor'),
+    'actor',
+    'PATHWAY_EVIDENCE_PROVENANCE_INVALID',
+  );
+  const cleanSignal = cloneBudgetedWorkflowJson(
+    normalizeJsonObject(signal, 'signal'),
+    'signal',
+    'PATHWAY_EVIDENCE_PROVENANCE_INVALID',
+  );
+  const signalKind = typeof cleanSignal.kind === 'string' && cleanSignal.kind.trim() === cleanSignal.kind
+    ? safeText(cleanSignal.kind, 120)
+    : null;
+  if (!signalKind) {
+    throw AppError.badRequest(
+      'Pathway evidence signal kind is required',
+      'PATHWAY_EVIDENCE_PROVENANCE_INVALID',
+    );
+  }
+
+  if (cleanActor.kind === 'user') {
+    const uid = maybeUuid(cleanActor.uid, 'actor.uid');
+    const authorizationMode = typeof cleanActor.authorizationMode === 'string'
+      && cleanActor.authorizationMode.trim() === cleanActor.authorizationMode
+      ? safeText(cleanActor.authorizationMode, 80)
+      : null;
+    if (!uid || !authorizationMode) {
+      throw AppError.badRequest(
+        'Normalized user evidence provenance is required',
+        'PATHWAY_EVIDENCE_PROVENANCE_INVALID',
+      );
+    }
+    return Object.freeze({
+      actor_kind: 'user',
+      actor_uid: uid,
+      authorization_mode: authorizationMode,
+      override_reason: cleanActor.overrideReason == null
+        ? null
+        : safeText(cleanActor.overrideReason, 2000),
+      break_glass_id: cleanActor.breakGlassId == null
+        ? null
+        : normalizeStrictPositiveId(cleanActor.breakGlassId, 'actor.breakGlassId'),
+      signal_kind: signalKind,
+      source_resource_type: cleanSignal.source_resource_type || null,
+      source_resource_id: cleanSignal.source_resource_id || null,
+      occurred_at: cleanSignal.occurred_at || null,
+    });
+  }
+
+  if (cleanActor.kind === 'system') {
+    const { isRegisteredWorkflowSystemActor } = await import('./workflowRuntimeRegistry.js');
+    if (!isRegisteredWorkflowSystemActor(actor)) {
+      throw AppError.forbidden(
+        'Pathway evidence system actor is not sealed',
+        'PATHWAY_EVIDENCE_PROVENANCE_INVALID',
+      );
+    }
+    const signalContext = cleanActor.signalContext;
+    const systemKey = requireCanonicalHandlerId(cleanActor.systemKey);
+    const sourceEventId = String(cleanActor.sourceEventId ?? '');
+    const causationId = cleanActor.causationId == null ? null : String(cleanActor.causationId);
+    if (
+      !/^\d+$/.test(sourceEventId)
+      || sourceEventId.length > 19
+      || (causationId !== null && (
+        !causationId
+        || causationId.trim() !== causationId
+        || causationId.length > 160
+      ))
+      || !signalContext
+      || cleanSignal.source_resource_type !== signalContext.sourceResourceType
+      || cleanSignal.source_resource_id !== signalContext.sourceResourceId
+      || cleanSignal.occurred_at !== signalContext.occurredAt
+    ) {
+      throw AppError.badRequest(
+        'Normalized system evidence provenance does not match its sealed signal context',
+        'PATHWAY_EVIDENCE_PROVENANCE_INVALID',
+      );
+    }
+    return Object.freeze({
+      actor_kind: 'system',
+      system_key: systemKey,
+      source_event_id: sourceEventId,
+      causation_id: causationId,
+      signal_kind: signalKind,
+      source_resource_type: signalContext.sourceResourceType,
+      source_resource_id: signalContext.sourceResourceId,
+      occurred_at: signalContext.occurredAt,
+    });
+  }
+
+  throw AppError.badRequest(
+    'Pathway evidence actor kind must be user or sealed system',
+    'PATHWAY_EVIDENCE_PROVENANCE_INVALID',
+  );
+}
+
+async function hasPathwayExecutorAuthority(candidate) {
+  if (!candidate || typeof candidate !== 'object') return false;
+  const { isPathwayExecutorCapability } = await import('../pathways/pathwayExecutorService.js');
+  return typeof isPathwayExecutorCapability === 'function'
+    && isPathwayExecutorCapability(candidate) === true;
+}
+
+async function assertPathwayExecutorAuthority({
+  tenantId,
+  workflowRunId,
+  db,
+  executorAuthority = null,
+  verifiedExecutorAuthority = null,
 }) {
-  const slaInstanceId = taskRow?.metadata?.sla_instance_id;
+  const verified = verifiedExecutorAuthority === null
+    ? await hasPathwayExecutorAuthority(executorAuthority)
+    : verifiedExecutorAuthority === true;
+  if (!workflowRunId || verified) return verified;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT 1
+       FROM care_pathway_instances
+      WHERE tenant_id = $1::uuid
+        AND workflow_run_id = $2::bigint
+      LIMIT 1`,
+    tenantId,
+    workflowRunId,
+  );
+  if (rows[0]) {
+    throw AppError.conflict(
+      'Pathway-bound workflow mutations must use the pathway executor',
+      'PATHWAY_EXECUTOR_REQUIRED',
+    );
+  }
+  return false;
+}
+
+async function taskWorkflowRunId({ tenantId, taskId, db }) {
+  if (!taskId) return null;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT COALESCE(task.workflow_run_id, step.workflow_run_id) AS workflow_run_id
+       FROM tasks task
+       LEFT JOIN workflow_steps step
+         ON step.tenant_id = task.tenant_id
+        AND step.id = task.workflow_step_id
+      WHERE task.tenant_id = $1::uuid
+        AND task.id = $2::bigint
+      LIMIT 1`,
+    tenantId,
+    taskId,
+  );
+  return rows[0]?.workflow_run_id || null;
+}
+
+async function stepWorkflowRunId({ tenantId, workflowStepId, db }) {
+  if (!workflowStepId) return null;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT workflow_run_id
+       FROM workflow_steps
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+      LIMIT 1`,
+    tenantId,
+    workflowStepId,
+  );
+  return rows[0]?.workflow_run_id || null;
+}
+
+async function taskRowWorkflowRunId({ tenantId, taskRow, db }) {
+  if (!taskRow) return null;
+  return taskRow.workflow_run_id || stepWorkflowRunId({
+    tenantId,
+    workflowStepId: taskRow.workflow_step_id,
+    db,
+  });
+}
+
+async function assertTaskSlaSourceBinding({
+  tenantId,
+  taskRow,
+  db,
+}) {
+  const slaInstanceId = taskRow?.workflow_sla_instance_id;
   if (!slaInstanceId) return null;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT sla.id, sla.rule_code, sla.source_table, sla.source_id, sla.due_at,
+            sla.status, sla.completed_at
+       FROM workflow_sla_instances sla
+      WHERE sla.tenant_id = $1::uuid
+        AND sla.id = $2::uuid
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    slaInstanceId,
+  );
+  const sla = rows[0];
+  const taskResourceType = taskRow.related_resource_type == null
+    ? null
+    : String(taskRow.related_resource_type);
+  const taskResourceId = taskRow.related_resource_id == null
+    ? null
+    : String(taskRow.related_resource_id);
+  const sourceTable = sla?.source_table == null ? null : String(sla.source_table);
+  const sourceId = sla?.source_id == null ? null : String(sla.source_id);
+  const workflowStepId = taskRow.workflow_step_id == null
+    ? null
+    : String(taskRow.workflow_step_id);
+
+  let valid = false;
+  if (sla && workflowStepId) {
+    valid = sourceTable === 'workflow_steps' && sourceId === workflowStepId;
+  } else if (sla && ['critical_result_ack', 'cold_chain_excursion_ack'].includes(sla.rule_code)) {
+    valid = taskRow.sla_completion_semantics === 'acknowledgement'
+      && Boolean(taskResourceType && taskResourceId)
+      && sourceTable === taskResourceType
+      && sourceId === taskResourceId;
+  } else if (sla?.rule_code === 'mortuary_unclaimed_body') {
+    valid = taskRow.sla_completion_semantics === 'domain_evidence'
+      && taskResourceType === 'death_record'
+      && Boolean(taskResourceId)
+      && sourceTable === 'death_records'
+      && sourceId === taskResourceId;
+    if (valid) {
+      const deathRecord = await db.$queryRawUnsafe(
+        `SELECT 1
+           FROM death_records
+          WHERE tenant_id = $1::uuid
+            AND id::text = $2::text
+          LIMIT 1`,
+        tenantId,
+        taskResourceId,
+      );
+      valid = Boolean(deathRecord[0]);
+    }
+  }
+
+  if (!valid) {
+    throw AppError.conflict(
+      'Task and linked SLA source do not describe the same obligation',
+      'TASK_SLA_SOURCE_BINDING_INVALID',
+    );
+  }
+  return sla;
+}
+
+async function completeLinkedSla({
+  tenantId,
+  taskRow,
+  db = null,
+  completedBy = null,
+  completionTrigger,
+  completedAt = null,
+  evidence = null,
+  ackContractVersion = null,
+  strict = false,
+}) {
+  const slaInstanceId = taskRow?.workflow_sla_instance_id;
+  if (!slaInstanceId) return null;
+  const semantics = taskRow?.sla_completion_semantics || 'none';
+  const triggerAllowed = (
+    semantics === 'acknowledgement'
+      && (completionTrigger === 'acknowledgement' || completionTrigger === 'task_completion')
+  ) || (semantics === 'domain_evidence' && completionTrigger === 'domain_evidence');
+  if (!triggerAllowed) return null;
+  const completionMarker = completionTrigger === 'acknowledgement' ? 'task_ack' : completionTrigger;
+  const completionInstant = completionTrigger === 'acknowledgement'
+    ? (parseDurableTimestamp(completedAt) || parseDurableTimestamp(taskRow?.metadata?.acknowledged_at))
+    : (parseDurableTimestamp(completedAt) || new Date());
+  if (!completionInstant) {
+    throw AppError.conflict(
+      'A durable acknowledgement receipt is required to complete the linked SLA',
+      'TASK_ACKNOWLEDGEMENT_RECEIPT_REQUIRED',
+    );
+  }
   const client = db || prisma;
   try {
     const rows = await client.$queryRawUnsafe(
       `UPDATE workflow_sla_instances
-          SET status = CASE WHEN due_at IS NOT NULL AND NOW() > due_at THEN 'breached' ELSE 'completed' END,
-              completed_at = NOW(),
+              SET status = CASE
+                WHEN due_at IS NOT NULL AND to_timestamp($7::double precision / 1000.0) > due_at
+                  THEN CASE WHEN status = 'escalated' THEN 'escalated' ELSE 'breached' END
+                ELSE 'completed'
+              END,
+              completed_at = to_timestamp($7::double precision / 1000.0),
               breached_at = CASE
-                WHEN due_at IS NOT NULL AND NOW() > due_at THEN COALESCE(breached_at, NOW())
-                ELSE breached_at
+                WHEN due_at IS NOT NULL AND to_timestamp($7::double precision / 1000.0) > due_at THEN due_at
+                ELSE NULL
               END,
               metadata = COALESCE(metadata, '{}'::jsonb)
-                || jsonb_build_object('completed_via', 'task_ack'::text, 'completed_by_task', $1::int)
-                || CASE WHEN $4::text IS NOT NULL
-                        THEN jsonb_build_object('acknowledged_by', $4::text)
-                        ELSE '{}'::jsonb END,
+                || jsonb_build_object(
+                     'completed_via', $4::text,
+                     'completed_by_task', $1::int
+                   )
+                || CASE WHEN $5::text IS NOT NULL
+                        THEN jsonb_build_object('completed_by', $5::text)
+                        ELSE '{}'::jsonb END
+                 || CASE WHEN $6::jsonb IS NOT NULL
+                         THEN jsonb_build_object('completion_evidence', $6::jsonb)
+                         ELSE '{}'::jsonb END
+                 || CASE WHEN $8::int IS NOT NULL
+                         THEN jsonb_build_object('ack_contract_version', $8::int)
+                         ELSE '{}'::jsonb END,
               updated_at = NOW()
         WHERE id = $2::uuid
           AND tenant_id = $3::uuid
           AND status NOT IN ('completed', 'cancelled')
+          AND completed_at IS NULL
         RETURNING id, status, completed_at`,
       taskRow.id,
       String(slaInstanceId),
       tenantId,
+      completionMarker,
       completedBy ? String(completedBy) : null,
+      evidence ? JSON.stringify(evidence) : null,
+      completionInstant.getTime(),
+      ackContractVersion,
     );
     return rows[0] || null;
   } catch (err) {
@@ -260,6 +614,7 @@ const TASK_RETURNING = `id, tenant_id, workflow_run_id, workflow_step_id, parent
   priority, status, assigned_to_uid, assigned_to_role, created_by,
   due_at, completed_at, cancelled_at, cancellation_reason,
   sla_definition_id, sla_breached_at,
+  workflow_sla_instance_id, sla_completion_semantics, stage_occurrence_key,
   metadata, created_at, updated_at`;
 
 export async function createTask({
@@ -280,16 +635,20 @@ export async function createTask({
   createdBy = null,
   dueAt = null,
   slaDefinitionId = null,
+  workflowSlaInstanceId = null,
+  slaCompletionSemantics = 'none',
+  stageOccurrenceKey = null,
   metadata = null,
+  executorAuthority = null,
   // Optional transaction client (e.g. a setTenantTx tx) — defaults to the
   // singleton. Lets the results-inbox producer create a task inside the same
   // tenant-scoped transaction as its SLA-instance link.
   tx = null,
   // When true, append `ON CONFLICT … DO NOTHING` inferring the partial unique
-  // index `uq_task_open_per_resource` (migration 312). Makes the producer's
+  // index `uq_task_open_per_resource` (expanded by migration 580). Makes the producer's
   // "one open task per result resource" insert race-safe: a concurrent insert
   // for the same (tenant, related_resource_type, related_resource_id) while an
-  // open/in_progress/blocked task already exists is a no-op (RETURNING yields
+  // open/in_progress/blocked/overdue task already exists is a no-op (RETURNING yields
   // no row → this returns undefined).
   onConflictResourceDoNothing = false,
 } = {}) {
@@ -297,13 +656,96 @@ export async function createTask({
   const cleanTitle = safeText(title, 500);
   if (!cleanTitle) throw AppError.badRequest('title is required');
   const db = tx || prisma;
+  const cleanWorkflowRunId = workflowRunId ? normalizeId(workflowRunId, 'workflow_run_id') : null;
+  const cleanWorkflowStepId = workflowStepId ? normalizeId(workflowStepId, 'workflow_step_id') : null;
+  const cleanParentTaskId = parentTaskId ? normalizeId(parentTaskId, 'parent_task_id') : null;
+  const cleanRelatedResourceType = safeText(relatedResourceType, 60);
+  const cleanRelatedResourceId = safeText(relatedResourceId, 120);
+  const cleanWorkflowSlaInstanceId = maybeUuid(workflowSlaInstanceId, 'workflow_sla_instance_id');
+  const cleanSlaCompletionSemantics = normalizeEnum(
+    slaCompletionSemantics,
+    TASK_SLA_COMPLETION_SEMANTICS,
+    'sla_completion_semantics',
+  ) || 'none';
+  if (Boolean(cleanWorkflowSlaInstanceId) !== (cleanSlaCompletionSemantics !== 'none')) {
+    throw AppError.badRequest(
+      'workflow_sla_instance_id and a non-none sla_completion_semantics must be supplied together',
+      'TASK_SLA_CONTRACT_INVALID',
+    );
+  }
+  const cleanStageOccurrenceKey = safeText(stageOccurrenceKey, 200);
+  const cleanMetadata = normalizeTaskMetadata(metadata);
+  const verifiedExecutorAuthority = await hasPathwayExecutorAuthority(executorAuthority);
+  await assertPathwayExecutorAuthority({
+    tenantId: tid,
+    workflowRunId: cleanWorkflowRunId,
+    db,
+    executorAuthority,
+    verifiedExecutorAuthority,
+  });
+  if (!verifiedExecutorAuthority) {
+    const attachedStepRunId = await stepWorkflowRunId({
+      tenantId: tid,
+      workflowStepId: cleanWorkflowStepId,
+      db,
+    });
+    if (attachedStepRunId && String(attachedStepRunId) !== String(cleanWorkflowRunId || '')) {
+      await assertPathwayExecutorAuthority({
+        tenantId: tid,
+        workflowRunId: attachedStepRunId,
+        db,
+        executorAuthority,
+      });
+    }
+    const parentRunId = await taskWorkflowRunId({ tenantId: tid, taskId: cleanParentTaskId, db });
+    if (parentRunId && String(parentRunId) !== String(cleanWorkflowRunId || '')) {
+      await assertPathwayExecutorAuthority({
+        tenantId: tid,
+        workflowRunId: parentRunId,
+        db,
+        executorAuthority,
+      });
+    }
+  }
+  const linkedSla = await assertTaskSlaSourceBinding({
+    tenantId: tid,
+    taskRow: {
+      workflow_sla_instance_id: cleanWorkflowSlaInstanceId,
+      sla_completion_semantics: cleanSlaCompletionSemantics,
+      workflow_step_id: cleanWorkflowStepId,
+      related_resource_type: cleanRelatedResourceType,
+      related_resource_id: cleanRelatedResourceId,
+    },
+    db,
+  });
+  const suppliedDueAt = normalizeTimestamp(dueAt, 'due_at');
+  let taskDueAt = suppliedDueAt;
+  if (cleanWorkflowSlaInstanceId) {
+    const linkedSlaDueAt = normalizeTimestamp(linkedSla?.due_at, 'linked SLA due_at');
+    if (linkedSlaDueAt === null) {
+      throw AppError.conflict(
+        'Typed task SLA must have a due_at deadline',
+        'TASK_SLA_DUE_AT_MISSING',
+      );
+    }
+    if (suppliedDueAt !== null) {
+      throw AppError.badRequest(
+        'Typed task due_at is derived from the linked SLA and must not be supplied',
+        'TASK_SLA_DUE_AT_DERIVED',
+      );
+    }
+    // The INSERT selects this deadline from workflow_sla_instances directly.
+    // A JS Date cannot carry PostgreSQL's microseconds, so round-tripping the
+    // selected value through Prisma would violate the exact DB invariant.
+    taskDueAt = null;
+  }
 
   // Infer the partial unique index by its column list + predicate (Postgres
   // resolves a partial unique index from a matching ON CONFLICT predicate; the
   // index is not a named constraint so it cannot be targeted by name).
   const conflictClause = onConflictResourceDoNothing
     ? `ON CONFLICT (tenant_id, related_resource_type, related_resource_id)
-         WHERE status IN ('open', 'in_progress', 'blocked')
+         WHERE status IN ('open', 'in_progress', 'blocked', 'overdue')
            AND related_resource_type IS NOT NULL
            AND related_resource_id IS NOT NULL
        DO NOTHING`
@@ -317,33 +759,48 @@ export async function createTask({
           patient_uid, encounter_id, related_resource_type, related_resource_id,
           priority, status,
           assigned_to_uid, assigned_to_role, created_by,
-          due_at, sla_definition_id, metadata)
+          due_at, sla_definition_id,
+          workflow_sla_instance_id, sla_completion_semantics, stage_occurrence_key,
+          metadata)
        VALUES ($1::uuid, $2, $3, $4,
          $5, $6, $7,
          $8::uuid, $9, $10, $11,
          $12, 'open',
          $13::uuid, $14, $15::uuid,
-         $16::timestamptz, $17, $18::jsonb)
+         CASE WHEN $18::uuid IS NULL
+              THEN to_timestamp($16::double precision / 1000.0)
+              ELSE (
+                SELECT sla.due_at
+                  FROM workflow_sla_instances sla
+                 WHERE sla.tenant_id = $1::uuid
+                   AND sla.id = $18::uuid
+              )
+          END, $17,
+         $18::uuid, $19, $20,
+         $21::jsonb)
        ${conflictClause}
        RETURNING ${TASK_RETURNING}`,
       tid,
-      workflowRunId ? normalizeId(workflowRunId, 'workflow_run_id') : null,
-      workflowStepId ? normalizeId(workflowStepId, 'workflow_step_id') : null,
-      parentTaskId ? normalizeId(parentTaskId, 'parent_task_id') : null,
+      cleanWorkflowRunId,
+      cleanWorkflowStepId,
+      cleanParentTaskId,
       normalizeEnum(taskKind, TASK_KINDS, 'task_kind') || 'general',
       cleanTitle,
       safeText(description),
       maybeUuid(patientUid, 'patient_uid'),
       encounterId ? normalizeId(encounterId, 'encounter_id') : null,
-      safeText(relatedResourceType, 60),
-      safeText(relatedResourceId, 120),
+      cleanRelatedResourceType,
+      cleanRelatedResourceId,
       normalizeEnum(priority, TASK_PRIORITIES, 'priority') || 'normal',
       maybeUuid(assignedToUid, 'assigned_to_uid'),
       safeText(assignedToRole, 80),
       maybeUuid(createdBy, 'created_by'),
-      normalizeTimestamp(dueAt, 'due_at'),
+      taskDueAt,
       slaDefinitionId ? normalizeId(slaDefinitionId, 'sla_definition_id') : null,
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      cleanWorkflowSlaInstanceId,
+      cleanSlaCompletionSemantics,
+      cleanStageOccurrenceKey,
+      JSON.stringify(cleanMetadata),
     );
     return rows[0];
   } catch (err) {
@@ -435,10 +892,26 @@ export async function getTask({ tenantId = null, id, tx = null } = {}) {
   return rows[0];
 }
 
+async function getTaskForUpdate({ tenantId, id, db }) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT ${TASK_RETURNING} FROM tasks
+      WHERE id = $1 AND tenant_id = $2::uuid
+      FOR UPDATE`,
+    id,
+    tenantId,
+  );
+  if (!rows[0]) throw AppError.notFound('Task not found');
+  return rows[0];
+}
+
 export async function transitionTask({
   tenantId = null, id, nextStatus,
   cancellationReason = null,
   actorUid = undefined,
+  executorAuthority = null,
+  domainEvidenceAuthority = null,
+  slaSourceBindingAuthority = null,
+  acknowledgementTransitionAuthority = null,
   tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
@@ -455,26 +928,85 @@ export async function transitionTask({
       nextStatus: cleanNext,
       cancellationReason,
       actorUid,
+      executorAuthority,
+      domainEvidenceAuthority,
+      slaSourceBindingAuthority,
+      acknowledgementTransitionAuthority,
       tx: scopedTx,
     }));
   }
   const db = tx;
 
-  const current = await getTask({ tenantId: tid, id: taskId, tx });
+  const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
+  const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db });
+  await assertPathwayExecutorAuthority({
+    tenantId: tid,
+    workflowRunId: attachedRunId,
+    db,
+    executorAuthority,
+  });
+  if (slaSourceBindingAuthority !== TASK_SLA_SOURCE_BINDING_AUTHORITY) {
+    await assertTaskSlaSourceBinding({ tenantId: tid, taskRow: current, db });
+  }
+  if (
+    cleanNext === 'in_progress'
+    && current.sla_completion_semantics === 'acknowledgement'
+    && current.workflow_sla_instance_id
+    && acknowledgementTransitionAuthority !== ACKNOWLEDGEMENT_TRANSITION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'Acknowledgement-tracked tasks must use the acknowledgement workflow',
+      'TASK_ACKNOWLEDGEMENT_REQUIRED',
+    );
+  }
+  if (
+    cleanNext === 'completed'
+    && current.sla_completion_semantics === 'domain_evidence'
+    && domainEvidenceAuthority !== DOMAIN_EVIDENCE_COMPLETION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'Registered domain evidence is required to complete this task',
+      'DOMAIN_EVIDENCE_REQUIRED',
+    );
+  }
   const allowed = TASK_TRANSITIONS[current.status] || [];
   if (!allowed.includes(cleanNext)) {
     throw AppError.invalidTransition(current.status, cleanNext, allowed);
   }
+  if (
+    cleanNext === 'cancelled'
+    && current.sla_completion_semantics !== 'none'
+    && current.workflow_sla_instance_id
+  ) {
+    const linkedSla = await db.$queryRawUnsafe(
+      `SELECT completed_at
+         FROM workflow_sla_instances
+        WHERE id = $1::uuid
+          AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      current.workflow_sla_instance_id,
+      tid,
+    );
+    if (!linkedSla[0]?.completed_at) {
+      throw AppError.conflict(
+        'A task with an incomplete linked SLA cannot be cancelled',
+        'TASK_LINKED_SLA_INCOMPLETE',
+      );
+    }
+  }
 
   const updates = ['status = $1', 'updated_at = NOW()'];
   const params = [cleanNext];
+  let transitionInstant = null;
   if (cleanNext === 'completed') {
-    params.push(new Date().toISOString());
-    updates.push(`completed_at = $${params.length}::timestamptz`);
+    transitionInstant = new Date();
+    params.push(transitionInstant.getTime());
+    updates.push(`completed_at = to_timestamp($${params.length}::double precision / 1000.0)`);
   }
   if (cleanNext === 'cancelled') {
-    params.push(new Date().toISOString());
-    updates.push(`cancelled_at = $${params.length}::timestamptz`);
+    transitionInstant = new Date();
+    params.push(transitionInstant.getTime());
+    updates.push(`cancelled_at = to_timestamp($${params.length}::double precision / 1000.0)`);
     if (cancellationReason) {
       params.push(safeText(cancellationReason));
       updates.push(`cancellation_reason = $${params.length}`);
@@ -497,14 +1029,496 @@ export async function transitionTask({
     throw AppError.conflict('Task status changed before transition completed', 'TASK_TRANSITION_CONFLICT');
   }
 
-  // A terminal transition also STOPS the SLA clock (audit C-3): resolving a
-  // critical result directly (or the engine's auto_resolve) must close the
-  // linked mig-269 instance, not just acknowledging it. Runs on the SAME db
-  // client so it commits atomically with the transition.
-  if (cleanNext === 'completed' || cleanNext === 'cancelled') {
-    await completeLinkedSla({ tenantId: tid, taskRow: rows[0], db, strict: true });
+  // A direct completion closes only an acknowledgement-semantics SLA.
+  // Cancellation is work withdrawal, never evidence that the obligation was met.
+  if (cleanNext === 'completed') {
+    await completeLinkedSla({
+      tenantId: tid,
+      taskRow: rows[0],
+      db,
+      completionTrigger: 'task_completion',
+      completedAt: transitionInstant,
+      completedBy: actorUid,
+      strict: true,
+    });
   }
   return rows[0];
+}
+
+/**
+ * Narrow in-process bridge for corrected-result supersession. The private
+ * capability never leaves this module, so generic routes and caller-supplied
+ * objects cannot manufacture supersession or the blocked -> in_progress edge.
+ */
+export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
+  tenantId = null,
+  id,
+  relatedResourceType,
+  relatedResourceId,
+  workflowSlaInstanceId,
+  supersededByActorUid,
+  tx = null,
+} = {}) {
+  if (!tx) {
+    throw AppError.internal(
+      'Trusted acknowledgement supersession requires a transaction',
+      'TRUSTED_TASK_SUPERSESSION_TRANSACTION_REQUIRED',
+    );
+  }
+  const tid = resolveTenantId({ tenantId });
+  const supersessionActorUid = requireActorUid(
+    supersededByActorUid,
+    'superseded_by_actor_uid',
+  );
+  const taskId = normalizeId(id, 'task id');
+  const expectedResourceType = safeText(relatedResourceType, 120);
+  const expectedResourceId = safeText(relatedResourceId, 255);
+  const expectedSlaId = maybeUuid(workflowSlaInstanceId, 'workflow_sla_instance_id');
+  if (!expectedResourceType || !expectedResourceId || !expectedSlaId) {
+    throw AppError.badRequest(
+      'Trusted acknowledgement supersession requires its exact resource and SLA binding',
+      'ACKNOWLEDGEMENT_SUPERSESSION_INVALID',
+    );
+  }
+
+  let current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
+  const linkedSla = await assertTaskSlaSourceBinding({ tenantId: tid, taskRow: current, db: tx });
+  if (
+    current.sla_completion_semantics !== 'acknowledgement'
+    || String(current.workflow_sla_instance_id || '') !== expectedSlaId
+    || current.related_resource_type !== expectedResourceType
+    || String(current.related_resource_id || '') !== expectedResourceId
+    || linkedSla?.rule_code !== 'critical_result_ack'
+  ) {
+    throw AppError.conflict(
+      'Task is not the expected critical-result acknowledgement obligation',
+      'ACKNOWLEDGEMENT_SUPERSESSION_INVALID',
+    );
+  }
+  if (!['open', 'overdue', 'blocked', 'in_progress'].includes(current.status)) {
+    throw AppError.invalidTransition(current.status, 'completed', TASK_TRANSITIONS[current.status] || []);
+  }
+  if (current.status === 'blocked') {
+    current = await transitionTask({
+      tenantId: tid,
+      id: taskId,
+      nextStatus: 'in_progress',
+      acknowledgementTransitionAuthority: ACKNOWLEDGEMENT_TRANSITION_AUTHORITY,
+      slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
+      tx,
+    });
+  }
+  return transitionTask({
+    tenantId: tid,
+    id: taskId,
+    nextStatus: 'completed',
+    actorUid: supersessionActorUid,
+    slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
+    tx,
+  });
+}
+
+const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
+  mortuary_body_release: async ({ tenantId, taskRow, evidenceResourceType, evidenceResourceId, db }) => {
+    if (evidenceResourceType !== 'body_custody_event') return null;
+    const evidenceId = String(evidenceResourceId || '').trim();
+    const deathRecordId = String(taskRow.related_resource_id || '').trim();
+    if (
+      taskRow.related_resource_type !== 'death_record'
+      || !/^[1-9]\d*$/.test(evidenceId)
+      || !/^[1-9]\d*$/.test(deathRecordId)
+    ) {
+      return null;
+    }
+    const rows = await db.$queryRawUnsafe(
+      `SELECT custody.id, custody.event_type, custody.event_at, custody.created_at,
+              (EXTRACT(EPOCH FROM custody.event_at) * 1000)::double precision AS event_at_epoch_ms,
+              (EXTRACT(EPOCH FROM custody.created_at) * 1000)::double precision AS created_at_epoch_ms
+         FROM body_custody_events custody
+        WHERE custody.tenant_id = $1::uuid
+          AND custody.id::text = $2::text
+          AND custody.death_record_id::text = $3::text
+          AND custody.event_type = 'release'
+          AND EXISTS (
+            SELECT 1
+              FROM workflow_sla_instances sla
+             WHERE sla.tenant_id = custody.tenant_id
+               AND sla.id = $4::uuid
+               AND sla.rule_code = 'mortuary_unclaimed_body'
+          )
+        LIMIT 1`,
+      tenantId,
+      evidenceId,
+      deathRecordId,
+      taskRow.workflow_sla_instance_id,
+    );
+    if (!rows[0]) return null;
+    return {
+      kind: 'mortuary_body_release',
+      resource_type: 'body_custody_event',
+      resource_id: String(rows[0].id),
+      occurred_at: new Date(rows[0].event_at_epoch_ms).toISOString(),
+      recorded_at: new Date(rows[0].created_at_epoch_ms).toISOString(),
+    };
+  },
+});
+
+export async function completeTaskFromDomainEvidence({
+  tenantId = null,
+  id,
+  evidenceKind,
+  evidenceResourceType,
+  evidenceResourceId,
+  actorUid = null,
+  executorAuthority = null,
+  tx = null,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const taskId = normalizeId(id, 'task id');
+  if (!tx) {
+    return setTenantTx(tid, (scopedTx) => completeTaskFromDomainEvidence({
+      tenantId: tid,
+      id: taskId,
+      evidenceKind,
+      evidenceResourceType,
+      evidenceResourceId,
+      actorUid,
+      executorAuthority,
+      tx: scopedTx,
+    }));
+  }
+
+  let current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
+  const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db: tx });
+  await assertPathwayExecutorAuthority({
+    tenantId: tid,
+    workflowRunId: attachedRunId,
+    db: tx,
+    executorAuthority,
+  });
+  await assertTaskSlaSourceBinding({ tenantId: tid, taskRow: current, db: tx });
+  if (
+    current.sla_completion_semantics !== 'domain_evidence'
+    || !current.workflow_sla_instance_id
+  ) {
+    throw AppError.conflict(
+      'Task is not registered for domain-evidence SLA completion',
+      'DOMAIN_EVIDENCE_COMPLETION_NOT_ALLOWED',
+    );
+  }
+
+  const cleanEvidenceKind = safeText(evidenceKind, 120);
+  const validator = DOMAIN_EVIDENCE_VALIDATORS[cleanEvidenceKind];
+  if (!validator) {
+    throw AppError.badRequest('Unregistered domain evidence kind', 'DOMAIN_EVIDENCE_KIND_UNREGISTERED');
+  }
+  const evidence = await validator({
+    tenantId: tid,
+    taskRow: current,
+    evidenceResourceType: safeText(evidenceResourceType, 120),
+    evidenceResourceId,
+    db: tx,
+  });
+  if (!evidence) {
+    throw AppError.conflict('Registered domain evidence was not found', 'DOMAIN_EVIDENCE_NOT_FOUND');
+  }
+
+  const wasCompleted = current.status === 'completed';
+  if (current.status === 'cancelled') {
+    throw AppError.invalidTransition('cancelled', 'completed', TASK_TRANSITIONS.cancelled);
+  }
+  if (!wasCompleted) {
+    if (current.status === 'blocked') {
+      current = await transitionTask({
+        tenantId: tid,
+        id: taskId,
+        nextStatus: 'in_progress',
+        executorAuthority,
+        slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
+        tx,
+      });
+    }
+    current = await transitionTask({
+      tenantId: tid,
+      id: taskId,
+      nextStatus: 'completed',
+      ...(actorUid ? { actorUid } : {}),
+      executorAuthority,
+      domainEvidenceAuthority: DOMAIN_EVIDENCE_COMPLETION_AUTHORITY,
+      slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
+      tx,
+    });
+  }
+
+  const completedSla = await completeLinkedSla({
+    tenantId: tid,
+    taskRow: current,
+    db: tx,
+    completedBy: actorUid,
+    completionTrigger: 'domain_evidence',
+    completedAt: evidence.recorded_at,
+    evidence,
+    strict: true,
+  });
+  if (!completedSla) {
+    const existing = await tx.$queryRawUnsafe(
+      `SELECT id, completed_at, metadata
+         FROM workflow_sla_instances
+        WHERE id = $1::uuid
+          AND tenant_id = $2::uuid
+        LIMIT 1`,
+      current.workflow_sla_instance_id,
+      tid,
+    );
+    if (!existing[0]?.completed_at) {
+      throw AppError.conflict('SLA completion changed concurrently', 'SLA_COMPLETION_CONFLICT');
+    }
+    const storedEvidence = existing[0].metadata?.completion_evidence;
+    const evidenceMatches = (
+      existing[0].metadata?.completed_via === 'domain_evidence'
+      && storedEvidence?.kind === evidence.kind
+      && storedEvidence?.resource_type === evidence.resource_type
+      && String(storedEvidence?.resource_id || '') === evidence.resource_id
+    );
+    if (!evidenceMatches) {
+      throw AppError.conflict(
+        'Existing SLA completion is not backed by the registered domain evidence',
+        'SLA_DOMAIN_EVIDENCE_MISMATCH',
+      );
+    }
+  }
+
+  if (!wasCompleted) {
+    await postTaskComment({
+      tenantId: tid,
+      taskId,
+      authorUid: actorUid,
+      body: `Task completed from registered domain evidence ${evidence.kind}:${evidence.resource_id}`,
+      bodyKind: 'state_change',
+      metadata: { to: 'completed', completion_via: 'domain_evidence', evidence },
+      tx,
+    });
+  }
+  return current;
+}
+
+export async function completePathwayTaskFromRegisteredEvidence({
+  tenantId = null,
+  pathwayInstanceId,
+  id,
+  workflowRunId,
+  workflowStepId,
+  conditionHandler,
+  evidence = {},
+  actor = null,
+  signal = null,
+  executorAuthority = null,
+  tx = null,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  if (!await hasPathwayExecutorAuthority(executorAuthority)) {
+    throw AppError.conflict(
+      'Pathway-bound workflow mutations must use the pathway executor',
+      'PATHWAY_EXECUTOR_REQUIRED',
+    );
+  }
+  const taskId = normalizeStrictPositiveId(id, 'task id');
+  const runId = normalizeStrictPositiveId(workflowRunId, 'workflow_run_id');
+  const stepId = normalizeStrictPositiveId(workflowStepId, 'workflow_step_id');
+  const cleanPathwayInstanceId = maybeUuid(pathwayInstanceId, 'pathway_instance_id');
+  if (!cleanPathwayInstanceId) {
+    throw AppError.badRequest(
+      'pathway_instance_id is required',
+      'PATHWAY_TASK_CONTEXT_INVALID',
+    );
+  }
+  const { isTenantTransactionClient } = await import('../../lib/prisma.js');
+  if (!tx || !isTenantTransactionClient(tx)) {
+    throw AppError.conflict(
+      'Pathway evidence completion requires a branded tenant transaction',
+      'PATHWAY_RUNTIME_TX_REQUIRED',
+    );
+  }
+  const cleanHandler = requireCanonicalHandlerId(conditionHandler);
+  const payload = cloneBudgetedWorkflowJson(
+    normalizeJsonObject(evidence, 'evidence'),
+    'evidence',
+    'PATHWAY_HANDLER_CONTRACT_INVALID',
+  );
+  const provenance = await normalizePathwayEvidenceProvenance(actor, signal);
+  const cleanActorUid = provenance.actor_kind === 'user' ? provenance.actor_uid : null;
+  const normalizedEvidence = Object.freeze(cloneBudgetedWorkflowJson({
+    kind: 'pathway_registered_condition',
+    handler_id: cleanHandler,
+    decision: 'satisfied',
+    resource_type: 'workflow_steps',
+    resource_id: String(stepId),
+    payload,
+    provenance,
+  }, 'normalized_evidence', 'PATHWAY_HANDLER_CONTRACT_INVALID'));
+
+  // Resolve without taking a row lock, then acquire the complete runtime using
+  // the executor's single global lock order (instance, run, children, steps,
+  // tasks, approvals, handoffs, SLAs). Locking the task first here would
+  // deadlock against an executor transaction that already owns the instance.
+  const pathwayRows = await tx.$queryRawUnsafe(
+    `SELECT id
+      FROM care_pathway_instances
+      WHERE tenant_id = $1::uuid
+        AND workflow_run_id = $2::bigint
+        AND id = $3::uuid
+      LIMIT 1`,
+    tid,
+    runId,
+    cleanPathwayInstanceId,
+  );
+  if (!pathwayRows[0]?.id) {
+    throw AppError.conflict(
+      'Pathway task run and step context is not registered',
+      'PATHWAY_TASK_CONTEXT_MISMATCH',
+    );
+  }
+  const { lockPathwayRuntimeTx } = await import('../pathways/pathwayRuntimePersistence.js');
+  const runtime = await lockPathwayRuntimeTx({
+    tx,
+    tenantId: tid,
+    pathwayInstanceId: pathwayRows[0].id,
+  });
+  const current = runtime.tasks.find((task) => Number(task.id) === taskId);
+  const step = runtime.steps.find((candidate) => Number(candidate.id) === stepId);
+  if (
+    Number(runtime.run?.id) !== runId
+    || !step
+    || Number(step.workflow_run_id) !== runId
+    || !current
+    || Number(current.workflow_run_id) !== runId
+    || Number(current.workflow_step_id) !== stepId
+  ) {
+    throw AppError.conflict(
+      'Pathway task does not belong to the supplied run and step',
+      'PATHWAY_TASK_CONTEXT_MISMATCH',
+    );
+  }
+  let pinnedSteps = runtime.definition?.steps;
+  if (typeof pinnedSteps === 'string') {
+    try {
+      pinnedSteps = JSON.parse(pinnedSteps);
+    } catch {
+      pinnedSteps = null;
+    }
+  }
+  const pinnedStep = Array.isArray(pinnedSteps)
+    ? pinnedSteps.find((candidate) => candidate?.step_key === step.step_key)
+    : null;
+  const pinnedHandler = safeText(pinnedStep?.condition_handler, 120);
+  if (!pinnedStep || !pinnedHandler || pinnedHandler !== cleanHandler) {
+    throw AppError.conflict(
+      'Pathway evidence handler does not match the pinned governed step',
+      'PATHWAY_HANDLER_CONTRACT_INVALID',
+    );
+  }
+  let taskState = current;
+  const linkedSla = await assertTaskSlaSourceBinding({
+    tenantId: tid,
+    taskRow: taskState,
+    db: tx,
+  });
+  if (
+    taskState.sla_completion_semantics !== 'domain_evidence'
+    || !taskState.workflow_sla_instance_id
+  ) {
+    throw AppError.conflict(
+      'Pathway task is not registered for domain-evidence SLA completion',
+      'DOMAIN_EVIDENCE_COMPLETION_NOT_ALLOWED',
+    );
+  }
+
+  const previousTaskStatus = taskState.status;
+  const previousSlaStatus = linkedSla.status;
+  const wasCompleted = taskState.status === 'completed';
+  if (taskState.status === 'cancelled') {
+    throw AppError.invalidTransition('cancelled', 'completed', TASK_TRANSITIONS.cancelled);
+  }
+  if (!wasCompleted) {
+    if (taskState.status === 'blocked') {
+      taskState = await transitionTask({
+        tenantId: tid,
+        id: taskId,
+        nextStatus: 'in_progress',
+        executorAuthority,
+        slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
+        tx,
+      });
+    }
+    taskState = await transitionTask({
+      tenantId: tid,
+      id: taskId,
+      nextStatus: 'completed',
+      ...(cleanActorUid ? { actorUid: cleanActorUid } : {}),
+      executorAuthority,
+      domainEvidenceAuthority: DOMAIN_EVIDENCE_COMPLETION_AUTHORITY,
+      slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
+      tx,
+    });
+  }
+
+  const completedSla = await completeLinkedSla({
+    tenantId: tid,
+    taskRow: taskState,
+    db: tx,
+    completedBy: cleanActorUid,
+    completionTrigger: 'domain_evidence',
+    evidence: normalizedEvidence,
+    strict: true,
+  });
+  const slaRows = await tx.$queryRawUnsafe(
+    `SELECT *,
+            (metadata->'completion_evidence' = $3::jsonb) AS evidence_matches
+       FROM workflow_sla_instances
+      WHERE id = $1::uuid
+        AND tenant_id = $2::uuid
+      LIMIT 1`,
+    taskState.workflow_sla_instance_id,
+    tid,
+    JSON.stringify(normalizedEvidence),
+  );
+  const sla = slaRows[0];
+  if (!sla?.completed_at) {
+    throw AppError.conflict('SLA completion changed concurrently', 'SLA_COMPLETION_CONFLICT');
+  }
+  if (!completedSla && (
+    sla.metadata?.completed_via !== 'domain_evidence'
+    || sla.evidence_matches !== true
+  )) {
+    throw AppError.conflict(
+      'Existing SLA completion is not backed by the same registered pathway evidence',
+      'SLA_DOMAIN_EVIDENCE_MISMATCH',
+    );
+  }
+
+  if (!wasCompleted) {
+    await postTaskComment({
+      tenantId: tid,
+      taskId,
+      authorUid: cleanActorUid,
+      body: `Task completed from registered pathway condition ${cleanHandler}`,
+      bodyKind: 'state_change',
+      metadata: {
+        to: 'completed',
+        completion_via: 'domain_evidence',
+        evidence: normalizedEvidence,
+      },
+      tx,
+    });
+  }
+  return Object.freeze({
+    task: taskState,
+    sla,
+    evidence: normalizedEvidence,
+    previousTaskStatus,
+    previousSlaStatus,
+    mutated: !wasCompleted || Boolean(completedSla),
+  });
 }
 
 /**
@@ -553,6 +1567,7 @@ function resolveDirectAckAuthorization(taskRow, { actorUid = null, actorRoles = 
   const assignedUid = taskRow?.assigned_to_uid ? String(taskRow.assigned_to_uid).toLowerCase() : null;
   const assignedRole = taskRow?.assigned_to_role ? String(taskRow.assigned_to_role).trim().toUpperCase() : null;
 
+  if (!callerUid) return null;
   if (callerUid && assignedUid && callerUid === assignedUid) return { mode: 'assignee' };
   if (assignedRole && roles.includes(assignedRole)) return { mode: 'role', assignedRole };
   if (roles.some((r) => isAdmin(r)) || roles.includes('SUPER_ADMIN')) return { mode: 'admin' };
@@ -733,46 +1748,116 @@ async function reconcileInProgressAcknowledgement({
     tenantId, taskId, actorUid, authz, trustedResourceId,
   });
   const rows = await db.$queryRawUnsafe(
-    `WITH authorized_task AS MATERIALIZED (
-       SELECT ${TASK_RETURNING}
-         FROM tasks
-        WHERE tasks.id = $1
-          AND tasks.tenant_id = $2::uuid
-          AND tasks.status = 'in_progress'
-          AND ${ACK_AUTHORITY_PREDICATE}
-        LIMIT 1
-     ), completed_sla AS (
-       UPDATE workflow_sla_instances AS sla
-          SET status = CASE WHEN sla.due_at IS NOT NULL AND NOW() > sla.due_at THEN 'breached' ELSE 'completed' END,
-              completed_at = NOW(),
-              breached_at = CASE
-                WHEN sla.due_at IS NOT NULL AND NOW() > sla.due_at THEN COALESCE(sla.breached_at, NOW())
-                ELSE sla.breached_at
-              END,
-              metadata = COALESCE(sla.metadata, '{}'::jsonb)
-                || jsonb_build_object('completed_via', 'task_ack'::text, 'completed_by_task', authorized_task.id)
-                || CASE WHEN COALESCE(NULLIF(authorized_task.metadata->>'acknowledged_by', ''), $4::text) IS NOT NULL
-                        THEN jsonb_build_object(
-                          'acknowledged_by',
-                          COALESCE(NULLIF(authorized_task.metadata->>'acknowledged_by', ''), $4::text)
-                        )
-                        ELSE '{}'::jsonb END,
-              updated_at = NOW()
-         FROM authorized_task
-        WHERE NULLIF(authorized_task.metadata->>'sla_instance_id', '') IS NOT NULL
-          AND sla.id = (authorized_task.metadata->>'sla_instance_id')::uuid
-          AND sla.tenant_id = $2::uuid
-          AND sla.status NOT IN ('completed', 'cancelled')
-          AND sla.completed_at IS NULL
-        RETURNING sla.id
-     )
-     SELECT ${TASK_RETURNING}
-       FROM authorized_task`,
+    `SELECT ${TASK_RETURNING}
+       FROM tasks
+      WHERE tasks.id = $1
+        AND tasks.tenant_id = $2::uuid
+        AND tasks.status = 'in_progress'
+        AND ${ACK_AUTHORITY_PREDICATE}
+      LIMIT 1
+      FOR UPDATE`,
     ...authorityParams,
   );
   const current = rows[0];
   if (!current) throw ackForbidden(taskRow);
-  return current;
+  await assertTaskSlaSourceBinding({ tenantId, taskRow: current, db });
+
+  const durableReceipt = parseDurableTimestamp(current.metadata?.acknowledged_at);
+  if (durableReceipt) {
+    await completeLinkedSla({
+      tenantId,
+      taskRow: current,
+      db,
+      completedBy: current.metadata?.acknowledged_by || actorUid,
+      completionTrigger: 'acknowledgement',
+      completedAt: durableReceipt,
+      strict: true,
+    });
+    return current;
+  }
+
+  // Some pre-receipt releases could leave a task in_progress without durable
+  // acknowledgement evidence. An authorized re-ack repairs the receipt and
+  // records that repair before the SLA clock is reconciled in this transaction.
+  const previousAcknowledgedAt = current.metadata?.acknowledged_at ?? null;
+  const repairedFrom = previousAcknowledgedAt === null ? 'missing' : 'malformed';
+  const repairedAt = new Date().toISOString();
+  const repairedRows = await db.$queryRawUnsafe(
+    `WITH repair_input AS (
+       SELECT to_char(
+                to_timestamp($12::double precision / 1000.0) AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+              ) AS acknowledged_at,
+              $13::jsonb AS previous_acknowledged_at,
+              $14::text AS repaired_from
+     )
+     UPDATE tasks
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+          || jsonb_build_object(
+               'acknowledged_at', repair_input.acknowledged_at,
+               'acknowledged_by', $4::text,
+               'acknowledged_via', $3::text,
+               'acknowledgement_receipt_repaired', TRUE,
+               'previous_acknowledged_at', repair_input.previous_acknowledged_at,
+               'acknowledgement_receipt_repaired_from', repair_input.repaired_from
+             )
+          || CASE WHEN $6::text IS NOT NULL
+                  THEN jsonb_build_object(
+                    'acknowledge_override_source', $6::text,
+                    'acknowledge_override_id', $7::text,
+                    'acknowledge_override_reason', $8::text
+                  )
+                  ELSE '{}'::jsonb END,
+            updated_at = NOW()
+       FROM repair_input
+      WHERE tasks.id = $1
+        AND tasks.tenant_id = $2::uuid
+        AND tasks.status = 'in_progress'
+        AND ${ACK_AUTHORITY_PREDICATE}
+      RETURNING ${TASK_RETURNING}`,
+    ...authorityParams,
+    new Date(repairedAt).getTime(),
+    JSON.stringify(previousAcknowledgedAt),
+    repairedFrom,
+  );
+  const repaired = repairedRows[0];
+  if (!repaired) throw ackForbidden(taskRow);
+
+  await completeLinkedSla({
+    tenantId,
+    taskRow: repaired,
+    db,
+    completedBy: actorUid,
+    completionTrigger: 'acknowledgement',
+    completedAt: repairedAt,
+    strict: true,
+  });
+  const overrideNote = authz.mode === 'override'
+    ? ` [override ${authz.source}:${authz.id}: ${authz.reason}]`
+    : '';
+  await postTaskComment({
+    tenantId,
+    taskId,
+    authorUid: actorUid,
+    body: `Task acknowledgement receipt repaired (in_progress) via ${authz.mode}${overrideNote}`,
+    bodyKind: 'state_change',
+    metadata: {
+      from: 'in_progress',
+      to: 'in_progress',
+      acknowledged_at: repairedAt,
+      previous_acknowledged_at: previousAcknowledgedAt,
+      via: authz.mode,
+      receipt_repaired: true,
+      repaired_from: repairedFrom,
+      ...(authz.mode === 'override' ? {
+        override_source: authz.source,
+        override_id: authz.id,
+        override_reason: authz.reason,
+      } : {}),
+    },
+    tx: db,
+  });
+  return repaired;
 }
 
 async function updateTaskForAcknowledgement({
@@ -782,35 +1867,123 @@ async function updateTaskForAcknowledgement({
   authz,
   trustedResourceId,
   acknowledgedAt,
+  allowBlocked = false,
+  ackContractVersion = null,
   db,
 }) {
   const authorityParams = ackAuthorityParams({
     tenantId, taskId, actorUid, authz, trustedResourceId,
   });
+  const acknowledgeableStatuses = allowBlocked
+    ? "('open', 'overdue', 'blocked')"
+    : "('open', 'overdue')";
   return db.$queryRawUnsafe(
     `WITH ack_input AS (
-       SELECT $12::text AS acknowledged_at
+       SELECT to_char(
+                to_timestamp($12::double precision / 1000.0) AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+              ) AS acknowledged_at
      )
      UPDATE tasks
         SET status = 'in_progress',
             metadata = COALESCE(metadata, '{}'::jsonb)
-              || jsonb_build_object('acknowledged_at', ack_input.acknowledged_at, 'acknowledged_by', $4::text, 'acknowledged_via', $3::text)
-              || CASE WHEN $6::text IS NOT NULL
-                      THEN jsonb_build_object(
-                        'acknowledge_override_source', $6::text,
-                        'acknowledge_override_id', $7::text,
-                        'acknowledge_override_reason', $8::text
-                      )
-                      ELSE '{}'::jsonb END,
-            updated_at = NOW()
+                || jsonb_build_object('acknowledged_at', ack_input.acknowledged_at, 'acknowledged_by', $4::text, 'acknowledged_via', $3::text)
+                || CASE WHEN $6::text IS NOT NULL
+                        THEN jsonb_build_object(
+                          'acknowledge_override_source', $6::text,
+                          'acknowledge_override_id', $7::text,
+                          'acknowledge_override_reason', $8::text
+                        )
+                        ELSE '{}'::jsonb END
+                || CASE WHEN $13::int IS NOT NULL
+                        THEN jsonb_build_object('ack_contract_version', $13::int)
+                        ELSE '{}'::jsonb END,
+             updated_at = NOW()
        FROM ack_input
-      WHERE tasks.id = $1 AND tasks.tenant_id = $2::uuid
-        AND tasks.status IN ('open', 'overdue')
+      WHERE tasks.id = $1::int AND tasks.tenant_id = $2::uuid
+        AND tasks.status IN ${acknowledgeableStatuses}
         AND ${ACK_AUTHORITY_PREDICATE}
       RETURNING ${TASK_RETURNING}`,
     ...authorityParams,
-    acknowledgedAt,
+    new Date(acknowledgedAt).getTime(),
+    ackContractVersion,
   );
+}
+
+function hasLabCriticalAlertBinding(taskRow) {
+  return taskRow?.metadata?.lab_critical_alert_id !== undefined
+    && taskRow?.metadata?.lab_critical_alert_id !== null;
+}
+
+async function assertLabCriticalAlertAcknowledgementBoundary({
+  tenantId,
+  taskRow,
+  authority,
+  db,
+}) {
+  const hasBinding = hasLabCriticalAlertBinding(taskRow);
+  const hasAuthority = authority?.capability === LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY;
+  if (!hasBinding && !hasAuthority) return;
+
+  if (!hasAuthority) {
+    throw AppError.conflict(
+      'Lab critical-result tasks must be acknowledged through the critical-alert workflow',
+      'LAB_CRITICAL_ALERT_ACK_REQUIRED',
+    );
+  }
+
+  const alertId = normalizeId(authority.alertId, 'critical alert id');
+  const resultId = safeText(authority.resultId, 120);
+  const patientUid = maybeUuid(authority.patientUid, 'patient_uid');
+  if (
+    !resultId
+    || !patientUid
+    || String(taskRow.metadata.lab_critical_alert_id) !== String(alertId)
+  ) {
+    throw AppError.forbidden('Not authorized to acknowledge this task');
+  }
+
+  const bindings = await db.$queryRawUnsafe(
+    `SELECT alert.id
+       FROM tasks AS task
+       JOIN lab_critical_alerts AS alert
+         ON alert.tenant_id = task.tenant_id
+        AND alert.acknowledgement_task_id = task.id
+       JOIN workflow_sla_instances AS sla
+         ON sla.tenant_id = task.tenant_id
+        AND sla.id = task.workflow_sla_instance_id
+      WHERE task.tenant_id = $1::uuid
+        AND task.id = $2::int
+        AND alert.id = $3::int
+        AND alert.result_id::text = $4::text
+        AND alert.patient_uid = $5::uuid
+        AND alert.superseded_at IS NULL
+        AND task.patient_uid = alert.patient_uid
+        AND task.related_resource_type = 'lab_result'
+        AND task.related_resource_id = alert.result_id::text
+        AND task.sla_completion_semantics = 'acknowledgement'
+        AND task.metadata->>'lab_critical_alert_id' = alert.id::text
+        AND (
+          alert.generation_signoff_id IS NULL
+          OR task.metadata->>'lab_alert_generation_signoff_id'
+               = alert.generation_signoff_id::text
+        )
+        AND task.metadata->>'lab_alert_generation_state'
+             = alert.generation_metadata->>'corrected_state'
+        AND sla.rule_code = 'critical_result_ack'
+        AND sla.source_table = 'lab_result'
+        AND sla.source_id = alert.result_id::text
+        AND sla.patient_uid = alert.patient_uid
+      LIMIT 2`,
+    tenantId,
+    taskRow.id,
+    alertId,
+    resultId,
+    patientUid,
+  );
+  if (bindings.length !== 1) {
+    throw AppError.forbidden('Not authorized to acknowledge this task');
+  }
 }
 
 async function acknowledgeTaskInternal({
@@ -820,11 +1993,13 @@ async function acknowledgeTaskInternal({
   actorRoles = [],
   breakGlassId = null,
   trustedOverride = null,
+  labCriticalAlertAuthority = null,
+  executorAuthority = null,
   tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
-  const ackUid = maybeUuid(actorUid, 'actor_uid');
+  const ackUid = requireActorUid(actorUid);
   const db = tx || prisma;
 
   // Pre-read for a clean, intention-revealing error before attempting the write.
@@ -840,6 +2015,33 @@ async function acknowledgeTaskInternal({
     breakGlassId,
     trustedOverride,
     db,
+  });
+  // A lab critical alert, its task receipt, linked SLA, task comment, and
+  // canonical clinical evidence are one clinical transition. Generic task
+  // callers may never execute only the task/SLA half. Migration 581 makes the
+  // metadata pointer immutable for every alert-bound task; the dedicated
+  // transaction-only entrypoint below additionally revalidates the exact
+  // current tenant/alert/task/resource/SLA binding before mutation.
+  await assertLabCriticalAlertAcknowledgementBoundary({
+    tenantId: tid,
+    taskRow: current,
+    authority: labCriticalAlertAuthority,
+    db,
+  });
+  const allowBlocked = labCriticalAlertAuthority?.capability
+    === LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY;
+  const ackContractVersion = allowBlocked
+    ? LAB_CRITICAL_ALERT_ACK_CONTRACT_VERSION
+    : null;
+  // Only an authorized task actor may learn that this work is pathway-bound.
+  // The generic route still fails closed for valid assignees/roles; probes keep
+  // the same non-enumerating 403 response as every other unauthorized task id.
+  const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db });
+  await assertPathwayExecutorAuthority({
+    tenantId: tid,
+    workflowRunId: attachedRunId,
+    db,
+    executorAuthority,
   });
   let effectiveAuthz = authz;
   let effectiveTrustedResourceId = trustedOverride ? verifiedOverride.id : null;
@@ -877,6 +2079,8 @@ async function acknowledgeTaskInternal({
     authz: effectiveAuthz,
     trustedResourceId: effectiveTrustedResourceId,
     acknowledgedAt: ackedAt,
+    allowBlocked,
+    ackContractVersion,
     db,
   });
   if (!rows[0]) {
@@ -903,7 +2107,11 @@ async function acknowledgeTaskInternal({
         db,
       });
     }
-    if (after.status === 'open' || after.status === 'overdue') {
+    if (
+      after.status === 'open'
+      || after.status === 'overdue'
+      || (allowBlocked && after.status === 'blocked')
+    ) {
       // The selected authority can change while another valid mode remains
       // (for example, an assignee who is also an administrator). Retry the CAS
       // once with freshly resolved authority before returning a generic denial.
@@ -916,6 +2124,8 @@ async function acknowledgeTaskInternal({
         authz: effectiveAuthz,
         trustedResourceId: effectiveTrustedResourceId,
         acknowledgedAt: ackedAt,
+        allowBlocked,
+        ackContractVersion,
         db,
       });
       if (!rows[0]) throw ackForbidden(after);
@@ -925,6 +2135,10 @@ async function acknowledgeTaskInternal({
       throw AppError.invalidTransition(after.status, 'in_progress', TASK_TRANSITIONS[after.status] || []);
     }
   }
+
+  // The guarded task UPDATE above acquires the task row lock before we touch
+  // the SLA row. Corrected-result reopen follows the same task -> SLA order.
+  await assertTaskSlaSourceBinding({ tenantId: tid, taskRow: rows[0], db });
 
   // Acknowledging a critical result STOPS the SLA clock (audit C-3): complete
   // the linked mig-269 instance so it leaves 'active'/'breached' and the
@@ -936,6 +2150,9 @@ async function acknowledgeTaskInternal({
     taskRow: rows[0],
     db,
     completedBy: ackUid,
+    completionTrigger: 'acknowledgement',
+    completedAt: ackedAt,
+    ackContractVersion,
     strict: Boolean(tx),
   });
 
@@ -950,6 +2167,7 @@ async function acknowledgeTaskInternal({
     bodyKind: 'state_change',
     metadata: {
       from: effectiveFromStatus, to: 'in_progress', acknowledged_at: ackedAt, via: effectiveAuthz.mode,
+      ...(ackContractVersion ? { ack_contract_version: ackContractVersion } : {}),
       ...(effectiveAuthz.mode === 'override' ? {
         override_source: effectiveAuthz.source,
         override_id: effectiveAuthz.id,
@@ -971,9 +2189,10 @@ async function acknowledgeTaskInternal({
 }
 
 export async function acknowledgeTask({
-  tenantId = null, id, actorUid = null, actorRoles = [], breakGlassId = null, tx = null,
+  tenantId = null, id, actorUid = null, actorRoles = [], breakGlassId = null,
+  executorAuthority = null, tx = null,
 } = {}) {
-  const args = { tenantId, id, actorUid, actorRoles, breakGlassId, tx };
+  const args = { tenantId, id, actorUid, actorRoles, breakGlassId, executorAuthority, tx };
   if (tx) return acknowledgeTaskInternal(args);
 
   const tid = resolveTenantId({ tenantId });
@@ -982,6 +2201,39 @@ export async function acknowledgeTask({
     tenantId: tid,
     tx: tenantTx,
   }));
+}
+
+export async function acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
+  tenantId = null,
+  id,
+  alertId,
+  resultId,
+  patientUid,
+  actorUid = null,
+  actorRoles = [],
+  breakGlassId = null,
+  tx = null,
+} = {}) {
+  if (!tx) {
+    throw AppError.internal(
+      'Critical-alert task acknowledgement requires a transaction',
+      'LAB_CRITICAL_ALERT_ACK_TRANSACTION_REQUIRED',
+    );
+  }
+  return acknowledgeTaskInternal({
+    tenantId,
+    id,
+    actorUid,
+    actorRoles,
+    breakGlassId,
+    labCriticalAlertAuthority: {
+      capability: LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY,
+      alertId,
+      resultId,
+      patientUid,
+    },
+    tx,
+  });
 }
 
 export async function acknowledgeColdChainTaskFromTrustedWorkflow({
@@ -1064,6 +2316,7 @@ export async function listInboxTasks({
 
 export async function reassignTask({
   tenantId = null, id, assignedToUid = null, assignedToRole = null,
+  executorAuthority = null,
   tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
@@ -1082,6 +2335,24 @@ export async function reassignTask({
   if (params.length === 0) {
     return getTask({ tenantId: tid, id: taskId, tx });
   }
+  if (!tx) {
+    return setTenantTx(tid, (scopedTx) => reassignTask({
+      tenantId: tid,
+      id: taskId,
+      assignedToUid,
+      assignedToRole,
+      executorAuthority,
+      tx: scopedTx,
+    }));
+  }
+  const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
+  const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db });
+  await assertPathwayExecutorAuthority({
+    tenantId: tid,
+    workflowRunId: attachedRunId,
+    db,
+    executorAuthority,
+  });
   params.push(taskId);
   params.push(tid);
   const rows = await db.$queryRawUnsafe(
@@ -1245,6 +2516,7 @@ export async function listWorkflowDefinitions({
 // ---------------------------------------------------------------------------
 
 const WORKFLOW_RUN_RETURNING = `id, tenant_id, workflow_definition_id, workflow_key, workflow_version,
+  pathway_governance_id, pathway_definition_checksum,
   trigger_kind, trigger_payload, status, current_step_key, context,
   started_at, ended_at, due_at, initiated_by, failure_reason,
   metadata, created_at, updated_at`;
@@ -1265,14 +2537,28 @@ export async function startWorkflowRun({
   try {
     return await setTenantTx(tid, async (tx) => {
       const definitions = await tx.$queryRawUnsafe(
-        `SELECT id, workflow_key, version, steps, triggers, is_active FROM workflow_definitions
-         WHERE id = $1 AND tenant_id = $2::uuid
+        `SELECT definition.id, definition.workflow_key, definition.version,
+                definition.steps, definition.triggers, definition.is_active,
+                EXISTS (
+                  SELECT 1
+                    FROM care_pathway_definition_governance AS governance
+                   WHERE governance.tenant_id = definition.tenant_id
+                     AND governance.workflow_definition_id = definition.id
+                ) AS has_pathway_governance
+           FROM workflow_definitions AS definition
+          WHERE definition.id = $1 AND definition.tenant_id = $2::uuid
          LIMIT 1
          FOR SHARE`,
         defId, tid,
       );
       if (!definitions[0]) throw AppError.notFound('Workflow definition not found');
       const definition = definitions[0];
+      if (definition.has_pathway_governance === true) {
+        throw AppError.conflict(
+          'Governed care pathway definitions must be started through the pathway executor',
+          'CARE_PATHWAY_DEFINITION_REQUIRES_PATHWAY_EXECUTOR',
+        );
+      }
       if (!definition.is_active) {
         throw AppError.badRequest('Workflow definition is inactive', 'INACTIVE_WORKFLOW_DEFINITION');
       }
@@ -1291,7 +2577,7 @@ export async function startWorkflowRun({
             trigger_kind, trigger_payload, status, context,
             due_at, initiated_by, metadata)
          VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, 'started', $7::jsonb,
-           $8::timestamptz, $9::uuid, $10::jsonb)
+           to_timestamp($8::double precision / 1000.0), $9::uuid, $10::jsonb)
          RETURNING ${WORKFLOW_RUN_RETURNING}`,
         tid, definition.id, definition.workflow_key, definition.version,
         normalizeEnum(triggerKind, WORKFLOW_TRIGGER_KINDS, 'trigger_kind') || 'manual',
@@ -1308,12 +2594,13 @@ export async function startWorkflowRun({
           `INSERT INTO workflow_steps
              (tenant_id, workflow_run_id, step_key, display_name, step_kind,
                status, ordering, assigned_role, due_at, metadata)
-            VALUES ($1::uuid, $2, $3, $4, $5, 'pending', $6, $7, $8::timestamptz, $9::jsonb)`,
+            VALUES ($1::uuid, $2, $3, $4, $5, 'pending', $6, $7,
+              to_timestamp($8::double precision / 1000.0), $9::jsonb)`,
           tid, run.id, step.step_key,
           step.display_name,
           step.step_kind, order,
           step.assigned_role,
-          step.due_at,
+          normalizeTimestamp(step.due_at, `steps[${order}].due_at`),
           JSON.stringify(step.metadata),
         );
       }
@@ -1360,12 +2647,33 @@ export async function transitionWorkflowRun({
   tenantId = null, id, nextStatus,
   failureReason = null, currentStepKey = null,
   actorUid = null,
+  executorAuthority = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const runId = normalizeId(id, 'workflow_run id');
   const cleanStatus = normalizeEnum(nextStatus, WORKFLOW_STATUSES, 'next_status', { required: true });
   requireActorUid(actorUid);
-  const currentRows = await prisma.$queryRawUnsafe(
+  if (!tx) {
+    return setTenantTx(tid, (scopedTx) => transitionWorkflowRun({
+      tenantId: tid,
+      id: runId,
+      nextStatus: cleanStatus,
+      failureReason,
+      currentStepKey,
+      actorUid,
+      executorAuthority,
+      tx: scopedTx,
+    }));
+  }
+  const db = tx;
+  await assertPathwayExecutorAuthority({
+    tenantId: tid,
+    workflowRunId: runId,
+    db,
+    executorAuthority,
+  });
+  const currentRows = await db.$queryRawUnsafe(
     `SELECT id, status FROM workflow_runs
      WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
     runId, tid,
@@ -1383,8 +2691,8 @@ export async function transitionWorkflowRun({
     updates.push(`current_step_key = $${params.length}`);
   }
   if (cleanStatus === 'completed' || cleanStatus === 'failed' || cleanStatus === 'cancelled') {
-    params.push(new Date().toISOString());
-    updates.push(`ended_at = $${params.length}::timestamptz`);
+    params.push(Date.now());
+    updates.push(`ended_at = to_timestamp($${params.length}::double precision / 1000.0)`);
   }
   if (cleanStatus === 'failed' && failureReason) {
     params.push(safeText(failureReason));
@@ -1393,7 +2701,7 @@ export async function transitionWorkflowRun({
   params.push(runId);
   params.push(tid);
   params.push(currentStatus);
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `UPDATE workflow_runs SET ${updates.join(', ')}
      WHERE id = $${params.length - 2}
        AND tenant_id = $${params.length - 1}::uuid
@@ -1402,7 +2710,7 @@ export async function transitionWorkflowRun({
     ...params,
   );
   if (!rows[0]) {
-    const latest = await prisma.$queryRawUnsafe(
+    const latest = await db.$queryRawUnsafe(
       `SELECT id FROM workflow_runs
        WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
       runId, tid,
@@ -1441,6 +2749,8 @@ export async function transitionWorkflowStep({
   tenantId = null, workflowRunId, stepKey, nextStatus,
   outcome = null, outcomePayload = null,
   actorUid = null,
+  executorAuthority = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const runId = normalizeId(workflowRunId, 'workflow_run_id');
@@ -1448,7 +2758,27 @@ export async function transitionWorkflowStep({
   requireActorUid(actorUid);
   const cleanStepKey = safeText(stepKey, 120);
   if (!cleanStepKey) throw AppError.badRequest('step_key is required');
-  const currentRows = await prisma.$queryRawUnsafe(
+  if (!tx) {
+    return setTenantTx(tid, (scopedTx) => transitionWorkflowStep({
+      tenantId: tid,
+      workflowRunId: runId,
+      stepKey: cleanStepKey,
+      nextStatus: cleanStatus,
+      outcome,
+      outcomePayload,
+      actorUid,
+      executorAuthority,
+      tx: scopedTx,
+    }));
+  }
+  const db = tx;
+  await assertPathwayExecutorAuthority({
+    tenantId: tid,
+    workflowRunId: runId,
+    db,
+    executorAuthority,
+  });
+  const currentRows = await db.$queryRawUnsafe(
     `SELECT id, status FROM workflow_steps
      WHERE workflow_run_id = $1 AND step_key = $2 AND tenant_id = $3::uuid LIMIT 1`,
     runId, cleanStepKey, tid,
@@ -1462,12 +2792,12 @@ export async function transitionWorkflowStep({
   const updates = ['status = $1', 'updated_at = NOW()'];
   const params = [cleanStatus];
   if (cleanStatus === 'in_progress') {
-    params.push(new Date().toISOString());
-    updates.push(`started_at = COALESCE(started_at, $${params.length}::timestamptz)`);
+    params.push(Date.now());
+    updates.push(`started_at = COALESCE(started_at, to_timestamp($${params.length}::double precision / 1000.0))`);
   }
   if (cleanStatus === 'completed' || cleanStatus === 'skipped' || cleanStatus === 'failed') {
-    params.push(new Date().toISOString());
-    updates.push(`completed_at = $${params.length}::timestamptz`);
+    params.push(Date.now());
+    updates.push(`completed_at = to_timestamp($${params.length}::double precision / 1000.0)`);
   }
   if (outcome) {
     params.push(safeText(outcome, 40));
@@ -1481,7 +2811,7 @@ export async function transitionWorkflowStep({
   params.push(cleanStepKey);
   params.push(tid);
   params.push(currentStatus);
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `UPDATE workflow_steps SET ${updates.join(', ')}
      WHERE workflow_run_id = $${params.length - 3}
        AND step_key = $${params.length - 2}
@@ -1491,7 +2821,7 @@ export async function transitionWorkflowStep({
     ...params,
   );
   if (!rows[0]) {
-    const latest = await prisma.$queryRawUnsafe(
+    const latest = await db.$queryRawUnsafe(
       `SELECT id FROM workflow_steps
        WHERE workflow_run_id = $1 AND step_key = $2 AND tenant_id = $3::uuid LIMIT 1`,
       runId, cleanStepKey, tid,
@@ -1509,15 +2839,17 @@ export async function transitionWorkflowStep({
 // Approvals
 // ---------------------------------------------------------------------------
 
-const APPROVAL_RETURNING = `id, tenant_id, workflow_run_id, task_id,
+const APPROVAL_RETURNING = `id, tenant_id, workflow_run_id, workflow_step_id, task_id,
   approval_kind, subject_resource_type, subject_resource_id,
   required_approvers, required_role, status, approved_by,
   rejection_reason, expires_at, decided_at,
+  created_by, decided_by, materialization_key,
   metadata, created_at, updated_at`;
 
 export async function createApproval({
   tenantId = null,
   workflowRunId = null,
+  workflowStepId = null,
   taskId = null,
   approvalKind,
   subjectResourceType = null,
@@ -1525,29 +2857,75 @@ export async function createApproval({
   requiredApprovers = 1,
   requiredRole = null,
   expiresAt = null,
+  createdBy = null,
+  materializationKey = null,
   metadata = null,
+  executorAuthority = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const cleanKind = safeText(approvalKind, 80);
   if (!cleanKind) throw AppError.badRequest('approval_kind is required');
   assertGenericApprovalKindAllowed(cleanKind);
+  const db = tx || prisma;
+  const cleanWorkflowRunId = workflowRunId ? normalizeId(workflowRunId, 'workflow_run_id') : null;
+  const cleanWorkflowStepId = workflowStepId ? normalizeId(workflowStepId, 'workflow_step_id') : null;
+  const cleanTaskId = taskId ? normalizeId(taskId, 'task_id') : null;
+  const verifiedExecutorAuthority = await hasPathwayExecutorAuthority(executorAuthority);
+  if (!verifiedExecutorAuthority) {
+    await assertPathwayExecutorAuthority({
+      tenantId: tid,
+      workflowRunId: cleanWorkflowRunId,
+      db,
+      executorAuthority,
+      verifiedExecutorAuthority,
+    });
+    const attachedTaskRunId = await taskWorkflowRunId({ tenantId: tid, taskId: cleanTaskId, db });
+    if (attachedTaskRunId && String(attachedTaskRunId) !== String(cleanWorkflowRunId || '')) {
+      await assertPathwayExecutorAuthority({
+        tenantId: tid,
+        workflowRunId: attachedTaskRunId,
+        db,
+        executorAuthority,
+      });
+    }
+    const attachedStepRunId = await stepWorkflowRunId({
+      tenantId: tid,
+      workflowStepId: cleanWorkflowStepId,
+      db,
+    });
+    if (attachedStepRunId && String(attachedStepRunId) !== String(cleanWorkflowRunId || '')) {
+      await assertPathwayExecutorAuthority({
+        tenantId: tid,
+        workflowRunId: attachedStepRunId,
+        db,
+        executorAuthority,
+      });
+    }
+  }
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `INSERT INTO approvals
-         (tenant_id, workflow_run_id, task_id,
-          approval_kind, subject_resource_type, subject_resource_id,
-          required_approvers, required_role, status, expires_at, metadata)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, 'pending', $9::timestamptz, $10::jsonb)
-       RETURNING ${APPROVAL_RETURNING}`,
+         (tenant_id, workflow_run_id, workflow_step_id, task_id,
+           approval_kind, subject_resource_type, subject_resource_id,
+           required_approvers, required_role, status, expires_at,
+           created_by, materialization_key, metadata)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, 'pending',
+          to_timestamp($10::double precision / 1000.0),
+          $11::uuid, $12, $13::jsonb)
+        RETURNING ${APPROVAL_RETURNING}`,
       tid,
-      workflowRunId ? normalizeId(workflowRunId, 'workflow_run_id') : null,
-      taskId ? normalizeId(taskId, 'task_id') : null,
+      cleanWorkflowRunId,
+      cleanWorkflowStepId,
+      cleanTaskId,
       cleanKind,
       safeText(subjectResourceType, 60),
       safeText(subjectResourceId, 120),
       normalizeInt(requiredApprovers, 'required_approvers', { min: 1, max: 100 }) || 1,
       safeText(requiredRole, 80),
       normalizeTimestamp(expiresAt, 'expires_at'),
+      maybeUuid(createdBy, 'created_by'),
+      safeText(materializationKey, 200),
       JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
     );
     return rows[0];
@@ -1559,6 +2937,7 @@ export async function createApproval({
 
 export async function recordApprovalDecision({
   tenantId = null, id, actorUid, actorRoles = [], decision, rejectionReason = null,
+  executorAuthority = null, tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const apId = normalizeId(id, 'approval id');
@@ -1567,73 +2946,100 @@ export async function recordApprovalDecision({
   if (decision !== 'approve' && decision !== 'reject') {
     throw AppError.badRequest('decision must be "approve" or "reject"');
   }
+  if (!tx) {
+    return setTenantTx(tid, (scopedTx) => recordApprovalDecision({
+      tenantId: tid,
+      id: apId,
+      actorUid: cleanApprover,
+      actorRoles,
+      decision,
+      rejectionReason,
+      executorAuthority,
+      tx: scopedTx,
+    }));
+  }
 
-  return setTenantTx(tid, async (tx) => {
-    const current = await tx.$queryRawUnsafe(
+  const current = await tx.$queryRawUnsafe(
       `SELECT id, status, approval_kind, approved_by, required_approvers, required_role,
+              workflow_run_id, workflow_step_id, task_id,
               expires_at,
               (expires_at IS NOT NULL AND expires_at <= NOW()) AS is_expired
          FROM approvals
        WHERE id = $1 AND tenant_id = $2::uuid
        FOR UPDATE`,
       apId, tid,
-    );
-    if (!current[0]) throw AppError.notFound('Approval not found');
-    assertGenericApprovalKindAllowed(current[0].approval_kind);
-    if (current[0].status !== 'pending') {
-      throw AppError.badRequest(`Approval already ${current[0].status}`);
-    }
-    if (current[0].is_expired) {
-      throw AppError.conflict('Approval has expired', 'APPROVAL_EXPIRED');
-    }
+  );
+  if (!current[0]) throw AppError.notFound('Approval not found');
+  const attachedRunId = current[0].workflow_run_id
+    || await taskWorkflowRunId({ tenantId: tid, taskId: current[0].task_id, db: tx })
+    || await stepWorkflowRunId({
+      tenantId: tid,
+      workflowStepId: current[0].workflow_step_id,
+      db: tx,
+    });
+  await assertPathwayExecutorAuthority({
+    tenantId: tid,
+    workflowRunId: attachedRunId,
+    db: tx,
+    executorAuthority,
+  });
+  assertGenericApprovalKindAllowed(current[0].approval_kind);
+  if (current[0].status !== 'pending') {
+    throw AppError.badRequest(`Approval already ${current[0].status}`);
+  }
+  if (current[0].is_expired) {
+    throw AppError.conflict('Approval has expired', 'APPROVAL_EXPIRED');
+  }
 
-    const requiredRole = safeText(current[0].required_role, 80)?.toUpperCase() || null;
-    const isTaskAdministrator = roles.some((role) => isAdmin(role)) || roles.includes('SUPER_ADMIN');
-    if (requiredRole && !roles.includes(requiredRole) && !isTaskAdministrator) {
-      throw AppError.forbidden('Not authorized to decide this approval');
-    }
+  const requiredRole = safeText(current[0].required_role, 80)?.toUpperCase() || null;
+  const isTaskAdministrator = roles.some((role) => isAdmin(role)) || roles.includes('SUPER_ADMIN');
+  if (requiredRole && !roles.includes(requiredRole) && !isTaskAdministrator) {
+    throw AppError.forbidden('Not authorized to decide this approval');
+  }
 
-    if (decision === 'reject') {
-      const rows = await tx.$queryRawUnsafe(
-        `UPDATE approvals
-         SET status = 'rejected', rejection_reason = $1, decided_at = NOW(), updated_at = NOW()
-         WHERE id = $2 AND tenant_id = $3::uuid AND status = 'pending'
-         RETURNING ${APPROVAL_RETURNING}`,
-        safeText(rejectionReason), apId, tid,
-      );
-      if (!rows[0]) {
-        throw AppError.conflict('Approval status changed before decision completed', 'APPROVAL_DECISION_CONFLICT');
-      }
-      return rows[0];
-    }
-
-    const existingApprovers = Array.isArray(current[0].approved_by) ? current[0].approved_by : [];
-    if (existingApprovers.some(
-      (entry) => String(entry?.uid || '').toLowerCase() === cleanApprover,
-    )) {
-      throw AppError.badRequest('Approver has already approved this gate');
-    }
-    const next = [...existingApprovers, { uid: cleanApprover, at: new Date().toISOString() }];
-    const required = Number(current[0].required_approvers || 1);
-    const reachQuorum = next.length >= required;
-
+  if (decision === 'reject') {
     const rows = await tx.$queryRawUnsafe(
-      `UPDATE approvals
-       SET approved_by = $1::jsonb,
-           status = $2,
-           decided_at = ${reachQuorum ? 'NOW()' : 'NULL'},
-           updated_at = NOW()
-       WHERE id = $3 AND tenant_id = $4::uuid AND status = 'pending'
-       RETURNING ${APPROVAL_RETURNING}`,
-      JSON.stringify(next),
-      reachQuorum ? 'approved' : 'pending',
-      apId, tid,
-    );
+        `UPDATE approvals
+         SET status = 'rejected', rejection_reason = $1,
+             decided_by = $2::uuid, decided_at = NOW(), updated_at = NOW()
+         WHERE id = $3 AND tenant_id = $4::uuid AND status = 'pending'
+         RETURNING ${APPROVAL_RETURNING}`,
+        safeText(rejectionReason), cleanApprover, apId, tid,
+      );
     if (!rows[0]) {
       throw AppError.conflict('Approval status changed before decision completed', 'APPROVAL_DECISION_CONFLICT');
     }
     return rows[0];
-  });
+  }
+
+  const existingApprovers = Array.isArray(current[0].approved_by) ? current[0].approved_by : [];
+  if (existingApprovers.some(
+    (entry) => String(entry?.uid || '').toLowerCase() === cleanApprover,
+  )) {
+    throw AppError.badRequest('Approver has already approved this gate');
+  }
+  const next = [...existingApprovers, { uid: cleanApprover, at: new Date().toISOString() }];
+  const required = Number(current[0].required_approvers || 1);
+  const reachQuorum = next.length >= required;
+
+  const rows = await tx.$queryRawUnsafe(
+      `UPDATE approvals
+       SET approved_by = $1::jsonb,
+           status = $2,
+           decided_by = $3::uuid,
+           decided_at = CASE WHEN $3::uuid IS NOT NULL THEN NOW() ELSE NULL END,
+           updated_at = NOW()
+       WHERE id = $4 AND tenant_id = $5::uuid AND status = 'pending'
+       RETURNING ${APPROVAL_RETURNING}`,
+      JSON.stringify(next),
+      reachQuorum ? 'approved' : 'pending',
+      reachQuorum ? cleanApprover : null,
+      apId, tid,
+    );
+  if (!rows[0]) {
+    throw AppError.conflict('Approval status changed before decision completed', 'APPROVAL_DECISION_CONFLICT');
+  }
+  return rows[0];
 }
 
 export async function listApprovals({
@@ -1936,6 +3342,9 @@ export default {
   listInboxTasks,
   getTask,
   transitionTask,
+  supersedeAcknowledgementTaskFromTrustedWorkflow,
+  completeTaskFromDomainEvidence,
+  completePathwayTaskFromRegisteredEvidence,
   acknowledgeTask,
   acknowledgeColdChainTaskFromTrustedWorkflow,
   reassignTask,

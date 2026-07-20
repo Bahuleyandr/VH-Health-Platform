@@ -30,6 +30,8 @@ const PATIENT_ER_PHONE  = '9000030001';
 const PATIENT_IPD_PHONE = '9000030002';
 const PATIENT_OPD_PHONE = '9000030003';
 const ORDERING_DOCTOR_UID = 'b3333333-3333-4333-8333-333333333d01';
+const IDEMPOTENCY_RUN = Date.now();
+const WORKLIST_TEST_CODE = `TWL${IDEMPOTENCY_RUN}`;
 
 function doctorClient() {
   const token = generateTestToken('DOCTOR', { uid: ORDERING_DOCTOR_UID, id: 933301 });
@@ -87,13 +89,29 @@ async function grantDoctorCareTeam(patientUid, displayName) {
   );
 }
 
-async function makeInvestigation({ patientId, testName, testType, priority = 'NORMAL', status = 'REQUESTED', phone }) {
+async function makeInvestigation({
+  patientId,
+  patientUid,
+  testName,
+  testType,
+  priority = 'NORMAL',
+  status = 'REQUESTED',
+  phone,
+}) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO investigations
-       (phone, patient_id, test_name, test_type, status, priority, requested_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+       (tenant_id, phone, patient_id, patient_uid, test_name, test_type,
+        status, priority, requested_at, updated_at)
+     VALUES ($1::uuid, $2, $3::int, $4::uuid, $5, $6, $7, $8, NOW(), NOW())
      RETURNING id`,
-    phone, patientId, testName, testType || 'blood', status, priority,
+    TENANT_ID,
+    phone,
+    patientId,
+    patientUid,
+    testName,
+    testType || 'blood',
+    status,
+    priority,
   );
   return rows[0].id;
 }
@@ -136,7 +154,8 @@ describe('Lab worklist + manual result validation — deep integration', () => {
       TENANT_ID, `EMER-LABWL-${Date.now()}`, PATIENT_ER_UID,
     );
     erTroponinInvId = await makeInvestigation({
-      patientId: erPatientId, testName: 'Troponin I', testType: 'blood',
+      patientId: erPatientId, patientUid: PATIENT_ER_UID,
+      testName: 'Troponin I', testType: 'blood',
       priority: 'URGENT', phone: PATIENT_ER_PHONE,
     });
 
@@ -150,27 +169,35 @@ describe('Lab worklist + manual result validation — deep integration', () => {
       PATIENT_IPD_UID,
     );
     ipdCbcInvId = await makeInvestigation({
-      patientId: ipdPatientId, testName: 'CBC', testType: 'blood',
+      patientId: ipdPatientId, patientUid: PATIENT_IPD_UID,
+      testName: 'CBC', testType: 'blood',
       priority: 'NORMAL', phone: PATIENT_IPD_PHONE,
     });
 
     // OPD patient — no admission, no ER visit, just a walk-in LFT.
     opdLftInvId = await makeInvestigation({
-      patientId: opdPatientId, testName: 'LFT', testType: 'blood',
+      patientId: opdPatientId, patientUid: PATIENT_OPD_UID,
+      testName: 'LFT', testType: 'blood',
       priority: 'NORMAL', phone: PATIENT_OPD_PHONE,
     });
 
     // Ensure a TROPI critical threshold exists for this tenant.
     await prisma.$executeRawUnsafe(
       `INSERT INTO lab_critical_thresholds
-         (tenant_id, test_code, test_name, critical_high, is_active)
-       VALUES ($1::uuid, 'TROPI', 'Troponin I', 0.04, true)
-       ON CONFLICT DO NOTHING`,
+       (tenant_id, test_code, test_name, critical_high, is_active)
+       VALUES ($1::uuid, $2, 'Troponin I', 0.04, true)`,
       TENANT_ID,
+      WORKLIST_TEST_CODE,
     );
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM lab_critical_thresholds
+        WHERE tenant_id = $1::uuid AND test_code = $2`,
+      TENANT_ID,
+      WORKLIST_TEST_CODE,
+    ).catch(() => {});
     await delPatient(PATIENT_ER_UID);
     await delPatient(PATIENT_IPD_UID);
     await delPatient(PATIENT_OPD_UID);
@@ -320,49 +347,58 @@ describe('Lab worklist + manual result validation — deep integration', () => {
     });
 
     it('rejects non-numeric value_text for a test with a configured critical threshold', async () => {
-      const res = await labTech.post('/api/v1/lab/results').send({
+      const res = await labTech.post('/api/v1/lab/results')
+        .set('Idempotency-Key', `lab-worklist-nonnumeric-${IDEMPOTENCY_RUN}`)
+        .send({
+        investigation_id: erTroponinInvId,
         patient_uid: PATIENT_ER_UID,
-        test_code: 'TROPI',
+        test_code: WORKLIST_TEST_CODE,
         test_name: 'Troponin I',
         value_text: 'elevated',
         unit: 'ng/mL',
-      });
+        });
       expect(res.statusCode).toBe(400);
       expect(String(res.body.message || res.body.error)).toMatch(/numeric/i);
     });
 
     it('accepts a numeric value and fires a critical alert when above threshold', async () => {
-      const res = await labTech.post('/api/v1/lab/results').send({
+      const res = await labTech.post('/api/v1/lab/results')
+        .set('Idempotency-Key', `lab-worklist-critical-${IDEMPOTENCY_RUN}`)
+        .send({
         investigation_id: erTroponinInvId,
         patient_uid: PATIENT_ER_UID,
-        test_code: 'TROPI',
+        test_code: WORKLIST_TEST_CODE,
         test_name: 'Troponin I',
         value_text: '0.85',
         unit: 'ng/mL',
-      });
+        });
       expect(res.statusCode).toBe(200);
       expect(res.body.data?.result?.is_critical).toBe(true);
       expect(res.body.data?.alerts?.length).toBeGreaterThanOrEqual(1);
     });
 
     it('rejects an empty value_text outright', async () => {
-      const res = await labTech.post('/api/v1/lab/results').send({
+      const res = await labTech.post('/api/v1/lab/results')
+        .set('Idempotency-Key', `lab-worklist-empty-${IDEMPOTENCY_RUN}`)
+        .send({
         patient_uid: PATIENT_OPD_UID,
         test_code: 'GENERIC',
         test_name: 'Generic test',
         value_text: '',
-      });
+        });
       expect(res.statusCode).toBe(400);
     });
 
     it('still accepts free-text value for tests without a critical threshold (e.g. culture)', async () => {
-      const res = await labTech.post('/api/v1/lab/results').send({
+      const res = await labTech.post('/api/v1/lab/results')
+        .set('Idempotency-Key', `lab-worklist-freetext-${IDEMPOTENCY_RUN}`)
+        .send({
         investigation_id: opdLftInvId,
         patient_uid: PATIENT_OPD_UID,
         test_code: 'BLDCULT',
         test_name: 'Blood culture',
         value_text: 'No growth at 48 hours',
-      });
+        });
       expect(res.statusCode).toBe(200);
       expect(res.body.data?.result?.value_text).toBe('No growth at 48 hours');
     });

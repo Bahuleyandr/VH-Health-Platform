@@ -12,6 +12,7 @@
 // completeWorkflowSla/isSchemaMissing/startWorkflowSla, resultsInboxService
 // dynamically imports startWorkflowSla).
 
+import { createHash } from 'node:crypto';
 import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.js', () => ({
@@ -47,6 +48,25 @@ async function seedInvestigation({ status = 'REQUESTED' } = {}) {
 }
 
 describe('Lab canonical emission is transactional (rollback on canonical failure)', () => {
+  beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, '9009090901', 'Lab Atomicity Patient', 'PATIENT', true, NOW()),
+         ($2::uuid, $4::uuid, '9009090902', 'Lab Atomicity Technician', 'LAB_STAFF', true, NOW()),
+         ($3::uuid, $4::uuid, '9009090903', 'Lab Atomicity Pathologist', 'PATHOLOGIST', true, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET tenant_id = EXCLUDED.tenant_id,
+             name = EXCLUDED.name,
+             role = EXCLUDED.role,
+             is_active = true`,
+      PATIENT_UID,
+      TECH_UID,
+      PATHOLOGIST_UID,
+      TENANT,
+    );
+  });
+
   afterAll(async () => {
     for (const id of createdResultIds) {
       await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE id = $1::int`, id).catch(() => {});
@@ -55,23 +75,34 @@ describe('Lab canonical emission is transactional (rollback on canonical failure
       await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE investigation_id = $1::int`, id).catch(() => {});
       await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE id = $1::int`, id).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID,
+      TECH_UID,
+      PATHOLOGIST_UID,
+    ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
   it('rolls back the lab_results INSERT and the investigation advance when the canonical write fails', async () => {
     const invId = await seedInvestigation({ status: 'REQUESTED' });
+    const manualResult = {
+      investigation_id: invId,
+      patient_uid: PATIENT_UID,
+      test_code: 'ATMK',
+      test_name: 'Potassium',
+      value_text: '4.1',
+    };
 
     await expect(labResults.recordResultManual({
       tenantId: TENANT,
       performed_by: TECH_UID,
       performed_by_role: 'LAB_TECHNICIAN',
-      result: {
-        investigation_id: invId,
-        patient_uid: PATIENT_UID,
-        test_code: 'K',
-        test_name: 'Potassium',
-        value_text: '4.1',
-      },
+      result: manualResult,
+      idempotencyKey: 'lab-canonical-atomicity-manual-v1',
+      requestBodySha256: createHash('sha256')
+        .update(JSON.stringify(manualResult))
+        .digest('hex'),
     })).rejects.toThrow('canonical write failed (injected)');
 
     const results = await prisma.$queryRawUnsafe(

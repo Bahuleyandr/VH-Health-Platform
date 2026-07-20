@@ -14,7 +14,7 @@
 //
 // Root cause (b): the finalised result values for a lab order live in
 // `lab_results` (filed on result entry, frozen on sign-off), NOT in
-// `investigations.results` — which stays NULL for the order-set/HL7 flow.
+// `investigations.results` — which stays NULL for the result-entry flow.
 // Both the PDF generator and the patient detail read (getMyLabOrder) now
 // merge the verified `lab_results` rows linked by investigation_id.
 //
@@ -54,10 +54,10 @@ async function seedCompletedOrderWithResults() {
     `INSERT INTO lab_results
        (tenant_id, patient_uid, patient_name, investigation_id, test_code,
         test_name, value_text, value_numeric, unit, reference_range,
-        abnormal_flag, status, signed_off_at, hl7_segment_index)
+        abnormal_flag, status, signed_off_at)
      VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'HB',
              'Haemoglobin', '13.2', 13.2, 'g/dL', '13-17', NULL,
-             'final', NOW(), 1)
+             'final', NOW())
      RETURNING id`,
     TENANT, PATIENT_UID, invId,
   );
@@ -65,10 +65,10 @@ async function seedCompletedOrderWithResults() {
     `INSERT INTO lab_results
        (tenant_id, patient_uid, patient_name, investigation_id, test_code,
         test_name, value_text, value_numeric, unit, reference_range,
-        abnormal_flag, status, signed_off_at, hl7_segment_index)
+        abnormal_flag, status, signed_off_at)
      VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'WBC',
              'WBC Count', '12.1', 12.1, 'x10^9/L', '4-11', 'H',
-             'final', NOW(), 2)
+             'final', NOW())
      RETURNING id`,
     TENANT, PATIENT_UID, invId,
   );
@@ -85,9 +85,9 @@ async function seedCompletedOrderWithResults() {
   await prisma.$executeRawUnsafe(
     `INSERT INTO lab_results
        (tenant_id, patient_uid, patient_name, investigation_id, test_code,
-        test_name, value_text, status, hl7_segment_index)
+        test_name, value_text, status)
      VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'PLT',
-             'Platelets', '250', 'preliminary', 3)`,
+             'Platelets', '250', 'preliminary')`,
     TENANT, PATIENT_UID, invId,
   );
   return invId;

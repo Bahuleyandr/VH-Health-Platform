@@ -8,11 +8,10 @@ import logger from '../src/logging/logger.js';
 //   1. Probe for the `_migrations` tracker table. On a truly fresh DB it does
 //      not exist yet — `000_baseline.sql` will create it. On an existing DB
 //      it does, so we load the applied set and skip any file already tracked.
-//   2. Baseline auto-detect — if the canonical tables created exclusively by
-//      `000_baseline.sql` (users, appointments, admissions) are present but
-//      `000_baseline.sql` is not in `_migrations`, record it without re-running.
-//      Catches DBs bootstrapped before this script became tracker-aware
-//      (or any DB where the tracker row was lost).
+//   2. Baseline tracker preflight — if the canonical baseline schema exists
+//      without a matching `000_baseline.sql` tracker row, fail before any
+//      mutation. Historical migrations are not universally replayable, so a
+//      missing tracker requires explicit operator reconciliation.
 //   3. For each `.sql` file (sorted by name): skip if already in `_migrations`,
 //      otherwise apply + record. Files that already wrap themselves in
 //      `BEGIN; ... COMMIT;` are applied as-is. The baseline file is also
@@ -31,6 +30,11 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
+import {
+  assertMigrationBatchSucceeded,
+  assertMigrationTrackerReady,
+} from './lib/migrationBatchGuard.mjs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
 const MIGRATIONS_DIR = join(REPO_ROOT, 'src', 'migrations');
@@ -47,9 +51,7 @@ const SKIP_MIGRATIONS = new Set([
 ]);
 
 // Tables created exclusively by `000_baseline.sql`. Presence of all three
-// against an empty `_migrations` row for baseline means the DB was bootstrapped
-// before this script started tracking — mark baseline applied without
-// re-running its non-idempotent DDL.
+// identify a pre-existing canonical schema that must have a verified tracker.
 const BASELINE_CANONICAL_TABLES = ['users', 'appointments', 'admissions'];
 const BASELINE_FILE = '000_baseline.sql';
 
@@ -82,21 +84,22 @@ async function baselineCanonicalTablesPresent() {
 //    tracker is created by 000_baseline.sql later in the loop, so we start
 //    with an empty set.
 const applied = new Set();
-if (await trackerTableExists()) {
+const trackerPresent = await trackerTableExists();
+if (trackerPresent) {
   const { rows } = await client.query('SELECT name FROM _migrations');
   for (const row of rows) applied.add(row.name);
-
-  // 2. Baseline auto-detect: full baseline schema present, tracker row missing.
-  if (!applied.has(BASELINE_FILE) && (await baselineCanonicalTablesPresent())) {
-    logger.info(
-      `→ Detected pre-existing baseline schema without tracker entry — recording ${BASELINE_FILE} as applied`
-    );
-    await client.query('INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [
-      BASELINE_FILE
-    ]);
-    applied.add(BASELINE_FILE);
-  }
 }
+
+// 2. Missing migration history is unsafe to infer. This is intentionally
+// read-only and runs before the migration loop, seeds, or role provisioning.
+await assertMigrationTrackerReady({
+  canonicalBaselinePresent: await baselineCanonicalTablesPresent(),
+  trackerTablePresent: trackerPresent,
+  baselineTracked: applied.has(BASELINE_FILE),
+  baselineFile: BASELINE_FILE,
+  client,
+  logger,
+});
 
 // Detect whether a file opens its own top-level transaction. The simple state
 // machine skips leading whitespace, line comments, and block comments, then
@@ -187,13 +190,26 @@ for (const file of files) {
     applied.add(file);
     appliedCount++;
   } catch (err) {
-    logger.info(`  ! ${file} — ${err.code || ''} ${(err.message || '').split('\n')[0]}`);
+    if (selfManaged) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // best effort — the migration may have already closed its transaction
+      }
+    }
+    const hint = err.hint ? ` Hint: ${err.hint}` : '';
+    logger.info(
+      `  ! ${file} — ${err.code || ''} ${(err.message || '').split('\n')[0]}${hint}`
+    );
     errors++;
+    break;
   }
 }
 logger.info(
-  `→ Migrations: ${appliedCount} applied, ${alreadyApplied} already-tracked, ${knownBadSkipped} skipped (known-bad), ${errors} with non-fatal errors\n`
+  `→ Migrations: ${appliedCount} applied, ${alreadyApplied} already-tracked, ${knownBadSkipped} skipped (known-bad), ${errors} errors\n`
 );
+
+await assertMigrationBatchSucceeded({ errors, client, logger });
 
 // Seed minimal lookup data the tests rely on. Skippable (--skip-seeds /
 // CI_DB_SKIP_SEEDS=1) for targets that must hold REPLICATED truth only —

@@ -15,6 +15,7 @@ import express from 'express';
 
 import { AppError } from '../../utils/AppError.js';
 import { success } from '../../utils/responseHelper.js';
+import { getAuthenticatedActorRoles } from '../../utils/roleHelpers.js';
 import {
   acknowledgeTask,
   createApproval,
@@ -49,13 +50,6 @@ function requireAuthenticatedActorUid(req) {
   const actorUid = req.user?.uid || null;
   if (!actorUid) throw AppError.unauthorized('Authenticated actor is required');
   return actorUid;
-}
-
-function authenticatedActorRoles(req) {
-  const roles = req.user?.roles;
-  if (Array.isArray(roles) && roles.length > 0) return roles;
-  if (roles && !Array.isArray(roles)) return [roles];
-  return req.user?.role ? [req.user.role] : [];
 }
 
 // Tasks
@@ -115,7 +109,7 @@ router.get('/tasks/inbox', async (req, res, next) => {
     const result = await listInboxTasks({
       tenantId: req.tenantId,
       assigneeUid: req.user?.uid || null,
-      roles: authenticatedActorRoles(req),
+      roles: getAuthenticatedActorRoles(req.user),
       limit: req.query.limit,
     });
     return success(res, result, 'Inbox retrieved');
@@ -131,7 +125,7 @@ router.post('/tasks/:id/acknowledge', async (req, res, next) => {
       tenantId: req.tenantId,
       id: req.params.id,
       actorUid: req.user?.uid || null,
-      actorRoles: authenticatedActorRoles(req),
+      actorRoles: getAuthenticatedActorRoles(req.user),
     });
     return success(res, row, 'Task acknowledged');
   } catch (err) { return next(err); }
@@ -309,6 +303,7 @@ router.post('/approvals', async (req, res, next) => {
       requiredApprovers: b.required_approvers,
       requiredRole: b.required_role,
       expiresAt: b.expires_at,
+      createdBy: requireAuthenticatedActorUid(req),
       metadata: b.metadata,
     });
     return success(res, row, 'Approval created', 201);
@@ -334,7 +329,7 @@ router.post('/approvals/:id/decide', async (req, res, next) => {
       tenantId: req.tenantId,
       id: req.params.id,
       actorUid: requireAuthenticatedActorUid(req),
-      actorRoles: authenticatedActorRoles(req),
+      actorRoles: getAuthenticatedActorRoles(req.user),
       decision: req.body?.decision,
       rejectionReason: req.body?.rejection_reason,
     });

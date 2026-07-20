@@ -4,6 +4,8 @@ import { decodeHL7Escapes, parseHL7 } from '../../services/hl7/hl7Parser.js';
 import {
   encodeHL7Field,
   admissionToADT,
+  formatVhInvestigationOrderId,
+  orderToORM,
   resultToORU,
 } from '../../services/hl7/hl7Transformer.js';
 import { isInAllowlist, isValidStructure, validate } from '../../services/hl7/loincValidator.js';
@@ -86,6 +88,71 @@ describe('outbound HL7 builders escape malicious values (H7)', () => {
     expect(lines.filter((l) => l.startsWith('OBX|'))).toHaveLength(1);
     expect(lines[3]).toContain('\\F\\');
     expect(lines[3]).toContain('\\X0D\\');
+  });
+});
+
+describe('outbound investigation order namespace', () => {
+  it('emits the same explicit VHINV identity for ORM and ORU investigation messages', () => {
+    const investigation = {
+      id: 42,
+      test_code: 'GLU',
+      test_name: 'Glucose',
+      status: 'PENDING',
+      results: [{ test_code: 'GLU', name: 'Glucose', value: '4.1' }],
+    };
+    const patient = { uid: 'patient-1', name: 'Patient' };
+
+    const strictOptions = { enforceLocalOrderContract: true };
+    const parsedOrm = parseHL7(orderToORM(investigation, patient, strictOptions));
+    expect(parsedOrm.obr.placerOrderNumber).toBe('VHINV-42');
+    expect(parsedOrm.obr.testCode).toBe('GLU^Glucose');
+    const parsedOru = parseHL7(resultToORU(investigation, patient, strictOptions));
+    expect(parsedOru.obr.placerOrderNumber).toBe('VHINV-42');
+    expect(parsedOru.obr.testCode).toBe('GLU^Glucose');
+    expect(parsedOru.obx[0].observationId).toBe('GLU^Glucose');
+    expect(formatVhInvestigationOrderId('42')).toBe('VHINV-42');
+  });
+
+  it.each([0, -1, 2_147_483_648, '1.5', 'not-an-id'])(
+    'refuses to emit an invalid local investigation id (%s)',
+    (id) => {
+      expect(() => formatVhInvestigationOrderId(id)).toThrow(
+        'Investigation id must be a positive PostgreSQL integer',
+      );
+    },
+  );
+
+  it('refuses to label an unstructured or mismatched observation as a local investigation result', () => {
+    const patient = { uid: 'patient-1', name: 'Patient' };
+    expect(() => resultToORU({
+      id: 42,
+      test_code: 'GLU',
+      test_name: 'Glucose',
+      results: [{ test_code: 'K', name: 'Potassium', value: '4.1' }],
+    }, patient, { enforceLocalOrderContract: true })).toThrow('matching structured test_code');
+    expect(() => orderToORM(
+      { id: 42, test_name: 'Glucose' },
+      patient,
+      { enforceLocalOrderContract: true },
+    ))
+      .toThrow('require a structured test_code');
+  });
+
+  it('preserves generic multi-component outbound ORU generation outside the strict route', () => {
+    const parsed = parseHL7(resultToORU({
+      id: 42,
+      test_code: 'BMP',
+      test_name: 'Basic metabolic panel',
+      results: [
+        { test_code: 'NA', name: 'Sodium', value: '140' },
+        { test_code: 'K', name: 'Potassium', value: '4.1' },
+      ],
+    }, { uid: 'patient-1', name: 'Patient' }));
+
+    expect(parsed.obx.map(result => result.observationId)).toEqual([
+      'NA^Sodium',
+      'K^Potassium',
+    ]);
   });
 });
 

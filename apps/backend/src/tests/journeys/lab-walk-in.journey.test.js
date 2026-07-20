@@ -46,6 +46,110 @@ const DOCTOR_PHONE = `+9196502${RUN}`;
 const LABTECH_PHONE = `+9196503${RUN}`;
 const PATHOLOGIST_PHONE = `+9196504${RUN}`;
 const RECEPTIONIST_PHONE = `96505${RUN}`;
+const CRITICAL_TEST_CODE = `JWL${RUN}`;
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+async function cleanupLabWalkInEvidence() {
+  const resultRows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND test_code = $2`,
+    TENANT_ID,
+    CRITICAL_TEST_CODE,
+  );
+  const resultIds = resultRows.map((row) => Number(row.id));
+  if (resultIds.length === 0) return;
+
+  const resultIdTexts = resultIds.map(String);
+  await prisma.$transaction(async (tx) => {
+    // The journey deliberately creates append-only clinical evidence. Confine
+    // teardown to its exact fixtures in the disposable superuser CI database;
+    // clinical_audit_events stay intact so the tenant hash chain is preserved.
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_critical_alert_acknowledgement_receipts
+        WHERE tenant_id = $1::uuid
+          AND result_id = ANY($2::int[])`,
+      TENANT_ID,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_critical_alert_reconciliation_receipts
+        WHERE tenant_id = $1::uuid
+          AND result_id = ANY($2::int[])`,
+      TENANT_ID,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_critical_alerts
+        WHERE tenant_id = $1::uuid
+          AND result_id = ANY($2::int[])`,
+      TENANT_ID,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM task_comments
+        WHERE tenant_id = $1::uuid
+          AND task_id IN (
+            SELECT id
+              FROM tasks
+             WHERE tenant_id = $1::uuid
+               AND related_resource_type = 'lab_result'
+               AND related_resource_id = ANY($2::text[])
+          )`,
+      TENANT_ID,
+      resultIdTexts,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'lab_result'
+          AND related_resource_id = ANY($2::text[])`,
+      TENANT_ID,
+      resultIdTexts,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'lab_result'
+          AND source_id = ANY($2::text[])`,
+      TENANT_ID,
+      resultIdTexts,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_pathologist_signoffs
+        WHERE tenant_id = $1::uuid
+          AND result_ids && $2::int[]`,
+      TENANT_ID,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notification_outbox
+        WHERE payload->>'result_id' = ANY($1::text[])`,
+      resultIdTexts,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notifications
+        WHERE data->>'result_id' = ANY($1::text[])`,
+      resultIdTexts,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_results
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::int[])`,
+      TENANT_ID,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_result_ingest_commands
+        WHERE tenant_id = $1::uuid
+          AND result_ids && $2::int[]`,
+      TENANT_ID,
+      resultIds,
+    );
+  });
+}
 
 describeJourney('Journey: lab-walk-in', () => {
   let receptionist;
@@ -61,6 +165,7 @@ describeJourney('Journey: lab-walk-in', () => {
   let resultId;
 
   beforeAll(async () => {
+    await cleanupLabWalkInEvidence();
     await cleanupJourney({
       staffUids: [DOCTOR_UID, LABTECH_UID, PATHOLOGIST_UID, RECEPTIONIST_UID],
       phones: [PATIENT_PHONE, RECEPTIONIST_PHONE],
@@ -89,9 +194,24 @@ describeJourney('Journey: lab-walk-in', () => {
     doctor = roleClient('DOCTOR', { uid: DOCTOR_UID, id: doctorUserId, phone: DOCTOR_PHONE });
     labTech = roleClient('LAB_STAFF', { uid: LABTECH_UID, id: labRow[0].id, phone: LABTECH_PHONE });
     pathologist = roleClient('PATHOLOGIST', { uid: PATHOLOGIST_UID, id: pathRow[0].id, phone: PATHOLOGIST_PHONE });
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO lab_critical_thresholds
+         (tenant_id, test_code, test_name, critical_high, is_active)
+       VALUES ('00000000-0000-4000-8000-000000000001'::uuid, $1,
+               'Troponin I', 0.04, true)`,
+      CRITICAL_TEST_CODE,
+    );
   });
 
   afterAll(async () => {
+    await cleanupLabWalkInEvidence();
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM lab_critical_thresholds
+        WHERE tenant_id = $1::uuid
+          AND test_code = $2`,
+      TENANT_ID,
+      CRITICAL_TEST_CODE,
+    );
     await cleanupJourney({
       patientUids: [patientUid].filter(Boolean),
       staffUids: [DOCTOR_UID, LABTECH_UID, PATHOLOGIST_UID, RECEPTIONIST_UID],
@@ -128,7 +248,7 @@ describeJourney('Journey: lab-walk-in', () => {
         priority: 'STAT',
         details: {
           test_name: 'Troponin I',
-          test_code: 'TROPI',
+          test_code: CRITICAL_TEST_CODE,
           test_type: 'LAB',
           reason: 'Rule out ACS in walk-in chest discomfort',
         },
@@ -181,27 +301,31 @@ describeJourney('Journey: lab-walk-in', () => {
 
   describe('Step 5 — lab tech records a critical result', () => {
     it('rejects a non-numeric value for a test with a critical threshold', async () => {
-      const res = await labTech.post('/api/v1/lab/results').send({
+      const res = await labTech.post('/api/v1/lab/results')
+        .set('Idempotency-Key', `lab-walkin-nonnumeric-${RUN}`)
+        .send({
         investigation_id: investigationId,
         patient_uid: patientUid,
-        test_code: 'TROPI',
+        test_code: CRITICAL_TEST_CODE,
         test_name: 'Troponin I',
         value_text: 'high',
         unit: 'ng/mL',
-      });
+        });
       expect(res.statusCode).toBe(400);
       expect(String(res.body.message || '')).toMatch(/numeric/i);
     });
 
     it('records a numeric result above threshold and fires a critical alert', async () => {
-      const res = await labTech.post('/api/v1/lab/results').send({
+      const res = await labTech.post('/api/v1/lab/results')
+        .set('Idempotency-Key', `lab-walkin-critical-${RUN}`)
+        .send({
         investigation_id: investigationId,
         patient_uid: patientUid,
-        test_code: 'TROPI',
+        test_code: CRITICAL_TEST_CODE,
         test_name: 'Troponin I',
         value_text: '0.85',
         unit: 'ng/mL',
-      });
+        });
       expect(res.statusCode).toBe(200);
       expect(res.body.data?.result?.is_critical).toBe(true);
       expect(res.body.data?.alerts?.length).toBeGreaterThanOrEqual(1);

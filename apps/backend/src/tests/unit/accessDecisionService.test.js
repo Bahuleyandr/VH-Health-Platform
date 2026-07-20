@@ -25,6 +25,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 const {
   ACCESS_POLICY_CODES,
   authorizePatientAccessRequest,
+  resolvePatientForAccess,
   resolvePatientForResourceAccess,
 } = await import('../../services/security/accessDecisionService.js');
 
@@ -60,6 +61,31 @@ function patientLookup() {
 }
 
 describe('accessDecisionService', () => {
+  it('treats an explicit unresolved patient as authoritative instead of falling back to request aliases', async () => {
+    const resolved = await resolvePatientForAccess(reqFor('DOCTOR', {
+      query: { patient_uid: PATIENT_UID },
+      body: { patient_id: '15', phone: '+919000090011' },
+    }), null);
+
+    expect(resolved).toBeNull();
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('uses an explicit patient selector instead of conflicting query and body aliases', async () => {
+    const selectedUid = '33333333-3333-4333-8333-333333333333';
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ id: 27, uid: selectedUid }]);
+
+    const resolved = await resolvePatientForAccess(reqFor('DOCTOR', {
+      query: { patient_uid: PATIENT_UID },
+      body: { patient_uid: PATIENT_UID },
+    }), { uid: selectedUid });
+
+    expect(resolved).toEqual({ id: 27, uid: selectedUid });
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBeNull();
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][3]).toBe(selectedUid);
+  });
+
   it('denies CNO PHI access without a patient relationship or break-glass override', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce(patientLookup())
@@ -98,7 +124,7 @@ describe('accessDecisionService', () => {
   it('allows Admin PHI access through an active break-glass session', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce(patientLookup())
-      .mockResolvedValueOnce([{ id: 44 }]);
+      .mockResolvedValueOnce([{ id: 44, reason: 'Emergency access for active resuscitation' }]);
     prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
 
     const decision = await authorizePatientAccessRequest(reqFor('ADMIN'), {
@@ -110,6 +136,7 @@ describe('accessDecisionService', () => {
     expect(decision.accessDecision).toBe('break_glass');
     expect(decision.accessSource).toBe('break_glass');
     expect(decision.breakGlassId).toBe(44);
+    expect(decision.breakGlassReason).toBe('Emergency access for active resuscitation');
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][5]).toBe('break_glass');
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][11]).toBe(44);
   });
@@ -248,6 +275,31 @@ describe('accessDecisionService', () => {
 
     expect(patient).toEqual({ id: 15, uid: PATIENT_UID });
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(encounterId);
+  });
+
+  it('resolves pathway and handoff UUID resources through tenant-scoped patient joins', async () => {
+    const pathwayId = '33333333-3333-4333-8333-333333333333';
+    const handoffId = '44444444-4444-4444-8444-444444444444';
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce(patientLookup());
+
+    const pathwayPatient = await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'care_pathway_instance',
+      resourceId: pathwayId,
+    });
+    const handoffPatient = await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'care_handoff_instance',
+      resourceId: handoffId,
+    });
+
+    expect(pathwayPatient).toEqual({ id: 15, uid: PATIENT_UID });
+    expect(handoffPatient).toEqual({ id: 15, uid: PATIENT_UID });
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('FROM care_pathway_instances');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][1]).toBe('00000000-0000-4000-8000-000000000001');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(pathwayId);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).toContain('FROM care_handoff_instances');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][2]).toBe(handoffId);
   });
 
   it('resolves owned clinical resource ids through tenant-scoped patient joins', async () => {

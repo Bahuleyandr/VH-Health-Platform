@@ -1004,10 +1004,27 @@ export async function listMedicationSafetyReviews(filters = {}, options = {}) {
 
 export async function startWorkflowSla(input = {}, options = {}) {
   const db = dbClient(options.db);
-  if (!hasRawClient(db)) return null;
+  const strict = options.strict === true;
+  if (!hasRawClient(db)) {
+    if (strict) {
+      throw AppError.internal(
+        'Workflow SLA start requires a database client',
+        'WORKFLOW_SLA_DATABASE_REQUIRED',
+      );
+    }
+    return null;
+  }
   const tenantId = normalizeTenantId(input.tenantId || input.tenant_id);
   const ruleCode = cleanText(input.ruleCode || input.rule_code);
-  if (!ruleCode) return null;
+  if (!ruleCode) {
+    if (strict) {
+      throw AppError.internal(
+        'Workflow SLA start requires a rule code',
+        'WORKFLOW_SLA_RULE_CODE_REQUIRED',
+      );
+    }
+    return null;
+  }
 
   try {
     const rules = await db.$queryRawUnsafe(
@@ -1035,11 +1052,10 @@ export async function startWorkflowSla(input = {}, options = {}) {
        ON CONFLICT (tenant_id, rule_code, source_table, source_id)
        WHERE source_table IS NOT NULL AND source_id IS NOT NULL
        DO UPDATE SET
-         updated_at = NOW(),
-         status = CASE
-           WHEN workflow_sla_instances.status IN ('completed', 'cancelled') THEN workflow_sla_instances.status
-           ELSE 'active'
-         END
+         -- This is an idempotent start, not a reopen operation. Preserve the
+         -- existing clock exactly (including breached/escalated state and its
+         -- timestamps); domain-specific reopen helpers own explicit re-arming.
+         updated_at = workflow_sla_instances.updated_at
        RETURNING *`,
       tenantId,
       rule.id,
@@ -1057,9 +1073,17 @@ export async function startWorkflowSla(input = {}, options = {}) {
       cleanUuid(input.assignedUserUid || input.assigned_user_uid),
       stringifyJson(input.metadata),
     );
-    return rows[0] || null;
+    const started = rows[0] || null;
+    if (strict && !started) {
+      throw AppError.internal(
+        'Workflow SLA start returned no instance for an enabled rule',
+        'WORKFLOW_SLA_MATERIALIZATION_FAILED',
+      );
+    }
+    return started;
   } catch (err) {
     logCanonicalFailure('workflow SLA start', err);
+    if (strict) throw err;
     return null;
   }
 }

@@ -13,6 +13,7 @@
 // clinical_audit_events is append-only (migration 324 guard) — those rows
 // deliberately accrete in the QA DB like every other canonical writer's tests.
 
+import { createHash } from 'node:crypto';
 import prisma from '../lib/prisma.js';
 import * as labResults from '../services/lab/labResultsService.js';
 
@@ -23,6 +24,61 @@ const PATHOLOGIST_UID = 'c9c9c9c9-c9c9-4c9c-8c9c-c9c9c9c90803';
 
 const createdInvestigationIds = [];
 const createdResultIds = [];
+
+async function cleanupFixture() {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid`,
+    TENANT,
+    PATIENT_UID,
+  );
+  const resultIds = rows.map((row) => Number(row.id));
+  if (resultIds.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      // Manual result entry now creates immutable ingest evidence. Teardown is
+      // confined to this fixture in the disposable superuser test database;
+      // the append-only clinical audit chain deliberately remains untouched.
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM lab_pathologist_signoffs
+          WHERE tenant_id = $1::uuid
+            AND result_ids && $2::int[]`,
+        TENANT,
+        resultIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_timeline_events
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM lab_results
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])`,
+        TENANT,
+        resultIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM lab_result_ingest_commands
+          WHERE tenant_id = $1::uuid
+            AND result_ids && $2::int[]`,
+        TENANT,
+        resultIds,
+      );
+    });
+  }
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM investigations
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid`,
+    TENANT,
+    PATIENT_UID,
+  );
+}
 
 async function seedInvestigation({ status = 'REQUESTED', testName = 'Haemoglobin' } = {}) {
   const rows = await prisma.$queryRawUnsafe(
@@ -72,44 +128,56 @@ async function auditEventsFor(resourceTable, resourceId, action) {
 
 describe('Lab results emit canonical timeline + audit events', () => {
   beforeAll(async () => {
+    await cleanupFixture();
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, '9008080801', 'Lab Canonical Patient', 'PATIENT', true, NOW())
-       ON CONFLICT (uid) DO NOTHING`, PATIENT_UID);
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, '9008080801', 'Lab Canonical Patient', 'PATIENT', true, NOW()),
+         ($2::uuid, $4::uuid, '9008080802', 'Lab Canonical Technician', 'LAB_STAFF', true, NOW()),
+         ($3::uuid, $4::uuid, '9008080803', 'Lab Canonical Pathologist', 'PATHOLOGIST', true, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET tenant_id = EXCLUDED.tenant_id,
+             name = EXCLUDED.name,
+             role = EXCLUDED.role,
+             is_active = true`,
+      PATIENT_UID,
+      TECH_UID,
+      PATHOLOGIST_UID,
+      TENANT,
+    );
   });
 
   afterAll(async () => {
-    for (const id of createdResultIds) {
-      await prisma.$executeRawUnsafe(`DELETE FROM lab_pathologist_signoffs WHERE $1 = ANY(result_ids)`, id).catch(() => {});
-      await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE id = $1::int`, id).catch(() => {});
-    }
-    for (const id of createdInvestigationIds) {
-      await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE id = $1::int`, id).catch(() => {});
-    }
+    await cleanupFixture();
     await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_timeline_events
-        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
-      TENANT, PATIENT_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$disconnect().catch(() => {});
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID,
+      TECH_UID,
+      PATHOLOGIST_UID,
+    );
+    await prisma.$disconnect();
   });
 
   it('recordResultManual writes the result + timeline + audit pair with actor attribution', async () => {
     const invId = await seedInvestigation({ status: 'REQUESTED' });
+    const manualResult = {
+      investigation_id: invId,
+      patient_uid: PATIENT_UID,
+      test_code: 'HB',
+      test_name: 'Haemoglobin',
+      value_text: '11.9',
+      unit: 'g/dL',
+    };
 
     const { result } = await labResults.recordResultManual({
       tenantId: TENANT,
       performed_by: TECH_UID,
       performed_by_role: 'LAB_TECHNICIAN',
-      result: {
-        investigation_id: invId,
-        patient_uid: PATIENT_UID,
-        test_code: 'HB',
-        test_name: 'Haemoglobin',
-        value_text: '11.9',
-        unit: 'g/dL',
-      },
+      result: manualResult,
+      idempotencyKey: 'lab-canonical-audit-manual-v1',
+      requestBodySha256: createHash('sha256')
+        .update(JSON.stringify(manualResult))
+        .digest('hex'),
     });
     createdResultIds.push(result.id);
 

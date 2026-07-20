@@ -127,9 +127,12 @@ function task(extra = {}) {
     related_resource_id: '123',
     due_at: new Date('2026-06-15T11:30:00.000Z'),
     sla_breached_at: null,
-    metadata: { source: 'lab_result', sla_instance_id: 'sla-1', sla_key: 'critical_result_ack' },
+    workflow_sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    sla_completion_semantics: 'acknowledgement',
+    metadata: { source: 'lab_result', sla_key: 'critical_result_ack' },
     // breach signal columns the engine's SELECT computes:
     sla_status: 'breached',
+    sla_rule_code: 'critical_result_ack',
     breach_at: new Date('2026-06-15T11:45:00.000Z'),
     ...extra,
   };
@@ -176,6 +179,7 @@ describe('runEscalationSweep', () => {
     expect(updateSql).toMatch(/'overdue'/);
     expect(updateSql).toMatch(/due_at/i);
     expect(updateSql).not.toMatch(/'in_progress'/);
+    expect(queryRawMock.mock.calls.some(([sql]) => /UPDATE\s+workflow_sla_instances/i.test(sql))).toBe(false);
   });
 
   it('sla_breach tier-1 → escalate_priority + re-notify assignee + records escalations[tier:1]', async () => {
@@ -217,7 +221,7 @@ describe('runEscalationSweep', () => {
   it('is idempotent: a task already escalated for this rule is NOT re-fired', async () => {
     const already = task({
       metadata: {
-        source: 'lab_result', sla_instance_id: 'sla-1', sla_key: 'critical_result_ack',
+        source: 'lab_result', sla_key: 'critical_result_ack',
         escalations: [{ tier: 1, rule_id: 5, action: 'escalate_priority', at: '2026-06-15T11:46:00.000Z' }],
       },
     });
@@ -360,6 +364,7 @@ describe('runEscalationSweep', () => {
   it('auto_resolve action transitions the task to completed', async () => {
     const autoRule = rule({
       id: 9,
+      match_filter: { task_kind: 'review' },
       action_kind: 'auto_resolve',
       action_payload: { tier: 1, reason: 'superseded' },
     });
@@ -367,7 +372,11 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([{ tenant_id: TENANT }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([autoRule])
-      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce([task({
+        workflow_sla_instance_id: null,
+        sla_completion_semantics: 'none',
+        sla_rule_code: null,
+      })])
       .mockResolvedValueOnce([]);
 
     const res = await runEscalationSweep({ now: NOW });
@@ -393,8 +402,68 @@ describe('runEscalationSweep', () => {
     expect(res.escalated).toBe(0);
     // The candidate SELECT must exclude acked/terminal statuses.
     const candidateSql = queryRawMock.mock.calls[3][0];
-    expect(candidateSql).not.toMatch(/'in_progress'/);
+    expect(candidateSql).toMatch(/status\s*=\s*'in_progress'[\s\S]+sla_completion_semantics\s*=\s*'domain_evidence'/i);
     expect(candidateSql).toMatch(/status\s+IN\s*\(/i);
+    expect(candidateSql).toMatch(/s\.status\s*=\s*'active'[\s\S]+s\.due_at\s*<\s*\$2::timestamptz/i);
+    expect(candidateSql).toMatch(/AND\s+s\.completed_at\s+IS\s+NULL\s+AND\s*\(/i);
+  });
+
+  it('keeps an acknowledged domain-evidence task eligible for escalation', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([task({
+        status: 'in_progress',
+        sla_completion_semantics: 'domain_evidence',
+      })])
+      .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
+      .mockResolvedValueOnce([]);
+
+    const result = await runEscalationSweep({ now: NOW });
+
+    expect(result.escalated).toBe(1);
+    expect(queueNotificationMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the existing outward notification taxonomy for noncritical task rules', async () => {
+    const mortuaryRule = rule({
+      match_filter: { task_kind: 'review', sla_key: 'mortuary_unclaimed_body' },
+      action_kind: 'notify',
+      action_payload: { tier: 1, notify_role: 'MEDICAL_RECORDS' },
+    });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([mortuaryRule])
+      .mockResolvedValueOnce([task({
+        title: 'Unclaimed body custody follow-up',
+        status: 'in_progress',
+        sla_completion_semantics: 'domain_evidence',
+        sla_rule_code: 'mortuary_unclaimed_body',
+      })])
+      .mockResolvedValueOnce([{
+        id: 71,
+        uid: '55555555-5555-4555-8555-555555555555',
+        phone: '+919800000071',
+        role: 'MEDICAL_RECORDS',
+      }])
+      .mockResolvedValueOnce([]);
+
+    const result = await runEscalationSweep({ now: NOW });
+
+    expect(result.escalated).toBe(1);
+    expect(queueNotificationMock).toHaveBeenCalledWith(expect.objectContaining({
+      recipientId: 71,
+      title: 'Critical result escalation',
+      body: expect.stringContaining('unacknowledged'),
+      data: expect.objectContaining({
+        kind: 'results_inbox_escalation',
+        notify_role: 'MEDICAL_RECORDS',
+      }),
+    }));
+    expect(JSON.stringify(queueNotificationMock.mock.calls[0][0]))
+      .not.toMatch(/clinical_task_escalation|CLINICAL_TASK_UNACTIONED/);
   });
 
   it('backfill: a breached critical SLA instance with no task → producer called once', async () => {
@@ -419,6 +488,11 @@ describe('runEscalationSweep', () => {
 
     expect(res.backfilled).toBe(1);
     expect(enqueueCriticalResultTaskMock).toHaveBeenCalledTimes(1);
+    const backfillSql = queryRawMock.mock.calls[3][0];
+    expect(backfillSql).toMatch(/s\.completed_at\s+IS\s+NULL/i);
+    expect(backfillSql).toMatch(/t\.status\s*<>\s*'cancelled'/i);
+    expect(backfillSql).toMatch(/t2\.status\s*=\s*'completed'/i);
+    expect(backfillSql).not.toMatch(/t2\.status\s+IN\s*\([^)]*'cancelled'/i);
     const arg = enqueueCriticalResultTaskMock.mock.calls[0][0];
     expect(arg).toMatchObject({
       tenantId: TENANT,
@@ -430,7 +504,7 @@ describe('runEscalationSweep', () => {
 
   it('never throws: a per-task action error is logged and the sweep continues', async () => {
     const t1 = task({ id: 77 });
-    const t2 = task({ id: 88, metadata: { source: 'lab_result', sla_instance_id: 'sla-2', sla_key: 'critical_result_ack' } });
+    const t2 = task({ id: 88, workflow_sla_instance_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
     queryRawMock
       .mockResolvedValueOnce([{ tenant_id: TENANT }])
       .mockResolvedValueOnce([])

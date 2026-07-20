@@ -107,6 +107,12 @@ export function requireIdempotencyKey({ required = true, scope = 'generic' } = {
     if (!claim.id) return next();
 
     const claimId = claim.id;
+    req.idempotencyClaim = {
+      id: claimId,
+      requestKey: headerValue,
+      requestBodyHash,
+      scope,
+    };
     const originalJson = res.json.bind(res);
     res.json = function patchedJson(body) {
       const out = originalJson(body);

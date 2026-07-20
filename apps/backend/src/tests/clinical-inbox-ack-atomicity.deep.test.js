@@ -62,18 +62,20 @@ app.use('/api/v1/clinical-inbox', clinicalInboxRoutes);
 app.use(errorHandlerMiddleware);
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM task_comments WHERE tenant_id = $1::uuid`,
-    TENANT_ID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM tasks WHERE tenant_id = $1::uuid`,
-    TENANT_ID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid`,
-    TENANT_ID,
-  ).catch(() => {});
+  await actualPrismaModule.setTenantTx(TENANT_ID, async (tx) => {
+    await tx.$executeRawUnsafe(
+      `DELETE FROM task_comments WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+  }).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
     TENANT_ID,
@@ -100,37 +102,43 @@ async function seedAcknowledgement() {
     ACTOR_PHONE,
     TENANT_ID,
   );
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO workflow_sla_instances
-       (id, tenant_id, rule_code, source_table, source_id, status, priority,
-        started_at, due_at, assigned_user_uid, metadata)
-     VALUES ($1::uuid, $2::uuid, 'critical_result_ack',
-             'lab_results', 'atomicity-fixture', 'active', 'critical', NOW(),
-             NOW() + INTERVAL '15 minutes', $3::uuid,
-             '{"test":"clinical_inbox_ack_atomicity"}'::jsonb)`,
-    SLA_ID,
-    TENANT_ID,
-    ACTOR_UID,
-  );
-  const tasks = await prisma.$queryRawUnsafe(
-    `INSERT INTO tasks
-       (tenant_id, task_kind, title, description, related_resource_type,
-        related_resource_id, priority, status, assigned_to_uid, created_by,
-        due_at, metadata)
-     VALUES ($1::uuid, 'review', 'Acknowledge critical result',
-             'Clinical inbox atomicity regression fixture', 'lab_result',
-             'atomicity-fixture', 'critical', 'open', $2::uuid, $2::uuid,
-             NOW() + INTERVAL '15 minutes',
-             jsonb_build_object(
-               'sla_key', 'critical_result_ack',
-               'sla_instance_id', $3::text,
-               'test', 'clinical_inbox_ack_atomicity'
-             ))
-     RETURNING id`,
-    TENANT_ID,
-    ACTOR_UID,
-    SLA_ID,
-  );
+  const tasks = await actualPrismaModule.setTenantTx(TENANT_ID, async (tx) => {
+    await tx.$executeRawUnsafe(
+      `INSERT INTO workflow_sla_instances
+         (id, tenant_id, rule_code, source_table, source_id, status, priority,
+          started_at, due_at, assigned_user_uid, metadata)
+       VALUES ($1::uuid, $2::uuid, 'cold_chain_excursion_ack',
+                'cold_chain_excursions', 'atomicity-fixture', 'active', 'critical', NOW(),
+               NOW() + INTERVAL '15 minutes', $3::uuid,
+               '{"test":"clinical_inbox_ack_atomicity",\
+                 "task_materialization_contract":"application_atomic_v1"}'::jsonb)`,
+      SLA_ID,
+      TENANT_ID,
+      ACTOR_UID,
+    );
+    return tx.$queryRawUnsafe(
+      `INSERT INTO tasks
+         (tenant_id, task_kind, title, description, related_resource_type,
+          related_resource_id, priority, status, assigned_to_uid, created_by,
+          due_at, workflow_sla_instance_id, sla_completion_semantics, metadata)
+       VALUES ($1::uuid, 'review', 'Acknowledge critical result',
+                'Clinical inbox atomicity regression fixture', 'cold_chain_excursions',
+               'atomicity-fixture', 'critical', 'open', $2::uuid, $2::uuid,
+               (SELECT due_at
+                  FROM workflow_sla_instances
+                 WHERE tenant_id = $1::uuid
+                   AND id = $3::uuid),
+               $3::uuid, 'acknowledgement',
+               jsonb_build_object(
+                  'sla_key', 'cold_chain_excursion_ack',
+                 'test', 'clinical_inbox_ack_atomicity'
+               ))
+       RETURNING id`,
+      TENANT_ID,
+      ACTOR_UID,
+      SLA_ID,
+    );
+  });
   taskId = tasks[0].id;
 }
 
@@ -208,52 +216,71 @@ d('clinical-inbox acknowledgement transaction atomicity', () => {
     });
   }, 30_000);
 
-  it('does not restamp a completed breached SLA during an idempotent acknowledgement replay', async () => {
-    await prisma.$executeRawUnsafe(
-      `UPDATE tasks
-          SET status = 'in_progress',
-              metadata = metadata || jsonb_build_object(
-                'acknowledged_at', '2026-07-18T08:00:00.000Z',
-                'acknowledged_by', $3::text,
-                'acknowledged_via', 'assignee'
-              )
-        WHERE tenant_id = $1::uuid AND id = $2`,
-      TENANT_ID,
-      taskId,
-      ACTOR_UID,
-    );
-    await prisma.$executeRawUnsafe(
-      `UPDATE workflow_sla_instances
-          SET status = 'breached',
-              completed_at = NOW() - INTERVAL '5 minutes',
-              breached_at = NOW() - INTERVAL '6 minutes',
-              metadata = metadata || jsonb_build_object(
-                'completed_via', 'task_ack',
-                'completed_by_task', $3::int,
-                'acknowledged_by', $4::text
-              ),
-              updated_at = NOW() - INTERVAL '5 minutes'
-        WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-      TENANT_ID,
-      SLA_ID,
-      taskId,
-      ACTOR_UID,
-    );
+  it('does not restamp a valid acknowledged task/completed breached SLA pair on replay', async () => {
+    const dueAt = new Date(Date.now() - 10 * 60_000);
+    const acknowledgedAt = new Date(dueAt.getTime() + 5 * 60_000);
+    await actualPrismaModule.setTenantTx(TENANT_ID, async (tx) => {
+      // Migration 580 makes the task/SLA lifecycle and deadline checks deferred:
+      // seed both sides in one short transaction so no impossible split commits.
+      await tx.$executeRawUnsafe(
+        `UPDATE tasks
+            SET status = 'in_progress',
+                due_at = $3::timestamptz,
+                metadata = metadata || jsonb_build_object(
+                  'acknowledged_at', to_char(
+                    to_timestamp($4::double precision / 1000.0) AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+                  ),
+                  'acknowledged_by', $5::text,
+                  'acknowledged_via', 'assignee'
+                )
+          WHERE tenant_id = $1::uuid AND id = $2`,
+        TENANT_ID,
+        taskId,
+        dueAt.toISOString(),
+        acknowledgedAt.getTime(),
+        ACTOR_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE workflow_sla_instances
+            SET started_at = $3::timestamptz - INTERVAL '10 minutes',
+                status = 'breached',
+                due_at = $3::timestamptz,
+                completed_at = to_timestamp($4::double precision / 1000.0),
+                breached_at = $3::timestamptz,
+                metadata = metadata || jsonb_build_object(
+                  'completed_via', 'task_ack',
+                  'completed_by_task', $5::int,
+                  'acknowledged_by', $6::text
+                ),
+                updated_at = to_timestamp($4::double precision / 1000.0)
+          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        TENANT_ID,
+        SLA_ID,
+        dueAt.toISOString(),
+        acknowledgedAt.getTime(),
+        taskId,
+        ACTOR_UID,
+      );
+    });
     const before = await prisma.$queryRawUnsafe(
-      `SELECT status, completed_at, breached_at, updated_at, metadata
+      `SELECT status, completed_at, breached_at, updated_at, metadata,
+              (EXTRACT(EPOCH FROM completed_at) * 1000)::bigint
+                AS completed_at_epoch_ms
          FROM workflow_sla_instances
         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
       TENANT_ID,
       SLA_ID,
     );
-
     const response = await request(app)
       .post(`/api/v1/clinical-inbox/tasks/${taskId}/acknowledge`)
       .send({});
 
     expect(response.statusCode).toBe(200);
     const after = await prisma.$queryRawUnsafe(
-      `SELECT status, completed_at, breached_at, updated_at, metadata
+      `SELECT status, completed_at, breached_at, updated_at, metadata,
+              (EXTRACT(EPOCH FROM completed_at) * 1000)::bigint
+                AS completed_at_epoch_ms
          FROM workflow_sla_instances
         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
       TENANT_ID,
@@ -265,6 +292,87 @@ d('clinical-inbox acknowledgement transaction atomicity', () => {
       `SELECT id
          FROM task_comments
         WHERE tenant_id = $1::uuid AND task_id = $2`,
+      TENANT_ID,
+      taskId,
+    );
+    expect(comments).toHaveLength(0);
+  }, 30_000);
+
+  it('replays a valid on-time acknowledged pair after due without falsely recording a breach', async () => {
+    const dueAt = new Date(Date.now() - 5 * 60_000);
+    const acknowledgedAt = new Date(dueAt.getTime() - 60_000);
+    await actualPrismaModule.setTenantTx(TENANT_ID, async (tx) => {
+      await tx.$executeRawUnsafe(
+        `UPDATE tasks
+            SET status = 'in_progress', due_at = $3::timestamptz,
+                metadata = metadata || jsonb_build_object(
+                  'acknowledged_at', to_char(
+                    to_timestamp($4::double precision / 1000.0) AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+                  ),
+                  'acknowledged_by', $5::text,
+                  'acknowledged_via', 'assignee'
+                ),
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2`,
+        TENANT_ID,
+        taskId,
+        dueAt.toISOString(),
+        acknowledgedAt.getTime(),
+        ACTOR_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE workflow_sla_instances
+            SET started_at = $3::timestamptz - INTERVAL '10 minutes',
+                status = 'completed', due_at = $3::timestamptz,
+                completed_at = to_timestamp($4::double precision / 1000.0),
+                breached_at = NULL, escalated_at = NULL,
+                metadata = metadata || jsonb_build_object(
+                  'completed_via', 'task_ack',
+                  'completed_by_task', $5::int,
+                  'acknowledged_by', $6::text
+                ),
+                updated_at = to_timestamp($4::double precision / 1000.0)
+          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        TENANT_ID,
+        SLA_ID,
+        dueAt.toISOString(),
+        acknowledgedAt.getTime(),
+        taskId,
+        ACTOR_UID,
+      );
+    });
+
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT status, completed_at, breached_at, updated_at, metadata,
+              (EXTRACT(EPOCH FROM completed_at) * 1000)::bigint
+                AS completed_at_epoch_ms
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+      TENANT_ID,
+      SLA_ID,
+    );
+    const response = await request(app)
+      .post(`/api/v1/clinical-inbox/tasks/${taskId}/acknowledge`)
+      .send({});
+
+    expect(response.statusCode).toBe(200);
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT status, completed_at, breached_at, updated_at, metadata,
+              (EXTRACT(EPOCH FROM completed_at) * 1000)::bigint
+                AS completed_at_epoch_ms
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+      TENANT_ID,
+      SLA_ID,
+    );
+    expect(after[0]).toEqual(before[0]);
+    expect(after[0].status).toBe('completed');
+    expect(after[0].completed_at_epoch_ms).toBe(BigInt(acknowledgedAt.getTime()));
+    expect(after[0].breached_at).toBeNull();
+
+    const comments = await prisma.$queryRawUnsafe(
+      `SELECT id FROM task_comments WHERE tenant_id = $1::uuid AND task_id = $2`,
       TENANT_ID,
       taskId,
     );

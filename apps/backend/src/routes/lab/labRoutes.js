@@ -10,8 +10,14 @@ import * as labClosedLoop from '../../services/lab/labClosedLoopService.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import * as investigationOrderService from '../../services/investigation/orderService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { isAdmin, isClinical, isStaff } from '../../utils/roleHelpers.js';
+import {
+  getAuthenticatedActorRoles,
+  isAdmin,
+  isClinical,
+  isStaff,
+} from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -39,6 +45,27 @@ function requireStaffOrAdmin(req, res, next) {
   next();
 }
 
+const LAB_RESULT_RECORD_ROLES = new Set([
+  'LAB_STAFF',
+  'LAB_INCHARGE',
+  'PATHOLOGIST',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
+
+function requireLabResultRecorder(req, res, next) {
+  const roles = getAuthenticatedActorRoles(req.user);
+  if (!roles.some((role) => LAB_RESULT_RECORD_ROLES.has(role))) {
+    return error(res, 'Lab result entry role required', 403);
+  }
+  return next();
+}
+
+function requireCriticalAlertAcknowledger(req, res, next) {
+  if (req.user?.role === 'SUPER_ADMIN') return next();
+  return requireStaffOrAdmin(req, res, next);
+}
+
 function requirePatientUidParam(req, res, next) {
   if (!UUID_RE.test(String(req.params.patientUid || ''))) {
     return error(res, 'patientUid must be a valid UUID', 400);
@@ -58,19 +85,6 @@ export function renderSpecimenLabelHtml(label) {
 <body><div class="lbl"><div><b>${escapeHtml(label.patient?.name || 'Unknown')}</b> · ${escapeHtml(label.specimen_type)} · ${escapeHtml(label.priority)}</div>
 <div>${escapeHtml(label.accession_number)}</div>${label.svg}</div></body></html>`;
 }
-
-// ── Inbound HL7 ORU (HTTP transport) ─────────────────────────────────
-// Bypasses standard JSON middleware — clients post the raw HL7 string
-// in a `message` field. Auth is the standard JWT layer (analyzers
-// typically use an API-key + service account; this endpoint inherits
-// the existing api-key + jwt middleware chain from app.js).
-router.post('/oru/ingest', requireStaffOrAdmin, wrap(async (req) => {
-  const { message, source } = req.body || {};
-  return lab.ingestOruMessage(message, {
-    tenantId: tenantOf(req),
-    source: source || req.user?.role || 'manual',
-  });
-}));
 
 // ── Doctor-facing lab order shortcut ──────────────────────────────────
 // `/api/v1/lab/orders` is the documented endpoint the staff app expects;
@@ -170,14 +184,23 @@ router.post('/samples/:investigationId/reject', requireStaffOrAdmin, wrap(async 
 ));
 
 // ── Manual result entry (when no analyzer integration) ───────────────
-router.post('/results', requireStaffOrAdmin, wrap(async (req) =>
+router.post(
+  '/results',
+  requireLabResultRecorder,
+  requireIdempotencyKey({ required: true, scope: 'lab-result-record' }),
+  wrap(async (req) =>
   lab.recordResultManual({
     tenantId: tenantOf(req),
     performed_by: req.user?.uid,
     performed_by_role: req.user?.role,
     result: req.body,
+    idempotencyKey: req.idempotencyClaim?.requestKey,
+    requestBodySha256: req.idempotencyClaim?.requestBodyHash,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id,
+    requestId: req.id || null,
   }),
-));
+  ),
+);
 
 router.get('/results/booking/:bookingId', requireStaffOrAdmin, wrap(async (req) =>
   lab.getResultsForBooking({
@@ -249,6 +272,7 @@ router.post('/pathologist/signoff', requirePathologistTier, wrap(async (req) =>
     decision: req.body.decision,
     comments: req.body.comments,
     booking_id: req.body.booking_id,
+    // Compatibility-only assertion; the service derives the patient from the tenant-owned results.
     patient_uid: req.body.patient_uid,
   }),
 ));
@@ -261,11 +285,16 @@ router.get('/alerts/critical', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.post('/alerts/critical/:id/ack', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/alerts/critical/:id/ack', requireCriticalAlertAcknowledger, wrap(async (req) =>
   lab.acknowledgeAlert(req.params.id, {
     tenantId: tenantOf(req),
     acknowledged_by: req.user?.uid,
-    acknowledged_by_name: req.body.acknowledged_by_name || req.user?.name,
+    acknowledged_by_name: req.user?.name || null,
+    actorRoles: getAuthenticatedActorRoles(req.user),
+    actorRole: req.user?.role
+      || (Array.isArray(req.user?.roles) ? req.user.roles[0] : req.user?.roles)
+      || null,
+    breakGlassId: req.body?.break_glass_id ?? null,
     read_back_method: req.body.read_back_method,
     notes: req.body.notes,
   }),
@@ -296,17 +325,6 @@ router.post('/specimens/receive-scan', requireStaffOrAdmin, wrap(async (req) =>
     actorRole: req.user?.role || null,
     tenantId: tenantOf(req),
   })));
-
-// Analyzer interface bridge: middleware-capable analyzers (or the owner-side
-// serial/MLLP listeners) POST raw ASTM E1394 / HL7v2 payloads here. Every
-// payload is persisted in lab_interface_messages with its outcome.
-router.post('/interface/ingest', requireStaffOrAdmin, wrap(async (req) =>
-  labClosedLoop.ingestInterfaceMessage({
-    protocol: req.body.protocol,
-    rawMessage: req.body.message,
-    analyzerCode: req.body.analyzer_code || null,
-    tenantId: tenantOf(req),
-  }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null })));
 
 // Interface inbox (replay/triage surface).
 router.get('/interface/messages', requireStaffOrAdmin, wrap(async (req) => ({

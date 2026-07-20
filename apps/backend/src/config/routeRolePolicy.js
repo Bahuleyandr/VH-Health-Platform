@@ -38,6 +38,10 @@ export const LAB_ROUTE_ROLES = mergeRoles(
   DIAGNOSTICS_ROUTE_ROLES,
   rolesFrom(['DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF']),
 );
+export const LAB_INGEST_MOUNT_ROUTE_ROLES = mergeRoles(
+  LAB_ROUTE_ROLES,
+  rolesFrom(['WEBHOOK_CLIENT', 'DEVICE_GATEWAY']),
+);
 export const PHARMACY_ROUTE_ROLES = getRolesForCapabilityGroups('pharmacy');
 export const PHARMACY_SUPPLY_ROUTE_ROLES = getRolesForCapabilityGroups('supply_chain', {
   includeAdmin: true,

@@ -13,11 +13,9 @@
 //      and populated `_migrations` with one row per file.
 //   3. Run `ci-setup-db.mjs` a second time. Assert it reported zero applies
 //      (everything skipped via the tracker).
-//   4. `TRUNCATE _migrations` to simulate a DB with full baseline schema but
-//      empty tracker (the migration scenario the auto-detect branch handles).
-//      Run `ci-setup-db.mjs` again. Assert it re-recorded `000_baseline.sql`
-//      via the canonical-table probe and processed the remaining migrations
-//      idempotently.
+//   4. Recreate the DB with only `000_baseline.sql`, then empty its tracker.
+//      Assert `ci-setup-db.mjs` exits nonzero before applying a migration,
+//      seeding data, provisioning roles, or inferring migration history.
 //
 // This script is destructive against its target DB only — it CREATEs and
 // DROPs the database itself, never your dev `vhhealth` data DB.
@@ -34,7 +32,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const backendRoot = join(__dirname, '..');
@@ -94,13 +92,17 @@ async function recreateSmokeDb() {
   log(`recreated ${SMOKE_DB} on ${HOST}:${PORT} (pgvector enabled)`);
 }
 
-function runCiSetup() {
-  const result = spawnSync(process.execPath, [ciSetupDb], {
+function invokeCiSetup() {
+  return spawnSync(process.execPath, [ciSetupDb], {
     cwd: backendRoot,
     env: { ...process.env, DATABASE_URL: smokeUrl },
     stdio: 'pipe',
     encoding: 'utf8',
   });
+}
+
+function runCiSetup() {
+  const result = invokeCiSetup();
   if (result.status !== 0) {
     process.stdout.write(result.stdout || '');
     process.stderr.write(result.stderr || '');
@@ -120,10 +122,12 @@ async function trackerNames() {
   }
 }
 
-async function truncateTracker() {
+async function createUntrackedBaselineDb() {
+  await recreateSmokeDb();
   const c = new pg.Client({ connectionString: smokeUrl });
   await c.connect();
   try {
+    await c.query(readFileSync(join(migrationsDir, '000_baseline.sql'), 'utf8'));
     await c.query('TRUNCATE _migrations');
   } finally {
     await c.end();
@@ -162,17 +166,24 @@ async function main() {
   }
   log(`second run OK — 0 applied in ${ms2}ms`);
 
-  // Step 3: simulate baseline-applied-but-untracked
-  await truncateTracker();
-  const out3 = runCiSetup();
+  // Step 3: baseline schema with missing history must fail before mutation.
+  await createUntrackedBaselineDb();
+  const result3 = invokeCiSetup();
+  const out3 = (result3.stdout || '') + (result3.stderr || '');
   const tracker3 = await trackerNames();
-  if (!out3.includes('Detected pre-existing baseline schema')) {
-    fatal(`third run did not auto-detect baseline:\n${out3}`);
+  if (result3.status === 0) {
+    fatal(`third run accepted a canonical schema with missing migration history:\n${out3}`);
   }
-  if (!tracker3.includes('000_baseline.sql')) {
-    fatal(`third run did not record 000_baseline.sql via auto-detect. tracker=${JSON.stringify(tracker3)}`);
+  if (!out3.includes('canonical baseline schema exists but _migrations does not record')) {
+    fatal(`third run did not report the missing tracker invariant:\n${out3}`);
   }
-  log(`third run OK — baseline auto-detect re-recorded ${tracker3.length} row(s)`);
+  if (tracker3.length !== 0) {
+    fatal(`third run mutated the migration tracker: ${JSON.stringify(tracker3)}`);
+  }
+  if (/\s✓\s.+\.sql|→ Seeding|RLS test roles provisioned/.test(out3)) {
+    fatal(`third run performed setup work after the tracker preflight failed:\n${out3}`);
+  }
+  log('third run OK — missing tracker rejected before migration or seed mutation');
 
   log('SMOKE PASSED');
 }

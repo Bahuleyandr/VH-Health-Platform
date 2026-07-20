@@ -85,6 +85,7 @@ import {
   ICU_ROUTE_ROLES,
   INVESTIGATION_ROUTE_ROLES,
   IPD_SUPPORT_ROUTE_ROLES,
+  LAB_INGEST_MOUNT_ROUTE_ROLES,
   LAB_ROUTE_ROLES,
   LINEN_LAUNDRY_ROUTE_ROLES,
   MATERNITY_ROUTE_ROLES,
@@ -130,6 +131,7 @@ import entitlementCapabilityRoutes from './routes/entitlements/capabilityRoutes.
 // at /api/v1/clinical-inbox so the safety net is reachable by clinicians — WITHOUT
 // exposing the rest of the admin tasks/workflow/escalation surface to them.
 import clinicalInboxRoutes from './routes/clinicalInboxRoutes.js';
+import carePathwayRoutes from './routes/carePathwayRoutes.js';
 import appointmentRoutes from './routes/appointment/index.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
@@ -222,6 +224,7 @@ import sessionRoutes from './routes/sessionRoutes.js';
 import billingRoutes from './routes/billing/billingRoutes.js';
 import billingV2Routes from './routes/billing/billingV2Routes.js';
 import labRoutes from './routes/lab/labRoutes.js';
+import labIngestRoutes from './routes/lab/labIngestRoutes.js';
 import insuranceClaimsRoutes from './routes/insurance/claimsRoutes.js';
 import admissionEnhancementRoutes from './routes/insurance/admissionEnhancementRoutes.js';
 import pmjayRoutes from './routes/insurance/pmjayRoutes.js';
@@ -954,6 +957,7 @@ app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllB
 // (cross-patient PHI) or mutate/disable escalation rules. The full task surface
 // stays ADMIN-only at /api/v1/admin/workflow.
 app.use('/api/v1/clinical-inbox', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalInboxRoutes);
+app.use('/api/v1/care-pathways', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CARE_PATHWAY'), carePathwayRoutes);
 app.use('/api/v1/burns', requireRole(...BURN_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('BURN_CHART', { careTeamModeGoverned: true }), phiAccessLogger('BURN_CHART'), burnRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
@@ -1333,6 +1337,11 @@ app.use('/api/v1/billing/revenue-cycle', requireRole(...BILLING_ROUTE_ROLES), re
 // early). Mounted BEFORE the generic /lab routers so their narrower
 // LAB_ROUTE_ROLES gate cannot shadow the clinical-staff gate here.
 app.use('/api/v1/lab/release', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), resultReleaseRoutes);
+// Analyzer ingestion is mounted before the generic lab router because its
+// narrow route gate admits configured machine service accounts. The router
+// contains only the two ingest endpoints, so machine roles cannot reach lab
+// result reads, sign-off, alerts, or specimen operations.
+app.use('/api/v1/lab', requireRole(...LAB_INGEST_MOUNT_ROUTE_ROLES), labIngestRoutes);
 app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
 app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), labPanelRoutes);

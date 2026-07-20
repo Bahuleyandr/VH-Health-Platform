@@ -1,0 +1,142 @@
+import {
+  CLINICAL_STAFF_ROUTE_ROLES,
+  COLD_CHAIN_ROUTE_ROLES,
+} from '../../config/routeRolePolicy.js';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CLINICAL_HUMAN_ROLE_SET = new Set(CLINICAL_STAFF_ROUTE_ROLES);
+const TASK_HUMAN_ROLE_SET = new Set([
+  ...CLINICAL_STAFF_ROUTE_ROLES,
+  ...COLD_CHAIN_ROUTE_ROLES,
+]);
+
+function normalizeRole(value) {
+  const role = String(value || '').trim().toUpperCase();
+  return role || null;
+}
+
+export function isClinicalHumanOwnerRole(value) {
+  const role = normalizeRole(value);
+  return Boolean(role && CLINICAL_HUMAN_ROLE_SET.has(role));
+}
+
+export function isTaskHumanOwnerRole(value) {
+  const role = normalizeRole(value);
+  return Boolean(role && TASK_HUMAN_ROLE_SET.has(role));
+}
+
+export const isPathwayHumanOwnerRole = isClinicalHumanOwnerRole;
+
+async function findActiveNamedOwnerTx({ tx, tenantId, uid, rolePredicate }) {
+  const normalizedUid = String(uid || '').trim().toLowerCase();
+  if (!UUID_PATTERN.test(normalizedUid)) return null;
+
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = TRUE
+        AND role <> 'PATIENT'
+      LIMIT 1`,
+    tenantId,
+    normalizedUid,
+  );
+  const user = rows[0] || null;
+  if (!user || !rolePredicate(user.role)) return null;
+  return String(user.uid || normalizedUid).toLowerCase();
+}
+
+export async function resolveClinicalTaskOwnerTx({
+  tx,
+  tenantId,
+  requestedUid = null,
+  fallbackRole,
+}) {
+  const namedOwner = await findActiveNamedOwnerTx({
+    tx,
+    tenantId,
+    uid: requestedUid,
+    rolePredicate: isClinicalHumanOwnerRole,
+  });
+  if (namedOwner) {
+    return Object.freeze({
+      assignedToUid: namedOwner,
+      assignedToRole: null,
+      resolution: 'requested_active_clinician',
+      fallbackReason: null,
+    });
+  }
+
+  const normalizedFallback = normalizeRole(fallbackRole);
+  const assignedToRole = isClinicalHumanOwnerRole(normalizedFallback)
+    ? normalizedFallback
+    : 'DUTY_DOCTOR';
+  let fallbackReason = null;
+  if (requestedUid) fallbackReason = 'requested_clinician_unavailable';
+  if (!isClinicalHumanOwnerRole(normalizedFallback)) {
+    fallbackReason = normalizedFallback
+      ? 'requested_role_not_route_capable'
+      : (fallbackReason || 'no_named_clinician');
+  }
+  return Object.freeze({
+    assignedToUid: null,
+    assignedToRole,
+    resolution: assignedToRole === normalizedFallback ? 'route_role_fallback' : 'duty_role_fallback',
+    fallbackReason,
+  });
+}
+
+export async function repairCriticalResultTaskOwnerTx({
+  tx,
+  tenantId,
+  task,
+  requestedUid = null,
+  fallbackRole,
+}) {
+  if (!task || !['open', 'blocked', 'overdue'].includes(String(task.status || '').toLowerCase())) {
+    return task;
+  }
+
+  if (task.assigned_to_uid) {
+    const currentOwner = await findActiveNamedOwnerTx({
+      tx,
+      tenantId,
+      uid: task.assigned_to_uid,
+      rolePredicate: isClinicalHumanOwnerRole,
+    });
+    if (currentOwner) return task;
+  } else if (isClinicalHumanOwnerRole(task.assigned_to_role)) {
+    return task;
+  }
+
+  const owner = await resolveClinicalTaskOwnerTx({
+    tx,
+    tenantId,
+    requestedUid,
+    fallbackRole,
+  });
+  const metadata = JSON.stringify({
+    critical_result_owner_resolution: owner.resolution,
+    critical_result_owner_fallback_reason: owner.fallbackReason,
+    critical_result_owner_repaired: true,
+  });
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET assigned_to_uid = $3::uuid,
+            assigned_to_role = $4::text,
+            metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status IN ('open', 'blocked', 'overdue')
+      RETURNING id, status, completed_at, workflow_sla_instance_id,
+                sla_completion_semantics, assigned_to_uid, assigned_to_role, metadata`,
+    tenantId,
+    task.id,
+    owner.assignedToUid,
+    owner.assignedToRole,
+    metadata,
+  );
+  return rows[0] || task;
+}

@@ -10,6 +10,9 @@
 // connection is opened.
 
 import { jest } from '@jest/globals';
+import { AppError } from '../../utils/AppError.js';
+
+const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -112,6 +115,116 @@ describe('src/lib/prisma.js hardening', () => {
       expect(primaryStub.$queryRawUnsafe).not.toHaveBeenCalled();
     });
 
+    it('does not count application errors thrown by interactive transaction callbacks', async () => {
+      const notFound = AppError.notFound('Care pathway instance');
+
+      for (let i = 0; i < 10; i += 1) {
+        await expect(
+          prismaModule.setTenant(TENANT_ID, async () => {
+            throw notFound;
+          }),
+        ).rejects.toBe(notFound);
+      }
+
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: false,
+        consecutiveFailures: 0,
+      });
+    });
+
+    it('does not count plain business errors thrown by interactive transaction callbacks', async () => {
+      const businessError = new Error('Pathway transition is not allowed');
+
+      for (let i = 0; i < 6; i += 1) {
+        await expect(
+          prismaModule.setTenant(TENANT_ID, async () => {
+            throw businessError;
+          }),
+        ).rejects.toBe(businessError);
+      }
+
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: false,
+        consecutiveFailures: 0,
+      });
+    });
+
+    it('resets an infrastructure-failure streak after a callback business error', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+      const infrastructureError = new Error('transient infrastructure failure');
+      primaryStub.$queryRawUnsafe = jest.fn().mockRejectedValue(infrastructureError);
+
+      for (let i = 0; i < 4; i += 1) {
+        await expect(prisma.$queryRawUnsafe('SELECT 1')).rejects.toBe(infrastructureError);
+      }
+      expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(4);
+
+      primaryStub.$queryRawUnsafe = jest.fn().mockResolvedValue([]);
+      const notFound = AppError.notFound('Care pathway instance');
+      await expect(
+        prismaModule.setTenant(TENANT_ID, async () => {
+          throw notFound;
+        }),
+      ).rejects.toBe(notFound);
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: false,
+        consecutiveFailures: 0,
+      });
+
+      primaryStub.$queryRawUnsafe = jest.fn().mockRejectedValue(infrastructureError);
+      await expect(prisma.$queryRawUnsafe('SELECT 1')).rejects.toBe(infrastructureError);
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: false,
+        consecutiveFailures: 1,
+      });
+    });
+
+    it('still counts infrastructure errors raised inside interactive transaction callbacks', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+      const timeoutError = Object.assign(new Error('Timed out while acquiring a connection'), {
+        code: 'P1008',
+      });
+
+      primaryStub.$transaction = jest.fn(async (callback) => {
+        const tx = new PrismaClientStub();
+        tx.$queryRawUnsafe = jest.fn().mockRejectedValue(timeoutError);
+        return callback(tx);
+      });
+
+      for (let i = 0; i < 5; i += 1) {
+        await expect(prisma.$transaction(async (tx) => tx.$queryRawUnsafe('SELECT 1'))).rejects.toBe(
+          timeoutError,
+        );
+      }
+
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: true,
+        consecutiveFailures: 5,
+      });
+    });
+
+    it('still counts infrastructure failures that prevent an interactive transaction from starting', async () => {
+      const primaryStub = await getPrimaryStub(prismaModule);
+      const connectionError = Object.assign(new Error('Connection refused'), {
+        code: 'ECONNREFUSED',
+      });
+
+      primaryStub.$transaction = jest.fn().mockRejectedValue(connectionError);
+
+      for (let i = 0; i < 5; i += 1) {
+        await expect(
+          prismaModule.setTenant(TENANT_ID, async () => 'never reached'),
+        ).rejects.toBe(connectionError);
+      }
+
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: true,
+        consecutiveFailures: 5,
+      });
+    });
+
     it('successful call resets the failure counter', async () => {
       const prisma = prismaModule.default;
       const primaryStub = await getPrimaryStub(prismaModule);
@@ -176,6 +289,56 @@ describe('src/lib/prisma.js hardening', () => {
       expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
     });
 
+    it.each(['23503', '23514'])(
+      'does not count deterministic Postgres %s integrity rejections as infrastructure failures',
+      async (code) => {
+        const prisma = prismaModule.default;
+        const primaryStub = await getPrimaryStub(prismaModule);
+        const integrityErr = Object.assign(new Error('constraint rejected the write'), {
+          meta: { code },
+        });
+        primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(integrityErr));
+
+        for (let i = 0; i < 10; i += 1) {
+          await expect(prisma.$queryRawUnsafe('INSERT invalid')).rejects.toBe(integrityErr);
+        }
+
+        expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+          open: false,
+          consecutiveFailures: 0,
+        });
+      },
+    );
+
+    it('resets an infrastructure-failure streak after an ignored integrity rejection', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+      const infrastructureError = new Error('transient infrastructure failure');
+      primaryStub.$queryRawUnsafe = jest.fn().mockRejectedValue(infrastructureError);
+
+      for (let i = 0; i < 4; i += 1) {
+        await expect(prisma.$queryRawUnsafe('SELECT 1')).rejects.toBe(infrastructureError);
+      }
+      expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(4);
+
+      const integrityError = Object.assign(new Error('constraint rejected the write'), {
+        meta: { code: '23514' },
+      });
+      primaryStub.$queryRawUnsafe = jest.fn().mockRejectedValue(integrityError);
+      await expect(prisma.$queryRawUnsafe('INSERT invalid')).rejects.toBe(integrityError);
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: false,
+        consecutiveFailures: 0,
+      });
+
+      primaryStub.$queryRawUnsafe = jest.fn().mockRejectedValue(infrastructureError);
+      await expect(prisma.$queryRawUnsafe('SELECT 1')).rejects.toBe(infrastructureError);
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: false,
+        consecutiveFailures: 1,
+      });
+    });
+
     it('ignores Prisma 7 driver adapter SQLSTATE metadata', async () => {
       const prisma = prismaModule.default;
       const primaryStub = await getPrimaryStub(prismaModule);
@@ -200,7 +363,7 @@ describe('src/lib/prisma.js hardening', () => {
       expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
     });
 
-    it('mixed ignored and infra failures: only infra failures count', async () => {
+    it('mixed ignored and infra failures: ignored errors reset the streak', async () => {
       const prisma = prismaModule.default;
       const primaryStub = await getPrimaryStub(prismaModule);
 
@@ -217,8 +380,9 @@ describe('src/lib/prisma.js hardening', () => {
         await expect(prisma.$queryRawUnsafe('q')).rejects.toThrow();
       }
 
-      // Only the two infra failures should count.
-      expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(2);
+      // Each ignored rejection proves the database is reachable and breaks the
+      // infrastructure-failure streak, leaving only the final failure counted.
+      expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(1);
       expect(prismaModule.circuitBreakerStatus().open).toBe(false);
     });
   });
@@ -336,6 +500,7 @@ describe('src/lib/prisma.js hardening', () => {
 
       const tenantUid = '11111111-2222-3333-4444-555555555555';
       const result = await prismaModule.setTenant(tenantUid, async (client) => {
+        expect(prismaModule.isTenantTransactionClient(client)).toBe(true);
         await client.$queryRawUnsafe('SELECT 1');
         return 'returned';
       });
@@ -347,6 +512,10 @@ describe('src/lib/prisma.js hardening', () => {
         tenantUid,
       );
       expect(tx.$queryRawUnsafe).toHaveBeenNthCalledWith(2, 'SELECT 1');
+      expect(prismaModule.isTenantTransactionClient(tx)).toBe(true);
+      expect(prismaModule.isTenantTransactionClient(primaryStub)).toBe(false);
+      expect(prismaModule.isTenantTransactionClient({})).toBe(false);
+      expect(prismaModule.isTenantTransactionClient(null)).toBe(false);
     });
 
     it('uses "bypass" as GUC value when superAdmin is true', async () => {

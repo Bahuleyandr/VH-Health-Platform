@@ -26,6 +26,8 @@ import * as config from './openapi/schemas/config.mjs';
 import * as portal from './openapi/schemas/portal.mjs';
 import * as cathConsumables from './openapi/schemas/cathConsumables.mjs';
 import * as clinicalInbox from './openapi/schemas/clinicalInbox.mjs';
+import * as lab from './openapi/schemas/lab.mjs';
+import * as carePathways from './openapi/schemas/carePathways.mjs';
 
 const SCHEMA_MODULES = [
   money,
@@ -40,7 +42,9 @@ const SCHEMA_MODULES = [
   config,
   portal,
   cathConsumables,
-  clinicalInbox
+  clinicalInbox,
+  lab,
+  carePathways
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

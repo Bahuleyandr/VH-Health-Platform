@@ -1,12 +1,37 @@
 import bcrypt from 'bcrypt';
 import pg from 'pg';
 import { seedCurrentBedStructure } from './seed-current-bed-structure.mjs';
+import { compileWorkflowDefinition } from '../src/services/workflow/workflowDefinitionCompiler.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
 const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
 const SEED_TAG = 'vh_seed';
 const MANUAL_SEED_TABLES = new Set([
+  // Care-pathway and lab-ingest coverage must be coherent evidence graphs.
+  // The generic walker cannot satisfy their tenant-composite links, immutable
+  // canonical receipts, definition pins, or exact task/SLA lifecycle checks.
+  'workflow_definitions',
+  'workflow_runs',
+  'workflow_steps',
+  'tasks',
+  'task_comments',
+  'approvals',
+  'workflow_sla_instances',
+  'care_pathway_definition_governance',
+  'care_pathway_instances',
+  'care_pathway_transition_events',
+  'care_handoff_instances',
+  'clinical_timeline_events',
+  'clinical_audit_events',
+  'lab_analyzers',
+  'lab_pathologist_signoffs',
+  'lab_results',
+  'lab_critical_alerts',
+  'lab_critical_alert_acknowledgement_receipts',
+  'lab_critical_alert_reconciliation_receipts',
+  'lab_oru_ingest_messages',
+  'lab_result_ingest_commands',
   'insurance_claim_caps',
   // Pillar-D workflow tables — domain CHECKs the auto-seeder can't
   // satisfy (ordered time windows, slot holds, XOR dosing, FDI tooth
@@ -1135,6 +1160,855 @@ async function summarize(failed) {
       admin: `admin / ${ADMIN_PASSWORD === STAFF_PASSWORD ? 'test1234' : '<VH_TEST_ADMIN_PASSWORD>'}`,
     },
   };
+}
+
+async function seedCarePathwayWorkflowGraph() {
+  const graphTables = [
+    'workflow_definitions',
+    'workflow_runs',
+    'workflow_steps',
+    'tasks',
+    'approvals',
+    'care_pathway_definition_governance',
+    'care_pathway_instances',
+    'care_pathway_transition_events',
+    'care_handoff_instances',
+  ];
+  const existingCounts = [];
+  for (const table of graphTables) existingCounts.push(await tableCount(table));
+  if (existingCounts.every(Boolean)) return;
+
+  const patient = await first(
+    'users',
+    'uid, name',
+    "tenant_id = $1::uuid AND role = 'PATIENT' AND is_active = TRUE",
+    [DEFAULT_TENANT_ID],
+  );
+  const clinicalActor = await first(
+    'users',
+    'uid, role',
+    "tenant_id = $1::uuid AND role = 'DOCTOR' AND is_active = TRUE AND status = 'active'",
+    [DEFAULT_TENANT_ID],
+  );
+  const operationalActor = await first(
+    'users',
+    'uid, role',
+    `tenant_id = $1::uuid
+     AND role IN ('NURSING_STAFF', 'CARE_COORDINATOR', 'DOCTOR')
+     AND is_active = TRUE AND status = 'active'`,
+    [DEFAULT_TENANT_ID],
+  );
+  const clinicalOwner = clinicalActor?.uid;
+  const operationalOwner = operationalActor?.uid;
+  const approver = await first(
+    'users',
+    'uid, role',
+    `tenant_id = $1::uuid
+     AND role IN ('ADMIN', 'SUPER_ADMIN') AND is_active = TRUE AND status = 'active'`,
+    [DEFAULT_TENANT_ID],
+  );
+  if (!patient?.uid || !clinicalOwner || !operationalOwner || !approver?.uid) {
+    throw new Error('Care-pathway seed graph requires a patient, two staff owners, and an admin approver.');
+  }
+
+  const workflowKey = 'seed_test_care_pathway';
+  const stepKey = 'handoff_request';
+  const rawDefinition = {
+    workflow_key: workflowKey,
+    version: 1,
+    steps: [{
+      step_key: stepKey,
+      step_kind: 'task',
+      display_name: 'Seed neutral handoff request',
+      assigned_role: 'DOCTOR',
+      metadata: { seed: true, source: 'seed-comprehensive-test-data' },
+      work_semantics: {
+        task_kind: 'general',
+        priority: 'normal',
+        title: 'Seed neutral handoff request',
+        description: 'Synthetic local test workflow coverage.',
+        sla_completion_semantics: 'none',
+      },
+    }],
+    triggers: [],
+    defaults: {},
+  };
+  const compiledDefinition = compileWorkflowDefinition(rawDefinition);
+  const evidenceAt = new Date();
+
+  const definition = await client.query(
+    `INSERT INTO workflow_definitions
+       (tenant_id, workflow_key, version, display_name, description, category,
+        steps, triggers, defaults, is_active, created_by)
+     VALUES
+       ($1::uuid, $2::text, 1, 'Seed care pathway coverage',
+        'Synthetic local test-only execution-spine coverage.', 'test_fixture',
+        $3::jsonb, $4::jsonb, $5::jsonb, FALSE, $6::uuid)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      workflowKey,
+      JSON.stringify(compiledDefinition.steps),
+      JSON.stringify(compiledDefinition.triggers),
+      JSON.stringify(compiledDefinition.defaults),
+      operationalOwner,
+    ],
+  );
+  const definitionId = definition.rows[0].id;
+
+  const approval = await client.query(
+    `INSERT INTO approvals
+       (tenant_id, approval_kind, subject_resource_type, subject_resource_id,
+        required_approvers, required_role, status, approved_by, created_by,
+        decided_by, decided_at, metadata)
+     VALUES
+       ($1::uuid, 'care_pathway_definition_governance',
+        'care_pathway_definition', $2::text, 1, 'ADMIN', 'approved',
+        $3::jsonb, $4::uuid, $4::uuid, $5::timestamptz,
+        jsonb_build_object(
+          'care_pathway_definition_governance',
+          jsonb_build_object('definition_checksum', $6::text),
+          'seed', TRUE
+        ))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      String(definitionId),
+      JSON.stringify([{ uid: approver.uid, at: evidenceAt.toISOString() }]),
+      approver.uid,
+      evidenceAt,
+      compiledDefinition.checksum,
+    ],
+  );
+  const approvalId = approval.rows[0].id;
+
+  const governance = await client.query(
+    `INSERT INTO care_pathway_definition_governance
+       (tenant_id, workflow_definition_id, clinical_owner_uid,
+        operational_owner_uid, governance_status, approval_id, approved_by,
+        approved_at, patient_visibility_policy_ref, definition_checksum,
+        platform_gates, metadata)
+     VALUES
+       ($1::uuid, $2::integer, $3::uuid, $4::uuid, 'approved', $5::integer,
+        $6::uuid, $7::timestamptz, 'staff_after_signoff', $8::char(64),
+        '[]'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      definitionId,
+      clinicalOwner,
+      operationalOwner,
+      approvalId,
+      approver.uid,
+      evidenceAt,
+      compiledDefinition.checksum,
+    ],
+  );
+  const governanceId = governance.rows[0].id;
+
+  await client.query(
+    `UPDATE workflow_definitions
+        SET is_active = TRUE, updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND id = $2::integer`,
+    [DEFAULT_TENANT_ID, definitionId],
+  );
+
+  const run = await client.query(
+    `INSERT INTO workflow_runs
+       (tenant_id, workflow_definition_id, workflow_key, workflow_version,
+        trigger_kind, trigger_payload, status, context, initiated_by, metadata,
+        pathway_governance_id, pathway_definition_checksum)
+     VALUES
+       ($1::uuid, $2::integer, $3::text, 1, 'manual',
+        '{"seed":true}'::jsonb, 'started',
+        '{"seed":true,"pathway_mode":"test_only_off"}'::jsonb, $4::uuid,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        $5::uuid, $6::char(64))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      definitionId,
+      workflowKey,
+      operationalOwner,
+      governanceId,
+      compiledDefinition.checksum,
+    ],
+  );
+  const runId = run.rows[0].id;
+
+  const step = await client.query(
+    `INSERT INTO workflow_steps
+       (tenant_id, workflow_run_id, step_key, display_name, step_kind,
+        status, ordering, assigned_to, assigned_role, metadata)
+     VALUES
+       ($1::uuid, $2::integer, $3::text, 'Seed neutral handoff request',
+        'task', 'pending', 0, $4::uuid, 'DOCTOR',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, runId, stepKey, clinicalOwner],
+  );
+  const stepId = step.rows[0].id;
+
+  const task = await client.query(
+    `INSERT INTO tasks
+       (tenant_id, workflow_run_id, workflow_step_id, task_kind, title,
+        description, patient_uid, priority, status, assigned_to_uid,
+        assigned_to_role, created_by, sla_completion_semantics, metadata)
+     VALUES
+       ($1::uuid, $2::integer, $3::integer, 'general',
+        'Seed neutral handoff request',
+        'Synthetic local test-only pathway task.', $4::uuid, 'normal', 'open',
+        $5::uuid, 'DOCTOR', $6::uuid, 'none',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, runId, stepId, patient.uid, clinicalOwner, operationalOwner],
+  );
+  const taskId = task.rows[0].id;
+
+  const idempotencyKey = 'seed-care-pathway-instance-v1';
+  const sourceEpisodeId = 'seed-care-episode-v1';
+  const pathway = await client.query(
+    `INSERT INTO care_pathway_instances
+       (tenant_id, workflow_run_id, patient_uid, pathway_key, pathway_version,
+        source_episode_type, source_episode_id, owning_clinician_uid,
+        accountable_role, clinical_status, patient_visibility_status,
+        idempotency_key, created_by, updated_by, metadata,
+        workflow_definition_id, definition_governance_id, definition_checksum)
+     VALUES
+       ($1::uuid, $2::integer, $3::uuid, $4::text, 1,
+        'test_fixture', $5::text, $6::uuid, 'DOCTOR', 'planned', 'hidden',
+        $7::text, $8::uuid, $8::uuid,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        $9::integer, $10::uuid, $11::char(64))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      runId,
+      patient.uid,
+      workflowKey,
+      sourceEpisodeId,
+      clinicalOwner,
+      idempotencyKey,
+      operationalOwner,
+      definitionId,
+      governanceId,
+      compiledDefinition.checksum,
+    ],
+  );
+  const pathwayId = pathway.rows[0].id;
+  const eventId = (await client.query('SELECT gen_random_uuid() AS id')).rows[0].id;
+  const fingerprint = compiledDefinition.checksum;
+  const previousState = {};
+  const newState = { clinical_status: 'planned', run_status: 'started' };
+  const eventPayload = {
+    event_id: eventId,
+    tenant_id: DEFAULT_TENANT_ID,
+    pathway_instance_id: pathwayId,
+    patient_uid: patient.uid,
+    encounter_id: null,
+    workflow_run_id: runId,
+    workflow_step_id: null,
+    sequence_number: 1,
+    transition_scope: 'pathway',
+    transition_key: 'pathway_instance_created',
+    stage_key: null,
+    source_resource_type: 'test_fixture',
+    source_resource_id: sourceEpisodeId,
+    workflow_sla_instance_id: null,
+    actor_uid: null,
+    system_actor_key: 'seed-comprehensive-test-data.v1',
+    actor_role: null,
+    occurred_at: evidenceAt.toISOString(),
+    idempotency_key: idempotencyKey,
+    command_fingerprint: fingerprint,
+    effect_ordinal: 0,
+    workflow_definition_id: definitionId,
+    governance_id: governanceId,
+    definition_checksum: compiledDefinition.checksum,
+  };
+  const eventMetadata = {
+    seed: true,
+    pathway_runtime: { definition_checksum: compiledDefinition.checksum },
+    command_fingerprint: fingerprint,
+    effect_ordinal: 0,
+    provenance: { kind: 'system', system_key: 'seed-comprehensive-test-data.v1' },
+  };
+
+  const timeline = await client.query(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, event_type, event_status, source_table,
+        source_id, source_uid, resource_type, resource_id, occurred_at,
+        visible_to_patient, clinical_summary, payload, tags, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, 'care_pathway.transition', 'pathway',
+        'care_pathway_transition_events', $3::text, $3::uuid,
+        'care_pathway_transition_event', $3::text, $4::timestamptz, FALSE,
+        'Synthetic care-pathway transition for local test coverage.', $5::jsonb,
+        ARRAY['care_pathway', $6::text, 'pathway', 'seed']::text[],
+        'care_pathway_transition_events:' || $3::text || ':timeline')
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      eventId,
+      evidenceAt,
+      JSON.stringify(eventPayload),
+      workflowKey,
+    ],
+  );
+  const audit = await client.query(
+    `INSERT INTO clinical_audit_events
+       (tenant_id, patient_uid, action, action_status, resource_type,
+        resource_table, resource_id, before_state, after_state, metadata,
+        idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, 'care_pathway.transition', 'success',
+        'care_pathway_transition_event', 'care_pathway_transition_events',
+        $3::text, $4::jsonb, $5::jsonb, $6::jsonb,
+        'care_pathway_transition_events:' || $3::text || ':audit',
+        $7::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      eventId,
+      JSON.stringify(previousState),
+      JSON.stringify(newState),
+      JSON.stringify(eventMetadata),
+      evidenceAt,
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO care_pathway_transition_events
+       (id, tenant_id, pathway_instance_id, patient_uid, workflow_run_id,
+        sequence_number, transition_scope, transition_key, previous_state,
+        new_state, source_resource_type, source_resource_id, system_actor_key,
+        occurred_at, idempotency_key, command_fingerprint, effect_ordinal,
+        canonical_timeline_event_id, canonical_audit_event_id, event_payload,
+        metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::integer, 1, 'pathway',
+        'pathway_instance_created', $6::jsonb, $7::jsonb, 'test_fixture',
+        $8::text, 'seed-comprehensive-test-data.v1', $9::timestamptz,
+        $10::text, $11::char(64), 0, $12::uuid, $13::uuid, $14::jsonb,
+        $15::jsonb)`,
+    [
+      eventId,
+      DEFAULT_TENANT_ID,
+      pathwayId,
+      patient.uid,
+      runId,
+      JSON.stringify(previousState),
+      JSON.stringify(newState),
+      sourceEpisodeId,
+      evidenceAt,
+      idempotencyKey,
+      fingerprint,
+      timeline.rows[0].id,
+      audit.rows[0].id,
+      JSON.stringify(eventPayload),
+      JSON.stringify(eventMetadata),
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO care_handoff_instances
+       (tenant_id, patient_uid, sending_pathway_instance_id,
+        sending_workflow_run_id, sending_step_key, handoff_type,
+        source_resource_type, source_resource_id, urgency_code, sender_uid,
+        recipient_kind, intended_recipient_uid, status, requested_at,
+        task_id, idempotency_key, metadata)
+     VALUES
+        ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::text,
+        'test_only_neutral', 'care_pathway_instance', $3::text, 'routine',
+        $6::uuid, 'user', $7::uuid, 'requested', $8::timestamptz,
+        $9::integer, 'seed-care-handoff-v1',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      pathwayId,
+      runId,
+      stepKey,
+      clinicalOwner,
+      operationalOwner,
+      evidenceAt,
+      taskId,
+    ],
+  );
+
+  await client.query(
+    `UPDATE workflow_definitions
+        SET is_active = FALSE, updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND id = $2::integer`,
+    [DEFAULT_TENANT_ID, definitionId],
+  );
+  await client.query(
+    `UPDATE care_pathway_definition_governance
+        SET governance_status = 'retired',
+            retired_by = $1::uuid,
+            retired_at = $2::timestamptz,
+            retirement_reason = 'Synthetic test-only pathway remains disabled.',
+            effective_until = $2::timestamptz,
+            updated_at = NOW()
+      WHERE tenant_id = $3::uuid AND id = $4::uuid`,
+    [approver.uid, evidenceAt, DEFAULT_TENANT_ID, governanceId],
+  );
+}
+
+async function seedLabIngestCriticalAlertGraph() {
+  const targetTables = [
+    'lab_results',
+    'lab_critical_alerts',
+    'lab_critical_alert_acknowledgement_receipts',
+    'lab_critical_alert_reconciliation_receipts',
+    'lab_oru_ingest_messages',
+    'lab_result_ingest_commands',
+  ];
+  const existingCounts = [];
+  for (const table of targetTables) existingCounts.push(await tableCount(table));
+  if (existingCounts.every(Boolean)) return;
+
+  const patient = await first(
+    'users',
+    'uid, name',
+    "tenant_id = $1::uuid AND role = 'PATIENT' AND is_active = TRUE",
+    [DEFAULT_TENANT_ID],
+  );
+  const labActor = await first(
+    'users',
+    'uid, name, role',
+    `tenant_id = $1::uuid
+     AND role = 'LAB_STAFF' AND is_active = TRUE AND status = 'active'`,
+    [DEFAULT_TENANT_ID],
+  );
+  const doctorActor = await first(
+    'users',
+    'uid, name, role',
+    `tenant_id = $1::uuid
+     AND role = 'DOCTOR' AND is_active = TRUE AND status = 'active'`,
+    [DEFAULT_TENANT_ID],
+  );
+  const investigation = await first(
+    'investigations',
+    'id, patient_uid, test_code, test_name',
+    'tenant_id = $1::uuid AND patient_uid = $2::uuid',
+    [DEFAULT_TENANT_ID, patient?.uid],
+  );
+  if (
+    !labActor?.uid
+    || !doctorActor?.uid
+    || !patient?.uid
+    || !investigation?.id
+    || !investigation.test_code
+  ) {
+    throw new Error(
+      'Lab seed graph requires active lab and doctor actors and a patient-linked investigation.',
+    );
+  }
+
+  let analyzer = await first(
+    'lab_analyzers',
+    'id, analyzer_code',
+    "tenant_id = $1::uuid AND status = 'active'",
+    [DEFAULT_TENANT_ID],
+  );
+  if (!analyzer) {
+    analyzer = (await client.query(
+      `INSERT INTO lab_analyzers
+         (tenant_id, analyzer_code, display_name, manufacturer, model,
+          serial_number, interface_kind, status, metadata, created_by, updated_by)
+       VALUES
+         ($1::uuid, 'SEED-ORU-ANALYZER', 'Seed ORU analyzer',
+          'Seed manufacturer', 'Seed model', 'SEED-ORU-001', 'hl7', 'active',
+          '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+          $2::uuid, $2::uuid)
+       RETURNING id, analyzer_code`,
+      [DEFAULT_TENANT_ID, labActor.uid],
+    )).rows[0];
+  }
+  if (!analyzer?.id || !analyzer.analyzer_code) {
+    throw new Error(
+      'Lab seed graph could not resolve its active analyzer.',
+    );
+  }
+
+  const analyzerCode = analyzer.analyzer_code;
+  const messageControlId = 'SEED-ORU-CRITICAL-1';
+  const rawMessage = [
+    `MSH|^~\\&|${analyzerCode}|VH|VH|VH|20260504100000||ORU^R01|${messageControlId}|P|2.5`,
+    `PID|1||${patient.uid}||Seed^Patient`,
+    `ORC|RE|VHINV-${investigation.id}`,
+    `OBR|1|VHINV-${investigation.id}||${investigation.test_code}^${investigation.test_name || 'Seed test'}`,
+    `OBX|1|NM|${investigation.test_code}^${investigation.test_name || 'Seed test'}||7.1|seed-unit|0.0-5.0|HH|||F`,
+  ].join('\r');
+  const oruClaim = await client.query(
+    `INSERT INTO lab_oru_ingest_messages
+       (tenant_id, trusted_sender_identity, message_control_id, raw_message,
+        obx_count, status, authenticated_actor_uid, authenticated_actor_roles,
+        sender_binding_mode, sender_binding_identity)
+     VALUES
+       ($1::uuid, $2::text, $3::text, $4::text, 1, 'processing', $5::uuid,
+        ARRAY[$6::text]::text[], 'actor_uid', $5::text)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      analyzerCode,
+      messageControlId,
+      rawMessage,
+      labActor.uid,
+      labActor.role,
+    ],
+  );
+
+  const criticalResult = await client.query(
+    `INSERT INTO lab_results
+       (tenant_id, patient_uid, patient_name, investigation_id, analyzer_id,
+        performed_by_lab, hl7_message_id, hl7_segment_index,
+        oru_ingest_message_id, test_code, test_name, value_text, value_numeric,
+        unit, reference_range, abnormal_flag, status, is_critical, raw_obx,
+        received_at, updated_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::text, $4::integer, $5::integer, $6::text,
+        $7::text, 1, $8::bigint, $9::text, $10::text, '7.1', 7.1,
+        'seed-unit', '0.0-5.0', 'HH', 'final', TRUE, $11::text,
+        $12::timestamptz, $12::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      patient.name,
+      investigation.id,
+      analyzer.id,
+      analyzerCode,
+      messageControlId,
+      oruClaim.rows[0].id,
+      investigation.test_code,
+      investigation.test_name || 'Seed test',
+      `OBX|1|NM|${investigation.test_code}||7.1|seed-unit|0.0-5.0|HH|||F`,
+      new Date(),
+    ],
+  );
+  const resultId = criticalResult.rows[0].id;
+  const reservedIds = (await client.query(
+    `SELECT
+       nextval(pg_get_serial_sequence('tasks', 'id'))::integer AS task_id,
+       nextval(pg_get_serial_sequence('lab_critical_alerts', 'id'))::integer AS alert_id`,
+  )).rows[0];
+  const taskId = reservedIds.task_id;
+  const alertId = reservedIds.alert_id;
+  const acknowledgedAt = new Date();
+  const firedAt = new Date(acknowledgedAt.getTime() - 60_000);
+  const dueAt = new Date(firedAt.getTime() + 5 * 60_000);
+
+  const sla = await client.query(
+    `INSERT INTO workflow_sla_instances
+       (tenant_id, rule_code, patient_uid, source_table, source_id, status,
+        priority, started_at, due_at, completed_at, assigned_user_uid, metadata)
+     VALUES
+       ($1::uuid, 'critical_result_ack', $2::uuid, 'lab_result', $3::text,
+        'completed', 'critical', $4::timestamptz, $5::timestamptz,
+        $6::timestamptz, $7::uuid,
+        jsonb_build_object(
+          'completed_via', 'task_ack',
+          'completed_by_task', $8::text,
+          'completed_by', $7::text,
+          'ack_contract_version', 2,
+          'seed', TRUE
+        ))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      String(resultId),
+      firedAt,
+      dueAt,
+      acknowledgedAt,
+      doctorActor.uid,
+      String(taskId),
+    ],
+  );
+  const slaId = sla.rows[0].id;
+  const task = await client.query(
+    `INSERT INTO tasks
+       (id, tenant_id, task_kind, title, description, patient_uid,
+        related_resource_type, related_resource_id, priority, status,
+        assigned_to_uid, assigned_to_role, created_by, due_at,
+        workflow_sla_instance_id, sla_completion_semantics, metadata)
+     VALUES
+       ($1::integer, $2::uuid, 'review', 'Acknowledge seed critical result',
+        'Synthetic terminal critical-result evidence for local tests.',
+        $3::uuid, 'lab_result', $4::text, 'critical', 'in_progress',
+        $5::uuid, $6::text, $5::uuid, $7::timestamptz, $8::uuid,
+        'acknowledgement',
+        jsonb_build_object(
+          'sla_instance_id', $8::text,
+          'sla_key', 'critical_result_ack',
+          'lab_critical_alert_id', $9::text,
+          'lab_alert_generation_state', 'critical',
+          'acknowledged_at', $10::text,
+          'acknowledged_by', $5::text,
+          'acknowledged_via', 'assignee',
+          'ack_contract_version', 2,
+          'seed', TRUE
+        ))
+     RETURNING id`,
+    [
+      taskId,
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      String(resultId),
+      doctorActor.uid,
+      doctorActor.role,
+      dueAt,
+      slaId,
+      String(alertId),
+      acknowledgedAt.toISOString(),
+    ],
+  );
+  if (task.rows[0].id !== taskId) throw new Error('Lab seed task reservation was not preserved.');
+
+  await client.query(
+    `INSERT INTO lab_critical_alerts
+       (id, tenant_id, result_id, patient_uid, test_name, value_text,
+        value_numeric, unit, threshold_breached, threshold_value, fired_at,
+        acknowledged_at, acknowledged_by, acknowledged_by_name,
+        read_back_method, notes, acknowledgement_task_id, generation_metadata)
+     VALUES
+       ($1::integer, $2::uuid, $3::integer, $4::uuid, $5::text, '7.1',
+        7.1, 'seed-unit', 'high', 5.0, $6::timestamptz, $7::timestamptz,
+        $8::uuid, $9::text, 'verbal_readback',
+        'Synthetic local test-only acknowledgement evidence.', $10::integer,
+        jsonb_build_object(
+          'kind', 'initial_result_generation',
+          'acknowledgement_task_id', $10::text,
+          'corrected_state', 'critical',
+          'seed', TRUE
+        ))`,
+    [
+      alertId,
+      DEFAULT_TENANT_ID,
+      resultId,
+      patient.uid,
+      investigation.test_name || 'Seed test',
+      firedAt,
+      acknowledgedAt,
+      doctorActor.uid,
+      doctorActor.name || 'Seed doctor',
+      taskId,
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO task_comments
+       (tenant_id, task_id, author_uid, body, body_kind, metadata, created_at)
+     VALUES
+       ($1::uuid, $2::integer, $3::uuid, 'Seed critical result acknowledged',
+        'state_change',
+        jsonb_build_object(
+          'from', 'open',
+          'to', 'in_progress',
+          'acknowledged_at', $4::text,
+          'via', 'assignee',
+          'ack_contract_version', 2,
+          'seed', TRUE
+        ),
+        $5::timestamptz)`,
+    [DEFAULT_TENANT_ID, taskId, doctorActor.uid, acknowledgedAt.toISOString(), acknowledgedAt],
+  );
+  const acknowledgementPayload = {
+    alert_id: alertId,
+    result_id: resultId,
+    acknowledgement_authorization: 'assignee',
+    read_back_method: 'verbal_readback',
+    ack_contract_version: 2,
+  };
+  await client.query(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, event_type, event_status, source_table,
+        source_id, resource_type, resource_id, actor_uid, actor_role,
+        occurred_at, visible_to_patient, clinical_summary, payload, tags,
+        idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, 'critical_result.acknowledged', 'acknowledged',
+        'lab_critical_alerts', $3::text, 'critical_lab_alert', $3::text,
+        $4::uuid, $5::text, $6::timestamptz, FALSE,
+        'Synthetic critical result acknowledgement for local tests.', $7::jsonb,
+        ARRAY['lab', 'critical', 'seed']::text[],
+        'lab_critical_alerts:' || $3::text || ':acknowledged')`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      String(alertId),
+      doctorActor.uid,
+      doctorActor.role,
+      acknowledgedAt,
+      JSON.stringify(acknowledgementPayload),
+    ],
+  );
+  await client.query(
+    `INSERT INTO clinical_audit_events
+       (tenant_id, patient_uid, action, action_status, actor_uid, actor_role,
+        resource_type, resource_table, resource_id, after_state, metadata,
+        idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, 'critical_result.acknowledged', 'success',
+        $3::uuid, $4::text, 'critical_lab_alert', 'lab_critical_alerts',
+        $5::text, $6::jsonb, '{"ack_contract_version":2,"seed":true}'::jsonb,
+        'lab_critical_alerts:' || $5::text || ':audit:acknowledged',
+        $7::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      doctorActor.uid,
+      doctorActor.role,
+      String(alertId),
+      JSON.stringify({
+        acknowledged_at: acknowledgedAt.toISOString(),
+        acknowledged_by: doctorActor.uid,
+        read_back_method: 'verbal_readback',
+        ack_contract_version: 2,
+      }),
+      acknowledgedAt,
+    ],
+  );
+  await client.query(
+    `SELECT record_lab_critical_alert_acknowledgement_receipt(
+       $1::uuid, $2::integer, $3::integer
+     )`,
+    [DEFAULT_TENANT_ID, alertId, taskId],
+  );
+
+  await client.query(
+    `UPDATE lab_oru_ingest_messages
+        SET status = 'completed',
+            result_ids = ARRAY[$1::integer],
+            critical_result_ids = ARRAY[$1::integer],
+            active_critical_result_ids = '{}'::integer[],
+            closed_critical_result_ids = ARRAY[$1::integer],
+            alert_ids = '{}'::integer[],
+            task_ids = '{}'::integer[],
+            sla_instance_ids = '{}'::uuid[],
+            closed_alert_ids = ARRAY[$2::integer],
+            closed_task_ids = ARRAY[$3::integer],
+            closed_sla_instance_ids = ARRAY[$4::uuid],
+            legacy_adoption = TRUE,
+            completed_at = $5::timestamptz,
+            updated_at = NOW()
+      WHERE tenant_id = $6::uuid AND id = $7::bigint`,
+    [resultId, alertId, taskId, slaId, acknowledgedAt, DEFAULT_TENANT_ID, oruClaim.rows[0].id],
+  );
+
+  const ingestCommand = await client.query(
+    `INSERT INTO lab_result_ingest_commands
+       (tenant_id, actor_uid, command_scope, command_key,
+        request_body_sha256, status)
+     VALUES
+       ($1::uuid, $2::uuid, 'manual_result', 'seed-manual-result-v1',
+        $3::char(64), 'processing')
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, labActor.uid, 'd'.repeat(64)],
+  );
+  const correctedAt = new Date();
+  const correctedResult = await client.query(
+    `INSERT INTO lab_results
+       (tenant_id, patient_uid, patient_name, investigation_id,
+        ingest_command_id, test_code, test_name, value_text, value_numeric,
+        unit, reference_range, abnormal_flag, status, is_critical,
+        performed_by_lab, performed_at, received_at, signed_off_at,
+        signed_off_by, comments, updated_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::text, $4::integer, $5::bigint, $6::text,
+        $7::text, '4.1', 4.1, 'seed-unit', '0.0-5.0', 'N', 'corrected', FALSE,
+        'Manual seed entry', $8::timestamptz, $8::timestamptz,
+        $8::timestamptz, $9::uuid,
+        'Synthetic corrected result with no active critical threshold.',
+        $8::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      patient.name,
+      investigation.id,
+      ingestCommand.rows[0].id,
+      investigation.test_code,
+      investigation.test_name || 'Seed test',
+      correctedAt,
+      doctorActor.uid,
+    ],
+  );
+  const correctedResultId = correctedResult.rows[0].id;
+  await client.query(
+    `UPDATE lab_result_ingest_commands
+        SET status = 'completed',
+            result_ids = ARRAY[$1::integer],
+            response_data = jsonb_build_object(
+              'result_ids', ARRAY[$1::integer],
+              'seed', TRUE
+            ),
+            completed_at = $2::timestamptz,
+            updated_at = NOW()
+      WHERE tenant_id = $3::uuid AND id = $4::bigint`,
+    [correctedResultId, correctedAt, DEFAULT_TENANT_ID, ingestCommand.rows[0].id],
+  );
+  const signoff = await client.query(
+    `INSERT INTO lab_pathologist_signoffs
+       (tenant_id, patient_uid, result_ids, signed_off_by,
+        signed_off_by_name, signed_off_by_reg, decision, comments, signed_at)
+     VALUES
+       ($1::uuid, $2::uuid, ARRAY[$3::integer], $4::uuid, $5::text,
+        'SEED-REG-001', 'corrected',
+        'Synthetic corrected sign-off for reconciliation coverage.',
+        $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      correctedResultId,
+      doctorActor.uid,
+      doctorActor.name || 'Seed doctor',
+      correctedAt,
+    ],
+  );
+  await client.query(
+    `INSERT INTO lab_critical_alert_reconciliation_receipts
+       (tenant_id, result_id, patient_uid, signoff_id, signoff_decision,
+        signoff_signed_at, outcome, source, result_value_text,
+        result_value_numeric, result_unit, evidence)
+     VALUES
+       ($1::uuid, $2::integer, $3::uuid, $4::integer, 'corrected',
+        $5::timestamptz, 'no_active_critical_threshold',
+        'seed-comprehensive-test-data', '4.1', 4.1, 'seed-unit',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)`,
+    [
+      DEFAULT_TENANT_ID,
+      correctedResultId,
+      patient.uid,
+      signoff.rows[0].id,
+      correctedAt,
+    ],
+  );
+}
+
+async function assertNoActiveSyntheticWorkflowDefinitions() {
+  const activeSyntheticDefinitions = await client.query(
+    `SELECT id, workflow_key, version
+       FROM workflow_definitions
+      WHERE is_active = TRUE
+        AND (
+          workflow_key = 'seed_test_care_pathway'
+          OR LEFT(workflow_key, 5) = 'seed_'
+          OR category = 'test_fixture'
+        )
+      ORDER BY id`,
+  );
+  if (activeSyntheticDefinitions.rowCount > 0) {
+    throw new Error(
+      `Refusing to commit active synthetic workflow definitions: ${JSON.stringify(activeSyntheticDefinitions.rows)}`,
+    );
+  }
 }
 
 // Explicit seed for insurance_claim_caps. The auto-seeder in
@@ -2567,6 +3441,8 @@ try {
   await seedCoreData();
   await seedIdentityProviderTables();
   await seedColdChainTables();
+  await seedCarePathwayWorkflowGraph();
+  await seedLabIngestCriticalAlertGraph();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();
@@ -2585,9 +3461,11 @@ try {
   await seedResuscitationTables();
   await seedNicuPicuChartTables();
   await seedMergedMainCoverageTables();
+  await assertNoActiveSyntheticWorkflowDefinitions();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
+  if (summary.emptyAppTables.length > 0 || summary.failed.length > 0) process.exitCode = 1;
 } catch (error) {
   await client.query('ROLLBACK').catch(() => {});
   console.error(error);

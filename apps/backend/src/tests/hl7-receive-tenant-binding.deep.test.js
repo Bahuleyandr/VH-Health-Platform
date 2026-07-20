@@ -8,9 +8,9 @@
 // under one shared HL7_INBOUND_SHARED_SECRET.
 //
 // The fix scopes the resolve + every write under the patient's own tenant via
-// setTenant(tenant, …). This proves an ADT admission and an ORU lab result for
-// a patient in a NON-default tenant are written under THAT tenant (not the
-// default), end-to-end through the real router with a valid HMAC signature.
+// setTenant(tenant, …). This proves ADT remains tenant-bound and that the
+// legacy HMAC-only ORU writer is rejected without creating a partial result;
+// analyzer results must use the authenticated lab-ingest contract.
 //
 // Needs the test Postgres. Self-skips when unconfigured.
 
@@ -112,7 +112,7 @@ d('HL7 /receive tenant binding (C-4)', () => {
     expect(rows[0].tenant_id).toBe(TENANT_B);
   });
 
-  test('ORU^R01 lab result is written under the patient tenant, not the default', async () => {
+  test('ORU^R01 is rejected without a legacy investigation/result write', async () => {
     const controlId = `ORU${Date.now()}`;
     const message = [
       `MSH|^~\\&|LAB|LFAC|VH|VHFAC|20260101130000||ORU^R01|${controlId}|P|2.5`,
@@ -127,15 +127,14 @@ d('HL7 /receive tenant binding (C-4)', () => {
       .send({ message });
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain('MSA|AA');
+    expect(res.text).toContain('MSA|AE');
+    expect(res.text).toContain('Use authenticated lab ORU ingestion');
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT tenant_id::text AS tenant_id, status FROM investigations WHERE patient_uid = $1::uuid`,
       PATIENT_UID,
     );
-    expect(rows.length).toBe(1);
-    expect(rows[0].tenant_id).toBe(TENANT_B);
-    expect(rows[0].status).toBe('COMPLETED');
+    expect(rows).toHaveLength(0);
   });
 
   test('an unknown patient is rejected with an HL7 AE (not written to any tenant)', async () => {

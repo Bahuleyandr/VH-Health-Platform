@@ -34,9 +34,10 @@ export async function getDailyOpsSnapshot({ tenantId } = {}) {
            AND scheduled_date = CURRENT_DATE
            AND LOWER(status) NOT IN ('cancelled')) AS or_cases_today,
        (SELECT COUNT(*)::int
-          FROM lab_critical_alerts
+         FROM lab_critical_alerts
          WHERE tenant_id = $1::uuid
-           AND acknowledged_at IS NULL) AS open_critical_alerts,
+           AND acknowledged_at IS NULL
+           AND superseded_at IS NULL) AS open_critical_alerts,
        (SELECT COALESCE(SUM(amount), 0)
           FROM billing_payments
          WHERE tenant_id = $1::uuid

@@ -4,6 +4,7 @@
 import prisma from '../lib/prisma.js';
 import { upsertApiClient, issueApiKey, revokeApiKey } from '../services/auth/apiClientService.js';
 import validateApiKey from '../middleware/validateApiKey.js';
+import tenantContextMiddleware from '../middleware/tenantContextMiddleware.js';
 
 const TENANT_A = 'a4a4a4a4-a4a4-4a4a-8a4a-a4a4a4a4a401';
 const SFX = String(Date.now() % 100000).padStart(5, '0');
@@ -14,7 +15,11 @@ const ENV_API_KEY = process.env.API_KEY;
 // Drive the middleware with a minimal req/res; resolve on next() or res.json().
 function runMw(headers, ip = '5.5.5.5') {
   return new Promise((resolve, reject) => {
-    const req = { headers, ip };
+    const req = {
+      headers,
+      ip,
+      get(name) { return headers[String(name).toLowerCase()]; },
+    };
     const res = {
       statusCode: 200,
       set() { return this; },
@@ -52,7 +57,22 @@ describe('validateApiKey — per-tenant DB keys + env fallback (WS4)', () => {
     const r = await runMw({ 'x-api-key': plaintext });
     expect(r.code).toBe(200);
     expect(r.req.tenantId).toBe(TENANT_A);
+    expect(r.req.apiClientTenantId).toBe(TENANT_A);
     expect(r.req.apiClient).toBe(clientCode);
+  });
+
+  it('rejects a tenant-A DB key paired with a tenant-B JWT context', async () => {
+    const r = await runMw({ 'x-api-key': plaintext });
+    r.req.user = {
+      uid: 'b4b4b4b4-b4b4-4b4b-8b4b-b4b4b4b4b402',
+      role: 'DOCTOR',
+      tenant_id: 'b4b4b4b4-b4b4-4b4b-8b4b-b4b4b4b4b401',
+    };
+    let nextErr;
+    await tenantContextMiddleware(r.req, {}, (err) => { nextErr = err; });
+    expect(nextErr).toBeDefined();
+    expect(nextErr.statusCode).toBe(403);
+    expect(nextErr.code).toBe('TENANT_API_CLIENT_MISMATCH');
   });
 
   it('falls back to the env API_KEY (shared / default tenant)', async () => {

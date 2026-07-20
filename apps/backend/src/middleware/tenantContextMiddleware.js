@@ -135,6 +135,7 @@ export default async function tenantContextMiddleware(req, _res, next) {
     let tenantId = null;
     let overrideUsed = false;
     let originalTenantBeforeOverride = null;
+    let overrideReason = null;
 
     if (req.user?.tenant_id) {
       tenantId = normalizeUuid(req.user.tenant_id);
@@ -145,8 +146,8 @@ export default async function tenantContextMiddleware(req, _res, next) {
     if (isSuperAdmin(req)) {
       const headerOverride = normalizeUuid(req.get('x-tenant-id'));
       if (headerOverride && headerOverride !== tenantId) {
-        const reason = extractOverrideReason(req);
-        if (reason.length < MIN_OVERRIDE_REASON_LEN) {
+        overrideReason = extractOverrideReason(req);
+        if (overrideReason.length < MIN_OVERRIDE_REASON_LEN) {
           // Reject the override with a structured 400 — the request would
           // otherwise succeed but invisibly. The error code lets the admin
           // UI prompt the operator for a reason and retry. AppError is
@@ -162,14 +163,6 @@ export default async function tenantContextMiddleware(req, _res, next) {
         originalTenantBeforeOverride = tenantId;
         tenantId = headerOverride;
         overrideUsed = true;
-        recordTenantOverride({
-          actorUid: req.user?.uid,
-          originalTenant: originalTenantBeforeOverride,
-          targetTenant: tenantId,
-          reason,
-          requestId: req.id,
-          ip: req.ip,
-        });
       }
     }
 
@@ -192,6 +185,23 @@ export default async function tenantContextMiddleware(req, _res, next) {
     // Single-tenant escape (covers authenticated-miss above and public routes).
     if (!tenantId && allowDefault) {
       tenantId = DEFAULT_TENANT_ID;
+    }
+
+    // A DB-backed API key is tenant-owned authentication evidence. The JWT
+    // tenant resolver runs after validateApiKey and must never silently replace
+    // that tenant with a different one, including through a SUPER_ADMIN
+    // override. Environment-backed compatibility keys have no
+    // apiClientTenantId and are intentionally unaffected.
+    if (req.apiClientTenantId) {
+      const apiClientTenantId = normalizeUuid(req.apiClientTenantId);
+      if (!apiClientTenantId || !tenantId || apiClientTenantId !== tenantId) {
+        return next(
+          AppError.forbidden(
+            'API client and authenticated user belong to different tenants',
+            'TENANT_API_CLIENT_MISMATCH',
+          ),
+        );
+      }
     }
 
     // In fail-closed mode a public / pre-auth route (no req.user) may legitimately
@@ -238,6 +248,20 @@ export default async function tenantContextMiddleware(req, _res, next) {
           );
         }
       }
+    }
+
+    // Record only an override that survived every credential-tenant and tenant
+    // validity check. Writing this before those checks creates false evidence
+    // that a rejected cross-tenant request successfully used an override.
+    if (overrideUsed) {
+      recordTenantOverride({
+        actorUid: req.user?.uid,
+        originalTenant: originalTenantBeforeOverride,
+        targetTenant: tenantId,
+        reason: overrideReason,
+        requestId: req.id,
+        ip: req.ip,
+      });
     }
 
     return next();

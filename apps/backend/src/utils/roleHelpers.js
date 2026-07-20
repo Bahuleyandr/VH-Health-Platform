@@ -159,6 +159,14 @@ export const FINANCE_REVIEW_ROLES = [
 ];
 // Machine-account roles for non-human integrations; never assigned to a human.
 export const MACHINE_ROLES = [ROLES.WEBHOOK_CLIENT, ROLES.DEVICE_GATEWAY];
+export const LAB_INTERFACE_INGEST_ROLES = [
+  ROLES.LAB_STAFF,
+  ROLES.LAB_INCHARGE,
+  ROLES.PATHOLOGIST,
+  ROLES.ADMIN,
+  'SUPER_ADMIN',
+  ...MACHINE_ROLES,
+];
 
 export const ALL_STAFF_ROLES = [
   ...CLINICAL_ROLES,
@@ -228,6 +236,15 @@ export const isLeadership = role => LEADERSHIP_ROLES.includes(role) || role === 
 export const isSupportStaff = role => SUPPORT_ROLES.includes(role);
 export const isPlatformRole = role => PLATFORM_ROLES.includes(role);
 export const isMachineRole = role => MACHINE_ROLES.includes(role);
+export const canIngestLabInterface = role => LAB_INTERFACE_INGEST_ROLES.includes(role);
+
+export function getAuthenticatedActorRoles(user) {
+  const supplied = Array.isArray(user?.roles)
+    ? [...user.roles]
+    : (user?.roles ? [user.roles] : []);
+  if (user?.role) supplied.push(user.role);
+  return [...new Set(supplied.map(normalizeCanonicalRole).filter(Boolean))];
+}
 
 // Specialty-role predicates (Phase F1)
 export const isConsultant = role => role === ROLES.CONSULTANT;

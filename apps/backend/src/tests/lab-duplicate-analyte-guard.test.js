@@ -12,6 +12,7 @@
 // row already exists for the same investigation_id + test_code,
 // forcing the caller into the explicit corrected/re-run workflow.
 
+import { createHash } from 'node:crypto';
 import prisma from '../lib/prisma.js';
 import { recordResultManual } from '../services/lab/labResultsService.js';
 
@@ -20,6 +21,60 @@ const PATIENT_UID = 'f4444444-4444-4444-8444-cccccccc5d40';
 const LAB_TECH_UID = 'f4444444-4444-4444-8444-cccccccc5d41';
 
 let investigationId;
+let commandSequence = 0;
+
+function recordManual(result) {
+  commandSequence += 1;
+  return recordResultManual({
+    tenantId: TENANT,
+    performed_by: LAB_TECH_UID,
+    result,
+    idempotencyKey: `duplicate-analyte-${commandSequence}`,
+    requestBodySha256: createHash('sha256')
+      .update(JSON.stringify(result))
+      .digest('hex'),
+  });
+}
+
+async function cleanupResults() {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid`,
+    TENANT,
+    PATIENT_UID,
+  );
+  const resultIds = rows.map((row) => Number(row.id));
+  if (resultIds.length === 0) return;
+  await prisma.$transaction(async (tx) => {
+    // Successful service calls create immutable ingest commands. Remove only
+    // this fixture's evidence in the disposable superuser test database while
+    // retaining the append-only clinical audit chain.
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_results
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::int[])`,
+      TENANT,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_result_ingest_commands
+        WHERE tenant_id = $1::uuid
+          AND result_ids && $2::int[]`,
+      TENANT,
+      resultIds,
+    );
+  });
+}
 
 async function freshResult({ test_code, status = 'preliminary', value_text }) {
   const rows = await prisma.$queryRawUnsafe(
@@ -34,7 +89,7 @@ async function freshResult({ test_code, status = 'preliminary', value_text }) {
 
 describe('lab result duplicate-analyte guard (a5accf7a)', () => {
   beforeAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await cleanupResults();
     await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, LAB_TECH_UID).catch(() => {});
 
@@ -62,83 +117,68 @@ describe('lab result duplicate-analyte guard (a5accf7a)', () => {
   });
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await cleanupResults();
     await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, LAB_TECH_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
   it('rejects a duplicate HGB submit after the existing row is FINAL (the repro)', async () => {
-    await freshResult({ test_code: 'HGB', status: 'final', value_text: '13.2' });
+    await freshResult({ test_code: 'DUPHGB', status: 'final', value_text: '13.2' });
     await expect(
-      recordResultManual({
-        tenantId: TENANT, performed_by: LAB_TECH_UID,
-        result: {
+      recordManual({
           investigation_id: investigationId, patient_uid: PATIENT_UID,
-          test_code: 'HGB', test_name: 'Hemoglobin', value_text: '12.8',
-        },
+          test_code: 'DUPHGB', test_name: 'Hemoglobin', value_text: '12.8',
       }),
     ).rejects.toMatchObject({
       statusCode: 409,
       code: 'LAB_RESULT_DUPLICATE_ANALYTE',
       details: expect.objectContaining({
         investigation_id: investigationId,
-        test_code: 'HGB',
+        test_code: 'DUPHGB',
         existing_status: 'final',
       }),
     });
   });
 
   it('rejects a duplicate even when caller uses lowercase test_code (case-insensitive match)', async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await freshResult({ test_code: 'WBC', status: 'verified', value_text: '7.5' });
+    await cleanupResults();
+    await freshResult({ test_code: 'DUPWBC', status: 'verified', value_text: '7.5' });
     await expect(
-      recordResultManual({
-        tenantId: TENANT, performed_by: LAB_TECH_UID,
-        result: {
+      recordManual({
           investigation_id: investigationId, patient_uid: PATIENT_UID,
-          test_code: 'wbc', test_name: 'White Cell Count', value_text: '7.4',
-        },
+          test_code: 'dupwbc', test_name: 'White Cell Count', value_text: '7.4',
       }),
     ).rejects.toMatchObject({ statusCode: 409, code: 'LAB_RESULT_DUPLICATE_ANALYTE' });
   });
 
   it('ALLOWS the FIRST result submission for an analyte (no prior row)', async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    const out = await recordResultManual({
-      tenantId: TENANT, performed_by: LAB_TECH_UID,
-      result: {
+    await cleanupResults();
+    const out = await recordManual({
         investigation_id: investigationId, patient_uid: PATIENT_UID,
-        test_code: 'PLT', test_name: 'Platelet Count', value_text: '275',
-      },
+        test_code: 'DUPPLT', test_name: 'Platelet Count', value_text: '275',
     });
     expect(out.result.id).toBeTruthy();
     expect(out.result.status).toBe('preliminary');
   });
 
   it('ALLOWS another submission for a DIFFERENT analyte even when one analyte is already finalised', async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await freshResult({ test_code: 'HGB', status: 'final', value_text: '13.2' });
-    const out = await recordResultManual({
-      tenantId: TENANT, performed_by: LAB_TECH_UID,
-      result: {
+    await cleanupResults();
+    await freshResult({ test_code: 'DUPHGB', status: 'final', value_text: '13.2' });
+    const out = await recordManual({
         investigation_id: investigationId, patient_uid: PATIENT_UID,
-        test_code: 'RBC', test_name: 'RBC Count', value_text: '4.8',
-      },
+        test_code: 'DUPRBC', test_name: 'RBC Count', value_text: '4.8',
     });
     expect(out.result.id).toBeTruthy();
-    expect(out.result.test_code).toBe('RBC');
+    expect(out.result.test_code).toBe('DUPRBC');
   });
 
   it('ALLOWS a re-submission while the only prior row is still PRELIMINARY (no sign-off yet)', async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await freshResult({ test_code: 'HCT', status: 'preliminary', value_text: '40' });
-    const out = await recordResultManual({
-      tenantId: TENANT, performed_by: LAB_TECH_UID,
-      result: {
+    await cleanupResults();
+    await freshResult({ test_code: 'DUPHCT', status: 'preliminary', value_text: '40' });
+    const out = await recordManual({
         investigation_id: investigationId, patient_uid: PATIENT_UID,
-        test_code: 'HCT', test_name: 'Hematocrit', value_text: '41',
-      },
+        test_code: 'DUPHCT', test_name: 'Hematocrit', value_text: '41',
     });
     expect(out.result.id).toBeTruthy();
   });
