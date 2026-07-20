@@ -30,6 +30,14 @@ schema-drift, Prisma, raw-parameter, ESLint, and diff checks. This is not a whol
 
 Final S1b-b full-CI exit evidence (2026-07-20), additive to the focused evidence above: a fresh blank PostgreSQL 18.4 database applied all 568 migrations; unseeded and seeded database contracts each passed 13/13; exhaustive seed coverage left 812/812 application tables non-empty. Two consecutive runs of each readiness audit exited 0 with zero blockers; the care-spine report was ready, while both combined lab/pathway reports explicitly retained `care_pathway_production_activation_ready=false`, as required until S1b-c. The final backend gate passed lint, raw-parameter/PHI/tenant/region/secret checks, dependency audit, Prisma generation and schema drift, OpenAPI drift/core sync, Spectral with zero errors, Docker-backed database guardrails, and all 1,152 Jest files in 144/144 chunks; it exited 0 in 4,698.3 seconds. This blank-database rehearsal is clean-install/full-CI evidence only, not a production-clone rehearsal or production-activation evidence.
 
+Owner-decision synchronization (2026-07-20): D3–D7 are approved in §9. Pending results no longer
+hard-block discharge when the signed summary and named primary-physician ownership are established;
+normal results may auto-close with an audited discretionary re-review path; abnormal non-critical results
+require doctor review and countersignature; referral responsibility transfers only when the named
+receiving doctor explicitly accepts; and surgical `sign_in` is mandatory. These are inputs to S2–S5,
+not claims that
+S1b-b already implements or activates them. Numeric timings and the standing policy list remain unsigned.
+
 Round-2 verdict on v2: **APPROVE WITH CHANGES.** The architecture and vertical delivery strategy hold;
 the round-2 review found four correctness defects (a cursor that can lose events, an under-specified
 runtime, an over-broad task/SLA contract, and a materially wrong Stroke prior-art claim) plus missing
@@ -551,13 +559,20 @@ ordering clinician unavailable · patient transferred/discharged before final re
 
 **Closure rule:** a verified result alone is insufficient for abnormal/critical results.
 - **Critical:** named-clinician acknowledgement + required action + escalation evidence.
-- **Abnormal/noncritical:** policy review + action, or documented "no further action."
-- **Normal:** governance may permit simpler closure after verification and release.
+- **Abnormal/noncritical (D5, owner-approved 2026-07-20):** a named doctor must review and
+  countersign the result and record the structured action/disposition. Release alone never closes it.
+- **Normal (D4, owner-approved 2026-07-20):** a signed/final normal result may close automatically
+  after the approved release predicate. A doctor may reopen it for discretionary re-review through a
+  linked, audited reopen that preserves the original closure evidence.
 - **Addendum/correction:** reopens the action loop — **but define critical↔normal explicitly (C5):** a
   correction that **normalizes** a previously-critical result must not blindly reopen a critical task,
   and a correction that **newly makes** a result critical must open one; correction notifications apply
   the complete patient-visibility predicate.
-- **Pending inpatient result at discharge:** assign a named post-discharge owner (see D3).
+- **Pending inpatient result at discharge (D3, owner-approved 2026-07-20):** the pending result alone
+  does not block discharge. List it in the signed discharge summary, assign the patient's named primary
+  physician before exit, alert that owner when the result becomes available, and surface any unresolved
+  item again at follow-up. Apply the critical loop or D4/D5 disposition after the result is known; follow-up
+  must not be the first alert for an already-available abnormal or critical result.
 
 **Activation prerequisites (C5 — before Diagnostics goes active, not just built):**
 1. **Implemented in S1b-b:** make the safety task/SLA durable in the originating transaction for each
@@ -587,7 +602,7 @@ success · order→recorded-action.
 ### 5.2 Referral — `referral_request_to_closure` (pilot 2)
 
 **Flow:** referral request (clinical question + urgency) → completeness/destination validation →
-receiving team acknowledges → accept / decline-with-reason / re-route → appointment/consult scheduled →
+named receiving doctor acknowledges → accept / decline-with-reason / re-route → appointment/consult scheduled →
 consultation completed → **specialist response + recommendations signed** → **originating owner
 acknowledges** → care plan/orders/follow-up updated → patient receives approved next steps → closed-loop.
 
@@ -599,6 +614,17 @@ expires · external report not returned · originator unavailable · transfer of
 automatically mean closed-loop. Closure requires one of: originator acknowledgement + recorded plan ·
 explicit transfer of continuing ownership to the specialist · documented no-further-action by an
 authorised clinician · patient-declined/lost-to-follow-up with policy-required recovery attempts.
+
+**D6 owner decision (2026-07-20):** a service/role queue may dispatch the request, but it does not
+transfer responsibility. The referring doctor remains accountable until the named receiving doctor
+personally accepts; decline, re-route, silence, or an external send leaves ownership with the originator.
+An audited covering-doctor reassignment may name a different eligible receiver. Acceptance transfers the
+referred clinical question, not the patient's unrelated overall care. The signed specialist response still
+requires originator acknowledgement and plan integration unless the receiving doctor explicitly accepts
+continuing ownership. Duplicate replacement, re-route, external return, and lost-to-follow-up must remain
+explicit and auditable; no status or elapsed time silently transfers or closes responsibility. An exact
+retry returns the existing referral, while an intentional repeat must be a linked replacement/amendment
+with a clinician reason rather than a second independent active ownership loop.
 
 **Product work:** add `acknowledged_by/at` + closure evidence (make `completed` non-terminal-in-practice)
 · a **structured, signed** response (findings/recommendation/urgency-of-action; staff+admin UIs submit
@@ -667,9 +693,12 @@ post-discharge follow-up completed or responsibility transferred.
 admission→discharge→post-discharge as one instance and gives **blockers named owners** (task per
 blocker) · start discharge planning at admission · post-discharge is a policy-defined **contact/outreach**
 stage (a booked follow-up ≠ contact) on notification outbox + mig‑437 dedup · surface the existing 7-day
-readmission link as pathway reopen/linked-episode. **D3 (owner):** pending-results-at-discharge = keep
-today's hard block, or allow discharge with a named post-discharge results owner — the spine supports
-both; policy chooses. (Med-transition reconciliation grounded in WHO
+readmission link as pathway reopen/linked-episode. **D3 owner decision (2026-07-20):** a pending result
+by itself no longer hard-blocks discharge. The signed
+summary lists every pending result, and the patient's named primary physician owns it before exit through
+durable task/ownership evidence. Notify that owner when the result becomes available and re-surface any
+unresolved result at follow-up; all other readiness blockers remain authoritative. (Med-transition
+reconciliation grounded in WHO
 [Medication safety in transitions of care](https://www.who.int/docs/default-source/patient-safety/who-uhc-sds-2019-9-eng.pdf).)
 
 **Metrics:** admission→bed · med-reconciliation completeness · blocker age · discharge order→exit ·
@@ -730,8 +759,10 @@ records · post-op orders + recovery disposition · specimen/pathology ownership
 transfer.
 
 **Product work:** extend the Theatre Board for readiness + recovery · upstream decision/optimisation
-stages over `preop_checklists` + OT-ready gates + a clearance record (none today) · **D7 (owner):** gate
-`sign_in` like time_out/sign_out (recordable-only today), with an audited emergency/break-glass path ·
+stages over `preop_checklists` + OT-ready gates + a clearance record (none today) · **D7 owner decision
+(2026-07-20):** make `sign_in` a mandatory gate before anaesthesia/procedure, rather than
+recordable-only; any emergency exception requires the separately approved, capability-gated and audited
+break-glass policy ·
 theatre `completed` triggers specimen→**AP accession** handoff (replacing the free-JSON dead end) +
 post-op follow-up auto-create (`origin_kind='ot_case'`) · pathology-result acknowledgement rides the
 Diagnostics loop · complication/reoperation branches link back to the same instance · WHO checklist +
@@ -775,7 +806,8 @@ the existing 574 collision remains and neither prefix may ever be reused.
   authoritative while `automation_rules` stays dormant; Stroke/STEMI retain their domain authority
   with Stroke hardening separate; OBGyn follows rails-first integration. Name the
   clinical + operational owner per pilot pathway and sign the pilot pathways' closure semantics +
-  patient-visibility. **D3–D7 gate their respective clinical slices.** No engineering-invented timings.
+  patient-visibility. **D3–D7 were owner-approved on 2026-07-20 as recorded in §9; their implementations
+  and the standing policy list still gate their respective clinical slices.** No engineering-invented timings.
 - **S1a — Lossless event-consumer substrate (shadow).** The §3.3 one-live-generation registration and
   lock-fenced handoff, commit-coupled `AFTER INSERT` fanout, persistent bounded cutoff backfill and per-event inbox ledger + a
   **no-op** registered-handler projector (records handled/ignored, creates no instances/tasks/
@@ -800,7 +832,8 @@ the existing 574 collision remains and neither prefix may ever be reused.
     approval-checksum evidence, immutable run/instance/creation-event/replay pins, and governance-row-
     existence classification. The non-rolling cutover and readiness inventory cover 580–584; 584 may
     not be omitted from a pending 582/583 tail. No S1b-b migration, definition, handler, external-policy
-    resolver, recipient rule, clock, threshold or test encodes D3–D7.
+    resolver, recipient rule, clock, threshold or test encodes D3–D7; the 2026-07-20 owner decisions are
+    inputs to the later pathway slices, not a retroactive claim that S1b-b implemented them.
   - **S1b-c — reconciliation and activation evidence:** registered per-pathway/per-rule checks, breach
     reconciliation, evidence-versioned sweep rows/metrics and recovery tooling; an absent check registry
     is an error and can never produce clean activation evidence.
@@ -859,30 +892,31 @@ rules; backend CI is now sharded (static-checks + 3× shard jobs).
 
 ---
 
-## 9. Decisions required before activation (with recommendations)
+## 9. Owner decisions and remaining activation policy
 
-Recommendations are engineering recommendations; each needs the named owner/governance sign-off. No
-clinical values/thresholds are inferred by engineering.
+D1–D9 are now owner-resolved as recorded below. Resolution authorises the stated product semantics; it
+does not claim implementation, approve a timing/threshold, or clear the remaining standing policy list.
+No clinical values/thresholds are inferred by engineering.
 
-| # | Decision | Recommendation | Gates |
+| # | Decision | Owner decision / adopted direction | Gates |
 |---|---|---|---|
 | D1 | Projector source | **Adopted for S1a:** `event_outbox` + registered-generation inbox ledger; reject a scalar live cursor | Resolved for S1a |
 | D2 | `automation_rules` fate | **Owner-approved 2026-07-18:** leave dormant and non-authoritative; registered handlers only | Resolved; S1b may proceed |
-| D3 | Pending results at discharge | Keep today's **hard block** as default; named-owner discharge only as a governed override (accepted ownership + task/SLA + reason/audit + unsafe-result exclusions) | S4 |
-| D4 | Normal-result auto-closure | Allow **conditionally** (signed/final, no critical/abnormal/addendum/repeat flag, approved release policy); patient viewing ≠ clinician ack | S2 |
-| D5 | Abnormal-noncritical action | Require named clinician review + structured disposition (incl. documented no-further-action); do not close solely on release | S2 |
-| D6 | Referral ack/transfer | Require originator acknowledgement unless ownership is explicitly accepted; signed structured response; define absence/re-route/external-return/lost-to-follow-up | S3 |
-| D7 | Surgical `sign_in` | Gate before anaesthesia, with an audited break-glass path; checklist + roles owner-defined | S5 |
+| D3 | Pending results at discharge | **Owner-approved 2026-07-20:** allow discharge; list pending results in the signed summary; establish the named primary physician's durable ownership before exit; alert that owner when a result becomes available and re-surface unresolved work at follow-up. The result then follows the critical loop or D4/D5. | Resolved policy; S4 implementation + owner-routing/notification evidence |
+| D4 | Normal-result auto-closure | **Owner-approved 2026-07-20:** a signed/final normal result may auto-close under the approved release predicate; a doctor may reopen it for discretionary re-review through a linked audited event that preserves prior closure. | Resolved policy; S2 implementation + reopen evidence |
+| D5 | Abnormal-noncritical action | **Owner-approved 2026-07-20:** require named-doctor review, countersignature and a structured action/disposition; never close from release alone. | Resolved policy; S2 implementation |
+| D6 | Referral ack/transfer | **Owner-approved 2026-07-20:** the named receiving doctor must explicitly accept/decline/re-route. The originator remains accountable until acceptance; role dispatch, silence or elapsed time never transfers ownership. Final response requires originator acknowledgement/plan integration unless the receiver explicitly accepts continuing ownership; covering transfer and exceptional branches are explicit/audited. Exact retries return the existing referral; intentional repeats are linked replacements/amendments with a clinician reason. | Resolved policy; S3 implementation + remaining timings/recipient rules |
+| D7 | Surgical `sign_in` | **Owner-approved 2026-07-20:** mandatory gate before anaesthesia/procedure; any emergency exception requires a separately approved audited break-glass policy. | Resolved policy; S5 implementation + checklist/roles/break-glass policy |
 | D8 | Stroke/STEMI | **Owner-approved 2026-07-18:** preserve domain-clock authority in v1; STEMI unchanged; Stroke integrity hardening is a separate scoped workstream; do **not** treat their schemas as equivalent | Resolved for coexistence; separate Stroke hardening remains required |
 | D9 | OBGyn sequencing | **Owner-approved 2026-07-18:** rails-first; one shared reminder/SLA/handoff contract; OBGyn consumes it; ANC/immunisation remain gated on rail conformance + signed OBGyn semantics | Resolved for sequencing; OBGyn clinical semantics remain separately gated |
 
 Standing owner list (unresolved, no engineering defaults): SLA targets + business-hours + escalation
 recipients per pathway; patient/guardian visibility + notification policy; meaning of patient
 "acknowledged" vs delivered/opened; external-provider communication method; manual override/break-glass
-policy; backfill scope (rec: active episodes only); retention; duplicate-referral hard-block vs warn;
+policy; backfill scope (rec: active episodes only); retention;
 LWBS/against-advice recovery policy; post-discharge contact policy; family updates during ED/Surgery;
 tenant customisation surface; clinical definition-approval authority; OP recovery/transfer definition;
-inpatient post-discharge contact policy; pending-result transfer ownership.
+inpatient post-discharge contact policy.
 
 ---
 
