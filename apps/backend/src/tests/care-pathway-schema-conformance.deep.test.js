@@ -163,6 +163,18 @@ async function captureFailure(promise) {
   }
 }
 
+function expectOppositeFenceContention(outcomes) {
+  const failures = outcomes.filter((outcome) => outcome !== null);
+  // The first aborted transaction may release its xact fence before the peer
+  // reaches PostgreSQL, so one peer may legitimately become the winner.
+  expect(failures.length).toBeGreaterThanOrEqual(1);
+  for (const failure of failures) {
+    expect(failure).toMatchObject({ code: '40001' });
+    expect(failure.code).not.toBe('40P01');
+    expect(failure.message).toContain('serialization fence is busy');
+  }
+}
+
 async function seedTenant(client) {
   const tenantId = randomUUID();
   await client.query(
@@ -3774,11 +3786,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
         captureFailure(seedRun(leftWriter, tenantId, rightDefinition)),
         captureFailure(seedRun(rightWriter, tenantId, leftDefinition)),
       ]);
-      for (const failure of failures) {
-        expect(failure).toMatchObject({ code: '40001' });
-        expect(failure.code).not.toBe('40P01');
-        expect(failure.message).toContain('serialization fence is busy');
-      }
+      expectOppositeFenceContention(failures);
     } finally {
       await Promise.all([
         setup.query('ROLLBACK').catch(() => {}),
@@ -3836,11 +3844,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
         captureFailure(publishFixtureGovernance(leftPublisher, rightFixture)),
         captureFailure(publishFixtureGovernance(rightPublisher, leftFixture)),
       ]);
-      for (const failure of failures) {
-        expect(failure).toMatchObject({ code: '40001' });
-        expect(failure.code).not.toBe('40P01');
-        expect(failure.message).toContain('serialization fence is busy');
-      }
+      expectOppositeFenceContention(failures);
     } finally {
       await Promise.all([
         setup.query('ROLLBACK').catch(() => {}),
