@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import {
+  getClinicalAccountabilityRoleCodes,
+  getRolePolicy,
   getRolePolicyRoleCodes,
   getStaffRosterRoleCodes,
 } from '../../config/rolePolicyGraph.js';
@@ -17,6 +19,56 @@ describe('routeRolePolicy', () => {
         expect(knownRoles.has(role)).toBe(true);
       }
     }
+  });
+
+  it('keeps named pathway clinicians canonical and gives care pathways a dedicated route audience', () => {
+    const clinicalRoles = getClinicalAccountabilityRoleCodes();
+    const nonClinicalRoles = getRolePolicy().roles
+      .filter((role) => role.group !== 'clinical')
+      .map((role) => role.role_code);
+
+    expect(routePolicy.PATHWAY_NAMED_CLINICIAN_ROLES).toEqual(clinicalRoles);
+    expect(routePolicy.PATHWAY_NAMED_CLINICIAN_ROLES).toHaveLength(32);
+    expect(routePolicy.PATHWAY_NAMED_CLINICIAN_ROLES).toEqual(expect.arrayContaining([
+      'DOCTOR',
+      'DUTY_DOCTOR',
+      'NURSING_STAFF',
+      'RADIOLOGIST',
+      'PATHOLOGIST',
+      'PHYSIOTHERAPIST',
+      'COUNSELLOR',
+    ]));
+    for (const role of nonClinicalRoles) {
+      expect(routePolicy.PATHWAY_NAMED_CLINICIAN_ROLES).not.toContain(role);
+    }
+    const dedicatedClinicalAudiences = [
+      routePolicy.CARE_PATHWAY_ROUTE_ROLES,
+      routePolicy.CLINICAL_INBOX_ROUTE_ROLES,
+    ];
+    const expectedAudience = [
+      ...new Set([
+        ...routePolicy.CLINICAL_STAFF_ROUTE_ROLES,
+        ...routePolicy.PATHWAY_NAMED_CLINICIAN_ROLES,
+      ]),
+    ];
+    for (const audience of dedicatedClinicalAudiences) {
+      expect(audience).toEqual(expectedAudience);
+      expect(audience).toEqual(expect.arrayContaining(clinicalRoles));
+      expect(audience).toEqual(expect.arrayContaining(routePolicy.CLINICAL_STAFF_ROUTE_ROLES));
+    }
+    expect(routePolicy.CLINICAL_STAFF_ROUTE_ROLES).toContain('MEDICAL_RECORDS');
+    expect(routePolicy.CLINICAL_STAFF_ROUTE_ROLES).not.toContain('RADIOLOGIST');
+    expect(routePolicy.CLINICAL_STAFF_ROUTE_ROLES).not.toContain('PATHOLOGIST');
+    expect(routePolicy.CLINICAL_STAFF_ROUTE_ROLES).not.toContain('PHYSIOTHERAPIST');
+    expect(routePolicy.CLINICAL_STAFF_ROUTE_ROLES).not.toContain('COUNSELLOR');
+
+    const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/app.js'), 'utf8');
+    expect(appSource).toMatch(
+      /app\.use\('\/api\/v1\/clinical-inbox', requireRole\(\.\.\.CLINICAL_INBOX_ROUTE_ROLES\)/,
+    );
+    expect(appSource).toMatch(
+      /app\.use\('\/api\/v1\/care-pathways', requireRole\(\.\.\.CARE_PATHWAY_ROUTE_ROLES\)/,
+    );
   });
 
   it('keeps OP flow separate from generic IP nursing work', () => {

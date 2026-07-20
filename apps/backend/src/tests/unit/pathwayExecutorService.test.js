@@ -12,6 +12,12 @@ const ACTOR_UID = '33333333-3333-4333-8333-333333333333';
 const OTHER_ACTOR_UID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const INSTANCE_ID = '44444444-4444-4444-8444-444444444444';
 const CHILD_ID = '55555555-5555-4555-8555-555555555555';
+const INVALID_NAMED_OWNER_INPUTS = Object.freeze([
+  ['empty', ''],
+  ['whitespace-only', '   '],
+  ['malformed', 'not-a-uuid'],
+  ['non-string', 42],
+]);
 const TX = Object.freeze({ $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() });
 
 const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(TX));
@@ -348,8 +354,133 @@ function completedDomainEvidence(provenance) {
   };
 }
 
+const REPLAY_BRANCHES = Object.freeze(['start', 'command', 'registered_evidence']);
+
+function replayEventsForBranch(branch, snapshot, provenance) {
+  const metadata = {
+    pathway_runtime: { mode: 'shadow', result_snapshot: snapshot },
+  };
+  if (branch !== 'registered_evidence') return [{ metadata }];
+  return [{
+    metadata,
+    transition_scope: 'task',
+    transition_key: 'domain_evidence_task_completed',
+    workflow_step_id: 100,
+    event_payload: {
+      task_id: 701,
+      workflow_sla_instance_id: '99999999-9999-4999-8999-999999999999',
+      evidence: {
+        kind: 'pathway_registered_condition',
+        handler_id: 'synthetic.condition.v1',
+        decision: 'satisfied',
+        provenance,
+      },
+    },
+  }, {
+    metadata: {},
+    transition_scope: 'step',
+    transition_key: 'step_completed',
+    workflow_step_id: 100,
+    event_payload: {
+      decision: 'task_completed',
+      evidence: { domain_evidence_satisfied: true, task_id: 701 },
+    },
+  }];
+}
+
+async function invokeOwnedReplay({
+  branch,
+  currentOwnerUid = ACTOR_UID,
+  ownerAvailable = true,
+  actorKind = 'user',
+}) {
+  const registry = registryFor();
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_owned_replay',
+    steps: [{
+      step_key: 'review',
+      step_kind: 'task',
+      assigned_role: 'NURSING_STAFF',
+      work_semantics: {
+        task_kind: 'review',
+        priority: 'normal',
+        sla_completion_semantics: 'none',
+      },
+    }],
+  }, registry, { status: branch === 'registered_evidence' ? 'running' : 'started' });
+  runtime.instance.owning_clinician_uid = currentOwnerUid;
+  const actor = actorKind === 'system'
+    ? createRegisteredWorkflowSystemActor({
+      registry,
+      systemKey: 'synthetic.projector.v1',
+      sourceEventId: '8801',
+      causationId: 'outbox:8801',
+      signalContext: sealedSignalContext(),
+    })
+    : userActor();
+  const snapshot = {
+    ...runtime.instance,
+    steps: runtime.steps,
+    tasks: runtime.tasks,
+    approvals: runtime.approvals,
+    handoffs: runtime.handoffs,
+  };
+  const provenance = actorKind === 'system'
+    ? { actor_kind: 'system', system_key: 'synthetic.projector.v1', source_event_id: '8801' }
+    : { actor_kind: 'user', actor_uid: ACTOR_UID };
+  const events = replayEventsForBranch(branch, snapshot, provenance);
+  findReplayMock.mockResolvedValueOnce({
+    replayed: true,
+    events,
+    pathwayInstance: runtime.instance,
+  });
+  if (currentOwnerUid) {
+    TX.$queryRawUnsafe.mockResolvedValueOnce(ownerAvailable
+      ? [{ uid: currentOwnerUid, role: 'DOCTOR' }]
+      : []);
+  }
+
+  if (branch === 'start') {
+    findInstanceByKeyMock.mockResolvedValueOnce(runtime.instance);
+    return startCarePathwayInstance({
+      tenantId: TENANT,
+      workflowDefinitionId: 11,
+      patientUid: PATIENT,
+      pathwayKey: 'synthetic_owned_replay',
+      sourceEpisodeType: actorKind === 'system' ? 'investigation_order' : 'patient',
+      sourceEpisodeId: actorKind === 'system' ? 'order-8801' : PATIENT,
+      owningClinicianUid: ACTOR_UID,
+      accountableRole: 'NURSING_STAFF',
+      triggerKind: actorKind === 'system' ? 'event' : 'manual',
+      idempotencyKey: 'owned_replay_start_1',
+      actor,
+      registry,
+    });
+  }
+  if (branch === 'command') {
+    return executePathwayCommand(command({
+      registry,
+      actor,
+      idempotencyKey: 'owned_replay_command_1',
+    }));
+  }
+  return completePathwayTaskAndExecuteFromRegisteredEvidence({
+    ...command({
+      registry,
+      actor,
+      idempotencyKey: 'owned_replay_evidence_1',
+    }),
+    taskId: 701,
+    workflowRunId: 77,
+    workflowStepId: 100,
+    conditionHandler: 'synthetic.condition.v1',
+    evidence: { verified: true },
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  TX.$queryRawUnsafe.mockResolvedValue([{ uid: ACTOR_UID, role: 'NURSING_STAFF' }]);
   TX.$executeRawUnsafe.mockResolvedValue(0);
   resolveModeMock.mockResolvedValue('shadow');
   findActiveEpisodeMock.mockResolvedValue(null);
@@ -362,6 +493,63 @@ beforeEach(() => {
   preflightSlaRulesMock.mockResolvedValue([]);
   getTransitionLedgerStateMock.mockResolvedValue({ eventCount: 0, maxSequence: 0 });
 });
+
+it.each(REPLAY_BRANCHES)(
+  'rejects %s replay when the current named owner is no longer eligible',
+  async (branch) => {
+    await expect(invokeOwnedReplay({
+      branch,
+      ownerAvailable: false,
+    })).rejects.toMatchObject({ code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE' });
+    expect(assertReplayPinMock).not.toHaveBeenCalled();
+    expect(resolveModeMock).not.toHaveBeenCalled();
+    expect(lockRuntimeMock).not.toHaveBeenCalled();
+    expect(completeEvidenceMock).not.toHaveBeenCalled();
+    expect(createTaskMock).not.toHaveBeenCalled();
+  },
+);
+
+it.each(REPLAY_BRANCHES)(
+  'rejects %s replay by the former actor after current ownership changed',
+  async (branch) => {
+    await expect(invokeOwnedReplay({
+      branch,
+      currentOwnerUid: OTHER_ACTOR_UID,
+    })).rejects.toMatchObject({ code: 'PATHWAY_SIGNAL_NOT_OWNED' });
+    expect(TX.$queryRawUnsafe.mock.calls[0][2]).toBe(OTHER_ACTOR_UID);
+    expect(assertReplayPinMock).not.toHaveBeenCalled();
+    expect(resolveModeMock).not.toHaveBeenCalled();
+    expect(lockRuntimeMock).not.toHaveBeenCalled();
+    expect(completeEvidenceMock).not.toHaveBeenCalled();
+  },
+);
+
+it.each(REPLAY_BRANCHES)(
+  'allows %s replay for the current eligible named owner without running effects',
+  async (branch) => {
+    await expect(invokeOwnedReplay({ branch })).resolves.toMatchObject({ replayed: true });
+    expect(assertReplayPinMock).toHaveBeenCalledTimes(1);
+    expect(resolveModeMock).not.toHaveBeenCalled();
+    expect(lockRuntimeMock).not.toHaveBeenCalled();
+    expect(completeEvidenceMock).not.toHaveBeenCalled();
+    expect(createTaskMock).not.toHaveBeenCalled();
+  },
+);
+
+it.each(REPLAY_BRANCHES)(
+  'allows sealed system %s replay after current named-owner eligibility is verified',
+  async (branch) => {
+    await expect(invokeOwnedReplay({
+      branch,
+      actorKind: 'system',
+    })).resolves.toMatchObject({ replayed: true });
+    expect(assertReplayPinMock).toHaveBeenCalledTimes(1);
+    expect(resolveModeMock).not.toHaveBeenCalled();
+    expect(lockRuntimeMock).not.toHaveBeenCalled();
+    expect(completeEvidenceMock).not.toHaveBeenCalled();
+    expect(createTaskMock).not.toHaveBeenCalled();
+  },
+);
 
 it('fails closed for production active mode but accepts an identity-sealed test capability', async () => {
   const registry = registryFor();
@@ -688,6 +876,8 @@ it('derives a human task deadline only from its linked SLA and verifies the exac
   }));
   expect(startWorkflowSlaMock).toHaveBeenCalledWith(
     expect.objectContaining({
+      assignedRoleCodes: [],
+      assignedUserUid: ACTOR_UID,
       metadata: expect.objectContaining({
         task_materialization_contract: 'application_atomic_v1',
       }),
@@ -695,10 +885,136 @@ it('derives a human task deadline only from its linked SLA and verifies the exac
     { db: TX },
   );
   expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+    assignedToUid: ACTOR_UID,
+    assignedToRole: null,
     workflowSlaInstanceId: '99999999-9999-4999-8999-999999999999',
   }));
   expect(createTaskMock.mock.calls[0][0]).not.toHaveProperty('dueAt');
   expect(runtime.tasks[0].due_at).toBe('2026-07-19T07:00:00.000Z');
+});
+
+it('uses role-only routing for an unnamed pathway owner across the task and SLA', async () => {
+  const registry = registryFor();
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_role_queue',
+    steps: [{
+      step_key: 'acknowledge',
+      step_kind: 'task',
+      assigned_role: 'NURSING_STAFF',
+      work_semantics: {
+        task_kind: 'review',
+        priority: 'high',
+        sla_completion_semantics: 'acknowledgement',
+        sla_rule_code: 'synthetic_acknowledgement',
+      },
+    }],
+  }, registry);
+  runtime.instance.owning_clinician_uid = null;
+  installRuntimeMocks();
+  resolveModeMock.mockResolvedValue('active');
+  startWorkflowSlaMock.mockResolvedValue({
+    id: '99999999-9999-4999-8999-999999999999',
+    due_at: '2026-07-19T07:00:00.000Z',
+  });
+  createTaskMock.mockImplementationOnce(async (input) => ({
+    id: 701,
+    workflow_run_id: input.workflowRunId,
+    workflow_step_id: input.workflowStepId,
+    workflow_sla_instance_id: input.workflowSlaInstanceId,
+    sla_completion_semantics: input.slaCompletionSemantics,
+    assigned_to_uid: input.assignedToUid,
+    assigned_to_role: input.assignedToRole,
+    status: 'open',
+    due_at: '2026-07-19T07:00:00.000Z',
+  }));
+
+  await executePathwayCommand(command({
+    registry,
+    activationEvidenceCapability: createPathwayActivationEvidenceCapabilityForTests(),
+  }));
+
+  expect(startWorkflowSlaMock).toHaveBeenCalledWith(expect.objectContaining({
+    assignedRoleCodes: ['NURSING_STAFF'],
+    assignedUserUid: null,
+  }), { db: TX });
+  expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+    assignedToUid: null,
+    assignedToRole: 'NURSING_STAFF',
+  }));
+});
+
+it('does not let a matching role mask a named pathway owner', async () => {
+  const registry = registryFor();
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_named_owner',
+    steps: [{
+      step_key: 'review',
+      step_kind: 'task',
+      assigned_role: 'ADMIN',
+      work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
+    }],
+  }, registry);
+  installRuntimeMocks();
+
+  await expect(executePathwayCommand(command({
+    registry,
+    actor: { ...userActor(), uid: OTHER_ACTOR_UID },
+  }))).rejects.toMatchObject({ code: 'PATHWAY_SIGNAL_NOT_OWNED' });
+  expect(transitionRunMock).not.toHaveBeenCalled();
+  expect(createTaskMock).not.toHaveBeenCalled();
+});
+
+it('revalidates a named owner before materializing the next human stage', async () => {
+  const registry = registryFor();
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_unavailable_owner',
+    steps: [{
+      step_key: 'review',
+      step_kind: 'task',
+      assigned_role: 'ADMIN',
+      work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
+    }],
+  }, registry);
+  installRuntimeMocks();
+  resolveModeMock.mockResolvedValue('active');
+  TX.$queryRawUnsafe
+    .mockResolvedValueOnce([{ uid: ACTOR_UID, role: 'NURSING_STAFF' }])
+    .mockResolvedValueOnce([]);
+
+  await expect(executePathwayCommand(command({
+    registry,
+    activationEvidenceCapability: createPathwayActivationEvidenceCapabilityForTests(),
+  }))).rejects.toMatchObject({ code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE' });
+  expect(startWorkflowSlaMock).not.toHaveBeenCalled();
+  expect(createTaskMock).not.toHaveBeenCalled();
+});
+
+it('rejects a stale named-owner command before executing a non-human stage', async () => {
+  const evaluate = jest.fn(async () => ({ decision: 'satisfied', evidence: [] }));
+  const registry = registryFor({
+    condition: {
+      stepKinds: ['wait'],
+      decisionCodes: ['blocked', 'satisfied'],
+      evaluate,
+    },
+  });
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_stale_named_owner',
+    steps: [{
+      step_key: 'wait_for_evidence',
+      step_kind: 'wait',
+      assigned_role: 'ADMIN',
+      condition_handler: 'synthetic.condition.v1',
+    }],
+  }, registry, { status: 'running' });
+  installRuntimeMocks();
+  TX.$queryRawUnsafe.mockResolvedValueOnce([]);
+
+  await expect(executePathwayCommand(command({ registry }))).rejects.toMatchObject({
+    code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+  });
+  expect(evaluate).not.toHaveBeenCalled();
+  expect(transitionStepMock).not.toHaveBeenCalled();
 });
 
 it('rolls back when a materialized task deadline differs from its linked SLA', async () => {
@@ -1412,6 +1728,7 @@ it('namespaces idempotency by actor class, user, operation and business target',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
+  runtime.instance.owning_clinician_uid = null;
   installRuntimeMocks();
   const rawKey = 'caller-visible-retry-key';
   const otherUser = {
@@ -1695,6 +2012,40 @@ it('keeps system start episode identity independent from sealed event lineage', 
   }));
 });
 
+it.each(INVALID_NAMED_OWNER_INPUTS)(
+  'rejects a supplied %s named owner before registered-system start fallback',
+  async (_label, owningClinicianUid) => {
+    const registry = registryFor();
+    const actor = createRegisteredWorkflowSystemActor({
+      registry,
+      systemKey: 'synthetic.projector.v1',
+      sourceEventId: '502',
+      causationId: 'outbox:502',
+      signalContext: sealedSignalContext(),
+    });
+
+    await expect(startCarePathwayInstance({
+      tenantId: TENANT,
+      workflowDefinitionId: 11,
+      patientUid: PATIENT,
+      pathwayKey: 'synthetic_invalid_system_owner',
+      sourceEpisodeType: 'investigation_order',
+      sourceEpisodeId: 'order-45',
+      owningClinicianUid,
+      accountableRole: 'NURSING_STAFF',
+      triggerKind: 'event',
+      idempotencyKey: 'system_invalid_owner_1',
+      actor,
+      registry,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+    expect(acquireStartLocksMock).not.toHaveBeenCalled();
+    expect(assertPatientContextMock).not.toHaveBeenCalled();
+  },
+);
+
 it('enforces canonical user start source and rejects unregistered parent links', async () => {
   const registry = registryFor();
   const base = {
@@ -1734,7 +2085,35 @@ it('enforces canonical user start source and rejects unregistered parent links',
   expect(findInstanceByKeyMock).not.toHaveBeenCalled();
 });
 
-it('derives manual ownership and accountability only from authenticated user context', async () => {
+it.each(INVALID_NAMED_OWNER_INPUTS)(
+  'rejects a supplied %s named owner before manual caller ownership fallback',
+  async (_label, owningClinicianUid) => {
+    const registry = registryFor();
+    await expect(startCarePathwayInstance({
+      tenantId: TENANT,
+      workflowDefinitionId: 11,
+      patientUid: PATIENT,
+      pathwayKey: 'synthetic_invalid_manual_owner',
+      sourceEpisodeType: 'patient',
+      sourceEpisodeId: PATIENT,
+      owningClinicianUid,
+      accountableRole: 'NURSING_STAFF',
+      idempotencyKey: 'manual_invalid_owner_1',
+      actor: userActor(),
+      registry,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+    expect(acquireStartLocksMock).not.toHaveBeenCalled();
+    expect(assertPatientContextMock).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  ['explicit null', null],
+  ['route-shaped omitted undefined', undefined],
+])('derives manual ownership for %s from authenticated user context', async (_label, ownerInput) => {
   const registry = registryFor();
   const definition = makeDefinition({
     workflow_key: 'synthetic_derived_manual_owner',
@@ -1766,6 +2145,7 @@ it('derives manual ownership and accountability only from authenticated user con
     pathwayKey: 'synthetic_derived_manual_owner',
     sourceEpisodeType: 'patient',
     sourceEpisodeId: PATIENT,
+    owningClinicianUid: ownerInput,
     idempotencyKey: 'derived_manual_owner_1',
     actor: userActor(),
     registry,
@@ -2475,6 +2855,48 @@ it('lets a registered child fan-out inherit parent authorization for a different
     accountableRole: 'CONSULTANT',
   }));
 });
+
+it.each(INVALID_NAMED_OWNER_INPUTS)(
+  'rejects a supplied %s named owner before trusted-child ownership fallback',
+  async (_label, owningClinicianUid) => {
+    const fanout = jest.fn(async () => [{
+      workflowDefinitionId: 22,
+      pathwayKey: 'synthetic_child',
+      sourceEpisodeType: 'synthetic_child_episode',
+      sourceEpisodeId: 'child-invalid-owner',
+      owningClinicianUid,
+      accountableRole: 'NURSING_STAFF',
+    }]);
+    const registry = registryFor({ fanout: { stepKinds: ['subworkflow'], resolve: fanout } });
+    runtime = makeRuntime({
+      workflow_key: 'synthetic_invalid_child_owner',
+      steps: [{
+        step_key: 'launch',
+        step_kind: 'subworkflow',
+        assigned_role: 'NURSING_STAFF',
+        child_rules: [{
+          rule_key: 'invalid_named_child',
+          fanout_handler: 'synthetic.child.v1',
+          child_pathway_key: 'synthetic_child',
+          relationship: 'informational',
+        }],
+      }],
+    }, registry);
+    installRuntimeMocks();
+    resolveModeMock.mockResolvedValue('active');
+
+    await expect(executePathwayCommand(command({
+      registry,
+      activationEvidenceCapability: createPathwayActivationEvidenceCapabilityForTests(),
+    }))).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+    expect(fanout).toHaveBeenCalledTimes(1);
+    expect(acquireStartLocksMock).not.toHaveBeenCalled();
+    expect(insertRuntimeMock).not.toHaveBeenCalled();
+  },
+);
 
 it('allows exactly 512 compiled child workflow steps in one sealed parent command budget', async () => {
   const childInputs = [21, 22, 23, 24].map((workflowDefinitionId, index) => ({

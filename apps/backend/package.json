@@ -62,6 +62,7 @@
     "scheduler:run-now": "node -e \"import('./src/utils/scheduler.js').then(m => m.runAllScheduledTasksNow())\"",
     "lab:reconcile-critical-alert-generations": "node scripts/reconcile-lab-critical-alert-generations.mjs",
     "lab:audit-care-pathway-spine-readiness": "node scripts/audit-care-pathway-spine-readiness.mjs",
+    "care-pathways:audit-owner-routing-readiness": "node scripts/audit-care-pathway-owner-routing-readiness.mjs",
     "lab:audit-ingest-582-584-readiness": "node scripts/audit-lab-oru-replay-readiness.mjs",
     "generate-admin-token": "node src/scripts/development/generateAdminToken.js",
     "convert-to-relative": "node src/scripts/development/convert-aliases-to-relative.js",

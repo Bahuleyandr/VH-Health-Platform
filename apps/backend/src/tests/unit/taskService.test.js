@@ -120,6 +120,32 @@ describe('createTask', () => {
     expect(row.status).toBe('open');
   });
 
+  it('rejects ambiguous user-and-role assignment before querying', async () => {
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Ambiguous owner',
+      assignedToUid: USER,
+      assignedToRole: 'DOCTOR',
+    })).rejects.toMatchObject({ statusCode: 400, code: 'TASK_ASSIGNMENT_AMBIGUOUS' });
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps unassigned generic tasks legal', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 2, status: 'open' }]);
+
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Unassigned administrative follow-up',
+      assignedToUid: null,
+      assignedToRole: null,
+    })).resolves.toMatchObject({ id: 2 });
+
+    const params = queryUnsafeMock.mock.calls[0].slice(1);
+    expect(params[12]).toBeNull();
+    expect(params[13]).toBeNull();
+  });
+
   it('uses the supplied tx client instead of the default prisma', async () => {
     const txQuery = jest.fn().mockResolvedValueOnce([{ id: 9, status: 'open' }]);
     const tx = { $queryRawUnsafe: txQuery };
@@ -789,7 +815,7 @@ describe('acknowledgeTask authorization', () => {
         id: 1,
         status: 'open',
         assigned_to_uid: USER,
-        assigned_to_role: 'DOCTOR',
+        assigned_to_role: null,
         ...ACK_RESOURCE,
         workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }])
@@ -798,7 +824,7 @@ describe('acknowledgeTask authorization', () => {
         id: 1,
         status: 'open',
         assigned_to_uid: OTHER,
-        assigned_to_role: 'DOCTOR',
+        assigned_to_role: null,
         ...ACK_RESOURCE,
         workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }]);
@@ -823,7 +849,7 @@ describe('acknowledgeTask authorization', () => {
         id: 1,
         status: 'open',
         assigned_to_uid: USER,
-        assigned_to_role: 'DOCTOR',
+        assigned_to_role: null,
         metadata: {},
       }])
       .mockResolvedValueOnce([])
@@ -831,7 +857,7 @@ describe('acknowledgeTask authorization', () => {
         id: 1,
         status: 'overdue',
         assigned_to_uid: OTHER,
-        assigned_to_role: 'DOCTOR',
+        assigned_to_role: null,
         metadata: {},
       }])
       .mockResolvedValueOnce([{ id: 1, status: 'in_progress', metadata: {} }])
@@ -864,14 +890,67 @@ describe('acknowledgeTask authorization', () => {
     expect(row.status).toBe('in_progress');
   });
 
-  it('allows a holder of the assigned role even when the assignee uid differs', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: OTHER, assigned_to_role: 'DUTY_DOCTOR', metadata: {} }]);
+  it('allows a holder of the assigned role when there is no named assignee', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: null, assigned_to_role: 'DUTY_DOCTOR', metadata: {} }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 6 }]);
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['DUTY_DOCTOR'] });
     expect(row.status).toBe('in_progress');
     expect(queryUnsafeMock.mock.calls[1].slice(1)[2]).toBe('role');
     expect(queryUnsafeMock.mock.calls[1].slice(1)[4]).toBe('DUTY_DOCTOR');
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(
+      /'role'[\s\S]+assigned_to_uid IS NULL[\s\S]+assigned_to_role/i,
+    );
+  });
+
+  it('does not let a matching role mask a named assignee on a corrupt dual-assigned row', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'open',
+      assigned_to_uid: OTHER,
+      assigned_to_role: 'DUTY_DOCTOR',
+      metadata: {},
+    }]);
+
+    await expect(acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['DUTY_DOCTOR'],
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('denies stale role authority when a named assignee appears before the guarded update', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: null,
+        assigned_to_role: 'DUTY_DOCTOR',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: OTHER,
+        assigned_to_role: 'DUTY_DOCTOR',
+        metadata: {},
+      }]);
+
+    await expect(acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['DUTY_DOCTOR'],
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(
+      /'role'[\s\S]+assigned_to_uid IS NULL[\s\S]+assigned_to_role/i,
+    );
   });
 
   it('allows an ADMIN task-administrator on any task', async () => {
@@ -1163,6 +1242,10 @@ describe('acknowledgeTask authorization', () => {
     expect(resolveAckAuthorization({ assigned_to_uid: USER }, { actorUid: USER }).mode).toBe('assignee');
     expect(resolveAckAuthorization({ assigned_to_role: 'DOCTOR' }, { actorUid: OTHER, actorRoles: ['DOCTOR'] }).mode).toBe('role');
     expect(resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: ['SUPER_ADMIN'] }).mode).toBe('admin');
+    expect(() => resolveAckAuthorization(
+      { assigned_to_uid: OTHER, assigned_to_role: 'DOCTOR' },
+      { actorUid: USER, actorRoles: ['DOCTOR'] },
+    )).toThrow(/Not authorized/);
     expect(() => resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: [], overrideReason: 'why' }))
       .toThrow(/Not authorized/);
     expect(() => resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: ['NURSING_STAFF'] }))
@@ -1178,7 +1261,7 @@ describe('acknowledgeColdChainTaskFromTrustedWorkflow', () => {
       .mockResolvedValueOnce([{
         id: 55,
         status: 'open',
-        assigned_to_uid: OTHER,
+        assigned_to_uid: null,
         assigned_to_role: 'PHARMACY_STAFF',
         related_resource_type: 'cold_chain_excursions',
         related_resource_id: '7',
@@ -1294,6 +1377,7 @@ describe('listInboxTasks', () => {
     // me OR my role
     expect(sql).toMatch(/assigned_to_uid = /);
     expect(sql).toMatch(/assigned_to_role/);
+    expect(sql).toMatch(/assigned_to_uid IS NULL AND assigned_to_role = ANY/);
     // inbox status set
     expect(sql).toMatch(/'open', 'in_progress', 'overdue'/);
     // ordering
@@ -2162,15 +2246,60 @@ describe('completePathwayTaskFromRegisteredEvidence', () => {
 });
 
 describe('reassignTask + listTasks + postTaskComment', () => {
-  it('reassignTask with both uid + role updates both', async () => {
+  it('rejects an empty reassignment instead of silently clearing both owners', async () => {
+    await expect(reassignTask({
+      tenantId: TENANT,
+      id: 1,
+    })).rejects.toMatchObject({ statusCode: 400, code: 'TASK_ASSIGNMENT_REQUIRED' });
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects reassigning to both a user and a role before reading the task', async () => {
+    await expect(reassignTask({
+      tenantId: TENANT,
+      id: 1,
+      assignedToUid: USER,
+      assignedToRole: 'NURSING_STAFF',
+    })).rejects.toMatchObject({ statusCode: 400, code: 'TASK_ASSIGNMENT_AMBIGUOUS' });
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+  });
+
+  it('reassigning to a named user clears any role assignment', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
-    await reassignTask({
-      tenantId: TENANT, id: 1, assignedToUid: USER, assignedToRole: 'NURSING_STAFF',
-    });
+    await reassignTask({ tenantId: TENANT, id: 1, assignedToUid: USER });
     const sql = queryUnsafeMock.mock.calls[1][0];
     expect(sql).toMatch(/assigned_to_uid = \$\d::uuid/);
     expect(sql).toMatch(/assigned_to_role = \$\d/);
+    expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([USER, null]);
+  });
+
+  it('reassigning to a role queue clears any named user assignment', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+    await reassignTask({ tenantId: TENANT, id: 1, assignedToRole: 'NURSING_STAFF' });
+    const sql = queryUnsafeMock.mock.calls[1][0];
+    expect(sql).toMatch(/assigned_to_uid = \$1::uuid/);
+    expect(sql).toMatch(/assigned_to_role = \$2/);
+    expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([null, 'NURSING_STAFF']);
+  });
+
+  it('allows a generic task to be explicitly unassigned', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, assigned_to_uid: null, assigned_to_role: null }]);
+
+    await reassignTask({
+      tenantId: TENANT,
+      id: 1,
+      assignedToUid: null,
+      assignedToRole: null,
+    });
+
+    expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([null, null]);
   });
 
   it('listTasks orders by priority then due_at', async () => {

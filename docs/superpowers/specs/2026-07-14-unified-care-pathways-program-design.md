@@ -37,7 +37,9 @@ require doctor review and countersignature; referral responsibility transfers on
 receiving doctor explicitly accepts; surgical `sign_in` is mandatory; and a named clinician is an
 exclusive, active, route-capable owner rather than a role-queue hint. These are inputs to S1b-c and S2–S5,
 not claims that
-S1b-b already implements or activates them. Numeric timings and the standing policy list remain unsigned.
+S1b-b already implements or activates them. D10's exclusive-routing prerequisite is the bounded,
+stacked S1b-c1 sub-slice; accepted covering-clinician reassignment and pathway-specific owner-source
+resolution remain S2–S4 work. Numeric timings and the standing policy list remain unsigned.
 
 Round-2 verdict on v2: **APPROVE WITH CHANGES.** The architecture and vertical delivery strategy hold;
 the round-2 review found four correctness defects (a cursor that can lose events, an under-specified
@@ -835,6 +837,17 @@ the existing 574 collision remains and neither prefix may ever be reused.
     not be omitted from a pending 582/583 tail. No S1b-b migration, definition, handler, external-policy
     resolver, recipient rule, clock, threshold or test encodes D3–D7; the 2026-07-20 owner decisions are
     inputs to the later pathway slices, not a retroactive claim that S1b-b implemented them.
+  - **S1b-c1 — exclusive owner routing (stacked prerequisite, not all of S1b-c):** migration 585 and
+    runtime/readiness enforcement make pathway-linked and recognized typed-human ownership
+    exclusive; a named pathway owner must use the separately governed clinical-accountability policy,
+    while a role queue is legal only when no individual is named. An unavailable named owner never
+    silently falls back. The dedicated care-pathway and clinical-inbox mounts union the legacy staff
+    audience with every canonical `group === 'clinical'` named-owner role, while generic clinical mounts
+    remain unchanged. Existing-instance PHI access requires the exact tenant+instance+patient+active
+    current-clinical owner relationship and records `care_pathway_owner` audit evidence; start/body data
+    cannot establish that access. This sub-slice does not classify every arbitrary generic task and adds
+    no transfer endpoint: broader generic clinical-task policy, explicit audited covering-clinician
+    acceptance and pathway-specific source resolution remain prerequisites.
   - **S1b-c — reconciliation and activation evidence:** registered per-pathway/per-rule checks, breach
     reconciliation, evidence-versioned sweep rows/metrics and recovery tooling; an absent check registry
     is an error and can never produce clean activation evidence.
@@ -910,7 +923,7 @@ No clinical values/thresholds are inferred by engineering.
 | D7 | Surgical `sign_in` | **Owner-approved 2026-07-20:** mandatory gate before anaesthesia/procedure; any emergency exception requires a separately approved audited break-glass policy. | Resolved policy; S5 implementation + checklist/roles/break-glass policy |
 | D8 | Stroke/STEMI | **Owner-approved 2026-07-18:** preserve domain-clock authority in v1; STEMI unchanged; Stroke integrity hardening is a separate scoped workstream; do **not** treat their schemas as equivalent | Resolved for coexistence; separate Stroke hardening remains required |
 | D9 | OBGyn sequencing | **Owner-approved 2026-07-18:** rails-first; one shared reminder/SLA/handoff contract; OBGyn consumes it; ANC/immunisation remain gated on rail conformance + signed OBGyn semantics | Resolved for sequencing; OBGyn clinical semantics remain separately gated |
-| D10 | Named-clinician ownership and fallback | **Owner-approved 2026-07-21:** when a pathway or task names an individual clinician, that owner must be an active same-tenant route-capable clinician and the assignment is exclusive—no simultaneous role fallback may mask an unavailable person. A role queue is allowed only when no individual has been named. Responsibility changes only after an eligible covering clinician explicitly accepts an audited reassignment; it never transfers automatically because the named owner is unavailable. Source defaults remain pathway-specific: the recorded primary/attending physician for pending inpatient results, the ordering physician for diagnostics, and the referring physician until the named referral receiver accepts. | Resolved policy; S1b-c exclusive-owner enforcement + S2–S4 routing/reassignment evidence |
+| D10 | Named-clinician ownership and fallback | **Owner-approved 2026-07-21:** when a pathway or task names an individual clinician, that owner must be an active same-tenant route-capable clinician and the assignment is exclusive—no simultaneous role fallback may mask an unavailable person. A role queue is allowed only when no individual has been named. Responsibility changes only after an eligible covering clinician explicitly accepts an audited reassignment; it never transfers automatically because the named owner is unavailable. Source defaults remain pathway-specific: the recorded primary/attending physician for pending inpatient results, the ordering physician for diagnostics, and the referring physician until the named referral receiver accepts. | Resolved policy; S1b-c1 scoped pathway/typed-human integrity + dedicated-route/exact-owner PHI/audit evidence + broader generic-clinical-task classification + S2–S4 accepted reassignment/source-routing evidence |
 
 Standing owner list (unresolved, no engineering defaults): SLA targets + business-hours + escalation
 recipients per pathway; patient/guardian visibility + notification policy; meaning of patient

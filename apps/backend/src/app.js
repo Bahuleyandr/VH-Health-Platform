@@ -68,8 +68,10 @@ import {
   BLOOD_BANK_ROUTE_ROLES,
   BURN_ROUTE_ROLES,
   CATH_LAB_ROUTE_ROLES,
+  CARE_PATHWAY_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
   CLINICAL_ASSESSMENT_ROUTE_ROLES,
+  CLINICAL_INBOX_ROUTE_ROLES,
   CLINICAL_STAFF_ROUTE_ROLES,
   COMPLIANCE_ROUTE_ROLES,
   CONSENT_ROUTE_ROLES,
@@ -950,14 +952,15 @@ app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_R
 app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_ENCOUNTER', { careTeamModeGoverned: true }), phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
 
 // Results-inbox safety net (design §4.5) — the per-clinician inbox + acknowledge
-// surface, gated to CLINICAL_STAFF so a doctor/nurse can see and acknowledge
-// their assigned critical-result tasks. This mounts a DEDICATED minimal router
+// surface, gated to its dedicated clinical audience so every canonical named
+// clinician can see and acknowledge their assigned critical-result tasks. This
+// mounts a DEDICATED minimal router
 // (GET /tasks/inbox + POST /tasks/:id/acknowledge only) — NOT the full admin
 // tasks/workflow router — so clinicians cannot read arbitrary tasks by id
 // (cross-patient PHI) or mutate/disable escalation rules. The full task surface
 // stays ADMIN-only at /api/v1/admin/workflow.
-app.use('/api/v1/clinical-inbox', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalInboxRoutes);
-app.use('/api/v1/care-pathways', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CARE_PATHWAY'), carePathwayRoutes);
+app.use('/api/v1/clinical-inbox', requireRole(...CLINICAL_INBOX_ROUTE_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalInboxRoutes);
+app.use('/api/v1/care-pathways', requireRole(...CARE_PATHWAY_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CARE_PATHWAY'), carePathwayRoutes);
 app.use('/api/v1/burns', requireRole(...BURN_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('BURN_CHART', { careTeamModeGoverned: true }), phiAccessLogger('BURN_CHART'), burnRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at

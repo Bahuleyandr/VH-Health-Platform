@@ -14,7 +14,10 @@ import {
   WORKFLOW_RUNTIME_LIMITS,
 } from '../workflow/workflowDefinitionCompiler.js';
 import { assertWorkflowJsonBudget } from '../workflow/workflowJsonGuard.js';
-import { isPathwayHumanOwnerRole } from '../workflow/workflowHumanOwnerService.js';
+import {
+  isPathwayHumanOwnerRole,
+  resolvePathwayTaskOwnerTx,
+} from '../workflow/workflowHumanOwnerService.js';
 import {
   isRegisteredWorkflowSystemActor,
   isWorkflowRuntimeRegistry,
@@ -108,6 +111,21 @@ function requireUuid(value, label) {
 function optionalUuid(value, label) {
   if (value === null || value === undefined || value === '') return null;
   return requireUuid(value, label);
+}
+
+function normalizeNamedPathwayOwnerUid(input) {
+  if (!Object.prototype.hasOwnProperty.call(input, 'owningClinicianUid')) return null;
+  if (input.owningClinicianUid === null || input.owningClinicianUid === undefined) return null;
+  const value = typeof input.owningClinicianUid === 'string'
+    ? input.owningClinicianUid.trim()
+    : '';
+  if (!UUID_RE.test(value)) {
+    throw AppError.conflict(
+      'Named pathway owner is unavailable or not route-capable',
+      'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    );
+  }
+  return value.toLowerCase();
 }
 
 function requirePositiveInteger(value, label) {
@@ -619,8 +637,29 @@ function assertStartOwnership(input, actor) {
   );
 }
 
-function assertCommandOwnership(runtime, compiled, actor) {
-  if (actor.kind === 'system') return;
+async function assertCurrentInstanceOwnerTx(tx, tenantId, instance, actor) {
+  const namedOwnerUid = String(instance?.owning_clinician_uid || '').toLowerCase();
+  if (!namedOwnerUid) return false;
+  const owner = await resolvePathwayTaskOwnerTx({
+    tx,
+    tenantId,
+    requestedUid: namedOwnerUid,
+  });
+  if (actor.kind === 'system' || actor.uid === owner.assignedToUid) return true;
+  throw AppError.forbidden(
+    'Actor is not authorized for the current pathway stage',
+    'PATHWAY_SIGNAL_NOT_OWNED',
+  );
+}
+
+async function assertCommandOwnership(tx, tenantId, runtime, compiled, actor) {
+  const namedOwner = await assertCurrentInstanceOwnerTx(
+    tx,
+    tenantId,
+    runtime.instance,
+    actor,
+  );
+  if (namedOwner || actor.kind === 'system') return;
   const current = runtime.steps.find((step) => step.step_key === runtime.run.current_step_key)
     || runtime.steps[0]
     || null;
@@ -638,8 +677,7 @@ function assertCommandOwnership(runtime, compiled, actor) {
     ...currentApprovals.map((approval) => approval.required_role),
   ];
   if (
-    actor.uid === String(runtime.instance.owning_clinician_uid || '').toLowerCase()
-    || currentTasks.some((task) => String(task.assigned_to_uid || '').toLowerCase() === actor.uid)
+    currentTasks.some((task) => String(task.assigned_to_uid || '').toLowerCase() === actor.uid)
     || hasAnyRole(actor, roles)
   ) return;
   throw AppError.forbidden(
@@ -782,7 +820,7 @@ function normalizeStartInput(input, registry) {
       );
     }
   }
-  let owningClinicianUid = optionalUuid(input.owningClinicianUid, 'owning_clinician_uid');
+  let owningClinicianUid = normalizeNamedPathwayOwnerUid(input);
   let owningTeamId = optionalPositiveInteger(input.owningTeamId, 'owning_team_id');
   let accountableRole = optionalText(input.accountableRole, 'accountable_role', 80)?.toUpperCase()
     || null;
@@ -1089,7 +1127,7 @@ function childrenForStep(runtime, step) {
   });
 }
 
-async function startStageSla({ tx, tenantId, runtime, step, semantics }) {
+async function startStageSla({ tx, tenantId, runtime, step, semantics, owner }) {
   if (semantics.sla_completion_semantics === 'none') return null;
   const sla = await startWorkflowSla({
     tenantId,
@@ -1099,8 +1137,8 @@ async function startStageSla({ tx, tenantId, runtime, step, semantics }) {
     sourceTable: 'workflow_steps',
     sourceId: String(step.id),
     priority: semantics.priority,
-    assignedRoleCodes: [step.assigned_role || runtime.instance.accountable_role].filter(Boolean),
-    assignedUserUid: runtime.instance.owning_clinician_uid,
+    assignedRoleCodes: owner.assignedToRole ? [owner.assignedToRole] : [],
+    assignedUserUid: owner.assignedToUid,
     metadata: {
       care_pathway_instance_id: runtime.instance.id,
       workflow_run_id: runtime.run.id,
@@ -1121,12 +1159,19 @@ async function startStageSla({ tx, tenantId, runtime, step, semantics }) {
 
 async function materializeTask({ ctx, step, compiledStep, semantics, materializationSuffix = 'task' }) {
   const stageOccurrenceKey = `${ctx.runtime.instance.id}:${step.step_key}:${materializationSuffix}`;
+  const owner = await resolvePathwayTaskOwnerTx({
+    tx: ctx.tx,
+    tenantId: ctx.tenantId,
+    requestedUid: ctx.runtime.instance.owning_clinician_uid,
+    fallbackRole: step.assigned_role || ctx.runtime.instance.accountable_role,
+  });
   const sla = await startStageSla({
     tx: ctx.tx,
     tenantId: ctx.tenantId,
     runtime: ctx.runtime,
     step,
     semantics,
+    owner,
   });
   if (sla && !ctx.runtime.slas.some((candidate) => String(candidate.id) === String(sla.id))) {
     ctx.runtime.slas.push(sla);
@@ -1142,8 +1187,8 @@ async function materializeTask({ ctx, step, compiledStep, semantics, materializa
     relatedResourceType: 'care_pathway_instance',
     relatedResourceId: ctx.runtime.instance.id,
     priority: semantics.priority,
-    assignedToUid: ctx.runtime.instance.owning_clinician_uid,
-    assignedToRole: step.assigned_role || ctx.runtime.instance.accountable_role,
+    assignedToUid: owner.assignedToUid,
+    assignedToRole: owner.assignedToRole,
     createdBy: actorUid(ctx.actor),
     workflowSlaInstanceId: sla?.id || null,
     slaCompletionSemantics: semantics.sla_completion_semantics,
@@ -2216,6 +2261,12 @@ export async function startCarePathwayInstance(input = {}) {
           'PATHWAY_START_EVIDENCE_MISSING',
         );
       }
+      await assertCurrentInstanceOwnerTx(
+        tx,
+        normalized.tenantId,
+        existing,
+        normalized.actor,
+      );
       await assertPathwayReplayDefinitionPinTx({
         tx,
         tenantId: normalized.tenantId,
@@ -2395,6 +2446,12 @@ async function executePathwayCommandInternal(
       lockInstance: true,
     });
     if (replay.replayed) {
+      await assertCurrentInstanceOwnerTx(
+        tx,
+        normalized.tenantId,
+        replay.pathwayInstance,
+        normalized.actor,
+      );
       await assertPathwayReplayDefinitionPinTx({
         tx,
         tenantId: normalized.tenantId,
@@ -2430,7 +2487,7 @@ async function executePathwayCommandInternal(
     }
     const compiled = compilePinnedDefinition(runtime.definition, registry);
     assertRuntimeGraph(runtime, compiled);
-    assertCommandOwnership(runtime, compiled, normalized.actor);
+    await assertCommandOwnership(tx, normalized.tenantId, runtime, compiled, normalized.actor);
     const recorder = createRecorder({
       tx,
       tenantId: normalized.tenantId,
@@ -2632,6 +2689,12 @@ export async function completePathwayTaskAndExecuteFromRegisteredEvidence(input 
       lockInstance: true,
     });
     if (replay.replayed) {
+      await assertCurrentInstanceOwnerTx(
+        tx,
+        commandEnvelope.tenantId,
+        replay.pathwayInstance,
+        commandEnvelope.actor,
+      );
       await assertPathwayReplayDefinitionPinTx({
         tx,
         tenantId: commandEnvelope.tenantId,
@@ -2669,7 +2732,13 @@ export async function completePathwayTaskAndExecuteFromRegisteredEvidence(input 
     }
     const compiled = compilePinnedDefinition(runtime.definition, registry);
     assertRuntimeGraph(runtime, compiled);
-    assertCommandOwnership(runtime, compiled, commandEnvelope.actor);
+    await assertCommandOwnership(
+      tx,
+      commandEnvelope.tenantId,
+      runtime,
+      compiled,
+      commandEnvelope.actor,
+    );
     const targetTask = runtime.tasks.find(
       (task) => Number(task.id) === commandOperation.task_id,
     );
