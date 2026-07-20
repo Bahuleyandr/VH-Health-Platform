@@ -30,11 +30,12 @@ schema-drift, Prisma, raw-parameter, ESLint, and diff checks. This is not a whol
 
 Final S1b-b full-CI exit evidence (2026-07-20), additive to the focused evidence above: a fresh blank PostgreSQL 18.4 database applied all 568 migrations; unseeded and seeded database contracts each passed 13/13; exhaustive seed coverage left 812/812 application tables non-empty. Two consecutive runs of each readiness audit exited 0 with zero blockers; the care-spine report was ready, while both combined lab/pathway reports explicitly retained `care_pathway_production_activation_ready=false`, as required until S1b-c. The final backend gate passed lint, raw-parameter/PHI/tenant/region/secret checks, dependency audit, Prisma generation and schema drift, OpenAPI drift/core sync, Spectral with zero errors, Docker-backed database guardrails, and all 1,152 Jest files in 144/144 chunks; it exited 0 in 4,698.3 seconds. This blank-database rehearsal is clean-install/full-CI evidence only, not a production-clone rehearsal or production-activation evidence.
 
-Owner-decision synchronization (2026-07-20): D3–D7 are approved in §9. Pending results no longer
+Owner-decision synchronization (2026-07-21): D3–D7 and D10 are approved in §9. Pending results no longer
 hard-block discharge when the signed summary and named primary-physician ownership are established;
 normal results may auto-close with an audited discretionary re-review path; abnormal non-critical results
 require doctor review and countersignature; referral responsibility transfers only when the named
-receiving doctor explicitly accepts; and surgical `sign_in` is mandatory. These are inputs to S2–S5,
+receiving doctor explicitly accepts; surgical `sign_in` is mandatory; and a named clinician is an
+exclusive, active, route-capable owner rather than a role-queue hint. These are inputs to S1b-c and S2–S5,
 not claims that
 S1b-b already implements or activates them. Numeric timings and the standing policy list remain unsigned.
 
@@ -894,7 +895,7 @@ rules; backend CI is now sharded (static-checks + 3× shard jobs).
 
 ## 9. Owner decisions and remaining activation policy
 
-D1–D9 are now owner-resolved as recorded below. Resolution authorises the stated product semantics; it
+D1–D10 are now owner-resolved as recorded below. Resolution authorises the stated product semantics; it
 does not claim implementation, approve a timing/threshold, or clear the remaining standing policy list.
 No clinical values/thresholds are inferred by engineering.
 
@@ -909,6 +910,7 @@ No clinical values/thresholds are inferred by engineering.
 | D7 | Surgical `sign_in` | **Owner-approved 2026-07-20:** mandatory gate before anaesthesia/procedure; any emergency exception requires a separately approved audited break-glass policy. | Resolved policy; S5 implementation + checklist/roles/break-glass policy |
 | D8 | Stroke/STEMI | **Owner-approved 2026-07-18:** preserve domain-clock authority in v1; STEMI unchanged; Stroke integrity hardening is a separate scoped workstream; do **not** treat their schemas as equivalent | Resolved for coexistence; separate Stroke hardening remains required |
 | D9 | OBGyn sequencing | **Owner-approved 2026-07-18:** rails-first; one shared reminder/SLA/handoff contract; OBGyn consumes it; ANC/immunisation remain gated on rail conformance + signed OBGyn semantics | Resolved for sequencing; OBGyn clinical semantics remain separately gated |
+| D10 | Named-clinician ownership and fallback | **Owner-approved 2026-07-21:** when a pathway or task names an individual clinician, that owner must be an active same-tenant route-capable clinician and the assignment is exclusive—no simultaneous role fallback may mask an unavailable person. A role queue is allowed only when no individual has been named. Responsibility changes only after an eligible covering clinician explicitly accepts an audited reassignment; it never transfers automatically because the named owner is unavailable. Source defaults remain pathway-specific: the recorded primary/attending physician for pending inpatient results, the ordering physician for diagnostics, and the referring physician until the named referral receiver accepts. | Resolved policy; S1b-c exclusive-owner enforcement + S2–S4 routing/reassignment evidence |
 
 Standing owner list (unresolved, no engineering defaults): SLA targets + business-hours + escalation
 recipients per pathway; patient/guardian visibility + notification policy; meaning of patient
