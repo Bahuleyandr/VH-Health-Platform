@@ -15,6 +15,30 @@ This document is the **self-contained implementation baseline**: it no longer de
 content to an unavailable chat draft. Full pathway flows, branches, closure rules, product work,
 metrics, the origin→child matrix and the acceptance matrix are inlined below (§5–§8, §12).
 
+S1b-b synchronization note (2026-07-19): the frozen migration identities are 580
+`A41495FC511BD5238FE548E9185A1461715B47AA54607C7F42FF8AD79EDAA979`, 581
+`43AFB83D57E50E738540ADDCC02875C35826884B3D9D4D7B31BBAEBB77B61CB4`, 582
+`F0CEA6E6EA63F9CF5932ACBD99EE9508A2E838D3715D09B969AED99E3A0E41F0`, and 583
+`7D1ABE4238FA95D4BAFBEA9E86052DF8C53CA8361FEFDCF407EA9E44E10919F1`, and 584
+`F799232A9007CB3A69DEA11D7131C96913578E94BB8C62B9C1B6106921C31EB7` (73,446 bytes). Migration 584
+adds typed terminal governance retirement, immutable runtime/replay pins, and retryable fail-fast
+serialization for lock-inversion surfaces. The cutover tail is 580–584, not 580–583. Final focused
+evidence on the frozen bytes is: independent P0/P1/P2 review, 0/0/0; a fresh PostgreSQL 17 build through
+all 568 migrations; full schema-plus-transition conformance, 114/114; focused former-deadlock cases, 2/2
+returning `40001` and never `40P01`; runtime deep, 7 suites/72 tests; units, 5 suites/136 tests; and clean
+schema-drift, Prisma, raw-parameter, ESLint, and diff checks. This is not a whole-program or full-CI claim.
+
+Final S1b-b full-CI exit evidence (2026-07-20), additive to the focused evidence above: a fresh blank PostgreSQL 18.4 database applied all 568 migrations; unseeded and seeded database contracts each passed 13/13; exhaustive seed coverage left 812/812 application tables non-empty. Two consecutive runs of each readiness audit exited 0 with zero blockers; the care-spine report was ready, while both combined lab/pathway reports explicitly retained `care_pathway_production_activation_ready=false`, as required until S1b-c. The final backend gate passed lint, raw-parameter/PHI/tenant/region/secret checks, dependency audit, Prisma generation and schema drift, OpenAPI drift/core sync, Spectral with zero errors, Docker-backed database guardrails, and all 1,152 Jest files in 144/144 chunks; it exited 0 in 4,698.3 seconds. This blank-database rehearsal is clean-install/full-CI evidence only, not a production-clone rehearsal or production-activation evidence.
+
+Owner-decision synchronization (2026-07-21): D3–D7 and D10 are approved in §9. Pending results no longer
+hard-block discharge when the signed summary and named primary-physician ownership are established;
+normal results may auto-close with an audited discretionary re-review path; abnormal non-critical results
+require doctor review and countersignature; referral responsibility transfers only when the named
+receiving doctor explicitly accepts; surgical `sign_in` is mandatory; and a named clinician is an
+exclusive, active, route-capable owner rather than a role-queue hint. These are inputs to S1b-c and S2–S5,
+not claims that
+S1b-b already implements or activates them. Numeric timings and the standing policy list remain unsigned.
+
 Round-2 verdict on v2: **APPROVE WITH CHANGES.** The architecture and vertical delivery strategy hold;
 the round-2 review found four correctness defects (a cursor that can lose events, an under-specified
 runtime, an over-broad task/SLA contract, and a materially wrong Stroke prior-art claim) plus missing
@@ -33,7 +57,7 @@ and later). The v2 file-exclusion lanes are historical; §4.2 replaces them with
 | C2 (P0) | "runtime build list" (v2 §3.4) implied but did not specify the executor; `care_pathway_instances` "1:1 workflow_runs" left state ownership ambiguous | Correct: v2 named no executor and two candidate state homes. | **§3.4a** specifies one deterministic registered-handler executor; **§3.5** declares `workflow_runs`/`workflow_steps` the *sole* mutable execution state and `care_pathway_instances` a 1:1 context/closure companion. |
 | C3 (P0) | "task-first rule: every human-actionable stage materializes a `tasks` row" + "generic breach sweep for orphaned SLA instances" | Too broad. Patient/guardian/external/automated-wait stages must not become synthetic staff tasks; a **table-wide** breach sweep would collide with domain-owned clocks (porter marks its own SLA breached — `porterTransportService.js:~1423-1547`; stroke/STEMI own theirs). The review also found an acknowledgement authz hole: `POST /clinical-inbox/tasks/:id/acknowledge` could stop another clinician's escalation clock. | **§3.4b/§3.7** scope task-first to internal accountable work, make breach reconciliation **opt-in per registered rule** (domain clocks excluded), and require every task to declare its SLA-completion semantics. The live acknowledgement hole is now closed as quick-win #2 (§11); spine conformance must preserve that boundary. |
 | C4 (P0) | "Stroke(506)/STEMI(559) … append-only, sequence-numbered, SLA/canonical FKs → copy their shape" | **Materially wrong for Stroke.** Verified: STEMI `stemi_pathway_events` (mig 559) has `sequence_number` (unique per activation), FK to `workflow_sla_instances`, FK to `clinical_audit_events`, append-only ("in-place mutation is blocked"). Stroke `stroke_pathway_events` (mig 506, full file read) has **no** sequence, **no** SLA FK, **no** audit FK, **no** append-only trigger, and carries `updated_at` — it is mutable. | **§3.6/§4.1 corrected:** copy the **STEMI** ledger shape specifically; the coexistence boundary is **domain-clock ownership**, not "intra- vs cross-encounter"; Stroke is documented as a weaker mutable table (its own hardening is a separate, owner-gated decision). |
-| C5 (P0) | Diagnostics pilot = extend the lab critical loop | Correct, but "end-to-end closed loop" overstated: lab critical detection/tasking is **post-commit best-effort** (Phase 1.5, `labResultsService.js` critical path), so the safety task can be lost if the process dies post-commit; task-inbox ack and `lab_critical_alerts` ack are **two** state machines; and the #587 reopen helper supersedes whenever called — correction-that-normalizes must be defined. | **§5.1** adds Diagnostics activation prerequisites: durable in-tx (or durably-reconciled) safety task, one authoritative acknowledgement, actor authorization, structured signed criticality/amendment-delta, and explicit critical↔normal correction semantics. |
+| C5 (P0) | Diagnostics pilot = extend the lab critical loop | Correct at review time, but "end-to-end closed loop" was overstated: lab critical detection/tasking was post-commit best-effort; task-inbox ack and `lab_critical_alerts` ack were two state machines; and the #587 reopen helper superseded whenever called. | **S1b-b** makes supported lab ingestion/sign-off and its exact alert/task/SLA/canonical generation atomic and supplies one authoritative acknowledgement. **§5.1** still gates activation on clean migration/readiness evidence, governed critical↔normal semantics, radiology/AP structured criticality, and resolution of orderless external-source linkage. |
 | C6 (P0) | v2 said pathway flows/branches/closure/metrics/matrices were "adopted from Sol §5" / "per Sol" | Correct defect: those references point at a chat-only draft not in the repo. | **§5–§8, §12** inline the full corrected normative content; this document stands alone. |
 
 Re-verified factual corrections (were imprecise or stale in v2 / the working memory):
@@ -106,7 +130,9 @@ Two reliability classes, named by the platform's existing convention (`apps/back
 
 - **Lab critical results:** verified critical → `tasks` row assigned to the ordering clinician with
   DUTY-role fallback + `critical_result_ack` SLA → 2‑min T1/T2/T3 escalation → clinician ack endpoint.
-  *Caveat (C5): the task creation is post-commit best-effort, and inbox-ack ≠ `lab_critical_alerts`-ack.*
+  S1b-b commits supported manual/panel/ORU/ASTM ingestion and corrected/amended sign-off with the exact
+  alert/task/SLA/canonical obligation in one transaction, and both lab-alert and inbox routes use one
+  authoritative acknowledgement transition. Orderless external-source linkage remains an activation blocker.
 - **Patient result release:** sign-off gate + `release_hold=false` + explicit release or 24 h
   auto-release (mig 294; `portalAccessService.js`); doctor hold needs a reason; preliminaries suppressed.
 - **Discharge readiness:** typed blockers incl. `PENDING_RESULTS`, `PENDING_RADIOLOGY`,
@@ -294,12 +320,34 @@ confirms none today — keep it that way; only registered trigger/condition/acti
    verifies the current assignee/assigned role/admin or an exact active, unexpired patient break-glass
    record; cold-chain uses a separate transaction-required, resource-bound trusted entrypoint. Every
    pathway task/approval mutation must preserve the same server-verified authority rule because
-   acknowledgement stops the SLA/escalation clock.
+   acknowledgement stops the SLA/escalation clock. **Known S1b-b named-owner P2:** the executor may
+   populate both `assigned_to_uid` and `assigned_role`; start validation accepts a same-tenant
+   non-`PATIENT` UID, while migration 580 treats either a viable UID or a viable route role as sufficient.
+   A route role can therefore mask an inactive or non-route-capable named UID, so exclusive owner
+   resolution and the stronger active/route-capable named-owner invariant are not fully enforced in
+   S1b-b. Generic clinical-inbox acknowledgement remains executor-blocked and no active definitions
+   exist. Before activation, enforce exclusive owner resolution and add database conformance for active,
+   route-capable named owners.
 8. Route surface: pathway mutations move off the ADMIN-only workflow CRUD router onto pathway routes
    with role gates + `patientAccessGuard` + `phiAccessLogger` (the OR-board audit lesson).
-9. Definition lifecycle: activation = approval action (reuse `approvals`); active instances pin
-   `workflow_definition_id`+version (already snapshotted at start); published definitions immutable
-   (version-bump-only editing, never in-place).
+9. Definition lifecycle: activation = an owning-domain governance approval, not the generic approval
+   command. Generic approval create/decide remains available for unreserved domains, while
+   `care_pathway_definition_governance` and `credential_privilege_grant` reject with
+   `DOMAIN_OWNED_APPROVAL_KIND`; pathway-linked approval mutation requires executor authority. Fresh
+   governed runs pin workflow-definition ID, governance ID, and checksum on both run and companion,
+   with the exact creation event carrying the same receipt. Published definitions/approval evidence are
+   immutable. Retirement is one-way typed evidence and prevents fresh starts, while an already-created
+   exact retired pin may continue to completion and replay without adopting later governance.
+   Definition, approval, run-admission, governance-actor, creation-event, and canonical-parent races use
+   shared transaction-scoped fences. A surface that could already hold a row or fence lock acquires the
+   next advisory fence without waiting, and governance actor rows use `FOR SHARE NOWAIT`; contention is
+   translated to retryable SQLSTATE `40001` instead of being allowed to form a `40P01` lock inversion.
+   Creation-event admission may wait on its event fence before exact-parent validation, while a canonical
+   parent mutation uses the fail-fast form. The application keeps blocking locks only for a standalone
+   pathway start that owns its transaction, preserving lost-response replay. Any start composed inside a
+   supplied branded transaction acquires its complete definition/start/episode fence set fail-fast; Prisma's
+   `40001` is returned as retryable `PATHWAY_START_SERIALIZATION_BUSY` rather than permitting inverse child
+   fan-out order to deadlock.
 10. **Per-rule SLA breach reconciliation (C3, not table-wide):** a registered handler per rule flips
     overdue `active` `workflow_sla_instances` to `breached` and materializes the missing task **only for
     that rule**. Domain-owned clocks (stroke, STEMI, porter, pending-target) are **excluded**; unknown
@@ -316,7 +364,7 @@ transaction.
 Four new tables (v2's five minus `care_pathway_resource_links`):
 
 - **`care_pathway_instances`** (1:1 `workflow_runs`, **`UNIQUE(workflow_run_id)`**): tenant, patient_uid,
-  encounter_id, pathway_key + pinned version, source episode (type, id), parent_instance_id, owning
+  encounter_id, pathway key/version + immutable workflow-definition/governance/checksum pin, source episode (type, id), parent_instance_id, owning
   clinician/team + accountable role, clinical status
   (`planned/active/on_hold/completed/cancelled/transferred/entered_in_error`), completion outcome +
   closure reason, timestamps, idempotency key, patient-visibility status. A **context/closure
@@ -336,7 +384,17 @@ Four new tables (v2's five minus `care_pathway_resource_links`):
   `tasks` row (task-first) so escalation covers it.
 - **`care_pathway_definition_governance`** (1:1 `workflow_definitions`, slim): clinical owner,
   operational owner, governance state (`draft/under_review/approved/retired`), approver + timestamp,
-  patient-visibility policy ref, effective dates, checksum, non-removable platform gates. Defer
+  patient-visibility policy ref, effective dates, checksum, non-removable platform gates, and typed
+  retirement actor/time/reason. Approved publication and its matching approval checksum receipt are
+  immutable; retirement is terminal, requires an inactive definition, and cannot extend the prior
+  effective window. A run is classified as governed by the **existence** of this row, so draft or
+  under-review definitions cannot escape through an unpinned generic workflow run. Approver/voter
+  account eligibility as a same-tenant non-patient identity is checked against the current tenant-user
+  table only when governance is published; the immutable receipt remains valid after a voter later
+  changes role. While governance is approved, clinical and operational owners are current duties and
+  continue to be revalidated. After retirement, those owner identities are historical evidence and may
+  later deactivate or change role without invalidating the retired record. Publication does not prove
+  that a voter held `approvals.required_role` at vote time. Defer
   per-tenant customisation matrices and multi-approver chains (YAGNI; single-tenant-live today).
 
 **Dropped `care_pathway_resource_links` — with an explicit lineage contract (C, P1).** Tasks are
@@ -502,20 +560,28 @@ ordering clinician unavailable · patient transferred/discharged before final re
 
 **Closure rule:** a verified result alone is insufficient for abnormal/critical results.
 - **Critical:** named-clinician acknowledgement + required action + escalation evidence.
-- **Abnormal/noncritical:** policy review + action, or documented "no further action."
-- **Normal:** governance may permit simpler closure after verification and release.
+- **Abnormal/noncritical (D5, owner-approved 2026-07-20):** a named doctor must review and
+  countersign the result and record the structured action/disposition. Release alone never closes it.
+- **Normal (D4, owner-approved 2026-07-20):** a signed/final normal result may close automatically
+  after the approved release predicate. A doctor may reopen it for discretionary re-review through a
+  linked, audited reopen that preserves the original closure evidence.
 - **Addendum/correction:** reopens the action loop — **but define critical↔normal explicitly (C5):** a
   correction that **normalizes** a previously-critical result must not blindly reopen a critical task,
   and a correction that **newly makes** a result critical must open one; correction notifications apply
   the complete patient-visibility predicate.
-- **Pending inpatient result at discharge:** assign a named post-discharge owner (see D3).
+- **Pending inpatient result at discharge (D3, owner-approved 2026-07-20):** the pending result alone
+  does not block discharge. List it in the signed discharge summary, assign the patient's named primary
+  physician before exit, alert that owner when the result becomes available, and surface any unresolved
+  item again at follow-up. Apply the critical loop or D4/D5 disposition after the result is known; follow-up
+  must not be the first alert for an already-available abnormal or critical result.
 
 **Activation prerequisites (C5 — before Diagnostics goes active, not just built):**
-1. Make the safety task/SLA **durable in the originating transaction** (or persist a durable reconciled
-   intent) — today's lab critical tasking is post-commit best-effort and can be lost.
-2. Unify the task-inbox acknowledgement and `lab_critical_alerts` acknowledgement into **one
-   authoritative transition**.
-3. **Authorize** the assigned user/queue (or an audited override actor) on acknowledge (C3).
+1. **Implemented in S1b-b:** make the safety task/SLA durable in the originating transaction for each
+   supported ingestion/sign-off path, with durable replay receipts and migration/readiness gates.
+2. **Implemented in S1b-b:** unify task-inbox and `lab_critical_alerts` acknowledgement into one
+   authoritative alert/task/SLA/comment/canonical transition; block generic task-ack bypass.
+3. **Implemented in quick-win #2 and preserved by S1b-b:** authorize the assigned user/queue (or an
+   exact audited break-glass actor) before acknowledgement or idempotent disclosure (C3).
 4. Add structured, **clinician-signed** criticality/amendment-delta fields for radiology and AP — do
    **not** infer report criticality from free text, order priority, or AI output.
 
@@ -537,7 +603,7 @@ success · order→recorded-action.
 ### 5.2 Referral — `referral_request_to_closure` (pilot 2)
 
 **Flow:** referral request (clinical question + urgency) → completeness/destination validation →
-receiving team acknowledges → accept / decline-with-reason / re-route → appointment/consult scheduled →
+named receiving doctor acknowledges → accept / decline-with-reason / re-route → appointment/consult scheduled →
 consultation completed → **specialist response + recommendations signed** → **originating owner
 acknowledges** → care plan/orders/follow-up updated → patient receives approved next steps → closed-loop.
 
@@ -549,6 +615,17 @@ expires · external report not returned · originator unavailable · transfer of
 automatically mean closed-loop. Closure requires one of: originator acknowledgement + recorded plan ·
 explicit transfer of continuing ownership to the specialist · documented no-further-action by an
 authorised clinician · patient-declined/lost-to-follow-up with policy-required recovery attempts.
+
+**D6 owner decision (2026-07-20):** a service/role queue may dispatch the request, but it does not
+transfer responsibility. The referring doctor remains accountable until the named receiving doctor
+personally accepts; decline, re-route, silence, or an external send leaves ownership with the originator.
+An audited covering-doctor reassignment may name a different eligible receiver. Acceptance transfers the
+referred clinical question, not the patient's unrelated overall care. The signed specialist response still
+requires originator acknowledgement and plan integration unless the receiving doctor explicitly accepts
+continuing ownership. Duplicate replacement, re-route, external return, and lost-to-follow-up must remain
+explicit and auditable; no status or elapsed time silently transfers or closes responsibility. An exact
+retry returns the existing referral, while an intentional repeat must be a linked replacement/amendment
+with a clinician reason rather than a second independent active ownership loop.
 
 **Product work:** add `acknowledged_by/at` + closure evidence (make `completed` non-terminal-in-practice)
 · a **structured, signed** response (findings/recommendation/urgency-of-action; staff+admin UIs submit
@@ -617,9 +694,12 @@ post-discharge follow-up completed or responsibility transferred.
 admission→discharge→post-discharge as one instance and gives **blockers named owners** (task per
 blocker) · start discharge planning at admission · post-discharge is a policy-defined **contact/outreach**
 stage (a booked follow-up ≠ contact) on notification outbox + mig‑437 dedup · surface the existing 7-day
-readmission link as pathway reopen/linked-episode. **D3 (owner):** pending-results-at-discharge = keep
-today's hard block, or allow discharge with a named post-discharge results owner — the spine supports
-both; policy chooses. (Med-transition reconciliation grounded in WHO
+readmission link as pathway reopen/linked-episode. **D3 owner decision (2026-07-20):** a pending result
+by itself no longer hard-blocks discharge. The signed
+summary lists every pending result, and the patient's named primary physician owns it before exit through
+durable task/ownership evidence. Notify that owner when the result becomes available and re-surface any
+unresolved result at follow-up; all other readiness blockers remain authoritative. (Med-transition
+reconciliation grounded in WHO
 [Medication safety in transitions of care](https://www.who.int/docs/default-source/patient-safety/who-uhc-sds-2019-9-eng.pdf).)
 
 **Metrics:** admission→bed · med-reconciliation completeness · blocker age · discharge order→exit ·
@@ -680,8 +760,10 @@ records · post-op orders + recovery disposition · specimen/pathology ownership
 transfer.
 
 **Product work:** extend the Theatre Board for readiness + recovery · upstream decision/optimisation
-stages over `preop_checklists` + OT-ready gates + a clearance record (none today) · **D7 (owner):** gate
-`sign_in` like time_out/sign_out (recordable-only today), with an audited emergency/break-glass path ·
+stages over `preop_checklists` + OT-ready gates + a clearance record (none today) · **D7 owner decision
+(2026-07-20):** make `sign_in` a mandatory gate before anaesthesia/procedure, rather than
+recordable-only; any emergency exception requires the separately approved, capability-gated and audited
+break-glass policy ·
 theatre `completed` triggers specimen→**AP accession** handoff (replacing the free-JSON dead end) +
 post-op follow-up auto-create (`origin_kind='ot_case'`) · pathology-result acknowledgement rides the
 Diagnostics loop · complication/reoperation branches link back to the same instance · WHO checklist +
@@ -725,7 +807,8 @@ the existing 574 collision remains and neither prefix may ever be reused.
   authoritative while `automation_rules` stays dormant; Stroke/STEMI retain their domain authority
   with Stroke hardening separate; OBGyn follows rails-first integration. Name the
   clinical + operational owner per pilot pathway and sign the pilot pathways' closure semantics +
-  patient-visibility. **D3–D7 gate their respective clinical slices.** No engineering-invented timings.
+  patient-visibility. **D3–D7 were owner-approved on 2026-07-20 as recorded in §9; their implementations
+  and the standing policy list still gate their respective clinical slices.** No engineering-invented timings.
 - **S1a — Lossless event-consumer substrate (shadow).** The §3.3 one-live-generation registration and
   lock-fenced handoff, commit-coupled `AFTER INSERT` fanout, persistent bounded cutoff backfill and per-event inbox ledger + a
   **no-op** registered-handler projector (records handled/ignored, creates no instances/tasks/
@@ -745,6 +828,13 @@ the existing 574 collision remains and neither prefix may ever be reused.
     deterministic registered-handler executor, duplicate episode/idempotency guards, task/approval
     materialisation, typed task/SLA semantics, same-run graph-coherence preflight and enforcement for
     optional task/run/step and approval/run/task links, pathway routes and immutable transition evidence.
+    Migrations 581–583 additionally close the supported lab ingest/sign-off generation and authoritative-
+    acknowledgement atomicity gap. Migration 584 adds one-way typed governance retirement, exact
+    approval-checksum evidence, immutable run/instance/creation-event/replay pins, and governance-row-
+    existence classification. The non-rolling cutover and readiness inventory cover 580–584; 584 may
+    not be omitted from a pending 582/583 tail. No S1b-b migration, definition, handler, external-policy
+    resolver, recipient rule, clock, threshold or test encodes D3–D7; the 2026-07-20 owner decisions are
+    inputs to the later pathway slices, not a retroactive claim that S1b-b implemented them.
   - **S1b-c — reconciliation and activation evidence:** registered per-pathway/per-rule checks, breach
     reconciliation, evidence-versioned sweep rows/metrics and recovery tooling; an absent check registry
     is an error and can never produce clean activation evidence.
@@ -803,30 +893,32 @@ rules; backend CI is now sharded (static-checks + 3× shard jobs).
 
 ---
 
-## 9. Decisions required before activation (with recommendations)
+## 9. Owner decisions and remaining activation policy
 
-Recommendations are engineering recommendations; each needs the named owner/governance sign-off. No
-clinical values/thresholds are inferred by engineering.
+D1–D10 are now owner-resolved as recorded below. Resolution authorises the stated product semantics; it
+does not claim implementation, approve a timing/threshold, or clear the remaining standing policy list.
+No clinical values/thresholds are inferred by engineering.
 
-| # | Decision | Recommendation | Gates |
+| # | Decision | Owner decision / adopted direction | Gates |
 |---|---|---|---|
 | D1 | Projector source | **Adopted for S1a:** `event_outbox` + registered-generation inbox ledger; reject a scalar live cursor | Resolved for S1a |
 | D2 | `automation_rules` fate | **Owner-approved 2026-07-18:** leave dormant and non-authoritative; registered handlers only | Resolved; S1b may proceed |
-| D3 | Pending results at discharge | Keep today's **hard block** as default; named-owner discharge only as a governed override (accepted ownership + task/SLA + reason/audit + unsafe-result exclusions) | S4 |
-| D4 | Normal-result auto-closure | Allow **conditionally** (signed/final, no critical/abnormal/addendum/repeat flag, approved release policy); patient viewing ≠ clinician ack | S2 |
-| D5 | Abnormal-noncritical action | Require named clinician review + structured disposition (incl. documented no-further-action); do not close solely on release | S2 |
-| D6 | Referral ack/transfer | Require originator acknowledgement unless ownership is explicitly accepted; signed structured response; define absence/re-route/external-return/lost-to-follow-up | S3 |
-| D7 | Surgical `sign_in` | Gate before anaesthesia, with an audited break-glass path; checklist + roles owner-defined | S5 |
+| D3 | Pending results at discharge | **Owner-approved 2026-07-20:** allow discharge; list pending results in the signed summary; establish the named primary physician's durable ownership before exit; alert that owner when a result becomes available and re-surface unresolved work at follow-up. The result then follows the critical loop or D4/D5. | Resolved policy; S4 implementation + owner-routing/notification evidence |
+| D4 | Normal-result auto-closure | **Owner-approved 2026-07-20:** a signed/final normal result may auto-close under the approved release predicate; a doctor may reopen it for discretionary re-review through a linked audited event that preserves prior closure. | Resolved policy; S2 implementation + reopen evidence |
+| D5 | Abnormal-noncritical action | **Owner-approved 2026-07-20:** require named-doctor review, countersignature and a structured action/disposition; never close from release alone. | Resolved policy; S2 implementation |
+| D6 | Referral ack/transfer | **Owner-approved 2026-07-20:** the named receiving doctor must explicitly accept/decline/re-route. The originator remains accountable until acceptance; role dispatch, silence or elapsed time never transfers ownership. Final response requires originator acknowledgement/plan integration unless the receiver explicitly accepts continuing ownership; covering transfer and exceptional branches are explicit/audited. Exact retries return the existing referral; intentional repeats are linked replacements/amendments with a clinician reason. | Resolved policy; S3 implementation + remaining timings/recipient rules |
+| D7 | Surgical `sign_in` | **Owner-approved 2026-07-20:** mandatory gate before anaesthesia/procedure; any emergency exception requires a separately approved audited break-glass policy. | Resolved policy; S5 implementation + checklist/roles/break-glass policy |
 | D8 | Stroke/STEMI | **Owner-approved 2026-07-18:** preserve domain-clock authority in v1; STEMI unchanged; Stroke integrity hardening is a separate scoped workstream; do **not** treat their schemas as equivalent | Resolved for coexistence; separate Stroke hardening remains required |
 | D9 | OBGyn sequencing | **Owner-approved 2026-07-18:** rails-first; one shared reminder/SLA/handoff contract; OBGyn consumes it; ANC/immunisation remain gated on rail conformance + signed OBGyn semantics | Resolved for sequencing; OBGyn clinical semantics remain separately gated |
+| D10 | Named-clinician ownership and fallback | **Owner-approved 2026-07-21:** when a pathway or task names an individual clinician, that owner must be an active same-tenant route-capable clinician and the assignment is exclusive—no simultaneous role fallback may mask an unavailable person. A role queue is allowed only when no individual has been named. Responsibility changes only after an eligible covering clinician explicitly accepts an audited reassignment; it never transfers automatically because the named owner is unavailable. Source defaults remain pathway-specific: the recorded primary/attending physician for pending inpatient results, the ordering physician for diagnostics, and the referring physician until the named referral receiver accepts. | Resolved policy; S1b-c exclusive-owner enforcement + S2–S4 routing/reassignment evidence |
 
 Standing owner list (unresolved, no engineering defaults): SLA targets + business-hours + escalation
 recipients per pathway; patient/guardian visibility + notification policy; meaning of patient
 "acknowledged" vs delivered/opened; external-provider communication method; manual override/break-glass
-policy; backfill scope (rec: active episodes only); retention; duplicate-referral hard-block vs warn;
+policy; backfill scope (rec: active episodes only); retention;
 LWBS/against-advice recovery policy; post-discharge contact policy; family updates during ED/Surgery;
 tenant customisation surface; clinical definition-approval authority; OP recovery/transfer definition;
-inpatient post-discharge contact policy; pending-result transfer ownership.
+inpatient post-discharge contact policy.
 
 ---
 
@@ -838,6 +930,10 @@ inpatient post-discharge contact policy; pending-result transfer ownership.
   integrity properties).
 - Every active stage has an accountable person/role; every safety-critical handoff is acknowledged or
   escalated; every terminal state has closure evidence; required child work cannot be silently abandoned.
+- Every governed run has an immutable definition/governance/checksum pin on its run and pathway
+  companion plus one exact pinned creation event; replay proves those stored pins before returning a
+  snapshot. Retirement blocks fresh starts but does not strand an existing exact pinned run. Generic
+  workflow and approval commands cannot bypass owning-domain governance.
 - Event delivery is **lossless** (registration/handoff lock boundary + sole-live trigger + fixed-cutoff
   keyset-backfill proof); planned handoff evidence is zero pending, while any racing retired debt remains
   explicit in `pathway_projector_inbox_retired_pending_rows`; duplicate/
@@ -854,18 +950,19 @@ inpatient post-discharge contact policy; pending-result transfer ownership.
 ## 11. Quick wins independent of the program
 
 1. **Radiology/AP amendment re-acknowledgement** (the lab half shipped in PR #587): radiology/AP addenda
-   are append-only with no re-ack loop; reuse the `ensureCriticalResultTaskOpen` reopen semantics.
-   *(Lab correction/ack conformance — the C5 unify-and-authorize work — folds into S2, not a pre-PR
-   quick win any more.)*
+   are append-only with no re-ack loop; adopt the typed generation/immutable-receipt safety shape now
+   enforced for lab, not legacy `reopen_history` or inferred task/SLA state as authority.
+   *(Lab correction/ack conformance — the C5 unify-and-authorize work — is delivered in S1b-b; the
+   radiology/AP addendum loop remains S2.)*
 2. **Acknowledge-authorization hole — shipped:** acknowledgement is limited to the current assignee,
    current assigned-role holder, or task administrator. A human override requires the exact active,
    unexpired `patient_access_break_glass` row bound to tenant + task patient + actor + eligible signed
    role; caller-supplied reason text is never authority. The guarded UPDATE revalidates that authority,
    missing/forbidden task ids share a generic 403, and patient context reaches the PHI audit without
    entering the response. Cold-chain uses a separate allowlisted, excursion-bound entrypoint and keeps
-   excursion + task + SLA + audit comment in one tenant transaction; authorized retries repair a legacy
-   `in_progress` task whose linked SLA clock remained active. Unit, journey and real-PostgreSQL rollback
-   regressions cover these invariants.
+   excursion + task + SLA + audit comment in one tenant transaction. An exact retry is idempotent; legacy
+   split task/SLA state is not treated as automatically repairable or authoritative. Unit, journey and
+   real-PostgreSQL rollback regressions cover these invariants.
 3. **Referral status drift:** staff/admin UIs render `in_progress/cancelled/expired` the backend never
    writes — align now or fold into S3.
 4. **Outbox dead-letter redrive:** add the leased, CAS `failed→pending` redrive to `eventOutboxRoutes.js`

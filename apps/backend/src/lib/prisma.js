@@ -103,12 +103,74 @@ const WRAPPED_METHODS = new Set([
 //
 // SQLSTATE references: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const BREAKER_IGNORED_PG_ERROR_CODES = new Set([
+  // Deterministic integrity rejections prove the database is reachable and
+  // enforcing its contract. Counting user/data conflicts as infrastructure
+  // failures lets five bad writes brown out every tenant on the client.
+  '23000', // integrity_constraint_violation
+  '23502', // not_null_violation
+  '23503', // foreign_key_violation
+  '23505', // unique_violation
+  '23514', // check_violation
+  '23P01', // exclusion_violation
   '42P01', // undefined_table — relation does not exist
   '42P02', // undefined_parameter
   '42703', // undefined_column
   '42704', // undefined_object (function, type, etc.)
   '3D000', // invalid_catalog_name — database does not exist
   '3F000', // invalid_schema_name — schema does not exist
+]);
+
+// Interactive transaction callbacks can reject for ordinary application
+// control flow after the database has successfully opened the transaction.
+// Only structured failures that mean the database/driver is unavailable are
+// allowed to consume the global circuit-breaker budget from that callback.
+const BREAKER_INFRA_PRISMA_ERROR_CODES = new Set([
+  'P1000', // authentication failed
+  'P1001', // database unreachable
+  'P1002', // database reached but timed out
+  'P1008', // operation timed out
+  'P1010', // database access denied
+  'P1011', // TLS connection failure
+  'P1017', // server closed the connection
+  'P1018', // transaction already closed
+  'P2024', // connection-pool timeout
+  'P2028', // transaction API timeout/state failure
+  'P2036', // external connector failure
+  'P2037', // too many database connections
+]);
+
+const BREAKER_INFRA_DRIVER_KINDS = new Set([
+  'AuthenticationFailed',
+  'DatabaseNotReachable',
+  'SocketTimeout',
+  'DatabaseAccessDenied',
+  'TlsConnectionError',
+  'ConnectionClosed',
+  'TransactionAlreadyClosed',
+  'GenericJs',
+  'TooManyConnections',
+]);
+
+const BREAKER_INFRA_NODE_ERROR_CODES = new Set([
+  'ECONNABORTED',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'EPIPE',
+  'ETIMEDOUT',
+]);
+
+// node-postgres emits these connection failures without a machine-readable
+// code. Keep the fallback exact so arbitrary business-error messages cannot
+// be promoted to infrastructure failures.
+const BREAKER_INFRA_ERROR_MESSAGES = new Set([
+  'Connection terminated',
+  'Connection terminated unexpectedly',
+  'Connection terminated due to connection timeout',
+  'timeout exceeded when trying to connect',
+  'timeout expired',
 ]);
 
 /**
@@ -125,6 +187,51 @@ function isIgnoredBreakerError(err) {
     err?.meta?.driverAdapterError?.cause?.originalCode ||
     err?.code;
   return typeof code === 'string' && BREAKER_IGNORED_PG_ERROR_CODES.has(code);
+}
+
+function isInfrastructureBreakerError(err) {
+  if (!err || typeof err !== 'object') return false;
+
+  if (BREAKER_INFRA_PRISMA_ERROR_CODES.has(err.code)) return true;
+  if (BREAKER_INFRA_NODE_ERROR_CODES.has(err.code)) return true;
+
+  const driverKind = err?.meta?.driverAdapterError?.cause?.kind;
+  if (BREAKER_INFRA_DRIVER_KINDS.has(driverKind)) return true;
+
+  const sqlState = extractSqlState(err);
+  if (
+    sqlState?.startsWith('08') || // connection_exception
+    sqlState?.startsWith('53') || // insufficient_resources
+    sqlState?.startsWith('58') || // system_error
+    sqlState?.startsWith('XX') || // internal_error
+    sqlState === '57014' || // query_canceled / statement timeout
+    /^57P0[1-5]$/.test(sqlState || '') // operator intervention / idle timeout
+  ) {
+    return true;
+  }
+
+  return BREAKER_INFRA_ERROR_MESSAGES.has(String(err.message || '').trim());
+}
+
+class InteractiveTransactionCallbackFailure extends Error {
+  constructor(cause) {
+    super('Interactive transaction callback failed');
+    this.cause = cause;
+  }
+}
+
+function wrapInteractiveTransactionCallback(methodName, args) {
+  if (methodName !== '$transaction' || typeof args[0] !== 'function') return args;
+
+  const callback = args[0];
+  const wrappedCallback = async function wrappedTransactionCallback(...callbackArgs) {
+    try {
+      return await callback.apply(this, callbackArgs);
+    } catch (cause) {
+      throw new InteractiveTransactionCallbackFailure(cause);
+    }
+  };
+  return [wrappedCallback, ...args.slice(1)];
 }
 
 // M12 (audit 2026-06-22): circuit-breaker state is PER-CLIENT, keyed by the
@@ -254,17 +361,20 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
         breaker.consecutiveFailures = 0;
         return tenantWrapped;
       }
-      const result = await fn.apply(this, args);
+      const callArgs = wrapInteractiveTransactionCallback(methodName, args);
+      const result = await fn.apply(this, callArgs);
       breaker.consecutiveFailures = 0;
       return result;
     } catch (err) {
+      const callbackFailure = err instanceof InteractiveTransactionCallbackFailure;
+      const breakerError = callbackFailure ? err.cause : err;
       // Known-bad-query errors (relation/schema not found, undefined column,
       // etc.) are not infrastructure failures — the driver is healthy, the
       // query just doesn't match the current schema. Re-throw so the caller
       // can handle it, but don't count it toward the breaker budget.
       // Without this, a brief migration window or qa-reset DROP SCHEMA can
       // latch the breaker open for 30s after the schema is already healthy.
-      if (isIgnoredBreakerError(err)) {
+      if (isIgnoredBreakerError(breakerError)) {
         // WS2 / REL-5: a Postgres 42P01 (undefined_table) specifically means a
         // graceful fallback path is being exercised (missing-table read during a
         // migration window, a partition the downtime mirror papers over, etc.).
@@ -272,13 +382,18 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
         // 3F000 schema, … are different signals) — so the named metric + warn
         // track only the undefined_table fallback. Reuse extractSqlState rather
         // than re-deriving the SQLSTATE. The error is still re-thrown unchanged.
-        if (extractSqlState(err) === '42P01') {
+        if (extractSqlState(breakerError) === '42P01') {
           recordUndefinedTableFallback();
           logger.warn('Postgres 42P01 (undefined_table) — graceful fallback path', {
-            message: String(err?.message || '').slice(0, 200),
+            message: String(breakerError?.message || '').slice(0, 200),
           });
         }
-        throw err;
+        breaker.consecutiveFailures = 0;
+        throw breakerError;
+      }
+      if (callbackFailure && !isInfrastructureBreakerError(breakerError)) {
+        breaker.consecutiveFailures = 0;
+        throw breakerError;
       }
       breaker.consecutiveFailures += 1;
       if (breaker.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
@@ -288,7 +403,7 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
           `Prisma[${tag}] circuit breaker OPEN after ${breaker.consecutiveFailures} consecutive failures`,
         );
       }
-      throw err;
+      throw breakerError;
     }
   };
 }
@@ -317,6 +432,11 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
  *     the Phase-2 call-site audit continues to track them.
  */
 const MODEL_DELEGATE_CACHE = new WeakMap(); // baseClient → Map<prop, proxy>
+// Capability brand for callbacks opened by setTenant/setTenantTx. Pathway
+// mutation primitives use this identity check so the global singleton or a
+// bare, unscoped Prisma interactive transaction cannot impersonate the
+// tenant-scoped atomic boundary they require.
+const TENANT_TRANSACTION_CLIENTS = new WeakSet();
 
 function isModelDelegate(value, prop) {
   return (
@@ -483,11 +603,20 @@ function runTenantScopedTransaction(client, gucValue, fn, transactionOptions = u
       "SELECT set_config('app.current_tenant_id', $1, true)",
       gucValue,
     );
+    TENANT_TRANSACTION_CLIENTS.add(tx);
     return fn(tx);
   };
   return transactionOptions
     ? client.$transaction(transaction, transactionOptions)
     : client.$transaction(transaction);
+}
+
+export function isTenantTransactionClient(value) {
+  return Boolean(
+    value
+    && (typeof value === 'object' || typeof value === 'function')
+    && TENANT_TRANSACTION_CLIENTS.has(value)
+  );
 }
 
 /**

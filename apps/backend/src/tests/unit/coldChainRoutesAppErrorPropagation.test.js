@@ -8,6 +8,7 @@ import { AppError } from '../../utils/AppError.js';
 // cold-chain handleFailure (previously `err.details ?? { code: err.code }`).
 
 const listColdChainDashboardMock = jest.fn();
+const recordColdChainCorrectiveActionMock = jest.fn();
 
 jest.unstable_mockModule('../../services/devices/coldChainService.js', () => ({
   acknowledgeColdChainExcursion: jest.fn(),
@@ -16,7 +17,7 @@ jest.unstable_mockModule('../../services/devices/coldChainService.js', () => ({
   ingestColdChainReading: jest.fn(),
   listColdChainDashboard: listColdChainDashboardMock,
   listColdChainUnits: jest.fn(),
-  recordColdChainCorrectiveAction: jest.fn(),
+  recordColdChainCorrectiveAction: recordColdChainCorrectiveActionMock,
   runSilentSensorWatchdog: jest.fn(),
   updateColdChainUnit: jest.fn(),
 }));
@@ -27,7 +28,11 @@ const app = express();
 app.use(express.json());
 app.use((req, _res, next) => {
   req.id = 'test-request-id';
-  req.user = { uid: '11111111-1111-4111-8111-111111111111', role: 'ADMIN' };
+  req.user = {
+    uid: '11111111-1111-4111-8111-111111111111',
+    role: 'ADMIN',
+    roles: ['NURSING_STAFF'],
+  };
   req.tenantId = '00000000-0000-4000-8000-000000000001';
   next();
 });
@@ -35,6 +40,27 @@ app.use('/api/v1/cold-chain', coldChainRoutes);
 
 beforeEach(() => {
   listColdChainDashboardMock.mockReset();
+  recordColdChainCorrectiveActionMock.mockReset();
+});
+
+describe('cold-chain actor context', () => {
+  test('threads authenticated roles into corrective-action task acknowledgement', async () => {
+    recordColdChainCorrectiveActionMock.mockResolvedValueOnce({ id: 7, status: 'acknowledged' });
+
+    const response = await request(app)
+      .post('/api/v1/cold-chain/excursions/7/corrective-action')
+      .send({ corrective_action: 'Moved stock to backup fridge' });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordColdChainCorrectiveActionMock).toHaveBeenCalledWith({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      id: '7',
+      correctiveAction: 'Moved stock to backup fridge',
+      dispositionNote: undefined,
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorRoles: ['NURSING_STAFF', 'ADMIN'],
+    });
+  });
 });
 
 describe('cold-chain handleFailure relays AppError code + details', () => {

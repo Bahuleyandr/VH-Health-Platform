@@ -8,10 +8,11 @@
 // results-inbox safety net — it has ZERO dependency on the (dormant) clinical
 // AI modules.
 //
-// CRITICAL: enqueueCriticalResultTask is BEST-EFFORT / post-commit (repo
-// Phase 1.5 pattern, see apps/backend/CLAUDE.md). It must NEVER throw or block
-// the originating clinical write (the lab finalize / vital-alert persist). It
-// is idempotent: a second call for the same (related_resource_type,
+// Standalone enqueueCriticalResultTask calls are BEST-EFFORT / post-commit
+// (repo Phase 1.5 pattern, see apps/backend/CLAUDE.md). A caller that supplies
+// its clinical transaction with strict=true deliberately makes task/SLA rails
+// part of that atomic clinical write. The producer is idempotent: a second call
+// for the same (related_resource_type,
 // related_resource_id) while an open task already exists is a no-op via the
 // mig-312 partial unique index uq_task_open_per_resource (ON CONFLICT DO
 // NOTHING → { created:false }).
@@ -22,9 +23,15 @@
 // rather than inventing a new SLA system. The mig-118 escalation_rules engine
 // (Wave-1 Task 2) reads those breaches for what-to-do-on-breach.
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import * as taskService from '../workflow/taskService.js';
+import {
+  repairCriticalResultTaskOwnerTx,
+  resolveClinicalTaskOwnerTx,
+} from '../workflow/workflowHumanOwnerService.js';
+import { lockResultsInboxResourceTx } from './resultsInboxResourceLock.js';
 // Reuse the mig-269 canonical SLA layer (do NOT add a new SLA system).
 // NOTE: startWorkflowSla is imported LAZILY at its call site below (not as a
 // static top-level import) to avoid an ESM circular-import link-time failure
@@ -41,6 +48,217 @@ const SEVERITY_PRIORITY = Object.freeze({
   moderate: 'normal',
   low: 'normal',
 });
+
+const ACTIVE_TASK_STATUSES = new Set(['open', 'in_progress', 'blocked', 'overdue']);
+const UNACKNOWLEDGED_TASK_STATUSES = new Set(['open', 'blocked', 'overdue']);
+const INCOMPLETE_SLA_STATUSES = new Set(['active', 'breached', 'escalated']);
+const ACKNOWLEDGEMENT_AUTHORIZATION_MODES = new Set(['assignee', 'role', 'admin', 'override']);
+const TASK_MATERIALIZATION_CONTRACT = 'application_atomic_v1';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function criticalResultAckReconciliationRequired() {
+  return AppError.conflict(
+    'Critical-result acknowledgement requires reconciliation',
+    'LAB_CRITICAL_ALERT_ACK_RECONCILIATION_REQUIRED',
+  );
+}
+
+function isIncompleteSla(sla) {
+  return Boolean(
+    sla?.id
+    && sla.completed_at == null
+    && INCOMPLETE_SLA_STATUSES.has(String(sla.status || '').toLowerCase())
+  );
+}
+
+function isLegacyCriticalTask(task, slaKey) {
+  return Boolean(
+    task
+    && task.sla_completion_semantics === 'none'
+    && !task.workflow_sla_instance_id
+    && task.metadata?.sla_key === slaKey
+  );
+}
+
+function isTypedCriticalTask(task, slaInstanceId) {
+  return Boolean(
+    task
+    && task.sla_completion_semantics === 'acknowledgement'
+    && String(task.workflow_sla_instance_id || '') === String(slaInstanceId || '')
+  );
+}
+
+function isExactHandledTypedCriticalTask(task, { slaKey, resourceType, resourceId }) {
+  return Boolean(
+    task
+    && task.sla_completion_semantics === 'acknowledgement'
+    && task.workflow_sla_instance_id
+    && task.linked_sla_rule_code === slaKey
+    && String(task.linked_sla_source_table || '') === String(resourceType || '')
+    && String(task.linked_sla_source_id || '') === String(resourceId || '')
+  );
+}
+
+async function requireClosedLabAcknowledgementReceipt({
+  tx,
+  tenantId,
+  patientUid,
+  resourceId,
+  taskId,
+  slaInstanceId,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT assert_lab_critical_alert_acknowledgement_receipt(
+              receipt.tenant_id,
+              receipt.alert_id,
+              FALSE
+            ) AS receipt_valid
+       FROM lab_critical_alert_acknowledgement_receipts AS receipt
+       JOIN lab_critical_alerts AS alert
+         ON alert.tenant_id = receipt.tenant_id
+        AND alert.id = receipt.alert_id
+      WHERE receipt.tenant_id = $1::uuid
+        AND receipt.result_id = $2::int
+        AND receipt.patient_uid = $3::uuid
+        AND receipt.acknowledgement_task_id = $4::int
+        AND receipt.workflow_sla_instance_id = $5::uuid
+        AND receipt.ack_contract_version = 2
+        AND alert.result_id = receipt.result_id
+        AND alert.patient_uid = receipt.patient_uid
+        AND alert.acknowledgement_task_id = receipt.acknowledgement_task_id
+        AND alert.acknowledged_at = receipt.acknowledged_at
+        AND alert.acknowledged_by = receipt.acknowledged_by
+        AND alert.superseded_at IS NULL
+      LIMIT 1`,
+    tenantId,
+    Number(resourceId),
+    patientUid,
+    Number(taskId),
+    String(slaInstanceId),
+  );
+  if (rows[0]?.receipt_valid !== true) {
+    throw criticalResultAckReconciliationRequired();
+  }
+}
+
+async function upgradeLegacyCriticalTask({
+  tx, tenantId, task, slaKey, slaInstanceId,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET workflow_sla_instance_id = $3::uuid,
+            sla_completion_semantics = 'acknowledgement',
+            due_at = (
+              SELECT sla.due_at
+                FROM workflow_sla_instances sla
+               WHERE sla.tenant_id = $1::uuid
+                 AND sla.id = $3::uuid
+            ),
+            metadata = COALESCE(metadata, '{}'::jsonb) - 'sla_instance_id',
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status = $4::text
+        AND workflow_sla_instance_id IS NULL
+        AND sla_completion_semantics = 'none'
+        AND metadata->>'sla_key' = $5::text
+      RETURNING id, status, completed_at, workflow_sla_instance_id,
+                sla_completion_semantics, assigned_to_uid, assigned_to_role, metadata`,
+    tenantId,
+    task.id,
+    slaInstanceId,
+    task.status,
+    slaKey,
+  );
+  const upgraded = rows[0] || null;
+  if (!isTypedCriticalTask(upgraded, slaInstanceId)) {
+    throw new Error('Legacy critical-result task could not be upgraded to its SLA');
+  }
+  return upgraded;
+}
+
+function acknowledgementReceipt(task) {
+  const rawReceipt = task?.metadata?.acknowledged_at;
+  const parsed = rawReceipt instanceof Date ? rawReceipt : new Date(String(rawReceipt || ''));
+  if (Number.isNaN(parsed.getTime())) {
+    throw AppError.conflict(
+      'Critical-result acknowledgement receipt is missing or invalid; manual SLA reconciliation is required',
+      'CRITICAL_RESULT_ACK_RECEIPT_REQUIRED',
+    );
+  }
+
+  const acknowledgedBy = String(task?.metadata?.acknowledged_by || '').trim().toLowerCase();
+  const acknowledgedVia = String(task?.metadata?.acknowledged_via || '').trim().toLowerCase();
+  if (
+    !UUID_PATTERN.test(acknowledgedBy)
+    || !ACKNOWLEDGEMENT_AUTHORIZATION_MODES.has(acknowledgedVia)
+  ) {
+    throw AppError.conflict(
+      'Critical-result acknowledgement authorization evidence is missing or invalid; manual SLA reconciliation is required',
+      'CRITICAL_RESULT_ACK_AUTHORIZATION_REQUIRED',
+    );
+  }
+
+  return {
+    acknowledgedAt: parsed.toISOString(),
+    acknowledgedAtEpochMs: parsed.getTime(),
+    acknowledgedBy,
+    acknowledgedVia,
+  };
+}
+
+async function reconcileAcknowledgedTaskSla({ tx, tenantId, task, slaInstanceId }) {
+  const receipt = acknowledgementReceipt(task);
+  await tx.$queryRawUnsafe(
+    `UPDATE workflow_sla_instances
+        SET status = CASE
+              WHEN status IN ('breached', 'escalated') THEN status
+              WHEN due_at IS NOT NULL
+               AND to_timestamp($3::double precision / 1000.0) > due_at
+                THEN 'breached'
+              ELSE 'completed'
+            END,
+            completed_at = to_timestamp($3::double precision / 1000.0),
+            breached_at = CASE
+              WHEN due_at IS NOT NULL
+               AND to_timestamp($3::double precision / 1000.0) > due_at
+                THEN COALESCE(breached_at, due_at)
+              ELSE breached_at
+            END,
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'completed_via', 'task_ack',
+                   'completed_by_task', $2::bigint,
+                   'completed_by', $6::text,
+                   'acknowledged_at', to_char(
+                     to_timestamp($3::double precision / 1000.0) AT TIME ZONE 'UTC',
+                     'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+                   ),
+                   'acknowledged_by', $6::text,
+                   'acknowledged_via', $7::text,
+                   'completion_evidence', jsonb_build_object(
+                     'kind', 'legacy_critical_result_task_ack',
+                     'task_status', $4::text,
+                     'recorded_at', to_char(
+                       to_timestamp($3::double precision / 1000.0) AT TIME ZONE 'UTC',
+                       'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+                     )
+                   )
+                 ),
+            updated_at = NOW()
+      WHERE id = $1::uuid
+        AND tenant_id = $5::uuid
+        AND status NOT IN ('completed', 'cancelled')
+        AND completed_at IS NULL`,
+    slaInstanceId,
+    task.id,
+    receipt.acknowledgedAtEpochMs,
+    task.status,
+    tenantId,
+    receipt.acknowledgedBy,
+    receipt.acknowledgedVia,
+  );
+}
 
 // Abstract escalation/assignment tokens → concrete role codes (roleHelpers).
 // The producer's role fallback and the escalation engine both speak these
@@ -78,6 +296,70 @@ export function resolveRoleCode(hint) {
   return ABSTRACT_ROLE_CODES[token] || token;
 }
 
+async function repairCriticalResultOwner({
+  tx,
+  tenantId,
+  task,
+  orderingClinicianUid,
+  careTeamRoleHint,
+}) {
+  return repairCriticalResultTaskOwnerTx({
+    tx,
+    tenantId,
+    task,
+    requestedUid: orderingClinicianUid,
+    fallbackRole: resolveRoleCode(careTeamRoleHint),
+  });
+}
+
+async function createCriticalResultTask({
+  tenantId,
+  tx,
+  patientUid,
+  source,
+  resourceType,
+  resourceId,
+  severity,
+  title,
+  summary,
+  orderingClinicianUid,
+  careTeamRoleHint,
+  slaKey,
+  slaInstanceId,
+  extraMetadata = null,
+}) {
+  if (!slaInstanceId) throw new Error('Critical-result task requires an active SLA instance');
+  const owner = await resolveClinicalTaskOwnerTx({
+    tx,
+    tenantId,
+    requestedUid: orderingClinicianUid,
+    fallbackRole: resolveRoleCode(careTeamRoleHint),
+  });
+  return taskService.createTask({
+    tenantId,
+    tx,
+    taskKind: 'review',
+    title: title || `Critical ${source}: review required`,
+    description: summary || null,
+    patientUid,
+    relatedResourceType: resourceType,
+    relatedResourceId: resourceId,
+    priority: SEVERITY_PRIORITY[severity] || 'high',
+    assignedToUid: owner.assignedToUid,
+    assignedToRole: owner.assignedToRole,
+    workflowSlaInstanceId: slaInstanceId,
+    slaCompletionSemantics: 'acknowledgement',
+    metadata: {
+      ...(extraMetadata || {}),
+      source,
+      sla_key: slaKey,
+      critical_result_owner_resolution: owner.resolution,
+      critical_result_owner_fallback_reason: owner.fallbackReason,
+    },
+    onConflictResourceDoNothing: true,
+  });
+}
+
 /**
  * Create an assigned, acknowledgement-tracked task for a critical result/alert.
  *
@@ -99,6 +381,8 @@ export function resolveRoleCode(hint) {
  * @param {string} [params.careTeamRoleHint]  role fallback when no clinician (abstract or concrete).
  * @param {string} [params.slaKey]            mig-269 SLA rule code (default 'critical_result_ack').
  * @param {object} [params.extraMetadata]     extra task metadata keys (e.g. reopen provenance).
+ * @param {object} [params.tx]                existing tenant transaction for atomic clinical writes.
+ * @param {boolean} [params.strict]            rethrow producer failures when the caller owns the transaction.
  * @returns {Promise<{created:boolean, taskId:(number|null), slaInstanceId:(string|number|null), error?:string}>}
  */
 export async function enqueueCriticalResultTask({
@@ -114,65 +398,220 @@ export async function enqueueCriticalResultTask({
   careTeamRoleHint = null,
   slaKey = 'critical_result_ack',
   extraMetadata = null,
+  tx: callerTx = null,
+  strict = false,
 } = {}) {
   const resourceIdStr = resourceId == null ? null : String(resourceId);
   try {
-    // 1. (Re)use the mig-269 critical_result_ack SLA instance as the clock.
-    //    Best-effort: a null instance (SLA rule disabled / schema absent) must
-    //    not stop the task from being created.
-    //
-    //    IMPORTANT (RLS): the seeded critical_result_ack rule is a GLOBAL rule
-    //    (workflow_sla_rules.tenant_id IS NULL). The mig-075 tenant_isolation
-    //    policy makes a NULL-tenant row INVISIBLE once the GUC is pinned to a
-    //    concrete tenant (NULL = <tenant> is not true) — so reading the rule
-    //    INSIDE setTenantTx(tenantId) silently returns no rule and the SLA
-    //    instance never gets created (the safety-net clock never starts). We
-    //    therefore start the SLA on the plain singleton (GUC unset → the global
-    //    rule is visible); startWorkflowSla still writes the instance with the
-    //    EXPLICIT tenant_id we pass, so tenant scoping is preserved and it stays
-    //    single-tenant-safe. The instance is then visible to the tenant-scoped
-    //    engine sweep because its tenant_id matches. Running it outside the task
-    //    tx is fine: the producer is best-effort, and an instance with no task
-    //    is reconciled by the engine's backfill backstop.
-    const { startWorkflowSla } = await import('../clinical/canonicalClinicalPlatformService.js');
-    const sla = await startWorkflowSla({
-      tenantId,
-      ruleCode: slaKey,
-      patientUid,
-      sourceTable: resourceType,
-      sourceId: resourceIdStr,
-      priority: SEVERITY_PRIORITY[severity] || 'high',
-      metadata: { source },
-    });
-    const slaInstanceId = sla?.id || null;
+    const produce = async (tx) => {
+      await lockResultsInboxResourceTx({
+        tx,
+        tenantId,
+        resourceType,
+        resourceId: resourceIdStr,
+      });
+      // Lock a pre-580 task before starting a clock. Old best-effort producers
+      // could leave an active task with metadata.sla_key but no SLA link when
+      // rule lookup failed. Open work is upgraded below; an acknowledged or
+      // completed legacy task is a conservative no-op so replay never creates a
+      // false fresh alert. An unrelated untyped active task is a hard collision.
+      const priorTasks = await tx.$queryRawUnsafe(
+        `SELECT task.id, task.status, task.completed_at, task.workflow_sla_instance_id,
+                task.sla_completion_semantics, task.assigned_to_uid,
+                task.assigned_to_role, task.metadata,
+                sla.rule_code AS linked_sla_rule_code,
+                sla.source_table AS linked_sla_source_table,
+                sla.source_id AS linked_sla_source_id
+           FROM tasks task
+           LEFT JOIN workflow_sla_instances sla
+             ON sla.tenant_id = task.tenant_id
+            AND sla.id = task.workflow_sla_instance_id
+          WHERE task.tenant_id = $1::uuid
+            AND task.related_resource_type = $2::text
+            AND task.related_resource_id = $3::text
+          ORDER BY task.id DESC
+          LIMIT 1
+          FOR UPDATE OF task`,
+        tenantId,
+        resourceType,
+        resourceIdStr,
+      );
+      const priorTask = priorTasks[0] || null;
+      const priorIsLegacy = isLegacyCriticalTask(priorTask, slaKey);
+      const priorIsHandledTyped = isExactHandledTypedCriticalTask(priorTask, {
+          slaKey,
+          resourceType,
+          resourceId: resourceIdStr,
+        });
+      const priorWasHandled = Boolean(
+        (priorIsLegacy || priorIsHandledTyped)
+        && ['in_progress', 'completed'].includes(priorTask.status)
+      );
+      if (
+        priorTask
+        && ACTIVE_TASK_STATUSES.has(priorTask.status)
+        && priorTask.sla_completion_semantics === 'none'
+        && !priorIsLegacy
+      ) {
+        throw new Error('Active resource slot is occupied by an incompatible untyped task');
+      }
 
-    return await setTenantTx(tenantId, async (tx) => {
+      // Global workflow SLA rules are intentionally exposed under a concrete
+      // tenant GUC by migration 352, so clock and task can be one transaction.
+      const { startWorkflowSla } = await import('../clinical/canonicalClinicalPlatformService.js');
+      const sla = await startWorkflowSla({
+        tenantId,
+        ruleCode: slaKey,
+        patientUid,
+        sourceTable: resourceType,
+        sourceId: resourceIdStr,
+        priority: SEVERITY_PRIORITY[severity] || 'high',
+        metadata: {
+          source,
+          task_materialization_contract: TASK_MATERIALIZATION_CONTRACT,
+        },
+      }, { db: tx });
+      if (!sla?.id) {
+        throw new Error('Critical-result SLA rule is unavailable');
+      }
+      const slaInstanceId = sla.id;
+      if (priorWasHandled) {
+        let handledTask = priorTask;
+        if (priorIsLegacy) {
+          handledTask = await upgradeLegacyCriticalTask({
+            tx,
+            tenantId,
+            task: priorTask,
+            slaKey,
+            slaInstanceId,
+          });
+        } else if (!isTypedCriticalTask(priorTask, slaInstanceId)) {
+          throw new Error('Handled critical-result task is linked to a different SLA instance');
+        }
+        if (isIncompleteSla(sla)) {
+          await reconcileAcknowledgedTaskSla({
+            tx,
+            tenantId,
+            task: handledTask,
+            slaInstanceId,
+          });
+        }
+        return {
+          created: false,
+          skipped: true,
+          reason: priorIsLegacy
+            ? 'legacy_task_ack_reconciled'
+            : 'task_already_acknowledged',
+          taskId: handledTask.id,
+          slaInstanceId,
+        };
+      }
+      if (!isIncompleteSla(sla)) {
+        return {
+          created: false,
+          skipped: true,
+          reason: 'sla_terminal',
+          taskId: null,
+          slaInstanceId,
+        };
+      }
+
+      if (priorTask && ACTIVE_TASK_STATUSES.has(priorTask.status)) {
+        if (priorIsLegacy && UNACKNOWLEDGED_TASK_STATUSES.has(priorTask.status)) {
+          let upgraded = await upgradeLegacyCriticalTask({
+            tx,
+            tenantId,
+            task: priorTask,
+            slaKey,
+            slaInstanceId,
+          });
+          upgraded = await repairCriticalResultOwner({
+            tx,
+            tenantId,
+            task: upgraded,
+            orderingClinicianUid,
+            careTeamRoleHint,
+          });
+          return {
+            created: false,
+            upgraded: true,
+            taskId: upgraded.id,
+            slaInstanceId,
+          };
+        }
+        if (isTypedCriticalTask(priorTask, slaInstanceId)) {
+          const ownedTask = await repairCriticalResultOwner({
+            tx,
+            tenantId,
+            task: priorTask,
+            orderingClinicianUid,
+            careTeamRoleHint,
+          });
+          return {
+            created: false,
+            taskId: ownedTask.id,
+            slaInstanceId,
+          };
+        }
+        throw new Error('Active critical-result task is linked to a different SLA obligation');
+      }
+
       // 2. Create the assigned, idempotent ack-task, linking the SLA instance.
-      const created = await taskService.createTask({
+      const created = await createCriticalResultTask({
         tenantId,
         tx,
-        taskKind: 'review',
-        title: title || `Critical ${source}: review required`,
-        description: summary || null,
         patientUid,
-        relatedResourceType: resourceType,
-        relatedResourceId: resourceIdStr,
-        priority: SEVERITY_PRIORITY[severity] || 'high',
-        assignedToUid: orderingClinicianUid || null,
-        // Only fall back to a role when there is no ordering clinician.
-        assignedToRole: orderingClinicianUid ? null : resolveRoleCode(careTeamRoleHint),
-        metadata: { source, sla_instance_id: slaInstanceId, sla_key: slaKey, ...(extraMetadata || {}) },
-        onConflictResourceDoNothing: true,
+        source,
+        resourceType,
+        resourceId: resourceIdStr,
+        severity,
+        title,
+        summary,
+        orderingClinicianUid,
+        careTeamRoleHint,
+        slaKey,
+        slaInstanceId,
+        extraMetadata,
       });
 
-      return {
-        created: !!created?.id,
-        taskId: created?.id || null,
-        slaInstanceId,
-      };
-    });
+      if (created?.id) {
+        return { created: true, taskId: created.id, slaInstanceId };
+      }
+      // A concurrent producer may have won the partial-unique slot after our
+      // pre-read. Treat it as idempotent only when it is the exact typed task
+      // for this SLA; otherwise roll back the orphan clock and report loudly.
+      const conflicts = await tx.$queryRawUnsafe(
+        `SELECT id, status, workflow_sla_instance_id, sla_completion_semantics,
+                assigned_to_uid, assigned_to_role, metadata
+           FROM tasks
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = $2::text
+            AND related_resource_id = $3::text
+            AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+          ORDER BY id DESC
+          LIMIT 1
+          FOR UPDATE`,
+        tenantId,
+        resourceType,
+        resourceIdStr,
+      );
+      let conflict = conflicts[0] || null;
+      if (!isTypedCriticalTask(conflict, slaInstanceId)) {
+        throw new Error('Critical-result task slot was claimed by an incompatible SLA obligation');
+      }
+      conflict = await repairCriticalResultOwner({
+        tx,
+        tenantId,
+        task: conflict,
+        orderingClinicianUid,
+        careTeamRoleHint,
+      });
+      return { created: false, taskId: conflict.id, slaInstanceId };
+    };
+    return await (callerTx ? produce(callerTx) : setTenantTx(tenantId, produce));
   } catch (err) {
-    // CRITICAL: never let the safety-net producer break the clinical write.
+    if (strict) throw err;
+    // Standalone safety-net producers remain best-effort for their existing callers.
     logger.error('enqueueCriticalResultTask failed', {
       err: err?.message,
       resourceType,
@@ -187,8 +626,8 @@ export async function enqueueCriticalResultTask({
  * quick-win 1): make sure an OPEN, UNACKNOWLEDGED ack-task exists for the
  * resource after its value changed.
  *
- * Why the plain producer is not enough: the mig-312 partial unique index
- * covers status IN ('open','in_progress','blocked') — an ALREADY-ACKNOWLEDGED
+ * Why the plain producer is not enough: the active-resource partial unique index
+ * covers status IN ('open','in_progress','blocked','overdue') — an ALREADY-ACKNOWLEDGED
  * task (acknowledge = open→in_progress, taskService.acknowledgeTask) still
  * occupies the slot, so `enqueueCriticalResultTask` is a silent no-op and the
  * clinician who acked the OLD value is never asked to look at the NEW one.
@@ -201,13 +640,14 @@ export async function enqueueCriticalResultTask({
  *   1. leaves a still-unacknowledged task (open/overdue) in place — the fresh
  *      ack window already exists; it only gets a system comment for the audit
  *      trail;
- *   2. closes out an acknowledged/in-flight task (in_progress → completed,
- *      blocked → cancelled) — it answered the superseded value;
+ *   2. closes out an acknowledged/in-flight task (in_progress → completed;
+ *      blocked resumes then completes) using the authenticated supersession
+ *      actor as its durable receipt — it answered the superseded value;
  *   3. re-arms a stopped SLA instance (completed_at back to NULL, fresh
  *      due_at from the rule's target_minutes) so the escalation engine chases
  *      the new ack window too;
- *   4. creates the fresh task via the standard producer, stamping reopen
- *      provenance (`metadata.reopened_from_task_id`).
+ *   4. creates the fresh task and forward audit link in the same transaction,
+ *      stamping reopen provenance (`metadata.reopened_from_task_id`).
  *
  * Same contract as the producer: tenant-scoped, idempotent, NEVER throws.
  *
@@ -227,134 +667,305 @@ export async function ensureCriticalResultTaskOpen({
   careTeamRoleHint = null,
   slaKey = 'critical_result_ack',
   reason = 'corrected_result',
+  supersededByActorUid = null,
+  forceNewAcknowledgementWindow = false,
+  tx: callerTx = null,
+  strict = false,
 } = {}) {
   const resourceIdStr = resourceId == null ? null : String(resourceId);
   try {
-    // Latest active-window task for the resource. 'overdue' is included even
-    // though the mig-312 index excludes it: an overdue task is still an
-    // unacknowledged ack window, and enqueueing next to it would duplicate.
-    const existing = await setTenantTx(tenantId, async (tx) => {
-      const rows = await tx.$queryRawUnsafe(
-        `SELECT id, status, metadata
+    const produce = async (tx) => {
+      await lockResultsInboxResourceTx({
+        tx,
+        tenantId,
+        resourceType,
+        resourceId: resourceIdStr,
+      });
+      // Lock the current resource slot before deciding whether the corrected
+      // value can reuse it. This serializes against acknowledgement: if ack wins
+      // first we supersede/rearm, and if this lock wins first the later ack
+      // acknowledges the already-annotated corrected value.
+      const activeRows = await tx.$queryRawUnsafe(
+        `SELECT id, status, workflow_sla_instance_id, sla_completion_semantics,
+                assigned_to_uid, assigned_to_role, metadata
            FROM tasks
           WHERE tenant_id = $1::uuid
             AND related_resource_type = $2
             AND related_resource_id = $3
             AND status IN ('open', 'in_progress', 'blocked', 'overdue')
           ORDER BY id DESC
-          LIMIT 1`,
-        tenantId, resourceType, resourceIdStr,
-      );
-      return rows[0] || null;
-    });
-
-    // Nobody has acknowledged the existing window yet — it now covers the
-    // corrected value. Annotate for the audit trail and stop.
-    if (existing && (existing.status === 'open' || existing.status === 'overdue')) {
-      await taskService.postTaskComment({
+          LIMIT 1
+          FOR UPDATE`,
         tenantId,
-        taskId: existing.id,
-        authorUid: null,
-        body: `Result superseded (${reason}) while awaiting acknowledgement — review the updated value before acting.`,
-        bodyKind: 'system_event',
-        metadata: { reason },
-      }).catch((err) => logger.warn('ensureCriticalResultTaskOpen: annotate comment failed', {
-        taskId: existing.id, err: err?.message,
-      }));
-      return {
-        created: false,
-        reopened: false,
-        taskId: existing.id,
-        supersededTaskId: null,
-        slaInstanceId: existing.metadata?.sla_instance_id ?? null,
-      };
-    }
-
-    // An acknowledged (in_progress) or blocked task answered the OLD value:
-    // close it out so the index slot frees for a fresh ack window. Failure
-    // here (e.g. a concurrent completion) is non-fatal — the enqueue below
-    // still either creates the fresh task or no-ops safely.
-    let supersededTaskId = null;
-    if (existing) {
-      supersededTaskId = existing.id;
-      const closeStatus = existing.status === 'blocked' ? 'cancelled' : 'completed';
-      try {
-        await taskService.transitionTask({
+        resourceType,
+        resourceIdStr,
+      );
+      let active = activeRows[0] || null;
+      const initialActiveStatus = active?.status || null;
+      const hasUnacknowledgedActiveStatus = ['open', 'overdue'].includes(initialActiveStatus);
+      let predecessor = null;
+      if (!active) {
+        const predecessorRows = await tx.$queryRawUnsafe(
+          `SELECT id, status, workflow_sla_instance_id, sla_completion_semantics, metadata
+             FROM tasks
+            WHERE tenant_id = $1::uuid
+              AND related_resource_type = $2
+              AND related_resource_id = $3
+              AND status IN ('completed', 'cancelled')
+            ORDER BY id DESC
+            LIMIT 1
+            FOR UPDATE`,
           tenantId,
-          id: existing.id,
-          nextStatus: closeStatus,
-          cancellationReason: closeStatus === 'cancelled'
-            ? `Superseded by ${reason} — a fresh acknowledgement task replaces this one`
-            : null,
-        });
-      } catch (err) {
-        logger.warn('ensureCriticalResultTaskOpen: supersede transition failed', {
-          taskId: existing.id, err: err?.message,
+          resourceType,
+          resourceIdStr,
+        );
+        predecessor = predecessorRows[0] || null;
+      }
+      let provenanceTask = active || predecessor;
+      let supersededTaskId = null;
+
+      const priorInstances = await tx.$queryRawUnsafe(
+        `SELECT id, rule_id, status, started_at, due_at, completed_at,
+                breached_at, escalated_at, metadata
+           FROM workflow_sla_instances
+          WHERE tenant_id = $1::uuid
+            AND rule_code = $2
+            AND source_table = $3
+            AND source_id = $4
+          LIMIT 1
+          FOR UPDATE`,
+        tenantId,
+        slaKey,
+        resourceType,
+        resourceIdStr,
+      );
+      const priorSla = priorInstances[0] || null;
+      let sla = priorSla;
+      if (!sla) {
+        const { startWorkflowSla } = await import('../clinical/canonicalClinicalPlatformService.js');
+        sla = await startWorkflowSla({
+          tenantId,
+          ruleCode: slaKey,
+          patientUid,
+          sourceTable: resourceType,
+          sourceId: resourceIdStr,
+          priority: SEVERITY_PRIORITY[severity] || 'high',
+          metadata: {
+            source,
+            task_materialization_contract: TASK_MATERIALIZATION_CONTRACT,
+          },
+        }, { db: tx });
+      }
+      const slaInstanceId = sla?.id || null;
+      if (!slaInstanceId) throw new Error('Critical-result SLA rule is unavailable');
+      if (!priorSla && !isIncompleteSla(sla)) {
+        throw new Error('New critical-result SLA is not an incomplete clock');
+      }
+
+      if (
+        priorSla
+        && !isIncompleteSla(priorSla)
+        && resourceType === 'lab_result'
+      ) {
+        if (!provenanceTask?.id || !patientUid) {
+          throw criticalResultAckReconciliationRequired();
+        }
+        await requireClosedLabAcknowledgementReceipt({
+          tx,
+          tenantId,
+          patientUid,
+          resourceId: resourceIdStr,
+          taskId: provenanceTask.id,
+          slaInstanceId,
         });
       }
-    }
 
-    // Re-arm a stopped SLA clock BEFORE enqueueing: startWorkflowSla's
-    // ON CONFLICT keeps a completed instance completed, so without this the
-    // fresh task would link a dead clock and the escalation engine would
-    // never chase the re-acknowledgement. Runs on the plain singleton (NOT
-    // setTenantTx) for the same RLS reason documented on the producer: the
-    // joined workflow_sla_rules seed row is GLOBAL (tenant_id IS NULL) and
-    // invisible under a pinned tenant GUC. The instance row itself is
-    // tenant-filtered explicitly.
-    await prisma.$executeRawUnsafe(
-      `UPDATE workflow_sla_instances i
-          SET status = 'active',
-              completed_at = NULL,
-              breached_at = NULL,
-              started_at = NOW(),
-              due_at = NOW() + (r.target_minutes * INTERVAL '1 minute'),
-              updated_at = NOW()
-         FROM workflow_sla_rules r
-        WHERE r.id = i.rule_id
-          AND i.tenant_id = $1::uuid
-          AND i.rule_code = $2
-          AND i.source_table = $3
-          AND i.source_id = $4
-          AND i.completed_at IS NOT NULL`,
-      tenantId, slaKey, resourceType, resourceIdStr,
-    );
+      if (active) {
+        if (isLegacyCriticalTask(active, slaKey)) {
+          active = await upgradeLegacyCriticalTask({
+            tx,
+            tenantId,
+            task: active,
+            slaKey,
+            slaInstanceId,
+          });
+          provenanceTask = active;
+        } else if (!isTypedCriticalTask(active, slaInstanceId)) {
+          throw new Error('Active corrected-result task is linked to a different SLA obligation');
+        }
+      }
+      if (
+        provenanceTask?.workflow_sla_instance_id
+        && String(provenanceTask.workflow_sla_instance_id) !== String(slaInstanceId)
+      ) {
+        throw new Error('Prior critical-result task is linked to a different SLA instance');
+      }
 
-    const enq = await enqueueCriticalResultTask({
-      tenantId,
-      patientUid,
-      source,
-      resourceType,
-      resourceId,
-      severity,
-      title,
-      summary,
-      orderingClinicianUid,
-      careTeamRoleHint,
-      slaKey,
-      extraMetadata: supersededTaskId
-        ? { reopened_from_task_id: supersededTaskId, reopen_reason: reason }
-        : { reopen_reason: reason },
-    });
+      const canReuseActive = Boolean(
+        active
+        && !forceNewAcknowledgementWindow
+        && hasUnacknowledgedActiveStatus
+        && isTypedCriticalTask(active, slaInstanceId)
+        && isIncompleteSla(sla)
+      );
+      if (canReuseActive) {
+        active = await repairCriticalResultOwner({
+          tx,
+          tenantId,
+          task: active,
+          orderingClinicianUid,
+          careTeamRoleHint,
+        });
+      }
+      supersededTaskId = canReuseActive ? null : (provenanceTask?.id || null);
+      if (active && !canReuseActive) {
+        await taskService.supersedeAcknowledgementTaskFromTrustedWorkflow({
+          tenantId,
+          id: active.id,
+          relatedResourceType: resourceType,
+          relatedResourceId: resourceIdStr,
+          workflowSlaInstanceId: slaInstanceId,
+          supersededByActorUid,
+          tx,
+        });
+      }
 
-    // Forward-link the superseded task to its replacement (audit trail).
-    if (supersededTaskId && enq.taskId) {
-      await taskService.postTaskComment({
+      const shouldRearm = Boolean(
+        !canReuseActive
+        && (priorSla || active)
+      );
+      if (slaInstanceId && shouldRearm) {
+        const timing = await tx.$queryRawUnsafe(
+          `SELECT target_minutes
+             FROM workflow_sla_rules
+            WHERE id = $1::uuid
+              AND enabled = TRUE
+            LIMIT 1`,
+          sla.rule_id,
+        );
+        const targetMinutes = Number(timing[0]?.target_minutes);
+        if (!Number.isInteger(targetMinutes) || targetMinutes <= 0) {
+          throw new Error('Critical-result SLA rule target is invalid');
+        }
+        const rearmed = await tx.$queryRawUnsafe(
+          `UPDATE workflow_sla_instances i
+              SET status = 'active',
+                  completed_at = NULL,
+                  breached_at = NULL,
+                  escalated_at = NULL,
+                  started_at = NOW(),
+                  due_at = NOW() + ($3::int * INTERVAL '1 minute'),
+                  metadata = (
+                    COALESCE(i.metadata, '{}'::jsonb)
+                      - 'completed_via'
+                      - 'completed_by_task'
+                      - 'completed_by'
+                      - 'acknowledged_by'
+                      - 'completion_evidence'
+                      - 'ack_contract_version'
+                  ) || jsonb_build_object(
+                    'reopened_at', NOW(),
+                    'reopen_reason', $4::text,
+                    'reopen_history',
+                      CASE WHEN jsonb_typeof(i.metadata->'reopen_history') = 'array'
+                        THEN i.metadata->'reopen_history'
+                        ELSE '[]'::jsonb
+                      END
+                      || jsonb_build_array(jsonb_build_object(
+                        'reopened_at', NOW(),
+                        'reopen_reason', $4::text,
+                        'prior_status', i.status,
+                        'prior_started_at', i.started_at,
+                        'prior_due_at', i.due_at,
+                        'prior_completed_at', i.completed_at,
+                        'prior_breached_at', i.breached_at,
+                        'prior_escalated_at', i.escalated_at,
+                        'prior_ack_contract_version', i.metadata->'ack_contract_version'
+                      ) || jsonb_strip_nulls(jsonb_build_object(
+                        'prior_completed_via', i.metadata->'completed_via',
+                        'prior_completed_by_task', i.metadata->'completed_by_task',
+                        'prior_completed_by', i.metadata->'completed_by',
+                        'prior_acknowledged_by', i.metadata->'acknowledged_by',
+                        'prior_completion_evidence', i.metadata->'completion_evidence'
+                      )))
+                  ),
+                  updated_at = NOW()
+            WHERE i.id = $1::uuid
+              AND i.tenant_id = $2::uuid
+            RETURNING i.id`,
+          slaInstanceId,
+          tenantId,
+          targetMinutes,
+          String(reason),
+        );
+        if (!rearmed[0]) throw new Error('Critical-result SLA disappeared during reopen');
+      }
+
+      if (canReuseActive) {
+        await taskService.postTaskComment({
+          tenantId,
+          taskId: active.id,
+          authorUid: null,
+          body: `Result superseded (${reason}) while awaiting acknowledgement — review the updated value before acting.`,
+          bodyKind: 'system_event',
+          metadata: { reason },
+          tx,
+        });
+        return {
+          created: false,
+          reopened: false,
+          taskId: active.id,
+          supersededTaskId: null,
+          slaInstanceId,
+        };
+      }
+
+      const created = await createCriticalResultTask({
         tenantId,
-        taskId: supersededTaskId,
-        authorUid: null,
-        body: `Superseded (${reason}): re-acknowledgement required on task #${enq.taskId}.`,
-        bodyKind: 'system_event',
-        metadata: { reason, superseded_by_task_id: enq.taskId },
-      }).catch((err) => logger.warn('ensureCriticalResultTaskOpen: supersede comment failed', {
-        taskId: supersededTaskId, err: err?.message,
-      }));
-    }
+        tx,
+        patientUid,
+        source,
+        resourceType,
+        resourceId: resourceIdStr,
+        severity,
+        title,
+        summary,
+        orderingClinicianUid,
+        careTeamRoleHint,
+        slaKey,
+        slaInstanceId,
+        extraMetadata: supersededTaskId
+          ? { reopened_from_task_id: supersededTaskId, reopen_reason: reason }
+          : { reopen_reason: reason },
+      });
+      if (!created?.id) {
+        throw new Error('Replacement critical-result task could not claim the active resource slot');
+      }
 
-    return { ...enq, reopened: !!supersededTaskId, supersededTaskId };
+      if (supersededTaskId) {
+        await taskService.postTaskComment({
+          tenantId,
+          taskId: supersededTaskId,
+          authorUid: null,
+          body: `Superseded (${reason}): re-acknowledgement required on task #${created.id}.`,
+          bodyKind: 'system_event',
+          metadata: { reason, superseded_by_task_id: created.id },
+          tx,
+        });
+      }
+
+      return {
+        created: true,
+        reopened: !!supersededTaskId,
+        taskId: created.id,
+        supersededTaskId,
+        slaInstanceId,
+      };
+    };
+    return await (callerTx ? produce(callerTx) : setTenantTx(tenantId, produce));
   } catch (err) {
-    // Same contract as the producer: the safety net must never break the
-    // originating clinical write.
+    if (strict) throw err;
+    // Standalone safety-net callers keep the original never-throw contract.
     logger.error('ensureCriticalResultTaskOpen failed', {
       err: err?.message,
       resourceType,

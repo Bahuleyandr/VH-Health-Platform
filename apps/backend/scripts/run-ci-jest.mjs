@@ -21,7 +21,7 @@ const mandatoryIsolatedTestPatterns = [
 ];
 const configuredIsolatedTestPatterns = String(
   process.env.JEST_CI_ISOLATED_TESTS
-    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js,pathway-event-delivery.deep.test.js,pathway-projector-replay.deep.test.js',
+    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js,hl7-outbound.deep.test.js,lab-walk-in.journey.test.js,user-profile-authz.deep.test.js,pathway-event-delivery.deep.test.js,pathway-projector-replay.deep.test.js',
 )
   .split(',')
   .map((pattern) => pattern.trim())

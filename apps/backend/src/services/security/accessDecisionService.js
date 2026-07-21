@@ -308,6 +308,34 @@ export async function resolvePatientForResourceAccess(req, {
   if (!type) return null;
 
   switch (type) {
+    case 'care_pathway_instance':
+      return patientFromUuidResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM care_pathway_instances cpi
+           JOIN users p
+             ON p.uid = cpi.patient_uid
+            AND p.tenant_id = cpi.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE cpi.tenant_id = $1::uuid
+            AND cpi.id = $2::uuid
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'care_handoff_instance':
+      return patientFromUuidResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM care_handoff_instances chi
+           JOIN users p
+             ON p.uid = chi.patient_uid
+            AND p.tenant_id = chi.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE chi.tenant_id = $1::uuid
+            AND chi.id = $2::uuid
+          LIMIT 1`,
+        resourceId,
+      );
     case 'appointment':
       return patientFromResourceQuery(
         req,
@@ -678,11 +706,12 @@ export async function resolvePatientForResourceAccess(req, {
   }
 }
 
-export async function resolvePatientForAccess(req, providedPatient = null) {
+export async function resolvePatientForAccess(req, providedPatient = undefined) {
   const tenantId = deriveTenantIdFromRequest(req);
   const providedUid = cleanUuid(providedPatient?.uid || providedPatient?.patient_uid || providedPatient?.patientUid);
   const providedId = cleanInt(providedPatient?.id || providedPatient?.patient_id || providedPatient?.patientId);
-  if (providedUid || providedId) {
+  if (providedPatient !== undefined) {
+    if (!providedUid && !providedId) return null;
     const row = await patientByIdOrUid({ tenantId, id: providedId, uid: providedUid });
     return row ? { id: row.id ?? providedId, uid: row.uid ?? providedUid } : null;
   }
@@ -805,7 +834,7 @@ async function findActiveBreakGlass(req, patient, policy, rolePolicy) {
   if (!actorUid || !patientUid) return null;
 
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id
+    `SELECT id, reason
        FROM patient_access_break_glass
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
@@ -1175,7 +1204,7 @@ async function writePatientAccessAudit(req, decision) {
 export async function authorizePatientAccessRequest(req, {
   policyCode = null,
   recordType = 'PHI',
-  patient = null,
+  patient = undefined,
   resourceContext = null,
   audit = true,
   shadowMode = false,
@@ -1269,7 +1298,10 @@ export async function authorizePatientAccessRequest(req, {
   } else if (!decision) {
     const breakGlass = await findActiveBreakGlass(req, resolvedPatient, policy, rolePolicy);
     if (breakGlass?.id) {
-      decision = allowDecision(args, 'break_glass', 'active break-glass session', { breakGlassId: breakGlass.id });
+      decision = allowDecision(args, 'break_glass', 'active break-glass session', {
+        breakGlassId: breakGlass.id,
+        breakGlassReason: breakGlass.reason,
+      });
     }
   }
 

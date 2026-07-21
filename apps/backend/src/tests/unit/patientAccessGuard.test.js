@@ -91,6 +91,68 @@ describe('patientAccessGuard', () => {
     expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
   });
 
+  it('uses one generic denial for unresolved and real-but-unauthorized patients when resolution is required', async () => {
+    const request = (patientUid) => ({
+      id: 'req-pathway-create',
+      method: 'POST',
+      originalUrl: '/api/v1/care-pathways/instances',
+      params: {},
+      query: {},
+      body: { patient_uid: patientUid },
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      user: {
+        id: 9,
+        uid: '22222222-2222-4222-8222-222222222222',
+        role: 'DOCTOR',
+        tenant_id: '00000000-0000-4000-8000-000000000001',
+      },
+    });
+    const guard = patientAccessGuard('CARE_PATHWAY', {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+      requireResolvedPatient: true,
+    });
+
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+    const unresolvedRes = resStub();
+    await guard(
+      request('44444444-4444-4444-8444-444444444444'),
+      unresolvedRes,
+      jest.fn(),
+    );
+    const unresolvedPayload = unresolvedRes.json.mock.calls[0][0];
+
+    prismaMock.$queryRawUnsafe.mockReset();
+    prismaMock.$executeRawUnsafe.mockReset();
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+    const invalidRes = resStub();
+    await guard(request('not-a-patient-uuid'), invalidRes, jest.fn());
+    const invalidPayload = invalidRes.json.mock.calls[0][0];
+
+    prismaMock.$queryRawUnsafe.mockReset();
+    prismaMock.$executeRawUnsafe.mockReset();
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValue([])
+      .mockResolvedValueOnce([{ id: 15, uid: '55555555-5555-4555-8555-555555555555' }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+    const unauthorizedRes = resStub();
+    await guard(
+      request('55555555-5555-4555-8555-555555555555'),
+      unauthorizedRes,
+      jest.fn(),
+    );
+    const unauthorizedPayload = unauthorizedRes.json.mock.calls[0][0];
+
+    expect(unresolvedRes.status).toHaveBeenCalledWith(403);
+    expect(invalidRes.status).toHaveBeenCalledWith(403);
+    expect(unauthorizedRes.status).toHaveBeenCalledWith(403);
+    expect(invalidPayload).toEqual(unresolvedPayload);
+    expect(unresolvedPayload).toEqual(unauthorizedPayload);
+    expect(unresolvedPayload).toEqual(expect.objectContaining({
+      code: 'PATIENT_ACCESS_DENIED',
+      message: expect.any(String),
+    }));
+  });
+
   it('allows active care-team members and writes an allow audit row', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }])

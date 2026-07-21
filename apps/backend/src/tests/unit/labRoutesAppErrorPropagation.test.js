@@ -12,12 +12,25 @@ import { AppError } from '../../utils/AppError.js';
 // 500 tail to the generic-only 'Lab error'.
 
 const ingestOruMessageMock = jest.fn();
+const ingestInterfaceMessageMock = jest.fn();
+const acknowledgeAlertMock = jest.fn();
+const phiPatientUids = [];
 
 jest.unstable_mockModule('../../services/lab/labResultsService.js', () => ({
   ingestOruMessage: ingestOruMessageMock,
+  acknowledgeAlert: acknowledgeAlertMock,
 }));
 
-jest.unstable_mockModule('../../services/lab/labClosedLoopService.js', () => ({}));
+jest.unstable_mockModule('../../services/lab/labClosedLoopService.js', () => ({
+  ingestInterfaceMessage: ingestInterfaceMessageMock,
+}));
+
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  phiAccessLogger: () => (req, res, next) => {
+    res.on('finish', () => phiPatientUids.push(req.phiContext?.patientUid ?? null));
+    next();
+  },
+}));
 
 jest.unstable_mockModule('../../services/investigation/investigationService.js', () => ({}));
 
@@ -28,18 +41,32 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 }));
 
 const { default: labRoutes } = await import('../../routes/lab/labRoutes.js');
+const { default: labIngestRoutes } = await import('../../routes/lab/labIngestRoutes.js');
 
 const app = express();
 app.use(express.json());
 app.use((req, _res, next) => {
+  const role = req.get('x-test-role') || 'ADMIN';
   req.id = 'test-request-id';
-  req.user = { uid: '11111111-1111-4111-8111-111111111111', role: 'ADMIN' };
+  req.user = {
+    uid: '11111111-1111-4111-8111-111111111111',
+    name: 'Authenticated Pathologist',
+    role,
+    roles: role === 'ADMIN' ? ['ADMIN', 'PATHOLOGIST'] : [role],
+  };
+  req.apiClient = req.get('x-test-api-client') || 'test-api-client';
+  req.apiClientId = 77;
+  req.apiClientTenantId = '00000000-0000-4000-8000-000000000001';
   next();
 });
+app.use('/api/v1/lab', labIngestRoutes);
 app.use('/api/v1/lab', labRoutes);
 
 beforeEach(() => {
   ingestOruMessageMock.mockReset();
+  ingestInterfaceMessageMock.mockReset();
+  acknowledgeAlertMock.mockReset();
+  phiPatientUids.length = 0;
 });
 
 describe('lab wrap() relays AppError code + details', () => {
@@ -95,5 +122,154 @@ describe('lab wrap() relays AppError code + details', () => {
     expect(response.body.success).toBe(false);
     expect(response.body.message).toBe('Lab error');
     expect(response.body.message).not.toMatch(/ECONNREFUSED/);
+  });
+
+  test.each([
+    'LAB_STAFF',
+    'LAB_INCHARGE',
+    'PATHOLOGIST',
+    'ADMIN',
+    'SUPER_ADMIN',
+    'WEBHOOK_CLIENT',
+    'DEVICE_GATEWAY',
+  ])('ORU ingestion admits the narrow analyzer-ingest role %s', async (role) => {
+    ingestOruMessageMock.mockResolvedValueOnce({ results: [], alerts: [], replayed: false });
+
+    const response = await request(app)
+      .post('/api/v1/lab/oru/ingest')
+      .set('x-test-role', role)
+      .set('x-test-api-client', 'analyzer-channel')
+      .send({ message: 'trusted raw message', source: 'forged-body-source' });
+
+    expect(response.statusCode).toBe(200);
+    expect(ingestOruMessageMock).toHaveBeenCalledWith('trusted raw message', {
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorRole: role,
+      actorRoles: role === 'ADMIN' ? ['ADMIN', 'PATHOLOGIST'] : [role],
+      apiClient: 'analyzer-channel',
+      apiClientId: 77,
+      apiClientTenantId: '00000000-0000-4000-8000-000000000001',
+    });
+    expect(ingestOruMessageMock.mock.calls[0][1]).not.toHaveProperty('source');
+  });
+
+  test('ORU ingestion binds the resolved single patient to the transport PHI audit', async () => {
+    ingestOruMessageMock.mockResolvedValueOnce({
+      results: [{ patient_uid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+      alerts: [],
+      replayed: false,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/lab/oru/ingest')
+      .set('x-test-role', 'LAB_STAFF')
+      .send({ message: 'trusted raw message' });
+
+    expect(response.statusCode).toBe(200);
+    expect(phiPatientUids).toEqual(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']);
+  });
+
+  test.each(['DOCTOR', 'NURSING_STAFF', 'GENERAL_STAFF'])(
+    'ORU ingestion denies unrelated clinical/staff role %s before the service',
+    async (role) => {
+      const response = await request(app)
+        .post('/api/v1/lab/oru/ingest')
+        .set('x-test-role', role)
+        .send({ message: 'raw message' });
+
+      expect(response.statusCode).toBe(403);
+      expect(ingestOruMessageMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test('ASTM interface ingestion forwards the full authenticated actor/channel context', async () => {
+    ingestInterfaceMessageMock.mockResolvedValueOnce({ status: 'ingested' });
+
+    const response = await request(app)
+      .post('/api/v1/lab/interface/ingest')
+      .set('x-test-role', 'DEVICE_GATEWAY')
+      .set('x-test-api-client', 'gateway-a')
+      .send({ protocol: 'astm_e1394', message: 'raw ASTM', analyzer_code: 'ANALYZER-A' });
+
+    expect(response.statusCode).toBe(200);
+    expect(ingestInterfaceMessageMock).toHaveBeenCalledWith({
+      protocol: 'astm_e1394',
+      rawMessage: 'raw ASTM',
+      analyzerCode: 'ANALYZER-A',
+      tenantId: '00000000-0000-4000-8000-000000000001',
+    }, {
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorRole: 'DEVICE_GATEWAY',
+      actorRoles: ['DEVICE_GATEWAY'],
+      apiClient: 'gateway-a',
+      apiClientId: 77,
+      apiClientTenantId: '00000000-0000-4000-8000-000000000001',
+    });
+  });
+
+  test('generic interface rejects HL7 before calling the split receipt service path', async () => {
+    const response = await request(app)
+      .post('/api/v1/lab/interface/ingest')
+      .set('x-test-role', 'DEVICE_GATEWAY')
+      .set('x-test-api-client', 'gateway-a')
+      .send({ protocol: 'hl7v2', message: 'raw HL7', analyzer_code: 'ANALYZER-A' });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toMatchObject({ code: 'LAB_INTERFACE_HL7_ROUTE_REQUIRED' });
+    expect(ingestInterfaceMessageMock).not.toHaveBeenCalled();
+  });
+
+  test('machine roles cannot pass through to ordinary lab read routes', async () => {
+    const response = await request(app)
+      .get('/api/v1/lab/results/booking/1')
+      .set('x-test-role', 'DEVICE_GATEWAY');
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  test('critical-alert acknowledgement forwards authenticated identity, roles, and break-glass authority', async () => {
+    acknowledgeAlertMock.mockResolvedValueOnce({ id: 55, acknowledged_at: '2026-07-19T04:00:00.000Z' });
+
+    const response = await request(app)
+      .post('/api/v1/lab/alerts/critical/55/ack')
+      .send({
+        break_glass_id: 44,
+        acknowledged_by_name: 'Ignored caller text',
+        read_back_method: 'phone',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(acknowledgeAlertMock).toHaveBeenCalledWith('55', {
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      acknowledged_by: '11111111-1111-4111-8111-111111111111',
+      acknowledged_by_name: 'Authenticated Pathologist',
+      actorRoles: ['ADMIN', 'PATHOLOGIST'],
+      actorRole: 'ADMIN',
+      breakGlassId: 44,
+      read_back_method: 'phone',
+      notes: undefined,
+    });
+  });
+
+  test('critical-alert acknowledgement admits SUPER_ADMIN through its narrow task-administrator gate', async () => {
+    acknowledgeAlertMock.mockResolvedValueOnce({ id: 55, acknowledged_at: '2026-07-19T04:00:00.000Z' });
+
+    const response = await request(app)
+      .post('/api/v1/lab/alerts/critical/55/ack')
+      .set('x-test-role', 'SUPER_ADMIN')
+      .send({ read_back_method: 'phone' });
+
+    expect(response.statusCode).toBe(200);
+    expect(acknowledgeAlertMock).toHaveBeenCalledWith('55', {
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      acknowledged_by: '11111111-1111-4111-8111-111111111111',
+      acknowledged_by_name: 'Authenticated Pathologist',
+      actorRoles: ['SUPER_ADMIN'],
+      actorRole: 'SUPER_ADMIN',
+      breakGlassId: null,
+      read_back_method: 'phone',
+      notes: undefined,
+    });
   });
 });

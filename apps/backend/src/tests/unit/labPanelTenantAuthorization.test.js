@@ -35,6 +35,23 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../services/notification/staffNotificationService.js', () => ({
+  sendStaffNotifications: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => ({
+  materializeLabCriticalAlertGeneration: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../services/lab/labCriticalThresholdService.js', () => ({
+  assertConfiguredCriticalAnalytesNumeric: jest.fn(),
+  evaluateCriticalThreshold: jest.fn(),
+}));
+
 const {
   getLabPanel,
   listPatientPanels,

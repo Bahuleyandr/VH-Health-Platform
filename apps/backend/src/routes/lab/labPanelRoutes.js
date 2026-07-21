@@ -15,10 +15,22 @@
 import { Router } from 'express';
 import * as panelSvc from '../../services/lab/labPanelService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import {
+  getAuthenticatedActorRoles,
+  isAdmin,
+  isStaff,
+} from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 
 const router = Router();
+const LAB_PANEL_RECORD_ROLES = new Set([
+  'LAB_STAFF',
+  'LAB_INCHARGE',
+  'PATHOLOGIST',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -55,23 +67,41 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function requireLabPanelRecorder(req, res, next) {
+  const roles = getAuthenticatedActorRoles(req.user);
+  if (!roles.some((role) => LAB_PANEL_RECORD_ROLES.has(role))) {
+    return error(res, 'Lab result entry role required', 403);
+  }
+  next();
+}
+
 // ── Panel recording / fetch ─────────────────────────────────────────
 // POST /api/v1/lab/panels
-// Body: { panelCode, patientUid, bookingId?, performedAt?, performedByLab?,
+// Idempotency-Key is required. Body must carry investigationId and/or bookingId.
+// Body: { panelCode, patientUid, investigationId?, bookingId?, performedAt?,
 //         analytes: [{ test_code, test_name, loinc_code?, value_numeric?,
 //                      value_text?, unit?, comments?, status? }] }
-router.post('/panels', requireStaffOrAdmin, wrap(async (req) =>
+router.post(
+  '/panels',
+  requireLabPanelRecorder,
+  requireIdempotencyKey({ required: true, scope: 'lab-panel-record' }),
+  wrap(async (req) =>
   panelSvc.recordLabPanel({
     tenantId: tenantOf(req),
     performedByUid: req.user?.uid,
+    performedByRole: req.user?.role,
     panelCode: req.body.panelCode,
     patientUid: req.body.patientUid,
     bookingId: req.body.bookingId ?? null,
+    investigationId: req.body.investigationId ?? req.body.investigation_id ?? null,
     performedAt: req.body.performedAt ?? null,
-    performedByLab: req.body.performedByLab ?? null,
     analytes: req.body.analytes,
-  }),
-));
+    idempotencyKey: req.idempotencyClaim?.requestKey,
+    requestBodySha256: req.idempotencyClaim?.requestBodyHash,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id,
+    requestId: req.id || null,
+  })),
+);
 
 // GET /api/v1/lab/panels/:panelId
 router.get('/panels/:panelId', requireStaffOrAdmin, wrap(async (req) =>

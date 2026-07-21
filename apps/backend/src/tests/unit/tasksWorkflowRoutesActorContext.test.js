@@ -91,6 +91,41 @@ describe('tasks/workflow admin actor context', () => {
       .toHaveBeenCalledWith(expect.objectContaining({ actorUid: ACTOR }));
   });
 
+  it('does not pass caller-supplied acknowledgement capabilities or actor metadata to transitionTask', async () => {
+    const response = await request(app)
+      .patch('/api/v1/admin/workflow/tasks/1/transition')
+      .send({
+        next_status: 'in_progress',
+        actor_uid: SPOOFED,
+        acknowledgement_transition_authority: 'caller-controlled',
+        metadata: { acknowledged_at: '2099-01-01T00:00:00.000Z' },
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(serviceMocks.transitionTask).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      id: '1',
+      nextStatus: 'in_progress',
+      cancellationReason: undefined,
+      actorUid: ACTOR,
+    });
+  });
+
+  it('returns the service guard conflict without falling back to acknowledgement', async () => {
+    serviceMocks.transitionTask.mockRejectedValueOnce(Object.assign(
+      new Error('Acknowledgement-tracked tasks must use the acknowledgement workflow'),
+      { statusCode: 409, code: 'TASK_ACKNOWLEDGEMENT_REQUIRED' },
+    ));
+
+    const response = await request(app)
+      .patch('/api/v1/admin/workflow/tasks/1/transition')
+      .send({ next_status: 'in_progress' });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body.code).toBe('TASK_ACKNOWLEDGEMENT_REQUIRED');
+    expect(serviceMocks.acknowledgeTask).not.toHaveBeenCalled();
+  });
+
   it('ignores body.approver_uid and passes server roles into approval decisions', async () => {
     const response = await request(app)
       .post('/api/v1/admin/workflow/approvals/3/decide')
@@ -103,6 +138,18 @@ describe('tasks/workflow admin actor context', () => {
     }));
   });
 
+  it('ignores body.created_by when creating an approval', async () => {
+    const response = await request(app)
+      .post('/api/v1/admin/workflow/approvals')
+      .send({ approval_kind: 'clinical_review', created_by: SPOOFED });
+
+    expect(response.statusCode).toBe(201);
+    expect(serviceMocks.createApproval).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      createdBy: ACTOR,
+    }));
+  });
+
   it('uses the canonical single role when the roles collection is empty', async () => {
     requestUser = { uid: ACTOR, role: 'ADMIN', roles: [] };
 
@@ -112,6 +159,18 @@ describe('tasks/workflow admin actor context', () => {
 
     expect(serviceMocks.recordApprovalDecision).toHaveBeenCalledWith(expect.objectContaining({
       actorRoles: ['ADMIN'],
+    }));
+  });
+
+  it('preserves the primary role when secondary claims omit it', async () => {
+    requestUser = { uid: ACTOR, role: 'ADMIN', roles: ['NURSING_STAFF'] };
+
+    await request(app)
+      .post('/api/v1/admin/workflow/approvals/3/decide')
+      .send({ decision: 'approve' });
+
+    expect(serviceMocks.recordApprovalDecision).toHaveBeenCalledWith(expect.objectContaining({
+      actorRoles: ['NURSING_STAFF', 'ADMIN'],
     }));
   });
 

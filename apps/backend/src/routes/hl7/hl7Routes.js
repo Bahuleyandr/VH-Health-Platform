@@ -25,6 +25,27 @@ import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
 
+function assertLocalInvestigationExportContract(investigation, { requireResults = false } = {}) {
+  const orderedTestCode = String(investigation?.test_code || '').trim();
+  const results = Array.isArray(investigation?.results) ? investigation.results : [];
+  const resultsMatch = !requireResults || (
+    results.length > 0
+    && results.every((result) => {
+      if (!result || typeof result !== 'object') return false;
+      const identity = String(
+        result.test_code || result.code || result.observation_id || '',
+      ).trim();
+      return identity.split('^', 1)[0].trim() === orderedTestCode;
+    })
+  );
+  if (!orderedTestCode || !resultsMatch) {
+    throw AppError.badRequest(
+      'Investigation does not have a machine-verifiable HL7 analyte contract',
+      'HL7_LOCAL_ORDER_ANALYTE_CONTRACT_REQUIRED',
+    );
+  }
+}
+
 // C-4: this router is mounted BEFORE the global JWT auth + rate limiters
 // (app.js), and /receive is unauthenticated (HMAC-signed only). DB work happens
 // around the HMAC check, so without a limiter here it is a brute-force / DoS
@@ -72,7 +93,7 @@ async function assertHl7InboundAuthentic(req, { message, controlId, receivingFac
   }
 
   // Sync fast-path: HMAC + freshness + same-process replay.
-  verifySignedRequest({
+  const signedRequest = {
     secret,
     signature,
     timestamp,
@@ -81,7 +102,25 @@ async function assertHl7InboundAuthentic(req, { message, controlId, receivingFac
     context: 'HL7 inbound message',
     codePrefix: 'HL7_INBOUND',
     replayNamespace: 'hl7-inbound',
-  });
+  };
+  verifySignedRequest({ ...signedRequest, claimLocalReplay: false });
+  // A DB-backed API key is tenant-owned. This router is mounted before the
+  // global JWT/tenant middleware, so enforce the same credential equality
+  // here after HMAC verification (no tenant oracle) but before consuming the
+  // durable replay key.
+  if (
+    req.apiClientTenantId
+    && String(req.apiClientTenantId).toLowerCase() !== String(tenantId).toLowerCase()
+  ) {
+    throw AppError.unauthorized(
+      'HL7 inbound credentials do not match the destination',
+      'HL7_INBOUND_CREDENTIAL_MISMATCH',
+    );
+  }
+  // Claim the process-local replay cache only after every authenticated tenant
+  // signal agrees. Re-verification preserves the helper's invariant that it
+  // never exposes an unverified replay-claim primitive.
+  verifySignedRequest(signedRequest);
   // Cross-replica replay guard (the per-process Map above is defeated by the
   // multi-worker / multi-replica cluster).
   await assertSharedReplayOnce({
@@ -251,86 +290,21 @@ router.post(
         return res.status(200).send(generateACK(controlId, 'AA', 'Order accepted'));
       }
 
-      if (messageType === 'ORU^R01') {
-        // Inbound lab result. Map OBX segments to structured_results and
-        // attach to the most recent matching pending investigation for the
-        // patient. If none, create a new investigation so the result isn't
-        // dropped.
-        const patientUid = parsed.pid?.uid || parsed.pid?.patientId;
-        if (!patientUid) {
-          res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-          return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
-        }
-        const patientRow = await loadHl7Patient(patientUid, req.tenantId, req.hl7StrictTenant);
-        if (!patientRow) {
-          res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-          return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
-        }
-
-        const observations = (parsed.obx || []).map((o) => ({
-          code: o.observationId || null, // typically LOINC when sender populates it
-          value: o.value,
-          units: o.units,
-          referenceRange: o.referenceRange,
-          abnormalFlag: o.abnormalFlag,
-          resultStatus: o.resultStatus,
-          valueType: o.valueType,
-        }));
-
-        const testName = parsed.obr?.universalServiceId || observations[0]?.code || 'Lab Result';
-
-        // Attach-or-create scoped to the patient's tenant. The match + the
-        // fallback insert share one setTenant scope so both are RLS-checked
-        // against THAT tenant.
-        const matched = await setTenant(patientRow.tenant_id, async (tx) => {
-          const updated = await tx.$queryRawUnsafe(
-            `UPDATE investigations
-                SET structured_results = $2::jsonb,
-                    status = 'COMPLETED',
-                    completed_at = NOW(),
-                    result_uploaded_at = NOW()
-              WHERE patient_uid = $1::uuid
-                AND tenant_id = $4::uuid
-                AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
-                AND (test_name = $3 OR test_name = 'Unknown Test')
-                AND id = (
-                  SELECT id FROM investigations
-                   WHERE patient_uid = $1::uuid
-                     AND tenant_id = $4::uuid
-                     AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
-                   ORDER BY requested_at DESC
-                   LIMIT 1
-                )
-              RETURNING id`,
-            patientUid,
-            JSON.stringify(observations),
-            testName,
-            patientRow.tenant_id,
-          );
-
-          if (updated.length === 0) {
-            await tx.$queryRawUnsafe(
-              `INSERT INTO investigations (patient_uid, phone, test_name, status, structured_results, completed_at, tenant_id, created_at, updated_at)
-               VALUES ($1::uuid, $2, $3, 'COMPLETED', $4::jsonb, NOW(), $5::uuid, NOW(), NOW())`,
-              patientUid,
-              patientRow.phone,
-              testName,
-              JSON.stringify(observations),
-              patientRow.tenant_id,
-            );
-          }
-          return updated;
-        });
-
-        logger.info('HL7 ORU processed', {
-          patientUid,
-          testName,
-          observationCount: observations.length,
-          attached: matched.length > 0,
+      if (messageType === 'ORU^R01' || messageType === 'ORU^R01^ORU_R01') {
+        // The legacy HMAC-only route has no DB-grounded human/machine actor and
+        // cannot satisfy the replay claim, analyzer binding, canonical result,
+        // critical alert, task, and SLA contract. Never write a partial result
+        // here; authenticated analyzer integrations use /api/v1/lab/oru/ingest.
+        logger.warn('Legacy HL7 ORU ingestion rejected; authenticated lab ingest required', {
+          controlId,
           requestId: req.id,
         });
         res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-        return res.status(200).send(generateACK(controlId, 'AA', 'Result accepted'));
+        return res.status(200).send(generateACK(
+          controlId,
+          'AE',
+          'Use authenticated lab ORU ingestion',
+        ));
       }
 
       // Unsupported message type
@@ -405,8 +379,9 @@ router.post(
       }
 
       const investigationRows = await prisma.$queryRawUnsafe(
-        `SELECT id, patient_uid, uid, test_name, investigation_type, status,
-                results, conclusion, interpretation, ordered_at, completed_at, created_at
+        `SELECT id, patient_uid, uid, test_code, test_name, investigation_type, status,
+                results, conclusion, interpretation, requested_at AS ordered_at,
+                completed_at, created_at
          FROM investigations WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
         investigation_id,
         req.tenantId,
@@ -428,9 +403,15 @@ router.post(
       const patient = patientRows[0] || { uid: patientUid };
 
       if (event_type === 'ORM_O01') {
-        hl7Message = orderToORM(investigation, patient);
+        assertLocalInvestigationExportContract(investigation);
+        hl7Message = orderToORM(investigation, patient, {
+          enforceLocalOrderContract: true,
+        });
       } else {
-        hl7Message = resultToORU(investigation, patient);
+        assertLocalInvestigationExportContract(investigation, { requireResults: true });
+        hl7Message = resultToORU(investigation, patient, {
+          enforceLocalOrderContract: true,
+        });
       }
     } else {
       throw AppError.badRequest(`Unsupported event_type: ${event_type}. Supported: ADT_A01, ADT_A03, ORM_O01, ORU_R01`);

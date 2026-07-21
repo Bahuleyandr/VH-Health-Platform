@@ -134,6 +134,44 @@ describe('buildOpenApiDocument overlay', () => {
     ]);
   });
 
+  it('allows an overlay to replace an inferred path parameter schema without duplication', () => {
+    const routes = [{ method: 'get', path: '/api/v1/x/{id}' }];
+    const overlay = {
+      'GET /api/v1/x/{id}': {
+        pathParameters: {
+          id: { type: 'string', format: 'uuid' },
+        },
+      },
+    };
+    const doc = buildOpenApiDocument(routes, base, overlay);
+    expect(doc.paths['/api/v1/x/{id}'].get.parameters).toEqual([
+      {
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ]);
+  });
+
+  it('allows an overlay to select the successful response status', () => {
+    const routes = [{ method: 'post', path: '/api/v1/x' }];
+    const overlay = {
+      'POST /api/v1/x': {
+        response: 'XResp',
+        responseStatus: 201,
+        responseDescription: 'Created X.',
+      },
+    };
+    const doc = buildOpenApiDocument(routes, base, overlay);
+    const responses = doc.paths['/api/v1/x'].post.responses;
+    expect(Object.keys(responses)).toEqual(['201']);
+    expect(responses[201].description).toBe('Created X.');
+    expect(responses[201].content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/XResp',
+    });
+  });
+
   it('attaches overlay summary, description, and response description', () => {
     const routes = [{ method: 'get', path: '/api/v1/x' }];
     const overlay = {

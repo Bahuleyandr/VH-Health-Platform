@@ -2,6 +2,7 @@ import express from 'express';
 
 import { HTTP_STATUS } from '../config/responseCodes.js';
 import { success, relayAppError } from '../utils/responseHelper.js';
+import { getAuthenticatedActorRoles } from '../utils/roleHelpers.js';
 import {
   acknowledgeColdChainExcursion,
   createColdChainUnit,
@@ -112,7 +113,7 @@ coldChainRoutes.post('/excursions/:id/acknowledge', async (req, res) => {
       tenantId: requestTenantId(req),
       id: req.params.id,
       actorUid: req.user?.uid || null,
-      actorRoles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
+      actorRoles: getAuthenticatedActorRoles(req.user),
     });
     return success(res, { excursion }, 'Cold-chain excursion acknowledged');
   } catch (err) {
@@ -128,6 +129,7 @@ coldChainRoutes.post('/excursions/:id/corrective-action', async (req, res) => {
       correctiveAction: req.body?.corrective_action ?? req.body?.correctiveAction,
       dispositionNote: req.body?.disposition_note ?? req.body?.dispositionNote,
       actorUid: req.user?.uid || null,
+      actorRoles: getAuthenticatedActorRoles(req.user),
     });
     return success(res, { excursion }, 'Cold-chain corrective action recorded');
   } catch (err) {

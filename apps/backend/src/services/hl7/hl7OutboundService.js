@@ -134,10 +134,14 @@ export async function queueFeedMessage({
 
 // ── Emission hooks (Phase 1.5 — never throw into the clinical write) ──────
 
-async function loadPatient(patientUid) {
+async function loadPatient(patientUid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT uid, tenant_id, name, phone, gender, birthday, address FROM users WHERE uid = $1::uuid LIMIT 1`,
-    patientUid,
+    `SELECT uid, tenant_id, name, phone, gender, birthday, address
+       FROM users
+      WHERE uid = $1::uuid
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    patientUid, tenantId,
   );
   return rows[0] || null;
 }
@@ -185,24 +189,61 @@ export async function emitDischargeAdt(admission) {
 }
 
 /** ORU at pathologist sign-off — the clinically-correct release trigger. */
-export async function emitSignedResultsOru({ resultIds = [], patientUid = null } = {}) {
+export async function emitSignedResultsOru({ resultIds = [], patientUid = null, tenantId = null } = {}) {
   try {
     if (!Array.isArray(resultIds) || resultIds.length === 0) return 0;
-    const results = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, test_code, test_name, value_text, value_numeric, unit,
-              reference_range, abnormal_flag
-         FROM lab_results WHERE id = ANY($1::int[])`,
+    const ids = [...new Set(
       resultIds.map((id) => Number.parseInt(id, 10)).filter(Number.isInteger),
+    )];
+    if (ids.length === 0) return 0;
+    const results = await prisma.$queryRawUnsafe(
+      `SELECT result.id, result.tenant_id, result.patient_uid, result.investigation_id,
+              result.test_code, result.test_name, result.value_text, result.value_numeric,
+              result.unit, result.reference_range, result.abnormal_flag,
+              investigation.test_code AS ordered_test_code,
+              investigation.test_name AS ordered_test_name
+         FROM lab_results AS result
+         LEFT JOIN investigations AS investigation
+           ON investigation.tenant_id = result.tenant_id
+          AND investigation.id = result.investigation_id
+        WHERE result.id = ANY($1::int[])
+          AND ($2::uuid IS NULL OR result.tenant_id = $2::uuid)`,
+      ids, tenantId,
     );
-    if (!results.length) return 0;
-    const uid = patientUid || results[0].patient_uid;
-    const patient = await loadPatient(uid);
+    if (results.length !== ids.length) return 0;
+
+    const resultTenantIds = new Set(results.map((row) => String(row.tenant_id).toLowerCase()));
+    const resultPatientUids = new Set(results.map((row) => String(row.patient_uid).toLowerCase()));
+    if (resultTenantIds.size !== 1 || resultPatientUids.size !== 1) return 0;
+
+    const resultTenantId = String(results[0].tenant_id);
+    const resultPatientUid = String(results[0].patient_uid);
+    if (tenantId && String(tenantId).toLowerCase() !== resultTenantId.toLowerCase()) return 0;
+    if (patientUid && String(patientUid).toLowerCase() !== resultPatientUid.toLowerCase()) return 0;
+
+    const resultInvestigationIds = new Set(
+      results.map(row => (row.investigation_id == null ? null : Number(row.investigation_id))),
+    );
+    const orderedTestCodes = new Set(results.map(row => String(row.ordered_test_code || '').trim()));
+    const localInvestigationId = resultInvestigationIds.size === 1
+      && !resultInvestigationIds.has(null)
+      && orderedTestCodes.size === 1
+      && !orderedTestCodes.has('')
+      && results.every(row => String(row.test_code || '').trim() === [...orderedTestCodes][0])
+      ? [...resultInvestigationIds][0]
+      : null;
+
+    const patient = await loadPatient(resultPatientUid, resultTenantId);
     if (!patient) return 0;
     const investigation = {
-      id: results[0].id,
-      test_name: results[0].test_name,
+      id: localInvestigationId,
+      test_code: localInvestigationId == null ? null : [...orderedTestCodes][0],
+      test_name: localInvestigationId == null
+        ? results[0].test_name
+        : (results[0].ordered_test_name || results[0].test_name),
       results: results.map((r) => ({
-        name: r.test_code || r.test_name,
+        test_code: r.test_code,
+        name: r.test_name,
         value: r.value_text ?? (r.value_numeric != null ? String(r.value_numeric) : ''),
         unit: r.unit || '',
         reference_range: r.reference_range || '',
@@ -215,8 +256,8 @@ export async function emitSignedResultsOru({ resultIds = [], patientUid = null }
       hl7Payload: resultToORU(investigation, patient),
       sourceTable: 'lab_results',
       sourceId: String(results[0].id),
-      patientUid: uid,
-      tenantId: patient.tenant_id,
+      patientUid: resultPatientUid,
+      tenantId: resultTenantId,
     });
     if (queued > 0) logger.info('ORU^R01 queued for outbound feeds', { result_count: results.length, queued });
     return queued;

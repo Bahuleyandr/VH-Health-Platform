@@ -112,7 +112,7 @@ function createTwoPartyBarrier() {
   };
 }
 
-async function runCasRace(pattern, actions, expectedCode) {
+async function runCasRace(pattern, actions, expectedCode, expectedStatusCode = 409) {
   const barrier = createTwoPartyBarrier();
   ctl.race = { pattern, barrier };
   const releaseTimer = setTimeout(() => barrier.forceRelease(), 5_000);
@@ -130,7 +130,7 @@ async function runCasRace(pattern, actions, expectedCode) {
   const rejected = results.filter((result) => result.status === 'rejected');
   expect(fulfilled).toHaveLength(1);
   expect(rejected).toHaveLength(1);
-  expect(rejected[0].reason).toMatchObject({ statusCode: 409, code: expectedCode });
+  expect(rejected[0].reason).toMatchObject({ statusCode: expectedStatusCode, code: expectedCode });
   return fulfilled[0].value;
 }
 
@@ -138,6 +138,10 @@ async function expectForeignKeyFailure(action) {
   const error = await action().then(() => null, (err) => err);
   expect(error).toBeTruthy();
   expect(`${error?.meta?.code || ''} ${error?.message || ''}`).toMatch(/23503|foreign key/i);
+  // Expected integrity violations prove constraints, not infrastructure loss.
+  // A successful probe between cases keeps this deliberate negative suite from
+  // exhausting the production circuit breaker's consecutive-error budget.
+  await prisma.$queryRawUnsafe('SELECT 1');
 }
 
 async function seedDefinition({
@@ -215,14 +219,27 @@ async function seedTask({
   parentTaskId = null,
   status = 'open',
   title = `Workflow conformance ${RUN_TOKEN}`,
+  relatedResourceType = null,
+  relatedResourceId = null,
+  workflowSlaInstanceId = null,
+  slaCompletionSemantics = 'none',
   metadata = { test: 'workflow_runtime_conformance' },
 } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO tasks
-       (tenant_id, workflow_run_id, workflow_step_id, parent_task_id,
-        task_kind, title, status, created_by, metadata)
-     VALUES ($1::uuid, $2, $3, $4, 'general', $5, $6, $7::uuid,
-             $8::jsonb)
+         (tenant_id, workflow_run_id, workflow_step_id, parent_task_id,
+         task_kind, title, status, created_by,
+         related_resource_type, related_resource_id,
+         workflow_sla_instance_id, sla_completion_semantics, due_at, metadata)
+      VALUES ($1::uuid, $2, $3, $4, 'general', $5, $6, $7::uuid,
+              $8, $9, $10::uuid, $11,
+              CASE WHEN $10::uuid IS NULL THEN NULL ELSE (
+                SELECT sla.due_at
+                  FROM workflow_sla_instances AS sla
+                 WHERE sla.tenant_id = $1::uuid
+                   AND sla.id = $10::uuid
+              ) END,
+              $12::jsonb)
      RETURNING id, tenant_id, workflow_run_id, workflow_step_id, parent_task_id, status`,
     tenantId,
     runId,
@@ -231,6 +248,10 @@ async function seedTask({
     title,
     status,
     ACTOR_A,
+    relatedResourceType,
+    relatedResourceId,
+    workflowSlaInstanceId,
+    slaCompletionSemantics,
     JSON.stringify(metadata),
   );
   return rows[0];
@@ -300,16 +321,18 @@ async function cleanup() {
     TENANT_A,
     TENANT_B,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM tasks WHERE tenant_id IN ($1::uuid, $2::uuid)`,
-    TENANT_A,
-    TENANT_B,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM workflow_sla_instances WHERE tenant_id IN ($1::uuid, $2::uuid)`,
-    TENANT_A,
-    TENANT_B,
-  ).catch(() => {});
+  for (const tenantId of [TENANT_A, TENANT_B]) {
+    await actualPrismaModule.setTenantTx(tenantId, async (tx) => {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM tasks WHERE tenant_id = $1::uuid`,
+        tenantId,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid`,
+        tenantId,
+      );
+    }).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM workflow_steps WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     TENANT_A,
@@ -324,6 +347,15 @@ async function cleanup() {
     `DELETE FROM workflow_definitions WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     TENANT_A,
     TENANT_B,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid IN ($2::uuid, $3::uuid, $4::uuid)`,
+    TENANT_A,
+    ACTOR_A,
+    ACTOR_B,
+    ACTOR_C,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`,
@@ -341,15 +373,30 @@ d('workflow runtime PostgreSQL conformance', () => {
               ($3::uuid, $4, 'Workflow runtime conformance tenant B')`,
       TENANT_A,
       `workflow-runtime-a-${RUN_TOKEN}`,
-      TENANT_B,
-      `workflow-runtime-b-${RUN_TOKEN}`,
+       TENANT_B,
+       `workflow-runtime-b-${RUN_TOKEN}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users
+         (uid, tenant_id, phone, name, role, is_active, registered_at, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, $5, 'Workflow conformance actor A', 'DOCTOR', TRUE, NOW(), NOW()),
+         ($2::uuid, $4::uuid, $6, 'Workflow conformance actor B', 'DOCTOR', TRUE, NOW(), NOW()),
+         ($3::uuid, $4::uuid, $7, 'Workflow conformance actor C', 'ADMIN', TRUE, NOW(), NOW())`,
+      ACTOR_A,
+      ACTOR_B,
+      ACTOR_C,
+      TENANT_A,
+      `71${RUN_TOKEN.slice(0, 10)}1`,
+      `71${RUN_TOKEN.slice(0, 10)}2`,
+      `71${RUN_TOKEN.slice(0, 10)}3`,
     );
   }, 60_000);
 
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 30_000);
 
   it('defaults new definitions to inactive and prevents inactive starts', async () => {
     const definition = await seedDefinition({
@@ -456,6 +503,7 @@ d('workflow runtime PostgreSQL conformance', () => {
     }));
     await expectForeignKeyFailure(() => seedTask({
       tenantId: TENANT_B,
+      runId: run.id,
       stepId: step.id,
       title: `Wrong step tenant ${RUN_TOKEN}`,
     }));
@@ -463,10 +511,12 @@ d('workflow runtime PostgreSQL conformance', () => {
 
     await expectForeignKeyFailure(() => seedTask({
       tenantId: TENANT_B,
+      runId: run.id,
       parentTaskId: task.id,
       title: `Wrong parent tenant ${RUN_TOKEN}`,
     }));
     const childTask = await seedTask({
+      runId: run.id,
       parentTaskId: task.id,
       title: `Same parent tenant ${RUN_TOKEN}`,
     });
@@ -483,6 +533,7 @@ d('workflow runtime PostgreSQL conformance', () => {
     }));
     await expectForeignKeyFailure(() => seedApproval({
       tenantId: TENANT_B,
+      runId: run.id,
       taskId: task.id,
     }));
     const approval = await seedApproval({ runId: run.id, taskId: task.id });
@@ -682,7 +733,7 @@ d('workflow runtime PostgreSQL conformance', () => {
   it('allows exactly one concurrent task transition and keeps completed tasks terminal', async () => {
     const task = await seedTask();
     await runCasRace(
-      /UPDATE\s+tasks\s+SET/i,
+      /SELECT[\s\S]*?FROM\s+tasks\s+WHERE\s+id\s*=\s*\$1\s+AND\s+tenant_id\s*=\s*\$2::uuid\s+FOR\s+UPDATE/i,
       [
         () => transitionTask({
           tenantId: TENANT_A, id: task.id, nextStatus: 'in_progress', actorUid: ACTOR_A,
@@ -691,7 +742,8 @@ d('workflow runtime PostgreSQL conformance', () => {
           tenantId: TENANT_A, id: task.id, nextStatus: 'in_progress', actorUid: ACTOR_B,
         }),
       ],
-      'TASK_TRANSITION_CONFLICT',
+      'INVALID_STATE_TRANSITION',
+      400,
     );
 
     await transitionTask({
@@ -718,24 +770,42 @@ d('workflow runtime PostgreSQL conformance', () => {
 
   it('rolls back a terminal task transition when linked SLA completion fails', async () => {
     const slaId = randomUUID();
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO workflow_sla_instances
-         (id, tenant_id, rule_code, source_table, source_id, status, priority,
-          started_at, due_at, metadata)
-       VALUES ($1::uuid, $2::uuid, 'workflow_runtime_conformance',
-               'tasks', $3, 'active', 'normal', NOW(),
-               NOW() + INTERVAL '15 minutes',
-               '{"test":"workflow_runtime_conformance"}'::jsonb)`,
-      slaId,
-      TENANT_A,
-      `sla-${RUN_TOKEN}`,
-    );
-    const task = await seedTask({
-      title: `Linked SLA rollback ${RUN_TOKEN}`,
-      metadata: {
-        test: 'workflow_runtime_conformance',
-        sla_instance_id: slaId,
-      },
+    const task = await actualPrismaModule.setTenantTx(TENANT_A, async (tx) => {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO workflow_sla_instances
+           (id, tenant_id, rule_code, source_table, source_id, status, priority,
+            started_at, due_at, assigned_user_uid, metadata)
+         VALUES ($1::uuid, $2::uuid, 'critical_result_ack',
+                 'lab_result', $3, 'active', 'normal', NOW(),
+                 NOW() + INTERVAL '15 minutes', $4::uuid,
+                 '{"test":"workflow_runtime_conformance",\
+                   "task_materialization_contract":"application_atomic_v1"}'::jsonb)`,
+        slaId,
+        TENANT_A,
+        `sla-${RUN_TOKEN}`,
+        ACTOR_A,
+      );
+      const tasks = await tx.$queryRawUnsafe(
+        `INSERT INTO tasks
+           (tenant_id, task_kind, title, status, assigned_to_uid, created_by,
+            related_resource_type, related_resource_id, due_at,
+            workflow_sla_instance_id, sla_completion_semantics, metadata)
+         SELECT $1::uuid, 'review', $2, 'open', $3::uuid, $3::uuid,
+                'lab_result', $4, sla.due_at, sla.id, 'acknowledgement',
+                jsonb_build_object(
+                  'sla_key', 'critical_result_ack',
+                  'test', 'workflow_runtime_conformance'
+                )
+           FROM workflow_sla_instances AS sla
+          WHERE sla.tenant_id = $1::uuid AND sla.id = $5::uuid
+         RETURNING id, status`,
+        TENANT_A,
+        `Linked SLA rollback ${RUN_TOKEN}`,
+        ACTOR_A,
+        `sla-${RUN_TOKEN}`,
+        slaId,
+      );
+      return tasks[0];
     });
 
     ctl.failSqlPattern = /UPDATE\s+workflow_sla_instances/i;

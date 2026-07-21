@@ -13,6 +13,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   pickTenantClient: () => prismaMock,
 }));
 
+jest.unstable_mockModule('../../services/lab/labResultsService.js', () => ({
+  acknowledgeCriticalAlertForInboxTask: async () => ({ handled: false, task: null }),
+}));
+
 const { default: clinicalInboxRoutes } = await import('../../routes/clinicalInboxRoutes.js');
 const { errorHandlerMiddleware } = await import('../../middleware/errorHandlerMiddleware.js');
 
@@ -55,13 +59,17 @@ describe('POST /api/v1/clinical-inbox/tasks/:id/acknowledge authorization', () =
         assigned_to_uid: OTHER_UID,
         assigned_to_role: 'DOCTOR',
         patient_uid: PATIENT_UID,
-        metadata: { sla_instance_id: SLA_ID },
+        workflow_sla_instance_id: SLA_ID,
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {},
       }])
       .mockResolvedValueOnce([{
         id: 71,
         status: 'in_progress',
         patient_uid: PATIENT_UID,
-        metadata: { sla_instance_id: SLA_ID },
+        workflow_sla_instance_id: SLA_ID,
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {},
       }])
       .mockResolvedValueOnce([{ id: SLA_ID, status: 'completed' }])
       .mockResolvedValueOnce([{ id: 15, body_kind: 'state_change' }]);
@@ -108,7 +116,9 @@ describe('POST /api/v1/clinical-inbox/tasks/:id/acknowledge authorization', () =
       assigned_to_uid: OTHER_UID,
       assigned_to_role: 'DOCTOR',
       patient_uid: PATIENT_UID,
-      metadata: { sla_instance_id: SLA_ID, acknowledged_at: '2026-07-18T08:00:00.000Z' },
+      workflow_sla_instance_id: SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: { acknowledged_at: '2026-07-18T08:00:00.000Z' },
     }]);
 
     const response = await request(app)
@@ -124,5 +134,33 @@ describe('POST /api/v1/clinical-inbox/tasks/:id/acknowledge authorization', () =
     expect(JSON.stringify(response.body)).not.toMatch(/critical result|patient|clinician/i);
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
     expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/^SELECT[\s\S]+FROM tasks/i);
+  });
+
+  it('does not reveal pathway binding to an unauthorized task-id probe', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 73,
+        status: 'open',
+        workflow_run_id: 9001,
+        assigned_to_uid: OTHER_UID,
+        assigned_to_role: 'DOCTOR',
+        patient_uid: PATIENT_UID,
+        metadata: {},
+      }])
+      // A vulnerable guard-before-authorization implementation reaches this
+      // query and turns the probe into a distinct PATHWAY_EXECUTOR_REQUIRED 409.
+      .mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    const response = await request(app)
+      .post('/api/v1/clinical-inbox/tasks/73/acknowledge')
+      .send({});
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toMatchObject({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Not authorized to acknowledge this task',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 });

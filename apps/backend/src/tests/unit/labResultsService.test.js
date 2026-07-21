@@ -1,9 +1,18 @@
 import { jest } from '@jest/globals';
+import { AppError } from '../../utils/AppError.js';
 
 const queryRawUnsafeMock = jest.fn();
 const executeRawUnsafeMock = jest.fn();
 const emitCriticalLabAlertAcknowledgedMock = jest.fn();
 const recordCanonicalClinicalEventMock = jest.fn();
+const acknowledgeTaskMock = jest.fn();
+const emitLabEventMock = jest.fn();
+const lockResultsInboxResourceTxMock = jest.fn();
+const materializeLabCriticalAlertGenerationMock = jest.fn();
+const claimLabResultIngestCommandMock = jest.fn();
+const completeLabResultIngestCommandMock = jest.fn();
+const finaliseHttpIdempotencyInTxMock = jest.fn();
+const criticalDetectionResults = new Map();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -47,6 +56,30 @@ jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeServ
   emitCriticalLabAlertAcknowledged: emitCriticalLabAlertAcknowledgedMock,
 }));
 
+jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
+  acknowledgeTask: acknowledgeTaskMock,
+  acknowledgeLabCriticalAlertTaskFromTrustedWorkflow: acknowledgeTaskMock,
+  LAB_CRITICAL_ALERT_ACK_CONTRACT_VERSION: 2,
+}));
+
+jest.unstable_mockModule('../../services/results/resultsInboxResourceLock.js', () => ({
+  lockResultsInboxResourceTx: lockResultsInboxResourceTxMock,
+}));
+
+jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => ({
+  materializeLabCriticalAlertGeneration: materializeLabCriticalAlertGenerationMock,
+}));
+
+jest.unstable_mockModule('../../services/lab/labResultIngestCommandService.js', () => ({
+  claimLabResultIngestCommand: claimLabResultIngestCommandMock,
+  completeLabResultIngestCommand: completeLabResultIngestCommandMock,
+  finaliseHttpIdempotencyInTx: finaliseHttpIdempotencyInTxMock,
+}));
+
+jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
+  emitLabEvent: emitLabEventMock,
+}));
+
 const {
   detectCriticalsForResults,
   recordResultManual,
@@ -62,6 +95,39 @@ describe('labResultsService critical detection', () => {
     executeRawUnsafeMock.mockReset();
     emitCriticalLabAlertAcknowledgedMock.mockReset();
     executeRawUnsafeMock.mockResolvedValue(1);
+    criticalDetectionResults.clear();
+    materializeLabCriticalAlertGenerationMock.mockReset();
+    materializeLabCriticalAlertGenerationMock.mockImplementation(async ({
+      resultId,
+      evaluateCriticality,
+    }) => {
+      const current = criticalDetectionResults.get(Number(resultId));
+      const criticality = await evaluateCriticality({
+        tx: __prismaDefaultMock,
+        result: current,
+      });
+      if (!criticality.breached) {
+        return {
+          created: false,
+          alert: null,
+          state: criticality.matched
+            ? 'within_active_critical_thresholds'
+            : 'threshold_unavailable',
+          criticality,
+        };
+      }
+      return {
+        created: true,
+        alert: {
+          id: 90 + Number(resultId),
+          result_id: Number(resultId),
+          patient_uid: current.patient_uid,
+          threshold_breached: criticality.breachedSide,
+        },
+        state: 'critical',
+        criticality,
+      };
+    });
   });
 
   it('maps TROPI / LOINC 10839-9 to the Troponin-I critical threshold', async () => {
@@ -77,19 +143,19 @@ describe('labResultsService critical detection', () => {
       unit: 'ng/mL',
       is_critical: false,
     };
+    criticalDetectionResults.set(result.id, result);
 
     queryRawUnsafeMock
       .mockResolvedValueOnce([{
+        id: 17,
+        loinc_code: '10839-9',
+        test_code: 'TROPI',
         critical_low: null,
         critical_high: '0.04',
         test_name: 'Troponin I',
         unit: 'ng/mL',
-      }])
-      .mockResolvedValueOnce([{
-        id: 91,
-        result_id: 37,
-        patient_uid: result.patient_uid,
-        threshold_breached: 'high',
+        applies_to: 'all',
+        match_rank: 0,
       }])
       .mockResolvedValueOnce([]);
 
@@ -104,10 +170,8 @@ describe('labResultsService critical detection', () => {
     expect(thresholdLookup[2]).toEqual(expect.arrayContaining(['10839-9', '6598-7']));
     expect(thresholdLookup[3]).toEqual(expect.arrayContaining(['TROPI', 'TROP']));
 
-    expect(executeRawUnsafeMock).toHaveBeenCalledWith(
-      expect.stringMatching(/UPDATE lab_results[\s\S]*SET is_critical = true/),
-      37,
-      tenantId,
+    expect(materializeLabCriticalAlertGenerationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId, resultId: 37 }),
     );
   });
 
@@ -138,19 +202,30 @@ describe('labResultsService critical detection', () => {
         is_critical: false,
       },
     ];
+    results.forEach((result) => criticalDetectionResults.set(result.id, result));
 
     queryRawUnsafeMock
       .mockResolvedValueOnce([{
+        id: 18,
+        loinc_code: null,
+        test_code: 'WBC',
         critical_low: '2',
         critical_high: '30',
         test_name: 'White blood cell count',
         unit: '10^3/uL',
+        applies_to: 'all',
+        match_rank: 1,
       }])
       .mockResolvedValueOnce([{
+        id: 19,
+        loinc_code: null,
+        test_code: 'PLT',
         critical_low: '30',
         critical_high: '1000',
         test_name: 'Platelet count',
         unit: '10^3/uL',
+        applies_to: 'all',
+        match_rank: 1,
       }]);
 
     const alerts = await detectCriticalsForResults({ tenantId, results });
@@ -173,33 +248,69 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     recordCanonicalClinicalEventMock.mockReset();
     recordCanonicalClinicalEventMock.mockResolvedValue({ timeline: null, audit: null });
     executeRawUnsafeMock.mockResolvedValue(1);
+    claimLabResultIngestCommandMock.mockReset();
+    claimLabResultIngestCommandMock.mockResolvedValue({
+      replayed: false,
+      command: { id: 501 },
+    });
+    completeLabResultIngestCommandMock.mockReset();
+    completeLabResultIngestCommandMock.mockResolvedValue(undefined);
+    finaliseHttpIdempotencyInTxMock.mockReset();
+    finaliseHttpIdempotencyInTxMock.mockResolvedValue(undefined);
+    materializeLabCriticalAlertGenerationMock.mockReset();
+    materializeLabCriticalAlertGenerationMock.mockResolvedValue({
+      created: false,
+      alert: null,
+      state: 'threshold_unavailable',
+      criticality: { matched: false, breached: false },
+    });
   });
 
   it('resolves investigation_id from booking_id when caller omits it, and advances investigations.status', async () => {
     // Sequence of $queryRawUnsafe calls inside recordResultManual for a
     // non-numeric value with no critical threshold and a booking_id:
-    //   1) lab_critical_thresholds probe (non-numeric branch) → empty
-    //   2) investigation_bookings lookup → resolveInvestigationIdForBooking
-    //   3) lab_results dup-analyte probe (no prior finalised row) → empty
-    //   4) lab_results INSERT
-    // detectCriticalsForResults short-circuits when value_numeric is null.
+    //   1-3) locked booking, patient, and investigation source validation
+    //   4) lab_critical_thresholds probe (non-numeric branch) → empty
+    //   5) lab_results dup-analyte probe (no prior finalised row) → empty
+    //   6) lab_results INSERT
+    //   7) investigation status advance
+    //   8) final result reload after atomic materialization.
+    const insertedResult = {
+      id: 101,
+      tenant_id: tenantId,
+      booking_id: 7,
+      investigation_id: 42,
+      patient_uid: patientUid,
+      patient_name: 'Canonical Patient',
+      test_code: 'CBC',
+      test_name: 'Complete Blood Count',
+      value_text: 'No growth at 48 hours',
+      value_numeric: null,
+      unit: null,
+      status: 'preliminary',
+      is_critical: false,
+    };
     queryRawUnsafeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ investigation_id: 42 }])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{
-        id: 101,
-        tenant_id: tenantId,
-        booking_id: 7,
+        id: 7,
+        patient_id: 23,
         investigation_id: 42,
+        booking_status: 'COLLECTED',
+      }])
+      .mockResolvedValueOnce([{
+        uid: patientUid,
+        name: 'Canonical Patient',
+      }])
+      .mockResolvedValueOnce([{
+        id: 42,
         patient_uid: patientUid,
-        test_code: 'CBC',
-        test_name: 'Complete Blood Count',
-        value_text: 'No growth at 48 hours',
-        value_numeric: null,
-        unit: null,
-        status: 'preliminary',
-      }]);
+        status: 'COLLECTED',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([insertedResult])
+      .mockResolvedValueOnce([{ id: 42 }])
+      .mockResolvedValueOnce([insertedResult]);
 
     const { result } = await recordResultManual({
       tenantId,
@@ -208,6 +319,7 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       result: {
         booking_id: 7,
         patient_uid: patientUid,
+        patient_name: 'Forged Patient Name',
         test_code: 'CBC',
         test_name: 'Complete Blood Count',
         value_text: 'No growth at 48 hours',
@@ -215,6 +327,22 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     });
 
     expect(result.investigation_id).toBe(42);
+    expect(result.patient_name).toBe('Canonical Patient');
+
+    const bookingLock = queryRawUnsafeMock.mock.calls[0];
+    expect(bookingLock[0]).toMatch(/FROM investigation_bookings AS booking/);
+    expect(bookingLock[0]).toMatch(/FOR SHARE OF booking/);
+    expect(bookingLock.slice(1)).toEqual([7, tenantId]);
+
+    const patientLock = queryRawUnsafeMock.mock.calls[1];
+    expect(patientLock[0]).toMatch(/FROM users AS patient/);
+    expect(patientLock[0]).toMatch(/FOR SHARE OF patient/);
+    expect(patientLock.slice(1)).toEqual([23, tenantId]);
+
+    const investigationLock = queryRawUnsafeMock.mock.calls[2];
+    expect(investigationLock[0]).toMatch(/FROM investigations AS investigation/);
+    expect(investigationLock[0]).toMatch(/FOR UPDATE OF investigation/);
+    expect(investigationLock.slice(1)).toEqual([42, tenantId]);
 
     // Canonical pair emitted in-transaction with actor attribution.
     expect(recordCanonicalClinicalEventMock).toHaveBeenCalledTimes(1);
@@ -226,24 +354,23 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     expect(canonicalInput.sourceTable).toBe('lab_results');
     expect(recordCanonicalClinicalEventMock.mock.calls[0][1]).toMatchObject({ db: __prismaDefaultMock });
 
-    // INSERT (call 4 — call 3 is the dup-analyte probe added 2026-05-23)
+    // INSERT (call 6 — call 5 is the dup-analyte probe)
     // carries investigation_id=42 as $2.
-    const insertCall = queryRawUnsafeMock.mock.calls[3];
+    const insertCall = queryRawUnsafeMock.mock.calls[5];
     expect(insertCall[0]).toMatch(/INSERT INTO lab_results/);
     expect(insertCall[0]).toMatch(/investigation_id/);
     expect(insertCall[2]).toBe(42);
+    expect(insertCall[4]).toBe('Canonical Patient');
 
-    // The dup-analyte probe should also have happened (call 3).
-    const dupProbe = queryRawUnsafeMock.mock.calls[2];
+    // The dup-analyte probe should also have happened (call 5).
+    const dupProbe = queryRawUnsafeMock.mock.calls[4];
     expect(dupProbe[0]).toMatch(/FROM lab_results/);
     expect(dupProbe[0]).toMatch(/status IN/);
     expect(dupProbe[0]).toMatch(/tenant_id = \$3::uuid/);
     expect(dupProbe[3]).toBe(tenantId);
 
-    // investigations.status advance happens via $executeRawUnsafe.
-    const statusAdvance = executeRawUnsafeMock.mock.calls
-      .find((args) => /UPDATE investigations/.test(args[0]));
-    expect(statusAdvance).toBeDefined();
+    const statusAdvance = queryRawUnsafeMock.mock.calls[6];
+    expect(statusAdvance[0]).toMatch(/UPDATE investigations/);
     expect(statusAdvance[1]).toBe(42);
     expect(statusAdvance[2]).toEqual(
       expect.arrayContaining(['REQUESTED', 'PENDING', 'SCHEDULED', 'COLLECTED']),
@@ -251,6 +378,243 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     expect(statusAdvance[3]).toBe(tenantId);
     expect(statusAdvance[0]).toMatch(/SET status = 'IN_PROGRESS'/);
     expect(statusAdvance[0]).toMatch(/tenant_id = \$3::uuid/);
+  });
+
+  it('rejects an investigation that belongs to a different patient before mutation', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      investigation_id: 42,
+      investigation_patient_uid: 'bbbb1111-2222-4333-8444-555555555555',
+      investigation_status: 'COLLECTED',
+    }]);
+
+    await expect(recordResultManual({
+      tenantId,
+      performed_by: 'lab-tech-uid',
+      result: {
+        investigation_id: 42,
+        patient_uid: patientUid,
+        test_code: 'K',
+        test_name: 'Potassium',
+        value_text: '4.1',
+      },
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_RESULT_SOURCE_MISMATCH',
+      message: 'Lab result source does not match the patient or investigation',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/FROM investigations AS investigation/);
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/FOR UPDATE OF investigation/);
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([42, tenantId]);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
+  test.each(['CANCELLED', 'COMPLETED'])(
+    'rejects a terminal %s investigation before result, command completion, or canonical mutation',
+    async (investigationStatus) => {
+      queryRawUnsafeMock.mockResolvedValueOnce([{
+        investigation_id: 42,
+        investigation_patient_uid: patientUid,
+        investigation_status: investigationStatus,
+        patient_name: 'Canonical Patient',
+      }]);
+
+      await expect(recordResultManual({
+        tenantId,
+        performed_by: 'lab-tech-uid',
+        result: {
+          investigation_id: 42,
+          patient_uid: patientUid,
+          test_code: 'K',
+          test_name: 'Potassium',
+          value_text: '4.1',
+        },
+      })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'LAB_RESULT_SOURCE_MISMATCH',
+      });
+
+      expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+      expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/patient\.role = 'PATIENT'/);
+      expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/patient\.is_active = TRUE/);
+      expect(completeLabResultIngestCommandMock).not.toHaveBeenCalled();
+      expect(finaliseHttpIdempotencyInTxMock).not.toHaveBeenCalled();
+      expect(materializeLabCriticalAlertGenerationMock).not.toHaveBeenCalled();
+      expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+      expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a direct investigation whose linked UID is not an active patient identity', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(recordResultManual({
+      tenantId,
+      performed_by: 'lab-tech-uid',
+      result: {
+        investigation_id: 42,
+        patient_uid: patientUid,
+        test_code: 'K',
+        test_name: 'Potassium',
+        value_text: '4.1',
+      },
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_RESULT_SOURCE_MISMATCH',
+    });
+
+    const [sourceSql] = queryRawUnsafeMock.mock.calls[0];
+    expect(sourceSql).toMatch(/JOIN users AS patient/);
+    expect(sourceSql).toMatch(/patient\.role = 'PATIENT'/);
+    expect(sourceSql).toMatch(/patient\.is_active = TRUE/);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(completeLabResultIngestCommandMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a booking that belongs to a different patient before mutation', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 7,
+        patient_id: 24,
+        investigation_id: 42,
+        booking_status: 'COLLECTED',
+      }])
+      .mockResolvedValueOnce([{
+        uid: 'bbbb1111-2222-4333-8444-555555555555',
+        name: 'Different Patient',
+      }]);
+
+    await expect(recordResultManual({
+      tenantId,
+      performed_by: 'lab-tech-uid',
+      result: {
+        booking_id: 7,
+        patient_uid: patientUid,
+        test_code: 'K',
+        test_name: 'Potassium',
+        value_text: '4.1',
+      },
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_RESULT_SOURCE_MISMATCH',
+      message: 'Lab result source does not match the patient or investigation',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/FROM investigation_bookings AS booking/);
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([7, tenantId]);
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toMatch(/FROM users AS patient/);
+    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([24, tenantId]);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
+  test.each(['CANCELLED', 'COMPLETED'])(
+    'rejects a terminal %s booking before resolving patient identity or mutating results',
+    async (bookingStatus) => {
+      queryRawUnsafeMock.mockResolvedValueOnce([{
+        id: 7,
+        patient_id: 23,
+        investigation_id: 42,
+        booking_status: bookingStatus,
+      }]);
+
+      await expect(recordResultManual({
+        tenantId,
+        performed_by: 'lab-tech-uid',
+        result: {
+          booking_id: 7,
+          patient_uid: patientUid,
+          test_code: 'K',
+          test_name: 'Potassium',
+          value_text: '4.1',
+        },
+      })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'LAB_RESULT_SOURCE_MISMATCH',
+      });
+
+      expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+      expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/FROM investigation_bookings AS booking/);
+      expect(completeLabResultIngestCommandMock).not.toHaveBeenCalled();
+      expect(finaliseHttpIdempotencyInTxMock).not.toHaveBeenCalled();
+      expect(materializeLabCriticalAlertGenerationMock).not.toHaveBeenCalled();
+      expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a booking whose linked user is not an active patient identity', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 7,
+        patient_id: 23,
+        investigation_id: 42,
+        booking_status: 'COLLECTED',
+      }])
+      .mockResolvedValueOnce([]);
+
+    await expect(recordResultManual({
+      tenantId,
+      performed_by: 'lab-tech-uid',
+      result: {
+        booking_id: 7,
+        patient_uid: patientUid,
+        test_code: 'K',
+        test_name: 'Potassium',
+        value_text: '4.1',
+      },
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_RESULT_SOURCE_MISMATCH',
+    });
+
+    const [patientSql] = queryRawUnsafeMock.mock.calls[1];
+    expect(patientSql).toMatch(/FROM users AS patient/);
+    expect(patientSql).toMatch(/patient\.role = 'PATIENT'/);
+    expect(patientSql).toMatch(/patient\.is_active = TRUE/);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(completeLabResultIngestCommandMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a booking that is not linked to the asserted investigation before mutation', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 7,
+        patient_id: 23,
+        investigation_id: 43,
+        booking_status: 'COLLECTED',
+      }])
+      .mockResolvedValueOnce([{
+        uid: patientUid,
+        name: 'Canonical Patient',
+      }]);
+
+    await expect(recordResultManual({
+      tenantId,
+      performed_by: 'lab-tech-uid',
+      result: {
+        booking_id: 7,
+        investigation_id: 42,
+        patient_uid: patientUid,
+        test_code: 'K',
+        test_name: 'Potassium',
+        value_text: '4.1',
+      },
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_RESULT_SOURCE_MISMATCH',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/FROM investigation_bookings AS booking/);
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([7, tenantId]);
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toMatch(/FROM users AS patient/);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
   });
 
   it('rejects manual result creation when no order or booking link exists', async () => {
@@ -271,7 +635,8 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       code: 'LAB_RESULT_ORDER_LINK_REQUIRED',
     });
 
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(claimLabResultIngestCommandMock).not.toHaveBeenCalled();
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
   });
 
@@ -295,6 +660,122 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       details: { result_ids: [102] },
     });
   });
+
+  it('rejects an asserted patient_uid that does not own the selected result', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 103,
+      patient_uid: patientUid,
+      booking_id: null,
+      investigation_id: 42,
+    }]);
+
+    await expect(signOffResults({
+      tenantId,
+      signed_off_by: '33333333-3333-4333-8333-333333333333',
+      signed_off_by_role: 'PATHOLOGIST',
+      result_ids: [103],
+      patient_uid: 'bbbb1111-2222-4333-8444-555555555555',
+      decision: 'verified',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_PATIENT_MISMATCH',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a mixed-patient result batch before creating a sign-off', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      {
+        id: 104,
+        patient_uid: patientUid,
+        booking_id: null,
+        investigation_id: 42,
+      },
+      {
+        id: 105,
+        patient_uid: 'bbbb1111-2222-4333-8444-555555555555',
+        booking_id: null,
+        investigation_id: 43,
+      },
+    ]);
+
+    await expect(signOffResults({
+      tenantId,
+      signed_off_by: '33333333-3333-4333-8333-333333333333',
+      signed_off_by_role: 'PATHOLOGIST',
+      result_ids: [104, 105],
+      decision: 'verified',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_MULTI_PATIENT_BATCH',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a booking assertion that differs from the locked selected result', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 106,
+      patient_uid: patientUid,
+      booking_id: 7,
+      investigation_id: 42,
+    }]);
+
+    await expect(signOffResults({
+      tenantId,
+      signed_off_by: '33333333-3333-4333-8333-333333333333',
+      signed_off_by_role: 'PATHOLOGIST',
+      result_ids: [106],
+      booking_id: 8,
+      decision: 'verified',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_BOOKING_MISMATCH',
+      message: 'booking_id does not match the selected lab results',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a booking assertion for a mixed-booking selected batch', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      {
+        id: 107,
+        patient_uid: patientUid,
+        booking_id: 7,
+        investigation_id: 42,
+      },
+      {
+        id: 108,
+        patient_uid: patientUid,
+        booking_id: 8,
+        investigation_id: 43,
+      },
+    ]);
+
+    await expect(signOffResults({
+      tenantId,
+      signed_off_by: '33333333-3333-4333-8333-333333333333',
+      signed_off_by_role: 'PATHOLOGIST',
+      result_ids: [107, 108],
+      booking_id: 7,
+      decision: 'verified',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_BOOKING_MISMATCH',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('listLabWorklist STAT ordering (D45)', () => {
@@ -304,6 +785,9 @@ describe('listLabWorklist STAT ordering (D45)', () => {
     queryRawUnsafeMock.mockReset();
     executeRawUnsafeMock.mockReset();
     emitCriticalLabAlertAcknowledgedMock.mockReset();
+    acknowledgeTaskMock.mockReset();
+    emitLabEventMock.mockReset();
+    lockResultsInboxResourceTxMock.mockReset();
     queryRawUnsafeMock.mockResolvedValue([]);
   });
 
@@ -338,22 +822,417 @@ describe('listLabWorklist STAT ordering (D45)', () => {
     expect(boundLimit).toBe(25);
   });
 
-  it('acknowledges critical alerts by id only inside the caller tenant', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([{
+  it('locks the tenant-matched alert/result/task/SLA and delegates acknowledgement authority', async () => {
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    const patientUid = '5e89c1aa-df0c-4d19-9e7e-40af85486f24';
+    const alert = {
+      id: 7,
+      tenant_id: tenantId,
+      result_id: 37,
+      patient_uid: patientUid,
+      investigation_id: 91,
+      acknowledged_at: null,
+      acknowledgement_task_id: 82,
+      generation_signoff_id: null,
+      test_name: 'Troponin I',
+      fired_at: new Date('2026-07-19T03:00:00.000Z'),
+    };
+    const linkedTask = { id: 82, status: 'open', workflow_sla_instance_id: 'sla-82' };
+    const acknowledgedTask = {
+      ...linkedTask,
+      status: 'in_progress',
+      metadata: {
+        acknowledged_at: '2026-07-19T04:00:00.000Z',
+        acknowledged_via: 'assignee',
+        ack_contract_version: 2,
+      },
+    };
+    const acknowledgedAlert = {
+      ...alert,
+      acknowledged_at: new Date('2026-07-19T04:00:00.000Z'),
+      acknowledged_by: actorUid,
+      read_back_method: 'phone',
+    };
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ result_id: 37 }])
+      .mockResolvedValueOnce([alert])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([linkedTask])
+      .mockResolvedValueOnce([{
+        id: 'sla-82', status: 'active', completed_at: null, metadata: {},
+      }])
+      .mockResolvedValueOnce([acknowledgedAlert])
+      .mockResolvedValueOnce([{ recorded: true }]);
+    acknowledgeTaskMock.mockResolvedValueOnce(acknowledgedTask);
+    emitCriticalLabAlertAcknowledgedMock.mockResolvedValueOnce({ id: 'timeline-1' });
+
+    const result = await acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: actorUid,
+      acknowledged_by_name: 'Dr Assignee',
+      actorRoles: ['DOCTOR'],
+      actorRole: 'DOCTOR',
+      breakGlassId: 44,
+      read_back_method: 'phone',
+    });
+
+    expect(result).toEqual(acknowledgedAlert);
+    const pointerLookup = queryRawUnsafeMock.mock.calls[0];
+    expect(pointerLookup[0]).toMatch(/SELECT result_id[\s\S]*FROM lab_critical_alerts[\s\S]*tenant_id = \$2::uuid/i);
+    expect(pointerLookup.slice(1)).toEqual([7, tenantId]);
+
+    const alertLock = queryRawUnsafeMock.mock.calls[1];
+    expect(alertLock[0]).toMatch(/FROM lab_critical_alerts AS alert[\s\S]*JOIN lab_results AS result[\s\S]*result\.tenant_id = alert\.tenant_id[\s\S]*alert\.tenant_id = \$2::uuid[\s\S]*FOR UPDATE OF alert/i);
+    expect(alertLock.slice(1)).toEqual([7, tenantId]);
+
+    const latestSignoffLookup = queryRawUnsafeMock.mock.calls[2];
+    expect(latestSignoffLookup[0]).toMatch(/FROM lab_pathologist_signoffs[\s\S]*decision IN \('corrected', 'amended'\)/i);
+    expect(latestSignoffLookup.slice(1)).toEqual([tenantId, patientUid, 37]);
+
+    const taskLock = queryRawUnsafeMock.mock.calls[3];
+    expect(taskLock[0]).toMatch(/FROM tasks AS task[\s\S]*task\.related_resource_type = 'lab_result'[\s\S]*task\.related_resource_id = \$2::text[\s\S]*task\.patient_uid = \$3::uuid[\s\S]*task\.sla_completion_semantics = 'acknowledgement'[\s\S]*NOT EXISTS[\s\S]*newer_alert\.id > \$4::int[\s\S]*newer_signoff\.decision IN \('corrected', 'amended'\)[\s\S]*newer_signoff\.signed_at > \$5::timestamptz[\s\S]*FOR UPDATE OF task/i);
+    expect(taskLock[0]).not.toMatch(/JOIN workflow_sla_instances/i);
+    expect(taskLock.slice(1)).toEqual([
+      tenantId,
+      '37',
+      patientUid,
+      7,
+      alert.fired_at,
+      82,
+    ]);
+    expect(lockResultsInboxResourceTxMock).toHaveBeenCalledWith({
+      tx: __prismaDefaultMock,
+      tenantId,
+      resourceType: 'lab_result',
+      resourceId: '37',
+    });
+
+    const slaLock = queryRawUnsafeMock.mock.calls[4];
+    expect(slaLock[0]).toMatch(/FROM workflow_sla_instances AS sla[\s\S]*sla\.id = \$2::uuid[\s\S]*sla\.rule_code = 'critical_result_ack'[\s\S]*sla\.source_table = 'lab_result'[\s\S]*sla\.source_id = \$3::text[\s\S]*FOR UPDATE OF sla/i);
+    expect(slaLock.slice(1)).toEqual([tenantId, 'sla-82', '37']);
+    expect(taskLock[0]).not.toMatch(/FOR UPDATE OF task, sla/i);
+    expect(acknowledgeTaskMock).toHaveBeenCalledWith({
+      tenantId,
+      id: 82,
+      alertId: 7,
+      resultId: 37,
+      patientUid,
+      actorUid,
+      actorRoles: ['DOCTOR'],
+      breakGlassId: 44,
+      tx: __prismaDefaultMock,
+    });
+
+    const alertUpdate = queryRawUnsafeMock.mock.calls[5];
+    expect(alertUpdate[0]).toMatch(/UPDATE lab_critical_alerts AS target_alert[\s\S]*target_alert\.id = \$5::int[\s\S]*target_alert\.tenant_id = \$6::uuid[\s\S]*target_alert\.acknowledged_at IS NULL[\s\S]*RETURNING target_alert\.id, target_alert\.tenant_id/i);
+    expect(alertUpdate[0]).not.toMatch(/RETURNING \*/i);
+    expect(alertUpdate[5]).toBe(7);
+    expect(alertUpdate[6]).toBe(tenantId);
+    expect(alertUpdate[7]).toBe(82);
+    expect(alertUpdate[8]).toBe('2026-07-19T04:00:00.000Z');
+    expect(emitCriticalLabAlertAcknowledgedMock).toHaveBeenCalledWith(expect.objectContaining({
+      db: __prismaDefaultMock,
+      alert: expect.objectContaining({
+        ...alert,
+        acknowledged_at: '2026-07-19T04:00:00.000Z',
+        acknowledged_by: actorUid,
+        acknowledged_by_name: 'Dr Assignee',
+        read_back_method: 'phone',
+      }),
+      actorUid,
+      actorRole: 'DOCTOR',
+      payload: expect.objectContaining({ acknowledgement_authorization: 'assignee' }),
+    }));
+    expect(emitCriticalLabAlertAcknowledgedMock.mock.invocationCallOrder[0])
+      .toBeLessThan(queryRawUnsafeMock.mock.invocationCallOrder[5]);
+    expect(emitLabEventMock).toHaveBeenCalledWith('alert-acked', { tenantId });
+    expect(emitCriticalLabAlertAcknowledgedMock.mock.invocationCallOrder[0])
+      .toBeLessThan(emitLabEventMock.mock.invocationCallOrder[0]);
+  });
+
+  it('rejects an unacknowledged stale alert generation before task or SLA mutation', async () => {
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    const patientUid = '5e89c1aa-df0c-4d19-9e7e-40af85486f24';
+    const alert = {
+      id: 7,
+      tenant_id: tenantId,
+      result_id: 37,
+      patient_uid: patientUid,
+      acknowledged_at: null,
+      generation_signoff_id: 6,
+      fired_at: new Date('2026-07-19T03:00:00.000Z'),
+    };
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ result_id: 37 }])
+      .mockResolvedValueOnce([alert])
+      .mockResolvedValueOnce([{ id: 8 }]);
+
+    await expect(acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: actorUid,
+      actorRoles: ['DOCTOR'],
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      message: 'Not authorized to acknowledge this critical alert',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryRawUnsafeMock.mock.calls[2][0]).toMatch(
+      /FROM lab_pathologist_signoffs[\s\S]*decision IN \('corrected', 'amended'\)/i,
+    );
+    expect(queryRawUnsafeMock.mock.calls[2].slice(1)).toEqual([tenantId, patientUid, 37]);
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
+    expect(emitCriticalLabAlertAcknowledgedMock).not.toHaveBeenCalled();
+    expect(emitLabEventMock).not.toHaveBeenCalled();
+  });
+
+  it('does not mutate the alert or emit evidence when task acknowledgement denies the caller', async () => {
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    const patientUid = '5e89c1aa-df0c-4d19-9e7e-40af85486f24';
+    const alert = {
+      id: 7,
+      tenant_id: tenantId,
+      result_id: 37,
+      patient_uid: patientUid,
+      acknowledged_at: null,
+      acknowledgement_task_id: 82,
+      fired_at: new Date('2026-07-19T03:00:00.000Z'),
+    };
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ result_id: 37 }])
+      .mockResolvedValueOnce([alert])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 82,
+        status: 'open',
+        workflow_sla_instance_id: 'sla-82',
+      }])
+      .mockResolvedValueOnce([{ id: 'sla-82' }]);
+    acknowledgeTaskMock.mockRejectedValueOnce(AppError.forbidden('Not authorized to acknowledge this task'));
+
+    await expect(acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: actorUid,
+      actorRoles: ['NURSE'],
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      message: 'Not authorized to acknowledge this critical alert',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(5);
+    expect(queryRawUnsafeMock.mock.calls.every(([sql]) => /^\s*SELECT/i.test(sql))).toBe(true);
+    expect(emitCriticalLabAlertAcknowledgedMock).not.toHaveBeenCalled();
+    expect(emitLabEventMock).not.toHaveBeenCalled();
+  });
+
+  it('requires reconciliation for an authorized replay of an acknowledged unbound alert', async () => {
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    const patientUid = '5e89c1aa-df0c-4d19-9e7e-40af85486f24';
+    const alert = {
+      id: 7,
+      tenant_id: tenantId,
+      result_id: 37,
+      patient_uid: patientUid,
+      acknowledged_at: new Date('2026-07-19T04:00:00.000Z'),
+      acknowledged_by: actorUid,
+    };
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ result_id: 37 }])
+      .mockResolvedValueOnce([alert])
+      .mockResolvedValueOnce([]);
+
+    await expect(acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: actorUid,
+      actorRoles: ['DOCTOR'],
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_CRITICAL_ALERT_ACK_RECONCILIATION_REQUIRED',
+      message: 'Critical alert acknowledgement requires reconciliation',
+    });
+
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(emitCriticalLabAlertAcknowledgedMock).not.toHaveBeenCalled();
+    expect(emitLabEventMock).not.toHaveBeenCalled();
+  });
+
+  it('allows an administrator to replay an exact versioned closed acknowledgement contract', async () => {
+    const acknowledgedAt = new Date('2026-07-19T04:00:00.000Z');
+    const acknowledgedBy = '33333333-3333-4333-8333-333333333333';
+    const alert = {
       id: 7,
       tenant_id: tenantId,
       result_id: 37,
       patient_uid: '5e89c1aa-df0c-4d19-9e7e-40af85486f24',
-    }]);
+      acknowledged_at: acknowledgedAt,
+      acknowledged_by: acknowledgedBy,
+      read_back_method: null,
+      acknowledgement_task_id: 82,
+      generation_signoff_id: null,
+      generation_metadata: { corrected_state: 'critical' },
+    };
+    const task = {
+      id: 82,
+      status: 'in_progress',
+      workflow_sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      metadata: {
+        acknowledged_at: acknowledgedAt.toISOString(),
+        acknowledged_by: acknowledgedBy,
+        acknowledged_via: 'assignee',
+        ack_contract_version: 2,
+      },
+    };
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ result_id: 37 }])
+      .mockResolvedValueOnce([alert])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ recorded: true }])
+      .mockResolvedValueOnce([task]);
 
-    await acknowledgeAlert(7, {
+    await expect(acknowledgeAlert(7, {
       tenantId,
-      acknowledged_by: '33333333-3333-4333-8333-333333333333',
+      acknowledged_by: '44444444-4444-4444-8444-444444444444',
+      actorRoles: ['ADMIN'],
+    })).resolves.toEqual(alert);
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(5);
+    expect(queryRawUnsafeMock.mock.calls[3][0]).toMatch(
+      /record_lab_critical_alert_acknowledgement_receipt/i,
+    );
+    expect(queryRawUnsafeMock.mock.calls[3].slice(1)).toEqual([tenantId, 7, 82]);
+    expect(queryRawUnsafeMock.mock.calls[4][0]).toMatch(
+      /FROM lab_critical_alert_acknowledgement_receipts AS receipt[\s\S]*receipt\.ack_contract_version = 2[\s\S]*FOR UPDATE OF task/i,
+    );
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
+    expect(emitCriticalLabAlertAcknowledgedMock).not.toHaveBeenCalled();
+    expect(emitLabEventMock).not.toHaveBeenCalled();
+  });
+
+  it('requires reconciliation when any closed-contract version marker is absent or mismatched', async () => {
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    const alert = {
+      id: 7,
+      tenant_id: tenantId,
+      result_id: 37,
+      patient_uid: '5e89c1aa-df0c-4d19-9e7e-40af85486f24',
+      acknowledged_at: new Date('2026-07-19T04:00:00.000Z'),
+      acknowledged_by: actorUid,
+      acknowledgement_task_id: 82,
+      generation_signoff_id: null,
+      generation_metadata: { corrected_state: 'critical' },
+    };
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ result_id: 37 }])
+      .mockResolvedValueOnce([alert])
+      .mockResolvedValueOnce([])
+      // The exact task query excludes unversioned/version-mismatched rows.
+      .mockResolvedValueOnce([]);
+
+    await expect(acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: actorUid,
+      actorRoles: ['DOCTOR'],
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_CRITICAL_ALERT_ACK_RECONCILIATION_REQUIRED',
     });
 
-    const call = queryRawUnsafeMock.mock.calls[0];
-    expect(call[0]).toMatch(/WHERE id = \$5::int[\s\S]*tenant_id = \$6::uuid/);
-    expect(call[5]).toBe(7);
-    expect(call[6]).toBe(tenantId);
+    expect(queryRawUnsafeMock.mock.calls.every(([sql]) => /^\s*SELECT/i.test(sql))).toBe(true);
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
+    expect(emitCriticalLabAlertAcknowledgedMock).not.toHaveBeenCalled();
+  });
+
+  it('requires reconciliation when canonical closed-contract evidence is duplicated', async () => {
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    const acknowledgedAt = new Date('2026-07-19T04:00:00.000Z');
+    const alert = {
+      id: 7,
+      tenant_id: tenantId,
+      result_id: 37,
+      patient_uid: '5e89c1aa-df0c-4d19-9e7e-40af85486f24',
+      acknowledged_at: acknowledgedAt,
+      acknowledged_by: actorUid,
+      acknowledgement_task_id: 82,
+      generation_signoff_id: null,
+      generation_metadata: { corrected_state: 'critical' },
+    };
+    const task = {
+      id: 82,
+      status: 'in_progress',
+      workflow_sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      metadata: {
+        acknowledged_at: acknowledgedAt.toISOString(),
+        acknowledged_by: actorUid,
+        acknowledged_via: 'assignee',
+        ack_contract_version: 2,
+      },
+    };
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ result_id: 37 }])
+      .mockResolvedValueOnce([alert])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([{ id: task.workflow_sla_instance_id }])
+      .mockResolvedValueOnce([{
+        receipt_comment_count: 1,
+        timeline_count: 1,
+        audit_count: 2,
+      }]);
+
+    await expect(acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: actorUid,
+      actorRoles: ['DOCTOR'],
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_CRITICAL_ALERT_ACK_RECONCILIATION_REQUIRED',
+    });
+
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
+    expect(emitCriticalLabAlertAcknowledgedMock).not.toHaveBeenCalled();
+  });
+
+  it('returns a generic denial for an acknowledged-alert replay by any other actor', async () => {
+    const alert = {
+      id: 7,
+      tenant_id: tenantId,
+      result_id: 37,
+      patient_uid: '5e89c1aa-df0c-4d19-9e7e-40af85486f24',
+      acknowledged_at: new Date('2026-07-19T04:00:00.000Z'),
+      acknowledged_by: '33333333-3333-4333-8333-333333333333',
+    };
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ result_id: 37 }])
+      .mockResolvedValueOnce([alert])
+      .mockResolvedValueOnce([]);
+
+    await expect(acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: '44444444-4444-4444-8444-444444444444',
+      actorRoles: ['DOCTOR'],
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      message: 'Not authorized to acknowledge this critical alert',
+    });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
+    expect(emitCriticalLabAlertAcknowledgedMock).not.toHaveBeenCalled();
+    expect(emitLabEventMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an out-of-range alert id generically before querying', async () => {
+    await expect(acknowledgeAlert(2_147_483_648, {
+      tenantId,
+      acknowledged_by: '33333333-3333-4333-8333-333333333333',
+      actorRoles: ['DOCTOR'],
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      message: 'Not authorized to acknowledge this critical alert',
+    });
+
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
   });
 });

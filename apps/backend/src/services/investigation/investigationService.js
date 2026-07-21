@@ -9,12 +9,14 @@ import { isAdmin, isLeadership } from '../../utils/roleHelpers.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
-// enqueueCriticalResultTask itself (re)starts the mig-269 critical_result_ack
-// SLA AND creates the assigned, ack-tracked task in one idempotent, never-throws
-// call, so the critical-investigation path gets an accountable owner +
-// escalation tier from minute 0 (audit C-3). resultsInboxService does NOT import
+// Initial critical results use the non-reopening producer. Explicit re-runs use
+// the correction helper so a prior acknowledgement window is superseded and
+// re-armed with preserved audit lineage. resultsInboxService does NOT import
 // investigationService, so this static import introduces no ESM cycle.
-import { enqueueCriticalResultTask } from '../results/resultsInboxService.js';
+import {
+  enqueueCriticalResultTask,
+  ensureCriticalResultTaskOpen,
+} from '../results/resultsInboxService.js';
 
 // Relation names Prisma generates for the two FKs pointing at `users`
 // (migration 082 declared both). Verbose because Prisma has to disambiguate
@@ -759,11 +761,12 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
 
   const investId = parseInt(id, 10);
   if (!Number.isInteger(investId)) return null;
+  const tid = requireTenantId(tenantId);
 
   // Snapshot prior state into previous_results before overwriting.
   // Use a transaction so a partial fail leaves the row intact.
   try {
-    return await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    const committed = await setTenantTx(tid, async (tx) => {
       const existing = await tx.investigations.findUnique({
         where: { id: investId },
         select: {
@@ -893,63 +896,54 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
           results: true, interpretation: true, result_summary: true,
           completed_at: true, verified_at: true, verified_by: true, updated_at: true,
           previous_results: true, result_version: true,
+          users_investigations_patient_idTousers: {
+            select: { id: true, name: true, phone: true },
+          },
         },
       });
 
-      // E-11 — patient + ordering doctor notification on COMPLETED.
-      // Queues outbox rows so SMS / push / inapp can dispatch async.
-      // Best-effort; queue failures don't roll back the result write.
-      // Finding: 2026-05-08-lab-walk-in-patient-no-result-notification.
-      try {
-        const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
-        const ctx = await tx.$queryRawUnsafe(
-          `SELECT i.patient_id, u.name AS patient_name, u.phone AS patient_phone
-             FROM investigations i
-             LEFT JOIN users u ON u.id = i.patient_id
-            WHERE i.id = $1::int`,
-          investId,
-        );
-        const c = ctx[0];
-        if (c?.patient_phone) {
-          await outbox.queue({
-            type: 'lab_result_ready',
-            recipientId: c.patient_id,
-            recipientPhone: c.patient_phone,
-            title: 'Lab result is ready',
-            body: `Hi ${c.patient_name || ''}, your ${updated.test_name} result is ready. Open the app to view.`,
-            data: { investigation_id: updated.id, test_name: updated.test_name },
-          }).catch(() => {});
-        }
-      } catch {
-        // Notification dispatch is best-effort.
-      }
-      const critical = hasCriticalResultSignal(updated.results);
+      const {
+        users_investigations_patient_idTousers: patient,
+        ...updatedInvestigation
+      } = updated;
+      const notificationPayload = patient?.phone ? {
+        type: 'lab_result_ready',
+        recipientId: patient.id,
+        recipientPhone: patient.phone,
+        title: 'Lab result is ready',
+        body: `Hi ${patient.name || ''}, your ${updatedInvestigation.test_name} result is ready. Open the app to view.`,
+        data: {
+          investigation_id: updatedInvestigation.id,
+          test_name: updatedInvestigation.test_name,
+        },
+      } : null;
+      const critical = hasCriticalResultSignal(updatedInvestigation.results);
       await recordRequiredInvestigationEvent({
           tenantId: requireTenantId(tenantId),
-          patientUid: updated.patient_uid,
+          patientUid: updatedInvestigation.patient_uid,
           eventType: critical ? 'investigation.result_critical' : 'investigation.result_ready',
-          eventSubtype: updated.test_type,
-          eventStatus: updated.status,
+          eventSubtype: updatedInvestigation.test_type,
+          eventStatus: updatedInvestigation.status,
           sourceTable: 'investigations',
-          sourceId: updated.id,
+          sourceId: updatedInvestigation.id,
           resourceType: 'investigation',
-          resourceId: updated.id,
+          resourceId: updatedInvestigation.id,
           actorUid: reviewed_by || userId || null,
           actorRole,
-          summary: `${updated.test_name} result ${critical ? 'critical' : 'ready'}`,
+          summary: `${updatedInvestigation.test_name} result ${critical ? 'critical' : 'ready'}`,
           payload: {
-            test_name: updated.test_name,
-            test_type: updated.test_type,
-            result_summary: updated.result_summary,
-            interpretation: updated.interpretation,
-            result_version: updated.result_version,
+            test_name: updatedInvestigation.test_name,
+            test_type: updatedInvestigation.test_type,
+            result_summary: updatedInvestigation.result_summary,
+            interpretation: updatedInvestigation.interpretation,
+            result_version: updatedInvestigation.result_version,
             critical,
           },
           beforeState: existing,
-          afterState: updated,
+          afterState: updatedInvestigation,
           tags: critical ? ['critical'] : [],
-          timelineIdempotencyKey: `investigations:${updated.id}:result:v${updated.result_version || 1}`,
-          auditIdempotencyKey: `investigations:${updated.id}:audit:result:v${updated.result_version || 1}`,
+          timelineIdempotencyKey: `investigations:${updatedInvestigation.id}:result:v${updatedInvestigation.result_version || 1}`,
+          auditIdempotencyKey: `investigations:${updatedInvestigation.id}:audit:result:v${updatedInvestigation.result_version || 1}`,
         }, tx);
       if (critical) {
           // A critical investigation result must get an ACCOUNTABLE, ack-tracked
@@ -958,30 +952,59 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
           // never enqueued the results-inbox task, so a critical investigation
           // result had no owner / no escalation for the first ~15 min.
           //
-          // enqueueCriticalResultTask itself starts the critical_result_ack SLA
-          // (keyed to the SAME ('investigations', id) resource as the canonical
-          // event above and the ack path that closes it), then creates the
-          // assigned, idempotent ack-task linking that instance. It is
-          // best-effort / never-throws (it must not break the result write) and
-          // idempotent (mig-312 open-task index), so it both replaces the bare
-          // startWorkflowSla and adds the missing task. resourceType is
-          // 'investigations' (the SLA/ack key); source is the human label.
-        await enqueueCriticalResultTask({
-            tenantId: requireTenantId(tenantId),
-            patientUid: updated.patient_uid,
+          // Both helpers use the SAME ('investigations', id) key as the
+          // canonical event and acknowledgement path. A first submission must
+          // never revive a terminal clock; only an explicit re-run that is
+          // currently critical may reopen it. A non-critical correction leaves
+          // the prior obligation untouched until the normal-result closure
+          // policy is clinically approved; it must neither re-arm a critical
+          // clock nor silently close one here.
+        const criticalTaskWork = {
+          reopen: isReSubmit,
+          input: {
+            tenantId: tid,
+            patientUid: updatedInvestigation.patient_uid,
             source: 'investigation',
             resourceType: 'investigations',
-            resourceId: updated.id,
+            resourceId: updatedInvestigation.id,
             severity: 'critical',
-            title: `Critical result: ${updated.test_name}`,
-            summary: updated.result_summary
-              ? `${updated.test_name}: ${updated.result_summary}`
-              : `${updated.test_name} result is critical — review required.`,
-            orderingClinicianUid: updated.requested_by || null,
+            title: `Critical result: ${updatedInvestigation.test_name}`,
+            summary: updatedInvestigation.result_summary
+              ? `${updatedInvestigation.test_name}: ${updatedInvestigation.result_summary}`
+              : `${updatedInvestigation.test_name} result is critical — review required.`,
+            orderingClinicianUid: updatedInvestigation.requested_by || null,
+            ...(isReSubmit ? {
+              reason: 'investigation_result_rerun',
+              supersededByActorUid: userId,
+            } : {}),
+          },
+        };
+        const taskProducer = criticalTaskWork.reopen
+          ? ensureCriticalResultTaskOpen
+          : enqueueCriticalResultTask;
+        await taskProducer({
+          ...criticalTaskWork.input,
+          tx,
+          strict: true,
         });
       }
-      return updated;
+      return { updatedInvestigation, notificationPayload };
     });
+    if (!committed) return null;
+
+    // E-11 — patient result-ready notification. Build the payload from the
+    // committed clinical row, then enqueue only after the clinical transaction
+    // resolves. A failed outbox INSERT is best-effort and cannot abort or leave
+    // a false pre-commit notification for the clinical write.
+    if (committed.notificationPayload) {
+      try {
+        const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
+        await outbox.queue(committed.notificationPayload);
+      } catch {
+        // Notification dispatch is best-effort.
+      }
+    }
+    return committed.updatedInvestigation;
   } catch (err) {
     if (err?.code === 'P2025') return null;
     throw err;

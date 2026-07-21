@@ -172,12 +172,17 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
 
   test('ORU emission at signoff carries OBX segments', async () => {
     const r = await prisma.$queryRawUnsafe(
-      `INSERT INTO lab_results (patient_uid, test_code, test_name, value_numeric, unit, status)
-       VALUES ($1::uuid, 'C2GLU', 'C2TEST-GLU', 7.2, 'mmol/L', 'final')
+      `INSERT INTO lab_results (tenant_id, patient_uid, test_code, test_name, value_numeric, unit, status)
+       VALUES ($1::uuid, $2::uuid, 'C2GLU', 'C2TEST-GLU', 7.2, 'mmol/L', 'final')
        RETURNING id`,
+      TEST_TENANT_ID,
       patientUid,
     );
-    const queued = await emitSignedResultsOru({ resultIds: [Number(r[0].id)], patientUid });
+    const queued = await emitSignedResultsOru({
+      resultIds: [Number(r[0].id)],
+      patientUid,
+      tenantId: TEST_TENANT_ID,
+    });
     expect(queued).toBe(1); // only the /ok receiver listens for ORU^R01
 
     const rows = await prisma.$queryRawUnsafe(

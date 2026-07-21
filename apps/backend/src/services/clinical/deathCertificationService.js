@@ -28,6 +28,7 @@ const SLOT_STATUSES = ['available', 'occupied', 'cleaning', 'maintenance', 'reti
 const CUSTODY_EVENT_TYPES = ['receive', 'store', 'release'];
 const RELEASE_METHODS = ['family', 'mortuary_van', 'unclaimed_to_municipality'];
 const UNCLAIMED_SLA_KEY = 'mortuary_unclaimed_body';
+const TASK_MATERIALIZATION_CONTRACT = 'application_atomic_v1';
 const TASK_TERMINAL_STATUSES = new Set(['completed', 'cancelled']);
 const TASK_COMPLETABLE_STATUSES = new Set(['open', 'in_progress', 'overdue']);
 const TASK_ADVANCE_ATTEMPTS = 4;
@@ -233,9 +234,10 @@ async function insertCustodyEvent(tx, tenantId, deathRecordId, eventType, body =
   return unwrap(rows);
 }
 
-async function queueUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = null }) {
+async function queueUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = null, tx }) {
   const tid = tenantOr(tenantId);
   const id = normalizePositiveInt(deathRecordId, 'death_record_id');
+  if (!tx) throw AppError.internal('Mortuary SLA/task materialization requires a transaction');
   const { startWorkflowSla } = await import('./canonicalClinicalPlatformService.js');
   const sla = await startWorkflowSla({
     tenantId: tid,
@@ -243,11 +245,27 @@ async function queueUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = null
     sourceTable: 'death_records',
     sourceId: String(id),
     priority: 'high',
-    metadata: { source: 'mortuary_body_custody' },
-  });
-  const slaInstanceId = sla?.id || null;
+    metadata: {
+      source: 'mortuary_body_custody',
+      task_materialization_contract: TASK_MATERIALIZATION_CONTRACT,
+    },
+  }, { db: tx, strict: true });
+  const slaPolicyMissing = !sla;
+  if (
+    sla
+    && (
+      !sla.id
+      || sla.completed_at != null
+      || !['active', 'breached', 'escalated'].includes(String(sla.status || '').toLowerCase())
+    )
+  ) {
+    throw AppError.conflict(
+      'Mortuary unclaimed-body SLA could not be started as an incomplete clock',
+      'MORTUARY_SLA_MATERIALIZATION_FAILED',
+    );
+  }
 
-  return setTenantTx(tid, async (tx) => taskService.createTask({
+  let task = await taskService.createTask({
     tenantId: tid,
     tx,
     taskKind: 'review',
@@ -258,32 +276,109 @@ async function queueUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = null
     priority: 'high',
     assignedToRole: 'MEDICAL_RECORDS',
     createdBy: actorUid || null,
+    ...(slaPolicyMissing ? { slaCompletionSemantics: 'none' } : {
+      workflowSlaInstanceId: sla.id,
+      slaCompletionSemantics: 'domain_evidence',
+    }),
     metadata: {
       source: 'mortuary_body_custody',
-      sla_key: UNCLAIMED_SLA_KEY,
-      sla_instance_id: slaInstanceId,
+      ...(slaPolicyMissing
+        ? {
+            sla_key: UNCLAIMED_SLA_KEY,
+            requested_sla_key: UNCLAIMED_SLA_KEY,
+            sla_policy_status: 'missing',
+          }
+        : { sla_key: UNCLAIMED_SLA_KEY }),
     },
     onConflictResourceDoNothing: true,
-  }));
+  });
+  if (!task?.id) {
+    const existing = await tx.$queryRawUnsafe(
+      `SELECT id, workflow_sla_instance_id, sla_completion_semantics, metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'death_record'
+          AND related_resource_id = $2::text
+          AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+        ORDER BY id DESC
+        LIMIT 1
+        FOR UPDATE`,
+      tid,
+      String(id),
+    );
+    task = existing[0] || null;
+    const existingMatchesPolicy = slaPolicyMissing
+      ? (
+          task?.sla_completion_semantics === 'none'
+          && !task?.workflow_sla_instance_id
+          && task?.metadata?.requested_sla_key === UNCLAIMED_SLA_KEY
+          && task?.metadata?.sla_policy_status === 'missing'
+        )
+      : (
+          task?.sla_completion_semantics === 'domain_evidence'
+          && String(task?.workflow_sla_instance_id || '') === String(sla.id)
+        );
+    if (!task?.id || !existingMatchesPolicy) {
+      throw AppError.conflict(
+        'Mortuary unclaimed-body task could not be materialized for the resolved SLA policy',
+        'MORTUARY_TASK_MATERIALIZATION_FAILED',
+      );
+    }
+  }
+  return task;
 }
 
-async function completeUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = null, tx = null }) {
+async function completeUnclaimedBodyTask({
+  tenantId, deathRecordId, evidenceEventId, actorUid = null, tx = null,
+}) {
   const tid = tenantOr(tenantId);
   const db = tx || prisma;
   const rows = await db.$queryRawUnsafe(
-    `SELECT id, status
-       FROM tasks
-      WHERE tenant_id = $1::uuid
-        AND related_resource_type = 'death_record'
-        AND related_resource_id = $2
-        AND metadata->>'sla_key' = $3
-        AND status NOT IN ('completed', 'cancelled')
-      ORDER BY id ASC`,
+    `SELECT task.id, task.status, task.workflow_sla_instance_id,
+            task.sla_completion_semantics
+       FROM tasks task
+       LEFT JOIN workflow_sla_instances sla
+         ON sla.tenant_id = task.tenant_id
+        AND sla.id = task.workflow_sla_instance_id
+      WHERE task.tenant_id = $1::uuid
+        AND task.related_resource_type = 'death_record'
+        AND task.related_resource_id = $2
+        AND task.status NOT IN ('completed', 'cancelled')
+        AND (
+          (
+            task.sla_completion_semantics = 'domain_evidence'
+            AND sla.rule_code = $3
+          )
+          OR (
+            task.sla_completion_semantics = 'none'
+            AND task.workflow_sla_instance_id IS NULL
+            AND (
+              task.metadata->>'sla_key' = $3
+              OR (
+                task.metadata->>'requested_sla_key' = $3
+                AND task.metadata->>'sla_policy_status' = 'missing'
+              )
+            )
+          )
+        )
+      ORDER BY task.id ASC`,
     tid,
     String(normalizePositiveInt(deathRecordId, 'death_record_id')),
     UNCLAIMED_SLA_KEY,
   );
   for (const task of rows) {
+    if (task.sla_completion_semantics === 'domain_evidence' && task.workflow_sla_instance_id) {
+      await taskService.completeTaskFromDomainEvidence({
+        tenantId: tid,
+        id: task.id,
+        evidenceKind: 'mortuary_body_release',
+        evidenceResourceType: 'body_custody_event',
+        evidenceResourceId: evidenceEventId,
+        actorUid,
+        tx,
+      });
+      continue;
+    }
     let current = task;
     let lastConflict = null;
     for (let attempt = 0; attempt < TASK_ADVANCE_ATTEMPTS; attempt += 1) {
@@ -313,7 +408,6 @@ async function completeUnclaimedBodyTask({ tenantId, deathRecordId, actorUid = n
       );
     }
   }
-  void actorUid;
   return rows.length;
 }
 
@@ -514,8 +608,65 @@ async function recordBodyReleaseWithDb(db, { tenantId, id, ...body }) {
   return unwrap(rows);
 }
 
+async function assertLegacyBodyReleaseHasNoCustodyRail(tx, tenantId, deathRecordId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT
+       EXISTS (
+         SELECT 1
+           FROM body_custody_events event
+          WHERE event.tenant_id = $1::uuid
+            AND event.death_record_id = $2::int
+       ) AS has_custody,
+       EXISTS (
+         SELECT 1
+           FROM tasks task
+           LEFT JOIN workflow_sla_instances linked_sla
+            ON linked_sla.tenant_id = task.tenant_id
+            AND linked_sla.id = task.workflow_sla_instance_id
+          WHERE task.tenant_id = $1::uuid
+            AND task.related_resource_type = 'death_record'
+            AND task.related_resource_id = ($2::int)::text
+            AND task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+            AND (
+              linked_sla.rule_code = $3::text
+              OR task.metadata->>'sla_key' = $3::text
+              OR (
+                task.metadata->>'requested_sla_key' = $3::text
+                AND task.metadata->>'sla_policy_status' = 'missing'
+              )
+            )
+       ) AS has_unclaimed_task,
+       EXISTS (
+         SELECT 1
+           FROM workflow_sla_instances sla
+          WHERE sla.tenant_id = $1::uuid
+            AND sla.rule_code = $3::text
+            AND sla.source_table = 'death_records'
+            AND sla.source_id = ($2::int)::text
+            AND sla.completed_at IS NULL
+            AND sla.status IN ('active', 'breached', 'escalated')
+       ) AS has_unclaimed_sla`,
+    tenantId,
+    deathRecordId,
+    UNCLAIMED_SLA_KEY,
+  );
+  const rail = unwrap(rows);
+  if (rail?.has_custody || rail?.has_unclaimed_task || rail?.has_unclaimed_sla) {
+    throw AppError.conflict(
+      'Body has an active mortuary custody obligation; use the custody release workflow',
+      'MORTUARY_CUSTODY_RELEASE_REQUIRED',
+    );
+  }
+}
+
 export async function recordBodyRelease({ tenantId, id, ...body }) {
-  return recordBodyReleaseWithDb(prisma, { tenantId, id, ...body });
+  const tid = tenantOr(tenantId);
+  const deathRecordId = normalizePositiveInt(id, 'death_record_id');
+  return setTenantTx(tid, async (tx) => {
+    await assertDeathRecordForCustody(tx, tid, deathRecordId, { forUpdate: true });
+    await assertLegacyBodyReleaseHasNoCustodyRail(tx, tid, deathRecordId);
+    return recordBodyReleaseWithDb(tx, { tenantId: tid, id: deathRecordId, ...body });
+  });
 }
 
 export async function recordPoliceClearance({ tenantId, id, fir_no, station }) {
@@ -604,23 +755,24 @@ export async function listMortuarySlots({ tenantId, status = null, limit = 200 }
 export async function recordBodyReceive({ tenantId, id, ...body }) {
   const tid = tenantOr(tenantId);
   const deathRecordId = normalizePositiveInt(id, 'death_record_id');
-  const event = await setTenantTx(tid, async (tx) => {
+  return setTenantTx(tid, async (tx) => {
     const rec = await assertDeathRecordForCustody(tx, tid, deathRecordId, { forUpdate: true });
     if (rec.body_released_at) throw AppError.badRequest('Body is already released');
     const latest = await latestCustodyEvent(tx, tid, deathRecordId);
     if (latest && latest.event_type !== 'release') {
       throw AppError.badRequest('Body is already in mortuary custody');
     }
-    return insertCustodyEvent(tx, tid, deathRecordId, 'receive', body);
+    const event = await insertCustodyEvent(tx, tid, deathRecordId, 'receive', body);
+    if (event.is_unclaimed) {
+      await queueUnclaimedBodyTask({
+        tenantId: tid,
+        deathRecordId,
+        actorUid: body.performed_by || null,
+        tx,
+      });
+    }
+    return event;
   });
-  if (event.is_unclaimed) {
-    await queueUnclaimedBodyTask({
-      tenantId: tid,
-      deathRecordId,
-      actorUid: body.performed_by || null,
-    });
-  }
-  return event;
 }
 
 export async function recordBodyStorage({ tenantId, id, slot_id, ...body }) {
@@ -736,6 +888,7 @@ export async function recordMortuaryBodyRelease({ tenantId, id, ...body }) {
     await completeUnclaimedBodyTask({
       tenantId: tid,
       deathRecordId,
+      evidenceEventId: event.id,
       actorUid: body.performed_by || null,
       tx,
     });
@@ -810,14 +963,37 @@ export async function mortuaryBoard({ tenantId }) {
            ON d.id = latest.death_record_id AND d.tenant_id = latest.tenant_id
          LEFT JOIN mortuary_slots s
            ON s.current_death_record_id = d.id AND s.tenant_id = d.tenant_id
-         LEFT JOIN tasks task
-           ON task.tenant_id = d.tenant_id
-          AND task.related_resource_type = 'death_record'
-          AND task.related_resource_id = d.id::text
-          AND task.metadata->>'sla_key' = $2
-          AND task.status NOT IN ('completed', 'cancelled')
+          LEFT JOIN tasks task
+            ON task.tenant_id = d.tenant_id
+           AND task.related_resource_type = 'death_record'
+           AND task.related_resource_id = d.id::text
+           AND task.status NOT IN ('completed', 'cancelled')
+           AND (
+             (
+               task.sla_completion_semantics = 'domain_evidence'
+               AND EXISTS (
+                 SELECT 1
+                   FROM workflow_sla_instances linked_sla
+                  WHERE linked_sla.tenant_id = task.tenant_id
+                    AND linked_sla.id = task.workflow_sla_instance_id
+                    AND linked_sla.rule_code = $2
+               )
+             )
+             OR (
+               task.sla_completion_semantics = 'none'
+               AND task.workflow_sla_instance_id IS NULL
+               AND (
+                 task.metadata->>'sla_key' = $2
+                 OR (
+                   task.metadata->>'requested_sla_key' = $2
+                   AND task.metadata->>'sla_policy_status' = 'missing'
+                 )
+               )
+             )
+           )
          LEFT JOIN workflow_sla_instances sla
-           ON sla.id = NULLIF(task.metadata->>'sla_instance_id', '')::uuid
+            ON sla.id = task.workflow_sla_instance_id
+           AND sla.tenant_id = task.tenant_id
         WHERE d.body_released_at IS NULL
           AND latest.event_type <> 'release'
         ORDER BY latest.event_at DESC`,

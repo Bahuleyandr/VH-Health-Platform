@@ -114,9 +114,14 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
     const shadow = mode === CARE_TEAM_ENFORCEMENT_MODES.SHADOW;
 
     try {
+      const patient = typeof options.patientSelector === 'function'
+        ? await options.patientSelector(req)
+        : undefined;
       const decision = await authorizePatientAccessRequest(req, {
         policyCode: options.policyCode || policyCodeForRecordType(recordType),
         recordType,
+        ...(typeof options.patientSelector === 'function' ? { patient } : {}),
+        requireResolvedPatient: options.requireResolvedPatient === true,
         shadowMode: shadow,
       });
       if (decision?.no_patient_context) {
@@ -214,7 +219,7 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
       const decision = await authorizePatientAccessRequest(req, {
         policyCode: policyCode || policyCodeForRecordType(recordType),
         recordType,
-        patient,
+        patient: patient ?? null,
         resourceContext: { resourceType, resourceId },
         requireResolvedPatient: true,
         shadowMode: shadow,

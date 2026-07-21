@@ -1,29 +1,15 @@
-// FU2 (lab half) — the results-inbox producer hook in detectCriticalsForResults
-// is best-effort / post-commit and MUST NOT break the lab write.
-//
-// labResultsService.detectCriticalsForResults already wraps
-// enqueueCriticalResultTask in try/catch (labResultsService.js ~391). This test
-// proves the contract: even when the producer THROWS, detectCriticalsForResults
-// resolves (does not reject), still returns the fired alert, and the
-// lab_critical_alerts INSERT still happened.
-//
-// We mock resultsInboxService so we can fault-inject the producer, plus the
-// notification fan-out deps so the test stays focused on the alert write.
-//
-// Query order in detectCriticalsForResults for one breaching result (verified
-// against the code):
-//   Q1 lab_critical_thresholds lookup     -> [{ critical_low, critical_high, unit }]
-//   (executeRaw) UPDATE lab_results is_critical
-//   Q2 INSERT lab_critical_alerts         -> [{ id, ... }]
-//   Q3 recipients fan-out lookup          -> []   (inside the fan-out try)
-//   Q4 ordering-clinician lookup          -> []   (inside the producer try)
-//   then enqueueCriticalResultTask(...)   -> (mocked: rejects)
+// The alert, exact task, and SLA are materialized atomically. Only outward
+// notification and realtime fan-out are best-effort after that transaction.
 
 import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
 const executeRawUnsafeMock = jest.fn();
 const enqueueCriticalResultTaskMock = jest.fn();
+const materializeLabCriticalAlertGenerationMock = jest.fn();
+const sendStaffNotificationsMock = jest.fn();
+const notificationOutboxQueueMock = jest.fn();
+const emitLabEventMock = jest.fn();
 const loggerErrorMock = jest.fn();
 
 const __prismaDefaultMock = {
@@ -44,21 +30,23 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeService.js', () => ({
   emitCriticalLabAlertAcknowledged: jest.fn(),
 }));
-// The results-inbox producer — the fault-injection target. The mock must
-// mirror every named export labResultsService imports from the module or the
-// suite fails at ESM link time.
 jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => ({
   enqueueCriticalResultTask: enqueueCriticalResultTaskMock,
   ensureCriticalResultTaskOpen: jest.fn().mockResolvedValue({ created: false, reopened: false, taskId: null }),
 }));
-// Notification fan-out deps — mocked so the alert-write assertion isn't noisy.
+jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => ({
+  materializeLabCriticalAlertGeneration: materializeLabCriticalAlertGenerationMock,
+}));
 jest.unstable_mockModule('../../services/notification/staffNotificationService.js', () => ({
-  sendStaffNotifications: jest.fn().mockResolvedValue(undefined),
-  default: { sendStaffNotifications: jest.fn().mockResolvedValue(undefined) },
+  sendStaffNotifications: sendStaffNotificationsMock,
+  default: { sendStaffNotifications: sendStaffNotificationsMock },
 }));
 jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
-  default: { queue: jest.fn().mockResolvedValue(undefined) },
-  notificationOutbox: { queue: jest.fn().mockResolvedValue(undefined) },
+  default: { queue: notificationOutboxQueueMock },
+  notificationOutbox: { queue: notificationOutboxQueueMock },
+}));
+jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
+  emitLabEvent: emitLabEventMock,
 }));
 
 const { detectCriticalsForResults } = await import('../../services/lab/labResultsService.js');
@@ -81,60 +69,95 @@ function breachingResult() {
   };
 }
 
-describe('detectCriticalsForResults — results-inbox producer is non-blocking (FU2)', () => {
+describe('detectCriticalsForResults — atomic obligation and post-commit delivery boundary', () => {
   beforeEach(() => {
     queryRawUnsafeMock.mockReset();
     executeRawUnsafeMock.mockReset();
     enqueueCriticalResultTaskMock.mockReset();
+    materializeLabCriticalAlertGenerationMock.mockReset();
+    sendStaffNotificationsMock.mockReset();
+    notificationOutboxQueueMock.mockReset();
+    emitLabEventMock.mockReset();
     loggerErrorMock.mockReset();
     executeRawUnsafeMock.mockResolvedValue(1);
+    notificationOutboxQueueMock.mockResolvedValue(undefined);
   });
 
-  it('does NOT throw and still writes the lab_critical_alerts row when the producer rejects', async () => {
-    // Producer throws — the lab write must survive it.
-    enqueueCriticalResultTaskMock.mockRejectedValue(new Error('boom'));
-
-    queryRawUnsafeMock
-      // Q1 threshold lookup
-      .mockResolvedValueOnce([{ critical_low: null, critical_high: '0.04', test_name: 'Troponin I', unit: 'ng/mL' }])
-      // Q2 INSERT lab_critical_alerts
-      .mockResolvedValueOnce([{ id: 91, result_id: 55, patient_uid: PATIENT_UID, threshold_breached: 'high' }])
-      // Q3 recipients fan-out lookup (inside the fan-out try)
-      .mockResolvedValueOnce([])
-      // Q4 ordering-clinician lookup (inside the producer try)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-
+  it('delegates the clinical obligation to the atomic materializer and swallows only delivery failure', async () => {
     const result = breachingResult();
+    const alert = {
+      id: 91,
+      result_id: result.id,
+      patient_uid: result.patient_uid,
+      acknowledgement_task_id: 82,
+    };
+    materializeLabCriticalAlertGenerationMock.mockResolvedValueOnce({
+      created: true,
+      alert,
+      task: { taskId: 82, slaInstanceId: '22222222-2222-4222-8222-222222222222' },
+      state: 'critical',
+      criticality: {
+        matched: true,
+        breached: true,
+        breachedSide: 'high',
+        breachedValue: 0.04,
+        evaluatedValue: 0.85,
+      },
+    });
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 17,
+      uid: '33333333-3333-4333-8333-333333333333',
+      phone: '+15555550117',
+      name: 'Ordering Doctor',
+    }]);
+    sendStaffNotificationsMock.mockRejectedValueOnce(new Error('delivery unavailable'));
 
-    // Must RESOLVE despite the producer throwing.
     const alerts = await detectCriticalsForResults({ tenantId: TENANT_ID, results: [result] });
 
-    // The alert fired + was returned (the lab write completed).
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0].id).toBe(91);
+    expect(alerts).toEqual([alert]);
     expect(result.is_critical).toBe(true);
-
-    // The lab_critical_alerts INSERT happened.
-    const insertCall = queryRawUnsafeMock.mock.calls.find((args) =>
-      /INSERT INTO lab_critical_alerts/i.test(args[0]),
-    );
-    expect(insertCall).toBeTruthy();
-
-    // The is_critical UPDATE happened too.
-    const updateCall = executeRawUnsafeMock.mock.calls.find((args) =>
-      /UPDATE lab_results[\s\S]*SET is_critical = true/i.test(args[0]),
-    );
-    expect(updateCall).toBeTruthy();
-
-    // The producer was invoked, threw, and the throw was swallowed + logged.
-    expect(enqueueCriticalResultTaskMock).toHaveBeenCalledTimes(1);
-    expect(enqueueCriticalResultTaskMock.mock.calls[0][0]).toMatchObject({
+    expect(materializeLabCriticalAlertGenerationMock).toHaveBeenCalledTimes(1);
+    const materializerInput = materializeLabCriticalAlertGenerationMock.mock.calls[0][0];
+    expect(materializerInput).toMatchObject({
       tenantId: TENANT_ID,
-      resourceType: 'lab_result',
-      resourceId: 55,
-      severity: 'critical',
+      resultId: 55,
+      expectedPatientUid: PATIENT_UID,
+      source: 'lab_result',
     });
-    expect(loggerErrorMock).toHaveBeenCalled();
+    expect(materializerInput.evaluateCriticality).toEqual(expect.any(Function));
+
+    expect(enqueueCriticalResultTaskMock).not.toHaveBeenCalled();
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/SELECT DISTINCT u\.id/);
+    expect(notificationOutboxQueueMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'lab_critical_alert',
+      recipientId: 17,
+      data: expect.objectContaining({ alert_id: 91, result_id: 55 }),
+    }));
+    expect(sendStaffNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringMatching(/delivery unavailable/));
+    expect(emitLabEventMock).toHaveBeenNthCalledWith(1, 'alert-fired', { tenantId: TENANT_ID });
+    expect(emitLabEventMock).toHaveBeenNthCalledWith(2, 'result-pending', { tenantId: TENANT_ID });
+  });
+
+  it('propagates atomic materialization failure before any delivery fan-out', async () => {
+    const result = breachingResult();
+    materializeLabCriticalAlertGenerationMock.mockRejectedValueOnce(
+      new Error('exact task/SLA binding failed'),
+    );
+
+    await expect(detectCriticalsForResults({
+      tenantId: TENANT_ID,
+      results: [result],
+    })).rejects.toThrow('exact task/SLA binding failed');
+
+    expect(result.is_critical).toBe(false);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(enqueueCriticalResultTaskMock).not.toHaveBeenCalled();
+    expect(notificationOutboxQueueMock).not.toHaveBeenCalled();
+    expect(sendStaffNotificationsMock).not.toHaveBeenCalled();
+    expect(emitLabEventMock).not.toHaveBeenCalled();
   });
 });

@@ -66,6 +66,27 @@ describe('verifySignedRequest', () => {
       .toThrow(/replay/);
   });
 
+  it('can verify authenticity without consuming the local replay key', () => {
+    const secret = 'signed-request-secret';
+    const timestamp = Math.floor(Date.now() / 1000);
+    const requestId = 'req-verify-only';
+    const payload = 'MSH|^~\\&|VH';
+    const signature = sign({ secret, timestamp, requestId, payload });
+
+    expect(verifySignedRequest({
+      secret,
+      signature,
+      timestamp,
+      requestId,
+      payload,
+      claimLocalReplay: false,
+    })).toBe(true);
+    expect(__testing__.replayCache.size).toBe(0);
+    expect(verifySignedRequest({ secret, signature, timestamp, requestId, payload })).toBe(true);
+    expect(() => verifySignedRequest({ secret, signature, timestamp, requestId, payload }))
+      .toThrow(/replay/);
+  });
+
   it('rejects tampered payload signatures', () => {
     const secret = 'signed-request-secret';
     const timestamp = Math.floor(Date.now() / 1000);

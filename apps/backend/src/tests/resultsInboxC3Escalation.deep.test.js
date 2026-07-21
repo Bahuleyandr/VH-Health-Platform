@@ -23,8 +23,8 @@
 //
 //   FIX 3 — the lab producer's SLA key is the one the ack flow closes.
 //     * enqueueCriticalResultTask(resourceType:'lab_result') starts the SLA
-//       keyed ('lab_result', id); emitCriticalLabAlertAcknowledged({result_id:id})
-//       drives that SAME key terminal (and completes the open task).
+//       keyed ('lab_result', id); the authorized task acknowledgement drives
+//       that SAME linked instance terminal while the task stays in_progress.
 //
 //   FIX 4 — an investigation critical result creates an ack-task from minute 0.
 //     * investigationService.addResults() with a PANIC-flagged result creates an
@@ -47,7 +47,6 @@ const { enqueueCriticalResultTask } = await import('../services/results/resultsI
 const { runEscalationSweep, __testing__ } = await import('../services/workflow/escalationEngineService.js');
 const taskService = await import('../services/workflow/taskService.js');
 const investigationService = await import('../services/investigation/investigationService.js');
-const { emitCriticalLabAlertAcknowledged } = await import('../services/clinical/canonicalOperationalBridgeService.js');
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -72,14 +71,14 @@ const R = {
   term: `96${SUFFIX}`, // FIX 2 — terminal/complete path stops clock
   lab: `94${SUFFIX}`, // FIX 3 — lab key unification
 };
-const LAB_ALERT_ID = Number(`81${SUFFIX}`); // synthetic lab_critical_alerts id (no row needed)
 const ALL_RESOURCE_IDS = Object.values(R);
 
 // ---- helpers (mirrors resultsInbox.deep.test.js) ---------------------------
 
 async function readTaskById(taskId) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, status, priority, assigned_to_uid, metadata
+    `SELECT id, status, priority, assigned_to_uid,
+            workflow_sla_instance_id, sla_completion_semantics, metadata
        FROM tasks WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
     taskId, DEFAULT_TENANT_ID,
   );
@@ -121,29 +120,27 @@ async function countOpenTasksForResource(resourceType, resourceId) {
 // return the breach moment AS THE ENGINE SEES IT (timestamptz→JS round-trip in
 // the server TZ — the documented gotcha, see resultsInbox.deep.test.js).
 async function setSlaBreachedAt(slaInstanceId, whenIso) {
-  await prisma.$executeRawUnsafe(
-    `UPDATE workflow_sla_instances
-        SET status = 'breached', breached_at = $2::timestamptz, due_at = $2::timestamptz, updated_at = NOW()
-      WHERE id = $1::uuid AND tenant_id = $3::uuid`,
-    slaInstanceId, whenIso, DEFAULT_TENANT_ID,
-  );
+  await setTenantTx(DEFAULT_TENANT_ID, async (tx) => {
+    await tx.$executeRawUnsafe(
+      `UPDATE tasks
+          SET due_at = $2::timestamptz, updated_at = NOW()
+        WHERE workflow_sla_instance_id = $1::uuid
+          AND tenant_id = $3::uuid`,
+      slaInstanceId, whenIso, DEFAULT_TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `UPDATE workflow_sla_instances
+          SET status = 'breached', breached_at = $2::timestamptz,
+              due_at = $2::timestamptz, updated_at = NOW()
+        WHERE id = $1::uuid AND tenant_id = $3::uuid`,
+      slaInstanceId, whenIso, DEFAULT_TENANT_ID,
+    );
+  });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT breached_at FROM workflow_sla_instances WHERE id = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
     slaInstanceId, DEFAULT_TENANT_ID,
   );
   return new Date(rows[0].breached_at);
-}
-
-// Re-breach an instance and clear completed_at, to bait the backfill backstop
-// (an instance can be simultaneously past-due and previously completed).
-async function rebreachInstance(slaInstanceId) {
-  await prisma.$executeRawUnsafe(
-    `UPDATE workflow_sla_instances
-        SET status = 'breached', breached_at = NOW() - INTERVAL '40 minutes',
-            due_at = NOW() - INTERVAL '40 minutes', completed_at = NULL, updated_at = NOW()
-      WHERE id = $1::uuid AND tenant_id = $2::uuid`,
-    slaInstanceId, DEFAULT_TENANT_ID,
-  );
 }
 
 // Read outbox rows the escalation enqueued for a given task id (the engine puts
@@ -175,7 +172,7 @@ async function seedBreachedCriticalTask(resourceId, { breachIso = '2026-06-15T00
   });
   if (!res.created) throw new Error(`fixture producer did not create a task for ${resourceId}`);
   const task = await readTaskById(res.taskId);
-  const slaInstanceId = task.metadata.sla_instance_id;
+  const slaInstanceId = task.workflow_sla_instance_id;
   const breachSeen = await setSlaBreachedAt(slaInstanceId, breachIso);
   return { taskId: res.taskId, slaInstanceId, breachSeen };
 }
@@ -187,38 +184,47 @@ async function cleanup() {
         AND (payload->>'patient_uid') = $1::text`,
     PATIENT_UID,
   ).catch(() => {});
-  for (const id of ALL_RESOURCE_IDS) {
-    await prisma.$executeRawUnsafe(
+  await setTenantTx(DEFAULT_TENANT_ID, async (tx) => {
+    await tx.$executeRawUnsafe(
       `DELETE FROM task_comments WHERE task_id IN (
          SELECT id FROM tasks WHERE tenant_id = $1::uuid
-           AND related_resource_type = 'lab_result' AND related_resource_id = $2)`,
-      DEFAULT_TENANT_ID, id,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
+           AND related_resource_type = 'lab_result'
+           AND related_resource_id = ANY($2::text[]))`,
+      DEFAULT_TENANT_ID,
+      ALL_RESOURCE_IDS,
+    );
+    await tx.$executeRawUnsafe(
       `DELETE FROM tasks WHERE tenant_id = $1::uuid
-         AND related_resource_type = 'lab_result' AND related_resource_id = $2`,
-      DEFAULT_TENANT_ID, id,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
+         AND related_resource_type = 'lab_result'
+         AND related_resource_id = ANY($2::text[])`,
+      DEFAULT_TENANT_ID,
+      ALL_RESOURCE_IDS,
+    );
+    await tx.$executeRawUnsafe(
       `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid
-         AND rule_code = 'critical_result_ack' AND source_table = 'lab_result' AND source_id = $2`,
-      DEFAULT_TENANT_ID, id,
-    ).catch(() => {});
-  }
-  // Investigation fixture (resource id only known at run time → clean by patient).
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM tasks WHERE tenant_id = $1::uuid
-       AND related_resource_type = 'investigations'
-       AND related_resource_id IN (
-         SELECT id::text FROM investigations WHERE patient_uid = $2::uuid)`,
-    DEFAULT_TENANT_ID, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid
-       AND rule_code = 'critical_result_ack' AND source_table = 'investigations'
-       AND source_id IN (SELECT id::text FROM investigations WHERE patient_uid = $2::uuid)`,
-    DEFAULT_TENANT_ID, PATIENT_UID,
-  ).catch(() => {});
+         AND rule_code = 'critical_result_ack' AND source_table = 'lab_result'
+         AND source_id = ANY($2::text[])`,
+      DEFAULT_TENANT_ID,
+      ALL_RESOURCE_IDS,
+    );
+
+    // Investigation fixture (resource id only known at run time → clean by patient).
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks WHERE tenant_id = $1::uuid
+         AND related_resource_type = 'investigations'
+         AND related_resource_id IN (
+           SELECT id::text FROM investigations WHERE patient_uid = $2::uuid)`,
+      DEFAULT_TENANT_ID,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid
+         AND rule_code = 'critical_result_ack' AND source_table = 'investigations'
+         AND source_id IN (SELECT id::text FROM investigations WHERE patient_uid = $2::uuid)`,
+      DEFAULT_TENANT_ID,
+      PATIENT_UID,
+    );
+  }).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
@@ -313,7 +319,7 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
 
   // ----- FIX 2: ack stops the clock + backfill does not re-create -----------
 
-  it('FIX 2a — acknowledge completes the linked SLA instance, then backfill does NOT re-create the task', async () => {
+  it('FIX 2a — acknowledge completes the linked SLA instance, then later sweeps do not re-create the task', async () => {
     const { taskId, slaInstanceId } = await seedBreachedCriticalTask(R.ack);
 
     const before = await readSlaInstance(slaInstanceId);
@@ -333,21 +339,18 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     expect(afterAck.completed_at).not.toBeNull();
     expect(afterAck.metadata?.completed_via).toBe('task_ack');
 
-    // Bait the backfill with a re-breached instance: the acked (in_progress) task
-    // is non-terminal-OPEN, so the producer's ON CONFLICT de-dupe holds — no fresh
-    // task. (One acked task stays.)
-    await rebreachInstance(slaInstanceId);
+    // A completed SLA is the durable signal that the clock stopped. A later
+    // sweep must not recreate the work item; migration 580 intentionally
+    // forbids manufacturing an in_progress task with an incomplete SLA clock.
     const openBefore = await countOpenTasksForResource('lab_result', R.ack);
     await runEscalationSweep({ now: new Date(Date.now() + 60 * 60_000) });
     expect(await countOpenTasksForResource('lab_result', R.ack)).toBe(openBefore);
 
-    // Now drive the task TERMINAL and re-bait: the engine's terminal-task
-    // exclusion (status IN completed/cancelled) must stop the backfill re-alerting
-    // on an already-handled result.
+    // Once the human work is terminal, the completed SLA still prevents a
+    // future sweep from re-alerting on the already-handled result.
     await taskService.transitionTask({
       tenantId: DEFAULT_TENANT_ID, id: taskId, nextStatus: 'completed',
     });
-    await rebreachInstance(slaInstanceId);
     await runEscalationSweep({ now: new Date(Date.now() + 90 * 60_000) });
     expect(await countOpenTasksForResource('lab_result', R.ack)).toBe(0);
   });
@@ -361,19 +364,23 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     // Resolve the result directly (not via ack) — the terminal transition must
     // close the linked instance too (completeLinkedSla on transitionTask).
     const done = await taskService.transitionTask({
-      tenantId: DEFAULT_TENANT_ID, id: taskId, nextStatus: 'completed',
+      tenantId: DEFAULT_TENANT_ID,
+      id: taskId,
+      nextStatus: 'completed',
+      actorUid: DOCTOR_UID,
     });
     expect(done.status).toBe('completed');
 
     const after = await readSlaInstance(slaInstanceId);
     expect(['completed', 'breached']).toContain(after.status);
     expect(after.completed_at).not.toBeNull();
-    expect(after.metadata?.completed_via).toBe('task_ack'); // marker is shared
+    expect(after.metadata?.completed_via).toBe('task_completion');
+    expect(after.metadata?.completed_by).toBe(DOCTOR_UID);
   });
 
   // ----- FIX 3: lab producer SLA key == ack-flow key ------------------------
 
-  it('FIX 3 — lab producer SLA key ("lab_result", id) is the one emitCriticalLabAlertAcknowledged closes', async () => {
+  it('FIX 3 — the authorized task acknowledgement closes the lab producer SLA key', async () => {
     const res = await enqueueCriticalResultTask({
       tenantId: DEFAULT_TENANT_ID,
       patientUid: PATIENT_UID,
@@ -391,31 +398,22 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     expect(slaBefore).toBeTruthy();
     expect(slaBefore.status).toBe('active');
 
-    // The ack path resolves the result→investigation join best-effort; with no
-    // lab_results row it finds nothing and STILL completes the ('lab_result',
-    // result_id) SLA the producer started. result_id == the producer's resourceId
-    // is the load-bearing unification (pre-fix the ack only closed
-    // 'investigations'/'lab_critical_alerts').
-    await emitCriticalLabAlertAcknowledged({
-      alert: {
-        id: LAB_ALERT_ID,
-        result_id: R.lab,
-        tenant_id: DEFAULT_TENANT_ID,
-        patient_uid: PATIENT_UID,
-        test_name: 'Troponin',
-      },
+    await taskService.acknowledgeTask({
+      tenantId: DEFAULT_TENANT_ID,
+      id: res.taskId,
       actorUid: DOCTOR_UID,
-      actorRole: 'DOCTOR',
+      actorRoles: ['DOCTOR'],
     });
 
     const slaAfter = await readSlaByKey('lab_result', R.lab);
     expect(['completed', 'breached']).toContain(slaAfter.status);
     expect(slaAfter.completed_at).not.toBeNull();
 
-    // The open results-inbox task for the lab_result resource is also closed.
+    // Acknowledgement stops the clock but leaves the human work item open until
+    // its clinical action is complete.
     const task = await readTaskById(res.taskId);
-    expect(task.status).toBe('completed');
-    expect(task.metadata?.completed_via).toBe('critical_result_ack');
+    expect(task.status).toBe('in_progress');
+    expect(task.metadata?.acknowledged_via).toBe('assignee');
   });
 
   // ----- FIX 4: investigation critical → ack-task from minute 0 -------------
@@ -455,7 +453,8 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     expect(sla.status).toBe('active');
 
     const taskRows = await prisma.$queryRawUnsafe(
-      `SELECT id, status, assigned_to_uid, priority, metadata
+      `SELECT id, status, assigned_to_uid, priority,
+              workflow_sla_instance_id, sla_completion_semantics, metadata
          FROM tasks
         WHERE tenant_id = $1::uuid AND related_resource_type = 'investigations'
           AND related_resource_id = $2 LIMIT 1`,
@@ -467,8 +466,134 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     expect(task.priority).toBe('critical');
     // Ack-tracked + assigned to the ordering clinician + linked to the SLA.
     expect(task.assigned_to_uid).toBe(DOCTOR_UID);
-    expect(task.metadata.sla_instance_id).toBe(sla.id);
+    expect(task.workflow_sla_instance_id).toBe(sla.id);
+    expect(task.sla_completion_semantics).toBe('acknowledgement');
     expect(task.metadata.source).toBe('investigation');
+
+    await taskService.transitionTask({
+      tenantId: DEFAULT_TENANT_ID,
+      id: task.id,
+      nextStatus: 'completed',
+      actorUid: DOCTOR_UID,
+    });
+    const directCompletion = await prisma.$queryRawUnsafe(
+      `SELECT task.status AS task_status,
+              sla.status AS sla_status,
+              (EXTRACT(EPOCH FROM task.completed_at) * 1000)::double precision AS task_completed_epoch_ms,
+              (EXTRACT(EPOCH FROM sla.completed_at) * 1000)::double precision AS sla_completed_epoch_ms,
+              (EXTRACT(EPOCH FROM sla.due_at) * 1000)::double precision AS sla_due_epoch_ms
+         FROM tasks task
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = task.tenant_id
+          AND sla.id = task.workflow_sla_instance_id
+        WHERE task.tenant_id = $1::uuid AND task.id = $2::int`,
+      DEFAULT_TENANT_ID,
+      task.id,
+    );
+    expect(directCompletion[0]).toMatchObject({
+      task_status: 'completed',
+      sla_status: 'completed',
+    });
+    expect(directCompletion[0].task_completed_epoch_ms)
+      .toBe(directCompletion[0].sla_completed_epoch_ms);
+    expect(directCompletion[0].sla_completed_epoch_ms)
+      .toBeLessThanOrEqual(directCompletion[0].sla_due_epoch_ms);
+
+    await investigationService.addResults(
+      investigationId,
+      {
+        results: {
+          analytes: [
+            { name: 'Potassium', value: '7.8', unit: 'mmol/L', normal_range: '3.5-5.1', flag: 'PANIC' },
+          ],
+        },
+        re_run: true,
+        re_run_reason: 'Analyzer rerun confirmed the panic value',
+      },
+      DOCTOR_UID,
+      DEFAULT_TENANT_ID,
+    );
+
+    const rerunTasks = await prisma.$queryRawUnsafe(
+      `SELECT id, status, title, description, priority,
+              workflow_sla_instance_id, metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'investigations'
+          AND related_resource_id = $2
+        ORDER BY id`,
+      DEFAULT_TENANT_ID,
+      String(investigationId),
+    );
+    expect(rerunTasks).toHaveLength(2);
+    expect(rerunTasks[0]).toMatchObject({ id: task.id, status: 'completed' });
+    expect(rerunTasks[1]).toMatchObject({
+      status: 'open',
+      title: 'Critical result: Serum Potassium',
+      priority: 'critical',
+      workflow_sla_instance_id: sla.id,
+      metadata: {
+        reopened_from_task_id: task.id,
+        reopen_reason: 'investigation_result_rerun',
+      },
+    });
+    const rerunSla = await readSlaByKey('investigations', String(investigationId));
+    expect(rerunSla).toMatchObject({ id: sla.id, status: 'active', completed_at: null });
+
+    await taskService.transitionTask({
+      tenantId: DEFAULT_TENANT_ID,
+      id: rerunTasks[1].id,
+      nextStatus: 'completed',
+      actorUid: DOCTOR_UID,
+    });
+    const completedRerunSla = await readSlaByKey(
+      'investigations',
+      String(investigationId),
+    );
+    expect(completedRerunSla).toMatchObject({
+      id: sla.id,
+      status: 'completed',
+    });
+    expect(completedRerunSla.completed_at).not.toBeNull();
+
+    await investigationService.addResults(
+      investigationId,
+      {
+        results: {
+          analytes: [
+            { name: 'Potassium', value: '4.2', unit: 'mmol/L', normal_range: '3.5-5.1', flag: 'N' },
+          ],
+        },
+        re_run: true,
+        re_run_reason: 'Corrected analyzer calibration result',
+      },
+      DOCTOR_UID,
+      DEFAULT_TENANT_ID,
+    );
+
+    const correctedTasks = await prisma.$queryRawUnsafe(
+      `SELECT id, status, title, description, priority,
+              workflow_sla_instance_id, metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'investigations'
+          AND related_resource_id = $2
+        ORDER BY id`,
+      DEFAULT_TENANT_ID,
+      String(investigationId),
+    );
+    // The shipped high-to-normal re-ack compatibility rule is lab-only. Until
+    // D4/D5 define normal and abnormal-noncritical disposition, a currently
+    // noncritical investigation correction must not manufacture or re-arm a
+    // critical-result obligation.
+    expect(correctedTasks).toHaveLength(2);
+    expect(correctedTasks).toEqual([
+      expect.objectContaining({ id: task.id, status: 'completed' }),
+      expect.objectContaining({ id: rerunTasks[1].id, status: 'completed' }),
+    ]);
+    const unchangedSla = await readSlaByKey('investigations', String(investigationId));
+    expect(unchangedSla).toMatchObject({ id: sla.id, status: 'completed' });
+    expect(unchangedSla.completed_at).toEqual(completedRerunSla.completed_at);
   });
 });
 

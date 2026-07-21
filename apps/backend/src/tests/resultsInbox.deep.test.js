@@ -5,7 +5,7 @@
 //
 //   1. enqueueCriticalResultTask (the producer) turns a critical lab result into
 //      an assigned, ack-tracked `tasks` row linked to a mig-269
-//      critical_result_ack SLA instance (metadata.sla_instance_id).
+//      critical_result_ack SLA instance (workflow_sla_instance_id).
 //   2. The task appears in the ordering clinician's GET /tasks/inbox
 //      (listInboxTasks for assignee = me).
 //   3. SLA breach: with `now` advanced past the instance due_at, runEscalationSweep
@@ -25,7 +25,10 @@ import { jest } from '@jest/globals';
 const prisma = (await import('../lib/prisma.js')).default;
 const { setTenantTx } = await import('../lib/prisma.js');
 const { DEFAULT_TENANT_ID } = await import('../services/tenant/tenantService.js');
-const { enqueueCriticalResultTask } = await import('../services/results/resultsInboxService.js');
+const {
+  enqueueCriticalResultTask,
+  ensureCriticalResultTaskOpen,
+} = await import('../services/results/resultsInboxService.js');
 const { runEscalationSweep } = await import('../services/workflow/escalationEngineService.js');
 const taskService = await import('../services/workflow/taskService.js');
 
@@ -46,7 +49,8 @@ const RESOURCE_TYPE = 'lab_result';
 // Helpers to read a task's escalation tiers + SLA instance directly.
 async function readTask(taskId) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, status, priority, assigned_to_uid, metadata
+    `SELECT id, status, priority, assigned_to_uid,
+            due_at, workflow_sla_instance_id, sla_completion_semantics, metadata
        FROM tasks WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
     taskId, DEFAULT_TENANT_ID,
   );
@@ -69,12 +73,22 @@ function tiersOf(taskRow) {
 // apples-to-apples we anchor the tier windows to the SAME read-back value the
 // engine will use, not to the literal we wrote.
 async function setSlaBreachedAt(slaInstanceId, whenIso) {
-  await prisma.$executeRawUnsafe(
-    `UPDATE workflow_sla_instances
-        SET status = 'breached', breached_at = $2::timestamptz, due_at = $2::timestamptz, updated_at = NOW()
-      WHERE id = $1::uuid AND tenant_id = $3::uuid`,
-    slaInstanceId, whenIso, DEFAULT_TENANT_ID,
-  );
+  await setTenantTx(DEFAULT_TENANT_ID, async (tx) => {
+    await tx.$executeRawUnsafe(
+      `UPDATE tasks
+          SET due_at = $2::timestamptz, updated_at = NOW()
+        WHERE workflow_sla_instance_id = $1::uuid
+          AND tenant_id = $3::uuid`,
+      slaInstanceId, whenIso, DEFAULT_TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `UPDATE workflow_sla_instances
+          SET status = 'breached', breached_at = $2::timestamptz,
+              due_at = $2::timestamptz, updated_at = NOW()
+        WHERE id = $1::uuid AND tenant_id = $3::uuid`,
+      slaInstanceId, whenIso, DEFAULT_TENANT_ID,
+    );
+  });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT breached_at FROM workflow_sla_instances WHERE id = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
     slaInstanceId, DEFAULT_TENANT_ID,
@@ -83,26 +97,34 @@ async function setSlaBreachedAt(slaInstanceId, whenIso) {
 }
 
 async function cleanup() {
-  // Remove the task(s) for this resource + any SLA instance + the test users.
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM task_comments WHERE task_id IN (
-       SELECT id FROM tasks WHERE tenant_id = $1::uuid
-         AND related_resource_type = $2 AND related_resource_id = $3)`,
-    DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM tasks WHERE tenant_id = $1::uuid
-       AND related_resource_type = $2 AND related_resource_id = $3`,
-    DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid
-       AND rule_code = 'critical_result_ack' AND source_table = $2 AND source_id = $3`,
-    DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID,
-  ).catch(() => {});
+  // Typed tasks and their SLA clocks are intentionally delete-protected. This
+  // teardown is confined to the disposable superuser test database and exact
+  // synthetic fixture identifiers; no production cleanup path gets a bypass.
+  await setTenantTx(DEFAULT_TENANT_ID, async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM task_comments WHERE task_id IN (
+         SELECT id FROM tasks WHERE tenant_id = $1::uuid
+           AND related_resource_type = $2 AND related_resource_id = $3)`,
+      DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks WHERE tenant_id = $1::uuid
+         AND related_resource_type = $2 AND related_resource_id = $3`,
+      DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid
+         AND rule_code = 'critical_result_ack' AND source_table = $2 AND source_id = $3`,
+      DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid IN ($2::uuid, $3::uuid)`,
+      DEFAULT_TENANT_ID, PATIENT_UID, DOCTOR_UID,
+    );
+  });
 }
 
 d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
@@ -157,9 +179,26 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
     expect(task.assigned_to_uid).toBe(DOCTOR_UID);
     expect(task.metadata.source).toBe('lab_result');
     // The mig-269 critical_result_ack SLA instance is linked as the clock.
-    expect(task.metadata.sla_instance_id).toBeTruthy();
-    slaInstanceId = task.metadata.sla_instance_id;
+    expect(task.workflow_sla_instance_id).toBeTruthy();
+    expect(task.sla_completion_semantics).toBe('acknowledgement');
+    slaInstanceId = task.workflow_sla_instance_id;
     expect(task.metadata.sla_key).toBe('critical_result_ack');
+    const deadlineRows = await prisma.$queryRawUnsafe(
+      `SELECT t.due_at AS task_due_at,
+              sla.due_at AS sla_due_at,
+              t.due_at = sla.due_at AS exact_deadline
+         FROM tasks t
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = t.tenant_id
+          AND sla.id = t.workflow_sla_instance_id
+        WHERE t.tenant_id = $1::uuid
+          AND t.id = $2::int`,
+      DEFAULT_TENANT_ID,
+      taskId,
+    );
+    expect(deadlineRows[0].task_due_at).toBeTruthy();
+    expect(deadlineRows[0].sla_due_at).toBeTruthy();
+    expect(deadlineRows[0].exact_deadline).toBe(true);
   });
 
   it('is idempotent: a second producer call for the same resource creates no new task', async () => {
@@ -271,6 +310,113 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
       roles: ['DOCTOR'],
     });
     expect(inbox.tasks.map((t) => t.id)).not.toContain(taskId);
+  });
+
+  it('plain enqueue never creates a fresh task behind the completed SLA', async () => {
+    const again = await enqueueCriticalResultTask({
+      tenantId: DEFAULT_TENANT_ID,
+      patientUid: PATIENT_UID,
+      source: 'lab_result',
+      resourceType: RESOURCE_TYPE,
+      resourceId: RESOURCE_ID,
+      severity: 'critical',
+      orderingClinicianUid: DOCTOR_UID,
+    });
+
+    expect(again).toMatchObject({
+      created: false,
+      skipped: true,
+      reason: 'task_already_acknowledged',
+      slaInstanceId,
+    });
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = $2
+          AND related_resource_id = $3`,
+      DEFAULT_TENANT_ID,
+      RESOURCE_TYPE,
+      RESOURCE_ID,
+    );
+    expect(rows[0].count).toBe(1);
+  });
+
+  it('refuses to reopen a synthetic lab closure without an immutable alert receipt', async () => {
+    const beforeTasks = await prisma.$queryRawUnsafe(
+      `SELECT id, status, completed_at, due_at, metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = $2
+          AND related_resource_id = $3
+        ORDER BY id`,
+      DEFAULT_TENANT_ID,
+      RESOURCE_TYPE,
+      RESOURCE_ID,
+    );
+    const beforeSlas = await prisma.$queryRawUnsafe(
+      `SELECT id, status, completed_at, started_at, due_at, metadata
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid`,
+      DEFAULT_TENANT_ID,
+      slaInstanceId,
+    );
+    const beforeComments = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM task_comments
+        WHERE tenant_id = $1::uuid
+          AND task_id = $2::int`,
+      DEFAULT_TENANT_ID,
+      taskId,
+    );
+
+    await expect(ensureCriticalResultTaskOpen({
+      tenantId: DEFAULT_TENANT_ID,
+      patientUid: PATIENT_UID,
+      source: 'lab_result',
+      resourceType: RESOURCE_TYPE,
+      resourceId: RESOURCE_ID,
+      severity: 'critical',
+      orderingClinicianUid: DOCTOR_UID,
+      reason: 'deep_explicit_reopen',
+      supersededByActorUid: DOCTOR_UID,
+      strict: true,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_CRITICAL_ALERT_ACK_RECONCILIATION_REQUIRED',
+    });
+
+    const afterTasks = await prisma.$queryRawUnsafe(
+      `SELECT id, status, completed_at, due_at, metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = $2
+          AND related_resource_id = $3
+        ORDER BY id`,
+      DEFAULT_TENANT_ID,
+      RESOURCE_TYPE,
+      RESOURCE_ID,
+    );
+    const afterSlas = await prisma.$queryRawUnsafe(
+      `SELECT id, status, completed_at, started_at, due_at, metadata
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid`,
+      DEFAULT_TENANT_ID,
+      slaInstanceId,
+    );
+    const afterComments = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM task_comments
+        WHERE tenant_id = $1::uuid
+          AND task_id = $2::int`,
+      DEFAULT_TENANT_ID,
+      taskId,
+    );
+    expect(afterTasks).toEqual(beforeTasks);
+    expect(afterSlas).toEqual(beforeSlas);
+    expect(afterComments).toEqual(beforeComments);
   });
 });
 

@@ -22,9 +22,15 @@ const TENANT_B = 'c0de0210-0000-4000-8000-00000000b001';
 const PATIENT_A = 'c0de0210-0000-4000-8000-0000000007a1'; // in tenant A
 const PATIENT_B = 'c0de0210-0000-4000-8000-0000000007b1'; // in tenant B
 
-function buildApp() {
+function buildApp({ apiClientTenantId = null } = {}) {
   const app = express();
   app.use(express.json());
+  if (apiClientTenantId) {
+    app.use((req, _res, next) => {
+      req.apiClientTenantId = apiClientTenantId;
+      next();
+    });
+  }
   app.use('/api/v1/hl7', hl7Routes);
   return app;
 }
@@ -95,5 +101,70 @@ d('HL7 /receive per-tenant patient equality (CAN-021)', () => {
     const rows = await prisma.$queryRawUnsafe(`SELECT tenant_id::text AS tenant_id FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_A);
     expect(rows.length).toBe(1);
     expect(rows[0].tenant_id).toBe(TENANT_A);
+  });
+
+  it('rejects a tenant-B DB API credential before consuming tenant-A replay state', async () => {
+    const mismatchedApp = buildApp({ apiClientTenantId: TENANT_B });
+    const matchingApp = buildApp({ apiClientTenantId: TENANT_A });
+    const controlId = `EQKEY${Date.now()}`;
+    const message = adt(PATIENT_A, controlId);
+    const headers = signHeaders({ message, controlId });
+    const sharedReplayRequestId = [
+      headers['x-hl7-message-id'],
+      headers['x-hl7-timestamp'],
+      headers['x-hl7-signature'].replace(/^sha256=/i, ''),
+    ].join(':');
+    await prisma.$executeRawUnsafe(
+      'DELETE FROM admissions WHERE patient_uid = $1::uuid',
+      PATIENT_A,
+    );
+    const beforeAdmissions = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM admissions WHERE patient_uid = $1::uuid`,
+      PATIENT_A,
+    );
+    const res = await request(mismatchedApp)
+      .post('/api/v1/hl7/receive')
+      .set(headers)
+      .send({ message });
+
+    expect(res.status).toBe(401);
+    expect(res.text).toContain('MSA|AR');
+    const replayRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM interop_replay_guard
+        WHERE namespace = 'hl7-inbound'
+          AND request_id = $1`,
+      sharedReplayRequestId,
+    );
+    expect(replayRows[0].count).toBe(0);
+    const admissions = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM admissions WHERE patient_uid = $1::uuid`,
+      PATIENT_A,
+    );
+    expect(admissions[0].count).toBe(beforeAdmissions[0].count);
+
+    // The denied credential must not poison the process-local replay cache.
+    // Reusing the exact signed envelope with the matching credential should
+    // still claim replay state and perform the mutation once.
+    const accepted = await request(matchingApp)
+      .post('/api/v1/hl7/receive')
+      .set(headers)
+      .send({ message });
+    expect(accepted.status).toBe(200);
+    expect(accepted.text).toContain('MSA|AA');
+
+    const afterAccepted = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int
+            FROM admissions
+           WHERE patient_uid = $1::uuid) AS admission_count,
+         (SELECT COUNT(*)::int
+            FROM interop_replay_guard
+           WHERE namespace = 'hl7-inbound'
+             AND request_id = $2) AS replay_count`,
+      PATIENT_A,
+      sharedReplayRequestId,
+    );
+    expect(afterAccepted[0]).toEqual({ admission_count: 1, replay_count: 1 });
   });
 });

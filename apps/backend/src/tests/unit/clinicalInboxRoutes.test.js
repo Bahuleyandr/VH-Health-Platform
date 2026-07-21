@@ -14,6 +14,11 @@ import request from 'supertest';
 
 const acknowledgeTaskMock = jest.fn();
 const listInboxTasksMock = jest.fn();
+const acknowledgeCriticalAlertForInboxTaskMock = jest.fn();
+
+jest.unstable_mockModule('../../services/lab/labResultsService.js', () => ({
+  acknowledgeCriticalAlertForInboxTask: acknowledgeCriticalAlertForInboxTaskMock,
+}));
 
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   acknowledgeTask: acknowledgeTaskMock,
@@ -35,6 +40,13 @@ function registeredRoutes(expressRouter) {
 
 describe('clinicalInboxRoutes — minimal clinician surface', () => {
   const routes = registeredRoutes(router);
+
+  beforeEach(() => {
+    acknowledgeTaskMock.mockReset();
+    listInboxTasksMock.mockReset();
+    acknowledgeCriticalAlertForInboxTaskMock.mockReset();
+    acknowledgeCriticalAlertForInboxTaskMock.mockResolvedValue({ handled: false, task: null });
+  });
 
   it('exposes ONLY GET /tasks/inbox and POST /tasks/:id/acknowledge', () => {
     expect(routes).toEqual([
@@ -73,7 +85,7 @@ describe('clinicalInboxRoutes — minimal clinician surface', () => {
       req.user = {
         uid: '11111111-1111-4111-8111-111111111111',
         role: 'CMO',
-        roles: ['CMO'],
+        roles: ['NURSING_STAFF'],
       };
       next();
     });
@@ -95,9 +107,68 @@ describe('clinicalInboxRoutes — minimal clinician surface', () => {
       tenantId: '00000000-0000-4000-8000-000000000001',
       id: '71',
       actorUid: '11111111-1111-4111-8111-111111111111',
-      actorRoles: ['CMO'],
+      actorRoles: ['NURSING_STAFF', 'CMO'],
       breakGlassId: 41,
     });
+    expect(acknowledgeCriticalAlertForInboxTaskMock).toHaveBeenCalledWith('71', {
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorName: null,
+      actorRoles: ['NURSING_STAFF', 'CMO'],
+      actorRole: 'CMO',
+      breakGlassId: 41,
+      readBackMethod: null,
+      notes: null,
+    });
     expect(finishedPhiContext).toMatchObject({ patientUid });
+  });
+
+  it('returns the task-compatible row from the authoritative critical-alert transition', async () => {
+    const patientUid = '55555555-5555-4555-8555-555555555555';
+    acknowledgeCriticalAlertForInboxTaskMock.mockResolvedValueOnce({
+      handled: true,
+      task: { id: 72, status: 'in_progress', patient_uid: patientUid },
+    });
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.tenantId = '00000000-0000-4000-8000-000000000001';
+      req.user = {
+        uid: '11111111-1111-4111-8111-111111111111',
+        name: 'Server Loaded Clinician',
+        role: 'DOCTOR',
+        roles: ['DOCTOR'],
+      };
+      next();
+    });
+    app.use('/api/v1/clinical-inbox', router);
+
+    const response = await request(app)
+      .post('/api/v1/clinical-inbox/tasks/72/acknowledge')
+      .send({
+        alert_id: 999999,
+        result_id: 888888,
+        acknowledged_by_name: 'Caller controlled actor',
+        read_back_method: 'telephone',
+        notes: 'Read back confirmed',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      success: true,
+      message: 'Task acknowledged',
+      data: { id: 72, status: 'in_progress', patient_uid: patientUid },
+    });
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
+    expect(acknowledgeCriticalAlertForInboxTaskMock).toHaveBeenCalledWith('72', {
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorName: 'Server Loaded Clinician',
+      actorRoles: ['DOCTOR'],
+      actorRole: 'DOCTOR',
+      breakGlassId: null,
+      readBackMethod: 'telephone',
+      notes: 'Read back confirmed',
+    });
   });
 });

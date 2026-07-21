@@ -40,12 +40,13 @@ export function operationId(method, openApiPath) {
 }
 
 /** Build one OpenAPI operation. With an overlay entry (`ov`), attach a typed
- * requestBody and/or typed 200 response; otherwise the generic Success envelope. */
+ * requestBody and/or typed success response; otherwise the generic Success envelope. */
 function buildOperation(method, openApiPath, opId, ov) {
+  const responseStatus = String(ov?.responseStatus ?? 200);
   const op = {
     operationId: opId,
     responses: {
-      200: {
+      [responseStatus]: {
         description: 'Successful response',
         content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } },
       },
@@ -53,16 +54,23 @@ function buildOperation(method, openApiPath, opId, ov) {
   };
   if (ov && ov.summary) op.summary = ov.summary;
   if (ov && ov.description) op.description = ov.description;
-  if (ov && ov.responseDescription) op.responses[200].description = ov.responseDescription;
+  if (ov && ov.responseDescription) {
+    op.responses[responseStatus].description = ov.responseDescription;
+  }
   const params = pathParamNames(openApiPath).map((name) => ({
-    name, in: 'path', required: true, schema: { type: 'string' },
+    name,
+    in: 'path',
+    required: true,
+    schema: ov?.pathParameters?.[name] ?? { type: 'string' },
   }));
   if (params.length) op.parameters = params;
   if (ov && Array.isArray(ov.parameters) && ov.parameters.length) {
     op.parameters = [...params, ...ov.parameters];
   }
   if (ov && ov.response) {
-    op.responses[200].content['application/json'].schema = { $ref: `#/components/schemas/${ov.response}` };
+    op.responses[responseStatus].content['application/json'].schema = {
+      $ref: `#/components/schemas/${ov.response}`,
+    };
   }
   if (ov && ov.request) {
     op.requestBody = {

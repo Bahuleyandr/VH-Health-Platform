@@ -27,6 +27,7 @@ import {
   canSignCathReport,
   canViewCathReport,
   canDispatchAmbulance,
+  getAuthenticatedActorRoles,
   canManageAiGovernance,
   canManageClaims,
   canManageDataProtection,
@@ -53,6 +54,19 @@ import {
 } from '../../utils/roleHelpers.js';
 
 describe('Phase F1 role registry', () => {
+  it('unions authenticated primary and secondary roles without dropping either source', () => {
+    expect(getAuthenticatedActorRoles({ role: 'CMO' })).toEqual(['CMO']);
+    expect(getAuthenticatedActorRoles({ roles: ['NURSING_STAFF'] })).toEqual(['NURSING_STAFF']);
+    expect(getAuthenticatedActorRoles({
+      role: 'CMO',
+      roles: ['NURSING_STAFF', 'CMO'],
+    })).toEqual(['NURSING_STAFF', 'CMO']);
+    expect(getAuthenticatedActorRoles({
+      role: 'cmo',
+      roles: ['nursing_staff'],
+    })).toEqual(['NURSING_STAFF', 'CMO']);
+  });
+
   it('exposes the 10 new roles', () => {
     expect(ROLES.CONSULTANT).toBe('CONSULTANT');
     expect(ROLES.JUNIOR_DOCTOR).toBe('JUNIOR_DOCTOR');

@@ -22,6 +22,8 @@ import express from 'express';
 
 import { AppError } from '../utils/AppError.js';
 import { success } from '../utils/responseHelper.js';
+import { getAuthenticatedActorRoles } from '../utils/roleHelpers.js';
+import { acknowledgeCriticalAlertForInboxTask } from '../services/lab/labResultsService.js';
 import { acknowledgeTask, listInboxTasks } from '../services/workflow/taskService.js';
 
 const router = express.Router();
@@ -39,7 +41,7 @@ router.get('/tasks/inbox', async (req, res, next) => {
     const result = await listInboxTasks({
       tenantId: req.tenantId,
       assigneeUid: req.user?.uid || null,
-      roles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
+      roles: getAuthenticatedActorRoles(req.user),
       limit: req.query.limit,
     });
     return success(res, result, 'Inbox retrieved');
@@ -51,20 +53,35 @@ router.get('/tasks/inbox', async (req, res, next) => {
 // audit comment and is idempotent for an already-acknowledged task.
 router.post('/tasks/:id/acknowledge', async (req, res, next) => {
   try {
-    const row = await acknowledgeTask({
+    const actorRoles = getAuthenticatedActorRoles(req.user);
+    const criticalAlertResult = await acknowledgeCriticalAlertForInboxTask(req.params.id, {
       tenantId: req.tenantId,
-      id: req.params.id,
       actorUid: req.user?.uid || null,
-      actorRoles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
+      actorName: req.user?.name || null,
+      actorRoles,
+      actorRole: req.user?.role
+        || (Array.isArray(req.user?.roles) ? req.user.roles[0] : req.user?.roles)
+        || null,
       breakGlassId: req.body?.break_glass_id ?? null,
+      readBackMethod: req.body?.read_back_method ?? null,
+      notes: req.body?.notes ?? null,
     });
+    const row = criticalAlertResult.handled
+      ? criticalAlertResult.task
+      : await acknowledgeTask({
+        tenantId: req.tenantId,
+        id: req.params.id,
+        actorUid: req.user?.uid || null,
+        actorRoles,
+        breakGlassId: req.body?.break_glass_id ?? null,
+      });
     setPhiPatientContext(req, row?.patient_uid);
     return success(res, row, 'Task acknowledged');
   } catch (err) {
     setPhiPatientContext(req, err?.phiPatientUid);
     // A missing id and a forbidden existing task are deliberately
     // indistinguishable on this PHI-bearing clinical surface.
-    if (err?.statusCode === 404) {
+    if (err?.statusCode === 403 || err?.statusCode === 404) {
       return next(AppError.forbidden('Not authorized to acknowledge this task'));
     }
     return next(err);

@@ -3,6 +3,22 @@
 
 import { parseHL7, formatHL7Date, generateControlId } from './hl7Parser.js';
 
+const POSTGRES_INT4_MAX = 2_147_483_647;
+
+export function formatVhInvestigationOrderId(id) {
+  if (id === null || id === undefined || String(id).trim() === '') return '';
+  const rawId = String(id).trim();
+  const numericId = /^\d+$/.test(rawId) ? Number(rawId) : null;
+  if (
+    !Number.isSafeInteger(numericId)
+    || numericId <= 0
+    || numericId > POSTGRES_INT4_MAX
+  ) {
+    throw new TypeError('Investigation id must be a positive PostgreSQL integer');
+  }
+  return `VHINV-${numericId}`;
+}
+
 // =============================================================================
 // OUTBOUND: VH Health data  ->  HL7v2 messages
 // =============================================================================
@@ -45,12 +61,12 @@ export function dischargeToADT(admission, patient) {
  * @param {Object} patient - Internal user/patient record
  * @returns {string} HL7v2 ORM^O01 message
  */
-export function orderToORM(order, patient) {
+export function orderToORM(order, patient, { enforceLocalOrderContract = false } = {}) {
   const now = formatHL7Date(new Date());
   const segments = [
     `MSH|^~\\&|VHHEALTH|VH_HOSPITALS||EXTERNAL|${now}||ORM^O01|${generateControlId()}|P|2.5`,
     buildPID(patient),
-    buildOBR(order),
+    buildOBR(order, { enforceLocalOrderContract }),
   ];
   return segments.join('\r');
 }
@@ -61,12 +77,23 @@ export function orderToORM(order, patient) {
  * @param {Object} patient - Internal user/patient record
  * @returns {string} HL7v2 ORU^R01 message
  */
-export function resultToORU(investigation, patient) {
+export function resultToORU(
+  investigation,
+  patient,
+  { enforceLocalOrderContract = false } = {},
+) {
   const now = formatHL7Date(new Date());
+  const localOrderId = formatVhInvestigationOrderId(investigation?.id);
+  const orderedTestCode = enforceLocalOrderContract && localOrderId
+    ? String(investigation?.test_code || '').trim()
+    : null;
+  if (enforceLocalOrderContract && localOrderId && !orderedTestCode) {
+    throw new TypeError('Local investigation HL7 messages require a structured test_code');
+  }
   const segments = [
     `MSH|^~\\&|VHHEALTH|VH_HOSPITALS||EXTERNAL|${now}||ORU^R01|${generateControlId()}|P|2.5`,
     buildPID(patient),
-    buildOBR(investigation),
+    buildOBR(investigation, { enforceLocalOrderContract }),
   ];
 
   // Add OBX segments for each result
@@ -74,8 +101,11 @@ export function resultToORU(investigation, patient) {
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (typeof r === 'object' && r !== null) {
-      segments.push(buildOBX(r, i + 1));
+      segments.push(buildOBX(r, i + 1, { orderedTestCode }));
     } else {
+      if (enforceLocalOrderContract && orderedTestCode) {
+        throw new TypeError('Local investigation ORU results require a matching structured test_code');
+      }
       // Simple string result — escape the test name + value (H7).
       segments.push(
         `OBX|${i + 1}|ST|${encodeHL7Field(investigation.test_name)}||${encodeHL7Field(r)}||||||F`
@@ -248,11 +278,19 @@ function buildPV1(admission, defaultClass) {
   return fields.join('|');
 }
 
-function buildOBR(order) {
+function buildOBR(order, { enforceLocalOrderContract = false } = {}) {
   if (!order) return 'OBR|1';
-  const placerOrder = encodeHL7Field(order.placer_order_number || order.id || '');
+  const localOrderId = formatVhInvestigationOrderId(order.id);
+  const orderedTestCode = String(order.test_code || '').trim();
+  if (enforceLocalOrderContract && localOrderId && !orderedTestCode) {
+    throw new TypeError('Local investigation HL7 messages require a structured test_code');
+  }
+  const placerOrder = encodeHL7Field(localOrderId);
   const fillerOrder = encodeHL7Field(order.filler_order_number);
-  const testCode = encodeHL7Field(order.test_name || order.investigation_type || '');
+  const testDisplay = String(order.test_name || order.investigation_type || '').trim();
+  const testCode = orderedTestCode
+    ? buildCodedElement(orderedTestCode, testDisplay)
+    : encodeHL7Field(testDisplay);
   const orderDate = formatHL7Date(order.ordered_at || order.created_at) || '';
   const resultStatus = order.status === 'COMPLETED' ? 'F' : (order.status === 'PENDING' ? 'O' : 'I');
 
@@ -268,11 +306,28 @@ function buildOBR(order) {
   return fields.join('|');
 }
 
-function buildOBX(result, setId) {
+function buildCodedElement(code, display = '') {
+  const encodedCode = encodeHL7Field(code);
+  const encodedDisplay = encodeHL7Field(display);
+  return encodedDisplay ? `${encodedCode}^${encodedDisplay}` : encodedCode;
+}
+
+function buildOBX(result, setId, { orderedTestCode = null } = {}) {
   // valueType/status are constrained code values; the rest are free-text data and
   // are HL7-escaped (H7) — lab `value`/`observationId` can carry delimiters.
   const valueType = result.value_type || 'ST';
-  const obsId = encodeHL7Field(result.name || result.observation_id || '');
+  const rawObservationIdentity = String(
+    result.test_code || result.code || result.observation_id || '',
+  ).trim();
+  const [observationCode = '', observationDisplay = ''] = rawObservationIdentity.split('^');
+  const structuredObservationCode = observationCode.trim();
+  if (orderedTestCode && structuredObservationCode !== orderedTestCode) {
+    throw new TypeError('Local investigation ORU results require a matching structured test_code');
+  }
+  const display = observationDisplay.trim() || result.name || '';
+  const obsId = structuredObservationCode
+    ? buildCodedElement(structuredObservationCode, display)
+    : encodeHL7Field(result.name || '');
   const value = encodeHL7Field(result.value);
   const units = encodeHL7Field(result.unit || result.units || '');
   const refRange = encodeHL7Field(result.reference_range);

@@ -5,18 +5,25 @@
  * (design §4.1) without a live DB:
  *   - severity → priority map + task_kind='review' + related_resource link
  *   - assignment precedence (ordering clinician, else role fallback)
- *   - mig-269 SLA instance link in metadata.sla_instance_id
+ *   - mig-269 SLA instance link in tasks.workflow_sla_instance_id
  *   - idempotency via the uq_task_open_per_resource index (ON CONFLICT →
  *     { created:false })
- *   - never throws (best-effort): a DB error → { created:false, error }
+ *   - standalone calls never throw; strict caller-owned transactions rethrow
  *   - promoteTaskCandidate is an inert Wave-3 stub
  */
 
 import { jest } from '@jest/globals';
 
 const createTaskMock = jest.fn();
+const transitionTaskMock = jest.fn();
+const supersedeAcknowledgementTaskMock = jest.fn();
+const postTaskCommentMock = jest.fn();
 const startWorkflowSlaMock = jest.fn();
 const loggerErrorMock = jest.fn();
+const loggerWarnMock = jest.fn();
+const resolveClinicalTaskOwnerTxMock = jest.fn();
+const repairCriticalResultTaskOwnerTxMock = jest.fn();
+const lockResultsInboxResourceTxMock = jest.fn();
 // Candidate-row reader used by promoteTaskCandidate inside the tenant tx.
 const txQueryMock = jest.fn();
 
@@ -31,8 +38,25 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
-  default: { createTask: createTaskMock },
+  default: {
+    createTask: createTaskMock,
+    transitionTask: transitionTaskMock,
+    supersedeAcknowledgementTaskFromTrustedWorkflow: supersedeAcknowledgementTaskMock,
+    postTaskComment: postTaskCommentMock,
+  },
   createTask: createTaskMock,
+  transitionTask: transitionTaskMock,
+  supersedeAcknowledgementTaskFromTrustedWorkflow: supersedeAcknowledgementTaskMock,
+  postTaskComment: postTaskCommentMock,
+}));
+
+jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  resolveClinicalTaskOwnerTx: resolveClinicalTaskOwnerTxMock,
+  repairCriticalResultTaskOwnerTx: repairCriticalResultTaskOwnerTxMock,
+}));
+
+jest.unstable_mockModule('../../services/results/resultsInboxResourceLock.js', () => ({
+  lockResultsInboxResourceTx: lockResultsInboxResourceTxMock,
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
@@ -40,7 +64,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
-  default: { error: loggerErrorMock, warn: jest.fn(), info: jest.fn() },
+  default: { error: loggerErrorMock, warn: loggerWarnMock, info: jest.fn() },
 }));
 
 // abnormal_result_triage module-enabled gate (dynamic-imported by the bridge).
@@ -49,7 +73,12 @@ jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => (
   getClinicalAiModule: getClinicalAiModuleMock,
 }));
 
-const { enqueueCriticalResultTask, promoteTaskCandidate, promoteAbnormalTriageResult } = await import(
+const {
+  enqueueCriticalResultTask,
+  ensureCriticalResultTaskOpen,
+  promoteTaskCandidate,
+  promoteAbnormalTriageResult,
+} = await import(
   '../../services/results/resultsInboxService.js'
 );
 
@@ -59,11 +88,34 @@ const CLINICIAN = '22222222-2222-4222-8222-222222222222';
 
 beforeEach(() => {
   createTaskMock.mockReset();
+  transitionTaskMock.mockReset();
+  supersedeAcknowledgementTaskMock.mockReset();
+  postTaskCommentMock.mockReset();
   startWorkflowSlaMock.mockReset();
   loggerErrorMock.mockReset();
-  txQueryMock.mockReset();
+  loggerWarnMock.mockReset();
+  resolveClinicalTaskOwnerTxMock.mockReset().mockImplementation(async ({
+    requestedUid,
+    fallbackRole,
+  }) => ({
+    assignedToUid: requestedUid || null,
+    assignedToRole: requestedUid ? null : fallbackRole,
+    resolution: requestedUid ? 'requested_active_clinician' : 'route_role_fallback',
+    fallbackReason: requestedUid ? null : 'no_named_clinician',
+  }));
+  repairCriticalResultTaskOwnerTxMock.mockReset().mockImplementation(async ({ task }) => task);
+  lockResultsInboxResourceTxMock.mockReset().mockResolvedValue(undefined);
+  txQueryMock.mockReset().mockResolvedValue([]);
   getClinicalAiModuleMock.mockReset();
-  startWorkflowSlaMock.mockResolvedValue({ id: 'sla-instance-1' });
+  startWorkflowSlaMock.mockResolvedValue({
+    id: 'sla-instance-1',
+    rule_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    status: 'active',
+    completed_at: null,
+  });
+  transitionTaskMock.mockResolvedValue({ id: 17, status: 'completed' });
+  supersedeAcknowledgementTaskMock.mockResolvedValue({ id: 17, status: 'completed' });
+  postTaskCommentMock.mockResolvedValue({ id: 1 });
 });
 
 describe('enqueueCriticalResultTask', () => {
@@ -92,15 +144,20 @@ describe('enqueueCriticalResultTask', () => {
       patientUid: PATIENT,
       sourceTable: 'lab_result',
       sourceId: '123',
+      metadata: {
+        source: 'lab_result',
+        task_materialization_contract: 'application_atomic_v1',
+      },
     });
-    // The SLA is started on the plain singleton (NO { db: tx }) — the seeded
-    // critical_result_ack rule is a GLOBAL rule (workflow_sla_rules.tenant_id
-    // IS NULL), which the mig-075 RLS tenant_isolation policy hides once the GUC
-    // is pinned to a concrete tenant. Reading it inside setTenantTx returned no
-    // rule → no SLA instance ever got created (the safety-net clock never
-    // started). The instance is still written with the explicit tenantId, so
-    // tenant scoping is preserved. The deep test covers the real-DB pipeline.
-    expect(startWorkflowSlaMock.mock.calls[0][1]).toBeUndefined();
+    // Migration 352 exposes global SLA rules under a concrete tenant GUC, so
+    // the SLA and task are created atomically on the same tenant transaction.
+    expect(startWorkflowSlaMock.mock.calls[0][1]).toEqual({ db: fakeTx });
+    expect(lockResultsInboxResourceTxMock).toHaveBeenCalledWith({
+      tx: fakeTx,
+      tenantId: TENANT,
+      resourceType: 'lab_result',
+      resourceId: '123',
+    });
 
     // Task created with the right shape + idempotency guard + tx.
     const taskArg = createTaskMock.mock.calls[0][0];
@@ -116,11 +173,18 @@ describe('enqueueCriticalResultTask', () => {
     });
     expect(taskArg.metadata).toMatchObject({
       source: 'lab_result',
-      sla_instance_id: 'sla-instance-1',
       sla_key: 'critical_result_ack',
     });
+    expect(taskArg.workflowSlaInstanceId).toBe('sla-instance-1');
+    expect(taskArg.slaCompletionSemantics).toBe('acknowledgement');
     // Ordering clinician takes the assignee → no role fallback.
     expect(taskArg.assignedToRole == null).toBe(true);
+    expect(resolveClinicalTaskOwnerTxMock).toHaveBeenCalledWith({
+      tx: fakeTx,
+      tenantId: TENANT,
+      requestedUid: CLINICIAN,
+      fallbackRole: 'DUTY_DOCTOR',
+    });
   });
 
   it('maps high severity → high priority', async () => {
@@ -166,15 +230,319 @@ describe('enqueueCriticalResultTask', () => {
     expect(createTaskMock.mock.calls[0][0].assignedToRole).toBe('CMO');
   });
 
-  it('is idempotent: ON CONFLICT (no row) → { created:false }', async () => {
+  it('is idempotent only when an ON CONFLICT winner carries the exact typed SLA link', async () => {
     createTaskMock.mockResolvedValueOnce(undefined); // DO NOTHING → no row
+    txQueryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 77,
+        status: 'open',
+        workflow_sla_instance_id: 'sla-instance-1',
+        sla_completion_semantics: 'acknowledgement',
+        metadata: { sla_key: 'critical_result_ack' },
+      }]);
     const res = await enqueueCriticalResultTask({
       tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
       resourceType: 'lab_result', resourceId: 123, severity: 'critical',
       orderingClinicianUid: CLINICIAN,
     });
     expect(res.created).toBe(false);
-    expect(res.taskId).toBeNull();
+    expect(res.taskId).toBe(77);
+  });
+
+  it('fails loudly when an ON CONFLICT winner is not linked to the exact SLA', async () => {
+    createTaskMock.mockResolvedValueOnce(undefined);
+    txQueryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 77,
+        status: 'open',
+        workflow_sla_instance_id: null,
+        sla_completion_semantics: 'none',
+        metadata: {},
+      }]);
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+      orderingClinicianUid: CLINICIAN,
+    });
+
+    expect(res).toMatchObject({ created: false, taskId: null, slaInstanceId: null });
+    expect(res.error).toMatch(/incompatible SLA obligation/);
+    expect(loggerErrorMock).toHaveBeenCalled();
+  });
+
+  it('upgrades an unacknowledged pre-580 critical task to the exact typed SLA', async () => {
+    const legacy = {
+      id: 66,
+      status: 'open',
+      workflow_sla_instance_id: null,
+      sla_completion_semantics: 'none',
+      metadata: { sla_key: 'critical_result_ack' },
+    };
+    txQueryMock
+      .mockResolvedValueOnce([legacy])
+      .mockResolvedValueOnce([{
+        ...legacy,
+        workflow_sla_instance_id: 'sla-instance-1',
+        sla_completion_semantics: 'acknowledgement',
+      }]);
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+      orderingClinicianUid: CLINICIAN,
+    });
+
+    expect(res).toEqual({
+      created: false,
+      upgraded: true,
+      taskId: 66,
+      slaInstanceId: 'sla-instance-1',
+    });
+    expect(txQueryMock.mock.calls[1][0]).toMatch(/UPDATE tasks/);
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['in_progress', 'completed'])(
+    'reconciles a pre-580 %s acknowledgement without creating a false fresh alert',
+    async (status) => {
+      const legacy = {
+        id: 66,
+        status,
+        workflow_sla_instance_id: null,
+        sla_completion_semantics: 'none',
+        metadata: {
+          sla_key: 'critical_result_ack',
+          acknowledged_at: '2026-07-19T00:00:00Z',
+          acknowledged_by: CLINICIAN,
+          acknowledged_via: 'role',
+        },
+      };
+      txQueryMock
+        .mockResolvedValueOnce([legacy])
+        .mockResolvedValueOnce([{
+          ...legacy,
+          workflow_sla_instance_id: 'sla-instance-1',
+          sla_completion_semantics: 'acknowledgement',
+        }])
+        .mockResolvedValueOnce([{ id: 'sla-instance-1' }]);
+
+      const res = await enqueueCriticalResultTask({
+        tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+        resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+      });
+
+      expect(res).toMatchObject({
+        created: false,
+        skipped: true,
+        reason: 'legacy_task_ack_reconciled',
+        taskId: 66,
+        slaInstanceId: 'sla-instance-1',
+      });
+      expect(startWorkflowSlaMock).toHaveBeenCalled();
+      const reconciliationCall = txQueryMock.mock.calls[2];
+      expect(reconciliationCall[0]).toMatch(/'completed_via', 'task_ack'/);
+      expect(reconciliationCall[0]).toMatch(/'completed_by_task', \$2::bigint/);
+      expect(reconciliationCall[0]).toMatch(/'acknowledged_at'/);
+      expect(reconciliationCall[0]).toMatch(/'acknowledged_by', \$6::text/);
+      expect(reconciliationCall[0]).toMatch(/'acknowledged_via', \$7::text/);
+      expect(reconciliationCall[0]).toMatch(/to_timestamp\(\$3::double precision \/ 1000\.0\)/);
+      expect(reconciliationCall.slice(1)).toEqual([
+        'sla-instance-1',
+        66,
+        new Date('2026-07-19T00:00:00Z').getTime(),
+        status,
+        TENANT,
+        CLINICIAN,
+        'role',
+      ]);
+      expect(createTaskMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reconciles a completed exact typed task instead of false-realerting its incomplete SLA', async () => {
+    txQueryMock
+      .mockResolvedValueOnce([{
+        id: 66,
+        status: 'completed',
+        completed_at: new Date('2026-07-19T00:01:00Z'),
+        workflow_sla_instance_id: 'sla-instance-1',
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {
+          sla_key: 'critical_result_ack',
+          acknowledged_at: '2026-07-19T00:01:00Z',
+          acknowledged_by: CLINICIAN,
+          acknowledged_via: 'assignee',
+        },
+        linked_sla_rule_code: 'critical_result_ack',
+        linked_sla_source_table: 'lab_result',
+        linked_sla_source_id: '123',
+      }])
+      .mockResolvedValueOnce([{ id: 'sla-instance-1' }]);
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+    });
+
+    expect(res).toMatchObject({
+      created: false,
+      skipped: true,
+      reason: 'task_already_acknowledged',
+      taskId: 66,
+      slaInstanceId: 'sla-instance-1',
+    });
+    expect(txQueryMock.mock.calls[1][3])
+      .toBe(new Date('2026-07-19T00:01:00.000Z').getTime());
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the durable acknowledgement receipt when task completion happened after the SLA due time', async () => {
+    txQueryMock
+      .mockResolvedValueOnce([{
+        id: 66,
+        status: 'completed',
+        completed_at: new Date('2026-07-19T00:20:00Z'),
+        workflow_sla_instance_id: 'sla-instance-1',
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {
+          sla_key: 'critical_result_ack',
+          acknowledged_at: '2026-07-19T00:05:00Z',
+          acknowledged_by: CLINICIAN,
+          acknowledged_via: 'admin',
+        },
+        linked_sla_rule_code: 'critical_result_ack',
+        linked_sla_source_table: 'lab_result',
+        linked_sla_source_id: '123',
+      }])
+      .mockResolvedValueOnce([{ id: 'sla-instance-1' }]);
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+    });
+
+    expect(res).toMatchObject({
+      created: false,
+      skipped: true,
+      reason: 'task_already_acknowledged',
+    });
+    expect(txQueryMock.mock.calls[1][3])
+      .toBe(new Date('2026-07-19T00:05:00.000Z').getTime());
+    expect(txQueryMock.mock.calls[1][3])
+      .not.toBe(new Date('2026-07-19T00:20:00.000Z').getTime());
+  });
+
+  it.each([
+    ['missing', { acknowledged_by: CLINICIAN, acknowledged_via: 'assignee' }],
+    ['malformed', {
+      acknowledged_at: 'not-a-timestamp',
+      acknowledged_by: CLINICIAN,
+      acknowledged_via: 'assignee',
+    }],
+  ])('refuses automatic reconciliation of an in-progress task with a %s receipt', async (_label, metadata) => {
+    txQueryMock.mockResolvedValueOnce([{
+      id: 66,
+      status: 'in_progress',
+      completed_at: null,
+      workflow_sla_instance_id: 'sla-instance-1',
+      sla_completion_semantics: 'acknowledgement',
+      metadata: { sla_key: 'critical_result_ack', ...metadata },
+      linked_sla_rule_code: 'critical_result_ack',
+      linked_sla_source_table: 'lab_result',
+      linked_sla_source_id: '123',
+    }]);
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+    });
+
+    expect(res).toMatchObject({ created: false, taskId: null, slaInstanceId: null });
+    expect(res.error).toMatch(/manual SLA reconciliation is required/i);
+    expect(txQueryMock).toHaveBeenCalledTimes(1);
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('does not fabricate an acknowledgement receipt from completed_at', async () => {
+    txQueryMock.mockResolvedValueOnce([{
+      id: 66,
+      status: 'completed',
+      completed_at: new Date('2026-07-19T00:20:00Z'),
+      workflow_sla_instance_id: 'sla-instance-1',
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {
+        sla_key: 'critical_result_ack',
+        acknowledged_by: CLINICIAN,
+        acknowledged_via: 'assignee',
+      },
+      linked_sla_rule_code: 'critical_result_ack',
+      linked_sla_source_table: 'lab_result',
+      linked_sla_source_id: '123',
+    }]);
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+    });
+
+    expect(res).toMatchObject({ created: false, taskId: null, slaInstanceId: null });
+    expect(res.error).toMatch(/acknowledgement receipt is missing or invalid/i);
+    expect(txQueryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['missing actor', { acknowledged_via: 'assignee' }],
+    ['invalid actor', { acknowledged_by: 'not-a-uuid', acknowledged_via: 'assignee' }],
+    ['missing mode', { acknowledged_by: CLINICIAN }],
+    ['invalid mode', { acknowledged_by: CLINICIAN, acknowledged_via: 'system' }],
+  ])('refuses automatic reconciliation with %s authorization evidence', async (_label, authMetadata) => {
+    txQueryMock.mockResolvedValueOnce([{
+      id: 66,
+      status: 'in_progress',
+      completed_at: null,
+      workflow_sla_instance_id: 'sla-instance-1',
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {
+        sla_key: 'critical_result_ack',
+        acknowledged_at: '2026-07-19T00:05:00Z',
+        ...authMetadata,
+      },
+      linked_sla_rule_code: 'critical_result_ack',
+      linked_sla_source_table: 'lab_result',
+      linked_sla_source_id: '123',
+    }]);
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+    });
+
+    expect(res).toMatchObject({ created: false, taskId: null, slaInstanceId: null });
+    expect(res.error).toMatch(/authorization evidence is missing or invalid/i);
+    expect(txQueryMock).toHaveBeenCalledTimes(1);
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('fails before starting an SLA when an unrelated untyped task owns the active slot', async () => {
+    txQueryMock.mockResolvedValueOnce([{
+      id: 66,
+      status: 'open',
+      workflow_sla_instance_id: null,
+      sla_completion_semantics: 'none',
+      metadata: { source: 'other_workflow' },
+    }]);
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+    });
+
+    expect(res.error).toMatch(/incompatible untyped task/);
+    expect(startWorkflowSlaMock).not.toHaveBeenCalled();
+    expect(createTaskMock).not.toHaveBeenCalled();
   });
 
   it('never throws: a DB error returns { created:false, error } and logs', async () => {
@@ -189,17 +557,375 @@ describe('enqueueCriticalResultTask', () => {
     expect(loggerErrorMock).toHaveBeenCalled();
   });
 
-  it('tolerates a missing SLA instance (sla disabled) — task still created, null sla link', async () => {
+  it('reuses a caller transaction and rethrows in strict atomic-write mode', async () => {
+    txQueryMock.mockRejectedValueOnce(new Error('strict producer failure'));
+
+    await expect(enqueueCriticalResultTask({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'investigation',
+      resourceType: 'investigations',
+      resourceId: 51,
+      severity: 'critical',
+      tx: fakeTx,
+      strict: true,
+    })).rejects.toThrow('strict producer failure');
+
+    expect(loggerErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the SLA rule is unavailable and never creates an untracked task', async () => {
     startWorkflowSlaMock.mockResolvedValueOnce(null);
-    createTaskMock.mockResolvedValueOnce({ id: 8 });
     const res = await enqueueCriticalResultTask({
       tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
       resourceType: 'lab_result', resourceId: 2, severity: 'critical',
       orderingClinicianUid: CLINICIAN,
     });
-    expect(res.created).toBe(true);
+    expect(res.created).toBe(false);
     expect(res.slaInstanceId).toBeNull();
-    expect(createTaskMock.mock.calls[0][0].metadata.sla_instance_id).toBeNull();
+    expect(res.error).toMatch(/SLA rule is unavailable/);
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['completed_at receipt', { status: 'breached', completed_at: new Date('2026-07-19T00:00:00Z') }],
+    ['completed status', { status: 'completed', completed_at: null }],
+    ['cancelled status', { status: 'cancelled', completed_at: null }],
+  ])('does not attach a new task to a terminal SLA identified by %s', async (_label, terminal) => {
+    startWorkflowSlaMock.mockResolvedValueOnce({
+      id: 'sla-instance-1',
+      rule_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      ...terminal,
+    });
+
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 2, severity: 'critical',
+      orderingClinicianUid: CLINICIAN,
+    });
+
+    expect(res).toMatchObject({
+      created: false,
+      skipped: true,
+      reason: 'sla_terminal',
+      slaInstanceId: 'sla-instance-1',
+    });
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ensureCriticalResultTaskOpen', () => {
+  it('decides whether an open window can be reused only while holding its row lock', async () => {
+    txQueryMock
+      .mockResolvedValueOnce([{
+        id: 17,
+        status: 'open',
+        workflow_sla_instance_id: 'sla-instance-1',
+        sla_completion_semantics: 'acknowledgement',
+      }])
+      .mockResolvedValueOnce([{
+        id: 'sla-instance-1',
+        rule_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        status: 'active',
+        completed_at: null,
+      }]);
+
+    const result = await ensureCriticalResultTaskOpen({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'lab_result',
+      resourceType: 'lab_result',
+      resourceId: 123,
+      orderingClinicianUid: CLINICIAN,
+      reason: 'corrected_result',
+      supersededByActorUid: CLINICIAN,
+    });
+
+    expect(result).toMatchObject({ created: false, reopened: false, taskId: 17 });
+    expect(lockResultsInboxResourceTxMock).toHaveBeenCalledWith({
+      tx: fakeTx,
+      tenantId: TENANT,
+      resourceType: 'lab_result',
+      resourceId: '123',
+    });
+    expect(repairCriticalResultTaskOwnerTxMock).toHaveBeenCalledWith(expect.objectContaining({
+      tx: fakeTx,
+      tenantId: TENANT,
+      requestedUid: CLINICIAN,
+      fallbackRole: 'DUTY_DOCTOR',
+      task: expect.objectContaining({ id: 17, status: 'open' }),
+    }));
+    expect(txQueryMock.mock.calls[0][0]).toMatch(/FOR UPDATE/i);
+    expect(postTaskCommentMock).toHaveBeenCalledWith(expect.objectContaining({ tx: fakeTx }));
+    expect(startWorkflowSlaMock).not.toHaveBeenCalled();
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('archives and clears prior completion evidence when it re-arms the SLA', async () => {
+    const active = {
+      id: 17,
+      status: 'in_progress',
+      workflow_sla_instance_id: 'sla-instance-1',
+      sla_completion_semantics: 'acknowledgement',
+    };
+    txQueryMock
+      .mockResolvedValueOnce([active])
+      .mockResolvedValueOnce([{
+        id: 'sla-instance-1',
+        rule_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        status: 'completed',
+        completed_at: new Date('2026-07-19T00:00:00Z'),
+      }])
+      .mockResolvedValueOnce([{ receipt_valid: true }])
+      .mockResolvedValueOnce([{ target_minutes: 15 }])
+      .mockResolvedValueOnce([{ id: 'sla-instance-1' }]);
+    createTaskMock.mockResolvedValueOnce({ id: 18 });
+
+    const result = await ensureCriticalResultTaskOpen({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'lab_result',
+      resourceType: 'lab_result',
+      resourceId: 123,
+      orderingClinicianUid: CLINICIAN,
+      reason: 'corrected_result',
+      supersededByActorUid: CLINICIAN,
+    });
+
+    expect(result).toMatchObject({
+      created: true,
+      reopened: true,
+      taskId: 18,
+      supersededTaskId: 17,
+    });
+    const receiptLookup = txQueryMock.mock.calls[2];
+    expect(receiptLookup[0]).toContain('lab_critical_alert_acknowledgement_receipts');
+    expect(receiptLookup.slice(1)).toEqual([
+      TENANT,
+      123,
+      PATIENT,
+      17,
+      'sla-instance-1',
+    ]);
+    const [sql, ...params] = txQueryMock.mock.calls[4];
+    expect(sql).toContain("- 'completed_via'");
+    expect(sql).toContain("- 'completed_by_task'");
+    expect(sql).toContain("- 'completed_by'");
+    expect(sql).toContain("- 'acknowledged_by'");
+    expect(sql).toContain("- 'completion_evidence'");
+    expect(sql).toContain("- 'ack_contract_version'");
+    expect(sql).toContain("'reopen_history'");
+    expect(sql).toContain("'prior_status'");
+    expect(sql).toContain("'prior_started_at'");
+    expect(sql).toContain("'prior_due_at'");
+    expect(sql).toContain("'prior_completed_at'");
+    expect(sql).toContain("'prior_breached_at'");
+    expect(sql).toContain("'prior_escalated_at'");
+    expect(sql).toContain("'prior_ack_contract_version'");
+    expect(sql).toContain("'prior_completion_evidence'");
+    expect(params).toEqual([
+      'sla-instance-1',
+      TENANT,
+      15,
+      'corrected_result',
+    ]);
+    expect(startWorkflowSlaMock).not.toHaveBeenCalled();
+    expect(supersedeAcknowledgementTaskMock).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      id: 17,
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '123',
+      workflowSlaInstanceId: 'sla-instance-1',
+      supersededByActorUid: CLINICIAN,
+      tx: fakeTx,
+    });
+  });
+
+  it('keeps blocked resume and completion in one transaction if the second step fails', async () => {
+    const active = {
+      id: 17,
+      status: 'blocked',
+      workflow_sla_instance_id: 'sla-instance-1',
+      sla_completion_semantics: 'acknowledgement',
+    };
+    txQueryMock
+      .mockResolvedValueOnce([active])
+      .mockResolvedValueOnce([{
+        id: 'sla-instance-1',
+        rule_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        status: 'active',
+        completed_at: null,
+      }])
+      .mockResolvedValueOnce([{ target_minutes: 15 }])
+      .mockResolvedValueOnce([{ id: 'sla-instance-1' }]);
+    supersedeAcknowledgementTaskMock
+      .mockRejectedValueOnce(new Error('forced completion failure'));
+
+    const result = await ensureCriticalResultTaskOpen({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'lab_result',
+      resourceType: 'lab_result',
+      resourceId: 123,
+      orderingClinicianUid: CLINICIAN,
+      reason: 'corrected_result',
+      supersededByActorUid: CLINICIAN,
+    });
+
+    expect(supersedeAcknowledgementTaskMock).toHaveBeenCalledTimes(1);
+    expect(supersedeAcknowledgementTaskMock.mock.calls[0][0]).toMatchObject({
+      id: 17,
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '123',
+      workflowSlaInstanceId: 'sla-instance-1',
+      supersededByActorUid: CLINICIAN,
+      tx: fakeTx,
+    });
+    expect(transitionTaskMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ created: false, error: 'forced completion failure' });
+    expect(startWorkflowSlaMock).not.toHaveBeenCalled();
+    expect(createTaskMock).not.toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'ensureCriticalResultTaskOpen failed',
+      expect.objectContaining({ err: 'forced completion failure' }),
+    );
+  });
+
+  it('preserves lineage from the latest terminal predecessor during an explicit reopen', async () => {
+    const predecessor = {
+      id: 16,
+      status: 'completed',
+      workflow_sla_instance_id: 'sla-instance-1',
+      sla_completion_semantics: 'acknowledgement',
+    };
+    txQueryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([predecessor])
+      .mockResolvedValueOnce([{
+        id: 'sla-instance-1',
+        rule_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        status: 'completed',
+        completed_at: new Date('2026-07-19T00:00:00Z'),
+      }])
+      .mockResolvedValueOnce([{ receipt_valid: true }])
+      .mockResolvedValueOnce([{ target_minutes: 15 }])
+      .mockResolvedValueOnce([{ id: 'sla-instance-1' }]);
+    createTaskMock.mockResolvedValueOnce({ id: 18 });
+
+    const result = await ensureCriticalResultTaskOpen({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'lab_result',
+      resourceType: 'lab_result',
+      resourceId: 123,
+      orderingClinicianUid: CLINICIAN,
+      reason: 'corrected_result',
+    });
+
+    expect(result).toMatchObject({
+      created: true,
+      reopened: true,
+      taskId: 18,
+      supersededTaskId: 16,
+    });
+    expect(txQueryMock.mock.calls[1][0]).toMatch(/status IN \('completed', 'cancelled'\)/);
+    expect(txQueryMock.mock.calls[1][0]).toMatch(/FOR UPDATE/);
+    expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ reopened_from_task_id: 16 }),
+    }));
+    expect(postTaskCommentMock).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 16,
+      metadata: expect.objectContaining({ superseded_by_task_id: 18 }),
+      tx: fakeTx,
+    }));
+  });
+
+  it('fails closed before mutation when a terminal lab SLA has no immutable predecessor receipt', async () => {
+    txQueryMock
+      .mockResolvedValueOnce([{
+        id: 17,
+        status: 'in_progress',
+        workflow_sla_instance_id: 'sla-instance-1',
+        sla_completion_semantics: 'acknowledgement',
+      }])
+      .mockResolvedValueOnce([{
+        id: 'sla-instance-1',
+        rule_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        status: 'completed',
+        completed_at: new Date('2026-07-19T00:00:00Z'),
+      }])
+      .mockResolvedValueOnce([]);
+
+    await expect(ensureCriticalResultTaskOpen({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'lab_result',
+      resourceType: 'lab_result',
+      resourceId: 123,
+      orderingClinicianUid: CLINICIAN,
+      reason: 'corrected_result',
+      supersededByActorUid: CLINICIAN,
+      tx: fakeTx,
+      strict: true,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_CRITICAL_ALERT_ACK_RECONCILIATION_REQUIRED',
+    });
+
+    expect(txQueryMock).toHaveBeenCalledTimes(3);
+    expect(supersedeAcknowledgementTaskMock).not.toHaveBeenCalled();
+    expect(createTaskMock).not.toHaveBeenCalled();
+    expect(postTaskCommentMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a newly materialized SLA in the replacement-task transaction on insert failure', async () => {
+    txQueryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    createTaskMock.mockRejectedValueOnce(new Error('forced replacement insert failure'));
+
+    const result = await ensureCriticalResultTaskOpen({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'lab_result',
+      resourceType: 'lab_result',
+      resourceId: 123,
+      orderingClinicianUid: CLINICIAN,
+      reason: 'corrected_result',
+    });
+
+    expect(result).toMatchObject({ created: false, error: 'forced replacement insert failure' });
+    expect(startWorkflowSlaMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceTable: 'lab_result',
+        sourceId: '123',
+        metadata: expect.objectContaining({
+          task_materialization_contract: 'application_atomic_v1',
+        }),
+      }),
+      { db: fakeTx },
+    );
+    expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ tx: fakeTx }));
+    expect(txQueryMock).toHaveBeenCalledTimes(3);
+    expect(postTaskCommentMock).not.toHaveBeenCalled();
+  });
+
+  it('reuses a caller transaction and rethrows reopen failures in strict mode', async () => {
+    txQueryMock.mockRejectedValueOnce(new Error('strict reopen failure'));
+
+    await expect(ensureCriticalResultTaskOpen({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'investigation',
+      resourceType: 'investigations',
+      resourceId: 51,
+      reason: 'investigation_result_rerun',
+      tx: fakeTx,
+      strict: true,
+    })).rejects.toThrow('strict reopen failure');
+
+    expect(loggerErrorMock).not.toHaveBeenCalled();
   });
 });
 

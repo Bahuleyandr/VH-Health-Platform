@@ -9,6 +9,8 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
+const lockPathwayRuntimeTxMock = jest.fn();
+const PATHWAY_TEST_CAPABILITY = Object.freeze({ kind: 'test_pathway_executor_capability' });
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(__prismaDefaultMock));
@@ -19,11 +21,23 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
+  isTenantTransactionClient: (value) => value?.__tenantTransaction === true,
+}));
+
+jest.unstable_mockModule('../../services/pathways/pathwayRuntimePersistence.js', () => ({
+  lockPathwayRuntimeTx: lockPathwayRuntimeTxMock,
+}));
+
+jest.unstable_mockModule('../../services/pathways/pathwayExecutorService.js', () => ({
+  isPathwayExecutorCapability: (value) => value === PATHWAY_TEST_CAPABILITY,
 }));
 
 const {
   acknowledgeColdChainTaskFromTrustedWorkflow,
+  acknowledgeLabCriticalAlertTaskFromTrustedWorkflow,
   acknowledgeTask,
+  completePathwayTaskFromRegisteredEvidence,
+  completeTaskFromDomainEvidence,
   createApproval,
   createTask,
   createWorkflowDefinition,
@@ -41,6 +55,7 @@ const {
   reassignTask,
   recordApprovalDecision,
   startWorkflowRun,
+  supersedeAcknowledgementTaskFromTrustedWorkflow,
   transitionTask,
   transitionWorkflowRun,
   transitionWorkflowStep,
@@ -54,10 +69,32 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const USER = '11111111-1111-4111-8111-111111111111';
 const APPROVER_A = '22222222-2222-4222-8222-222222222222';
 const APPROVER_B = '33333333-3333-4333-8333-333333333333';
+const DEFAULT_SLA_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const ACK_RESOURCE = Object.freeze({
+  related_resource_type: 'lab_result',
+  related_resource_id: '1',
+});
+const ackSlaRow = (overrides = {}) => ({
+  id: DEFAULT_SLA_ID,
+  rule_code: 'critical_result_ack',
+  source_table: 'lab_result',
+  source_id: '1',
+  due_at: new Date('2026-07-19T06:00:00.000Z'),
+  ...overrides,
+});
+const mortuarySlaRow = (overrides = {}) => ({
+  id: DEFAULT_SLA_ID,
+  rule_code: 'mortuary_unclaimed_body',
+  source_table: 'death_records',
+  source_id: '55',
+  due_at: new Date('2026-07-19T06:00:00.000Z'),
+  ...overrides,
+});
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
   setTenantTxMock.mockClear();
+  lockPathwayRuntimeTxMock.mockReset();
 });
 
 // ---------------------------------------------------------------------------
@@ -123,6 +160,219 @@ describe('createTask', () => {
     });
     expect(row).toBeUndefined();
   });
+
+  it('writes the typed task/SLA contract and the durable stage occurrence key', async () => {
+    const slaId = DEFAULT_SLA_ID;
+    queryUnsafeMock
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([{ id: 3, status: 'open' }]);
+
+    await createTask({
+      tenantId: TENANT,
+      title: 'Acknowledge critical result',
+      workflowSlaInstanceId: slaId,
+      slaCompletionSemantics: 'acknowledgement',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '1',
+      stageOccurrenceKey: 'pathway:1:stage:review:task',
+    });
+
+    const [sql, ...params] = queryUnsafeMock.mock.calls[1];
+    expect(sql).toMatch(/workflow_sla_instance_id, sla_completion_semantics, stage_occurrence_key/);
+    expect(params).toEqual(expect.arrayContaining([
+      slaId,
+      'acknowledgement',
+      'pathway:1:stage:review:task',
+    ]));
+    expect(sql).toMatch(/SELECT sla\.due_at[\s\S]*sla\.id = \$18::uuid/);
+    expect(params[15]).toBeNull();
+  });
+
+  it('rejects a typed task when its linked SLA has no canonical deadline', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([ackSlaRow({ due_at: null })]);
+
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Acknowledge critical result',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      slaCompletionSemantics: 'acknowledgement',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '1',
+    })).rejects.toMatchObject({ code: 'TASK_SLA_DUE_AT_MISSING' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO tasks/i.test(sql))).toBe(false);
+  });
+
+  it('treats an epoch-zero linked SLA deadline as present', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([ackSlaRow({ due_at: new Date(0) })])
+      .mockResolvedValueOnce([{ id: 3, status: 'open' }]);
+
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Acknowledge historical critical result',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      slaCompletionSemantics: 'acknowledgement',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '1',
+    })).resolves.toMatchObject({ id: 3 });
+  });
+
+  it('rejects any caller-supplied deadline for a typed task whose deadline is SLA-derived', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([ackSlaRow()]);
+
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Acknowledge critical result',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      slaCompletionSemantics: 'acknowledgement',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '1',
+      dueAt: '2026-07-19T06:00:01.000Z',
+    })).rejects.toMatchObject({ code: 'TASK_SLA_DUE_AT_DERIVED' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO tasks/i.test(sql))).toBe(false);
+  });
+
+  it('does not bypass the SLA-derived deadline rule with an epoch-zero supplied deadline', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([ackSlaRow()]);
+
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Acknowledge critical result',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      slaCompletionSemantics: 'acknowledgement',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '1',
+      dueAt: '1970-01-01T00:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'TASK_SLA_DUE_AT_DERIVED' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO tasks/i.test(sql))).toBe(false);
+  });
+
+  it('preserves the exact instant from an offset deadline as an epoch query parameter', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 8, status: 'open' }]);
+
+    await createTask({
+      tenantId: TENANT,
+      title: 'Timezone-safe follow-up',
+      dueAt: '2026-07-19T11:30:00+05:30',
+    });
+
+    const params = queryUnsafeMock.mock.calls[0].slice(1);
+    expect(queryUnsafeMock.mock.calls[0][0])
+      .toMatch(/to_timestamp\(\$16::double precision \/ 1000\.0\)/);
+    expect(params[15]).toBe(new Date('2026-07-19T06:00:00.000Z').getTime());
+  });
+
+  it('binds an epoch-zero untyped deadline instead of treating it as absent', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 9, status: 'open' }]);
+
+    await createTask({
+      tenantId: TENANT,
+      title: 'Historical follow-up',
+      dueAt: 0,
+    });
+
+    expect(queryUnsafeMock.mock.calls[0][16]).toBe(0);
+  });
+
+  it('rejects incomplete typed SLA contracts and reserved metadata aliases', async () => {
+    const slaId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Missing semantics',
+      workflowSlaInstanceId: slaId,
+    })).rejects.toMatchObject({ code: 'TASK_SLA_CONTRACT_INVALID' });
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Missing link',
+      slaCompletionSemantics: 'domain_evidence',
+    })).rejects.toMatchObject({ code: 'TASK_SLA_CONTRACT_INVALID' });
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Metadata spoof',
+      metadata: { sla_instance_id: slaId },
+    })).rejects.toMatchObject({ code: 'TASK_METADATA_KEY_RESERVED' });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks generic materialization for a pathway-bound run but accepts the executor token', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    await expect(createTask({
+      tenantId: TENANT,
+      workflowRunId: 7,
+      title: 'Generic bypass',
+    })).rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7, status: 'open' }]);
+    const row = await createTask({
+      tenantId: TENANT,
+      workflowRunId: 7,
+      title: 'Executor materialization',
+      executorAuthority: PATHWAY_TEST_CAPABILITY,
+    });
+    expect(row.id).toBe(7);
+  });
+
+  it.each([
+    ['wrong resource', ackSlaRow({ source_id: 'other-result' })],
+    ['unknown non-pathway rule', ackSlaRow({ rule_code: 'unregistered_task_clock' })],
+  ])('rejects a typed SLA with %s before inserting', async (_label, slaRow) => {
+    queryUnsafeMock.mockResolvedValueOnce([slaRow]);
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Wrongly linked task',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '1',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      slaCompletionSemantics: 'acknowledgement',
+    })).rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO tasks/i.test(sql))).toBe(false);
+  });
+
+  it('binds a pathway task SLA to its exact workflow step source', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: DEFAULT_SLA_ID,
+        rule_code: 'pathway_referral_response',
+        source_table: 'workflow_steps',
+        source_id: '91',
+        due_at: new Date('2026-07-19T06:00:00.000Z'),
+      }])
+      .mockResolvedValueOnce([{ id: 4, status: 'open', workflow_step_id: 91 }]);
+
+    const task = await createTask({
+      tenantId: TENANT,
+      workflowRunId: 7,
+      workflowStepId: 91,
+      title: 'Review pathway stage',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      slaCompletionSemantics: 'acknowledgement',
+      executorAuthority: PATHWAY_TEST_CAPABILITY,
+    });
+
+    expect(task).toMatchObject({ id: 4, workflow_step_id: 91 });
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/source_table/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO tasks/);
+  });
+
+  it('rejects a pathway task SLA linked to a different workflow step', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: DEFAULT_SLA_ID,
+      rule_code: 'pathway_referral_response',
+      source_table: 'workflow_steps',
+      source_id: '92',
+    }]);
+
+    await expect(createTask({
+      tenantId: TENANT,
+      workflowRunId: 7,
+      workflowStepId: 91,
+      title: 'Wrongly linked pathway stage',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      slaCompletionSemantics: 'acknowledgement',
+      executorAuthority: PATHWAY_TEST_CAPABILITY,
+    })).rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO tasks/i.test(sql))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -130,6 +380,118 @@ describe('createTask', () => {
 // ---------------------------------------------------------------------------
 
 describe('acknowledgeTask', () => {
+  it('blocks an alert-bound critical task on every generic caller before mutation', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'open',
+      assigned_to_uid: USER,
+      patient_uid: '44444444-4444-4444-8444-444444444444',
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: { lab_critical_alert_id: 91, lab_alert_generation_state: 'critical' },
+    }]);
+
+    await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'LAB_CRITICAL_ALERT_ACK_REQUIRED' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE workflow_sla_instances/i.test(sql)))
+      .toBe(false);
+  });
+
+  it('permits the transaction-only lab entrypoint after exact binding verification', async () => {
+    const patientUid = '44444444-4444-4444-8444-444444444444';
+    const task = {
+      id: 1,
+      status: 'open',
+      assigned_to_uid: USER,
+      patient_uid: patientUid,
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: { lab_critical_alert_id: 91, lab_alert_generation_state: 'critical' },
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([{ id: 91 }])
+      .mockResolvedValueOnce([{ ...task, status: 'in_progress', metadata: {
+        ...task.metadata,
+        acknowledged_at: '2026-07-19T06:00:00.000Z',
+        ack_contract_version: 2,
+      } }])
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed' }])
+      .mockResolvedValueOnce([{ id: 10, body_kind: 'state_change' }]);
+    const tx = { $queryRawUnsafe: txQuery };
+
+    const row = await acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 1,
+      alertId: 91,
+      resultId: 1,
+      patientUid,
+      actorUid: USER,
+      tx,
+    });
+
+    expect(row.status).toBe('in_progress');
+    expect(txQuery.mock.calls[1][0]).toMatch(/JOIN lab_critical_alerts AS alert/i);
+    expect(txQuery.mock.calls[2][0]).toMatch(/UPDATE tasks/i);
+    expect(txQuery.mock.calls[4][0]).toMatch(/UPDATE workflow_sla_instances/i);
+  });
+
+  it('permits only the transaction-only lab entrypoint to acknowledge a blocked alert task', async () => {
+    const patientUid = '44444444-4444-4444-8444-444444444444';
+    const task = {
+      id: 1,
+      status: 'blocked',
+      assigned_to_uid: USER,
+      patient_uid: patientUid,
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: { lab_critical_alert_id: 91, lab_alert_generation_state: 'critical' },
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([{ id: 91 }])
+      .mockResolvedValueOnce([{ ...task, status: 'in_progress', metadata: {
+        ...task.metadata,
+        acknowledged_at: '2026-07-19T06:00:00.000Z',
+        ack_contract_version: 2,
+      } }])
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed' }])
+      .mockResolvedValueOnce([{ id: 10, body_kind: 'state_change' }]);
+    const tx = { $queryRawUnsafe: txQuery };
+
+    const row = await acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 1,
+      alertId: 91,
+      resultId: 1,
+      patientUid,
+      actorUid: USER,
+      tx,
+    });
+
+    expect(row.status).toBe('in_progress');
+    expect(txQuery.mock.calls[2][0]).toMatch(
+      /tasks\.status IN \('open', 'overdue', 'blocked'\)/i,
+    );
+    expect(txQuery.mock.calls[2][0]).toMatch(/ack_contract_version/i);
+    expect(txQuery.mock.calls[2].at(-1)).toBe(2);
+    expect(txQuery.mock.calls[4][0]).toMatch(/ack_contract_version/i);
+    expect(txQuery.mock.calls[4].at(-1)).toBe(2);
+    expect(txQuery.mock.calls[5]).toEqual(expect.arrayContaining([
+      expect.stringMatching(/blocked.*in_progress/i),
+    ]));
+    expect(JSON.parse(txQuery.mock.calls[5][6])).toMatchObject({
+      ack_contract_version: 2,
+    });
+  });
+
   it('moves open -> in_progress, stamps metadata.acknowledged_at, posts a state_change comment', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: USER, metadata: {} }]); // getTask
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress', metadata: { acknowledged_at: 'x' } }]); // UPDATE
@@ -158,6 +520,110 @@ describe('acknowledgeTask', () => {
     expect(row.status).toBe('in_progress');
   });
 
+  it('does not add blocked -> in_progress to generic task acknowledgement', async () => {
+    const task = { id: 1, status: 'blocked', assigned_to_uid: USER, metadata: {} };
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([task]);
+
+    await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'INVALID_STATE_TRANSITION' });
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(
+      /tasks\.status IN \('open', 'overdue'\)/i,
+    );
+    expect(queryUnsafeMock.mock.calls[1][0]).not.toMatch(/'blocked'/i);
+  });
+
+  it('uses the durable receipt instant for SLA completion and anchors a late breach at due_at', async () => {
+    const task = {
+      id: 1,
+      status: 'open',
+      assigned_to_uid: USER,
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {},
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([{ ...task, status: 'in_progress' }])
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed' }])
+      .mockResolvedValueOnce([{ id: 11, body_kind: 'state_change' }]);
+
+    await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
+
+    const acknowledgedAt = new Date(queryUnsafeMock.mock.calls[1][12]).toISOString();
+    const slaCall = queryUnsafeMock.mock.calls[3];
+    expect(slaCall[0]).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
+    expect(slaCall[0]).toMatch(/completed_at = to_timestamp\(\$7::double precision \/ 1000\.0\)/);
+    expect(slaCall[0]).toMatch(/breached_at = CASE[\s\S]+THEN due_at[\s\S]+ELSE NULL/);
+    expect(slaCall[0]).not.toMatch(/NOW\(\) > due_at/);
+    expect(new Date(slaCall[7]).toISOString()).toBe(acknowledgedAt);
+  });
+
+  it('acknowledges domain-evidence work without stopping its SLA clock', async () => {
+    const linked = {
+      id: 1,
+      status: 'open',
+      assigned_to_uid: USER,
+      related_resource_type: 'death_record',
+      related_resource_id: '55',
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'domain_evidence',
+      metadata: {},
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([linked])
+      .mockResolvedValueOnce([{ ...linked, status: 'in_progress' }])
+      .mockResolvedValueOnce([mortuarySlaRow()])
+      .mockResolvedValueOnce([{ '?column?': 1 }])
+      .mockResolvedValueOnce([{ id: 11 }]);
+
+    const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
+
+    expect(row.status).toBe('in_progress');
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE workflow_sla_instances/i.test(sql))).toBe(false);
+  });
+
+  it('blocks generic acknowledgement of a pathway-bound task before mutation', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 1, status: 'open', workflow_run_id: 7, assigned_to_uid: USER }])
+      .mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER }))
+      .rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it('rejects acknowledgement when the typed SLA belongs to another source', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: USER,
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: DEFAULT_SLA_ID,
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'in_progress',
+        assigned_to_uid: USER,
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: DEFAULT_SLA_ID,
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([ackSlaRow({ source_id: '2' })]);
+
+    await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER }))
+      .rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(true);
+  });
+
   it('throws invalidTransition when the task is already completed', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed', assigned_to_uid: USER, metadata: {} }]); // getTask
     await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER }))
@@ -165,50 +631,112 @@ describe('acknowledgeTask', () => {
   });
 
   it('idempotently repairs the linked SLA for an already-acknowledged task without re-stamping or commenting', async () => {
+    const receipt = '2026-07-19T02:00:00.000Z';
     const task = {
       id: 1,
       status: 'in_progress',
       assigned_to_uid: USER,
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
       metadata: {
-        acknowledged_at: 'earlier',
+        acknowledged_at: receipt,
         acknowledged_by: USER,
-        sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       },
     };
     queryUnsafeMock
       .mockResolvedValueOnce([task])
-      .mockResolvedValueOnce([task]);
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed' }]);
 
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
 
     expect(row.status).toBe('in_progress');
     expect(queryUnsafeMock.mock.calls.map(([sql]) => sql)).toEqual([
       expect.stringMatching(/^SELECT[\s\S]+FROM tasks/i),
-      expect.stringMatching(/^WITH authorized_task[\s\S]+UPDATE workflow_sla_instances/i),
+      expect.stringMatching(/^SELECT[\s\S]+FROM tasks[\s\S]+FOR UPDATE/i),
+      expect.stringMatching(/FROM workflow_sla_instances sla/i),
+      expect.stringMatching(/UPDATE workflow_sla_instances/i),
     ]);
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/sla\.completed_at IS NULL/);
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/authorized_task\.metadata->>'acknowledged_by'/);
+    const slaCall = queryUnsafeMock.mock.calls[3];
+    expect(slaCall[0]).toMatch(/completed_at IS NULL/);
+    expect(slaCall[0]).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
+    expect(slaCall[0]).toMatch(/completed_at = to_timestamp\(\$7::double precision \/ 1000\.0\)/);
+    expect(slaCall[0]).toMatch(/THEN due_at[\s\S]+ELSE NULL/);
+    expect(new Date(slaCall[7]).toISOString()).toBe(receipt);
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO task_comments/i.test(sql))).toBe(false);
   });
 
+  it.each([undefined, 'not-a-timestamp'])(
+    'repairs a missing or malformed in-progress acknowledgement receipt before stopping the SLA clock',
+    async (acknowledgedAt) => {
+      const task = {
+        id: 1,
+        status: 'in_progress',
+        assigned_to_uid: USER,
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: DEFAULT_SLA_ID,
+        sla_completion_semantics: 'acknowledgement',
+        metadata: acknowledgedAt === undefined ? {} : { acknowledged_at: acknowledgedAt },
+      };
+      queryUnsafeMock
+        .mockResolvedValueOnce([task])
+        .mockResolvedValueOnce([task])
+        .mockResolvedValueOnce([ackSlaRow()])
+        .mockResolvedValueOnce([{ ...task, metadata: { acknowledged_at: 'server-repaired' } }])
+        .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed' }])
+        .mockResolvedValueOnce([{ id: 10, body_kind: 'state_change' }]);
+
+      const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
+
+      expect(row.status).toBe('in_progress');
+      const repairCall = queryUnsafeMock.mock.calls[3];
+      expect(repairCall[0]).toMatch(/UPDATE tasks[\s\S]+acknowledgement_receipt_repaired/);
+      expect(repairCall[0]).toMatch(/ACK_AUTHORITY_PREDICATE|assigned_to_uid/i);
+      expect(repairCall[0]).toMatch(/previous_acknowledged_at/);
+      expect(repairCall[0]).toMatch(/acknowledgement_receipt_repaired_from/);
+      const repairedAt = new Date(repairCall[12]).toISOString();
+      expect(JSON.parse(repairCall[13])).toBe(acknowledgedAt ?? null);
+      expect(repairCall[14]).toBe(acknowledgedAt === undefined ? 'missing' : 'malformed');
+      const slaCall = queryUnsafeMock.mock.calls[4];
+      expect(new Date(slaCall[7]).toISOString()).toBe(repairedAt);
+      const commentCall = queryUnsafeMock.mock.calls[5];
+      expect(commentCall[0]).toMatch(/INSERT INTO task_comments/);
+      expect(commentCall[4]).toMatch(/receipt repaired/);
+      expect(JSON.parse(commentCall[6])).toMatchObject({
+        receipt_repaired: true,
+        previous_acknowledged_at: acknowledgedAt ?? null,
+        repaired_from: acknowledgedAt === undefined ? 'missing' : 'malformed',
+      });
+    },
+  );
+
   it.each([
-    ['linked SLA', 2, 'SLA write failed'],
-    ['audit comment', 3, 'comment write failed'],
+    ['linked SLA', 3, 'SLA write failed'],
+    ['audit comment', 4, 'comment write failed'],
   ])('propagates a %s failure through its own tenant transaction', async (_label, failingCall, message) => {
     const responses = [
       [{
         id: 1,
         status: 'open',
         assigned_to_uid: USER,
-        metadata: { sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: DEFAULT_SLA_ID,
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {},
       }],
       [{
         id: 1,
         status: 'in_progress',
-        metadata: { sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: DEFAULT_SLA_ID,
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {},
       }],
-      [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', status: 'completed' }],
+      [ackSlaRow()],
+      [{ id: DEFAULT_SLA_ID, status: 'completed' }],
       [{ id: 10, body_kind: 'state_change' }],
     ];
     responses.forEach((response, index) => {
@@ -227,11 +755,25 @@ describe('acknowledgeTask authorization', () => {
   const SLA_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const PATIENT = '44444444-4444-4444-8444-444444444444';
 
+  it.each(['DUTY_DOCTOR', 'ADMIN'])(
+    'rejects %s authority without an authenticated actor uid before reading the task',
+    async (role) => {
+      await expect(acknowledgeTask({
+        tenantId: TENANT,
+        id: 1,
+        actorUid: null,
+        actorRoles: [role],
+      })).rejects.toMatchObject({ statusCode: 401, code: 'UNAUTHORIZED' });
+
+      expect(queryUnsafeMock).not.toHaveBeenCalled();
+    },
+  );
+
   it('rejects a caller who is neither assignee, role-holder, nor override — and never runs the clock-stopping UPDATE', async () => {
     // Task belongs to a DIFFERENT clinician and is linked to an SLA instance.
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'open', assigned_to_uid: OTHER, assigned_to_role: 'DOCTOR',
-      metadata: { sla_instance_id: SLA_ID },
+      workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
     }]); // getTask
     await expect(acknowledgeTask({
       tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['NURSING_STAFF'],
@@ -248,7 +790,8 @@ describe('acknowledgeTask authorization', () => {
         status: 'open',
         assigned_to_uid: USER,
         assigned_to_role: 'DOCTOR',
-        metadata: { sla_instance_id: SLA_ID },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{
@@ -256,7 +799,8 @@ describe('acknowledgeTask authorization', () => {
         status: 'open',
         assigned_to_uid: OTHER,
         assigned_to_role: 'DOCTOR',
-        metadata: { sla_instance_id: SLA_ID },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }]);
 
     await expect(acknowledgeTask({
@@ -346,13 +890,14 @@ describe('acknowledgeTask authorization', () => {
         assigned_to_uid: OTHER,
         assigned_to_role: 'DOCTOR',
         patient_uid: PATIENT,
-        metadata: { sla_instance_id: SLA_ID },
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }])
       .mockResolvedValueOnce([{
         id: 1,
         status: 'in_progress',
         patient_uid: PATIENT,
-        metadata: { sla_instance_id: SLA_ID },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }])
       .mockResolvedValueOnce([{ id: SLA_ID, status: 'completed' }])
       .mockResolvedValueOnce([{ id: 8, body_kind: 'state_change' }]);
@@ -375,7 +920,7 @@ describe('acknowledgeTask authorization', () => {
       assigned_to_uid: OTHER,
       assigned_to_role: 'DOCTOR',
       patient_uid: PATIENT,
-      metadata: { sla_instance_id: SLA_ID },
+      workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
     }]);
 
     await expect(acknowledgeTask({
@@ -489,7 +1034,7 @@ describe('acknowledgeTask authorization', () => {
         assigned_to_uid: OTHER,
         assigned_to_role: 'DOCTOR',
         patient_uid: PATIENT,
-        metadata: { sla_instance_id: SLA_ID },
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }])
       .mockResolvedValueOnce([]);
 
@@ -539,14 +1084,17 @@ describe('acknowledgeTask authorization', () => {
         status: 'open',
         assigned_to_uid: USER,
         patient_uid: PATIENT,
-        metadata: { sla_instance_id: SLA_ID },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }])
       .mockResolvedValueOnce([{
         id: 1,
         status: 'in_progress',
         patient_uid: PATIENT,
-        metadata: { sla_instance_id: SLA_ID },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }])
+      .mockResolvedValueOnce([ackSlaRow({ id: SLA_ID })])
       .mockResolvedValueOnce([{ id: SLA_ID, status: 'completed' }])
       .mockResolvedValueOnce([{ id: 9, body_kind: 'state_change' }]);
     const tx = { $queryRawUnsafe: txQuery };
@@ -556,18 +1104,19 @@ describe('acknowledgeTask authorization', () => {
     expect(row.status).toBe('in_progress');
     expect(setTenantTxMock).not.toHaveBeenCalled();
     expect(queryUnsafeMock).not.toHaveBeenCalled();
-    expect(txQuery).toHaveBeenCalledTimes(4);
+    expect(txQuery).toHaveBeenCalledTimes(5);
     expect(txQuery.mock.calls.map(([sql]) => sql)).toEqual([
       expect.stringMatching(/^SELECT[\s\S]+FROM tasks/i),
       expect.stringMatching(/UPDATE tasks/i),
+      expect.stringMatching(/FROM workflow_sla_instances sla/i),
       expect.stringMatching(/UPDATE workflow_sla_instances/i),
       expect.stringMatching(/INSERT INTO task_comments/i),
     ]);
   });
 
   it.each([
-    ['linked SLA', 2, 'tx SLA write failed'],
-    ['audit comment', 3, 'tx comment write failed'],
+    ['linked SLA', 3, 'tx SLA write failed'],
+    ['audit comment', 4, 'tx comment write failed'],
   ])('does not swallow a supplied transaction failure from the %s write', async (_label, failingCall, message) => {
     const responses = [
       [{
@@ -575,14 +1124,17 @@ describe('acknowledgeTask authorization', () => {
         status: 'open',
         assigned_to_uid: USER,
         patient_uid: PATIENT,
-        metadata: { sla_instance_id: SLA_ID },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }],
       [{
         id: 1,
         status: 'in_progress',
         patient_uid: PATIENT,
-        metadata: { sla_instance_id: SLA_ID },
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: SLA_ID, sla_completion_semantics: 'acknowledgement', metadata: {},
       }],
+      [ackSlaRow({ id: SLA_ID })],
       [{ id: SLA_ID, status: 'completed' }],
       [{ id: 9, body_kind: 'state_change' }],
     ];
@@ -810,8 +1362,10 @@ describe('transitionTask', () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
     const row = await transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' });
     expect(row.status).toBe('completed');
-    const sql = queryUnsafeMock.mock.calls[1][0];
-    expect(sql).toMatch(/completed_at = \$\d::timestamptz/);
+    const transitionCall = queryUnsafeMock.mock.calls[1];
+    const sql = transitionCall[0];
+    expect(sql).toMatch(/completed_at = to_timestamp\(\$\d::double precision \/ 1000\.0\)/);
+    expect(typeof transitionCall[2]).toBe('number');
     expect(sql).toMatch(/AND status = \$\d/);
     expect(queryUnsafeMock.mock.calls[1]).toContain('open');
     expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
@@ -825,6 +1379,131 @@ describe('transitionTask', () => {
     });
     const params = queryUnsafeMock.mock.calls[1].slice(1);
     expect(params).toContain('duplicate');
+  });
+
+  it('rejects cancellation while a typed linked SLA remains incomplete', async () => {
+    const task = {
+      id: 1,
+      status: 'open',
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {},
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([{ completed_at: null }]);
+
+    await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'cancelled' }))
+      .rejects.toMatchObject({ code: 'TASK_LINKED_SLA_INCOMPLETE' });
+
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it('allows cancellation after the linked SLA obligation is complete without rewriting it', async () => {
+    const task = {
+      id: 1,
+      status: 'in_progress',
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {},
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([{ completed_at: new Date('2026-07-19T03:00:00.000Z') }])
+      .mockResolvedValueOnce([{ ...task, status: 'cancelled' }]);
+
+    const cancelled = await transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'cancelled' });
+
+    expect(cancelled.status).toBe('cancelled');
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE workflow_sla_instances/i.test(sql))).toBe(false);
+  });
+
+  it('requires the strict evidence entrypoint to complete domain-evidence work', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'in_progress',
+      related_resource_type: 'death_record',
+      related_resource_id: '55',
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'domain_evidence',
+      metadata: {},
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([mortuarySlaRow()]);
+    queryUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' }))
+      .rejects.toMatchObject({ code: 'DOMAIN_EVIDENCE_REQUIRED' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it.each(['acknowledgement', 'domain_evidence'])(
+    'rejects a generic transition of a pathway-bound %s task before any mutation',
+    async (slaCompletionSemantics) => {
+      queryUnsafeMock
+        .mockResolvedValueOnce([{
+          id: 1,
+          status: 'open',
+          workflow_run_id: 7,
+          workflow_step_id: 91,
+          workflow_sla_instance_id: DEFAULT_SLA_ID,
+          sla_completion_semantics: slaCompletionSemantics,
+          metadata: {},
+        }])
+        .mockResolvedValueOnce([{ '?column?': 1 }]);
+
+      await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'in_progress' }))
+        .rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+      expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+      expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('rejects a generic transition when the typed SLA belongs to another source', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        ...ACK_RESOURCE,
+        workflow_sla_instance_id: DEFAULT_SLA_ID,
+        sla_completion_semantics: 'acknowledgement',
+        metadata: {},
+      }])
+      .mockResolvedValueOnce([ackSlaRow({ source_table: 'other_resource' })]);
+
+    await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' }))
+      .rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it('rejects generic acknowledgement progress even with a spoofed actor and caller-made capability', async () => {
+    const task = {
+      id: 1,
+      status: 'open',
+      assigned_to_uid: USER,
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: { acknowledgementTransitionAuthority: 'caller-controlled' },
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow()]);
+
+    await expect(transitionTask({
+      tenantId: TENANT,
+      id: 1,
+      nextStatus: 'in_progress',
+      actorUid: USER,
+      acknowledgementTransitionAuthority: Symbol('ACKNOWLEDGEMENT_TRANSITION_AUTHORITY'),
+      metadata: { acknowledged_at: new Date().toISOString() },
+    })).rejects.toMatchObject({ statusCode: 409, code: 'TASK_ACKNOWLEDGEMENT_REQUIRED' });
+
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
   });
 
   it('validates an explicitly supplied server actor before mutation', async () => {
@@ -846,9 +1525,13 @@ describe('transitionTask', () => {
     const task = {
       id: 1,
       status: 'open',
-      metadata: { sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {},
     };
     queryUnsafeMock.mockResolvedValueOnce([task]);
+    queryUnsafeMock.mockResolvedValueOnce([ackSlaRow()]);
     queryUnsafeMock.mockResolvedValueOnce([{ ...task, status: 'completed' }]);
     queryUnsafeMock.mockRejectedValueOnce(new Error('SLA write failed'));
 
@@ -873,13 +1556,619 @@ describe('transitionTask', () => {
   });
 });
 
+describe('supersedeAcknowledgementTaskFromTrustedWorkflow', () => {
+  it('uses its private capability for the blocked edge and closes only the exact critical-result binding', async () => {
+    const completedAt = new Date('2026-07-19T04:00:00.000Z');
+    const task = {
+      id: 1,
+      status: 'blocked',
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {},
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([{ ...task, status: 'in_progress' }])
+      .mockResolvedValueOnce([{ ...task, status: 'in_progress' }])
+      .mockResolvedValueOnce([{ ...task, status: 'completed', completed_at: completedAt }])
+      .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed' }]);
+
+    const row = await supersedeAcknowledgementTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 1,
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '1',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      supersededByActorUid: USER,
+      tx: { $queryRawUnsafe: txQuery },
+    });
+
+    expect(row.status).toBe('completed');
+    const taskUpdates = txQuery.mock.calls.filter(([sql]) => /UPDATE tasks SET/i.test(sql));
+    expect(taskUpdates).toHaveLength(2);
+    expect(taskUpdates[0][1]).toBe('in_progress');
+    expect(taskUpdates[1][1]).toBe('completed');
+    expect(taskUpdates[1][0]).toMatch(/completed_at = to_timestamp/);
+    expect(txQuery.mock.calls[6][7]).toBe(taskUpdates[1][2]);
+    expect(txQuery.mock.calls[6][5]).toBe(USER);
+  });
+
+  it('rejects a mismatched resource before mutating the task', async () => {
+    const task = {
+      id: 1,
+      status: 'blocked',
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {},
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow()]);
+
+    await expect(supersedeAcknowledgementTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 1,
+      relatedResourceType: 'lab_result',
+      relatedResourceId: 'different',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      supersededByActorUid: USER,
+      tx: { $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'ACKNOWLEDGEMENT_SUPERSESSION_INVALID' });
+    expect(txQuery.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it('rejects a missing supersession actor before reading the task', async () => {
+    const txQuery = jest.fn();
+
+    await expect(supersedeAcknowledgementTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 1,
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '1',
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      tx: { $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ statusCode: 401 });
+    expect(txQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('completeTaskFromDomainEvidence', () => {
+  it('rejects domain evidence when the linked SLA belongs to another death record', async () => {
+    const task = {
+      id: 1,
+      status: 'in_progress',
+      related_resource_type: 'death_record',
+      related_resource_id: '55',
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'domain_evidence',
+      metadata: {},
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([mortuarySlaRow({ source_id: '56' })]);
+
+    await expect(completeTaskFromDomainEvidence({
+      tenantId: TENANT,
+      id: 1,
+      evidenceKind: 'mortuary_body_release',
+      evidenceResourceType: 'body_custody_event',
+      evidenceResourceId: '9',
+      tx: { $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
+    expect(txQuery.mock.calls.some(([sql]) => /body_custody_events/i.test(sql))).toBe(false);
+  });
+
+  it('validates a registered mortuary release and completes task and SLA atomically', async () => {
+    const slaId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const task = {
+      id: 1,
+      status: 'in_progress',
+      related_resource_type: 'death_record',
+      related_resource_id: '55',
+      workflow_sla_instance_id: slaId,
+      sla_completion_semantics: 'domain_evidence',
+      metadata: {},
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([mortuarySlaRow({ id: slaId })])
+      .mockResolvedValueOnce([{ '?column?': 1 }])
+      .mockResolvedValueOnce([{
+        id: 9n,
+        event_type: 'release',
+        event_at: new Date('2026-07-19T03:00:00.000Z'),
+        created_at: new Date('2026-07-19T06:00:00.001Z'),
+        event_at_epoch_ms: Date.parse('2026-07-19T03:00:00.000Z'),
+        created_at_epoch_ms: Date.parse('2026-07-19T06:00:00.001Z'),
+      }])
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([{ ...task, status: 'completed' }])
+      .mockResolvedValueOnce([{ id: slaId, status: 'completed', completed_at: new Date() }])
+      .mockResolvedValueOnce([{ id: 12, body_kind: 'state_change' }]);
+    const tx = { $queryRawUnsafe: txQuery };
+
+    const row = await completeTaskFromDomainEvidence({
+      tenantId: TENANT,
+      id: 1,
+      evidenceKind: 'mortuary_body_release',
+      evidenceResourceType: 'body_custody_event',
+      evidenceResourceId: '9',
+      actorUid: USER,
+      tx,
+    });
+
+    expect(row.status).toBe('completed');
+    const slaSql = txQuery.mock.calls[6][0];
+    expect(slaSql).toMatch(/completed_at IS NULL/);
+    expect(slaSql).toMatch(/completion_evidence/);
+    expect(slaSql).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
+    expect(new Date(txQuery.mock.calls[6][7]).toISOString()).toBe('2026-07-19T06:00:00.001Z');
+    expect(JSON.parse(txQuery.mock.calls[6][6])).toMatchObject({
+      occurred_at: '2026-07-19T03:00:00.000Z',
+      recorded_at: '2026-07-19T06:00:00.001Z',
+    });
+    expect(txQuery.mock.calls[3][0]).toMatch(/sla\.rule_code = 'mortuary_unclaimed_body'/);
+  });
+
+  it('rejects missing registered evidence before changing task state', async () => {
+    const task = {
+      id: 1,
+      status: 'in_progress',
+      related_resource_type: 'death_record',
+      related_resource_id: '55',
+      workflow_sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      sla_completion_semantics: 'domain_evidence',
+      metadata: {},
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([mortuarySlaRow()])
+      .mockResolvedValueOnce([{ '?column?': 1 }])
+      .mockResolvedValueOnce([]);
+
+    await expect(completeTaskFromDomainEvidence({
+      tenantId: TENANT,
+      id: 1,
+      evidenceKind: 'mortuary_body_release',
+      evidenceResourceType: 'body_custody_event',
+      evidenceResourceId: '9',
+      tx: { $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'DOMAIN_EVIDENCE_NOT_FOUND' });
+    expect(txQuery.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it('rejects a malformed polymorphic mortuary resource id without casting it in SQL', async () => {
+    const task = {
+      id: 1,
+      status: 'in_progress',
+      related_resource_type: 'death_record',
+      related_resource_id: 'legacy:not-an-integer',
+      workflow_sla_instance_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      sla_completion_semantics: 'domain_evidence',
+      metadata: {},
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([mortuarySlaRow({ source_id: 'legacy:not-an-integer' })])
+      .mockResolvedValueOnce([]);
+
+    await expect(completeTaskFromDomainEvidence({
+      tenantId: TENANT,
+      id: 1,
+      evidenceKind: 'mortuary_body_release',
+      evidenceResourceType: 'body_custody_event',
+      evidenceResourceId: '9',
+      tx: { $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
+    expect(txQuery).toHaveBeenCalledTimes(3);
+    expect(txQuery.mock.calls.some(([sql]) => /body_custody_events/i.test(sql))).toBe(false);
+  });
+
+  it('does not bless a legacy generic SLA completion during evidence replay', async () => {
+    const slaId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const task = {
+      id: 1,
+      status: 'completed',
+      related_resource_type: 'death_record',
+      related_resource_id: '55',
+      workflow_sla_instance_id: slaId,
+      sla_completion_semantics: 'domain_evidence',
+      metadata: {},
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([mortuarySlaRow({ id: slaId })])
+      .mockResolvedValueOnce([{ '?column?': 1 }])
+      .mockResolvedValueOnce([{
+        id: 9n,
+        event_type: 'release',
+        event_at: new Date('2026-07-19T03:00:00.000Z'),
+        created_at: new Date('2026-07-19T03:00:01.000Z'),
+        event_at_epoch_ms: Date.parse('2026-07-19T03:00:00.000Z'),
+        created_at_epoch_ms: Date.parse('2026-07-19T03:00:01.000Z'),
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: slaId,
+        completed_at: new Date('2026-07-18T03:00:00.000Z'),
+        metadata: { completed_via: 'task_ack' },
+      }]);
+
+    await expect(completeTaskFromDomainEvidence({
+      tenantId: TENANT,
+      id: 1,
+      evidenceKind: 'mortuary_body_release',
+      evidenceResourceType: 'body_custody_event',
+      evidenceResourceId: '9',
+      tx: { $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'SLA_DOMAIN_EVIDENCE_MISMATCH' });
+  });
+});
+
+describe('completePathwayTaskFromRegisteredEvidence', () => {
+  const PATHWAY_INSTANCE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const HANDLER_ID = 'test.registered_condition.v1';
+  const USER_ACTOR = Object.freeze({
+    kind: 'user',
+    uid: USER,
+    roles: Object.freeze(['DOCTOR']),
+    primaryRole: 'DOCTOR',
+    authorizationMode: 'assigned_clinician',
+  });
+  const SIGNAL = Object.freeze({
+    kind: 'domain_evidence_recorded',
+    payload: Object.freeze({}),
+    source_resource_type: null,
+    source_resource_id: null,
+    occurred_at: null,
+  });
+  const USER_PROVENANCE = Object.freeze({
+    actor_kind: 'user',
+    actor_uid: USER,
+    authorization_mode: 'assigned_clinician',
+    override_reason: null,
+    break_glass_id: null,
+    signal_kind: 'domain_evidence_recorded',
+    source_resource_type: null,
+    source_resource_id: null,
+    occurred_at: null,
+  });
+  const pathwayTask = (overrides = {}) => ({
+    id: 1,
+    status: 'in_progress',
+    workflow_run_id: 7,
+    workflow_step_id: 91,
+    workflow_sla_instance_id: DEFAULT_SLA_ID,
+    sla_completion_semantics: 'domain_evidence',
+    metadata: {},
+    ...overrides,
+  });
+  const pathwaySla = (overrides = {}) => ({
+    id: DEFAULT_SLA_ID,
+    rule_code: 'pathway_lab_review',
+    source_table: 'workflow_steps',
+    source_id: '91',
+    status: 'active',
+    completed_at: null,
+    ...overrides,
+  });
+  const normalizedEvidence = {
+    kind: 'pathway_registered_condition',
+    handler_id: HANDLER_ID,
+    decision: 'satisfied',
+    resource_type: 'workflow_steps',
+    resource_id: '91',
+    payload: { lab_verified: true },
+    provenance: USER_PROVENANCE,
+  };
+  const pathwayRuntime = (task) => ({
+    instance: { id: PATHWAY_INSTANCE_ID, workflow_run_id: 7 },
+    run: { id: 7 },
+    steps: [{ id: 91, workflow_run_id: 7, step_key: 'lab_review' }],
+    tasks: [task],
+    definition: {
+      steps: [{ step_key: 'lab_review', condition_handler: HANDLER_ID }],
+    },
+  });
+
+  const complete = ({ tx, ...overrides } = {}) => completePathwayTaskFromRegisteredEvidence({
+    tenantId: TENANT,
+    pathwayInstanceId: PATHWAY_INSTANCE_ID,
+    id: 1,
+    workflowRunId: 7,
+    workflowStepId: 91,
+    conditionHandler: HANDLER_ID,
+    evidence: { lab_verified: true },
+    actor: USER_ACTOR,
+    signal: SIGNAL,
+    executorAuthority: PATHWAY_TEST_CAPABILITY,
+    tx,
+    ...overrides,
+  });
+
+  it('rejects callers without the sealed pathway-executor authority before reading the task', async () => {
+    const txQuery = jest.fn();
+
+    await expect(completePathwayTaskFromRegisteredEvidence({
+      tenantId: TENANT,
+      pathwayInstanceId: PATHWAY_INSTANCE_ID,
+      id: 1,
+      workflowRunId: 7,
+      workflowStepId: 91,
+      conditionHandler: HANDLER_ID,
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+    expect(txQuery).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['forged', { kind: 'test_pathway_executor_capability' }],
+    ['copied', { ...PATHWAY_TEST_CAPABILITY }],
+  ])('rejects a %s executor capability before reading pathway state', async (_label, authority) => {
+    const txQuery = jest.fn();
+
+    await expect(completePathwayTaskFromRegisteredEvidence({
+      tenantId: TENANT,
+      pathwayInstanceId: PATHWAY_INSTANCE_ID,
+      id: 1,
+      workflowRunId: 7,
+      workflowStepId: 91,
+      conditionHandler: HANDLER_ID,
+      evidence: {},
+      actor: USER_ACTOR,
+      signal: SIGNAL,
+      executorAuthority: authority,
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+    expect(txQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a pathway instance cross-wired to the supplied workflow run before mutation', async () => {
+    const txQuery = jest.fn().mockResolvedValueOnce([]);
+
+    await expect(complete({
+      pathwayInstanceId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_TASK_CONTEXT_MISMATCH' });
+    expect(txQuery).toHaveBeenCalledTimes(1);
+    expect(txQuery.mock.calls[0][0]).toMatch(/AND id = \$3::uuid/);
+    expect(txQuery.mock.calls.some(([sql]) => /UPDATE (tasks|workflow_sla_instances)/i.test(sql)))
+      .toBe(false);
+  });
+
+  it.each(['1x', '01', 1.5, 0])('rejects non-canonical task id %p before reading pathway state', async (id) => {
+    const txQuery = jest.fn();
+
+    await expect(complete({
+      id,
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_TASK_CONTEXT_INVALID' });
+    expect(txQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-versioned condition handler before reading pathway state', async () => {
+    const txQuery = jest.fn();
+
+    await expect(complete({
+      conditionHandler: 'registered_condition',
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_HANDLER_CONTRACT_INVALID' });
+    expect(txQuery).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['date', { value: new Date('2026-07-19T06:00:00.000Z') }],
+    ['non-finite number', { value: Number.NaN }],
+  ])('rejects %s evidence through the shared JSON guard', async (_label, evidence) => {
+    const txQuery = jest.fn();
+
+    await expect(complete({
+      evidence,
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_HANDLER_CONTRACT_INVALID' });
+    expect(txQuery).not.toHaveBeenCalled();
+  });
+
+  it('accepts an exactly 65536-byte normalized evidence document and rejects one byte more', async () => {
+    const makeEvidence = (targetBytes) => {
+      const normalized = {
+        kind: 'pathway_registered_condition',
+        handler_id: HANDLER_ID,
+        decision: 'satisfied',
+        resource_type: 'workflow_steps',
+        resource_id: '91',
+        payload: { blob: '' },
+        provenance: USER_PROVENANCE,
+      };
+      const fixedBytes = Buffer.byteLength(JSON.stringify(normalized), 'utf8');
+      return { blob: 'x'.repeat(targetBytes - fixedBytes) };
+    };
+    const exactQuery = jest.fn().mockResolvedValueOnce([]);
+    await expect(complete({
+      evidence: makeEvidence(65536),
+      tx: { __tenantTransaction: true, $queryRawUnsafe: exactQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_TASK_CONTEXT_MISMATCH' });
+    expect(exactQuery).toHaveBeenCalledTimes(1);
+
+    const overQuery = jest.fn();
+    await expect(complete({
+      evidence: makeEvidence(65537),
+      tx: { __tenantTransaction: true, $queryRawUnsafe: overQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_HANDLER_CONTRACT_INVALID' });
+    expect(overQuery).not.toHaveBeenCalled();
+  });
+
+  it('requires the executor to supply the branded tenant transaction', async () => {
+    const txQuery = jest.fn();
+
+    await expect(complete({ tx: { $queryRawUnsafe: txQuery } }))
+      .rejects.toMatchObject({ code: 'PATHWAY_RUNTIME_TX_REQUIRED' });
+    expect(txQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a pathway task whose SLA is bound to another workflow step', async () => {
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(pathwayRuntime(pathwayTask()));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }])
+      .mockResolvedValueOnce([pathwaySla({ source_id: '92' })]);
+
+    await expect(complete({
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
+    expect(txQuery.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it('rejects evidence attributed to a handler other than the pinned governed step handler', async () => {
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(pathwayRuntime(pathwayTask()));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]);
+
+    await expect(complete({
+      conditionHandler: 'test.different_condition.v1',
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_HANDLER_CONTRACT_INVALID' });
+    expect(txQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('atomically completes an in-progress task and linked SLA with normalized condition evidence', async () => {
+    const completedTask = pathwayTask({ status: 'completed' });
+    const completedAt = new Date('2026-07-19T06:00:00.000Z');
+    const completedSla = {
+      ...pathwaySla(),
+      status: 'completed',
+      completed_at: completedAt,
+      metadata: {
+        completed_via: 'domain_evidence',
+        completion_evidence: normalizedEvidence,
+      },
+      evidence_matches: true,
+    };
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(pathwayRuntime(pathwayTask()));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }])
+      .mockResolvedValueOnce([pathwaySla()])
+      .mockResolvedValueOnce([pathwayTask()])
+      .mockResolvedValueOnce([completedTask])
+      .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed', completed_at: completedAt }])
+      .mockResolvedValueOnce([completedSla])
+      .mockResolvedValueOnce([{ id: 12, body_kind: 'state_change' }]);
+    const tx = { __tenantTransaction: true, $queryRawUnsafe: txQuery };
+
+    const result = await complete({ tx });
+
+    expect(result).toEqual({
+      task: completedTask,
+      sla: completedSla,
+      evidence: normalizedEvidence,
+      previousTaskStatus: 'in_progress',
+      previousSlaStatus: 'active',
+      mutated: true,
+    });
+    expect(lockPathwayRuntimeTxMock).toHaveBeenCalledWith({
+      tx,
+      tenantId: TENANT,
+      pathwayInstanceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    });
+    expect(txQuery.mock.calls[4][0]).toMatch(/completed_at IS NULL/);
+    expect(txQuery.mock.calls[4][0]).toMatch(/completion_evidence/);
+    expect(txQuery.mock.calls[4][6]).toBe(JSON.stringify(normalizedEvidence));
+    expect(txQuery.mock.calls[6][0]).toMatch(/INSERT INTO task_comments/);
+  });
+
+  it('advances a blocked task through in_progress before evidence completion', async () => {
+    const blockedTask = pathwayTask({ status: 'blocked' });
+    const inProgressTask = pathwayTask({ status: 'in_progress' });
+    const completedTask = pathwayTask({ status: 'completed' });
+    const completedAt = new Date('2026-07-19T06:00:00.000Z');
+    const completedSla = {
+      ...pathwaySla(),
+      status: 'completed',
+      completed_at: completedAt,
+      metadata: { completed_via: 'domain_evidence', completion_evidence: normalizedEvidence },
+      evidence_matches: true,
+    };
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(pathwayRuntime(blockedTask));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }])
+      .mockResolvedValueOnce([pathwaySla()])
+      .mockResolvedValueOnce([blockedTask])
+      .mockResolvedValueOnce([inProgressTask])
+      .mockResolvedValueOnce([inProgressTask])
+      .mockResolvedValueOnce([completedTask])
+      .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed', completed_at: completedAt }])
+      .mockResolvedValueOnce([completedSla])
+      .mockResolvedValueOnce([{ id: 13, body_kind: 'state_change' }]);
+
+    const result = await complete({
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    });
+
+    expect(result.task.status).toBe('completed');
+    expect(txQuery.mock.calls[3][1]).toBe('in_progress');
+    expect(txQuery.mock.calls[5][1]).toBe('completed');
+  });
+
+  it('propagates a strict SLA write failure before writing the audit comment', async () => {
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(pathwayRuntime(pathwayTask()));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }])
+      .mockResolvedValueOnce([pathwaySla()])
+      .mockResolvedValueOnce([pathwayTask()])
+      .mockResolvedValueOnce([pathwayTask({ status: 'completed' })])
+      .mockRejectedValueOnce(new Error('forced pathway SLA failure'));
+
+    await expect(complete({
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toThrow('forced pathway SLA failure');
+    expect(txQuery).toHaveBeenCalledTimes(5);
+    expect(txQuery.mock.calls.some(([sql]) => /INSERT INTO task_comments/i.test(sql))).toBe(false);
+  });
+
+  it('replays exact stored evidence without changing completed_at or duplicating the comment', async () => {
+    const completedAt = new Date('2026-07-19T06:00:00.000Z');
+    const completedTask = pathwayTask({ status: 'completed' });
+    const completedSla = {
+      ...pathwaySla(),
+      status: 'completed',
+      completed_at: completedAt,
+      metadata: { completed_via: 'domain_evidence', completion_evidence: normalizedEvidence },
+      evidence_matches: true,
+    };
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(pathwayRuntime(completedTask));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }])
+      .mockResolvedValueOnce([pathwaySla({ status: 'completed', completed_at: completedAt })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([completedSla]);
+
+    const result = await complete({
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    });
+
+    expect(result.sla.completed_at).toEqual(completedAt);
+    expect(result).toMatchObject({
+      previousTaskStatus: 'completed',
+      previousSlaStatus: 'completed',
+      mutated: false,
+    });
+    expect(txQuery.mock.calls[2][0]).toMatch(/completed_at IS NULL/);
+    expect(txQuery).toHaveBeenCalledTimes(4);
+    expect(txQuery.mock.calls.some(([sql]) => /INSERT INTO task_comments/i.test(sql))).toBe(false);
+  });
+});
+
 describe('reassignTask + listTasks + postTaskComment', () => {
   it('reassignTask with both uid + role updates both', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
     await reassignTask({
       tenantId: TENANT, id: 1, assignedToUid: USER, assignedToRole: 'NURSING_STAFF',
     });
-    const sql = queryUnsafeMock.mock.calls[0][0];
+    const sql = queryUnsafeMock.mock.calls[1][0];
     expect(sql).toMatch(/assigned_to_uid = \$\d::uuid/);
     expect(sql).toMatch(/assigned_to_role = \$\d/);
   });
@@ -1014,13 +2303,23 @@ describe('startWorkflowRun materializes steps', () => {
     queryUnsafeMock.mockResolvedValueOnce([]); // step 1 insert
     queryUnsafeMock.mockResolvedValueOnce([]); // step 2 insert
     const run = await startWorkflowRun({
-      tenantId: TENANT, workflowDefinitionId: 1, initiatedBy: USER,
+      tenantId: TENANT,
+      workflowDefinitionId: 1,
+      initiatedBy: USER,
+      dueAt: '2026-07-19T11:30:00+05:30',
     });
     expect(run.id).toBe(5);
     expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
     expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FOR SHARE/);
     const stepInsertSql = queryUnsafeMock.mock.calls[2][0];
     expect(stepInsertSql).toMatch(/INSERT INTO workflow_steps/);
+    expect(queryUnsafeMock.mock.calls[1][0])
+      .toMatch(/to_timestamp\(\$8::double precision \/ 1000\.0\)/);
+    expect(queryUnsafeMock.mock.calls[1][8])
+      .toBe(new Date('2026-07-19T06:00:00.000Z').getTime());
+    expect(stepInsertSql)
+      .toMatch(/to_timestamp\(\$8::double precision \/ 1000\.0\)/);
+    expect(queryUnsafeMock.mock.calls[2][8]).toBeNull();
   });
 
   it('rejects an inactive definition before inserting a run', async () => {
@@ -1032,6 +2331,26 @@ describe('startWorkflowRun materializes steps', () => {
       tenantId: TENANT, workflowDefinitionId: 1, initiatedBy: USER,
     }))
       .rejects.toMatchObject({ code: 'INACTIVE_WORKFLOW_DEFINITION' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects every governed definition before generic run materialization', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      workflow_key: 'governed_pathway',
+      version: 1,
+      is_active: true,
+      has_pathway_governance: true,
+      steps: [{ step_key: 'review', step_kind: 'task' }],
+    }]);
+    await expect(startWorkflowRun({
+      tenantId: TENANT,
+      workflowDefinitionId: 1,
+      initiatedBy: USER,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CARE_PATHWAY_DEFINITION_REQUIRES_PATHWAY_EXECUTOR',
+    });
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1085,24 +2404,26 @@ describe('transitionWorkflowRun', () => {
   });
 
   it('flips to completed + stamps ended_at', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'running' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
     await transitionWorkflowRun({
       tenantId: TENANT, id: 1, nextStatus: 'completed', actorUid: USER,
     });
-    const sql = queryUnsafeMock.mock.calls[1][0];
-    expect(sql).toMatch(/ended_at = \$\d::timestamptz/);
+    const sql = queryUnsafeMock.mock.calls[2][0];
+    expect(sql).toMatch(/ended_at = to_timestamp\(\$\d::double precision \/ 1000\.0\)/);
     expect(sql).toMatch(/AND status = \$\d/);
-    expect(queryUnsafeMock.mock.calls[1]).toContain('running');
+    expect(queryUnsafeMock.mock.calls[2]).toContain('running');
   });
 
   it('captures failure_reason on failure', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'running' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'failed', failure_reason: 'timeout' }]);
     await transitionWorkflowRun({
       tenantId: TENANT, id: 1, nextStatus: 'failed', failureReason: 'timeout', actorUid: USER,
     });
-    const params = queryUnsafeMock.mock.calls[1].slice(1);
+    const params = queryUnsafeMock.mock.calls[2].slice(1);
     expect(params).toContain('timeout');
   });
 
@@ -1113,14 +2434,16 @@ describe('transitionWorkflowRun', () => {
   });
 
   it('keeps terminal run states immutable', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
     await expect(transitionWorkflowRun({
       tenantId: TENANT, id: 1, nextStatus: 'running', actorUid: USER,
     })).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' });
-    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
   });
 
   it('reports a compare-and-set loser as conflict', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'running' }]);
     queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
@@ -1128,23 +2451,33 @@ describe('transitionWorkflowRun', () => {
       tenantId: TENANT, id: 1, nextStatus: 'completed', actorUid: USER,
     })).rejects.toMatchObject({ code: 'WORKFLOW_RUN_TRANSITION_CONFLICT' });
   });
+
+  it('blocks generic run transitions for pathway-bound runs', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    await expect(transitionWorkflowRun({
+      tenantId: TENANT, id: 7, nextStatus: 'running', actorUid: USER,
+    })).rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('transitionWorkflowStep + listWorkflowSteps + listWorkflowRuns', () => {
   it('transitionWorkflowStep stamps completed_at on completed', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, step_key: 'review', status: 'completed' }]);
     await transitionWorkflowStep({
       tenantId: TENANT, workflowRunId: 1, stepKey: 'review', nextStatus: 'completed',
       outcome: 'approved', actorUid: USER,
     });
-    const sql = queryUnsafeMock.mock.calls[1][0];
-    expect(sql).toMatch(/completed_at = \$\d::timestamptz/);
+    const sql = queryUnsafeMock.mock.calls[2][0];
+    expect(sql).toMatch(/completed_at = to_timestamp\(\$\d::double precision \/ 1000\.0\)/);
     expect(sql).toMatch(/outcome = \$\d/);
     expect(sql).toMatch(/AND status = \$\d/);
   });
 
   it('preserves the original started_at when a blocked step resumes', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'blocked' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
 
@@ -1156,8 +2489,8 @@ describe('transitionWorkflowStep + listWorkflowSteps + listWorkflowRuns', () => 
       actorUid: USER,
     });
 
-    expect(queryUnsafeMock.mock.calls[1][0])
-      .toMatch(/started_at = COALESCE\(started_at, \$\d::timestamptz\)/);
+    expect(queryUnsafeMock.mock.calls[2][0])
+      .toMatch(/started_at = COALESCE\(started_at, to_timestamp\(\$\d::double precision \/ 1000\.0\)\)/);
   });
 
   it('requires an authenticated actor before reading the step', async () => {
@@ -1168,6 +2501,7 @@ describe('transitionWorkflowStep + listWorkflowSteps + listWorkflowRuns', () => 
   });
 
   it('keeps terminal step states immutable', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
     await expect(transitionWorkflowStep({
       tenantId: TENANT,
@@ -1179,6 +2513,7 @@ describe('transitionWorkflowStep + listWorkflowSteps + listWorkflowRuns', () => 
   });
 
   it('reports a compare-and-set loser as conflict', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
     queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
@@ -1189,6 +2524,18 @@ describe('transitionWorkflowStep + listWorkflowSteps + listWorkflowRuns', () => 
       nextStatus: 'completed',
       actorUid: USER,
     })).rejects.toMatchObject({ code: 'WORKFLOW_STEP_TRANSITION_CONFLICT' });
+  });
+
+  it('blocks generic step transitions for pathway-bound runs', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    await expect(transitionWorkflowStep({
+      tenantId: TENANT,
+      workflowRunId: 7,
+      stepKey: 'review',
+      nextStatus: 'in_progress',
+      actorUid: USER,
+    })).rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
   it('listWorkflowSteps degrades to empty on schema-missing', async () => {
@@ -1225,9 +2572,15 @@ describe('createApproval', () => {
   it('inserts pending approval with default required_approvers=1', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'pending', required_approvers: 1 }]);
     const row = await createApproval({
-      tenantId: TENANT, approvalKind: 'discharge_clearance',
+      tenantId: TENANT,
+      approvalKind: 'discharge_clearance',
+      expiresAt: '2026-07-19T11:30:00+05:30',
     });
     expect(row.required_approvers).toBe(1);
+    expect(queryUnsafeMock.mock.calls[0][0])
+      .toMatch(/to_timestamp\(\$10::double precision \/ 1000\.0\)/);
+    expect(queryUnsafeMock.mock.calls[0][10])
+      .toBe(new Date('2026-07-19T06:00:00.000Z').getTime());
   });
 
   it('rejects domain-owned credential grants before inserting', async () => {
@@ -1239,6 +2592,44 @@ describe('createApproval', () => {
       code: 'DOMAIN_OWNED_APPROVAL_KIND',
     });
     expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects care pathway governance approval creation through the generic service', async () => {
+    await expect(createApproval({
+      tenantId: TENANT,
+      approvalKind: 'care_pathway_definition_governance',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DOMAIN_OWNED_APPROVAL_KIND',
+    });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('writes executor materialization fields through a supplied transaction', async () => {
+    const txQuery = jest.fn().mockResolvedValueOnce([{ id: 2, status: 'pending' }]);
+    const row = await createApproval({
+      tenantId: TENANT,
+      workflowRunId: 7,
+      workflowStepId: 8,
+      approvalKind: 'clinical_review',
+      createdBy: USER,
+      materializationKey: 'pathway:1:stage:review:approval',
+      executorAuthority: PATHWAY_TEST_CAPABILITY,
+      tx: { $queryRawUnsafe: txQuery },
+    });
+
+    expect(row.id).toBe(2);
+    expect(txQuery.mock.calls[0][0]).toMatch(/workflow_step_id[\s\S]+created_by[\s\S]+materialization_key/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks generic approval materialization for a pathway-bound run', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    await expect(createApproval({
+      tenantId: TENANT,
+      workflowRunId: 7,
+      approvalKind: 'clinical_review',
+    })).rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
   });
 });
 
@@ -1252,6 +2643,28 @@ describe('recordApprovalDecision', () => {
     await expect(recordApprovalDecision({
       tenantId: TENANT, id: 1, actorUid: APPROVER_A, decision: 'maybe',
     })).rejects.toThrow(/decision must be "approve" or "reject"/);
+  });
+
+  it('blocks generic decisions for pathway-bound approvals before mutation', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        workflow_run_id: 7,
+        status: 'pending',
+        approval_kind: 'clinical_review',
+        approved_by: [],
+        required_approvers: 1,
+        is_expired: false,
+      }])
+      .mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    await expect(recordApprovalDecision({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: APPROVER_A,
+      decision: 'approve',
+    })).rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE approvals/i.test(sql))).toBe(false);
   });
 
   it('rejects domain-owned credential grants after the locked read and before mutation', async () => {
@@ -1278,6 +2691,28 @@ describe('recordApprovalDecision', () => {
     expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/expires_at/);
     expect(queryUnsafeMock.mock.calls[0][0])
       .toMatch(/expires_at\s+IS\s+NOT\s+NULL\s+AND\s+expires_at\s*<=\s*NOW\(\)/i);
+  });
+
+  it('rejects care pathway governance decisions after the locked read and before mutation', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'pending',
+      approval_kind: 'care_pathway_definition_governance',
+      expires_at: null,
+      is_expired: false,
+    }]);
+
+    await expect(recordApprovalDecision({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: APPROVER_A,
+      decision: 'approve',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DOMAIN_OWNED_APPROVAL_KIND',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE approvals/i.test(sql))).toBe(false);
   });
 
   it('rejects an expired pending approval using the database expiry result', async () => {
@@ -1348,6 +2783,8 @@ describe('recordApprovalDecision', () => {
     expect(row.status).toBe('pending');
     expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/status = 'pending'/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/decided_by = \$3::uuid/);
+    expect(queryUnsafeMock.mock.calls[1][3]).toBeNull();
   });
 
   it('flips to approved when quorum met', async () => {
@@ -1360,6 +2797,8 @@ describe('recordApprovalDecision', () => {
       tenantId: TENANT, id: 1, actorUid: APPROVER_B, decision: 'approve',
     });
     expect(row.status).toBe('approved');
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/decided_by = \$3::uuid/);
+    expect(queryUnsafeMock.mock.calls[1]).toContain(APPROVER_B);
   });
 
   it('reject path stamps decided_at + rejection_reason', async () => {
@@ -1373,6 +2812,8 @@ describe('recordApprovalDecision', () => {
     });
     const params = queryUnsafeMock.mock.calls[1].slice(1);
     expect(params).toContain('incomplete chart');
+    expect(params).toContain(APPROVER_A);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/decided_by = \$2::uuid/);
   });
 
   it('enforces required_role inside the locked transaction', async () => {

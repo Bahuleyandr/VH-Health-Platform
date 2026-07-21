@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 
+import { COLD_CHAIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -16,6 +17,8 @@ import {
 import { startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
 
 const COLD_CHAIN_SLA_KEY = 'cold_chain_excursion_ack';
+const COLD_CHAIN_ALERT_ROLE_ERROR_CODE = 'COLD_CHAIN_ALERT_ROLE_INVALID';
+const TASK_MATERIALIZATION_CONTRACT = 'application_atomic_v1';
 
 const UNIT_KINDS = ['fridge', 'freezer', 'ilr', 'ambient'];
 const DEPARTMENTS = ['pharmacy', 'blood_bank', 'lab', 'ward', 'ot'];
@@ -35,6 +38,7 @@ const DEFAULT_GRACE_MINUTES = Object.freeze({
   ward: 15,
   ot: 10,
 });
+const COLD_CHAIN_ALERT_ROLE_SET = new Set(COLD_CHAIN_ROUTE_ROLES);
 
 function cleanText(value, max = 255) {
   if (value === null || value === undefined) return null;
@@ -91,9 +95,51 @@ function jsonObject(value, label) {
 function normalizeRoles(value, department) {
   const fallback = DEFAULT_ALERT_ROLES[department] || DEFAULT_ALERT_ROLES.pharmacy;
   if (value === null || value === undefined || value === '') return fallback;
-  if (!Array.isArray(value)) throw AppError.badRequest('alert_roles must be an array');
-  const roles = [...new Set(value.map((role) => cleanText(role, 80)).filter(Boolean))];
+  if (!Array.isArray(value)) {
+    throw AppError.badRequest(
+      'alert_roles must be an array of permitted cold-chain staff roles',
+      COLD_CHAIN_ALERT_ROLE_ERROR_CODE,
+    );
+  }
+  const normalized = value.map((role) => cleanText(role, 80));
+  const invalidRoles = normalized
+    .filter((role) => !role || !COLD_CHAIN_ALERT_ROLE_SET.has(role))
+    .map((role) => role || '<blank>');
+  if (invalidRoles.length > 0) {
+    throw AppError.badRequest(
+      `alert_roles contains roles not permitted for cold-chain operations: ${invalidRoles.join(', ')}`,
+      COLD_CHAIN_ALERT_ROLE_ERROR_CODE,
+      { invalid_roles: invalidRoles },
+    );
+  }
+  const roles = [...new Set(normalized)];
   return roles.length > 0 ? roles : fallback;
+}
+
+function resolveLiveAlertRoles(unit, { tenantId, eventKind }) {
+  try {
+    return {
+      alertRoles: normalizeRoles(unit.alert_roles, unit.department),
+      alertRoleDegradation: null,
+    };
+  } catch (err) {
+    if (!(err instanceof AppError) || err.code !== COLD_CHAIN_ALERT_ROLE_ERROR_CODE) throw err;
+    const fallbackRoles = [...defaultAlertRoles(unit.department)];
+    const alertRoleDegradation = {
+      status: 'degraded',
+      code: err.code,
+      message: err.message,
+      invalid_roles: err.details?.invalid_roles || [],
+      fallback_roles: fallbackRoles,
+    };
+    logger.error('Cold-chain alert roles degraded to safe department defaults', {
+      tenantId,
+      unitId: unit.id,
+      eventKind,
+      ...alertRoleDegradation,
+    });
+    return { alertRoles: fallbackRoles, alertRoleDegradation };
+  }
 }
 
 function monthRange(month) {
@@ -286,10 +332,19 @@ async function completeTaskIfPossible({ tenantId, taskId, tx }) {
   throw lastConflict;
 }
 
-async function wireAlertRails(tx, { tenantId, unit, excursion, actorUid = null, eventKind }) {
-  const roles = Array.isArray(unit.alert_roles) && unit.alert_roles.length > 0
-    ? unit.alert_roles
-    : defaultAlertRoles(unit.department);
+async function wireAlertRails(tx, {
+  tenantId,
+  unit,
+  excursion,
+  alertRoles,
+  alertRoleDegradation = null,
+  actorUid = null,
+  eventKind,
+}) {
+  const roles = alertRoles;
+  const roleResolutionMetadata = alertRoleDegradation
+    ? { alert_role_degradation: alertRoleDegradation }
+    : {};
   const sla = await startWorkflowSla({
     tenantId,
     ruleCode: COLD_CHAIN_SLA_KEY,
@@ -301,9 +356,37 @@ async function wireAlertRails(tx, { tenantId, unit, excursion, actorUid = null, 
       unit_id: unit.id,
       department: unit.department,
       event_kind: eventKind,
+      task_materialization_contract: TASK_MATERIALIZATION_CONTRACT,
+      ...roleResolutionMetadata,
     },
-  }, { db: tx });
-  const task = await createTask({
+  }, { db: tx, strict: true });
+  const slaPolicyMissing = !sla;
+  if (
+    sla
+    && (
+      !sla.id
+      || sla.completed_at != null
+      || !['active', 'breached', 'escalated'].includes(String(sla.status || '').toLowerCase())
+    )
+  ) {
+    throw AppError.conflict(
+      'Cold-chain acknowledgement SLA could not be started as an active clock',
+      'COLD_CHAIN_SLA_MATERIALIZATION_FAILED',
+    );
+  }
+  const taskSlaFields = slaPolicyMissing
+    ? { slaCompletionSemantics: 'none' }
+    : {
+        workflowSlaInstanceId: sla.id,
+        slaCompletionSemantics: 'acknowledgement',
+      };
+  const taskSlaMetadata = slaPolicyMissing
+    ? {
+        requested_sla_key: COLD_CHAIN_SLA_KEY,
+        sla_policy_status: 'missing',
+      }
+    : { sla_key: COLD_CHAIN_SLA_KEY };
+  let task = await createTask({
     tenantId,
     taskKind: 'review',
     title: `Cold-chain ${eventKind === 'silent_sensor' ? 'sensor silence' : 'excursion'}: ${unit.unit_code}`,
@@ -315,18 +398,51 @@ async function wireAlertRails(tx, { tenantId, unit, excursion, actorUid = null, 
     priority: excursion.severity === 'critical' ? 'critical' : 'high',
     assignedToRole: roles[0] || null,
     createdBy: actorUid,
-    dueAt: sla?.due_at || null,
+    ...taskSlaFields,
     metadata: {
-      sla_key: COLD_CHAIN_SLA_KEY,
-      sla_instance_id: sla?.id || null,
+      ...taskSlaMetadata,
       unit_id: unit.id,
       department: unit.department,
       event_kind: eventKind,
       alert_roles: roles,
+      ...roleResolutionMetadata,
     },
     tx,
     onConflictResourceDoNothing: true,
   });
+  if (!task?.id) {
+    const existing = await tx.$queryRawUnsafe(
+      `SELECT id, workflow_sla_instance_id, sla_completion_semantics, metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'cold_chain_excursions'
+          AND related_resource_id = $2::text
+          AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+        ORDER BY id DESC
+        LIMIT 1
+        FOR UPDATE`,
+      tenantId,
+      String(excursion.id),
+    );
+    task = existing[0] || null;
+    const existingMatchesPolicy = slaPolicyMissing
+      ? (
+          task?.sla_completion_semantics === 'none'
+          && !task?.workflow_sla_instance_id
+          && task?.metadata?.requested_sla_key === COLD_CHAIN_SLA_KEY
+          && task?.metadata?.sla_policy_status === 'missing'
+        )
+      : (
+          task?.sla_completion_semantics === 'acknowledgement'
+          && String(task?.workflow_sla_instance_id || '') === String(sla.id)
+        );
+    if (!task?.id || !existingMatchesPolicy) {
+      throw AppError.conflict(
+        'Cold-chain task could not be materialized for the resolved SLA policy',
+        'COLD_CHAIN_TASK_MATERIALIZATION_FAILED',
+      );
+    }
+  }
   const rows = await tx.$queryRawUnsafe(
     `UPDATE cold_chain_excursions
         SET task_id = COALESCE($3::int, task_id),
@@ -337,10 +453,16 @@ async function wireAlertRails(tx, { tenantId, unit, excursion, actorUid = null, 
       RETURNING *`,
     tenantId,
     excursion.id,
-    task?.id || null,
+    task.id,
     sla?.id || null,
   );
-  const updated = rows[0] || excursion;
+  const updated = rows[0];
+  if (!updated) {
+    throw AppError.conflict(
+      'Cold-chain excursion could not be linked to its task and SLA',
+      'COLD_CHAIN_RAIL_ATTACHMENT_FAILED',
+    );
+  }
   if (unit.department === 'blood_bank') {
     await tx.$queryRawUnsafe(
       `INSERT INTO cold_chain_blood_bank_review_flags
@@ -356,7 +478,7 @@ async function wireAlertRails(tx, { tenantId, unit, excursion, actorUid = null, 
 }
 
 async function queueColdChainNotifications({ tenantId, unit, excursion, alertRoles, eventKind }) {
-  const roles = Array.isArray(alertRoles) && alertRoles.length > 0 ? alertRoles : defaultAlertRoles(unit.department);
+  const roles = alertRoles;
   const recipients = await prisma.$queryRawUnsafe(
     `SELECT id, uid, phone, role
        FROM users
@@ -367,12 +489,14 @@ async function queueColdChainNotifications({ tenantId, unit, excursion, alertRol
     tenantId,
     roles,
   );
+  const roleSet = new Set(roles);
+  const eligibleRecipients = recipients.filter((recipient) => roleSet.has(recipient.role));
   const title = eventKind === 'silent_sensor' ? 'Cold-chain sensor silent' : 'Cold-chain excursion';
   const body = eventKind === 'silent_sensor'
     ? `${unit.display_name} has missed readings.`
     : `${unit.display_name} is outside range (${excursion.severity}).`;
   let queued = 0;
-  for (const recipient of recipients) {
+  for (const recipient of eligibleRecipients) {
     const row = await notificationOutbox.queue({
       type: 'push',
       recipientId: recipient.id,
@@ -410,7 +534,7 @@ async function queueColdChainNotifications({ tenantId, unit, excursion, alertRol
       alertRoles: roles,
     });
   }
-  return { recipients: recipients.length, queued };
+  return { recipients: eligibleRecipients.length, queued };
 }
 
 function emitColdChain(kind, { tenantId, unit, excursion }) {
@@ -462,7 +586,15 @@ async function closeExcursionIfAllowed(tx, { tenantId, unit, excursion, reading,
   return rows[0] || excursion;
 }
 
-async function openTemperatureExcursion(tx, { tenantId, unit, reading, window, actorUid = null }) {
+async function openTemperatureExcursion(tx, {
+  tenantId,
+  unit,
+  reading,
+  window,
+  alertRoles,
+  alertRoleDegradation = null,
+  actorUid = null,
+}) {
   const direction = breachDirection(unit, reading.temp_c);
   const minSeen = Number(window.min_seen_temp_c ?? reading.temp_c);
   const maxSeen = Number(window.max_seen_temp_c ?? reading.temp_c);
@@ -487,12 +619,18 @@ async function openTemperatureExcursion(tx, { tenantId, unit, reading, window, a
     maxSeen,
     reading.recorded_at,
     severityFor(unit, peak, direction),
-    JSON.stringify({ kind: 'temperature_excursion', opened_by: actorUid || null }),
+    JSON.stringify({
+      kind: 'temperature_excursion',
+      opened_by: actorUid || null,
+      ...(alertRoleDegradation ? { alert_role_degradation: alertRoleDegradation } : {}),
+    }),
   );
   return wireAlertRails(tx, {
     tenantId,
     unit,
     excursion: rows[0],
+    alertRoles,
+    alertRoleDegradation,
     actorUid,
     eventKind: 'temperature_excursion',
   });
@@ -752,11 +890,18 @@ export async function ingestColdChainReading(input = {}, context = {}) {
       return { unit, reading, excursion: null, action: 'grace_window_observing' };
     }
 
+    const { alertRoles, alertRoleDegradation } = resolveLiveAlertRoles(unit, {
+      tenantId,
+      eventKind: 'temperature_excursion',
+    });
+
     const opened = await openTemperatureExcursion(tx, {
       tenantId,
       unit,
       reading,
       window,
+      alertRoles,
+      alertRoleDegradation,
       actorUid: context.actorUid || null,
     });
     return {
@@ -764,6 +909,8 @@ export async function ingestColdChainReading(input = {}, context = {}) {
       reading,
       excursion: opened.excursion,
       alertRoles: opened.alertRoles,
+      alert_role_degraded: Boolean(alertRoleDegradation),
+      alert_role_degradation: alertRoleDegradation,
       action: 'excursion_opened',
     };
   });
@@ -828,7 +975,14 @@ export async function acknowledgeColdChainExcursion({ tenantId, id, actorUid, ac
   return result.excursion;
 }
 
-export async function recordColdChainCorrectiveAction({ tenantId, id, correctiveAction, dispositionNote = null, actorUid = null } = {}) {
+export async function recordColdChainCorrectiveAction({
+  tenantId,
+  id,
+  correctiveAction,
+  dispositionNote = null,
+  actorUid = null,
+  actorRoles = [],
+} = {}) {
   const tid = requireTenantId(tenantId);
   const excursionId = normalizePositiveInt(id, 'excursion_id', { required: true });
   const action = cleanText(correctiveAction, 4000);
@@ -854,6 +1008,16 @@ export async function recordColdChainCorrectiveAction({ tenantId, id, corrective
     );
     const excursion = updatedRows[0];
     if (!excursion) throw AppError.notFound('Open cold-chain excursion not found', 'COLD_CHAIN_EXCURSION_NOT_FOUND');
+    if (excursion.task_id) {
+      await acknowledgeColdChainTaskFromTrustedWorkflow({
+        tenantId: tid,
+        id: excursion.task_id,
+        actorUid,
+        actorRoles,
+        excursionId: excursion.id,
+        tx,
+      });
+    }
     const unit = await findUnit(tx, { tenantId: tid, unitId: excursion.unit_id });
     const reading = await latestReading(tx, { tenantId: tid, unitId: unit.id });
     const maybeClosed = await closeExcursionIfAllowed(tx, { tenantId: tid, unit, excursion, reading, actorUid });
@@ -868,7 +1032,7 @@ export async function recordColdChainCorrectiveAction({ tenantId, id, corrective
 
 export async function runSilentSensorWatchdog({ tenantId } = {}) {
   const tid = requireTenantId(tenantId);
-  const opened = await setTenantTx(tid, async (tx) => {
+  const result = await setTenantTx(tid, async (tx) => {
     const units = await tx.$queryRawUnsafe(
       `SELECT u.*,
               d.device_code,
@@ -898,7 +1062,12 @@ export async function runSilentSensorWatchdog({ tenantId } = {}) {
       tid,
     );
     const events = [];
+    const degraded = [];
     for (const unit of units) {
+      const { alertRoles, alertRoleDegradation } = resolveLiveAlertRoles(unit, {
+        tenantId: tid,
+        eventKind: 'silent_sensor',
+      });
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO cold_chain_excursions
            (tenant_id, unit_id, breach_started_at, opened_at, last_out_of_range_at,
@@ -912,20 +1081,35 @@ export async function runSilentSensorWatchdog({ tenantId } = {}) {
         unit.id,
         unit.last_seen_at,
         unit.expected_interval_seconds || 300,
-        JSON.stringify({ kind: 'silent_sensor', device_code: unit.device_code }),
+        JSON.stringify({
+          kind: 'silent_sensor',
+          device_code: unit.device_code,
+          ...(alertRoleDegradation ? { alert_role_degradation: alertRoleDegradation } : {}),
+        }),
       );
       if (!rows[0]) continue;
       const wired = await wireAlertRails(tx, {
         tenantId: tid,
         unit,
         excursion: rows[0],
+        alertRoles,
+        alertRoleDegradation,
         eventKind: 'silent_sensor',
       });
-      events.push({ unit, excursion: wired.excursion, alertRoles: wired.alertRoles });
+      const event = {
+        unit,
+        excursion: wired.excursion,
+        alertRoles: wired.alertRoles,
+        alert_role_degraded: Boolean(alertRoleDegradation),
+        alert_role_degradation: alertRoleDegradation,
+      };
+      events.push(event);
+      if (alertRoleDegradation) degraded.push(event);
     }
-    return events;
+    return { opened: events, degraded };
   });
 
+  const { opened, degraded } = result;
   for (const event of opened) {
     await queueColdChainNotifications({
       tenantId: tid,
@@ -936,7 +1120,12 @@ export async function runSilentSensorWatchdog({ tenantId } = {}) {
     });
     emitColdChain('silent-sensor-warning', { tenantId: tid, unit: event.unit, excursion: event.excursion });
   }
-  return { opened, count: opened.length };
+  return {
+    opened,
+    count: opened.length,
+    degraded,
+    degradedCount: degraded.length,
+  };
 }
 
 export async function listColdChainDashboard({ tenantId } = {}) {

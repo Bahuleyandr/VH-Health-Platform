@@ -5,6 +5,16 @@ const findUniqueMock = jest.fn();
 const findFirstMock = jest.fn();
 const findManyMock = jest.fn();
 const countMock = jest.fn();
+const queryRawMock = jest.fn();
+const enqueueCriticalResultTaskMock = jest.fn();
+const ensureCriticalResultTaskOpenMock = jest.fn();
+const notificationQueueMock = jest.fn();
+let transactionCommitted = false;
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => {
+  const result = await fn(__prismaDefaultMock);
+  transactionCommitted = true;
+  return result;
+});
 
 const __prismaDefaultMock = {
   users: {
@@ -17,10 +27,11 @@ const __prismaDefaultMock = {
     findFirst: findFirstMock,
     update: updateMock,
   },
+  $queryRawUnsafe: queryRawMock,
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
-  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
@@ -31,11 +42,21 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
 }));
 
+jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => ({
+  enqueueCriticalResultTask: enqueueCriticalResultTaskMock,
+  ensureCriticalResultTaskOpen: ensureCriticalResultTaskOpenMock,
+}));
+
+jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
+  default: { queue: notificationQueueMock },
+}));
+
 const {
   getDoctorInvestigations,
   getInvestigations,
   getPatientInvestigations,
   getPendingInvestigations,
+  addResults,
   updateStatus,
 } = await import('../../services/investigation/investigationService.js');
 
@@ -45,12 +66,18 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   jest.useFakeTimers().setSystemTime(NOW);
+  transactionCommitted = false;
+  setTenantTxMock.mockClear();
   findUniqueMock.mockReset();
   findFirstMock.mockReset();
   findManyMock.mockReset();
   countMock.mockReset();
+  queryRawMock.mockReset().mockResolvedValue([]);
   updateMock.mockReset();
-  recordCanonicalClinicalEventMock.mockResolvedValue({
+  enqueueCriticalResultTaskMock.mockReset().mockResolvedValue({ created: true, taskId: 1 });
+  ensureCriticalResultTaskOpenMock.mockReset().mockResolvedValue({ created: true, taskId: 2 });
+  notificationQueueMock.mockReset().mockResolvedValue({ id: 9, status: 'PENDING' });
+  recordCanonicalClinicalEventMock.mockReset().mockResolvedValue({
     timeline: { id: 'timeline-1' },
     audit: { id: 'audit-1' },
   });
@@ -105,6 +132,272 @@ describe('investigationService.updateStatus', () => {
     expect(result.collected_at).toEqual(NOW);
     expect(result.collected_by).toBe(LAB_TECH_UID);
     expect(result.sample_barcode).toMatch(/^INV-K-/);
+  });
+});
+
+describe('investigationService critical-result task routing', () => {
+  const PATIENT_UID = '44444444-4444-4444-8444-444444444444';
+  const ORDERING_UID = '55555555-5555-4555-8555-555555555555';
+  const criticalResults = {
+    analytes: [{ name: 'Potassium', value: '7.4', flag: 'PANIC' }],
+  };
+  const normalResults = {
+    analytes: [{ name: 'Potassium', value: '4.2', flag: 'N' }],
+  };
+
+  function updatedInvestigation(version, {
+    results = criticalResults,
+    resultSummary = 'Potassium: 7.4 [PANIC]',
+    patient = null,
+  } = {}) {
+    return {
+      id: 51,
+      patient_id: 7,
+      patient_uid: PATIENT_UID,
+      requested_by: ORDERING_UID,
+      test_name: 'Serum Potassium',
+      test_type: 'LAB',
+      status: 'COMPLETED',
+      results,
+      interpretation: null,
+      result_summary: resultSummary,
+      completed_at: NOW,
+      verified_at: NOW,
+      verified_by: LAB_TECH_UID,
+      updated_at: NOW,
+      previous_results: null,
+      result_version: version,
+      users_investigations_patient_idTousers: patient,
+    };
+  }
+
+  it('queues the captured patient notification only after the clinical transaction resolves', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 51,
+      results: null,
+      interpretation: null,
+      status: 'COLLECTED',
+      completed_at: null,
+      previous_results: null,
+      result_version: 1,
+    });
+    updateMock.mockResolvedValueOnce(updatedInvestigation(1, {
+      results: normalResults,
+      resultSummary: 'Potassium: 4.2',
+      patient: { id: 7, name: 'Patient One', phone: '9876543210' },
+    }));
+    notificationQueueMock.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(true);
+      return { id: 9, status: 'PENDING' };
+    });
+
+    const result = await addResults(
+      51,
+      { results: normalResults },
+      LAB_TECH_UID,
+      TENANT_ID,
+      'LAB_TECH',
+    );
+
+    expect(result).toMatchObject({ id: 51, status: 'COMPLETED' });
+    expect(result).not.toHaveProperty('users_investigations_patient_idTousers');
+    expect(notificationQueueMock).toHaveBeenCalledWith({
+      type: 'lab_result_ready',
+      recipientId: 7,
+      recipientPhone: '9876543210',
+      title: 'Lab result is ready',
+      body: 'Hi Patient One, your Serum Potassium result is ready. Open the app to view.',
+      data: { investigation_id: 51, test_name: 'Serum Potassium' },
+    });
+  });
+
+  it('keeps a successful critical result and its task rails when post-commit notification enqueue fails', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 51,
+      results: null,
+      interpretation: null,
+      status: 'COLLECTED',
+      completed_at: null,
+      previous_results: null,
+      result_version: 1,
+    });
+    updateMock.mockResolvedValueOnce(updatedInvestigation(1, {
+      patient: { id: 7, name: 'Patient One', phone: '9876543210' },
+    }));
+    enqueueCriticalResultTaskMock.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(false);
+      return { created: true, taskId: 1 };
+    });
+    notificationQueueMock.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(true);
+      return null;
+    });
+
+    await expect(addResults(
+      51,
+      { results: criticalResults },
+      LAB_TECH_UID,
+      TENANT_ID,
+      'LAB_TECH',
+    )).resolves.toMatchObject({ id: 51, status: 'COMPLETED' });
+
+    expect(transactionCommitted).toBe(true);
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledTimes(1);
+    expect(enqueueCriticalResultTaskMock).toHaveBeenCalledTimes(1);
+    expect(notificationQueueMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses plain enqueue only for the initial critical result', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 51,
+      results: null,
+      interpretation: null,
+      status: 'COLLECTED',
+      completed_at: null,
+      previous_results: null,
+      result_version: 1,
+    });
+    updateMock.mockResolvedValueOnce(updatedInvestigation(1));
+
+    enqueueCriticalResultTaskMock.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(false);
+      return { created: true, taskId: 1 };
+    });
+
+    await addResults(51, { results: criticalResults }, LAB_TECH_UID, TENANT_ID, 'LAB_TECH');
+
+    expect(enqueueCriticalResultTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      resourceType: 'investigations',
+      resourceId: 51,
+      tx: __prismaDefaultMock,
+      strict: true,
+    }));
+    expect(ensureCriticalResultTaskOpenMock).not.toHaveBeenCalled();
+  });
+
+  it('routes an explicit critical re-run through the reopen helper with a fixed audit reason', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 51,
+      results: criticalResults,
+      interpretation: null,
+      status: 'COMPLETED',
+      completed_at: NOW,
+      previous_results: null,
+      result_version: 1,
+    });
+    updateMock.mockResolvedValueOnce(updatedInvestigation(2));
+
+    ensureCriticalResultTaskOpenMock.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(false);
+      return { created: true, taskId: 2 };
+    });
+
+    await addResults(51, {
+      results: criticalResults,
+      re_run: true,
+      re_run_reason: 'Analyzer rerun confirmed panic value',
+    }, LAB_TECH_UID, TENANT_ID, 'LAB_TECH');
+
+    expect(ensureCriticalResultTaskOpenMock).toHaveBeenCalledWith(expect.objectContaining({
+      resourceType: 'investigations',
+      resourceId: 51,
+      reason: 'investigation_result_rerun',
+      supersededByActorUid: LAB_TECH_UID,
+      severity: 'critical',
+      title: 'Critical result: Serum Potassium',
+      tx: __prismaDefaultMock,
+      strict: true,
+    }));
+    expect(enqueueCriticalResultTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('does not create, reopen, or close critical rails when a correction is currently normal', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 51,
+      results: criticalResults,
+      interpretation: null,
+      status: 'COMPLETED',
+      completed_at: NOW,
+      previous_results: null,
+      result_version: 1,
+    });
+    updateMock.mockResolvedValueOnce(updatedInvestigation(2, {
+      results: normalResults,
+      resultSummary: 'Potassium: 4.2',
+    }));
+
+    await addResults(51, {
+      results: normalResults,
+      re_run: true,
+      re_run_reason: 'Corrected analyzer calibration result',
+    }, LAB_TECH_UID, TENANT_ID, 'LAB_TECH');
+
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'investigation.result_ready',
+        payload: expect.objectContaining({ critical: false }),
+      }),
+      { db: __prismaDefaultMock },
+    );
+    expect(ensureCriticalResultTaskOpenMock).not.toHaveBeenCalled();
+    expect(enqueueCriticalResultTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('does not materialize critical-result rails when the investigation transaction rolls back', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 51,
+      results: null,
+      interpretation: null,
+      status: 'COLLECTED',
+      completed_at: null,
+      previous_results: null,
+      result_version: 1,
+    });
+    updateMock.mockResolvedValueOnce(updatedInvestigation(1));
+    recordCanonicalClinicalEventMock.mockRejectedValueOnce(new Error('forced outer transaction failure'));
+
+    await expect(addResults(
+      51,
+      { results: criticalResults },
+      LAB_TECH_UID,
+      TENANT_ID,
+      'LAB_TECH',
+    )).rejects.toThrow('forced outer transaction failure');
+
+    expect(transactionCommitted).toBe(false);
+    expect(enqueueCriticalResultTaskMock).not.toHaveBeenCalled();
+    expect(ensureCriticalResultTaskOpenMock).not.toHaveBeenCalled();
+    expect(notificationQueueMock).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the result and canonical event when strict task materialization fails', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 51,
+      results: null,
+      interpretation: null,
+      status: 'COLLECTED',
+      completed_at: null,
+      previous_results: null,
+      result_version: 1,
+    });
+    updateMock.mockResolvedValueOnce(updatedInvestigation(1));
+    enqueueCriticalResultTaskMock.mockRejectedValueOnce(new Error('forced strict producer failure'));
+
+    await expect(addResults(
+      51,
+      { results: criticalResults },
+      LAB_TECH_UID,
+      TENANT_ID,
+      'LAB_TECH',
+    )).rejects.toThrow('forced strict producer failure');
+
+    expect(transactionCommitted).toBe(false);
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledTimes(1);
+    expect(enqueueCriticalResultTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      tx: __prismaDefaultMock,
+      strict: true,
+    }));
+    expect(notificationQueueMock).not.toHaveBeenCalled();
   });
 });
 
