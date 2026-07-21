@@ -428,7 +428,7 @@ const productionProfiles = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
 }));
 
 export const pathwayReconciliationRegistry = createPathwayReconciliationRegistry({
-  version: 1,
+  version: 2,
   commonChecks: COMMON_PATHWAY_RECONCILIATION_CHECKS,
   profiles: productionProfiles,
 });

@@ -9,6 +9,7 @@ const queryRawMock = jest.fn();
 const enqueueCriticalResultTaskMock = jest.fn();
 const ensureCriticalResultTaskOpenMock = jest.fn();
 const notificationQueueMock = jest.fn();
+const createSharedInvestigationGenerationTxMock = jest.fn();
 let transactionCommitted = false;
 const setTenantTxMock = jest.fn(async (_tenantId, fn) => {
   const result = await fn(__prismaDefaultMock);
@@ -30,6 +31,7 @@ const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawMock,
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: __prismaDefaultMock,
   setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
@@ -67,6 +69,10 @@ jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () =
   default: { queue: notificationQueueMock },
 }));
 
+jest.unstable_mockModule('../../services/diagnostics/diagnosticResultGenerationService.js', () => ({
+  createSharedInvestigationGenerationTx: createSharedInvestigationGenerationTxMock,
+}));
+
 const {
   getDoctorInvestigations,
   getInvestigations,
@@ -93,6 +99,11 @@ beforeEach(() => {
   enqueueCriticalResultTaskMock.mockReset().mockResolvedValue({ created: true, taskId: 1 });
   ensureCriticalResultTaskOpenMock.mockReset().mockResolvedValue({ created: true, taskId: 2 });
   notificationQueueMock.mockReset().mockResolvedValue({ id: 9, status: 'PENDING' });
+  createSharedInvestigationGenerationTxMock.mockReset().mockResolvedValue({
+    id: '22222222-2222-4222-8222-222222222222',
+    classification: 'indeterminate',
+    snapshot_sha256: 'a'.repeat(64),
+  });
   recordCanonicalClinicalEventMock.mockReset().mockResolvedValue({
     timeline: { id: 'timeline-1' },
     audit: { id: 'audit-1' },

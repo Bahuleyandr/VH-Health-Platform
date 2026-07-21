@@ -609,6 +609,22 @@ if (process.env.NODE_ENV !== 'test') {
     await runPathwayProjectorShadowTick();
   }));
 
+  // Reuse the existing two-minute pathway cadence to detect normal diagnostic
+  // generations that became patient-visible after their release delay. The
+  // command re-evaluates the authoritative portal predicate under the
+  // generation lock. Until production activation authority is shipped it is
+  // inert for off/shadow tenants and reports active tenants as evidence-blocked.
+  registerCron('*/2 * * * *', withJobLock('diagnostic-normal-release-sweep', async () => {
+    const { runDiagnosticNormalReleaseSweep } = await import(
+      '../services/diagnostics/diagnosticNormalReleaseSweepService.js'
+    );
+    const result = await runForEachTenant(
+      'diagnostic-normal-release-sweep',
+      (tenantId) => runDiagnosticNormalReleaseSweep({ tenantId }),
+    );
+    logger.info('diagnostic-normal-release-sweep complete', result);
+  }));
+
   // Every 5 minutes — reclaim expired S1a inbox leases. This is separately
   // locked from the shadow tick and remains inert under the default-off flag.
   registerCron('*/5 * * * *', withJobLock('pathway-projector-stale-lease-reaper', async () => {

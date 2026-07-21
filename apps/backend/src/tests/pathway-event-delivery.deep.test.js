@@ -7,7 +7,7 @@ import { runInTenantContext, runWithSuperAdmin } from '../lib/tenantContext.js';
 import {
   createPathwayProjectorRegistry,
   PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES,
-  pathwayProjectorRegistry,
+  pathwayProjectorRegistryV1 as pathwayProjectorRegistry,
 } from '../services/events/pathwayProjectorRegistry.js';
 import {
   claimDueInboxRows,
@@ -66,12 +66,15 @@ async function seedOutboxEvent({
 } = {}) {
   const commonColumns = `
     event_type, aggregate_type, aggregate_id, patient_uid, payload,
-    tenant_id, status, attempts, available_at, last_error, created_at, delivered_at
+    tenant_id, status, attempts, available_at, last_error, created_at, delivered_at,
+    lease_owner, lease_expires_at
   `;
   const commonValues = `
     $1::text, 's1a_test', NULL, NULL, $2::jsonb,
     $3::uuid, $4::text, $5::integer, NOW() - INTERVAL '100 years',
-    $6::text, NOW(), $7::timestamptz
+    $6::text, NOW(), $7::timestamptz,
+    CASE WHEN $4::text = 'processing' THEN gen_random_uuid() ELSE NULL END,
+    CASE WHEN $4::text = 'processing' THEN NOW() + INTERVAL '5 minutes' ELSE NULL END
   `;
   const params = [
     eventType,
@@ -1077,7 +1080,7 @@ describeIfDb('pathway projector event delivery (deep)', () => {
 
   it('retries handler failures without double-increment and dead-letters the seventh failed claim', async () => {
     const consumerKey = consumerFor('handler_failure');
-    const generation = 2;
+    const generation = 4;
     const eventType = `test.pathway.s1a.poison_${RUN_TOKEN}`;
     const [event] = await prepareClaimableEvents({
       consumerKey,

@@ -55,21 +55,42 @@ class ApiClient {
     Map<String, dynamic>? body,
     bool auth = true,
     Duration? timeout,
-  }) => VHHttpClient.post(path, body: body, auth: auth, timeout: timeout);
+    String? idempotencyKey,
+  }) => VHHttpClient.post(
+    path,
+    body: body,
+    auth: auth,
+    timeout: timeout,
+    idempotencyKey: idempotencyKey,
+  );
 
   static Future<ApiResponse> put(
     String path, {
     Map<String, dynamic>? body,
     bool auth = true,
     Duration? timeout,
-  }) => VHHttpClient.put(path, body: body, auth: auth, timeout: timeout);
+    String? idempotencyKey,
+  }) => VHHttpClient.put(
+    path,
+    body: body,
+    auth: auth,
+    timeout: timeout,
+    idempotencyKey: idempotencyKey,
+  );
 
   static Future<ApiResponse> patch(
     String path, {
     Map<String, dynamic>? body,
     bool auth = true,
     Duration? timeout,
-  }) => VHHttpClient.patch(path, body: body, auth: auth, timeout: timeout);
+    String? idempotencyKey,
+  }) => VHHttpClient.patch(
+    path,
+    body: body,
+    auth: auth,
+    timeout: timeout,
+    idempotencyKey: idempotencyKey,
+  );
 
   static Future<ApiResponse> delete(
     String path, {

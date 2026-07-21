@@ -22,7 +22,10 @@ import { emitCriticalLabAlertAcknowledged } from '../clinical/canonicalOperation
 // A CRITICAL lab result, its alert, exact acknowledgement task/SLA, and
 // canonical evidence are one clinical transaction. Only outward notification
 // and realtime fan-out remain post-commit best-effort work.
-import { materializeLabCriticalAlertGeneration } from './labCriticalAlertService.js';
+import {
+  materializeLabCriticalAlertGeneration,
+  supersedeCriticalAlertWithDiagnosticGenerationTx,
+} from './labCriticalAlertService.js';
 import {
   assertConfiguredCriticalAnalytesNumeric,
   evaluateCriticalThreshold,
@@ -45,6 +48,10 @@ import {
 } from '../workflow/workflowHumanOwnerService.js';
 import { getResultEpisodeReleaseDecision } from '../portal/portalAccessService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  classifySignedLabEpisode as classifyDiagnosticLabEpisode,
+} from '../diagnostics/diagnosticClassification.js';
+import { createLabDiagnosticGenerationTx } from '../diagnostics/diagnosticResultGenerationService.js';
 
 // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
 // lab result entry and pathologist sign-off are patient-facing clinical
@@ -146,26 +153,7 @@ function normalizeManualLabFlag(value) {
 }
 
 export function classifySignedLabEpisode(rows) {
-  if (!Array.isArray(rows) || rows.length === 0) return 'indeterminate';
-  const signedStatuses = new Set(['final', 'corrected', 'verified', 'amended']);
-  if (rows.some((row) => (
-    !row.signed_off_at
-    || !signedStatuses.has(String(row.status || '').trim().toLowerCase())
-  ))) return 'indeterminate';
-
-  let sawAbnormal = false;
-  for (const row of rows) {
-    const flag = row.abnormal_flag == null
-      ? null
-      : String(row.abnormal_flag).trim().toUpperCase();
-    if (row.is_critical === true || CRITICAL_LAB_FLAGS.has(flag)) return 'critical';
-    if (!flag || !SUPPORTED_LAB_FLAGS.has(flag)) return 'indeterminate';
-    if (ABNORMAL_LAB_FLAGS.has(flag)) sawAbnormal = true;
-  }
-  if (sawAbnormal) return 'abnormal';
-  return rows.every((row) => NORMAL_LAB_FLAGS.has(String(row.abnormal_flag).trim().toUpperCase()))
-    ? 'normal'
-    : 'indeterminate';
+  return classifyDiagnosticLabEpisode(rows);
 }
 
 function resultSnapshotHash(rows) {
@@ -2202,9 +2190,38 @@ export async function signOffResults({
       throw AppError.conflict('Lab result sign-off state changed concurrently', 'LAB_SIGNOFF_STATE_RACE');
     }
 
+    const correctiveAssessments = new Map();
+    if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
+      for (const result of owned) {
+        await assertConfiguredCriticalAnalytesNumeric({
+          client: tx,
+          tenantId: tid,
+          results: [result],
+        });
+        const assessment = await evaluateCriticalThreshold({
+          client: tx,
+          tenantId: tid,
+          result,
+        });
+        correctiveAssessments.set(Number(result.id), assessment);
+        await tx.$executeRawUnsafe(
+          `UPDATE lab_results
+              SET is_critical = $3::boolean,
+                  updated_at = NOW()
+            WHERE tenant_id = $1::uuid
+              AND id = $2::integer`,
+          tid,
+          Number(result.id),
+          assessment.breached === true,
+        );
+        result.is_critical = assessment.breached === true;
+      }
+    }
+
     const signedPanel = await tx.$queryRawUnsafe(
-      `SELECT id, test_code, value_text, value_numeric, unit, abnormal_flag,
-              is_critical, status, signed_off_at
+      `SELECT id, loinc_code, test_code, test_name, value_text, value_numeric,
+              unit, reference_range, reference_range_low, reference_range_high,
+              abnormal_flag, is_critical, status, signed_off_at
          FROM lab_results
         WHERE tenant_id = $1::uuid
           AND ${sourceColumn} = $2::int
@@ -2214,6 +2231,16 @@ export async function signOffResults({
     );
     const classification = classifySignedLabEpisode(signedPanel);
     const snapshotSha256 = resultSnapshotHash(signedPanel);
+
+    const diagnosticGeneration = await createLabDiagnosticGenerationTx({
+      tx,
+      tenantId: tid,
+      patientUid: resultPatientUid,
+      episode,
+      signoff: created,
+      signerRole: actor.rawRole,
+      panelRows: signedPanel,
+    });
 
     await recordCanonicalLabEvent({
       tx,
@@ -2250,15 +2277,27 @@ export async function signOffResults({
     const correctiveGenerations = [];
     if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
       for (const result of owned) {
-        const generation = await createCorrectedCriticalAlertGeneration({
-          tx,
-          tenantId: tid,
-          result,
-          decision: normalizedDecision,
-          signoffId: created.id,
-          signedOffBy: actor.uid,
-          orderingClinicianUid: null,
-        });
+        const assessment = correctiveAssessments.get(Number(result.id));
+        const generation = assessment?.breached === true
+          ? await createCorrectedCriticalAlertGeneration({
+            tx,
+            tenantId: tid,
+            result,
+            decision: normalizedDecision,
+            signoffId: created.id,
+            signedOffBy: actor.uid,
+            orderingClinicianUid: null,
+          })
+          : await supersedeCriticalAlertWithDiagnosticGenerationTx({
+            tx,
+            tenantId: tid,
+            resultId: result.id,
+            patientUid: resultPatientUid,
+            signoffId: created.id,
+            diagnosticGenerationId: diagnosticGeneration.id,
+            supersededByActorUid: actor.uid,
+            criticality: assessment,
+          });
         correctiveGenerations.push({ resultId: Number(result.id), ...generation });
       }
     }
@@ -2268,6 +2307,8 @@ export async function signOffResults({
       episode_key: episode.key,
       classification,
       result_snapshot_sha256: snapshotSha256,
+      diagnostic_generation_id: diagnosticGeneration.id,
+      diagnostic_generation_snapshot_sha256: diagnosticGeneration.snapshot_sha256,
       receipt: {
         idempotency_key: idempotencyKey,
         request_body_sha256: requestBodySha256,

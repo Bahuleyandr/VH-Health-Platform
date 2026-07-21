@@ -1357,6 +1357,8 @@ class AppStrings {
   String get clinicalInboxEmpty => _t('clinical_inbox.empty');
   // REVIEW: clinical safety action
   String get clinicalInboxAcknowledge => _t('clinical_inbox.acknowledge');
+  String get clinicalInboxAcknowledgeCritical =>
+      _t('clinical_inbox.acknowledge_critical');
   String get clinicalInboxAcknowledging => _t('clinical_inbox.acknowledging');
   String get clinicalInboxAcknowledged => _t('clinical_inbox.acknowledged');
   String clinicalInboxAckFailed(String reason) =>
@@ -1369,6 +1371,46 @@ class AppStrings {
   String get clinicalInboxPriority => _t('clinical_inbox.priority');
   String get clinicalInboxStatus => _t('clinical_inbox.status');
   String get clinicalInboxDue => _t('clinical_inbox.due');
+  String get clinicalInboxClassification => _t('clinical_inbox.classification');
+  String get clinicalInboxCorrection => _t('clinical_inbox.correction');
+  String get clinicalInboxCurrentOwner => _t('clinical_inbox.current_owner');
+  String get clinicalInboxRoleQueue => _t('clinical_inbox.role_queue');
+  String get clinicalInboxReviewAction => _t('clinical_inbox.review_action');
+  String get clinicalInboxClaimReview => _t('clinical_inbox.claim_review');
+  String get clinicalInboxClaiming => _t('clinical_inbox.claiming');
+  String get clinicalInboxActionTitle => _t('clinical_inbox.action.title');
+  String get clinicalInboxActionDisposition =>
+      _t('clinical_inbox.action.disposition');
+  String get clinicalInboxActionTreated => _t('clinical_inbox.action.treated');
+  String get clinicalInboxActionRepeated =>
+      _t('clinical_inbox.action.repeated');
+  String get clinicalInboxActionReferred =>
+      _t('clinical_inbox.action.referred');
+  String get clinicalInboxActionNoAction =>
+      _t('clinical_inbox.action.no_action');
+  String get clinicalInboxActionNote => _t('clinical_inbox.action.note');
+  String get clinicalInboxActionReason => _t('clinical_inbox.action.reason');
+  String get clinicalInboxActionEvidenceType =>
+      _t('clinical_inbox.action.evidence_type');
+  String get clinicalInboxActionEvidenceId =>
+      _t('clinical_inbox.action.evidence_id');
+  String get clinicalInboxActionAttestation =>
+      _t('clinical_inbox.action.attestation');
+  String get clinicalInboxActionSubmit => _t('clinical_inbox.action.submit');
+  String get clinicalInboxActionRecording =>
+      _t('clinical_inbox.action.recording');
+  String get clinicalInboxActionRecorded =>
+      _t('clinical_inbox.action.recorded');
+  String clinicalInboxActionFailed(String reason) =>
+      '${_t('clinical_inbox.action.failed_prefix')} $reason';
+  String get clinicalInboxFieldRequired => _t('clinical_inbox.field_required');
+  String get clinicalInboxReopen => _t('clinical_inbox.reopen');
+  String get clinicalInboxReopenTitle => _t('clinical_inbox.reopen_title');
+  String get clinicalInboxReopenReason => _t('clinical_inbox.reopen_reason');
+  String get clinicalInboxReopening => _t('clinical_inbox.reopening');
+  String get clinicalInboxReopened => _t('clinical_inbox.reopened');
+  String clinicalInboxReopenFailed(String reason) =>
+      '${_t('clinical_inbox.reopen_failed_prefix')} $reason';
   String get clinicalInboxTaskDetail => _t('clinical_inbox.task_detail');
   String get clinicalInboxTierHistory => _t('clinical_inbox.tier_history');
   String get clinicalInboxNoTierHistory => _t('clinical_inbox.no_tier_history');
@@ -1381,6 +1423,8 @@ class AppStrings {
   String get clinicalInboxGroupNormal => _t('clinical_inbox.group.normal');
   String get clinicalInboxGroupAcknowledged =>
       _t('clinical_inbox.group.acknowledged');
+  String get clinicalInboxGroupInProgress =>
+      _t('clinical_inbox.group.in_progress');
   String get clinicalInboxSlaOverdue => _t('clinical_inbox.sla.overdue');
   String get clinicalInboxSlaNoDue => _t('clinical_inbox.sla.no_due');
   String get clinicalInboxSlaDueNow => _t('clinical_inbox.sla.due_now');
@@ -3533,6 +3577,7 @@ class AppStrings {
       'clinical_inbox.title': 'Clinical Inbox',
       'clinical_inbox.empty': 'No pending critical results',
       'clinical_inbox.acknowledge': 'Acknowledge',
+      'clinical_inbox.acknowledge_critical': 'Acknowledge critical result',
       'clinical_inbox.acknowledging': 'Acknowledging...',
       'clinical_inbox.acknowledged': 'Acknowledged',
       'clinical_inbox.ack_failed_prefix': 'Could not acknowledge:',
@@ -3543,6 +3588,37 @@ class AppStrings {
       'clinical_inbox.priority': 'Priority',
       'clinical_inbox.status': 'Status',
       'clinical_inbox.due': 'Due',
+      'clinical_inbox.classification': 'Classification',
+      'clinical_inbox.correction': 'Corrected generation',
+      'clinical_inbox.current_owner': 'Current owner',
+      'clinical_inbox.role_queue': 'Role queue',
+      'clinical_inbox.review_action': 'Review and record action',
+      'clinical_inbox.claim_review': 'Claim and review',
+      'clinical_inbox.claiming': 'Claiming...',
+      'clinical_inbox.action.title': 'Record diagnostic action',
+      'clinical_inbox.action.disposition': 'Clinical disposition',
+      'clinical_inbox.action.treated': 'Treated',
+      'clinical_inbox.action.repeated': 'Repeated',
+      'clinical_inbox.action.referred': 'Referred',
+      'clinical_inbox.action.no_action': 'No action required',
+      'clinical_inbox.action.note': 'Clinical review note',
+      'clinical_inbox.action.reason': 'Reason no action is required',
+      'clinical_inbox.action.evidence_type': 'Evidence resource type',
+      'clinical_inbox.action.evidence_id': 'Evidence resource ID',
+      'clinical_inbox.action.attestation':
+          'I attest that I reviewed this complete signed diagnostic generation and recorded the stated clinical disposition.',
+      'clinical_inbox.action.submit': 'Sign and record action',
+      'clinical_inbox.action.recording': 'Recording...',
+      'clinical_inbox.action.recorded': 'Diagnostic action recorded',
+      'clinical_inbox.action.failed_prefix':
+          'Could not record diagnostic action:',
+      'clinical_inbox.field_required': 'This field is required',
+      'clinical_inbox.reopen': 'Reopen for doctor review',
+      'clinical_inbox.reopen_title': 'Reopen normal result',
+      'clinical_inbox.reopen_reason': 'Reason for re-review',
+      'clinical_inbox.reopening': 'Reopening...',
+      'clinical_inbox.reopened': 'Result reopened for doctor review',
+      'clinical_inbox.reopen_failed_prefix': 'Could not reopen result:',
       'clinical_inbox.task_detail': 'Task detail',
       'clinical_inbox.tier_history': 'Tier history',
       'clinical_inbox.no_tier_history': 'No escalation tiers yet',
@@ -3552,6 +3628,7 @@ class AppStrings {
       'clinical_inbox.group.high': 'High priority',
       'clinical_inbox.group.normal': 'Normal priority',
       'clinical_inbox.group.acknowledged': 'Acknowledged',
+      'clinical_inbox.group.in_progress': 'In progress',
       'clinical_inbox.sla.overdue': 'Overdue',
       'clinical_inbox.sla.no_due': 'No SLA',
       'clinical_inbox.sla.due_now': 'Due now',

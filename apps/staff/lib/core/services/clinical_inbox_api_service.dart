@@ -13,6 +13,23 @@ abstract class ClinicalInboxApi {
   Future<ClinicalInboxResult> listInboxTasks({int limit = 100});
 
   Future<ClinicalInboxTask> acknowledgeTask(String id, {int? breakGlassId});
+
+  Future<ClinicalInboxTask> claimTask(String id) {
+    throw UnimplementedError('Task claiming is not implemented');
+  }
+
+  Future<DiagnosticActionReceipt> recordDiagnosticAction(
+    DiagnosticActionCommand command,
+  ) {
+    throw UnimplementedError('Diagnostic actions are not implemented');
+  }
+
+  Future<DiagnosticActionReceipt> reopenDiagnosticResult({
+    required String generationId,
+    required String reason,
+  }) {
+    throw UnimplementedError('Diagnostic result reopen is not implemented');
+  }
 }
 
 class ClinicalInboxApiService extends ClinicalInboxApi {
@@ -56,6 +73,119 @@ class ClinicalInboxApiService extends ClinicalInboxApi {
     final data = resp.dataAsMap();
     return ClinicalInboxTask.fromJson(data);
   }
+
+  @override
+  Future<ClinicalInboxTask> claimTask(String id) async {
+    final resp = await ApiClient.post(
+      '/clinical-inbox/tasks/$id/claim',
+      body: const {},
+    );
+    if (!resp.isSuccess) {
+      throw Exception(resp.failureMessage('Could not claim task'));
+    }
+    return ClinicalInboxTask.fromJson(resp.dataAsMap());
+  }
+
+  @override
+  Future<DiagnosticActionReceipt> recordDiagnosticAction(
+    DiagnosticActionCommand command,
+  ) async {
+    final resp = await ApiClient.post(
+      '/clinical-inbox/diagnostic-results/${command.generationId}/actions',
+      body: command.toJson(),
+    );
+    if (!resp.isSuccess) {
+      throw Exception(
+        resp.failureMessage('Could not record diagnostic action'),
+      );
+    }
+    return DiagnosticActionReceipt.fromJson(resp.dataAsMap());
+  }
+
+  @override
+  Future<DiagnosticActionReceipt> reopenDiagnosticResult({
+    required String generationId,
+    required String reason,
+  }) async {
+    final resp = await ApiClient.post(
+      '/clinical-inbox/diagnostic-results/$generationId/reopen',
+      body: {'reason': reason.trim()},
+    );
+    if (!resp.isSuccess) {
+      throw Exception(
+        resp.failureMessage('Could not reopen diagnostic result'),
+      );
+    }
+    return DiagnosticActionReceipt.fromJson(resp.dataAsMap());
+  }
+}
+
+class DiagnosticActionCommand {
+  final String generationId;
+  final String taskId;
+  final String disposition;
+  final String clinicalNote;
+  final String generationSnapshotSha256;
+  final String? reason;
+  final String? downstreamResourceType;
+  final String? downstreamResourceId;
+
+  const DiagnosticActionCommand({
+    required this.generationId,
+    required this.taskId,
+    required this.disposition,
+    required this.clinicalNote,
+    required this.generationSnapshotSha256,
+    this.reason,
+    this.downstreamResourceType,
+    this.downstreamResourceId,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'task_id': int.parse(taskId),
+    'disposition': disposition,
+    'clinical_note': clinicalNote.trim(),
+    'generation_snapshot_sha256': generationSnapshotSha256,
+    'attested': true,
+    if (reason?.trim().isNotEmpty == true) 'reason': reason!.trim(),
+    if (disposition != 'no_action')
+      'downstream_evidence': {
+        'resource_type': downstreamResourceType?.trim().toLowerCase(),
+        'resource_id': downstreamResourceId?.trim(),
+      },
+  };
+}
+
+class DiagnosticActionReceipt {
+  final String id;
+  final String generationId;
+  final String? taskId;
+  final String actionKind;
+  final String? disposition;
+  final String? signatureId;
+  final bool replayed;
+
+  const DiagnosticActionReceipt({
+    required this.id,
+    required this.generationId,
+    required this.taskId,
+    required this.actionKind,
+    required this.disposition,
+    required this.signatureId,
+    required this.replayed,
+  });
+
+  factory DiagnosticActionReceipt.fromJson(Map<String, dynamic> json) {
+    return DiagnosticActionReceipt(
+      id: _text(json['id']),
+      generationId: _text(json['generation_id']),
+      taskId: _nullableText(json['task_id']),
+      actionKind: _text(json['action_kind']),
+      disposition: _nullableText(json['disposition']),
+      signatureId: _nullableText(json['signature_id']),
+      replayed: json['replayed'] == true,
+    );
+  }
 }
 
 class ClinicalInboxEscalation {
@@ -87,7 +217,20 @@ class ClinicalInboxTask {
   final String status;
   final String relatedResourceType;
   final String relatedResourceId;
+  final String assignedToUid;
   final String assignedToRole;
+  final String slaCompletionSemantics;
+  final String pathwayInstanceId;
+  final String pathwayKey;
+  final String pathwayOwnerUid;
+  final String pathwayAccountableRole;
+  final String pathwayStageKey;
+  final String diagnosticGenerationId;
+  final String diagnosticClassification;
+  final String diagnosticGenerationSnapshotSha256;
+  final int? diagnosticSourceVersion;
+  final String diagnosticPredecessorGenerationId;
+  final bool diagnosticIsCorrection;
   final DateTime? dueAt;
   final DateTime? slaBreachedAt;
   final DateTime? createdAt;
@@ -102,7 +245,20 @@ class ClinicalInboxTask {
     required this.status,
     required this.relatedResourceType,
     required this.relatedResourceId,
+    this.assignedToUid = '',
     required this.assignedToRole,
+    this.slaCompletionSemantics = 'none',
+    this.pathwayInstanceId = '',
+    this.pathwayKey = '',
+    this.pathwayOwnerUid = '',
+    this.pathwayAccountableRole = '',
+    this.pathwayStageKey = '',
+    this.diagnosticGenerationId = '',
+    this.diagnosticClassification = '',
+    this.diagnosticGenerationSnapshotSha256 = '',
+    this.diagnosticSourceVersion,
+    this.diagnosticPredecessorGenerationId = '',
+    this.diagnosticIsCorrection = false,
     required this.dueAt,
     required this.slaBreachedAt,
     required this.createdAt,
@@ -122,7 +278,28 @@ class ClinicalInboxTask {
       status: _text(json['status']).toLowerCase(),
       relatedResourceType: _text(json['related_resource_type']),
       relatedResourceId: _text(json['related_resource_id']),
+      assignedToUid: _text(json['assigned_to_uid']),
       assignedToRole: _text(json['assigned_to_role']),
+      slaCompletionSemantics: _text(
+        json['sla_completion_semantics'],
+      ).toLowerCase(),
+      pathwayInstanceId: _text(json['pathway_instance_id']),
+      pathwayKey: _text(json['pathway_key']),
+      pathwayOwnerUid: _text(json['pathway_owner_uid']),
+      pathwayAccountableRole: _text(json['pathway_accountable_role']),
+      pathwayStageKey: _text(json['pathway_stage_key']),
+      diagnosticGenerationId: _text(json['diagnostic_generation_id']),
+      diagnosticClassification: _text(
+        json['diagnostic_classification'],
+      ).toLowerCase(),
+      diagnosticGenerationSnapshotSha256: _text(
+        json['diagnostic_generation_snapshot_sha256'],
+      ).toLowerCase(),
+      diagnosticSourceVersion: _intValue(json['diagnostic_source_version']),
+      diagnosticPredecessorGenerationId: _text(
+        json['diagnostic_predecessor_generation_id'],
+      ),
+      diagnosticIsCorrection: json['diagnostic_is_correction'] == true,
       dueAt: _parseDate(json['due_at']),
       slaBreachedAt: _parseDate(json['sla_breached_at']),
       createdAt: _parseDate(json['created_at']),
@@ -130,10 +307,27 @@ class ClinicalInboxTask {
     );
   }
 
-  bool get needsAcknowledgement => status == 'open' || status == 'overdue';
+  bool get isActionableStatus =>
+      status == 'open' || status == 'in_progress' || status == 'overdue';
+
+  bool get needsAcknowledgement =>
+      slaCompletionSemantics == 'acknowledgement' &&
+      (status == 'open' || status == 'overdue');
+
+  bool get needsDoctorAction =>
+      slaCompletionSemantics == 'domain_evidence' &&
+      isActionableStatus &&
+      diagnosticGenerationId.isNotEmpty &&
+      diagnosticGenerationSnapshotSha256.isNotEmpty;
+
+  bool get needsClinicalAction => needsAcknowledgement || needsDoctorAction;
+
+  bool get isRoleOwned => assignedToUid.isEmpty && assignedToRole.isNotEmpty;
+
+  bool get hasNamedPathwayOwner => pathwayOwnerUid.isNotEmpty;
 
   bool isOverdue(DateTime now) {
-    if (!needsAcknowledgement) return false;
+    if (!needsClinicalAction) return false;
     if (status == 'overdue' || slaBreachedAt != null) return true;
     final due = dueAt;
     return due != null && !due.isAfter(now);
@@ -174,6 +368,8 @@ class ClinicalInboxTask {
 
   ClinicalInboxTask copyWith({
     String? status,
+    String? assignedToUid,
+    String? assignedToRole,
     DateTime? dueAt,
     DateTime? slaBreachedAt,
     Map<String, dynamic>? metadata,
@@ -187,7 +383,20 @@ class ClinicalInboxTask {
       status: status ?? this.status,
       relatedResourceType: relatedResourceType,
       relatedResourceId: relatedResourceId,
-      assignedToRole: assignedToRole,
+      assignedToUid: assignedToUid ?? this.assignedToUid,
+      assignedToRole: assignedToRole ?? this.assignedToRole,
+      slaCompletionSemantics: slaCompletionSemantics,
+      pathwayInstanceId: pathwayInstanceId,
+      pathwayKey: pathwayKey,
+      pathwayOwnerUid: pathwayOwnerUid,
+      pathwayAccountableRole: pathwayAccountableRole,
+      pathwayStageKey: pathwayStageKey,
+      diagnosticGenerationId: diagnosticGenerationId,
+      diagnosticClassification: diagnosticClassification,
+      diagnosticGenerationSnapshotSha256: diagnosticGenerationSnapshotSha256,
+      diagnosticSourceVersion: diagnosticSourceVersion,
+      diagnosticPredecessorGenerationId: diagnosticPredecessorGenerationId,
+      diagnosticIsCorrection: diagnosticIsCorrection,
       dueAt: dueAt ?? this.dueAt,
       slaBreachedAt: slaBreachedAt ?? this.slaBreachedAt,
       createdAt: createdAt,
@@ -203,6 +412,11 @@ Map<String, dynamic> _mapValue(Object? value) {
 }
 
 String _text(Object? value) => value?.toString().trim() ?? '';
+
+String? _nullableText(Object? value) {
+  final text = _text(value);
+  return text.isEmpty ? null : text;
+}
 
 DateTime? _parseDate(Object? value) {
   final text = _text(value);

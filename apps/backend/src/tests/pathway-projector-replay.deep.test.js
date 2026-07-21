@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js';
 import {
   createPathwayProjectorRegistry,
   pathwayProjectorRegistry,
+  pathwayProjectorRegistryV1,
 } from '../services/events/pathwayProjectorRegistry.js';
 import {
   claimDueInboxRows,
@@ -29,14 +30,6 @@ function consumerFor(label) {
   consumers.add(consumer);
   return consumer;
 }
-
-const GENERATION_TWO_REGISTRY = createPathwayProjectorRegistry({
-  generation: 2,
-  entries: [
-    [HANDLED_EVENT_TYPE, async () => Object.freeze({ shadow_observed: true, generation: 2 })],
-    [GENERATION_2_EVENT_TYPE, async () => Object.freeze({ shadow_observed: true, generation: 2 })],
-  ],
-});
 
 async function seedEvent(eventType) {
   const rows = await prisma.$queryRawUnsafe(
@@ -228,7 +221,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
     const [retiredOutcome] = await processAll(
       consumerKey,
       1,
-      pathwayProjectorRegistry,
+      pathwayProjectorRegistryV1,
       1,
     );
     expect(retiredOutcome).toMatchObject({
@@ -287,7 +280,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
       leaseOwner: owner,
     });
 
-    await expect(processClaimedInboxRow({ claim, registry: GENERATION_TWO_REGISTRY }))
+    await expect(processClaimedInboxRow({ claim, registry: pathwayProjectorRegistry }))
       .rejects.toMatchObject({ code: 'PATHWAY_PROJECTOR_REGISTRY_GENERATION_MISMATCH' });
     const [stillClaimed] = await rowsFor(consumerKey, 1, [event.id]);
     expect(stillClaimed).toMatchObject({
@@ -297,7 +290,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
       outcome_at: null,
     });
 
-    const terminal = await processClaimedInboxRow({ claim, registry: pathwayProjectorRegistry });
+    const terminal = await processClaimedInboxRow({ claim, registry: pathwayProjectorRegistryV1 });
     expect(terminal.status).toBe('handled');
   }, 60_000);
 
@@ -310,7 +303,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
     const result = await runPathwayProjectorShadowTick({
       consumerKey,
       generation: 2,
-      registry: GENERATION_TWO_REGISTRY,
+      registry: pathwayProjectorRegistry,
       maxBatches: 5,
       materializeLimit: 10,
       claimLimit: 10,
@@ -330,7 +323,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
     expect(await runPathwayProjectorShadowTick({
       consumerKey,
       generation: 2,
-      registry: GENERATION_TWO_REGISTRY,
+      registry: pathwayProjectorRegistry,
       maxBatches: 5,
       materializeLimit: 10,
       claimLimit: 10,

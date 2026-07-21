@@ -12391,6 +12391,90 @@
           }
         ]
       },
+      "DiagnosticDownstreamEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resource_type",
+          "resource_id"
+        ],
+        "properties": {
+          "resource_type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,79}$"
+          },
+          "resource_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        }
+      },
+      "DiagnosticResultActionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "task_id",
+          "disposition",
+          "clinical_note",
+          "generation_snapshot_sha256",
+          "attested"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "treated",
+              "repeated",
+              "referred",
+              "no_action"
+            ]
+          },
+          "clinical_note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "generation_snapshot_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "downstream_evidence": {
+            "$ref": "#/components/schemas/DiagnosticDownstreamEvidence"
+          },
+          "attested": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "Explicit clinician confirmation of the electronic attestation statement."
+          }
+        }
+      },
+      "DiagnosticResultReopenRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
       "DischargeConsultRow": {
         "type": "object",
         "additionalProperties": false,
@@ -65083,6 +65167,108 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-inbox/diagnostic-results/{generationId}/actions": {
+      "post": {
+        "operationId": "post_api_v1_clinical_inbox_diagnostic_results_by_generationId_actions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record a doctor-signed diagnostic result action",
+        "description": "Completes only the current doctor-owned domain-evidence task and atomically records the disposition, signature, pathway transition, and minimal-PHI event.",
+        "parameters": [
+          {
+            "name": "generationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticResultActionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-inbox/diagnostic-results/{generationId}/reopen": {
+      "post": {
+        "operationId": "post_api_v1_clinical_inbox_diagnostic_results_by_generationId_reopen",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Reopen an auto-closed normal diagnostic result",
+        "description": "Allows the exact current pathway owner to preserve the prior closure and create a new doctor-review obligation with an audited reason.",
+        "parameters": [
+          {
+            "name": "generationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticResultReopenRequest"
               }
             }
           }

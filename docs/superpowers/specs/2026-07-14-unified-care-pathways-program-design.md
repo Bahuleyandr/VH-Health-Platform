@@ -571,6 +571,9 @@ ordering clinician unavailable · patient transferred/discharged before final re
   correction that **normalizes** a previously-critical result must not blindly reopen a critical task,
   and a correction that **newly makes** a result critical must open one; correction notifications apply
   the complete patient-visibility predicate.
+- **Bounded result sets:** one immutable diagnostic generation may contain at most 100 normalized leaf
+  result items. An oversized or malformed shared-result payload fails closed before any partial
+  generation, classification, task, action, or release state is persisted.
 - **Pending inpatient result at discharge (D3, owner-approved 2026-07-20):** the pending result alone
   does not block discharge. List it in the signed discharge summary, assign the patient's named primary
   physician before exit, alert that owner when the result becomes available, and surface any unresolved

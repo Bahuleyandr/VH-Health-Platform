@@ -29,9 +29,20 @@ describe('contentHashOf', () => {
 describe('signable document registry', () => {
   test('covers the core clinical documents with volatile columns excluded', () => {
     expect(Object.keys(SIGNABLE_DOCUMENTS).sort()).toEqual(
-      ['clinical_note', 'consent', 'discharge_summary', 'encounter', 'radiology_report'],
+      [
+        'clinical_note',
+        'consent',
+        'diagnostic_result_action',
+        'discharge_summary',
+        'encounter',
+        'radiology_report',
+      ],
     );
     expect(SIGNABLE_DOCUMENTS.clinical_note.exclude).toContain('is_signed');
     expect(SIGNABLE_DOCUMENTS.encounter.exclude).toContain('status_history');
+    expect(SIGNABLE_DOCUMENTS.diagnostic_result_action).toMatchObject({
+      table: 'diagnostic_result_actions',
+      idType: 'uuid',
+    });
   });
 });

@@ -37,6 +37,10 @@ jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => 
 }));
 jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => ({
   materializeLabCriticalAlertGeneration: materializeLabCriticalAlertGenerationMock,
+  supersedeCriticalAlertWithDiagnosticGenerationTx: jest.fn(),
+}));
+jest.unstable_mockModule('../../services/diagnostics/diagnosticResultGenerationService.js', () => ({
+  createLabDiagnosticGenerationTx: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/notification/staffNotificationService.js', () => ({
   sendStaffNotifications: sendStaffNotificationsMock,

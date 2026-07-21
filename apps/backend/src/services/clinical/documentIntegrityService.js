@@ -14,7 +14,7 @@
 // lands inside the hash chain, so the signature act is chained too.
 
 import { createHash } from 'node:crypto';
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import prisma, { isTenantTransactionClient, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
@@ -54,6 +54,11 @@ export const SIGNABLE_DOCUMENTS = Object.freeze({
     idType: 'int',
     exclude: ['updated_at', 'report_signed_off_at', 'report_signed_off_by'],
   },
+  diagnostic_result_action: {
+    table: 'diagnostic_result_actions',
+    idType: 'uuid',
+    exclude: [],
+  },
 });
 
 /**
@@ -72,7 +77,7 @@ export function contentHashOf(documentJson) {
   return createHash('sha256').update(stableStringify(documentJson), 'utf8').digest('hex');
 }
 
-async function fetchDocument(documentType, documentId) {
+async function fetchDocumentFrom(db, documentType, documentId) {
   const spec = SIGNABLE_DOCUMENTS[documentType];
   if (!spec) {
     throw AppError.badRequest(
@@ -85,7 +90,7 @@ async function fetchDocument(documentType, documentId) {
     throw AppError.badRequest('document_id must be a positive integer', 'SIGN_BAD_DOCUMENT_ID');
   }
   const excludeExpr = spec.exclude.map((c) => ` - '${c}'`).join('');
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT (to_jsonb(t)${excludeExpr}) AS doc,
             (to_jsonb(t) ->> 'patient_uid') AS patient_uid,
             (to_jsonb(t) ->> 'tenant_id') AS tenant_id
@@ -98,54 +103,104 @@ async function fetchDocument(documentType, documentId) {
   return { spec, row: rows[0] };
 }
 
-/**
- * Create an e-signature record over the document's current content.
- */
-export async function signDocument({
-  documentType, documentId, statement = null, method = 'electronic_attestation',
-  esignTxnRef = null, certificateRef = null,
-} = {}, context = {}) {
-  if (!context.actorUid) throw AppError.unauthorized('Signer identity missing');
+export async function fetchDocumentTx({ tx, documentType, documentId } = {}) {
+  if (!isTenantTransactionClient(tx)) {
+    throw AppError.internal(
+      'Document signing requires a tenant transaction',
+      'SIGN_TENANT_TX_REQUIRED',
+    );
+  }
+  return fetchDocumentFrom(tx, documentType, documentId);
+}
+
+function validateSignatureInput({ method, signatureId, canonicalAuditEventId }) {
   if (!['electronic_attestation', 'aadhaar_esign', 'dsc'].includes(method)) {
     throw AppError.badRequest('signature_method must be electronic_attestation|aadhaar_esign|dsc', 'SIGN_BAD_METHOD');
   }
-  const { spec, row } = await fetchDocument(documentType, documentId);
+  if ((signatureId == null) !== (canonicalAuditEventId == null)) {
+    throw AppError.internal(
+      'Preallocated signature and canonical audit identities must be supplied together',
+      'SIGN_PREALLOCATED_EVIDENCE_INCOMPLETE',
+    );
+  }
+}
+
+/**
+ * Sign a fixed document inside the caller's branded tenant transaction.
+ * Diagnostic result actions preallocate their signature and canonical audit
+ * identities so the append-only action can reference them before deferred
+ * constraints are checked. Other callers receive the existing document.signed
+ * canonical pair from this function.
+ */
+export async function signDocumentTx({
+  documentType, documentId, statement = null, method = 'electronic_attestation',
+  esignTxnRef = null, certificateRef = null, signatureId = null,
+  canonicalAuditEventId = null,
+} = {}, context = {}, { tx } = {}) {
+  if (!context.actorUid) throw AppError.unauthorized('Signer identity missing');
+  if (!isTenantTransactionClient(tx)) {
+    throw AppError.internal(
+      'Document signing requires a tenant transaction',
+      'SIGN_TENANT_TX_REQUIRED',
+    );
+  }
+  validateSignatureInput({ method, signatureId, canonicalAuditEventId });
+  const { spec, row } = await fetchDocumentFrom(tx, documentType, documentId);
   const hash = contentHashOf(row.doc);
 
-  // Tenant-scope the multi-statement PHI write (signature INSERT + canonical
-  // timeline/audit rows + signature UPDATE) so migration 075/304's
-  // tenant_isolation RLS policy enforces on every row. The document row's
-  // own tenant is the in-scope tenant; it falls back to DEFAULT_TENANT_ID
-  // exactly as the INSERT's COALESCE below and the canonical service's
-  // normalizeTenantId do, so the GUC matches every row written in this tx
-  // (a bare prisma.$transaction leaves the GUC unset → permissive policy).
-  const tenantId = requireTenantId(row.tenant_id);
-
-  const signature = await setTenantTx(tenantId, async (tx) => {
-    const inserted = await tx.$queryRawUnsafe(
-      `INSERT INTO clinical_document_signatures
-         (tenant_id, patient_uid, document_type, document_table, document_id, content_hash,
-          signer_uid, signer_role, signer_name, signature_method, signature_statement,
-          esign_txn_ref, certificate_ref)
-       VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $5, $6,
-               $7::uuid, $8, $9, $10, $11, $12, $13)
-       RETURNING *`,
-      row.tenant_id || null,
+  if (canonicalAuditEventId) {
+    const canonical = await tx.$queryRawUnsafe(
+      `SELECT id, tenant_id, patient_uid, resource_table, resource_id
+         FROM clinical_audit_events
+        WHERE id = $1::uuid
+          AND tenant_id = $2::uuid
+          AND patient_uid IS NOT DISTINCT FROM $3::uuid
+          AND resource_table = $4::text
+          AND resource_id = $5::text
+        LIMIT 1`,
+      canonicalAuditEventId,
+      row.tenant_id,
       row.patient_uid || null,
-      documentType,
       spec.table,
       String(documentId),
-      hash,
-      context.actorUid,
-      context.actorRole || null,
-      context.actorName || null,
-      method,
-      statement,
-      esignTxnRef,
-      certificateRef,
     );
-    const sig = inserted[0];
+    if (canonical.length !== 1) {
+      throw AppError.internal(
+        'Preallocated signature audit evidence is unavailable',
+        'SIGN_CANONICAL_AUDIT_REQUIRED',
+      );
+    }
+  }
 
+  const inserted = await tx.$queryRawUnsafe(
+    `INSERT INTO clinical_document_signatures
+       (id, tenant_id, patient_uid, document_type, document_table, document_id, content_hash,
+        signer_uid, signer_role, signer_name, signature_method, signature_statement,
+        esign_txn_ref, certificate_ref, audit_event_id)
+     VALUES (COALESCE($1::uuid, gen_random_uuid()),
+             COALESCE($2::uuid, '00000000-0000-4000-8000-000000000001'::uuid),
+             $3::uuid, $4, $5, $6, $7, $8::uuid, $9, $10, $11, $12, $13, $14,
+             $15::uuid)
+     RETURNING *`,
+    signatureId,
+    row.tenant_id || null,
+    row.patient_uid || null,
+    documentType,
+    spec.table,
+    String(documentId),
+    hash,
+    context.actorUid,
+    context.actorRole || null,
+    context.actorName || null,
+    method,
+    statement,
+    esignTxnRef,
+    certificateRef,
+    canonicalAuditEventId,
+  );
+  const sig = inserted[0];
+
+  if (!canonicalAuditEventId) {
     const events = await recordCanonicalClinicalEvent({
       tenantId: sig.tenant_id,
       patientUid: sig.patient_uid,
@@ -179,8 +234,39 @@ export async function signDocument({
       );
       sig.audit_event_id = events.audit.id;
     }
-    return sig;
-  });
+  }
+
+  return sig;
+}
+
+/**
+ * Create an e-signature record over the document's current content.
+ */
+export async function signDocument({
+  documentType, documentId, statement = null, method = 'electronic_attestation',
+  esignTxnRef = null, certificateRef = null,
+} = {}, context = {}) {
+  if (!context.actorUid) throw AppError.unauthorized('Signer identity missing');
+  validateSignatureInput({ method, signatureId: null, canonicalAuditEventId: null });
+  const { row } = await fetchDocumentFrom(prisma, documentType, documentId);
+
+  // Tenant-scope the multi-statement PHI write (signature INSERT + canonical
+  // timeline/audit rows + signature UPDATE) so migration 075/304's
+  // tenant_isolation RLS policy enforces on every row. The document row's
+  // own tenant is the in-scope tenant; it falls back to DEFAULT_TENANT_ID
+  // exactly as the INSERT's COALESCE below and the canonical service's
+  // normalizeTenantId do, so the GUC matches every row written in this tx
+  // (a bare prisma.$transaction leaves the GUC unset → permissive policy).
+  const tenantId = requireTenantId(row.tenant_id);
+
+  const signature = await setTenantTx(tenantId, (tx) => signDocumentTx({
+      documentType,
+      documentId,
+      statement,
+      method,
+      esignTxnRef,
+      certificateRef,
+    }, context, { tx }));
 
   logger.info('Document signed', { documentType, documentId, signature_id: signature.id, method });
   return signature;
@@ -197,7 +283,7 @@ export async function verifyDocumentSignature(signatureId) {
   let currentHash = null;
   let documentExists = true;
   try {
-    const { row } = await fetchDocument(sig.document_type, sig.document_id);
+    const { row } = await fetchDocumentFrom(prisma, sig.document_type, sig.document_id);
     currentHash = contentHashOf(row.doc);
   } catch (err) {
     if (err?.code === 'SIGN_DOCUMENT_NOT_FOUND') documentExists = false;
@@ -293,6 +379,8 @@ export default {
   SIGNABLE_DOCUMENTS,
   stableStringify,
   contentHashOf,
+  fetchDocumentTx,
+  signDocumentTx,
   signDocument,
   verifyDocumentSignature,
   listDocumentSignatures,

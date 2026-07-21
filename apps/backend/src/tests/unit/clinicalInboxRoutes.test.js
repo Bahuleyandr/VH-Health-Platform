@@ -2,7 +2,7 @@
  * Security regression guard for the clinician results-inbox surface.
  *
  * The /api/v1/clinical-inbox mount (clinical-staff-gated) must expose ONLY the
- * two safety-net endpoints — NOT the full admin tasks/workflow/escalation-rules
+ * five bounded safety-net endpoints — NOT the full admin tasks/workflow/escalation-rules
  * router. A prior iteration mounted the whole admin router there, which let any
  * clinical-staff role read any task by id (cross-patient PHI) and disable
  * escalation rules. This test fails if that surface ever creeps back in.
@@ -16,6 +16,8 @@ const acknowledgeTaskMock = jest.fn();
 const claimInboxTaskMock = jest.fn();
 const listInboxTasksMock = jest.fn();
 const acknowledgeCriticalAlertForInboxTaskMock = jest.fn();
+const recordDoctorDiagnosticDispositionMock = jest.fn();
+const reopenNormalDiagnosticGenerationMock = jest.fn();
 
 jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () => ({
   isValidIdempotencyKey: (value) => (
@@ -28,6 +30,11 @@ jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () 
 
 jest.unstable_mockModule('../../services/lab/labResultsService.js', () => ({
   acknowledgeCriticalAlertForInboxTask: acknowledgeCriticalAlertForInboxTaskMock,
+}));
+
+jest.unstable_mockModule('../../services/diagnostics/diagnosticResultActionService.js', () => ({
+  recordDoctorDiagnosticDisposition: recordDoctorDiagnosticDispositionMock,
+  reopenNormalDiagnosticGeneration: reopenNormalDiagnosticGenerationMock,
 }));
 
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
@@ -57,14 +64,18 @@ describe('clinicalInboxRoutes — minimal clinician surface', () => {
     claimInboxTaskMock.mockReset();
     listInboxTasksMock.mockReset();
     acknowledgeCriticalAlertForInboxTaskMock.mockReset();
+    recordDoctorDiagnosticDispositionMock.mockReset();
+    reopenNormalDiagnosticGenerationMock.mockReset();
     acknowledgeCriticalAlertForInboxTaskMock.mockResolvedValue({ handled: false, task: null });
   });
 
-  it('exposes only inbox, role claim, and acknowledgement', () => {
+  it('exposes only inbox, role claim, acknowledgement, disposition, and reopen', () => {
     expect(routes).toEqual([
       { path: '/tasks/inbox', methods: ['get'] },
       { path: '/tasks/:id/claim', methods: ['post'] },
       { path: '/tasks/:id/acknowledge', methods: ['post'] },
+      { path: '/diagnostic-results/:generationId/actions', methods: ['post'] },
+      { path: '/diagnostic-results/:generationId/reopen', methods: ['post'] },
     ]);
   });
 
@@ -279,5 +290,88 @@ describe('clinicalInboxRoutes — minimal clinician surface', () => {
 
     expect(response.statusCode).toBe(403);
     expect(response.text).not.toContain('private detail');
+  });
+
+  it('forwards an explicit diagnostic attestation and server-derived actor identity', async () => {
+    recordDoctorDiagnosticDispositionMock.mockResolvedValueOnce({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      replayed: false,
+    });
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.tenantId = '00000000-0000-4000-8000-000000000001';
+      req.user = {
+        uid: '11111111-1111-4111-8111-111111111111',
+        name: 'Current Doctor',
+        role: 'DOCTOR',
+        rawRole: 'DOCTOR',
+        roles: ['DOCTOR'],
+      };
+      next();
+    });
+    app.use('/api/v1/clinical-inbox', router);
+
+    const response = await request(app)
+      .post('/api/v1/clinical-inbox/diagnostic-results/22222222-2222-4222-8222-222222222222/actions')
+      .set('Idempotency-Key', 'diagnostic-action-1')
+      .send({
+        task_id: 91,
+        disposition: 'no_action',
+        clinical_note: 'Reviewed complete signed generation.',
+        reason: 'No action is clinically indicated.',
+        generation_snapshot_sha256: 'a'.repeat(64),
+        attested: true,
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordDoctorDiagnosticDispositionMock).toHaveBeenCalledWith({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      generationId: '22222222-2222-4222-8222-222222222222',
+      taskId: 91,
+      disposition: 'no_action',
+      clinicalNote: 'Reviewed complete signed generation.',
+      reason: 'No action is clinically indicated.',
+      generationSnapshotSha256: 'a'.repeat(64),
+      downstreamEvidence: undefined,
+      attested: true,
+      idempotencyKey: 'diagnostic-action-1',
+    }, {
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorName: 'Current Doctor',
+      actorRoles: ['DOCTOR'],
+      actorRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
+    });
+  });
+
+  it('rejects a diagnostic action without explicit attestation before the service call', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.tenantId = '00000000-0000-4000-8000-000000000001';
+      req.user = {
+        uid: '11111111-1111-4111-8111-111111111111',
+        role: 'DOCTOR',
+        rawRole: 'DOCTOR',
+        roles: ['DOCTOR'],
+      };
+      next();
+    });
+    app.use('/api/v1/clinical-inbox', router);
+
+    const response = await request(app)
+      .post('/api/v1/clinical-inbox/diagnostic-results/22222222-2222-4222-8222-222222222222/actions')
+      .set('Idempotency-Key', 'diagnostic-action-2')
+      .send({
+        task_id: 92,
+        disposition: 'no_action',
+        clinical_note: 'Reviewed.',
+        reason: 'No action.',
+        generation_snapshot_sha256: 'b'.repeat(64),
+      });
+
+    expect(response.statusCode).toBe(400);
+    expect(recordDoctorDiagnosticDispositionMock).not.toHaveBeenCalled();
   });
 });

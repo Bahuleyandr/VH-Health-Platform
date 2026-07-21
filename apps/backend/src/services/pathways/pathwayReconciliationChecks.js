@@ -2,6 +2,11 @@ import {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
   PATHWAY_PROJECTOR_GENERATION,
 } from '../../config/pathwayProjectorConfig.js';
+import {
+  releaseDelayHours,
+  releaseVisibilitySql,
+} from '../portal/portalAccessService.js';
+import { CARE_PATHWAY_KEYS } from './pathwayMode.js';
 
 function result(code, count) {
   const findingCount = Number(count || 0);
@@ -355,6 +360,266 @@ async function deliveryDebt({ tx, tenantId }) {
   ));
 }
 
+async function diagnosticGenerationEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+    return result('DIAGNOSTIC_GENERATION_EVIDENCE_DRIFT', 0);
+  }
+  return result('DIAGNOSTIC_GENERATION_EVIDENCE_DRIFT', await count(
+    tx,
+    `WITH item_rollup AS (
+       SELECT item.tenant_id, item.generation_id,
+              COUNT(*)::integer AS item_count,
+              encode(
+                digest(
+                  string_agg(item.item_snapshot_sha256::text, ':' ORDER BY item.source_ordinal, item.id),
+                  'sha256'
+                ),
+                'hex'
+              ) AS snapshot_sha256,
+              COUNT(*) FILTER (
+                WHERE item.source_table = 'lab_results' AND lab.id IS NULL
+              )::integer AS missing_lab_rows,
+              COUNT(*) FILTER (
+                WHERE item.source_table = 'investigations' AND shared.id IS NULL
+              )::integer AS missing_investigation_rows
+         FROM diagnostic_result_generation_items AS item
+         LEFT JOIN lab_results AS lab
+           ON lab.tenant_id = item.tenant_id
+          AND item.source_table = 'lab_results'
+          AND lab.id::text = item.source_row_id
+         LEFT JOIN investigations AS shared
+           ON shared.tenant_id = item.tenant_id
+          AND item.source_table = 'investigations'
+          AND shared.id::text = item.source_row_id
+        WHERE item.tenant_id = $1::uuid
+        GROUP BY item.tenant_id, item.generation_id
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM diagnostic_result_generations AS generation
+       LEFT JOIN item_rollup AS items
+         ON items.tenant_id = generation.tenant_id
+        AND items.generation_id = generation.id
+       LEFT JOIN lab_pathologist_signoffs AS signoff
+         ON signoff.tenant_id = generation.tenant_id
+        AND signoff.id = generation.lab_signoff_id
+       LEFT JOIN investigations AS investigation
+         ON investigation.tenant_id = generation.tenant_id
+        AND investigation.id = generation.investigation_id
+      WHERE generation.tenant_id = $1::uuid
+        AND (
+          items.generation_id IS NULL
+          OR items.item_count <> generation.item_count
+          OR items.snapshot_sha256 IS DISTINCT FROM generation.snapshot_sha256::text
+          OR items.missing_lab_rows > 0
+          OR items.missing_investigation_rows > 0
+          OR (generation.source_kind = 'lab_panel' AND signoff.id IS NULL)
+          OR (generation.source_kind = 'shared_investigation' AND investigation.id IS NULL)
+          OR (generation.source_kind = 'shared_investigation'
+              AND generation.ordering_owner_uid IS NULL)
+          OR (generation.ordering_owner_uid IS NOT NULL
+              AND NOT care_pathway_named_clinician_is_viable(
+                        generation.tenant_id,
+                        generation.ordering_owner_uid
+                      ))
+        )`,
+    tenantId,
+  ));
+}
+
+async function diagnosticProjectionEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+    return result('DIAGNOSTIC_PROJECTION_EVIDENCE_DRIFT', 0);
+  }
+  return result('DIAGNOSTIC_PROJECTION_EVIDENCE_DRIFT', await count(
+    tx,
+    `WITH tenant_mode AS (
+       SELECT LOWER(COALESCE(
+                settings #>> '{care_pathways,diagnostics_order_to_action}',
+                'off'
+              )) AS mode
+         FROM tenants
+        WHERE id = $1::uuid
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM diagnostic_result_generations AS generation
+       CROSS JOIN tenant_mode
+      WHERE generation.tenant_id = $1::uuid
+        AND (
+          NOT EXISTS (
+            SELECT 1
+              FROM event_outbox AS event
+             WHERE event.tenant_id = generation.tenant_id
+               AND event.aggregate_type = 'diagnostic_result_generation'
+               AND event.aggregate_id = generation.id::text
+               AND event.event_type IN (
+                 'diagnostic.result.generation_signed',
+                 'diagnostic.result.generation_corrected'
+               )
+          )
+          OR (
+            EXISTS (
+              SELECT 1
+                FROM diagnostic_result_generations AS successor
+               WHERE successor.tenant_id = generation.tenant_id
+                 AND successor.predecessor_generation_id = generation.id
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM diagnostic_result_actions AS supersession
+               WHERE supersession.tenant_id = generation.tenant_id
+                 AND supersession.generation_id = generation.id
+                 AND supersession.action_kind = 'generation_superseded'
+            )
+          )
+          OR (
+            tenant_mode.mode = 'active'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM diagnostic_result_generations AS successor
+               WHERE successor.tenant_id = generation.tenant_id
+                 AND successor.predecessor_generation_id = generation.id
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM care_pathway_instances AS pathway
+               WHERE pathway.tenant_id = generation.tenant_id
+                 AND pathway.pathway_key = 'diagnostics_order_to_action'
+                 AND pathway.source_episode_type = 'diagnostic_result_generation'
+                 AND pathway.source_episode_id = generation.id::text
+            )
+          )
+        )`,
+    tenantId,
+  ));
+}
+
+async function diagnosticActionEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+    return result('DIAGNOSTIC_ACTION_EVIDENCE_DRIFT', 0);
+  }
+  return result('DIAGNOSTIC_ACTION_EVIDENCE_DRIFT', await count(
+    tx,
+    `SELECT COUNT(*)::integer AS finding_count
+       FROM diagnostic_result_actions AS action
+       JOIN diagnostic_result_generations AS generation
+         ON generation.tenant_id = action.tenant_id
+        AND generation.id = action.generation_id
+       LEFT JOIN clinical_document_signatures AS signature
+         ON signature.tenant_id = action.tenant_id
+        AND signature.id = action.signature_id
+       LEFT JOIN clinical_timeline_events AS timeline
+         ON timeline.tenant_id = action.tenant_id
+        AND timeline.id = action.canonical_timeline_event_id
+       LEFT JOIN clinical_audit_events AS audit
+         ON audit.tenant_id = action.tenant_id
+        AND audit.id = action.canonical_audit_event_id
+      WHERE action.tenant_id = $1::uuid
+        AND (
+          timeline.id IS NULL
+          OR timeline.resource_type <> 'diagnostic_result_action'
+          OR timeline.resource_id <> action.id::text
+          OR audit.id IS NULL
+          OR audit.resource_table <> 'diagnostic_result_actions'
+          OR audit.resource_id <> action.id::text
+          OR (
+            action.action_kind = 'doctor_disposition'
+            AND (
+              signature.id IS NULL
+              OR signature.document_type <> 'diagnostic_result_action'
+              OR signature.document_table <> 'diagnostic_result_actions'
+              OR signature.document_id <> action.id::text
+              OR signature.signer_uid IS DISTINCT FROM action.actor_uid
+              OR signature.audit_event_id IS DISTINCT FROM action.canonical_audit_event_id
+            )
+          )
+          OR (
+            action.action_kind = 'normal_auto_closed'
+            AND EXISTS (
+              SELECT 1
+                FROM diagnostic_result_generation_items AS item
+                JOIN lab_results AS result
+                  ON result.tenant_id = item.tenant_id
+                 AND result.id::text = item.source_row_id
+               WHERE item.tenant_id = action.tenant_id
+                 AND item.generation_id = action.generation_id
+                 AND NOT (${releaseVisibilitySql('$2')})
+            )
+          )
+          OR (
+            EXISTS (
+              SELECT 1
+                FROM diagnostic_result_generations AS successor
+               WHERE successor.tenant_id = generation.tenant_id
+                 AND successor.predecessor_generation_id = generation.id
+            )
+            AND action.action_kind <> 'generation_superseded'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM diagnostic_result_actions AS supersession
+               WHERE supersession.tenant_id = generation.tenant_id
+                 AND supersession.generation_id = generation.id
+                 AND supersession.action_kind = 'generation_superseded'
+            )
+          )
+        )`,
+    tenantId,
+    releaseDelayHours(),
+  ));
+}
+
+async function diagnosticObligationEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+    return result('DIAGNOSTIC_OBLIGATION_EVIDENCE_DRIFT', 0);
+  }
+  return result('DIAGNOSTIC_OBLIGATION_EVIDENCE_DRIFT', await count(
+    tx,
+    `SELECT COUNT(*)::integer AS finding_count
+       FROM care_pathway_instances AS pathway
+       JOIN diagnostic_result_generations AS generation
+         ON generation.tenant_id = pathway.tenant_id
+        AND pathway.source_episode_type = 'diagnostic_result_generation'
+        AND pathway.source_episode_id = generation.id::text
+       LEFT JOIN workflow_runs AS run
+         ON run.tenant_id = pathway.tenant_id
+        AND run.id = pathway.workflow_run_id
+       LEFT JOIN workflow_steps AS step
+         ON step.tenant_id = run.tenant_id
+        AND step.workflow_run_id = run.id
+        AND step.step_key = run.current_step_key
+       LEFT JOIN tasks AS task
+         ON task.tenant_id = step.tenant_id
+        AND task.workflow_run_id = step.workflow_run_id
+        AND task.workflow_step_id = step.id
+        AND task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+       LEFT JOIN workflow_sla_instances AS sla
+         ON sla.tenant_id = task.tenant_id
+        AND sla.id = task.workflow_sla_instance_id
+      WHERE pathway.tenant_id = $1::uuid
+        AND pathway.pathway_key = 'diagnostics_order_to_action'
+        AND (
+          (
+            run.current_step_key = 'record_doctor_action'
+            AND (
+              task.id IS NULL
+              OR task.sla_completion_semantics <> 'domain_evidence'
+              OR sla.id IS NULL
+              OR sla.completed_at IS NOT NULL
+            )
+          )
+          OR (
+            EXISTS (
+              SELECT 1
+                FROM diagnostic_result_generations AS successor
+               WHERE successor.tenant_id = generation.tenant_id
+                 AND successor.predecessor_generation_id = generation.id
+            )
+            AND task.id IS NOT NULL
+          )
+        )`,
+    tenantId,
+  ));
+}
+
 export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'runtime_pins', handlerVersion: 'care_pathway.runtime_pins.v1', run: runtimePins }),
   Object.freeze({ id: 'transition_sequence', handlerVersion: 'care_pathway.transition_sequence.v1', run: transitionSequence }),
@@ -365,6 +630,10 @@ export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'handoff_completion', handlerVersion: 'care_pathway.handoff_completion.v1', run: handoffCompletion }),
   Object.freeze({ id: 'projector_generation', handlerVersion: 'care_pathway.projector_generation.v1', run: projectorCoverage }),
   Object.freeze({ id: 'delivery_debt', handlerVersion: 'care_pathway.delivery_debt.v1', run: deliveryDebt }),
+  Object.freeze({ id: 'diagnostic_generation_evidence', handlerVersion: 'care_pathway.diagnostic_generation_evidence.v1', run: diagnosticGenerationEvidence }),
+  Object.freeze({ id: 'diagnostic_projection_evidence', handlerVersion: 'care_pathway.diagnostic_projection_evidence.v1', run: diagnosticProjectionEvidence }),
+  Object.freeze({ id: 'diagnostic_action_evidence', handlerVersion: 'care_pathway.diagnostic_action_evidence.v1', run: diagnosticActionEvidence }),
+  Object.freeze({ id: 'diagnostic_obligation_evidence', handlerVersion: 'care_pathway.diagnostic_obligation_evidence.v1', run: diagnosticObligationEvidence }),
 ]);
 
 export default COMMON_PATHWAY_RECONCILIATION_CHECKS;

@@ -5,9 +5,11 @@ import {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
   PATHWAY_PROJECTOR_GENERATION,
   PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES,
+  PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES,
   createPathwayProjectorRegistry,
   isPathwayProjectorRegistry,
   pathwayProjectorRegistry,
+  pathwayProjectorRegistryV1,
 } from '../../services/events/pathwayProjectorRegistry.js';
 
 describe('pathwayProjectorRegistry', () => {
@@ -19,19 +21,34 @@ describe('pathwayProjectorRegistry', () => {
     'clinical_document.discharge_summary.saved',
     'clinical_document.discharge_summary.signed',
   ];
-  const generationTwoObserver = async () => ({ observed: true });
-  const generationTwoRegistry = createPathwayProjectorRegistry({
-    generation: 2,
-    entries: [['test.changed', generationTwoObserver]],
+  const syntheticObserver = async () => ({ observed: true });
+  const syntheticRegistry = createPathwayProjectorRegistry({
+    generation: 2002,
+    entries: [['test.changed', syntheticObserver]],
   });
 
-  it('exposes exactly the six generation-1 shadow observers', () => {
+  it('preserves generation 1 and exposes the exact generation-2 membership', () => {
+    const diagnosticTypes = [
+      'diagnostic.result.generation_signed',
+      'diagnostic.result.release_became_eligible',
+      'diagnostic.result.normal_auto_closed',
+      'diagnostic.result.generation_corrected',
+      'diagnostic.result.action_recorded',
+      'diagnostic.result.reopened',
+    ];
     expect(PATHWAY_PROJECTOR_CONSUMER_KEY).toBe('care_pathway_projector');
-    expect(PATHWAY_PROJECTOR_GENERATION).toBe(1);
+    expect(PATHWAY_PROJECTOR_GENERATION).toBe(2);
     expect(PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES).toEqual(expectedTypes);
-    expect(pathwayProjectorRegistry.eventTypes).toEqual(expectedTypes);
-    expect(pathwayProjectorRegistry.size).toBe(6);
+    expect(PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES).toEqual([
+      ...expectedTypes,
+      ...diagnosticTypes,
+    ]);
+    expect(pathwayProjectorRegistryV1.eventTypes).toEqual(expectedTypes);
+    expect(pathwayProjectorRegistryV1.size).toBe(6);
+    expect(pathwayProjectorRegistry.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES);
+    expect(pathwayProjectorRegistry.size).toBe(12);
     expect(isPathwayProjectorRegistry(pathwayProjectorRegistry)).toBe(true);
+    expect(isPathwayProjectorRegistry(pathwayProjectorRegistryV1)).toBe(true);
 
     for (const eventType of expectedTypes) {
       expect(pathwayProjectorRegistry.resolve(eventType)).toEqual(expect.any(Function));
@@ -44,20 +61,20 @@ describe('pathwayProjectorRegistry', () => {
   it('rejects duplicate and malformed registrations', () => {
     const handler = async () => ({});
     expect(() => createPathwayProjectorRegistry({
-      generation: 2,
+      generation: 2004,
       entries: [['test.event', handler], ['test.event', handler]],
     })).toThrow(/duplicate/i);
     expect(() => createPathwayProjectorRegistry({ generation: 0, entries: [] })).toThrow(/generation/i);
-    expect(() => createPathwayProjectorRegistry({ generation: 2, entries: null })).toThrow(/entries/i);
-    expect(() => createPathwayProjectorRegistry({ generation: 2, entries: [['', handler]] })).toThrow(/malformed/i);
-    expect(() => createPathwayProjectorRegistry({ generation: 2, entries: [[' test.event', handler]] })).toThrow(/malformed/i);
-    expect(() => createPathwayProjectorRegistry({ generation: 2, entries: [['test.event', null]] })).toThrow(/function/i);
-    expect(() => createPathwayProjectorRegistry({ generation: 2, entries: [{ eventType: 'test.event', handler }] })).toThrow(/tuple/i);
+    expect(() => createPathwayProjectorRegistry({ generation: 2005, entries: null })).toThrow(/entries/i);
+    expect(() => createPathwayProjectorRegistry({ generation: 2006, entries: [['', handler]] })).toThrow(/malformed/i);
+    expect(() => createPathwayProjectorRegistry({ generation: 2007, entries: [[' test.event', handler]] })).toThrow(/malformed/i);
+    expect(() => createPathwayProjectorRegistry({ generation: 2008, entries: [['test.event', null]] })).toThrow(/function/i);
+    expect(() => createPathwayProjectorRegistry({ generation: 2009, entries: [{ eventType: 'test.event', handler }] })).toThrow(/tuple/i);
   });
 
   it('copies and freezes registry membership', () => {
     const mutableEntries = [['test.event', async () => ({ observed: true })]];
-    const registry = createPathwayProjectorRegistry({ generation: 3, entries: mutableEntries });
+    const registry = createPathwayProjectorRegistry({ generation: 2003, entries: mutableEntries });
 
     mutableEntries[0][0] = 'changed.event';
     mutableEntries.push(['another.event', async () => ({})]);
@@ -70,7 +87,7 @@ describe('pathwayProjectorRegistry', () => {
     expect(() => registry.eventTypes.push('mutated.event')).toThrow();
   });
 
-  it('reserves generation 1 to canonical semantics while allowing changed later generations', () => {
+  it('reserves both shipped generations while allowing changed later generations', () => {
     const observer = async () => ({ observed: true });
     const allGenerationOneEntries = expectedTypes.map((eventType) => [eventType, observer]);
 
@@ -87,12 +104,17 @@ describe('pathwayProjectorRegistry', () => {
       entries: [...allGenerationOneEntries].reverse(),
     })).toThrow(/generation 1.*canonical/i);
 
-    expect(generationTwoRegistry.eventTypes).toEqual(['test.changed']);
-    expect(generationTwoRegistry.resolve('test.changed')).toBe(generationTwoObserver);
     expect(() => createPathwayProjectorRegistry({
       generation: 2,
       entries: [['test.replacement', observer]],
-    })).toThrow(/generation 2.*already registered/i);
+    })).toThrow(/generation 2.*canonical/i);
+
+    expect(syntheticRegistry.eventTypes).toEqual(['test.changed']);
+    expect(syntheticRegistry.resolve('test.changed')).toBe(syntheticObserver);
+    expect(() => createPathwayProjectorRegistry({
+      generation: 2002,
+      entries: [['test.replacement', observer]],
+    })).toThrow(/generation 2002.*already registered/i);
   });
 
   it('requires constructor provenance for every generation before database work', async () => {
@@ -132,10 +154,10 @@ describe('pathwayProjectorRegistry', () => {
     });
     expect(queryRaw).not.toHaveBeenCalled();
 
-    expect(isPathwayProjectorRegistry(generationTwoRegistry)).toBe(true);
+    expect(isPathwayProjectorRegistry(syntheticRegistry)).toBe(true);
     const completedOffset = {
       consumer_key: PATHWAY_PROJECTOR_CONSUMER_KEY,
-      generation: 2,
+      generation: 2002,
       historical_cutoff_event_id: '0',
       backfill_cursor_event_id: '0',
       backfill_completed_at: new Date(),
@@ -148,8 +170,8 @@ describe('pathwayProjectorRegistry', () => {
       .mockResolvedValueOnce([completedOffset])
       .mockResolvedValueOnce([]);
     await expect(runPathwayProjectorShadowTick({
-      generation: 2,
-      registry: generationTwoRegistry,
+      generation: 2002,
+      registry: syntheticRegistry,
     })).resolves.toEqual({
       materialized: 0,
       claimed: 0,
@@ -191,7 +213,7 @@ describe('pathwayProjectorRegistry', () => {
 
   it('runs pure no-op observers that report bounded shadow metadata only', async () => {
     for (const eventType of expectedTypes) {
-      const observer = pathwayProjectorRegistry.resolve(eventType);
+      const observer = pathwayProjectorRegistryV1.resolve(eventType);
       const result = await observer({
         tx: { forbiddenWriteCapability: true },
         event: { event_type: eventType, payload: { phi: 'must-not-return' } },

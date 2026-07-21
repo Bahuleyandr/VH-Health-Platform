@@ -92,6 +92,7 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
                       now: now,
                       onOpen: () => _showTaskDetail(context, task),
                       onAcknowledge: () => _acknowledge(context, task),
+                      onReview: () => _beginDiagnosticReview(context, task),
                     ),
                   ),
               ],
@@ -116,6 +117,33 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
     }
   }
 
+  Future<void> _beginDiagnosticReview(
+    BuildContext context,
+    ClinicalInboxTask task,
+  ) async {
+    final strings = AppStrings.of(context);
+    try {
+      var currentTask = task;
+      if (task.isRoleOwned) {
+        currentTask = await context
+            .read<ClinicalInboxProvider>()
+            .claimForReview(task.id);
+      }
+      if (!context.mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (_) => _DiagnosticActionSheet(task: currentTask),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(strings.clinicalInboxActionFailed('$e'))),
+      );
+    }
+  }
+
   void _showTaskDetail(BuildContext context, ClinicalInboxTask task) {
     showModalBottomSheet<void>(
       context: context,
@@ -124,6 +152,10 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
       builder: (sheetContext) => _ClinicalInboxTaskDetail(
         task: task,
         onAcknowledge: () => _acknowledge(context, task),
+        onReview: () {
+          Navigator.pop(sheetContext);
+          unawaited(_beginDiagnosticReview(context, task));
+        },
       ),
     );
   }
@@ -134,20 +166,23 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
   final DateTime now;
   final VoidCallback onOpen;
   final VoidCallback onAcknowledge;
+  final VoidCallback onReview;
 
   const _ClinicalInboxTaskCard({
     required this.task,
     required this.now,
     required this.onOpen,
     required this.onAcknowledge,
+    required this.onReview,
   });
 
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
     final provider = context.watch<ClinicalInboxProvider>();
-    final busy = provider.isAcknowledging(task.id);
+    final busy = provider.isMutating(task.id);
     final canAck = task.needsAcknowledgement && !busy;
+    final canReview = task.needsDoctorAction && !busy;
     final color = _priorityColor(context, task, now);
 
     return Card(
@@ -204,7 +239,11 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
               Align(
                 alignment: Alignment.centerRight,
                 child: FilledButton(
-                  onPressed: canAck ? onAcknowledge : null,
+                  onPressed: canReview
+                      ? onReview
+                      : canAck
+                      ? onAcknowledge
+                      : null,
                   child: busy
                       ? Row(
                           mainAxisSize: MainAxisSize.min,
@@ -215,12 +254,20 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                             const SizedBox(width: 8),
-                            Text(strings.clinicalInboxAcknowledging),
+                            Text(
+                              task.needsDoctorAction
+                                  ? strings.clinicalInboxClaiming
+                                  : strings.clinicalInboxAcknowledging,
+                            ),
                           ],
                         )
                       : Text(
-                          task.needsAcknowledgement
-                              ? strings.clinicalInboxAcknowledge
+                          task.needsDoctorAction
+                              ? task.isRoleOwned
+                                    ? strings.clinicalInboxClaimReview
+                                    : strings.clinicalInboxReviewAction
+                              : task.needsAcknowledgement
+                              ? strings.clinicalInboxAcknowledgeCritical
                               : strings.clinicalInboxAcknowledged,
                         ),
                 ),
@@ -236,10 +283,12 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
 class _ClinicalInboxTaskDetail extends StatelessWidget {
   final ClinicalInboxTask task;
   final VoidCallback onAcknowledge;
+  final VoidCallback onReview;
 
   const _ClinicalInboxTaskDetail({
     required this.task,
     required this.onAcknowledge,
+    required this.onReview,
   });
 
   @override
@@ -250,7 +299,7 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
       (candidate) => candidate.id == task.id,
       orElse: () => task,
     );
-    final busy = provider.isAcknowledging(currentTask.id);
+    final busy = provider.isMutating(currentTask.id);
     final escalations = currentTask.escalations;
 
     return SafeArea(
@@ -297,6 +346,27 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                 label: strings.clinicalInboxStatus,
                 value: currentTask.status.replaceAll('_', ' '),
               ),
+              if (currentTask.diagnosticClassification.isNotEmpty)
+                _DetailLine(
+                  label: strings.clinicalInboxClassification,
+                  value: currentTask.diagnosticClassification.toUpperCase(),
+                ),
+              if (currentTask.diagnosticIsCorrection)
+                _DetailLine(
+                  label: strings.clinicalInboxCorrection,
+                  value:
+                      'v${currentTask.diagnosticSourceVersion ?? '-'} • ${currentTask.diagnosticPredecessorGenerationId}',
+                ),
+              if (currentTask.pathwayOwnerUid.isNotEmpty)
+                _DetailLine(
+                  label: strings.clinicalInboxCurrentOwner,
+                  value: currentTask.pathwayOwnerUid,
+                )
+              else if (currentTask.assignedToRole.isNotEmpty)
+                _DetailLine(
+                  label: strings.clinicalInboxRoleQueue,
+                  value: currentTask.assignedToRole,
+                ),
               if (currentTask.dueAt != null)
                 _DetailLine(
                   label: strings.clinicalInboxDue,
@@ -329,7 +399,9 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: currentTask.needsAcknowledgement && !busy
+                  onPressed: currentTask.needsDoctorAction && !busy
+                      ? onReview
+                      : currentTask.needsAcknowledgement && !busy
                       ? onAcknowledge
                       : null,
                   child: busy
@@ -342,17 +414,263 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                             const SizedBox(width: 8),
-                            Text(strings.clinicalInboxAcknowledging),
+                            Text(
+                              currentTask.needsDoctorAction
+                                  ? strings.clinicalInboxClaiming
+                                  : strings.clinicalInboxAcknowledging,
+                            ),
                           ],
                         )
                       : Text(
-                          currentTask.needsAcknowledgement
-                              ? strings.clinicalInboxAcknowledge
+                          currentTask.needsDoctorAction
+                              ? currentTask.isRoleOwned
+                                    ? strings.clinicalInboxClaimReview
+                                    : strings.clinicalInboxReviewAction
+                              : currentTask.needsAcknowledgement
+                              ? strings.clinicalInboxAcknowledgeCritical
                               : strings.clinicalInboxAcknowledged,
                         ),
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiagnosticActionSheet extends StatefulWidget {
+  final ClinicalInboxTask task;
+
+  const _DiagnosticActionSheet({required this.task});
+
+  @override
+  State<_DiagnosticActionSheet> createState() => _DiagnosticActionSheetState();
+}
+
+class _DiagnosticActionSheetState extends State<_DiagnosticActionSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _noteController = TextEditingController();
+  final _reasonController = TextEditingController();
+  final _evidenceTypeController = TextEditingController();
+  final _evidenceIdController = TextEditingController();
+  String? _disposition;
+  bool _attested = false;
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    _reasonController.dispose();
+    _evidenceTypeController.dispose();
+    _evidenceIdController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final strings = AppStrings.of(context);
+    if (!(_formKey.currentState?.validate() ?? false) || !_attested) {
+      setState(() {});
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      await context.read<ClinicalInboxProvider>().recordDiagnosticAction(
+        DiagnosticActionCommand(
+          generationId: widget.task.diagnosticGenerationId,
+          taskId: widget.task.id,
+          disposition: _disposition!,
+          clinicalNote: _noteController.text,
+          generationSnapshotSha256:
+              widget.task.diagnosticGenerationSnapshotSha256,
+          reason: _disposition == 'no_action' ? _reasonController.text : null,
+          downstreamResourceType: _disposition == 'no_action'
+              ? null
+              : _evidenceTypeController.text,
+          downstreamResourceId: _disposition == 'no_action'
+              ? null
+              : _evidenceIdController.text,
+        ),
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(strings.clinicalInboxActionRecorded)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(strings.clinicalInboxActionFailed('$e'))),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    final requiresEvidence =
+        _disposition != null && _disposition != 'no_action';
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+        ),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  strings.clinicalInboxActionTitle,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(widget.task.title),
+                const SizedBox(height: 4),
+                Text(
+                  widget.task.diagnosticClassification.toUpperCase(),
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: _priorityColor(context, widget.task, DateTime.now()),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: _disposition,
+                  decoration: InputDecoration(
+                    labelText: strings.clinicalInboxActionDisposition,
+                    border: const OutlineInputBorder(),
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'treated',
+                      child: Text(strings.clinicalInboxActionTreated),
+                    ),
+                    DropdownMenuItem(
+                      value: 'repeated',
+                      child: Text(strings.clinicalInboxActionRepeated),
+                    ),
+                    DropdownMenuItem(
+                      value: 'referred',
+                      child: Text(strings.clinicalInboxActionReferred),
+                    ),
+                    DropdownMenuItem(
+                      value: 'no_action',
+                      child: Text(strings.clinicalInboxActionNoAction),
+                    ),
+                  ],
+                  validator: (value) =>
+                      value == null ? strings.clinicalInboxFieldRequired : null,
+                  onChanged: _submitting
+                      ? null
+                      : (value) => setState(() => _disposition = value),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _noteController,
+                  enabled: !_submitting,
+                  minLines: 3,
+                  maxLines: 8,
+                  maxLength: 8000,
+                  decoration: InputDecoration(
+                    labelText: strings.clinicalInboxActionNote,
+                    alignLabelWithHint: true,
+                    border: const OutlineInputBorder(),
+                  ),
+                  validator: (value) => value?.trim().isEmpty ?? true
+                      ? strings.clinicalInboxFieldRequired
+                      : null,
+                ),
+                if (_disposition == 'no_action') ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _reasonController,
+                    enabled: !_submitting,
+                    minLines: 2,
+                    maxLines: 5,
+                    maxLength: 4000,
+                    decoration: InputDecoration(
+                      labelText: strings.clinicalInboxActionReason,
+                      alignLabelWithHint: true,
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (value) => value?.trim().isEmpty ?? true
+                        ? strings.clinicalInboxFieldRequired
+                        : null,
+                  ),
+                ],
+                if (requiresEvidence) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _evidenceTypeController,
+                    enabled: !_submitting,
+                    maxLength: 80,
+                    decoration: InputDecoration(
+                      labelText: strings.clinicalInboxActionEvidenceType,
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (value) => value?.trim().isEmpty ?? true
+                        ? strings.clinicalInboxFieldRequired
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _evidenceIdController,
+                    enabled: !_submitting,
+                    maxLength: 160,
+                    decoration: InputDecoration(
+                      labelText: strings.clinicalInboxActionEvidenceId,
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (value) => value?.trim().isEmpty ?? true
+                        ? strings.clinicalInboxFieldRequired
+                        : null,
+                  ),
+                ],
+                const SizedBox(height: 4),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _attested,
+                  onChanged: _submitting
+                      ? null
+                      : (value) => setState(() => _attested = value == true),
+                  title: Text(strings.clinicalInboxActionAttestation),
+                  subtitle: !_attested
+                      ? Text(
+                          strings.clinicalInboxFieldRequired,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        )
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _submitting ? null : _submit,
+                    icon: _submitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.verified_user_outlined),
+                    label: Text(
+                      _submitting
+                          ? strings.clinicalInboxActionRecording
+                          : strings.clinicalInboxActionSubmit,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -506,8 +824,10 @@ Map<_ClinicalInboxGroup, List<ClinicalInboxTask>> _groupTasks(
   for (final task in tasks) {
     final group = task.isOverdue(now)
         ? _ClinicalInboxGroup.overdue
-        : task.status == 'in_progress'
+        : task.status == 'in_progress' && !task.needsDoctorAction
         ? _ClinicalInboxGroup.acknowledged
+        : task.status == 'in_progress'
+        ? _ClinicalInboxGroup.inProgress
         : switch (task.priority) {
             'critical' => _ClinicalInboxGroup.critical,
             'high' => _ClinicalInboxGroup.high,
@@ -525,6 +845,7 @@ String _groupLabel(AppStrings strings, _ClinicalInboxGroup group) {
     _ClinicalInboxGroup.high => strings.clinicalInboxGroupHigh,
     _ClinicalInboxGroup.normal => strings.clinicalInboxGroupNormal,
     _ClinicalInboxGroup.acknowledged => strings.clinicalInboxGroupAcknowledged,
+    _ClinicalInboxGroup.inProgress => strings.clinicalInboxGroupInProgress,
   };
 }
 
@@ -558,4 +879,11 @@ String _formatDateTime(DateTime value) {
       '${two(local.hour)}:${two(local.minute)}';
 }
 
-enum _ClinicalInboxGroup { overdue, critical, high, normal, acknowledged }
+enum _ClinicalInboxGroup {
+  overdue,
+  critical,
+  high,
+  normal,
+  inProgress,
+  acknowledged,
+}

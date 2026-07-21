@@ -1521,7 +1521,7 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       expect(completedSla[0].completed_at).toBeTruthy();
     }, 30_000);
 
-    it('preserves shipped PR #587 high-to-normal reack behavior pending D4/D5', async () => {
+    it('hands a high-to-noncritical correction to its immutable diagnostic generation', async () => {
       const invId = await insertInvestigation(PATIENT_B_UID);
       const { result, alerts } = await recordManualResult({
         tenantId: TENANT,
@@ -1550,39 +1550,71 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       await signOff([result.id], 'corrected', PATIENT_B_UID);
 
       const currentRows = await prisma.$queryRawUnsafe(
-        `SELECT id, value_text, value_numeric, threshold_breached, threshold_value,
-                generation_metadata
-           FROM lab_critical_alerts
-          WHERE tenant_id = $1::uuid AND result_id = $2::int
-          ORDER BY id DESC
+        `SELECT alert.id, alert.value_text, alert.value_numeric,
+                alert.threshold_breached, alert.threshold_value,
+                alert.superseded_at,
+                alert.superseded_by_diagnostic_generation_id,
+                generation.classification AS diagnostic_classification
+           FROM lab_critical_alerts AS alert
+           JOIN diagnostic_result_generations AS generation
+             ON generation.tenant_id = alert.tenant_id
+            AND generation.id = alert.superseded_by_diagnostic_generation_id
+          WHERE alert.tenant_id = $1::uuid AND alert.result_id = $2::int
+          ORDER BY alert.id DESC
           LIMIT 1`,
         TENANT,
         result.id,
       );
       expect(currentRows[0]).toMatchObject({
-        value_text: '4.0',
-        threshold_breached: null,
-        threshold_value: null,
+        value_text: '8.2',
+        threshold_breached: 'high',
+        diagnostic_classification: 'indeterminate',
       });
-      expect(Number(currentRows[0].value_numeric)).toBe(4);
-      expect(currentRows[0].generation_metadata).toMatchObject({
-        corrected_state: 'within_active_critical_thresholds',
-        prior_threshold_breached: 'high',
-        active_threshold_low: 2.5,
-        active_threshold_high: 6,
-      });
+      expect(Number(currentRows[0].value_numeric)).toBe(8.2);
+      expect(currentRows[0].superseded_at).toBeTruthy();
+      expect(currentRows[0].superseded_by_diagnostic_generation_id).toBeTruthy();
 
       const tasks = await openTasksFor(result.id);
-      expect(tasks).toHaveLength(2);
-      const currentTask = tasks.find((task) => task.status === 'open');
-      expect(currentTask).toMatchObject({
-        status: 'open',
-        title: 'Corrected lab result review: Potassium [test]',
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toMatchObject({
+        status: 'completed',
         metadata: {
-          lab_alert_generation_state: 'within_active_critical_thresholds',
+          supersession_reason: 'diagnostic_generation_noncritical_correction',
+          superseded_by_diagnostic_generation_id:
+            currentRows[0].superseded_by_diagnostic_generation_id,
         },
       });
-      expect(currentTask.description).toMatch(/does not breach the active critical thresholds/i);
+      const slaRows = await prisma.$queryRawUnsafe(
+        `SELECT status, completed_at, metadata
+           FROM workflow_sla_instances
+          WHERE tenant_id = $1::uuid
+            AND id = $2::uuid`,
+        TENANT,
+        tasks[0].workflow_sla_instance_id,
+      );
+      expect(slaRows[0]).toMatchObject({
+        status: 'completed',
+        metadata: {
+          supersession_reason: 'diagnostic_generation_noncritical_correction',
+          superseded_by_diagnostic_generation_id:
+            currentRows[0].superseded_by_diagnostic_generation_id,
+        },
+      });
+      expect(slaRows[0].completed_at).toBeTruthy();
+      const receipts = await prisma.$queryRawUnsafe(
+        `SELECT outcome, source
+           FROM lab_critical_alert_reconciliation_receipts
+          WHERE tenant_id = $1::uuid
+            AND result_id = $2::integer
+          ORDER BY id DESC
+          LIMIT 1`,
+        TENANT,
+        result.id,
+      );
+      expect(receipts).toEqual([{
+        outcome: 'within_active_critical_thresholds',
+        source: 'diagnostic_generation_supersession',
+      }]);
     });
 
     it('re-evaluates a high-to-low correction against the current low threshold', async () => {

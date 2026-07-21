@@ -4,6 +4,7 @@ import {
   enqueueCriticalResultTask,
   ensureCriticalResultTaskOpen,
 } from '../results/resultsInboxService.js';
+import { supersedeAcknowledgementTaskFromTrustedWorkflow } from '../workflow/taskService.js';
 
 const CORRECTIVE_DECISIONS = new Set(['corrected', 'amended']);
 const ALERT_STATES = new Set([
@@ -58,6 +59,133 @@ function describeAssessment(assessment) {
     return 'current value does not breach the active critical thresholds; prior critical alert superseded';
   }
   return 'current criticality could not be classified against an active threshold; prior critical alert superseded';
+}
+
+export async function supersedeCriticalAlertWithDiagnosticGenerationTx({
+  tx,
+  tenantId,
+  resultId,
+  patientUid,
+  signoffId,
+  diagnosticGenerationId,
+  supersededByActorUid,
+  criticality,
+} = {}) {
+  await lockResultsInboxResourceTx({
+    tx,
+    tenantId,
+    resourceType: 'lab_result',
+    resourceId: String(resultId),
+  });
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT alert.id, alert.patient_uid, alert.acknowledged_at,
+            alert.acknowledgement_task_id, alert.superseded_at,
+            alert.superseded_by_diagnostic_generation_id,
+            task.status AS task_status,
+            task.workflow_sla_instance_id,
+            sla.completed_at AS sla_completed_at
+       FROM lab_critical_alerts AS alert
+       LEFT JOIN tasks AS task
+         ON task.tenant_id = alert.tenant_id
+        AND task.id = alert.acknowledgement_task_id
+       LEFT JOIN workflow_sla_instances AS sla
+         ON sla.tenant_id = task.tenant_id
+        AND sla.id = task.workflow_sla_instance_id
+      WHERE alert.tenant_id = $1::uuid
+        AND alert.result_id = $2::int
+        AND alert.patient_uid = $3::uuid
+        AND (
+          alert.superseded_at IS NULL
+          OR alert.superseded_by_diagnostic_generation_id = $4::uuid
+        )
+      ORDER BY alert.id DESC
+      LIMIT 1
+      FOR UPDATE OF alert`,
+    tenantId,
+    Number(resultId),
+    patientUid,
+    diagnosticGenerationId,
+  );
+  const alert = rows[0] || null;
+  const resultRows = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid, loinc_code, test_code, value_text,
+            value_numeric, unit
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND id = $2::integer
+        AND patient_uid = $3::uuid
+      LIMIT 1`,
+    tenantId,
+    Number(resultId),
+    patientUid,
+  );
+  const result = resultRows[0];
+  if (!result) throw new Error('Corrected lab result is unavailable for supersession');
+  const assessment = normalizeAssessment(criticality);
+  if (assessment.breached) {
+    throw new Error('A critical corrected result cannot use diagnostic supersession');
+  }
+  const receipt = await persistNoAlertCorrectiveReceipt({
+    tx,
+    tenantId,
+    result,
+    signoff: { id: Number(signoffId) },
+    source: 'diagnostic_generation_supersession',
+    assessment,
+  });
+  if (!alert) return { superseded: false, alert: null, task: null, receipt };
+  if (alert.superseded_at) {
+    if (String(alert.superseded_by_diagnostic_generation_id) !== String(diagnosticGenerationId)) {
+      throw new Error('Critical alert was superseded by a different diagnostic generation');
+    }
+    return { superseded: true, alert, task: null, receipt, replayed: true };
+  }
+
+  let task = null;
+  if (
+    !alert.acknowledged_at
+    && alert.acknowledgement_task_id
+    && ['open', 'blocked', 'overdue', 'in_progress'].includes(alert.task_status)
+    && !alert.sla_completed_at
+  ) {
+    task = await supersedeAcknowledgementTaskFromTrustedWorkflow({
+      tenantId,
+      id: alert.acknowledgement_task_id,
+      relatedResourceType: 'lab_result',
+      relatedResourceId: String(resultId),
+      workflowSlaInstanceId: alert.workflow_sla_instance_id,
+      supersededByActorUid,
+      supersedingDiagnosticGenerationId: diagnosticGenerationId,
+      tx,
+    });
+  }
+
+  const updated = await tx.$queryRawUnsafe(
+    `UPDATE lab_critical_alerts
+        SET superseded_at = GREATEST(
+              NOW(),
+              fired_at + INTERVAL '1 microsecond',
+              (SELECT signed_at
+                 FROM lab_pathologist_signoffs
+                WHERE tenant_id = $1::uuid
+                  AND id = $5::int)
+            ),
+            superseded_by_alert_id = NULL,
+            superseded_by_signoff_id = $5::int,
+            superseded_by_diagnostic_generation_id = $4::uuid
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND patient_uid = $3::uuid
+        AND superseded_at IS NULL
+      RETURNING *`,
+    tenantId,
+    Number(alert.id),
+    patientUid,
+    diagnosticGenerationId,
+    Number(signoffId),
+  );
+  if (!updated[0]) throw new Error('Critical alert supersession changed concurrently');
+  return { superseded: true, alert: updated[0], task, receipt, replayed: false };
 }
 
 async function resolveOrderingClinician({ tx, tenantId, result, orderingClinicianUid }) {

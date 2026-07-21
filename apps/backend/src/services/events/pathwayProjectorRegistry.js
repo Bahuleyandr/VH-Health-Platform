@@ -2,6 +2,10 @@ import {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
   PATHWAY_PROJECTOR_GENERATION,
 } from '../../config/pathwayProjectorConfig.js';
+import {
+  DIAGNOSTIC_PATHWAY_EVENT_TYPES,
+  diagnosticPathwayProjectorHandler,
+} from '../pathways/diagnosticPathwayProjector.js';
 
 export {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
@@ -15,6 +19,11 @@ export const PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES = Object.freeze([
   'clinical.prehospital_handover.accepted',
   'clinical_document.discharge_summary.saved',
   'clinical_document.discharge_summary.signed',
+]);
+
+export const PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES = Object.freeze([
+  ...PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES,
+  ...DIAGNOSTIC_PATHWAY_EVENT_TYPES,
 ]);
 
 const EVENT_TYPE_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/;
@@ -41,13 +50,18 @@ function requireEventType(value) {
 }
 
 function requireGenerationMembership(generation, handlers) {
-  if (generation !== PATHWAY_PROJECTOR_GENERATION) return;
-
-  const hasExactGenerationOneMembership =
-    handlers.size === PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES.length
-    && PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES.every((eventType) => handlers.has(eventType));
-  if (!hasExactGenerationOneMembership) {
-    throw new TypeError('Pathway projector generation 1 must contain exactly its frozen event types');
+  const canonicalMembership = generation === 1
+    ? PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES
+    : generation === 2
+      ? PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES
+      : null;
+  if (!canonicalMembership) return;
+  const exact = handlers.size === canonicalMembership.length
+    && canonicalMembership.every((eventType) => handlers.has(eventType));
+  if (!exact) {
+    throw new TypeError(
+      `Pathway projector generation ${generation} must contain exactly its frozen event types`,
+    );
   }
 }
 
@@ -58,10 +72,12 @@ function requireGenerationMembership(generation, handlers) {
  * before retaining it, and the resolver is the registry's only lookup surface;
  * callers cannot add, replace, or remove handlers after construction.
  */
-function buildPathwayProjectorRegistry({ generation, entries }, { allowGenerationOne = false } = {}) {
+function buildPathwayProjectorRegistry({ generation, entries }, { allowCanonical = false } = {}) {
   const normalizedGeneration = requireGeneration(generation);
-  if (normalizedGeneration === PATHWAY_PROJECTOR_GENERATION && !allowGenerationOne) {
-    throw new TypeError('Pathway projector generation 1 is reserved for the canonical registry');
+  if ([1, 2].includes(normalizedGeneration) && !allowCanonical) {
+    throw new TypeError(
+      `Pathway projector generation ${normalizedGeneration} is reserved for its canonical registry`,
+    );
   }
   if (!Array.isArray(entries)) {
     throw new TypeError('Pathway projector registry entries must be an array');
@@ -113,11 +129,11 @@ export function isPathwayProjectorRegistry(value) {
   );
 }
 
-function createGenerationOneShadowObserver(eventType) {
-  const observer = async function observeGenerationOneEvent() {
+function createShadowObserver(eventType, generation) {
+  const observer = async function observeEvent() {
     return Object.freeze({
       consumer_key: PATHWAY_PROJECTOR_CONSUMER_KEY,
-      generation: PATHWAY_PROJECTOR_GENERATION,
+      generation,
       event_type: eventType,
       shadow_observed: true,
     });
@@ -126,14 +142,26 @@ function createGenerationOneShadowObserver(eventType) {
 }
 
 const generationOneEntries = PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES.map((eventType) =>
-  Object.freeze([eventType, createGenerationOneShadowObserver(eventType)]));
+  Object.freeze([eventType, createShadowObserver(eventType, 1)]));
+
+export const pathwayProjectorRegistryV1 = buildPathwayProjectorRegistry(
+  { generation: 1, entries: generationOneEntries },
+  { allowCanonical: true },
+);
+
+const generationTwoEntries = [
+  ...PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, createShadowObserver(eventType, 2)])),
+  ...DIAGNOSTIC_PATHWAY_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, diagnosticPathwayProjectorHandler])),
+];
 
 export const pathwayProjectorRegistry = buildPathwayProjectorRegistry(
   {
     generation: PATHWAY_PROJECTOR_GENERATION,
-    entries: generationOneEntries,
+    entries: generationTwoEntries,
   },
-  { allowGenerationOne: true },
+  { allowCanonical: true },
 );
 
 export default pathwayProjectorRegistry;

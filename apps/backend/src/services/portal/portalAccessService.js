@@ -14,7 +14,7 @@
 //     (method/reference/grantor/expiry/revocation). Every proxy read is
 //     audited with the grant id.
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import prisma, { isTenantTransactionClient, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin, isClinical } from '../../utils/roleHelpers.js';
@@ -23,6 +23,7 @@ import {
   recordCanonicalClinicalEvent,
   recordClinicalAuditEvent,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { resolveCurrentHumanActorTx } from '../workflow/workflowHumanOwnerService.js';
 
@@ -130,6 +131,62 @@ export async function getResultEpisodeReleaseDecision({
     return Object.freeze({ outcome: 'unsupported_source' });
   }
   return Object.freeze({ outcome: summary.all_visible ? 'visible' : 'not_visible' });
+}
+
+export async function getDiagnosticGenerationReleaseDecisionTx({
+  tx,
+  tenantId,
+  generationId,
+} = {}) {
+  if (!isTenantTransactionClient(tx)) {
+    throw AppError.internal(
+      'Diagnostic release evaluation requires a tenant transaction',
+      'DIAGNOSTIC_RELEASE_TX_REQUIRED',
+    );
+  }
+  const tid = requireTenantId(tenantId);
+  const generations = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid, source_kind, classification, item_count
+       FROM diagnostic_result_generations
+      WHERE tenant_id = $1::uuid
+        AND id = $2::uuid
+      LIMIT 1
+      FOR SHARE`,
+    tid,
+    generationId,
+  );
+  const generation = generations[0] || null;
+  if (!generation || generation.source_kind !== 'lab_panel') {
+    return Object.freeze({
+      outcome: 'unsupported_source',
+      policy: 'lab_result_visibility.v1',
+      generation_id: generationId ? String(generationId) : null,
+    });
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT COUNT(*)::integer AS result_count,
+            COALESCE(BOOL_AND(${releaseVisibilitySql('$3')}), false) AS all_visible
+       FROM diagnostic_result_generation_items AS item
+       JOIN lab_results AS result
+         ON result.tenant_id = item.tenant_id
+        AND result.id::text = item.source_row_id
+      WHERE item.tenant_id = $1::uuid
+        AND item.generation_id = $2::uuid
+        AND item.source_table = 'lab_results'`,
+    tid,
+    generation.id,
+    releaseDelayHours(),
+  );
+  const resultCount = Number(rows[0]?.result_count || 0);
+  const complete = resultCount === Number(generation.item_count) && resultCount > 0;
+  return Object.freeze({
+    outcome: complete && rows[0]?.all_visible === true ? 'visible' : 'not_visible',
+    policy: 'lab_result_visibility.v1',
+    generation_id: String(generation.id),
+    result_count: resultCount,
+    generation_item_count: Number(generation.item_count),
+    complete,
+  });
 }
 
 function isResultReleaseActorRole(role) {
@@ -315,6 +372,47 @@ export async function releaseResultNow(resultId, {
       timelineIdempotencyKey: `lab_results:${result.id}:lab.result_released_early:tx:${revision}`,
       auditIdempotencyKey: `lab_results:${result.id}:audit:lab.result_released_early:tx:${revision}`,
     }, { db: tx });
+    const generations = await tx.$queryRawUnsafe(
+      `SELECT DISTINCT generation.id
+         FROM diagnostic_result_generation_items AS item
+         JOIN diagnostic_result_generations AS generation
+           ON generation.tenant_id = item.tenant_id
+          AND generation.id = item.generation_id
+        WHERE item.tenant_id = $1::uuid
+          AND item.source_table = 'lab_results'
+          AND item.source_row_id = $2::text
+          AND generation.classification = 'normal'
+          AND NOT EXISTS (
+            SELECT 1
+              FROM diagnostic_result_generations AS successor
+             WHERE successor.tenant_id = generation.tenant_id
+               AND successor.predecessor_generation_id = generation.id
+          )
+        ORDER BY generation.id`,
+      tid,
+      String(result.id),
+    );
+    for (const generation of generations) {
+      const releaseDecision = await getDiagnosticGenerationReleaseDecisionTx({
+        tx,
+        tenantId: tid,
+        generationId: String(generation.id),
+      });
+      if (releaseDecision.outcome !== 'visible') continue;
+      await publishEvent({
+        eventType: 'diagnostic.result.release_became_eligible',
+        aggregateType: 'diagnostic_result_generation',
+        aggregateId: String(generation.id),
+        patientUid: result.patient_uid,
+        tenantId: tid,
+        tx,
+        payload: {
+          generation_id: String(generation.id),
+          release_source: 'explicit_early_release',
+          lab_result_id: String(result.id),
+        },
+      });
+    }
     return { row: rows[0], result, changed: true };
   });
   if (committed.changed) {
@@ -572,6 +670,7 @@ export default {
   evaluateResultRelease,
   evaluatePanelRelease,
   getResultEpisodeReleaseDecision,
+  getDiagnosticGenerationReleaseDecisionTx,
   setResultReleaseHold,
   releaseResultNow,
   createProxyGrant,

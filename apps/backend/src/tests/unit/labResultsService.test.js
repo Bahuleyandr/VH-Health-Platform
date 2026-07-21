@@ -9,6 +9,12 @@ const acknowledgeTaskMock = jest.fn();
 const emitLabEventMock = jest.fn();
 const lockResultsInboxResourceTxMock = jest.fn();
 const materializeLabCriticalAlertGenerationMock = jest.fn();
+const supersedeCriticalAlertWithDiagnosticGenerationTxMock = jest.fn().mockResolvedValue(null);
+const createLabDiagnosticGenerationTxMock = jest.fn().mockResolvedValue({
+  id: '22222222-2222-4222-8222-222222222222',
+  classification: 'indeterminate',
+  snapshot_sha256: 'a'.repeat(64),
+});
 const claimLabResultIngestCommandMock = jest.fn();
 const completeLabResultIngestCommandMock = jest.fn();
 const finaliseHttpIdempotencyInTxMock = jest.fn();
@@ -76,6 +82,12 @@ jest.unstable_mockModule('../../services/results/resultsInboxResourceLock.js', (
 
 jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => ({
   materializeLabCriticalAlertGeneration: materializeLabCriticalAlertGenerationMock,
+  supersedeCriticalAlertWithDiagnosticGenerationTx:
+    supersedeCriticalAlertWithDiagnosticGenerationTxMock,
+}));
+
+jest.unstable_mockModule('../../services/diagnostics/diagnosticResultGenerationService.js', () => ({
+  createLabDiagnosticGenerationTx: createLabDiagnosticGenerationTxMock,
 }));
 
 jest.unstable_mockModule('../../services/lab/labResultIngestCommandService.js', () => ({

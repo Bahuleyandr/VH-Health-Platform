@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import { createHash } from 'node:crypto';
 import pg from 'pg';
 import { seedCurrentBedStructure } from './seed-current-bed-structure.mjs';
 import { compileWorkflowDefinition } from '../src/services/workflow/workflowDefinitionCompiler.js';
@@ -22,6 +23,10 @@ const MANUAL_SEED_TABLES = new Set([
   'care_pathway_instances',
   'care_pathway_transition_events',
   'care_handoff_instances',
+  'care_pathway_reconciliation_checks',
+  'diagnostic_result_generations',
+  'diagnostic_result_generation_items',
+  'diagnostic_result_actions',
   'clinical_timeline_events',
   'clinical_audit_events',
   'lab_analyzers',
@@ -1555,6 +1560,234 @@ async function seedCarePathwayWorkflowGraph() {
             updated_at = NOW()
       WHERE tenant_id = $3::uuid AND id = $4::uuid`,
     [approver.uid, evidenceAt, DEFAULT_TENANT_ID, governanceId],
+  );
+}
+
+async function seedCarePathwayReconciliationEvidence() {
+  if (!(await tableExists('care_pathway_reconciliation_checks'))
+      || await tableCount('care_pathway_reconciliation_checks')) return;
+
+  const now = new Date('2026-05-04T12:00:00.000Z');
+  await insert('care_pathway_reconciliation_checks', {
+    sweep_id: '11111111-2222-4333-8444-555555555555',
+    tenant_id: DEFAULT_TENANT_ID,
+    pathway_key: 'diagnostics_order_to_action',
+    pathway_mode: 'off',
+    registry_version: 1,
+    registry_checksum: 'a'.repeat(64),
+    governance_checksum: 'b'.repeat(64),
+    governance_count: 1,
+    covered_governance_count: 1,
+    expected_check_count: 1,
+    executed_check_count: 1,
+    finding_count: 0,
+    repair_count: 0,
+    error_count: 0,
+    registry_complete: true,
+    passed: false,
+    check_results: JSON.stringify([{
+      check_key: 'seed_fixture',
+      status: 'passed',
+      source: 'seed-comprehensive-test-data',
+    }]),
+    started_at: now,
+    completed_at: now,
+  });
+}
+
+async function seedDiagnosticResultEvidence() {
+  const targetTables = [
+    'diagnostic_result_generations',
+    'diagnostic_result_generation_items',
+    'diagnostic_result_actions',
+  ];
+  const existingCounts = [];
+  for (const table of targetTables) existingCounts.push(await tableCount(table));
+  if (existingCounts.every(Boolean)) return;
+
+  const investigation = await first(
+    'investigations',
+    'id, patient_uid, requested_by, test_name, result_version',
+    'tenant_id = $1::uuid AND patient_uid IS NOT NULL',
+    [DEFAULT_TENANT_ID],
+  );
+  const doctor = await first(
+    'users',
+    'uid, role',
+    `tenant_id = $1::uuid
+     AND role = 'DOCTOR' AND is_active = TRUE AND status = 'active'`,
+    [DEFAULT_TENANT_ID],
+  );
+  if (!investigation?.id || !investigation.patient_uid || !doctor?.uid) {
+    throw new Error('Diagnostic-result seed evidence requires a patient-linked investigation and doctor.');
+  }
+
+  const itemHash = createHash('sha256')
+    .update('seed-diagnostic-result-item-v1')
+    .digest('hex');
+  const generationHash = createHash('sha256').update(itemHash).digest('hex');
+  const requestHash = createHash('sha256')
+    .update('seed-diagnostic-normal-auto-close-v1')
+    .digest('hex');
+  const generationId = '22222222-3333-4444-8555-666666666666';
+  const actionId = '33333333-4444-4555-8666-777777777777';
+  const signedAt = new Date('2026-05-04T11:00:00.000Z');
+
+  const generationTimeline = await client.query(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, event_type, event_status, source_table,
+        source_id, source_uid, resource_type, resource_id, occurred_at,
+        visible_to_patient, clinical_summary, payload, tags, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, 'diagnostic_result.generation_created', 'normal',
+        'diagnostic_result_generations', $3::text, $3::uuid,
+        'diagnostic_result_generation', $3::text, $4::timestamptz, FALSE,
+        'Synthetic normal diagnostic generation for local test coverage.',
+        $5::jsonb, ARRAY['diagnostics', 'seed']::text[], $6::text)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      investigation.patient_uid,
+      generationId,
+      signedAt,
+      JSON.stringify({ seed: true, classification: 'normal' }),
+      `diagnostic-result-generation:${generationId}:timeline`,
+    ],
+  );
+  const generationAudit = await client.query(
+    `INSERT INTO clinical_audit_events
+       (tenant_id, patient_uid, action, action_status, resource_type,
+        resource_table, resource_id, after_state, metadata, idempotency_key,
+        occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, 'diagnostic_result.generation_created', 'success',
+        'diagnostic_result_generation', 'diagnostic_result_generations',
+        $3::text, $4::jsonb, $5::jsonb, $6::text, $7::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      investigation.patient_uid,
+      generationId,
+      JSON.stringify({ classification: 'normal', snapshot_sha256: generationHash }),
+      JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      `diagnostic-result-generation:${generationId}:audit`,
+      signedAt,
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO diagnostic_result_generations
+       (id, tenant_id, patient_uid, source_kind, source_table,
+        source_episode_type, source_episode_key, source_version,
+        investigation_id, ordering_owner_uid, owner_source, signer_uid,
+        signer_role, signed_at, classification, classification_basis,
+        snapshot_sha256, item_count, canonical_timeline_event_id,
+        canonical_audit_event_id)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, 'shared_investigation', 'investigations',
+        'investigation', $4::text, $5::bigint, $6::integer, $7::uuid,
+        'named_orderer', $7::uuid, $8::text, $9::timestamptz, 'normal',
+        $10::jsonb, $11::char(64), 1, $12::uuid, $13::uuid)`,
+    [
+      generationId,
+      DEFAULT_TENANT_ID,
+      investigation.patient_uid,
+      `investigation:${investigation.id}`,
+      Number(investigation.result_version || 1),
+      investigation.id,
+      doctor.uid,
+      doctor.role,
+      signedAt,
+      JSON.stringify({ explicit_normal_flag: true, seed: true }),
+      generationHash,
+      generationTimeline.rows[0].id,
+      generationAudit.rows[0].id,
+    ],
+  );
+  await client.query(
+    `INSERT INTO diagnostic_result_generation_items
+       (tenant_id, patient_uid, generation_id, source_table, source_row_id,
+        source_version, source_ordinal, item_name, value_snapshot,
+        normalized_flag, source_critical, classification, item_snapshot_sha256)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, 'investigations', $4::text, $5::text,
+        1, $6::text, $7::jsonb, 'N', FALSE, 'normal', $8::char(64))`,
+    [
+      DEFAULT_TENANT_ID,
+      investigation.patient_uid,
+      generationId,
+      String(investigation.id),
+      String(investigation.result_version || 1),
+      investigation.test_name || 'Seed diagnostic test',
+      JSON.stringify({ value: 'within reference range', seed: true }),
+      itemHash,
+    ],
+  );
+
+  const actionTimeline = await client.query(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, event_type, event_status, source_table,
+        source_id, source_uid, resource_type, resource_id, occurred_at,
+        visible_to_patient, clinical_summary, payload, tags, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, 'diagnostic_result.normal_auto_closed', 'completed',
+        'diagnostic_result_actions', $3::text, $3::uuid,
+        'diagnostic_result_action', $3::text, $4::timestamptz, FALSE,
+        'Synthetic normal-result auto-closure for local test coverage.',
+        $5::jsonb, ARRAY['diagnostics', 'seed']::text[], $6::text)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      investigation.patient_uid,
+      actionId,
+      signedAt,
+      JSON.stringify({ seed: true, generation_id: generationId }),
+      `diagnostic-result-action:${actionId}:timeline`,
+    ],
+  );
+  const actionAudit = await client.query(
+    `INSERT INTO clinical_audit_events
+       (tenant_id, patient_uid, action, action_status, resource_type,
+        resource_table, resource_id, after_state, metadata, idempotency_key,
+        occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, 'diagnostic_result.normal_auto_closed', 'success',
+        'diagnostic_result_action', 'diagnostic_result_actions', $3::text,
+        $4::jsonb, $5::jsonb, $6::text, $7::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      investigation.patient_uid,
+      actionId,
+      JSON.stringify({ action_kind: 'normal_auto_closed', generation_id: generationId }),
+      JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      `diagnostic-result-action:${actionId}:audit`,
+      signedAt,
+    ],
+  );
+  await client.query(
+    `INSERT INTO diagnostic_result_actions
+       (id, tenant_id, patient_uid, generation_id, action_kind,
+        generation_snapshot_sha256, idempotency_key, request_sha256,
+        release_decision, canonical_timeline_event_id,
+        canonical_audit_event_id, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'normal_auto_closed',
+        $5::char(64), $6::text, $7::char(64), $8::jsonb, $9::uuid,
+        $10::uuid, $11::timestamptz)`,
+    [
+      actionId,
+      DEFAULT_TENANT_ID,
+      investigation.patient_uid,
+      generationId,
+      generationHash,
+      'seed-diagnostic-normal-auto-close-v1',
+      requestHash,
+      JSON.stringify({ decision: 'release_allowed', seed: true }),
+      actionTimeline.rows[0].id,
+      actionAudit.rows[0].id,
+      signedAt,
+    ],
   );
 }
 
@@ -3442,6 +3675,8 @@ try {
   await seedColdChainTables();
   await seedCarePathwayWorkflowGraph();
   await seedLabIngestCriticalAlertGraph();
+  await seedCarePathwayReconciliationEvidence();
+  await seedDiagnosticResultEvidence();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();

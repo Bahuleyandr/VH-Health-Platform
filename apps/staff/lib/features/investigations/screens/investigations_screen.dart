@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
+import '../../../core/services/clinical_inbox_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -1679,7 +1680,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
               onTap: resultReady
-                  ? () => _showInvestigationResultDetail(context, inv)
+                  ? () => _showInvestigationResultDetail(inv)
                   : null,
               leading: CircleAvatar(
                 backgroundColor: AppTheme.accentCyan.withValues(alpha: 0.1),
@@ -1737,10 +1738,27 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
     );
   }
 
-  void _showInvestigationResultDetail(
-    BuildContext context,
+  Future<void> _showInvestigationResultDetail(
     Map<String, dynamic> investigation,
-  ) {
+  ) async {
+    var detail = investigation;
+    final investigationId = _textValue(investigation['id']);
+    if (investigationId.isNotEmpty) {
+      try {
+        final response = await MedicalApiService.getInvestigationById(
+          investigationId,
+        );
+        final loaded = _mapValue(response['investigation']);
+        if (loaded != null) detail = loaded;
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+        return;
+      }
+    }
+    if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1748,31 +1766,102 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (ctx) => _InvestigationResultSheet(
-        investigation: investigation,
+        investigation: detail,
         patientName: investigationPatientLabel(
-          investigation,
+          detail,
           fallbackName: widget.initialPatientName,
           fallbackPhone: widget.initialPatientPhone,
         ),
+        onReopened: _load,
       ),
     );
   }
 }
 
-class _InvestigationResultSheet extends StatelessWidget {
+class _InvestigationResultSheet extends StatefulWidget {
   final Map<String, dynamic> investigation;
   final String patientName;
+  final Future<void> Function()? onReopened;
 
   const _InvestigationResultSheet({
     required this.investigation,
     required this.patientName,
+    this.onReopened,
   });
+
+  @override
+  State<_InvestigationResultSheet> createState() =>
+      _InvestigationResultSheetState();
+}
+
+class _InvestigationResultSheetState extends State<_InvestigationResultSheet> {
+  bool _reopening = false;
+
+  Future<void> _reopen(String generationId) async {
+    final strings = AppStrings.of(context);
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(strings.clinicalInboxReopenTitle),
+        content: TextField(
+          controller: reasonController,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          maxLength: 4000,
+          decoration: InputDecoration(
+            labelText: strings.clinicalInboxReopenReason,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(strings.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = reasonController.text.trim();
+              if (value.isNotEmpty) Navigator.pop(dialogContext, value);
+            },
+            child: Text(strings.clinicalInboxReopen),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+    if (reason == null || !mounted) return;
+    setState(() => _reopening = true);
+    try {
+      await ClinicalInboxApiService.instance.reopenDiagnosticResult(
+        generationId: generationId,
+        reason: reason,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.clinicalInboxReopened)));
+      Navigator.pop(context);
+      await widget.onReopened?.call();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _reopening = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(strings.clinicalInboxReopenFailed('$e'))),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final investigation = widget.investigation;
     final title = investigationTestTitle(investigation);
     final status = investigationStatus(investigation);
+    final diagnosticReview = _mapValue(investigation['diagnostic_review']);
+    final generationId = _textValue(diagnosticReview?['generation_id']);
+    final canReopen = diagnosticReview?['can_reopen'] == true;
     final resultSummary = _firstText([
       investigation['result_summary'],
       investigation['summary'],
@@ -1825,9 +1914,9 @@ class _InvestigationResultSheet extends StatelessWidget {
                 children: [
                   _ResultChip(
                     icon: Icons.person_outline,
-                    label: patientName.isEmpty
+                    label: widget.patientName.isEmpty
                         ? s.lookup('s4.lib.investigations.selected_patient')
-                        : patientName,
+                        : widget.patientName,
                   ),
                   _ResultChip(
                     icon: Icons.verified_outlined,
@@ -1867,6 +1956,36 @@ class _InvestigationResultSheet extends StatelessWidget {
                   's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s',
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
+              if (diagnosticReview != null) ...[
+                const SizedBox(height: 8),
+                _ResultBlock(
+                  title: s.clinicalInboxClassification,
+                  body: _textValue(
+                    diagnosticReview['classification'],
+                  ).toUpperCase(),
+                ),
+              ],
+              if (canReopen && generationId.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _reopening ? null : () => _reopen(generationId),
+                    icon: _reopening
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.replay_outlined),
+                    label: Text(
+                      _reopening
+                          ? s.clinicalInboxReopening
+                          : s.clinicalInboxReopen,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

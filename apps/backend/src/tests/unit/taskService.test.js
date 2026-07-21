@@ -1672,7 +1672,7 @@ describe('listInboxTasks', () => {
     // inbox status set
     expect(sql).toMatch(/'open', 'in_progress', 'overdue'/);
     // ordering
-    expect(sql).toMatch(/CASE priority WHEN 'critical' THEN 0/);
+    expect(sql).toMatch(/CASE inbox\.priority WHEN 'critical' THEN 0/);
     expect(sql).toMatch(/due_at/);
   });
 

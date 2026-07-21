@@ -1111,6 +1111,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   relatedResourceId,
   workflowSlaInstanceId,
   supersededByActorUid,
+  supersedingDiagnosticGenerationId,
   tx = null,
 } = {}) {
   if (!tx) {
@@ -1128,6 +1129,12 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   const expectedResourceType = safeText(relatedResourceType, 120);
   const expectedResourceId = safeText(relatedResourceId, 255);
   const expectedSlaId = maybeUuid(workflowSlaInstanceId, 'workflow_sla_instance_id');
+  const diagnosticGenerationId = supersedingDiagnosticGenerationId == null
+    ? null
+    : maybeUuid(
+      supersedingDiagnosticGenerationId,
+      'superseding_diagnostic_generation_id',
+    );
   if (!expectedResourceType || !expectedResourceId || !expectedSlaId) {
     throw AppError.badRequest(
       'Trusted acknowledgement supersession requires its exact resource and SLA binding',
@@ -1152,6 +1159,34 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   if (!['open', 'overdue', 'blocked', 'in_progress'].includes(current.status)) {
     throw AppError.invalidTransition(current.status, 'completed', TASK_TRANSITIONS[current.status] || []);
   }
+  const supersededAt = diagnosticGenerationId ? new Date() : null;
+  if (diagnosticGenerationId) {
+    const prepared = await tx.$queryRawUnsafe(
+      `UPDATE tasks
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'supersession_reason', 'diagnostic_generation_noncritical_correction',
+                'superseded_at', $3::timestamptz,
+                'superseded_by_actor_uid', $4::uuid,
+                'superseded_by_diagnostic_generation_id', $5::uuid
+              ),
+              updated_at = $3::timestamptz
+        WHERE tenant_id = $1::uuid
+          AND id = $2::integer
+        RETURNING ${TASK_RETURNING}`,
+      tid,
+      taskId,
+      supersededAt,
+      supersessionActorUid,
+      diagnosticGenerationId,
+    );
+    if (!prepared[0]) {
+      throw AppError.conflict(
+        'Acknowledgement task changed before supersession',
+        'ACKNOWLEDGEMENT_SUPERSESSION_CONFLICT',
+      );
+    }
+    current = prepared[0];
+  }
   if (current.status === 'blocked') {
     current = await transitionTask({
       tenantId: tid,
@@ -1162,7 +1197,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
       tx,
     });
   }
-  return transitionTask({
+  const completed = await transitionTask({
     tenantId: tid,
     id: taskId,
     nextStatus: 'completed',
@@ -1170,6 +1205,26 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
     slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
     tx,
   });
+  if (diagnosticGenerationId) {
+    await tx.$executeRawUnsafe(
+      `UPDATE workflow_sla_instances
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'supersession_reason', 'diagnostic_generation_noncritical_correction',
+                'superseded_at', $3::timestamptz,
+                'superseded_by_actor_uid', $4::uuid,
+                'superseded_by_diagnostic_generation_id', $5::uuid
+              ),
+              updated_at = $3::timestamptz
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid`,
+      tid,
+      expectedSlaId,
+      supersededAt,
+      supersessionActorUid,
+      diagnosticGenerationId,
+    );
+  }
+  return completed;
 }
 
 const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
@@ -2697,20 +2752,47 @@ export async function listInboxTasks({
   const safeLimit = normalizeLimit(limit);
   try {
     const rows = await tx.$queryRawUnsafe(
-      `SELECT ${TASK_RETURNING} FROM tasks
-       WHERE tenant_id = $1::uuid
-         AND status IN ('open', 'in_progress', 'overdue')
-         AND (
-           assigned_to_uid = $2::uuid
-           OR (
-             assigned_to_uid IS NULL
-             AND UPPER(BTRIM(assigned_to_role)) = $3::text
-           )
-         )
+      `SELECT inbox.*,
+              pathway.id AS pathway_instance_id,
+              pathway.pathway_key,
+              pathway.owning_clinician_uid AS pathway_owner_uid,
+              pathway.accountable_role AS pathway_accountable_role,
+              step.step_key AS pathway_stage_key,
+              generation.id AS diagnostic_generation_id,
+              generation.classification AS diagnostic_classification,
+              generation.snapshot_sha256 AS diagnostic_generation_snapshot_sha256,
+              generation.source_version AS diagnostic_source_version,
+              generation.predecessor_generation_id AS diagnostic_predecessor_generation_id,
+              (generation.predecessor_generation_id IS NOT NULL) AS diagnostic_is_correction
+         FROM (
+           SELECT ${TASK_RETURNING}
+             FROM tasks
+            WHERE tenant_id = $1::uuid
+              AND status IN ('open', 'in_progress', 'overdue')
+              AND (
+                assigned_to_uid = $2::uuid
+                OR (
+                  assigned_to_uid IS NULL
+                  AND UPPER(BTRIM(assigned_to_role)) = $3::text
+                )
+              )
+         ) AS inbox
+         LEFT JOIN workflow_steps AS step
+           ON step.tenant_id = inbox.tenant_id
+          AND step.id = inbox.workflow_step_id
+          AND step.workflow_run_id = inbox.workflow_run_id
+         LEFT JOIN care_pathway_instances AS pathway
+           ON pathway.tenant_id = inbox.tenant_id
+          AND pathway.workflow_run_id = inbox.workflow_run_id
+         LEFT JOIN diagnostic_result_generations AS generation
+           ON generation.tenant_id = pathway.tenant_id
+          AND pathway.pathway_key = 'diagnostics_order_to_action'
+          AND pathway.source_episode_type = 'diagnostic_result_generation'
+          AND generation.id::text = pathway.source_episode_id
        ORDER BY
-         CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
-         due_at NULLS LAST,
-         created_at DESC
+         CASE inbox.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+         inbox.due_at NULLS LAST,
+         inbox.created_at DESC
        LIMIT $4`,
       tid,
       actor.uid,

@@ -1,4 +1,5 @@
 import { WORKFLOW_STEP_KINDS } from './workflowDefinitionContract.js';
+import { DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS } from '../pathways/diagnosticsPathwayHandlers.js';
 
 const HANDLER_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.v[1-9][0-9]*$/;
 const DECISION_CODE_PATTERN = /^[a-z][a-z0-9_]{0,79}$/;
@@ -307,7 +308,20 @@ export function isRegisteredWorkflowSystemActor(actor, { registry = null } = {})
   return registry === null ? true : binding.registry === registry;
 }
 
-// S1b-b deliberately registers no production executable behavior.
-export const workflowRuntimeRegistry = createWorkflowRuntimeRegistry({ version: 1 });
+// Retained for checksum/replay compatibility with the S1b-b no-op runtime.
+export const workflowRuntimeRegistryV1 = createWorkflowRuntimeRegistry({ version: 1 });
+
+export const workflowRuntimeRegistry = createWorkflowRuntimeRegistry({
+  version: 2,
+  conditions: [
+    ['diagnostics.route_generation.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.routeGeneration],
+    ['diagnostics.normal_closure.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.normalClosure],
+    ['diagnostics.doctor_action.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.doctorAction],
+  ],
+  actions: [
+    ['diagnostics.finalize.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.finalize],
+  ],
+  systemActors: ['diagnostics.pathway_projector.v1'],
+});
 
 export default workflowRuntimeRegistry;

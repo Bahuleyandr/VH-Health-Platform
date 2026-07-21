@@ -106,11 +106,17 @@ describe('workflow JSON safety budget', () => {
 });
 
 describe('workflow runtime registry', () => {
-  it('keeps the production registry empty, immutable and identity-verifiable', () => {
+  it('keeps the production registry code-reviewed, immutable and identity-verifiable', () => {
     expect(isWorkflowRuntimeRegistry(workflowRuntimeRegistry)).toBe(true);
-    expect(workflowRuntimeRegistry.conditionHandlerIds).toEqual([]);
-    expect(workflowRuntimeRegistry.actionHandlerIds).toEqual([]);
+    expect(workflowRuntimeRegistry.version).toBe(2);
+    expect(workflowRuntimeRegistry.conditionHandlerIds).toEqual([
+      'diagnostics.route_generation.v1',
+      'diagnostics.normal_closure.v1',
+      'diagnostics.doctor_action.v1',
+    ]);
+    expect(workflowRuntimeRegistry.actionHandlerIds).toEqual(['diagnostics.finalize.v1']);
     expect(workflowRuntimeRegistry.childFanoutHandlerIds).toEqual([]);
+    expect(workflowRuntimeRegistry.systemActorKeys).toEqual(['diagnostics.pathway_projector.v1']);
     expect(Object.isFrozen(workflowRuntimeRegistry)).toBe(true);
     expect(isWorkflowRuntimeRegistry({ version: 1 })).toBe(false);
   });
@@ -123,7 +129,7 @@ describe('workflow runtime registry', () => {
       evaluate: async () => ({ decision: 'blocked', evidence: [] }),
     };
     const registry = createWorkflowRuntimeRegistry({
-      version: 2,
+      version: 900_002,
       conditions: [['synthetic.wait_gate.v1', descriptor]],
     });
     stepKinds.push('task');
@@ -139,14 +145,14 @@ describe('workflow runtime registry', () => {
   });
 
   it('binds each registry version to one exact identity', () => {
-    createWorkflowRuntimeRegistry({ version: 3 });
+    createWorkflowRuntimeRegistry({ version: 900_003 });
     expect(() => createWorkflowRuntimeRegistry({
-      version: 3,
+      version: 900_003,
       actions: [[
         'synthetic.different_behavior.v1',
         { stepKinds: ['automation'], execute: async () => ({ changed: true }) },
       ]],
-    })).toThrow(/version 3 is already registered/);
+    })).toThrow(/version 900003 is already registered/);
   });
 
   it('rejects unversioned, duplicate and malformed handlers', () => {
@@ -252,11 +258,11 @@ describe('workflow definition compiler', () => {
           step_key: 'approve_closure',
           step_kind: 'approval',
           display_name: 'Approve closure',
-          assigned_role: 'CMO',
+          assigned_role: 'DOCTOR',
           work_semantics: {
             approval_kind: 'pathway_closure',
             required_approvers: 1,
-            required_role: 'CMO',
+            required_role: 'DOCTOR',
             sla_completion_semantics: 'none',
           },
         },
@@ -268,7 +274,7 @@ describe('workflow definition compiler', () => {
     expect(compiled).toMatchObject({
       workflow_key: 'synthetic_pathway',
       version: 3,
-      registry_version: 1,
+      registry_version: 2,
     });
     expect(compiled.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(checksumCompiledWorkflowDefinition(compiled)).toBe(compiled.checksum);
@@ -601,7 +607,7 @@ describe('workflow definition compiler', () => {
       steps: [{
         step_key: 'approve',
         step_kind: 'approval',
-        assigned_role: 'ADMIN',
+        assigned_role: 'DOCTOR',
         work_semantics: {
           approval_kind: 'synthetic_review',
           required_approvers: 100,
@@ -614,7 +620,7 @@ describe('workflow definition compiler', () => {
       steps: [{
         step_key: 'approve',
         step_kind: 'approval',
-        assigned_role: 'ADMIN',
+        assigned_role: 'DOCTOR',
         work_semantics: {
           approval_kind: 'synthetic_review',
           required_approvers: 101,

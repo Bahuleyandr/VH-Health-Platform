@@ -109,7 +109,7 @@ function requireRegistry(registry, generation) {
   }
   if (generation === PATHWAY_PROJECTOR_GENERATION && registry !== pathwayProjectorRegistry) {
     throw AppError.internal(
-      'Projector generation 1 requires the canonical registry',
+      'Current projector generation requires the canonical registry',
       'PATHWAY_PROJECTOR_REGISTRY_IDENTITY_MISMATCH',
     );
   }

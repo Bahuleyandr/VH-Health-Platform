@@ -35,7 +35,7 @@ jest.unstable_mockModule('../services/smsService.js', () => ({
 
 const { drainEventOutbox } = await import('../utils/scheduler.js');
 const { publishEvent, claimPendingEvents } = await import('../services/events/eventOutboxService.js');
-const { pathwayProjectorRegistry } = await import('../services/events/pathwayProjectorRegistry.js');
+const { pathwayProjectorRegistryV1: pathwayProjectorRegistry } = await import('../services/events/pathwayProjectorRegistry.js');
 const {
   claimDueInboxRows,
   materializeMissingInboxRows,
