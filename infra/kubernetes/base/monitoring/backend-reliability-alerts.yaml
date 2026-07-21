@@ -108,6 +108,38 @@ spec:
           annotations:
             summary: "Backend read-replica lag above 30s — read-only routes may serve stale data"
             runbook: "docs/RUNBOOK_ONCALL.md#dbreadreplicalaghigh"
+        - alert: CarePathwayReconciliationTechnicalError
+          expr: max by (pathway_key) (care_pathway_reconciliation_technical_error_tenants) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Care-pathway reconciliation is failing technically for {{ $labels.pathway_key }}"
+            runbook: "docs/RUNBOOK_ONCALL.md#carepathwayreconciliationtechnicalerror"
+        - alert: CarePathwayActiveWithoutAuthority
+          expr: max by (pathway_key) (care_pathway_reconciliation_active_without_authority_tenants) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "A tenant configured {{ $labels.pathway_key }} active without production activation authority"
+            runbook: "docs/RUNBOOK_ONCALL.md#carepathwayactivewithoutauthority"
+        - alert: PathwayProjectorDeadRowsPresent
+          expr: max(pathway_projector_inbox_dead_rows) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pathway projector inbox contains terminal dead rows"
+            runbook: "docs/RUNBOOK_ONCALL.md#pathwayprojectordebt"
+        - alert: PathwayProjectorRetiredPendingRowsPresent
+          expr: max(pathway_projector_inbox_retired_pending_rows) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Retired pathway projector generations still contain pending work"
+            runbook: "docs/RUNBOOK_ONCALL.md#pathwayprojectordebt"
     - name: backend-safety-signals
       interval: 30s
       rules:

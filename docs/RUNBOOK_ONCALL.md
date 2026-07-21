@@ -112,8 +112,10 @@ Rows in terminal `status='failed'` (reached `MAX_ATTEMPTS=7`) — events
 projections) never saw them. `EventOutboxDeadLetterRateRising` is the leading edge.
 1. `SELECT id, event_type, last_error, attempts FROM event_outbox WHERE status='failed' ORDER BY id DESC LIMIT 50;`
    — the `last_error` is the cause.
-2. Fix the downstream (schema/endpoint/credential), then re-drive: reset the row
-   to `pending` with `available_at=now()` once the consumer is healthy.
+2. Fix the downstream (schema/endpoint/credential), then use only the typed,
+   reasoned dead-letter redrive operation once it is available. Do not reset
+   queue status with raw SQL; until typed recovery is deployed, preserve the
+   row and escalate to the integration/platform owner.
 3. Record the lost-event window in the incident log; some events (e.g. ABDM push,
    billing) may need manual replay.
 
@@ -140,6 +142,49 @@ the provider (FCM/SMS) is failing.
    sustained climb is usually a provider outage or a credential problem.
 2. `SELECT type, count(*) FROM notification_outbox WHERE status='PENDING' GROUP BY 1 ORDER BY 2 DESC;`.
 3. Provider down → backlog drains on recovery (intent is persisted, never lost).
+
+## CarePathwayReconciliationTechnicalError
+
+The latest append-only receipt for at least one tenant/pathway contains a bounded
+technical error. This is an evidence-collection failure, not permission to infer
+that clinical state is healthy.
+
+1. Use the ADMIN read-only reconciliation workbench to identify the pathway,
+   receipt timestamp, registry checksum and stable error code. Do not request or
+   paste patient/task/resource identifiers into the incident channel.
+2. Confirm migration 587, the current registry version and the default-off
+   scheduler configuration are coherent. Correlate the receipt time with backend
+   logs; logs intentionally expose only tenant, pathway and stable error code.
+3. Do not edit an evidence row, reset an SLA, reassign work or redrive a queue
+   with SQL. Escalate the stable code to the owning domain or platform team; any
+   mutation must use a separately reviewed typed, reasoned operation.
+
+## CarePathwayActiveWithoutAuthority
+
+A tenant setting says `active`, but this release deliberately has no production
+activation capability. The executor remains fail-closed.
+
+1. Treat this as configuration/governance drift. Confirm the affected fixed
+   `pathway_key` metric and the latest read-only reconciliation receipt.
+2. Do not attempt to mint activation authority or directly edit tenant settings
+   in SQL. Escalate to the pathway owner and platform governance owner for an
+   audited return to `off` or `shadow` through the approved settings process.
+3. Confirm no pathway task, notification or patient projection was produced by
+   reconciliation; the receipt should contain `ACTIVE_WITHOUT_ACTIVATION_AUTHORITY`.
+
+## PathwayProjectorDebt
+
+The current projector generation has terminal dead work, or a retired generation
+still has pending work.
+
+1. Inspect bounded projector metrics and the read-only reconciliation workbench.
+   Preserve event and inbox rows as evidence; do not paste payloads into tickets.
+2. Repair the producer/handler cause first. Use only the typed, audited projector
+   recovery operation delivered by the queue-recovery slice; never change inbox
+   status, lease or generation offsets with raw SQL.
+3. Re-run reconciliation after typed recovery. A repaired sweep is non-clean; a
+   later unchanged zero-drift sweep is required before evidence can count toward
+   owner review.
 
 ## WsBroadcastDrops
 

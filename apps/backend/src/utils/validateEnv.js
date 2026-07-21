@@ -304,6 +304,20 @@ export const envSchema = Joi.object({
     .default('false')
     .label('PATHWAY_PROJECTOR_SHADOW_ENABLED'),
 
+  CARE_PATHWAY_RECONCILIATION_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('CARE_PATHWAY_RECONCILIATION_ENABLED'),
+  CARE_PATHWAY_RECONCILIATION_REPAIR_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('CARE_PATHWAY_RECONCILIATION_REPAIR_ENABLED'),
+  CARE_PATHWAY_RECONCILIATION_CRON: Joi.string()
+    .max(100)
+    .allow('')
+    .optional()
+    .label('CARE_PATHWAY_RECONCILIATION_CRON'),
+
   // External clinical-AI PHI egress region allowlist (comma-separated, e.g.
   // `US,AP`). FAIL-CLOSED default (audit 2026-06-18): when empty/unset, a tenant
   // that carries a region is DENIED external use — external egress is allowed

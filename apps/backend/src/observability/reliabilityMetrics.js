@@ -14,6 +14,8 @@ import {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
   PATHWAY_PROJECTOR_GENERATION,
 } from '../config/pathwayProjectorConfig.js';
+import { CANONICAL_PATHWAY_KEYS } from '../services/pathways/pathwayMode.js';
+import { pathwayReconciliationRegistry } from '../services/pathways/pathwayReconciliationRegistry.js';
 import { Gauge, Counter } from './metricPrimitives.js';
 
 // ---- Gauges (set by the collector) ----------------------------------------
@@ -29,6 +31,12 @@ const pathwayProjectorInboxOldestAge = new Gauge('pathway_projector_inbox_oldest
 const pathwayProjectorInboxLeased = new Gauge('pathway_projector_inbox_leased_rows', 'Pending Pathway projector inbox rows with a worker lease token');
 const pathwayProjectorInboxDead = new Gauge('pathway_projector_inbox_dead_rows', 'Pathway projector inbox rows in the terminal dead status');
 const pathwayProjectorInboxRetiredPending = new Gauge('pathway_projector_inbox_retired_pending_rows', 'Pending Pathway projector inbox rows retained by retired generations');
+const pathwayReconciliationFailingShadowTenants = new Gauge('care_pathway_reconciliation_failing_shadow_tenants', 'Tenants in shadow whose latest pathway reconciliation evidence is absent, stale-registry, or non-clean', ['pathway_key']);
+const pathwayReconciliationTechnicalErrorTenants = new Gauge('care_pathway_reconciliation_technical_error_tenants', 'Tenants whose latest pathway reconciliation receipt contains a technical error', ['pathway_key']);
+const pathwayReconciliationCurrentFindings = new Gauge('care_pathway_reconciliation_current_findings', 'Findings in each tenant latest pathway reconciliation receipt', ['pathway_key']);
+const pathwayReconciliationCurrentRepairs = new Gauge('care_pathway_reconciliation_current_repairs', 'Repairs in each tenant latest pathway reconciliation receipt', ['pathway_key']);
+const pathwayReconciliationLatestEvidenceAge = new Gauge('care_pathway_reconciliation_latest_registry_evidence_age_seconds', 'Oldest age among tenant latest receipts compatible with the current reconciliation registry; 0 when absent', ['pathway_key']);
+const pathwayReconciliationActiveWithoutAuthority = new Gauge('care_pathway_reconciliation_active_without_authority_tenants', 'Tenants configured active while production pathway activation authority is unavailable', ['pathway_key']);
 const dbBreakerOpen = new Gauge('db_circuit_breaker_open', 'Whether any Prisma client circuit breaker is open (1=open, 0=closed)');
 const dbReadReplicaLagSeconds = new Gauge('db_read_replica_lag_seconds', 'Approximate read-replica replay lag observed through prismaReadOnly (seconds); emitted only when DATABASE_READ_URL is configured');
 const deviceRegistryActiveDevices = new Gauge('device_registry_active_devices', 'Active registered clinical devices');
@@ -164,6 +172,94 @@ export async function collectReliabilityMetrics() {
     );
     pathwayProjectorInboxRetiredPending.set({}, Number(retiredPi?.pending ?? 0));
 
+    for (const pathwayKey of CANONICAL_PATHWAY_KEYS) {
+      const labels = { pathway_key: pathwayKey };
+      pathwayReconciliationFailingShadowTenants.set(labels, 0);
+      pathwayReconciliationTechnicalErrorTenants.set(labels, 0);
+      pathwayReconciliationCurrentFindings.set(labels, 0);
+      pathwayReconciliationCurrentRepairs.set(labels, 0);
+      pathwayReconciliationLatestEvidenceAge.set(labels, 0);
+      pathwayReconciliationActiveWithoutAuthority.set(labels, 0);
+    }
+    const reconciliationRows = await prisma.$queryRawUnsafe(
+      `WITH pathway_keys(pathway_key) AS (
+         SELECT UNNEST($1::text[])
+       ), tenant_modes AS (
+         SELECT tenant.id AS tenant_id,
+                pathway.pathway_key,
+                CASE
+                  WHEN LOWER(COALESCE(
+                    tenant.settings #>> ARRAY['care_pathways', pathway.pathway_key],
+                    'off'
+                  )) IN ('off', 'shadow', 'active')
+                  THEN LOWER(COALESCE(
+                    tenant.settings #>> ARRAY['care_pathways', pathway.pathway_key],
+                    'off'
+                  ))
+                  ELSE 'off'
+                END AS current_mode
+           FROM tenants AS tenant
+          CROSS JOIN pathway_keys AS pathway
+       ), latest AS (
+         SELECT DISTINCT ON (evidence.tenant_id, evidence.pathway_key)
+                evidence.*
+           FROM care_pathway_reconciliation_checks AS evidence
+          ORDER BY evidence.tenant_id, evidence.pathway_key,
+                   evidence.completed_at DESC, evidence.id DESC
+       )
+       SELECT mode.pathway_key,
+              COUNT(*) FILTER (
+                WHERE mode.current_mode = 'shadow'
+                  AND (
+                    latest.id IS NULL
+                    OR latest.passed IS NOT TRUE
+                    OR latest.registry_checksum <> $2::char(64)
+                  )
+              )::integer AS failing_shadow_tenants,
+              COUNT(*) FILTER (
+                WHERE latest.error_count > 0
+              )::integer AS technical_error_tenants,
+              COALESCE(SUM(latest.finding_count), 0)::integer AS current_findings,
+              COALESCE(SUM(latest.repair_count), 0)::integer AS current_repairs,
+              COALESCE(MAX(
+                EXTRACT(EPOCH FROM (NOW() - latest.completed_at))
+              ) FILTER (
+                WHERE latest.registry_checksum = $2::char(64)
+              ), 0)::bigint AS latest_registry_evidence_age_seconds,
+              COUNT(*) FILTER (
+                WHERE mode.current_mode = 'active'
+              )::integer AS active_without_authority_tenants
+         FROM tenant_modes AS mode
+         LEFT JOIN latest
+           ON latest.tenant_id = mode.tenant_id
+          AND latest.pathway_key = mode.pathway_key
+        GROUP BY mode.pathway_key
+        ORDER BY mode.pathway_key`,
+      CANONICAL_PATHWAY_KEYS,
+      pathwayReconciliationRegistry.checksum,
+    );
+    for (const row of reconciliationRows) {
+      const labels = { pathway_key: row.pathway_key };
+      pathwayReconciliationFailingShadowTenants.set(
+        labels,
+        Number(row.failing_shadow_tenants || 0),
+      );
+      pathwayReconciliationTechnicalErrorTenants.set(
+        labels,
+        Number(row.technical_error_tenants || 0),
+      );
+      pathwayReconciliationCurrentFindings.set(labels, Number(row.current_findings || 0));
+      pathwayReconciliationCurrentRepairs.set(labels, Number(row.current_repairs || 0));
+      pathwayReconciliationLatestEvidenceAge.set(
+        labels,
+        Number(row.latest_registry_evidence_age_seconds || 0),
+      );
+      pathwayReconciliationActiveWithoutAuthority.set(
+        labels,
+        Number(row.active_without_authority_tenants || 0),
+      );
+    }
+
     const [dm] = await prisma.$queryRawUnsafe(`
       WITH registry AS (
         SELECT
@@ -239,6 +335,12 @@ export function serializeReliabilityMetrics() {
     pathwayProjectorInboxPending, pathwayProjectorInboxOldestAge,
     pathwayProjectorInboxLeased, pathwayProjectorInboxDead,
     pathwayProjectorInboxRetiredPending,
+    pathwayReconciliationFailingShadowTenants,
+    pathwayReconciliationTechnicalErrorTenants,
+    pathwayReconciliationCurrentFindings,
+    pathwayReconciliationCurrentRepairs,
+    pathwayReconciliationLatestEvidenceAge,
+    pathwayReconciliationActiveWithoutAuthority,
     deviceRegistryActiveDevices, deviceSilentDevices, deviceVitalsUnverifiedRows,
     deviceAssociationsActive, deviceUnassociatedMessages, deviceSamplesSuppressed,
     coldChainOpenExcursions,

@@ -6,6 +6,10 @@ import path from 'path';
 import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
 import purgeArchives from '../../admin/purge-archives.js';
 import { isPathwayProjectorShadowEnabled } from '../config/pathwayProjectorConfig.js';
+import {
+  isPathwayReconciliationEnabled,
+  pathwayReconciliationCron,
+} from '../config/pathwayReconciliationConfig.js';
 import prisma from '../lib/prisma.js';
 import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
@@ -619,6 +623,18 @@ if (process.env.NODE_ENV !== 'test') {
     if (!isPathwayProjectorShadowEnabled()) return;
     const { reapStaleInboxLeases } = await import('../services/events/pathwayProjectorService.js');
     await reapStaleInboxLeases();
+  }));
+
+  // Default-off S1b-c3 pathway reconciliation. The outer job lock reduces
+  // duplicate fleet work; the service retains a tenant/pathway transaction
+  // fence because this lock intentionally fails open during DB connectivity
+  // degradation. This job observes and appends evidence only.
+  registerCron(pathwayReconciliationCron(), withJobLock('care-pathway-reconciliation', async () => {
+    if (!isPathwayReconciliationEnabled()) return;
+    const { runCarePathwayReconciliationSweep } = await import(
+      '../services/pathways/pathwayReconciliationService.js'
+    );
+    await runCarePathwayReconciliationSweep();
   }));
 
   // 🚨 Every 10 minutes - escalate unread critical notifications so safety

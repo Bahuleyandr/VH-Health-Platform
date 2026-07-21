@@ -177,7 +177,7 @@ function parseJsonObject(value) {
   }
 }
 
-function assertGovernanceApprovalEvidence(definition) {
+export function assertGovernanceApprovalEvidence(definition) {
   const decidingActor = String(definition.approval_decided_by || '').trim().toLowerCase();
   const governanceActor = String(definition.governance_approved_by || '').trim().toLowerCase();
   const approvedBy = parseJsonArray(definition.approval_approved_by);
