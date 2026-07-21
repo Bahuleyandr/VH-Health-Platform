@@ -16,6 +16,8 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const NAME_A = 'E6TEST PortalPatient';
 const NAME_B = 'E6TEST ProxyHolder';
+const TENANT = '00000000-0000-4000-8000-000000000001';
+const DOCTOR_UID = 'e6000000-0000-4000-8000-000000000001';
 
 let patientA;
 let patientB;
@@ -69,10 +71,25 @@ async function seedResult({ patientUid, testCode, name, value, signedHoursAgo, h
 }
 
 d('Portal result release + proxy access — deep round-trip (roadmap E6)', () => {
-  const doctor = authClient('DOCTOR');
+  const doctor = authClient('DOCTOR', { uid: DOCTOR_UID });
 
   beforeAll(async () => {
     await cleanup();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users
+         (uid, tenant_id, phone, name, role, status, is_active, is_deleted, updated_at)
+       VALUES ($1::uuid, $2::uuid, '9887700001', 'E6TEST Release Doctor',
+               'DOCTOR', 'active', true, false, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET tenant_id = EXCLUDED.tenant_id,
+             role = EXCLUDED.role,
+             status = EXCLUDED.status,
+             is_active = true,
+             is_deleted = false,
+             deleted_at = NULL`,
+      DOCTOR_UID,
+      TENANT,
+    );
     const a = await prisma.$queryRawUnsafe(
       `INSERT INTO users (phone, name, role, is_active, updated_at)
        VALUES ($1, $2, 'PATIENT', true, NOW()) RETURNING uid`,
@@ -109,6 +126,9 @@ d('Portal result release + proxy access — deep round-trip (roadmap E6)', () =>
 
   afterAll(async () => {
     await cleanup();
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid = $1::uuid`, DOCTOR_UID,
+    ).catch(() => {});
     await prisma.$disconnect();
   });
 

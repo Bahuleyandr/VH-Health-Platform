@@ -124,6 +124,47 @@ async function openTasksFor(resultId) {
 }
 
 async function signOff(ids, decision, patientUid) {
+  if (decision === 'corrected' || decision === 'amended') {
+    await setTenantTx(TENANT, async (tx) => {
+      const predecessors = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM lab_pathologist_signoffs
+          WHERE tenant_id = $1::uuid
+            AND result_ids = $2::int[]
+            AND decision IN ('verified', 'corrected', 'amended')
+          LIMIT 1`,
+        TENANT,
+        ids,
+      );
+      if (predecessors.length === 0) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO lab_pathologist_signoffs
+             (tenant_id, patient_uid, result_ids, signed_off_by, decision, comments, signed_at)
+           VALUES ($1::uuid, $2::uuid, $3::int[], $4::uuid, 'verified',
+                   'S2a fixture predecessor generation', NOW() - INTERVAL '1 second')`,
+          TENANT,
+          patientUid,
+          ids,
+          PATHOLOGIST_UID,
+        );
+      }
+      await tx.$executeRawUnsafe(
+        `UPDATE lab_results
+            SET status = CASE
+                           WHEN signed_off_at IS NULL THEN 'final'
+                           ELSE status
+                         END,
+                signed_off_at = COALESCE(signed_off_at, NOW() - INTERVAL '1 second'),
+                signed_off_by = COALESCE(signed_off_by, $1::uuid),
+                updated_at = clock_timestamp()
+          WHERE tenant_id = $2::uuid
+            AND id = ANY($3::int[])`,
+        PATHOLOGIST_UID,
+        TENANT,
+        ids,
+      );
+    });
+  }
   return labResults.signOffResults({
     tenantId: TENANT,
     signed_off_by: PATHOLOGIST_UID,
@@ -579,14 +620,13 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       expect(prior.prior_ack_contract_version).toBe(2);
     });
 
-    it('re-notifies the patient that the result was corrected', async () => {
+    it('does not announce a corrected result before its release policy permits visibility', async () => {
       const notifs = await prisma.$queryRawUnsafe(
         `SELECT title, body, data FROM notifications
           WHERE uid = $1::uuid AND type = 'lab_result_corrected'`,
         PATIENT_A_UID,
       );
-      expect(notifs.length).toBeGreaterThanOrEqual(1);
-      expect(notifs[0].body).toMatch(/correct/i);
+      expect(notifs).toHaveLength(0);
     });
   });
 
@@ -1609,14 +1649,13 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
   });
 
   // ── Scenario C — patient re-notify honors the release policy ─────────
-  // A row a clinician explicitly held from the patient (migration 294,
-  // portalAccessService) must NOT be announced; the non-held row in the
-  // same corrected batch must be.
+  // Whole-panel release is authoritative: one held row suppresses the
+  // corrected-result announcement for the entire episode.
   describe('corrected sign-off notifies only per the release policy', () => {
     let heldId;
     let plainId;
 
-    it('notifies for the released row and never references the held row', async () => {
+    it('does not announce a panel while any corrected row is held', async () => {
       const invId = await insertInvestigation(PATIENT_C_UID);
       heldId = await insertRawResult(PATIENT_C_UID, invId, '4.2', { releaseHold: true });
       plainId = await insertRawResult(PATIENT_C_UID, invId, '4.4');
@@ -1628,19 +1667,19 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
           WHERE uid = $1::uuid AND type = 'lab_result_corrected'`,
         PATIENT_C_UID,
       );
-      expect(notifs.length).toBe(1);
-      const notifiedIds = notifs[0].data?.result_ids || [];
-      expect(notifiedIds).toContain(plainId);
-      expect(notifiedIds).not.toContain(heldId);
+      expect(notifs).toHaveLength(0);
     });
   });
 
   // ── Regression guard — rejected sign-off stays inert ─────────────────
-  it('a rejected sign-off does not fire the corrected-result loop', async () => {
+  it('rejects a non-sign-off decision without firing the corrected-result loop', async () => {
     const invId = await insertInvestigation(PATIENT_C_UID);
     const rid = await insertRawResult(PATIENT_C_UID, invId, '7.9');
 
-    await signOff([rid], 'rejected', PATIENT_C_UID);
+    await expect(signOff([rid], 'rejected', PATIENT_C_UID)).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_DECISION_UNSUPPORTED',
+    });
 
     expect((await openTasksFor(rid)).length).toBe(0);
     const rows = await prisma.$queryRawUnsafe(

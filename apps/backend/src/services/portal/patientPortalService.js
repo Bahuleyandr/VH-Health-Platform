@@ -14,10 +14,16 @@ import { AppError } from '../../utils/AppError.js';
 import * as paymentLinkService from '../billing/paymentLinkService.js';
 import * as pointService from '../gamification/pointService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
-import { releaseVisibilitySql, releaseDelayHours } from './portalAccessService.js';
+import {
+  evaluatePanelRelease,
+  getResultEpisodeReleaseDecision,
+  releaseVisibilitySql,
+  releaseDelayHours,
+} from './portalAccessService.js';
 import { getClinicalAiModule } from '../ai/clinicalAiModuleService.js';
 import { PATIENT_EXPLAINER_MODULE_KEYS } from '../ai/patientExplainersService.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const ACTIVE_APPOINTMENT_STATUSES = ['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'CHECKED_IN'];
 const PENDING_LAB_ORDER_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'SAMPLE_COLLECTED', 'PROCESSING'];
@@ -656,7 +662,7 @@ export async function getPatientCommandCenter({
   ] = await Promise.all([
     safeCommandSection('appointments', () => listUpcomingAppointments({ patient_id: patientId }), []),
     safeCommandSection('prescriptions', () => listLatestPrescriptions({ patient_id: patientId }), []),
-    safeCommandSection('lab_orders', () => listMyLabOrders({ patient_uid, limit: 25 }), []),
+    safeCommandSection('lab_orders', () => listMyLabOrders({ tenantId, patient_uid, limit: 25 }), []),
     safeCommandSection('lab_results', () => listMyLabResults({ tenantId, patient_uid, limit: 25 }), []),
     safeCommandSection('bills', () => listMyBills({ tenantId, patient_uid }), []),
     safeCommandSection('claims', () => listMyClaims({ tenantId, patient_uid }), []),
@@ -1897,18 +1903,37 @@ export async function getMyClaimDocumentDownloadUrl({
 // Finding 2026-05-09-walk-in-opd-patient-lab-order-no-collection-instructions
 // + 2026-05-10-walk-in-opd-patient-lab-order-missing-instructions.
 
-export async function listMyLabOrders({ patient_uid, status = null, limit = 100 }) {
+const PATIENT_RESULT_BEARING_ORDER_FIELDS = [
+  'notes',
+  'result_summary',
+  'conclusion',
+  'interpretation',
+  'results',
+  'structured_results',
+  'result_uploaded_at',
+  'file_key',
+];
+
+function redactUnreleasedOrderContent(order) {
+  const safe = { ...order };
+  for (const field of PATIENT_RESULT_BEARING_ORDER_FIELDS) delete safe[field];
+  delete safe.lab_results;
+  return safe;
+}
+
+export async function listMyLabOrders({ tenantId, patient_uid, status = null, limit = 100 }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const tid = requireTenantId(tenantId);
   // Resolve the patient's int id once — legacy rows on `investigations`
   // (created before patient_uid backfill) only carry patient_id.
   const userRows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
-    String(patient_uid),
+    `SELECT id FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+    String(patient_uid), tid,
   );
   const patientId = userRows[0]?.id ?? null;
 
-  const params = [String(patient_uid)];
-  let where = `(i.patient_uid = $1::uuid`;
+  const params = [tid, String(patient_uid)];
+  let where = `i.tenant_id = $1::uuid AND (i.patient_uid = $2::uuid`;
   if (patientId != null) {
     params.push(patientId);
     where += ` OR i.patient_id = $${params.length}::int`;
@@ -1919,7 +1944,7 @@ export async function listMyLabOrders({ patient_uid, status = null, limit = 100 
     where += ` AND UPPER(i.status) = $${params.length}`;
   }
   params.push(Number(limit));
-  return prisma.$queryRawUnsafe(
+  const orders = await prisma.$queryRawUnsafe(
     `SELECT i.id, i.test_name, i.test_code, i.test_type, i.investigation_type,
             i.status, i.priority,
             i.requested_at, i.scheduled_date, i.time_slot,
@@ -1939,17 +1964,44 @@ export async function listMyLabOrders({ patient_uid, status = null, limit = 100 
       LIMIT $${params.length}::int`,
     ...params,
   );
+  if (orders.length === 0) return orders;
+  const releaseRows = await prisma.$queryRawUnsafe(
+    `SELECT investigation_id, status, signed_off_at, release_hold, released_to_patient_at,
+            (${releaseVisibilitySql('$3')}) AS release_visible
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND investigation_id = ANY($2::int[])
+      ORDER BY investigation_id, id`,
+    tid,
+    orders.map((order) => Number(order.id)),
+    releaseDelayHours(),
+  );
+  const byInvestigation = new Map();
+  for (const row of releaseRows) {
+    const key = Number(row.investigation_id);
+    if (!byInvestigation.has(key)) byInvestigation.set(key, []);
+    byInvestigation.get(key).push(row);
+  }
+  return orders.map((order) => {
+    if (evaluatePanelRelease(byInvestigation.get(Number(order.id)) || []).outcome !== 'visible') {
+      return redactUnreleasedOrderContent(order);
+    }
+    const visible = { ...order };
+    delete visible.file_key;
+    return visible;
+  });
 }
 
-export async function getMyLabOrder({ patient_uid, id }) {
+export async function getMyLabOrder({ tenantId, patient_uid, id }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const tid = requireTenantId(tenantId);
   const invId = Number(id);
   if (!Number.isInteger(invId) || invId <= 0) {
     throw AppError.badRequest('lab order id must be a positive integer');
   }
   const userRows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
-    String(patient_uid),
+    `SELECT id FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+    String(patient_uid), tid,
   );
   const patientId = userRows[0]?.id ?? null;
   const rows = await prisma.$queryRawUnsafe(
@@ -1967,8 +2019,9 @@ export async function getMyLabOrder({ patient_uid, id }) {
        LEFT JOIN users u ON u.id = i.doctor_id
        LEFT JOIN doctors doc ON doc.user_id = i.doctor_id
       WHERE i.id = $1::int
+        AND i.tenant_id = $4::uuid
         AND (i.patient_uid = $2::uuid OR i.patient_id = $3::int)`,
-    invId, String(patient_uid), patientId,
+    invId, String(patient_uid), patientId, tid,
   );
   if (!rows.length) throw AppError.notFound('Lab order not found');
   const order = rows[0];
@@ -1985,15 +2038,24 @@ export async function getMyLabOrder({ patient_uid, id }) {
     `SELECT id, test_code, test_name, value_text, value_numeric, unit,
             reference_range, reference_range_low, reference_range_high,
             abnormal_flag, is_critical, status,
-            performed_at, signed_off_at
+            performed_at, signed_off_at, release_hold, released_to_patient_at,
+            (${releaseVisibilitySql('$3')}) AS release_visible
        FROM lab_results
       WHERE investigation_id = $1::int
-        AND signed_off_at IS NOT NULL
-        AND status IN ('final', 'corrected')
+        AND tenant_id = $2::uuid
       ORDER BY hl7_segment_index NULLS LAST, id`,
-    invId,
+    invId, tid, releaseDelayHours(),
   );
-  order.lab_results = labResults;
+  if (evaluatePanelRelease(labResults).outcome !== 'visible') {
+    return redactUnreleasedOrderContent(order);
+  }
+  order.lab_results = labResults.map(({
+    release_hold: _hold,
+    released_to_patient_at: _released,
+    release_visible: _visible,
+    ...row
+  }) => row);
+  delete order.file_key;
   return order;
 }
 
@@ -2002,24 +2064,32 @@ export async function getMyLabOrder({ patient_uid, id }) {
 // is generated. Delegates to clinicalPdfGenerator.generateLabReportPDF
 // for the actual layout. Finding
 // 2026-05-10-lab-walk-in-patient-no-report-pdf-download.
-export async function generateMyLabOrderPdfBuffer({ patient_uid, id }) {
+export async function generateMyLabOrderPdfBuffer({ tenantId, patient_uid, id }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const tid = requireTenantId(tenantId);
   const invId = Number(id);
   if (!Number.isInteger(invId) || invId <= 0) {
     throw AppError.badRequest('lab order id must be a positive integer');
   }
   const userRows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
-    String(patient_uid),
+    `SELECT id FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+    String(patient_uid), tid,
   );
   const patientId = userRows[0]?.id ?? null;
   const ownRows = await prisma.$queryRawUnsafe(
     `SELECT id FROM investigations
       WHERE id = $1::int
+        AND tenant_id = $4::uuid
         AND (patient_uid = $2::uuid OR patient_id = $3::int)`,
-    invId, String(patient_uid), patientId,
+    invId, String(patient_uid), patientId, tid,
   );
   if (!ownRows.length) throw AppError.notFound('Lab order not found');
+  const decision = await getResultEpisodeReleaseDecision({
+    tenantId: tid,
+    patientUid: String(patient_uid),
+    investigationId: invId,
+  });
+  if (decision.outcome !== 'visible') throw AppError.notFound('Lab order not found');
 
   const { generateLabReportPDF } = await import('../documents/clinicalPdfGenerator.js');
   return generateLabReportPDF(invId);

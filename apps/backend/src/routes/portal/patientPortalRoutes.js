@@ -556,7 +556,8 @@ router.post('/proxy/grants/:id/revoke', requirePatient, wrap(async (req) =>
 // ── Lab orders (patient-actionable collection + report download) ───
 router.get('/lab-orders', requirePatient, wrap(async (req) =>
   portal.listMyLabOrders({
-    patient_uid: patientUidOf(req),
+    tenantId: tenantOf(req),
+    patient_uid: await effectivePatientUid(req),
     status: req.query.status,
     limit: req.query.limit,
   }),
@@ -564,7 +565,8 @@ router.get('/lab-orders', requirePatient, wrap(async (req) =>
 
 router.get('/lab-orders/:id', requirePatient, wrap(async (req) =>
   portal.getMyLabOrder({
-    patient_uid: patientUidOf(req),
+    tenantId: tenantOf(req),
+    patient_uid: await effectivePatientUid(req),
     id: req.params.id,
   }),
 ));
@@ -574,7 +576,8 @@ router.get('/lab-orders/:id', requirePatient, wrap(async (req) =>
 router.get('/lab-orders/:id/pdf', requirePatient, async (req, res) => {
   try {
     const buffer = await portal.generateMyLabOrderPdfBuffer({
-      patient_uid: patientUidOf(req),
+      tenantId: tenantOf(req),
+      patient_uid: await effectivePatientUid(req),
       id: req.params.id,
     });
     logPhiAccess({

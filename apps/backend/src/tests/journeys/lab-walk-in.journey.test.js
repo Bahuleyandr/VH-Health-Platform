@@ -346,13 +346,14 @@ describeJourney('Journey: lab-walk-in', () => {
     });
 
     it('pathologist signs the result off as verified', async () => {
-      const res = await pathologist.post('/api/v1/lab/pathologist/signoff').send({
+      const res = await pathologist.post('/api/v1/lab/pathologist/signoff')
+        .set('Idempotency-Key', `lab-walkin-signoff-${RUN}`)
+        .send({
         result_ids: [resultId],
         patient_uid: patientUid,
         decision: 'verified',
-        signed_off_by_reg: `REG-${RUN}`,
         comments: 'Consistent with myocardial injury; clinical correlation advised.',
-      });
+        });
       expect(res.statusCode).toBe(200);
 
       const row = await prisma.$queryRawUnsafe(

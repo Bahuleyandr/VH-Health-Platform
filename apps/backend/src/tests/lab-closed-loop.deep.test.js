@@ -831,6 +831,17 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     expect(chain[0].completed_at).toEqual(chain[0].acknowledged_at);
     await rerunAstmMigrationWithoutMutation({ messageId, resultId });
 
+    await signOffResults({
+      tenantId: DEFAULT_TENANT,
+      signed_off_by: TEST_ACTOR_UID,
+      signed_off_by_role: 'ADMIN',
+      signed_off_by_name: 'B3TEST Administrator',
+      result_ids: [resultId],
+      decision: 'verified',
+      booking_id: bookingId,
+      patient_uid: patientUid,
+    });
+
     await prisma.$executeRawUnsafe(
       `UPDATE lab_results
           SET value_text = '7.4', value_numeric = 7.4, updated_at = NOW()
@@ -942,6 +953,13 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
         WHERE tenant_id = $1::uuid AND id = $2::int`,
       DEFAULT_TENANT,
       thresholdId,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results
+          SET updated_at = clock_timestamp()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      DEFAULT_TENANT,
+      resultId,
     );
     await signOffResults({
       tenantId: DEFAULT_TENANT,

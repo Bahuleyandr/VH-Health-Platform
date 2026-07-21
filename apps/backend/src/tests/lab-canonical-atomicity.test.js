@@ -21,6 +21,7 @@ jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.
   recordClinicalAuditEvent: jest.fn().mockResolvedValue(null),
   startWorkflowSla: jest.fn().mockResolvedValue(null),
   completeWorkflowSla: jest.fn().mockResolvedValue(null),
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
   isSchemaMissing: jest.fn(() => false),
 }));
 

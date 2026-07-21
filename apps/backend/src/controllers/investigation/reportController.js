@@ -4,6 +4,7 @@ import prisma from '../../lib/prisma.js'; // <-- ADD THIS LINE
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import * as reportService from '../../services/investigation/reportService.js';
+import { getResultEpisodeReleaseDecision } from '../../services/portal/portalAccessService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -18,11 +19,23 @@ export const generateReport = async (req, res) => {
     const investigation = await investigationService.getInvestigationById(
       id,
       userRole,
-      requestedBy
+      requestedBy,
+      req.tenantId,
     );
     
     if (!investigation) {
       return error(res, 'Investigation not found or access denied', 404);
+    }
+
+    if (userRole === 'PATIENT') {
+      const decision = await getResultEpisodeReleaseDecision({
+        tenantId: req.tenantId,
+        patientUid: requestedBy,
+        investigationId: Number(id),
+      });
+      if (decision.outcome !== 'visible') {
+        return error(res, 'Investigation not found or access denied', 404);
+      }
     }
 
     // Only generate report for completed investigations

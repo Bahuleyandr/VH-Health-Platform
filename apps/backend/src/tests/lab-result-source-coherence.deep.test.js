@@ -507,7 +507,7 @@ d('Manual lab-result source coherence', () => {
     expect(await investigationStatus(investigationId)).toBe('IN_PROGRESS');
   });
 
-  it('derives a homogeneous booking for the durable sign-off, canonical event, and notification', async () => {
+  it('derives a homogeneous booking for durable sign-off evidence without a premature notification', async () => {
     const signoff = await signOffResults({
       tenantId: TENANT,
       signed_off_by: PATHOLOGIST_UID,
@@ -520,10 +520,10 @@ d('Manual lab-result source coherence', () => {
     expect(Number(signoff.booking_id)).toBe(coherentBookingId);
     expect(Number(evidence.signoff.booking_id)).toBe(coherentBookingId);
     expect(evidence.timeline.payload.booking_id).toBe(coherentBookingId);
-    expect(evidence.notification.data.booking_id).toBe(coherentBookingId);
+    expect(evidence.notification).toBeUndefined();
   });
 
-  it('rejects a booking assertion for mixed rows, then derives null when assertion is omitted', async () => {
+  it('rejects a cross-episode batch with or without a booking assertion', async () => {
     const investigationA = await insertInvestigation(
       patientAId,
       PATIENT_A_UID,
@@ -576,7 +576,7 @@ d('Manual lab-result source coherence', () => {
       decision: 'verified',
     })).rejects.toMatchObject({
       statusCode: 400,
-      code: 'LAB_SIGNOFF_BOOKING_MISMATCH',
+      code: 'LAB_SIGNOFF_MULTI_EPISODE_BATCH',
     });
 
     const before = await prisma.$queryRawUnsafe(
@@ -585,18 +585,15 @@ d('Manual lab-result source coherence', () => {
     );
     expect(before.every((row) => row.signed_off_at == null)).toBe(true);
 
-    const signoff = await signOffResults({
+    await expect(signOffResults({
       tenantId: TENANT,
       signed_off_by: PATHOLOGIST_UID,
       signed_off_by_role: 'PATHOLOGIST',
       result_ids: mixedResultIds,
       decision: 'verified',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_MULTI_EPISODE_BATCH',
     });
-    const evidence = await loadSignoffEvidence(signoff.id, mixedResultIds);
-
-    expect(signoff.booking_id).toBeNull();
-    expect(evidence.signoff.booking_id).toBeNull();
-    expect(evidence.timeline.payload.booking_id).toBeNull();
-    expect(evidence.notification.data.booking_id).toBeNull();
   });
 });

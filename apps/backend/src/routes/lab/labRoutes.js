@@ -261,21 +261,61 @@ function requirePathologistTier(req, res, next) {
   next();
 }
 
-router.post('/pathologist/signoff', requirePathologistTier, wrap(async (req) =>
+async function requireCurrentPathologistTier(req, res, next) {
+  try {
+    await lab.resolveCurrentLabSigner({
+      tenantId: tenantOf(req),
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      actorRoles: getAuthenticatedActorRoles(req.user),
+      actorRawRole: req.user?.rawRole || req.user?.role || null,
+    });
+    return next();
+  } catch (err) {
+    return relayAppError(res, err, 'Lab signoff authorization failed');
+  }
+}
+
+function rejectCallerSignerIdentity(req, res, next) {
+  const body = req.body || {};
+  const prohibited = [
+    'signed_off_by',
+    'signed_off_by_uid',
+    'signed_off_by_name',
+    'signed_off_by_reg',
+  ];
+  if (prohibited.some((field) => Object.prototype.hasOwnProperty.call(body, field))) {
+    return error(res, 'Signer identity is server-derived and must not be supplied', 400);
+  }
+  return next();
+}
+
+router.post(
+  '/pathologist/signoff',
+  requirePathologistTier,
+  rejectCallerSignerIdentity,
+  requireCurrentPathologistTier,
+  requireIdempotencyKey({ required: true, scope: 'lab-pathologist-signoff' }),
+  wrap(async (req) =>
   lab.signOffResults({
     tenantId: tenantOf(req),
     signed_off_by: req.user?.uid,
     signed_off_by_role: req.user?.role,
-    signed_off_by_name: req.body.signed_off_by_name || req.user?.name,
-    signed_off_by_reg: req.body.signed_off_by_reg,
     result_ids: req.body.result_ids,
     decision: req.body.decision,
     comments: req.body.comments,
     booking_id: req.body.booking_id,
     // Compatibility-only assertion; the service derives the patient from the tenant-owned results.
     patient_uid: req.body.patient_uid,
+    actorRoles: getAuthenticatedActorRoles(req.user),
+    actorRawRole: req.user?.rawRole || req.user?.role || null,
+    idempotencyKey: req.idempotencyClaim?.requestKey,
+    requestBodySha256: req.idempotencyClaim?.requestBodyHash,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id,
+    requestId: req.id || null,
   }),
-));
+  ),
+);
 
 // ── Critical alerts ──────────────────────────────────────────────────
 router.get('/alerts/critical', requireStaffOrAdmin, wrap(async (req) =>

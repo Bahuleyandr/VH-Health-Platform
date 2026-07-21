@@ -17287,6 +17287,31 @@
           }
         }
       },
+      "InvestigationResultRecordRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {},
+          "interpretation": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "technician_notes": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "re_run": {
+            "type": "boolean"
+          },
+          "re_run_reason": {
+            "type": "string",
+            "minLength": 5
+          }
+        }
+      },
       "Invoice": {
         "type": "object",
         "additionalProperties": false,
@@ -18565,6 +18590,120 @@
             "type": "string",
             "minLength": 1,
             "description": "HL7 ORU^R01 payload. Local investigation references in ORC-2/OBR-2 must use VHINV-<positive PostgreSQL integer>. Bare numeric, malformed VHINV, and reserved VHBOOK identifiers are rejected. A VHINV-linked single-analyte message requires exact investigations.test_code equality with the OBR-4 and every OBX-3 code component. Unrecognized external alphanumeric identifiers remain unlinked shadow data."
+          }
+        }
+      },
+      "LabPathologistSignoff": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "episode_key",
+          "classification",
+          "result_snapshot_sha256",
+          "receipt"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "episode_key": {
+            "type": "string",
+            "pattern": "^(investigation|booking):[1-9][0-9]*$"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "abnormal",
+              "normal",
+              "indeterminate"
+            ]
+          },
+          "result_snapshot_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "receipt": {
+            "type": "object",
+            "required": [
+              "idempotency_key",
+              "request_body_sha256"
+            ],
+            "properties": {
+              "idempotency_key": {
+                "type": "string",
+                "nullable": true
+              },
+              "request_body_sha256": {
+                "type": "string",
+                "nullable": true,
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      },
+      "LabPathologistSignoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "result_ids",
+          "decision"
+        ],
+        "properties": {
+          "result_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "corrected",
+              "amended"
+            ]
+          },
+          "comments": {
+            "type": "string",
+            "nullable": true
+          },
+          "booking_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Compatibility assertion only; ownership is derived from locked tenant rows."
+          }
+        }
+      },
+      "LabPathologistSignoffResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LabPathologistSignoff"
           }
         }
       },
@@ -80691,6 +80830,8 @@
             }
           }
         },
+        "summary": "Record technical investigation results",
+        "description": "The authenticated current database actor is recorded as the technical result recorder. reviewed_by and other caller-supplied reviewer identities are rejected and this command does not constitute doctor countersignature.",
         "parameters": [
           {
             "name": "id",
@@ -80700,7 +80841,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestigationResultRecordRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/investigations/{id}/status": {
@@ -81344,8 +81495,33 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/LabPathologistSignoffResponse"
                 }
+              }
+            }
+          }
+        },
+        "summary": "Sign one laboratory result episode",
+        "description": "Requires a stable Idempotency-Key, a database-current pathologist-tier actor, one tenant/patient/source episode, and a legal initial or corrective generation state.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabPathologistSignoffRequest"
               }
             }
           }

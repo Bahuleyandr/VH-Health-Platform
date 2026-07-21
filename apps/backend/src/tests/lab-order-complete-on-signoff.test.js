@@ -83,9 +83,19 @@ async function clinicalOrderState(id) {
 describe('Lab order completes on result sign-off', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, '9007070701', 'Lab Order Patient', 'PATIENT', true, NOW())
-       ON CONFLICT (uid) DO NOTHING`, PATIENT_UID);
+      `INSERT INTO users
+         (uid, tenant_id, phone, name, role, status, is_active, is_deleted, updated_at)
+       VALUES
+         ($1::uuid, $3::uuid, '9007070701', 'Lab Order Patient', 'PATIENT', 'active', true, false, NOW()),
+         ($2::uuid, $3::uuid, '9007070709', 'Lab Order Pathologist', 'PATHOLOGIST', 'active', true, false, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET tenant_id = EXCLUDED.tenant_id,
+             role = EXCLUDED.role,
+             status = EXCLUDED.status,
+             is_active = true,
+             is_deleted = false,
+             deleted_at = NULL`,
+      PATIENT_UID, PATHOLOGIST_UID, TENANT);
   });
 
   afterAll(async () => {
@@ -100,6 +110,7 @@ describe('Lab order completes on result sign-off', () => {
       await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE id = $1::int`, id).catch(() => {});
     }
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATHOLOGIST_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -151,17 +162,20 @@ describe('Lab order completes on result sign-off', () => {
     expect(await investigationStatus(invId)).toBe('COMPLETED');
   });
 
-  it('does not complete the order on a non-verifying decision', async () => {
+  it('rejects a non-sign-off decision without completing the order', async () => {
     const invId = await seedInvestigation();
     const resultId = await seedResult(invId);
 
-    await labResults.signOffResults({
+    await expect(labResults.signOffResults({
       tenantId: TENANT,
       signed_off_by: PATHOLOGIST_UID,
       signed_off_by_role: 'PATHOLOGIST',
       result_ids: [resultId],
       decision: 'rejected',
       patient_uid: PATIENT_UID,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_DECISION_UNSUPPORTED',
     });
 
     expect(await investigationStatus(invId)).toBe('IN_PROGRESS');

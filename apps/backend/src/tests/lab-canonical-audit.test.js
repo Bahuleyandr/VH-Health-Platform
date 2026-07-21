@@ -237,21 +237,32 @@ describe('Lab results emit canonical timeline + audit events', () => {
     expect(audit[0].metadata?.result_ids).toEqual(expect.arrayContaining([first, second]));
   });
 
-  it('a rejected sign-off carries the rejected decision on the canonical event', async () => {
+  it('rejects a non-sign-off decision before writing canonical evidence', async () => {
     const invId = await seedInvestigation({ status: 'IN_PROGRESS' });
     const resultId = await seedResult(invId, { testCode: 'NA', testName: 'Sodium', value: '141' });
 
-    const signoff = await labResults.signOffResults({
+    await expect(labResults.signOffResults({
       tenantId: TENANT,
       signed_off_by: PATHOLOGIST_UID,
       signed_off_by_role: 'PATHOLOGIST',
       result_ids: [resultId],
       decision: 'rejected',
       patient_uid: PATIENT_UID,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_DECISION_UNSUPPORTED',
     });
 
-    const timeline = await timelineEventsFor('lab_pathologist_signoffs', signoff.id, 'lab.result_signed_off');
-    expect(timeline).toHaveLength(1);
-    expect(timeline[0].event_status).toBe('rejected');
+    const timeline = await prisma.$queryRawUnsafe(
+      `SELECT id FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'lab_pathologist_signoffs'
+          AND patient_uid = $2::uuid
+          AND event_type = 'lab.result_signed_off'
+          AND event_status = 'rejected'`,
+      TENANT,
+      PATIENT_UID,
+    );
+    expect(timeline).toHaveLength(0);
   });
 });

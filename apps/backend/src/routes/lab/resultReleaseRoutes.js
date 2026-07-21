@@ -11,7 +11,7 @@ import {
 } from '../../services/portal/portalAccessService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { isAdmin, isClinical } from '../../utils/roleHelpers.js';
+import { getAuthenticatedActorRoles, isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const router = express.Router();
@@ -37,6 +37,8 @@ router.patch('/:id/hold', async (req, res) => {
     }, {
       actorUid: req.user?.uid || null,
       actorRole: req.user?.role || null,
+      actorRoles: getAuthenticatedActorRoles(req.user),
+      actorRawRole: req.user?.rawRole || req.user?.role || null,
       tenantId: tenantOf(req),
     });
     return success(res, { result }, result.release_hold ? 'Result held from patient' : 'Hold lifted');
@@ -53,6 +55,8 @@ router.post('/:id/release-now', async (req, res) => {
     const result = await releaseResultNow(req.params.id, {
       actorUid: req.user?.uid || null,
       actorRole: req.user?.role || null,
+      actorRoles: getAuthenticatedActorRoles(req.user),
+      actorRawRole: req.user?.rawRole || req.user?.role || null,
       tenantId: tenantOf(req),
     });
     return success(res, { result }, 'Result released to patient');

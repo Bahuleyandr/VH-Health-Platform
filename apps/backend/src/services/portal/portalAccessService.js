@@ -14,11 +14,17 @@
 //     (method/reference/grantor/expiry/revocation). Every proxy read is
 //     audited with the grant id.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { isAdmin, isClinical } from '../../utils/roleHelpers.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+  recordClinicalAuditEvent,
+} from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { resolveCurrentHumanActorTx } from '../workflow/workflowHumanOwnerService.js';
 
 export function releaseDelayHours() {
   const n = Number(process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS);
@@ -30,96 +36,319 @@ export function releaseDelayHours() {
  * placeholder (e.g. '$3') that carries releaseDelayHours() at call time.
  */
 export function releaseVisibilitySql(delayParam) {
-  return `release_hold = false
+  return `LOWER(COALESCE(status, '')) IN ('final', 'corrected', 'verified', 'amended')
+    AND signed_off_at IS NOT NULL
+    AND release_hold = false
     AND (
       (released_to_patient_at IS NOT NULL AND released_to_patient_at <= NOW())
       OR (signed_off_at IS NOT NULL AND signed_off_at <= NOW() - make_interval(hours => ${delayParam}::int))
     )`;
 }
 
+const STRUCTURED_RELEASE_FIELDS = [
+  'status',
+  'signed_off_at',
+  'release_hold',
+  'released_to_patient_at',
+];
+
+export function evaluateResultRelease(row, {
+  delayHours = releaseDelayHours(),
+  now = new Date(),
+} = {}) {
+  if (typeof row?.release_visible === 'boolean') {
+    return Object.freeze({ outcome: row.release_visible ? 'visible' : 'not_visible' });
+  }
+  if (!row || STRUCTURED_RELEASE_FIELDS.some((field) => !(field in row))) {
+    return Object.freeze({ outcome: 'unsupported_source' });
+  }
+  const status = String(row.status || '').trim().toLowerCase();
+  const signedAt = row.signed_off_at ? new Date(row.signed_off_at) : null;
+  const releasedAt = row.released_to_patient_at
+    ? new Date(row.released_to_patient_at)
+    : null;
+  const nowMs = new Date(now).getTime();
+  const signedMs = signedAt?.getTime();
+  const releasedMs = releasedAt?.getTime();
+  const supportedStatus = ['final', 'corrected', 'verified', 'amended'].includes(status);
+  const validSignedAt = Number.isFinite(signedMs);
+  const explicitRelease = Number.isFinite(releasedMs) && releasedMs <= nowMs;
+  const elapsedRelease = validSignedAt
+    && signedMs <= nowMs - (Number(delayHours) * 60 * 60 * 1000);
+  return Object.freeze({
+    outcome: supportedStatus
+      && validSignedAt
+      && row.release_hold === false
+      && (explicitRelease || elapsedRelease)
+      ? 'visible'
+      : 'not_visible',
+  });
+}
+
+export function evaluatePanelRelease(rows, options = {}) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return Object.freeze({ outcome: 'unsupported_source' });
+  }
+  const decisions = rows.map((row) => evaluateResultRelease(row, options));
+  if (decisions.some((decision) => decision.outcome === 'unsupported_source')) {
+    return Object.freeze({ outcome: 'unsupported_source' });
+  }
+  return Object.freeze({
+    outcome: decisions.every((decision) => decision.outcome === 'visible')
+      ? 'visible'
+      : 'not_visible',
+  });
+}
+
+export async function getResultEpisodeReleaseDecision({
+  tenantId,
+  patientUid,
+  investigationId = null,
+  bookingId = null,
+  db = prisma,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const sourceId = investigationId != null ? Number(investigationId) : Number(bookingId);
+  const sourceColumn = investigationId != null ? 'investigation_id' : 'booking_id';
+  if (!Number.isSafeInteger(sourceId) || sourceId <= 0 || !patientUid) {
+    return Object.freeze({ outcome: 'unsupported_source' });
+  }
+  const rows = await db.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS result_count,
+            COALESCE(BOOL_AND(${releaseVisibilitySql('$4')}), false) AS all_visible
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND ${sourceColumn} = $3::int`,
+    tid,
+    String(patientUid),
+    sourceId,
+    releaseDelayHours(),
+  );
+  const summary = rows[0];
+  if (!summary || Number(summary.result_count) === 0) {
+    return Object.freeze({ outcome: 'unsupported_source' });
+  }
+  return Object.freeze({ outcome: summary.all_visible ? 'visible' : 'not_visible' });
+}
+
+function isResultReleaseActorRole(role) {
+  return isClinical(role) || isAdmin(role) || role === 'SUPER_ADMIN';
+}
+
+async function resolveReleaseActorTx(tx, tenantId, {
+  actorUid,
+  actorRole,
+  actorRoles = [],
+  actorRawRole = null,
+}) {
+  return resolveCurrentHumanActorTx({
+    tx,
+    tenantId,
+    actorUid,
+    authenticatedRoles: actorRoles.length ? actorRoles : [actorRole],
+    authenticatedPrimaryRole: actorRole,
+    authenticatedRawRole: actorRawRole || actorRole,
+    rolePredicate: isResultReleaseActorRole,
+  });
+}
+
 // ── staff: hold / early release ──────────────────────────────────────────
 
-async function getResult(resultId, tenantId) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, test_name, status, signed_off_at, release_hold, released_to_patient_at
+async function getResult(tx, resultId, tenantId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid, investigation_id, booking_id, test_name, status,
+            signed_off_at, release_hold, release_hold_reason, released_to_patient_at
        FROM lab_results
       WHERE id = $1::int
-        AND tenant_id = $2::uuid`,
+        AND tenant_id = $2::uuid
+      FOR UPDATE`,
     Number(resultId), tenantId,
   );
   if (!rows.length) throw AppError.notFound('Lab result not found', 'PORTAL_RESULT_NOT_FOUND');
   return rows[0];
 }
 
-export async function setResultReleaseHold(resultId, { hold, reason = null }, { actorUid = null, actorRole = null, tenantId } = {}) {
+export async function setResultReleaseHold(resultId, { hold, reason = null }, {
+  actorUid = null,
+  actorRole = null,
+  actorRoles = [],
+  actorRawRole = null,
+  tenantId,
+} = {}) {
+  const tid = requireTenantId(tenantId);
   const wantHold = Boolean(hold);
+  const normalizedReason = reason == null ? null : String(reason).trim();
   if (wantHold && (!reason || !String(reason).trim())) {
     throw AppError.badRequest('A reason is required to hold a result from the patient', 'PORTAL_HOLD_REASON_REQUIRED');
   }
-  const result = await getResult(resultId, tenantId);
-
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE lab_results
-     SET release_hold = $2,
-         release_hold_by = $3::uuid,
-         release_hold_reason = $4,
-         release_hold_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
-         updated_at = NOW()
-     WHERE id = $1::int
-       AND tenant_id = $5::uuid
-     RETURNING id, release_hold, release_hold_reason, released_to_patient_at`,
-    result.id,
-    wantHold,
-    wantHold ? actorUid : null,
-    wantHold ? String(reason).trim() : null,
-    tenantId,
-  );
-  if (!rows.length) throw AppError.notFound('Lab result not found', 'PORTAL_RESULT_NOT_FOUND');
-
-  await recordClinicalAuditEvent({
-    tenantId,
-    patientUid: result.patient_uid,
-    action: wantHold ? 'lab.result_release_hold' : 'lab.result_release_unhold',
-    resourceTable: 'lab_results',
-    resourceId: String(result.id),
-    actorUid,
-    actorRole,
-    metadata: { test_name: result.test_name, reason: wantHold ? String(reason).trim() : null },
+  return setTenantTx(tid, async (tx) => {
+    const actor = await resolveReleaseActorTx(tx, tid, {
+      actorUid, actorRole, actorRoles, actorRawRole,
+    });
+    const result = await getResult(tx, resultId, tid);
+    const effectiveReason = wantHold ? normalizedReason : null;
+    if (
+      result.release_hold === wantHold
+      && (wantHold ? result.release_hold_reason === effectiveReason : true)
+    ) {
+      return {
+        id: result.id,
+        release_hold: result.release_hold,
+        release_hold_reason: result.release_hold_reason,
+        released_to_patient_at: result.released_to_patient_at,
+      };
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE lab_results
+       SET release_hold = $2,
+           release_hold_by = $3::uuid,
+           release_hold_reason = $4,
+           release_hold_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
+           updated_at = NOW()
+       WHERE id = $1::int
+         AND tenant_id = $5::uuid
+         AND release_hold IS NOT DISTINCT FROM $6::boolean
+       RETURNING id, release_hold, release_hold_reason, released_to_patient_at`,
+      result.id,
+      wantHold,
+      wantHold ? actor.uid : null,
+      effectiveReason,
+      tid,
+      result.release_hold,
+    );
+    if (!rows.length) {
+      throw AppError.conflict('Result release state changed concurrently', 'PORTAL_RELEASE_STATE_RACE');
+    }
+    const revision = await currentCanonicalTransactionRevision(tx);
+    const action = wantHold ? 'lab.result_release_hold' : 'lab.result_release_unhold';
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: result.patient_uid,
+      eventType: action,
+      eventSubtype: 'lab',
+      eventStatus: wantHold ? 'held' : 'released',
+      sourceTable: 'lab_results',
+      sourceId: String(result.id),
+      resourceType: 'lab_result',
+      resourceTable: 'lab_results',
+      resourceId: String(result.id),
+      actorUid: actor.uid,
+      actorRole: actor.rawRole,
+      visibleToPatient: false,
+      summary: wantHold ? 'Lab result release held' : 'Lab result release hold lifted',
+      beforeState: {
+        release_hold: result.release_hold,
+        release_hold_reason: result.release_hold_reason,
+        released_to_patient_at: result.released_to_patient_at,
+      },
+      afterState: rows[0],
+      metadata: { reason: effectiveReason },
+      timelineIdempotencyKey: `lab_results:${result.id}:${action}:tx:${revision}`,
+      auditIdempotencyKey: `lab_results:${result.id}:audit:${action}:tx:${revision}`,
+    }, { db: tx });
+    return rows[0];
   });
-
-  return rows[0];
 }
 
-export async function releaseResultNow(resultId, { actorUid = null, actorRole = null, tenantId } = {}) {
-  const result = await getResult(resultId, tenantId);
-  if (!result.signed_off_at) {
-    throw AppError.badRequest('Only signed-off results can be released to the patient', 'PORTAL_RELEASE_UNSIGNED');
-  }
-
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE lab_results
-     SET released_to_patient_at = NOW(), release_hold = false,
-         release_hold_by = NULL, release_hold_reason = NULL, release_hold_at = NULL,
-         updated_at = NOW()
-     WHERE id = $1::int
-       AND tenant_id = $2::uuid
-     RETURNING id, released_to_patient_at, release_hold`,
-    result.id, tenantId,
-  );
-  if (!rows.length) throw AppError.notFound('Lab result not found', 'PORTAL_RESULT_NOT_FOUND');
-
-  await recordClinicalAuditEvent({
-    tenantId,
-    patientUid: result.patient_uid,
-    action: 'lab.result_released_early',
-    resourceTable: 'lab_results',
-    resourceId: String(result.id),
-    actorUid,
-    actorRole,
-    metadata: { test_name: result.test_name, was_on_hold: result.release_hold },
+export async function releaseResultNow(resultId, {
+  actorUid = null,
+  actorRole = null,
+  actorRoles = [],
+  actorRawRole = null,
+  tenantId,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const committed = await setTenantTx(tid, async (tx) => {
+    const actor = await resolveReleaseActorTx(tx, tid, {
+      actorUid, actorRole, actorRoles, actorRawRole,
+    });
+    const result = await getResult(tx, resultId, tid);
+    if (!result.signed_off_at) {
+      throw AppError.badRequest('Only signed-off results can be released to the patient', 'PORTAL_RELEASE_UNSIGNED');
+    }
+    if (result.released_to_patient_at && result.release_hold === false) {
+      return { row: result, result, changed: false };
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE lab_results
+       SET released_to_patient_at = NOW(), release_hold = false,
+           release_hold_by = NULL, release_hold_reason = NULL, release_hold_at = NULL,
+           updated_at = NOW()
+       WHERE id = $1::int
+         AND tenant_id = $2::uuid
+         AND signed_off_at IS NOT NULL
+         AND release_hold IS NOT DISTINCT FROM $3::boolean
+         AND released_to_patient_at IS NOT DISTINCT FROM $4::timestamptz
+       RETURNING id, released_to_patient_at, release_hold`,
+      result.id,
+      tid,
+      result.release_hold,
+      result.released_to_patient_at,
+    );
+    if (!rows.length) {
+      throw AppError.conflict('Result release state changed concurrently', 'PORTAL_RELEASE_STATE_RACE');
+    }
+    const revision = await currentCanonicalTransactionRevision(tx);
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: result.patient_uid,
+      eventType: 'lab.result_released_early',
+      eventSubtype: 'lab',
+      eventStatus: 'released',
+      sourceTable: 'lab_results',
+      sourceId: String(result.id),
+      resourceType: 'lab_result',
+      resourceTable: 'lab_results',
+      resourceId: String(result.id),
+      actorUid: actor.uid,
+      actorRole: actor.rawRole,
+      visibleToPatient: false,
+      summary: 'Lab result released to patient',
+      beforeState: {
+        release_hold: result.release_hold,
+        release_hold_reason: result.release_hold_reason,
+        released_to_patient_at: result.released_to_patient_at,
+      },
+      afterState: rows[0],
+      metadata: { was_on_hold: result.release_hold },
+      timelineIdempotencyKey: `lab_results:${result.id}:lab.result_released_early:tx:${revision}`,
+      auditIdempotencyKey: `lab_results:${result.id}:audit:lab.result_released_early:tx:${revision}`,
+    }, { db: tx });
+    return { row: rows[0], result, changed: true };
   });
-
-  return rows[0];
+  if (committed.changed) {
+    const decision = await getResultEpisodeReleaseDecision({
+      tenantId: tid,
+      patientUid: committed.result.patient_uid,
+      investigationId: committed.result.investigation_id,
+      bookingId: committed.result.booking_id,
+    });
+    if (decision.outcome === 'visible') {
+      try {
+        const { notifyPatientResultRecipients } = await import('../lab/labResultsService.js');
+        await notifyPatientResultRecipients({
+          tenantId: tid,
+          patientUid: committed.result.patient_uid,
+          type: 'lab_result_ready',
+          title: 'Lab results ready',
+          patientBody: 'Your lab results are ready to view.',
+          guardianBody: 'Lab results for your dependent are ready to view.',
+          data: {
+            investigation_id: committed.result.investigation_id,
+            booking_id: committed.result.booking_id,
+            patient_uid: committed.result.patient_uid,
+          },
+        });
+      } catch (error) {
+        logger.warn('Lab result-ready notification after early release failed', {
+          error: error?.message,
+          resultId: committed.result.id,
+        });
+      }
+    }
+  }
+  return committed.row;
 }
 
 // ── proxy grants (consent trail) ─────────────────────────────────────────
@@ -340,6 +569,9 @@ export async function getLabTrend({ tenantId, patientUid, testCode = null, loinc
 export default {
   releaseDelayHours,
   releaseVisibilitySql,
+  evaluateResultRelease,
+  evaluatePanelRelease,
+  getResultEpisodeReleaseDecision,
   setResultReleaseHold,
   releaseResultNow,
   createProxyGrant,

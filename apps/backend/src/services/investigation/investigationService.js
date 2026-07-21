@@ -17,6 +17,8 @@ import {
   enqueueCriticalResultTask,
   ensureCriticalResultTaskOpen,
 } from '../results/resultsInboxService.js';
+import { getResultEpisodeReleaseDecision } from '../portal/portalAccessService.js';
+import { resolveCurrentHumanActorTx } from '../workflow/workflowHumanOwnerService.js';
 
 // Relation names Prisma generates for the two FKs pointing at `users`
 // (migration 082 declared both). Verbose because Prisma has to disambiguate
@@ -329,14 +331,15 @@ export const getInvestigations = async (page, limit, filters, userRole, userId, 
 };
 
 // Get single investigation by ID
-export const getInvestigationById = async (id, userRole, userId) => {
-  const where = { id: parseInt(id) };
+export const getInvestigationById = async (id, userRole, userId, tenantId) => {
+  const tid = requireTenantId(tenantId);
+  const where = { id: parseInt(id), tenant_id: tid };
 
   // Patients can only view their own investigations — scope by patient_id
   // rather than filtering after the read.
   if (userRole === 'PATIENT') {
     const users = await prisma.users.findUnique({
-      where: { uid: userId },
+      where: { uid: userId, tenant_id: tid },
       select: { id: true },
     });
     if (!users) {
@@ -370,6 +373,18 @@ export const getInvestigationById = async (id, userRole, userId) => {
   if (userRole === 'PATIENT') {
     delete flat.doctor_phone;
     delete flat.doctor_email;
+    const decision = await getResultEpisodeReleaseDecision({
+      tenantId: tid,
+      patientUid: userId,
+      investigationId: row.id,
+    });
+    if (decision.outcome !== 'visible') {
+      for (const field of [
+        'results', 'structured_results', 'interpretation', 'result_summary',
+        'conclusion', 'notes', 'file_key', 'result_uploaded_at',
+        'verified_at', 'verified_by', 'previous_results',
+      ]) delete flat[field];
+    }
   }
 
   return flat;
@@ -756,8 +771,15 @@ function elevatePanicFlags(results) {
 // the per-version re_run_reason to reconstruct the full timeline.
 // Finding:
 // 2026-05-08-lab-walk-in-lab-tech-results-overwrite-no-history.
-export const addResults = async (id, resultData, userId, tenantId = null, actorRole = null) => {
-  const { results, interpretation, reviewed_by, re_run, re_run_reason } = resultData;
+export const addResults = async (
+  id,
+  resultData,
+  userId,
+  tenantId = null,
+  actorRole = null,
+  actorContext = {},
+) => {
+  const { results, interpretation, re_run, re_run_reason } = resultData;
 
   const investId = parseInt(id, 10);
   if (!Number.isInteger(investId)) return null;
@@ -767,6 +789,17 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
   // Use a transaction so a partial fail leaves the row intact.
   try {
     const committed = await setTenantTx(tid, async (tx) => {
+      const actor = await resolveCurrentHumanActorTx({
+        tx,
+        tenantId: tid,
+        actorUid: userId,
+        authenticatedRoles: actorContext.actorRoles?.length
+          ? actorContext.actorRoles
+          : [actorRole],
+        authenticatedPrimaryRole: actorRole,
+        authenticatedRawRole: actorContext.actorRawRole || actorRole,
+        rolePredicate: (role) => LAB_STAFF_ROLES.includes(role),
+      });
       const existing = await tx.investigations.findUnique({
         where: { id: investId },
         select: {
@@ -806,7 +839,7 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
             status: existing.status ?? null,
             completed_at: existing.completed_at ?? null,
             superseded_at: now.toISOString(),
-            superseded_by: userId ?? null,
+            superseded_by: actor.uid,
             re_run_reason: re_run_reason.trim(),
             version: existing.result_version ?? 1,
           },
@@ -870,7 +903,7 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
         completed_at: now,
         result_uploaded_at: now,
         verified_at: now,
-        verified_by: reviewed_by || userId || null,
+        verified_by: actor.uid,
         result_summary: resultSummary,
         previous_results: priorHistory.length ? priorHistory : null,
         // Coerce to Number — Prisma sometimes returns BigInt for Int
@@ -906,31 +939,34 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
         users_investigations_patient_idTousers: patient,
         ...updatedInvestigation
       } = updated;
-      const notificationPayload = patient?.phone ? {
+      const releaseDecision = await getResultEpisodeReleaseDecision({
+        tenantId: tid,
+        patientUid: updatedInvestigation.patient_uid,
+        investigationId: updatedInvestigation.id,
+        db: tx,
+      });
+      const notificationPayload = patient?.phone && releaseDecision.outcome === 'visible' ? {
         type: 'lab_result_ready',
         recipientId: patient.id,
         recipientPhone: patient.phone,
-        title: 'Lab result is ready',
-        body: `Hi ${patient.name || ''}, your ${updatedInvestigation.test_name} result is ready. Open the app to view.`,
-        data: {
-          investigation_id: updatedInvestigation.id,
-          test_name: updatedInvestigation.test_name,
-        },
+        title: 'Lab results ready',
+        body: 'Your lab results are ready to view.',
+        data: { investigation_id: updatedInvestigation.id },
       } : null;
       const critical = hasCriticalResultSignal(updatedInvestigation.results);
       await recordRequiredInvestigationEvent({
           tenantId: requireTenantId(tenantId),
           patientUid: updatedInvestigation.patient_uid,
-          eventType: critical ? 'investigation.result_critical' : 'investigation.result_ready',
+          eventType: critical ? 'investigation.result_critical' : 'investigation.result_recorded',
           eventSubtype: updatedInvestigation.test_type,
           eventStatus: updatedInvestigation.status,
           sourceTable: 'investigations',
           sourceId: updatedInvestigation.id,
           resourceType: 'investigation',
           resourceId: updatedInvestigation.id,
-          actorUid: reviewed_by || userId || null,
-          actorRole,
-          summary: `${updatedInvestigation.test_name} result ${critical ? 'critical' : 'ready'}`,
+          actorUid: actor.uid,
+          actorRole: actor.rawRole,
+          summary: `${updatedInvestigation.test_name} result ${critical ? 'critical' : 'recorded'}`,
           payload: {
             test_name: updatedInvestigation.test_name,
             test_type: updatedInvestigation.test_type,
@@ -975,7 +1011,7 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
             orderingClinicianUid: updatedInvestigation.requested_by || null,
             ...(isReSubmit ? {
               reason: 'investigation_result_rerun',
-              supersededByActorUid: userId,
+              supersededByActorUid: actor.uid,
             } : {}),
           },
         };

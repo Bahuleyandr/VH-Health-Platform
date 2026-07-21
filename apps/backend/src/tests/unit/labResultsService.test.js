@@ -43,6 +43,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordClinicalAuditEvent: jest.fn().mockResolvedValue(null),
   startWorkflowSla: jest.fn().mockResolvedValue(null),
   completeWorkflowSla: jest.fn().mockResolvedValue(null),
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
   isSchemaMissing: jest.fn(() => false),
 }));
 
@@ -94,7 +95,31 @@ const {
   listIpdLabWorklist,
   signOffResults,
   acknowledgeAlert,
+  classifySignedLabEpisode,
 } = await import('../../services/lab/labResultsService.js');
+
+describe('lab episode classification', () => {
+  const signed = (overrides = {}) => ({
+    id: 1,
+    status: 'final',
+    signed_off_at: new Date(),
+    abnormal_flag: null,
+    is_critical: false,
+    value_text: '4.2',
+    value_numeric: 4.2,
+    ...overrides,
+  });
+
+  it.each([
+    ['critical', [signed({ is_critical: true })]],
+    ['abnormal', [signed({ abnormal_flag: 'H' })]],
+    ['normal', [signed({ abnormal_flag: 'N' })]],
+    ['indeterminate', [signed({ abnormal_flag: null, value_numeric: null, value_text: 'not reported' })]],
+    ['critical', [signed({ abnormal_flag: 'H' }), signed({ is_critical: true })]],
+  ])('classifies a complete signed panel as %s', (expected, rows) => {
+    expect(classifySignedLabEpisode(rows)).toBe(expected);
+  });
+});
 
 describe('labResultsService critical detection', () => {
   beforeEach(() => {
@@ -660,7 +685,7 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       signed_off_by: '33333333-3333-4333-8333-333333333333',
       signed_off_by_role: 'PATHOLOGIST',
       result_ids: [102],
-      decision: 'rejected',
+      decision: 'verified',
     })).rejects.toMatchObject({
       statusCode: 400,
       code: 'LAB_RESULT_ORDER_LINK_REQUIRED',
@@ -669,12 +694,16 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
   });
 
   it('rejects an asserted patient_uid that does not own the selected result', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([{
+    const selected = [{
       id: 103,
       patient_uid: patientUid,
       booking_id: null,
       investigation_id: 42,
-    }]);
+    }];
+    queryRawUnsafeMock
+      .mockResolvedValueOnce(selected)
+      .mockResolvedValueOnce([{ lock_result: '' }])
+      .mockResolvedValueOnce(selected);
 
     await expect(signOffResults({
       tenantId,
@@ -688,13 +717,13 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       code: 'LAB_SIGNOFF_PATIENT_MISMATCH',
     });
 
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
     expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
   });
 
   it('rejects a mixed-patient result batch before creating a sign-off', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([
+    const selected = [
       {
         id: 104,
         patient_uid: patientUid,
@@ -705,9 +734,13 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
         id: 105,
         patient_uid: 'bbbb1111-2222-4333-8444-555555555555',
         booking_id: null,
-        investigation_id: 43,
+        investigation_id: 42,
       },
-    ]);
+    ];
+    queryRawUnsafeMock
+      .mockResolvedValueOnce(selected)
+      .mockResolvedValueOnce([{ lock_result: '' }])
+      .mockResolvedValueOnce(selected);
 
     await expect(signOffResults({
       tenantId,
@@ -720,18 +753,22 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       code: 'LAB_SIGNOFF_MULTI_PATIENT_BATCH',
     });
 
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
     expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
   });
 
   it('rejects a booking assertion that differs from the locked selected result', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([{
+    const selected = [{
       id: 106,
       patient_uid: patientUid,
       booking_id: 7,
-      investigation_id: 42,
-    }]);
+      investigation_id: null,
+    }];
+    queryRawUnsafeMock
+      .mockResolvedValueOnce(selected)
+      .mockResolvedValueOnce([{ lock_result: '' }])
+      .mockResolvedValueOnce(selected);
 
     await expect(signOffResults({
       tenantId,
@@ -746,7 +783,7 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       message: 'booking_id does not match the selected lab results',
     });
 
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
     expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
   });
@@ -776,7 +813,7 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       decision: 'verified',
     })).rejects.toMatchObject({
       statusCode: 400,
-      code: 'LAB_SIGNOFF_BOOKING_MISMATCH',
+      code: 'LAB_SIGNOFF_MULTI_EPISODE_BATCH',
     });
 
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);

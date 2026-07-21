@@ -10,9 +10,10 @@ const fault = { failCanonicalAudit: false, hit: false };
 const notificationObservations = [];
 
 const actualPrismaModule = await import('../lib/prisma.js');
+const faultingTransactions = new WeakSet();
 
 function faultingTx(tx) {
-  return new Proxy(tx, {
+  const proxy = new Proxy(tx, {
     get(target, prop, receiver) {
       if (prop === '$queryRawUnsafe') {
         return async (sql, ...params) => {
@@ -30,6 +31,8 @@ function faultingTx(tx) {
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
+  faultingTransactions.add(proxy);
+  return proxy;
 }
 
 jest.unstable_mockModule('../lib/prisma.js', () => ({
@@ -38,6 +41,10 @@ jest.unstable_mockModule('../lib/prisma.js', () => ({
     tenantId,
     (tx) => fn(faultingTx(tx)),
     options,
+  ),
+  isTenantTransactionClient: (client) => (
+    faultingTransactions.has(client)
+    || actualPrismaModule.isTenantTransactionClient(client)
   ),
 }));
 
