@@ -191,9 +191,11 @@ Steps:
    and zero SLA roles. Queue mode requires null task/SLA UIDs and one SLA role exactly equal to the
    task's resolved stage role; extra pathway roles are rejected.
 5. Preserve rule-specific compatibility for recognized non-pathway typed rails: cold-chain may keep its
-   multiple SLA alert roles while the task has one primary route, and critical-result/mortuary legacy
-   rows may retain an empty SLA owner declaration. Their actionable tasks still require one viable
-   exclusive owner; do not claim full D10 convergence for these SLA shapes.
+   multiple SLA alert roles while the task has one primary route. The critical-result producer must pass
+   an explicit empty SLA owner declaration on start and clear legacy SLA owners on re-arm so its
+   exclusively assigned task remains authoritative rather than inheriting migration-269's generic rule
+   audience; mortuary legacy rows may also retain an empty declaration. Their actionable tasks still
+   require one viable exclusive owner; do not claim full D10 convergence for these SLA shapes.
 6. Enforce named pathway-instance source binding so its current human task is UID-only for the same
    user; an unnamed instance may use a role queue.
 7. Supersede the migration-580 owner viability/dependency predicate for this scope. Reject user

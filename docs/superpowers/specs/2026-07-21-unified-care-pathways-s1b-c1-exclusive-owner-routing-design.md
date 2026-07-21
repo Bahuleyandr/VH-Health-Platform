@@ -321,10 +321,13 @@ pathway SLA roles are forbidden fallback, not harmless metadata.
 Do not force that new pathway shape onto the existing recognized non-pathway typed rails during this
 compatibility slice. Cold-chain SLA alert routing intentionally may contain multiple roles while its task
 has one primary role; its exact rule-specific compatibility predicate must preserve that behavior.
-Critical-result and mortuary legacy rows may have an empty SLA owner declaration under their existing
-migration-580 compatibility contract. Their actionable task must still have one viable exclusive owner,
-but S1b-c1 does not call those older SLA shapes full D10 convergence. Migration 585 adds the new owner
-objects and supersedes the one migration-580 assertion in place; migration 580 itself remains immutable.
+The critical-result compatibility producer deliberately keeps the SLA owner declaration empty, including
+when it starts or re-arms a clock, so the exclusively assigned task remains the routing authority instead
+of inheriting the generic migration-269 `DOCTOR`/`LAB_STAFF` rule audience. Mortuary legacy rows may also
+retain an empty SLA owner declaration. Their actionable task must still have one viable exclusive owner,
+but S1b-c1 does not call either non-pathway SLA shape full D10 convergence. Migration 585 adds the new
+owner objects and supersedes the one migration-580 assertion in place; migration 580 itself remains
+immutable.
 
 No new table lands in this sub-slice. Existing tenant-qualified keys and Pattern-A RLS remain unchanged;
 new helper functions/triggers must preserve tenant isolation, pinned search-path conventions where
