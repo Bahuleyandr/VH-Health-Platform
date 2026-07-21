@@ -1,4 +1,5 @@
 import {
+  getClinicalAccountabilityRoleCodes,
   getManageableRolesFromPolicy,
   getOrgHierarchyFromPolicy,
   getRolePickerOptions,
@@ -16,6 +17,30 @@ describe('rolePolicyGraph', () => {
     expect(policy.policy_hash).toBe(getRolePolicyHash());
     expect(policy.policy_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(policy.roles.length).toBeGreaterThanOrEqual(60);
+  });
+
+  it('derives clinical accountability roles only from canonical clinical-group entries', () => {
+    const policy = getRolePolicy();
+    const expected = policy.roles
+      .filter((role) => role.group === 'clinical')
+      .map((role) => role.role_code);
+    const nonClinicalRoles = policy.roles
+      .filter((role) => role.group !== 'clinical')
+      .map((role) => role.role_code);
+    const roles = getClinicalAccountabilityRoleCodes();
+
+    expect(roles).toEqual(expected);
+    expect(roles).toHaveLength(32);
+    expect(roles).toEqual(expect.arrayContaining([
+      'DOCTOR',
+      'DUTY_DOCTOR',
+      'NURSING_STAFF',
+      'RADIOLOGIST',
+      'PATHOLOGIST',
+      'PHYSIOTHERAPIST',
+      'COUNSELLOR',
+    ]));
+    for (const role of nonClinicalRoles) expect(roles).not.toContain(role);
   });
 
   it('keeps CNO present in policy, chart, RBAC management, and staff visibility', () => {

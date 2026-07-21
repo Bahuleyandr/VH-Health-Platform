@@ -186,7 +186,9 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
     const deadlineRows = await prisma.$queryRawUnsafe(
       `SELECT t.due_at AS task_due_at,
               sla.due_at AS sla_due_at,
-              t.due_at = sla.due_at AS exact_deadline
+              t.due_at = sla.due_at AS exact_deadline,
+              sla.assigned_user_uid AS sla_assigned_user_uid,
+              sla.assigned_role_codes AS sla_assigned_role_codes
          FROM tasks t
          JOIN workflow_sla_instances sla
            ON sla.tenant_id = t.tenant_id
@@ -199,6 +201,8 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
     expect(deadlineRows[0].task_due_at).toBeTruthy();
     expect(deadlineRows[0].sla_due_at).toBeTruthy();
     expect(deadlineRows[0].exact_deadline).toBe(true);
+    expect(deadlineRows[0].sla_assigned_user_uid).toBeNull();
+    expect(deadlineRows[0].sla_assigned_role_codes).toEqual([]);
   });
 
   it('is idempotent: a second producer call for the same resource creates no new task', async () => {

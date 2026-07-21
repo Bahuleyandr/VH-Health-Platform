@@ -1,5 +1,6 @@
 import { isTenantTransactionClient } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { resolvePathwayTaskOwnerTx } from '../workflow/workflowHumanOwnerService.js';
 
 const PATHWAY_MODES = new Set(['off', 'shadow', 'active']);
 export const PATHWAY_DEFINITION_APPROVAL_KIND = 'care_pathway_definition_governance';
@@ -101,24 +102,12 @@ export async function assertPathwayPatientContextTx({
       );
     }
   }
-  if (owningClinicianUid) {
-    const ownerRows = await db.$queryRawUnsafe(
-      `SELECT uid
-         FROM users
-        WHERE tenant_id = $1::uuid
-          AND uid = $2::uuid
-          AND role <> 'PATIENT'
-        LIMIT 1
-        FOR SHARE`,
+  if (owningClinicianUid !== null && owningClinicianUid !== undefined) {
+    await resolvePathwayTaskOwnerTx({
+      tx: db,
       tenantId,
-      owningClinicianUid,
-    );
-    if (!ownerRows[0]) {
-      throw AppError.badRequest(
-        'Invalid pathway ownership context',
-        'PATHWAY_OWNER_CONTEXT_INVALID',
-      );
-    }
+      requestedUid: owningClinicianUid,
+    });
   }
 }
 

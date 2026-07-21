@@ -1,8 +1,8 @@
 /**
  * Clinical-staff results-inbox routes (design §4.5).
  *
- * Mounted at /api/v1/clinical-inbox in app.js, clinical-staff-gated
- * (requireRole(...CLINICAL_STAFF_ROUTE_ROLES)) + phiAccessLogger.
+ * Mounted at /api/v1/clinical-inbox in app.js, clinical-accountability-gated
+ * (requireRole(...CLINICAL_INBOX_ROUTE_ROLES)) + phiAccessLogger.
  *
  * This is a DELIBERATELY MINIMAL 2-endpoint surface — the per-clinician
  * "open critical work for me / my role" inbox + acknowledge — so clinical staff

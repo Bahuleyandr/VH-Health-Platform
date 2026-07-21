@@ -31,6 +31,10 @@ const {
 
 const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 const ACTOR_UID = '22222222-2222-4222-8222-222222222222';
+const PATHWAY_INSTANCE_ID = '33333333-3333-4333-8333-333333333333';
+const OTHER_PATHWAY_INSTANCE_ID = '44444444-4444-4444-8444-444444444444';
+const OTHER_PATIENT_UID = '55555555-5555-4555-8555-555555555555';
+const OTHER_TENANT_ID = '00000000-0000-4000-8000-000000000002';
 
 afterEach(() => {
   prismaMock.$queryRawUnsafe.mockReset();
@@ -262,6 +266,277 @@ describe('accessDecisionService', () => {
     expect(decision.allowed).toBe(true);
     expect(decision.accessSource).toBe('admission');
     expect(decision.admissionId).toBe(27);
+  });
+
+  it.each([
+    [ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS, 'GET'],
+    [ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE, 'POST'],
+  ])('allows a current RADIOLOGIST owner through exact pathway ownership for %s', async (policyCode, method) => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([{ id: PATHWAY_INSTANCE_ID }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('RADIOLOGIST', {
+      method,
+      originalUrl: `/api/v1/care-pathways/instances/${PATHWAY_INSTANCE_ID}`,
+      query: {},
+    }), {
+      policyCode,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: PATIENT_UID },
+      resourceContext: {
+        resourceType: 'care_pathway_instance',
+        resourceId: PATHWAY_INSTANCE_ID,
+      },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.accessSource).toBe('care_pathway_owner');
+    expect(decision.carePathwayInstanceId).toBe(PATHWAY_INSTANCE_ID);
+
+    const ownerLookup = prismaMock.$queryRawUnsafe.mock.calls[1];
+    expect(ownerLookup[0]).toContain('FROM care_pathway_instances cpi');
+    expect(ownerLookup[0]).toContain('cpi.patient_uid = $3::uuid');
+    expect(ownerLookup[0]).toContain('cpi.owning_clinician_uid = $4::uuid');
+    expect(ownerLookup[0]).toContain('UPPER(BTRIM(owner.role)) = $5::text');
+    expect(ownerLookup[0]).toContain('owner.is_active = TRUE');
+    expect(ownerLookup[0]).toContain("LOWER(COALESCE(owner.status, '')) = 'active'");
+    expect(ownerLookup[0]).toContain('owner.is_deleted IS FALSE');
+    expect(ownerLookup[0]).toContain('owner.deleted_at IS NULL');
+    expect(ownerLookup.slice(1)).toEqual([
+      '00000000-0000-4000-8000-000000000001',
+      PATHWAY_INSTANCE_ID,
+      PATIENT_UID,
+      ACTOR_UID,
+      'RADIOLOGIST',
+    ]);
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][6]).toBe('care_pathway_owner');
+    expect(JSON.parse(prismaMock.$executeRawUnsafe.mock.calls[0][13]))
+      .toEqual(expect.objectContaining({ care_pathway_instance_id: PATHWAY_INSTANCE_ID }));
+  });
+
+  it('denies a RADIOLOGIST who owns a different pathway instance', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('RADIOLOGIST', {
+      method: 'POST',
+      originalUrl: `/api/v1/care-pathways/instances/${OTHER_PATHWAY_INSTANCE_ID}/commands`,
+      query: {},
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: PATIENT_UID },
+      resourceContext: {
+        resourceType: 'care_pathway_instance',
+        resourceId: OTHER_PATHWAY_INSTANCE_ID,
+      },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.accessSource).toBe('unknown');
+    expect(decision.reason).toMatch(/capability group/i);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][2]).toBe(OTHER_PATHWAY_INSTANCE_ID);
+  });
+
+  it.each([
+    'inactive',
+    'soft-deleted',
+    'current database role no longer matches the clinical JWT role',
+  ])('denies a named owner whose user record is %s', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('RADIOLOGIST', {
+      originalUrl: `/api/v1/care-pathways/instances/${PATHWAY_INSTANCE_ID}`,
+      query: {},
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: PATIENT_UID },
+      resourceContext: {
+        resourceType: 'care_pathway_instance',
+        resourceId: PATHWAY_INSTANCE_ID,
+      },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toMatch(/capability group/i);
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+  });
+
+  it('binds owner access to the request tenant', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('RADIOLOGIST', {
+      originalUrl: `/api/v1/care-pathways/instances/${PATHWAY_INSTANCE_ID}`,
+      query: {},
+      user: {
+        id: 9,
+        uid: ACTOR_UID,
+        role: 'RADIOLOGIST',
+        tenant_id: OTHER_TENANT_ID,
+      },
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: PATIENT_UID },
+      resourceContext: {
+        resourceType: 'care_pathway_instance',
+        resourceId: PATHWAY_INSTANCE_ID,
+      },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][1]).toBe(OTHER_TENANT_ID);
+  });
+
+  it('binds owner access to the patient resolved from the requested instance', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 16, uid: OTHER_PATIENT_UID }])
+      .mockResolvedValueOnce([]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('RADIOLOGIST', {
+      originalUrl: `/api/v1/care-pathways/instances/${PATHWAY_INSTANCE_ID}`,
+      query: {},
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: OTHER_PATIENT_UID },
+      resourceContext: {
+        resourceType: 'care_pathway_instance',
+        resourceId: PATHWAY_INSTANCE_ID,
+      },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][3]).toBe(OTHER_PATIENT_UID);
+  });
+
+  it('never probes pathway ownership for an invalid instance UUID', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('RADIOLOGIST', { query: {} }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: PATIENT_UID },
+      resourceContext: {
+        resourceType: 'care_pathway_instance',
+        resourceId: 'not-a-uuid',
+      },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS, 'radiology_order'],
+    [ACCESS_POLICY_CODES.PATIENT_RADIOLOGY_VIEW, 'care_pathway_instance'],
+  ])('never probes pathway ownership for policy %s and resource %s', async (policyCode, resourceType) => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValue([]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    await authorizePatientAccessRequest(reqFor('RADIOLOGIST', { query: {} }), {
+      policyCode,
+      recordType: 'RADIOLOGY',
+      patient: { uid: PATIENT_UID },
+      resourceContext: { resourceType, resourceId: PATHWAY_INSTANCE_ID },
+      requireResolvedPatient: true,
+    });
+
+    const pathwayOwnerQueries = prismaMock.$queryRawUnsafe.mock.calls.filter(
+      ([sql]) => sql.includes('FROM care_pathway_instances cpi') && sql.includes('owning_clinician_uid'),
+    );
+    expect(pathwayOwnerQueries).toHaveLength(0);
+  });
+
+  it('does not grant pathway ownership to a nonclinical role even when the resource names that actor', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('MEDICAL_RECORDS', {
+      originalUrl: `/api/v1/care-pathways/instances/${PATHWAY_INSTANCE_ID}`,
+      query: {},
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: PATIENT_UID },
+      resourceContext: {
+        resourceType: 'care_pathway_instance',
+        resourceId: PATHWAY_INSTANCE_ID,
+      },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toMatch(/does not have a patient PHI access scope/i);
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps pathway start on the existing capability and patient-relationship guard', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('RADIOLOGIST', {
+      method: 'POST',
+      originalUrl: '/api/v1/care-pathways/instances',
+      query: {},
+      body: { patient_uid: PATIENT_UID },
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: PATIENT_UID },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toMatch(/capability group/i);
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves break-glass precedence for pathway instance access', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([{ id: 45, reason: 'Emergency pathway intervention' }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('ADMIN', {
+      originalUrl: `/api/v1/care-pathways/instances/${PATHWAY_INSTANCE_ID}`,
+      query: {},
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      recordType: 'CARE_PATHWAY',
+      patient: { uid: PATIENT_UID },
+      resourceContext: {
+        resourceType: 'care_pathway_instance',
+        resourceId: PATHWAY_INSTANCE_ID,
+      },
+      requireResolvedPatient: true,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.accessSource).toBe('break_glass');
+    expect(decision.breakGlassId).toBe(45);
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(2);
   });
 
   it('resolves encounter UUID resources back to the patient context', async () => {

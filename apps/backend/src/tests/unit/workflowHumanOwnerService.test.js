@@ -1,15 +1,25 @@
 import { jest } from '@jest/globals';
 
 import {
+  getClinicalAccountabilityRoleCodes,
+  getRolePolicy,
+} from '../../config/rolePolicyGraph.js';
+import {
   isClinicalHumanOwnerRole,
   isPathwayHumanOwnerRole,
+  isPathwayNamedClinicalOwnerRole,
   isTaskHumanOwnerRole,
   repairCriticalResultTaskOwnerTx,
   resolveClinicalTaskOwnerTx,
+  resolvePathwayTaskOwnerTx,
 } from '../../services/workflow/workflowHumanOwnerService.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const CLINICIAN = '22222222-2222-4222-8222-222222222222';
+const CLINICAL_ACCOUNTABILITY_ROLES = getClinicalAccountabilityRoleCodes();
+const NON_CLINICAL_ROLE_CODES = getRolePolicy().roles
+  .filter((role) => role.group !== 'clinical')
+  .map((role) => role.role_code);
 
 function txWith(...results) {
   return {
@@ -23,6 +33,12 @@ describe('workflow human owner policy', () => {
   it('separates pathway-clinical roles from the wider task route union', () => {
     expect(isClinicalHumanOwnerRole('DOCTOR')).toBe(true);
     expect(isPathwayHumanOwnerRole('NURSING_STAFF')).toBe(true);
+    expect(isPathwayNamedClinicalOwnerRole('CATH_LAB_INCHARGE')).toBe(true);
+    expect(isPathwayNamedClinicalOwnerRole('RADIOLOGIST')).toBe(true);
+    expect(isPathwayNamedClinicalOwnerRole('PATHOLOGIST')).toBe(true);
+    expect(isPathwayNamedClinicalOwnerRole('PHYSIOTHERAPIST')).toBe(true);
+    expect(isPathwayNamedClinicalOwnerRole('COUNSELLOR')).toBe(true);
+    expect(isPathwayNamedClinicalOwnerRole('ADMIN')).toBe(false);
     expect(isTaskHumanOwnerRole('LAB_STAFF')).toBe(true);
     expect(isClinicalHumanOwnerRole('PATIENT')).toBe(false);
     expect(isTaskHumanOwnerRole('WEBHOOK_CLIENT')).toBe(false);
@@ -44,6 +60,126 @@ describe('workflow human owner policy', () => {
     expect(tx.$queryRawUnsafe.mock.calls[0][0]).toMatch(/tenant_id = \$1::uuid/);
     expect(tx.$queryRawUnsafe.mock.calls[0][0]).toMatch(/is_active = TRUE/);
   });
+
+  it.each(CLINICAL_ACCOUNTABILITY_ROLES)(
+    'resolves a valid named %s pathway owner exclusively',
+    async (role) => {
+      const tx = txWith([{ uid: CLINICIAN, role }]);
+      await expect(resolvePathwayTaskOwnerTx({
+        tx,
+        tenantId: TENANT,
+        requestedUid: CLINICIAN,
+        fallbackRole: 'DUTY_DOCTOR',
+      })).resolves.toEqual({
+        assignedToUid: CLINICIAN,
+        assignedToRole: null,
+        resolution: 'requested_active_clinician',
+        fallbackReason: null,
+      });
+      const [query] = tx.$queryRawUnsafe.mock.calls[0];
+      expect(query).toMatch(/tenant_id = \$1::uuid/);
+      expect(query).toMatch(/is_active = TRUE/);
+      expect(query).toMatch(/LOWER\(COALESCE\(status, ''\)\) = 'active'/);
+      expect(query).toMatch(/is_deleted IS FALSE/);
+      expect(query).toMatch(/deleted_at IS NULL/);
+      expect(query).toMatch(/FOR SHARE/);
+    },
+  );
+
+  it.each([
+    ['malformed', 'not-a-uuid', []],
+    ['missing or cross-tenant', CLINICIAN, []],
+    ['inactive', CLINICIAN, []],
+  ])('rejects a %s named pathway owner instead of falling back', async (_label, requestedUid, rows) => {
+    const tx = txWith(rows);
+    const promise = resolvePathwayTaskOwnerTx({
+      tx,
+      tenantId: TENANT,
+      requestedUid,
+      fallbackRole: 'DUTY_DOCTOR',
+    });
+    await expect(promise).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+  });
+
+  it.each(NON_CLINICAL_ROLE_CODES)(
+    'rejects nonclinical %s as a named pathway owner without role fallback',
+    async (role) => {
+      const tx = txWith([{ uid: CLINICIAN, role }]);
+      await expect(resolvePathwayTaskOwnerTx({
+        tx,
+        tenantId: TENANT,
+        requestedUid: CLINICIAN,
+        fallbackRole: 'DUTY_DOCTOR',
+      })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+      });
+    },
+  );
+
+  it('treats a supplied blank UID as invalid rather than as an unnamed role queue', async () => {
+    const tx = txWith();
+    await expect(resolvePathwayTaskOwnerTx({
+      tx,
+      tenantId: TENANT,
+      requestedUid: ' ',
+      fallbackRole: 'DUTY_DOCTOR',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+    expect(tx.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('resolves a role-only pathway queue only when no named UID was supplied', async () => {
+    const tx = txWith();
+    await expect(resolvePathwayTaskOwnerTx({
+      tx,
+      tenantId: TENANT,
+      requestedUid: null,
+      fallbackRole: ' nursing_incharge ',
+    })).resolves.toEqual({
+      assignedToUid: null,
+      assignedToRole: 'NURSING_INCHARGE',
+      resolution: 'route_role_queue',
+      fallbackReason: null,
+    });
+    expect(tx.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('keeps role-only queues on the broader pathway routing policy', async () => {
+    const tx = txWith();
+    await expect(resolvePathwayTaskOwnerTx({
+      tx,
+      tenantId: TENANT,
+      requestedUid: null,
+      fallbackRole: 'MEDICAL_RECORDS',
+    })).resolves.toMatchObject({
+      assignedToUid: null,
+      assignedToRole: 'MEDICAL_RECORDS',
+      resolution: 'route_role_queue',
+    });
+  });
+
+  it.each([null, '', 'PATIENT', 'LAB_STAFF', 'UNKNOWN_ROLE'])(
+    'rejects invalid pathway role-only ownership %p',
+    async (fallbackRole) => {
+      const tx = txWith();
+      await expect(resolvePathwayTaskOwnerTx({
+        tx,
+        tenantId: TENANT,
+        requestedUid: null,
+        fallbackRole,
+      })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PATHWAY_ROLE_OWNER_INVALID',
+      });
+      expect(tx.$queryRawUnsafe).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(['PATIENT', 'WEBHOOK_CLIENT', 'UNKNOWN_ROLE'])(
     'falls back to DUTY_DOCTOR when the named user has unreachable role %s',

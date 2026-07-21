@@ -113,7 +113,7 @@ it('validates patient role, encounter ownership and a non-patient owner under sh
   TX.$queryRawUnsafe
     .mockResolvedValueOnce([{ uid: PATIENT }])
     .mockResolvedValueOnce([{ id: ENCOUNTER }])
-    .mockResolvedValueOnce([{ uid: OWNER }]);
+    .mockResolvedValueOnce([{ uid: OWNER, role: 'NURSING_STAFF' }]);
   await expect(assertPathwayPatientContextTx({
     tx: TX,
     tenantId: TENANT,
@@ -122,12 +122,45 @@ it('validates patient role, encounter ownership and a non-patient owner under sh
     owningClinicianUid: OWNER,
   })).resolves.toBeUndefined();
   expect(TX.$queryRawUnsafe.mock.calls.every((call) => call[0].includes('FOR SHARE'))).toBe(true);
+  const ownerQuery = TX.$queryRawUnsafe.mock.calls[2][0];
+  expect(ownerQuery).toContain('is_active = TRUE');
+  expect(ownerQuery).toContain("LOWER(COALESCE(status, '')) = 'active'");
+  expect(ownerQuery).toContain('is_deleted IS FALSE');
+  expect(ownerQuery).toContain('deleted_at IS NULL');
 });
+
+it('rejects a named owner whose role cannot receive a clinical pathway route', async () => {
+  TX.$queryRawUnsafe
+    .mockResolvedValueOnce([{ uid: PATIENT }])
+    .mockResolvedValueOnce([{ uid: OWNER, role: 'RECEPTIONIST' }]);
+  await expect(assertPathwayPatientContextTx({
+    tx: TX,
+    tenantId: TENANT,
+    patientUid: PATIENT,
+    owningClinicianUid: OWNER,
+  })).rejects.toMatchObject({ code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE' });
+});
+
+it.each(['', '   ', 'not-a-uuid'])(
+  'does not treat a supplied invalid owner value %p as absent',
+  async (owningClinicianUid) => {
+    TX.$queryRawUnsafe.mockResolvedValueOnce([{ uid: PATIENT }]);
+    await expect(assertPathwayPatientContextTx({
+      tx: TX,
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      owningClinicianUid,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+  },
+);
 
 it.each([
   ['non-patient subject', [[], [{ id: ENCOUNTER }], [{ uid: OWNER }]], 'PATHWAY_PATIENT_CONTEXT_INVALID'],
   ['wrong encounter patient', [[{ uid: PATIENT }], [], [{ uid: OWNER }]], 'PATHWAY_PATIENT_CONTEXT_INVALID'],
-  ['patient used as owner', [[{ uid: PATIENT }], [],], 'PATHWAY_OWNER_CONTEXT_INVALID'],
+  ['patient used as owner', [[{ uid: PATIENT }], [],], 'PATHWAY_NAMED_OWNER_UNAVAILABLE'],
 ])('rejects an invalid %s context', async (_label, responses, code) => {
   for (const response of responses) TX.$queryRawUnsafe.mockResolvedValueOnce(response);
   await expect(assertPathwayPatientContextTx({

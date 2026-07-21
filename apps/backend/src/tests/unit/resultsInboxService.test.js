@@ -144,11 +144,13 @@ describe('enqueueCriticalResultTask', () => {
       patientUid: PATIENT,
       sourceTable: 'lab_result',
       sourceId: '123',
+      assignedRoleCodes: [],
       metadata: {
         source: 'lab_result',
         task_materialization_contract: 'application_atomic_v1',
       },
     });
+    expect(slaArg).not.toHaveProperty('assignedUserUid');
     // Migration 352 exposes global SLA rules under a concrete tenant GUC, so
     // the SLA and task are created atomically on the same tenant transaction.
     expect(startWorkflowSlaMock.mock.calls[0][1]).toEqual({ db: fakeTx });
@@ -208,6 +210,9 @@ describe('enqueueCriticalResultTask', () => {
     expect(taskArg.assignedToUid == null).toBe(true);
     // Abstract DUTY token resolves to a concrete clinical duty role code.
     expect(taskArg.assignedToRole).toBe('DUTY_DOCTOR');
+    const slaArg = startWorkflowSlaMock.mock.calls[0][0];
+    expect(slaArg.assignedRoleCodes).toEqual([]);
+    expect(slaArg).not.toHaveProperty('assignedUserUid');
   });
 
   it('honours an explicit careTeamRoleHint over the DUTY default', async () => {
@@ -714,6 +719,8 @@ describe('ensureCriticalResultTaskOpen', () => {
     expect(sql).toContain("- 'acknowledged_by'");
     expect(sql).toContain("- 'completion_evidence'");
     expect(sql).toContain("- 'ack_contract_version'");
+    expect(sql).toContain('assigned_user_uid = NULL');
+    expect(sql).toContain('assigned_role_codes = ARRAY[]::text[]');
     expect(sql).toContain("'reopen_history'");
     expect(sql).toContain("'prior_status'");
     expect(sql).toContain("'prior_started_at'");
@@ -900,15 +907,48 @@ describe('ensureCriticalResultTaskOpen', () => {
       expect.objectContaining({
         sourceTable: 'lab_result',
         sourceId: '123',
+        assignedRoleCodes: [],
         metadata: expect.objectContaining({
           task_materialization_contract: 'application_atomic_v1',
         }),
       }),
       { db: fakeTx },
     );
-    expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ tx: fakeTx }));
+    expect(startWorkflowSlaMock.mock.calls[0][0]).not.toHaveProperty('assignedUserUid');
+    expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      assignedToUid: CLINICIAN,
+      assignedToRole: null,
+      tx: fakeTx,
+    }));
     expect(txQueryMock).toHaveBeenCalledTimes(3);
     expect(postTaskCommentMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a new SLA owner-neutral when the replacement task routes to DUTY', async () => {
+    txQueryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    createTaskMock.mockResolvedValueOnce({ id: 18 });
+
+    const result = await ensureCriticalResultTaskOpen({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'lab_result',
+      resourceType: 'lab_result',
+      resourceId: 123,
+      reason: 'corrected_result',
+    });
+
+    expect(result).toMatchObject({ created: true, reopened: false, taskId: 18 });
+    const slaArg = startWorkflowSlaMock.mock.calls[0][0];
+    expect(slaArg.assignedRoleCodes).toEqual([]);
+    expect(slaArg).not.toHaveProperty('assignedUserUid');
+    expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      assignedToUid: null,
+      assignedToRole: 'DUTY_DOCTOR',
+      tx: fakeTx,
+    }));
   });
 
   it('reuses a caller transaction and rethrows reopen failures in strict mode', async () => {

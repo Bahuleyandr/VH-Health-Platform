@@ -130,6 +130,18 @@ function maybeUuid(value, label = 'uid') {
   return text;
 }
 
+function normalizeTaskAssignment({ assignedToUid = null, assignedToRole = null } = {}) {
+  const uid = maybeUuid(assignedToUid, 'assigned_to_uid');
+  const role = safeText(assignedToRole, 80);
+  if (uid && role) {
+    throw AppError.badRequest(
+      'Task cannot be assigned to both a user and a role',
+      'TASK_ASSIGNMENT_AMBIGUOUS',
+    );
+  }
+  return { uid, role };
+}
+
 function requireActorUid(value, label = 'actor_uid') {
   const uid = maybeUuid(value, label);
   if (!uid) throw AppError.unauthorized('Authenticated actor is required');
@@ -661,6 +673,7 @@ export async function createTask({
   const cleanParentTaskId = parentTaskId ? normalizeId(parentTaskId, 'parent_task_id') : null;
   const cleanRelatedResourceType = safeText(relatedResourceType, 60);
   const cleanRelatedResourceId = safeText(relatedResourceId, 120);
+  const assignment = normalizeTaskAssignment({ assignedToUid, assignedToRole });
   const cleanWorkflowSlaInstanceId = maybeUuid(workflowSlaInstanceId, 'workflow_sla_instance_id');
   const cleanSlaCompletionSemantics = normalizeEnum(
     slaCompletionSemantics,
@@ -792,8 +805,8 @@ export async function createTask({
       cleanRelatedResourceType,
       cleanRelatedResourceId,
       normalizeEnum(priority, TASK_PRIORITIES, 'priority') || 'normal',
-      maybeUuid(assignedToUid, 'assigned_to_uid'),
-      safeText(assignedToRole, 80),
+      assignment.uid,
+      assignment.role,
       maybeUuid(createdBy, 'created_by'),
       taskDueAt,
       slaDefinitionId ? normalizeId(slaDefinitionId, 'sla_definition_id') : null,
@@ -1569,7 +1582,9 @@ function resolveDirectAckAuthorization(taskRow, { actorUid = null, actorRoles = 
 
   if (!callerUid) return null;
   if (callerUid && assignedUid && callerUid === assignedUid) return { mode: 'assignee' };
-  if (assignedRole && roles.includes(assignedRole)) return { mode: 'role', assignedRole };
+  if (!assignedUid && assignedRole && roles.includes(assignedRole)) {
+    return { mode: 'role', assignedRole };
+  }
   if (roles.some((r) => isAdmin(r)) || roles.includes('SUPER_ADMIN')) return { mode: 'admin' };
   return null;
 }
@@ -1683,7 +1698,11 @@ async function resolveVerifiedAckAuthorization({
 const ACK_AUTHORITY_PREDICATE = `
   (
     ($3::text = 'assignee' AND tasks.assigned_to_uid = $4::uuid)
-    OR ($3::text = 'role' AND UPPER(TRIM(tasks.assigned_to_role)) = $5::text)
+    OR (
+      $3::text = 'role'
+      AND tasks.assigned_to_uid IS NULL
+      AND UPPER(TRIM(tasks.assigned_to_role)) = $5::text
+    )
     OR $3::text = 'admin'
     OR (
       $3::text = 'override'
@@ -2286,7 +2305,7 @@ export async function listInboxTasks({
   }
   if (roleList.length > 0) {
     params.push(roleList);
-    ownership.push(`assigned_to_role = ANY($${params.length}::text[])`);
+    ownership.push(`(assigned_to_uid IS NULL AND assigned_to_role = ANY($${params.length}::text[]))`);
   }
   // No assignee and no roles → nothing is "mine".
   if (ownership.length === 0) {
@@ -2315,26 +2334,26 @@ export async function listInboxTasks({
 }
 
 export async function reassignTask({
-  tenantId = null, id, assignedToUid = null, assignedToRole = null,
+  tenantId = null, id, assignedToUid, assignedToRole,
   executorAuthority = null,
   tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
   const db = tx || prisma;
-  const updates = ['updated_at = NOW()'];
-  const params = [];
-  if (assignedToUid !== undefined) {
-    params.push(maybeUuid(assignedToUid, 'assigned_to_uid'));
-    updates.push(`assigned_to_uid = $${params.length}::uuid`);
+  if (assignedToUid === undefined && assignedToRole === undefined) {
+    throw AppError.badRequest(
+      'Task reassignment requires a user or role field',
+      'TASK_ASSIGNMENT_REQUIRED',
+    );
   }
-  if (assignedToRole !== undefined) {
-    params.push(safeText(assignedToRole, 80));
-    updates.push(`assigned_to_role = $${params.length}`);
-  }
-  if (params.length === 0) {
-    return getTask({ tenantId: tid, id: taskId, tx });
-  }
+  const assignment = normalizeTaskAssignment({ assignedToUid, assignedToRole });
+  const updates = [
+    'assigned_to_uid = $1::uuid',
+    'assigned_to_role = $2',
+    'updated_at = NOW()',
+  ];
+  const params = [assignment.uid, assignment.role];
   if (!tx) {
     return setTenantTx(tid, (scopedTx) => reassignTask({
       tenantId: tid,

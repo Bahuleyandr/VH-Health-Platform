@@ -1,4 +1,5 @@
 import {
+  getClinicalAccountabilityRoleCodes,
   getRolesForCapabilityGroups,
   getStaffRosterRoleCodes,
 } from './rolePolicyGraph.js';
@@ -81,6 +82,18 @@ export const CLINICAL_STAFF_ROUTE_ROLES = getRolesForCapabilityGroups([
   include: ['CMO', 'MEDICAL_SUPERINTENDENT', 'MEDICAL_RECORDS'],
   exclude: ['RECEPTIONIST', 'RECEPTION_INCHARGE'],
 });
+
+export const PATHWAY_NAMED_CLINICIAN_ROLES = getClinicalAccountabilityRoleCodes();
+
+export const CARE_PATHWAY_ROUTE_ROLES = mergeRoles(
+  CLINICAL_STAFF_ROUTE_ROLES,
+  PATHWAY_NAMED_CLINICIAN_ROLES,
+);
+
+export const CLINICAL_INBOX_ROUTE_ROLES = mergeRoles(
+  CLINICAL_STAFF_ROUTE_ROLES,
+  PATHWAY_NAMED_CLINICIAN_ROLES,
+);
 
 export const PHYSIO_ROUTE_ROLES = mergeRoles(
   CLINICAL_STAFF_ROUTE_ROLES,

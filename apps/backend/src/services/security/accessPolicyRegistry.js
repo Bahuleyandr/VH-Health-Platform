@@ -177,6 +177,7 @@ export const ACCESS_POLICIES = Object.freeze({
     action: 'ACCESS',
     requiredPhiLevel: 'patient_relationship_required',
     capabilityGroups: ['ip_flow', 'nursing_governance', 'pharmacy', 'theatre', 'cath_lab'],
+    relationshipChecks: [...RELATIONSHIP_CHECKS, 'care_pathway_owner'],
   }),
   [ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE]: policy({
     code: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
@@ -185,6 +186,7 @@ export const ACCESS_POLICIES = Object.freeze({
     action: 'UPDATE',
     requiredPhiLevel: 'patient_relationship_required',
     capabilityGroups: ['ip_flow', 'theatre', 'cath_lab'],
+    relationshipChecks: [...RELATIONSHIP_CHECKS, 'care_pathway_owner'],
   }),
   [ACCESS_POLICY_CODES.PATIENT_MEDICATION_RECONCILIATION_WRITE]: policy({
     code: ACCESS_POLICY_CODES.PATIENT_MEDICATION_RECONCILIATION_WRITE,

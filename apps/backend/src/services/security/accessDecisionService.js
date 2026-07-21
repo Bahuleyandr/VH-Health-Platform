@@ -1,4 +1,5 @@
 import {
+  getClinicalAccountabilityRoleCodes,
   getRolePolicy,
   getRolePolicyHash,
   getRolePolicyVersion,
@@ -74,6 +75,7 @@ const ADMISSION_OPERATIONS_ROLES = new Set([
 const MEDICAL_RECORDS_ROLES = new Set(['MEDICAL_RECORDS']);
 
 const OPERATIONAL_ADMIN_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+const CLINICAL_ACCOUNTABILITY_ROLES = new Set(getClinicalAccountabilityRoleCodes());
 
 const OPERATIONAL_ROLE_POLICIES = new Set([
   ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
@@ -987,6 +989,55 @@ async function findClinicalAuthorshipRelationship(req, patient, policy) {
   return firstRow(rows);
 }
 
+async function findCarePathwayOwnerRelationship(req, patient, policy, resourceContext, role) {
+  if (![
+    ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+    ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  ].includes(policy?.code)) {
+    return null;
+  }
+  if (String(resourceContext?.resourceType || '').trim().toLowerCase() !== 'care_pathway_instance') {
+    return null;
+  }
+
+  const pathwayInstanceId = cleanUuid(resourceContext?.resourceId);
+  const patientUid = cleanUuid(patient?.uid);
+  const actorUid = cleanUuid(actorUidOf(req));
+  const actorRole = normalizeRole(role);
+  if (
+    !pathwayInstanceId
+    || !patientUid
+    || !actorUid
+    || !CLINICAL_ACCOUNTABILITY_ROLES.has(actorRole)
+  ) {
+    return null;
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT cpi.id
+       FROM care_pathway_instances cpi
+       JOIN users owner
+         ON owner.tenant_id = cpi.tenant_id
+        AND owner.uid = cpi.owning_clinician_uid
+      WHERE cpi.tenant_id = $1::uuid
+        AND cpi.id = $2::uuid
+        AND cpi.patient_uid = $3::uuid
+        AND cpi.owning_clinician_uid = $4::uuid
+        AND UPPER(BTRIM(owner.role)) = $5::text
+        AND owner.is_active = TRUE
+        AND LOWER(COALESCE(owner.status, '')) = 'active'
+        AND owner.is_deleted IS FALSE
+        AND owner.deleted_at IS NULL
+      LIMIT 1`,
+    deriveTenantIdFromRequest(req),
+    pathwayInstanceId,
+    patientUid,
+    actorUid,
+    actorRole,
+  );
+  return firstRow(rows);
+}
+
 async function findAppointmentRelationship(req, patient, role, policy = null, resourceContext = null) {
   const actorUid = cleanUuid(actorUidOf(req));
   const actorId = cleanInt(req?.user?.id);
@@ -1188,6 +1239,7 @@ async function writePatientAccessAudit(req, decision) {
         resource_type: decision.resource_type ?? null,
         phi_access_level: decision.phi_access_level ?? null,
         referral_id: decision.referralId ?? null,
+        care_pathway_instance_id: decision.carePathwayInstanceId ?? null,
         actor_id: req?.user?.id ?? null,
         subject_uid: req?.user?.uid ?? null,
         acting_as_dependent: req?.acting != null,
@@ -1310,6 +1362,21 @@ export async function authorizePatientAccessRequest(req, {
       decision = denyDecision(args, 'Administrative PHI access requires an active break-glass session');
     } else {
       decision = denyDecision(args, `${role} does not meet the PHI level required by ${policy.code}`);
+    }
+  }
+
+  if (!decision && policy.relationship_checks.includes('care_pathway_owner')) {
+    const pathwayOwner = await findCarePathwayOwnerRelationship(
+      req,
+      resolvedPatient,
+      policy,
+      resourceContext,
+      role,
+    );
+    if (pathwayOwner?.id) {
+      decision = allowDecision(args, 'care_pathway_owner', 'actor is the assigned care pathway owner', {
+        carePathwayInstanceId: pathwayOwner.id,
+      });
     }
   }
 

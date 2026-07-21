@@ -389,6 +389,35 @@ describe('carePathwayRoutes', () => {
     expect(spoofed.body.code).toBe('PATHWAY_ROUTE_FIELD_UNSUPPORTED');
   });
 
+  it('carries exact pathway-owner authorization provenance into commands', async () => {
+    executePathwayCommand.mockResolvedValueOnce({
+      instance: { id: INSTANCE_ID, patient_uid: PATIENT_UID },
+      events: [],
+    });
+    const response = await request(makeAppWithAccessDecision({
+      allowed: true,
+      accessSource: 'care_pathway_owner',
+      carePathwayInstanceId: INSTANCE_ID,
+      shadow_mode: false,
+    }, {
+      uid: ACTOR_UID,
+      role: 'RADIOLOGIST',
+      roles: ['RADIOLOGIST'],
+    }))
+      .post(`/api/v1/care-pathways/instances/${INSTANCE_ID}/commands`)
+      .set('Idempotency-Key', 'command:pathway-owner:1')
+      .send({ signal: { kind: 'resume' } });
+
+    expect(response.statusCode).toBe(200);
+    expect(executePathwayCommand).toHaveBeenCalledWith(expect.objectContaining({
+      actor: expect.objectContaining({
+        uid: ACTOR_UID,
+        primaryRole: 'RADIOLOGIST',
+        authorizationMode: 'patient_access_care_pathway_owner',
+      }),
+    }));
+  });
+
   it('blocks a would-be shadow denial because pathway ABAC is always enforced', async () => {
     const response = await request(makeAppWithAccessDecision({
       allowed: false,

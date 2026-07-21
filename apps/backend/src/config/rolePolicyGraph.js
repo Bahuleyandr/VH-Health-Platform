@@ -1242,6 +1242,12 @@ export function getRolePolicyRoleCodes() {
   return ROLE_POLICY_ROLES.map((role) => role.role_code);
 }
 
+export function getClinicalAccountabilityRoleCodes() {
+  return ROLE_POLICY_ROLES
+    .filter((role) => role.group === 'clinical')
+    .map((role) => role.role_code);
+}
+
 export function getStaffRosterRoleCodes({ includeAdmin = true } = {}) {
   return ROLE_POLICY_ROLES
     .filter((role) => role.human && !role.machine && role.role_code !== 'PATIENT')

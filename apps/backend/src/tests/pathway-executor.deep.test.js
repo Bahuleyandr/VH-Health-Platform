@@ -13,6 +13,7 @@ import {
   createRegisteredWorkflowSystemActor,
   createWorkflowRuntimeRegistry,
 } from '../services/workflow/workflowRuntimeRegistry.js';
+import { resolvePathwayTaskOwnerTx } from '../services/workflow/workflowHumanOwnerService.js';
 import { transitionTask } from '../services/workflow/taskService.js';
 
 const actualCanonicalModule = await import(
@@ -211,6 +212,14 @@ function compactToken() {
   return randomUUID().replaceAll('-', '');
 }
 
+function databaseSqlState(error) {
+  return error?.meta?.driverAdapterError?.cause?.originalCode
+    || error?.cause?.code
+    || error?.meta?.code
+    || error?.code
+    || null;
+}
+
 function actor(uid) {
   return Object.freeze({
     kind: 'user',
@@ -219,6 +228,47 @@ function actor(uid) {
     primaryRole: 'DOCTOR',
     authorizationMode: 'assigned_user',
   });
+}
+
+function registeredSystemActor(label) {
+  const sourceEventId = BigInt(`0x${compactToken().slice(0, 15)}`);
+  return createRegisteredWorkflowSystemActor({
+    registry,
+    systemKey: 'synthetic.pathway_projector.v1',
+    sourceEventId,
+    causationId: `${label}:${sourceEventId}`,
+    signalContext: {
+      sourceResourceType: 'event_outbox',
+      sourceResourceId: String(sourceEventId),
+      occurredAt: new Date().toISOString(),
+    },
+  });
+}
+
+function systemStartInput(fixture, definition, {
+  suffix,
+  owningClinicianUid,
+  accountableRole = 'DOCTOR',
+} = {}) {
+  const input = {
+    tenantId: fixture.tenantId,
+    workflowDefinitionId: Number(definition.id),
+    patientUid: fixture.patientUid,
+    pathwayKey: definition.workflow_key,
+    sourceEpisodeType: 'synthetic_system_episode',
+    sourceEpisodeId: `${suffix}.${compactToken()}`,
+    accountableRole,
+    triggerKind: 'event',
+    triggerPayload: { deep_test: true },
+    context: { test_case: suffix },
+    metadata: { synthetic: true },
+    idempotencyKey: `${suffix}.${compactToken()}`,
+    actor: registeredSystemActor(suffix),
+    registry,
+    activationEvidenceCapability: activationCapability,
+  };
+  if (owningClinicianUid !== undefined) input.owningClinicianUid = owningClinicianUid;
+  return input;
 }
 
 function startInput(fixture, definition, suffix = 'start') {
@@ -281,6 +331,26 @@ async function seedTenantActors(tx, {
     approverUid,
   );
   return { tenantId, patientUid, doctorUid, approverUid };
+}
+
+async function seedStaffUser(tx, {
+  tenantId,
+  uid = randomUUID(),
+  role = 'DOCTOR',
+  isActive = true,
+  status = isActive ? 'active' : 'inactive',
+} = {}) {
+  await tx.$queryRawUnsafe(
+    `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'Pathway Deep Additional Staff', $3::text,
+             $4::boolean, $5::text, NOW())`,
+    uid,
+    tenantId,
+    role,
+    isActive,
+    status,
+  );
+  return uid;
 }
 
 async function seedGovernedDefinition(tx, fixture, rawDefinition) {
@@ -653,6 +723,44 @@ async function dropStaleCasTrigger() {
   ).catch(() => {});
 }
 
+async function dropOwnerIntegrityFailureTrigger() {
+  await prisma.$executeRawUnsafe(
+    'DROP TRIGGER IF EXISTS trg_pathway_executor_deep_corrupt_owner ON tasks',
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    'DROP FUNCTION IF EXISTS pathway_executor_deep_corrupt_owner()',
+  ).catch(() => {});
+}
+
+async function installOwnerIntegrityFailureTrigger() {
+  await dropOwnerIntegrityFailureTrigger();
+  await prisma.$executeRawUnsafe(
+    `CREATE FUNCTION pathway_executor_deep_corrupt_owner()
+     RETURNS trigger
+     LANGUAGE plpgsql
+     AS $$
+     BEGIN
+       IF NEW.related_resource_type = 'care_pathway_instance'
+          AND EXISTS (
+            SELECT 1
+              FROM tenants
+             WHERE id = NEW.tenant_id
+               AND settings ->> 'executor_deep_corrupt_owner' = 'true'
+          )
+       THEN
+         NEW.assigned_to_role := 'DOCTOR';
+       END IF;
+       RETURN NEW;
+     END;
+     $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE TRIGGER trg_pathway_executor_deep_corrupt_owner
+       BEFORE INSERT ON tasks
+       FOR EACH ROW EXECUTE FUNCTION pathway_executor_deep_corrupt_owner()`,
+  );
+}
+
 async function installStaleCasTrigger() {
   await dropStaleCasTrigger();
   await prisma.$executeRawUnsafe(
@@ -731,6 +839,7 @@ d('pathway executor PostgreSQL conformance', () => {
   });
 
   afterAll(async () => {
+    await dropOwnerIntegrityFailureTrigger();
     await dropSkipFailureTrigger();
     await dropStaleCasTrigger();
     await prisma.$disconnect().catch(() => {});
@@ -1889,6 +1998,258 @@ d('pathway executor PostgreSQL conformance', () => {
     await expect(tenantRuntimeCounts(fixture.tenantId)).resolves.toEqual(before);
   }, 60_000);
 
+  it('enforces strict named-owner viability for registered-system starts', async () => {
+    const fixture = await seedFixture([
+      waitDefinition(`synthetic_system_owner_${compactToken()}`, 1),
+    ]);
+    const definition = fixture.definitions[0];
+    const inactiveDoctorUid = await setTenantTx(fixture.tenantId, (tx) => seedStaffUser(tx, {
+      tenantId: fixture.tenantId,
+      isActive: false,
+    }));
+
+    await expect(startCarePathwayInstance(systemStartInput(fixture, definition, {
+      suffix: 'system-owner-inactive',
+      owningClinicianUid: inactiveDoctorUid,
+    }))).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+    await expect(startCarePathwayInstance(systemStartInput(fixture, definition, {
+      suffix: 'system-owner-nonclinical',
+      owningClinicianUid: fixture.approverUid,
+    }))).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+
+    const started = await startCarePathwayInstance(systemStartInput(fixture, definition, {
+      suffix: 'system-owner-valid',
+      owningClinicianUid: fixture.doctorUid,
+    }));
+    expect(started).toMatchObject({
+      owning_clinician_uid: fixture.doctorUid,
+      accountable_role: 'DOCTOR',
+      replayed: false,
+    });
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT owning_clinician_uid::text, accountable_role
+           FROM care_pathway_instances
+          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        fixture.tenantId,
+        started.id,
+      );
+      expect(rows).toEqual([{
+        owning_clinician_uid: fixture.doctorUid,
+        accountable_role: 'DOCTOR',
+      }]);
+    });
+  }, 60_000);
+
+  it('enforces strict named-owner viability for trusted child starts atomically', async () => {
+    const childKey = `synthetic_strict_child_${compactToken()}`;
+    const validParentKey = `synthetic_valid_parent_${compactToken()}`;
+    const invalidParentKey = `synthetic_invalid_parent_${compactToken()}`;
+    const parentDefinition = (workflowKey) => ({
+      workflow_key: workflowKey,
+      version: 1,
+      triggers: [],
+      defaults: {},
+      steps: [{
+        step_key: 'launch_child',
+        step_kind: 'subworkflow',
+        assigned_role: 'DOCTOR',
+        child_rules: [{
+          rule_key: 'strict_child_owner',
+          fanout_handler: 'synthetic.pathway_child.v1',
+          child_pathway_key: childKey,
+          relationship: 'nonblocking_with_named_owner',
+        }],
+      }],
+    });
+    const fixture = await seedFixture([
+      waitDefinition(childKey, 1),
+      parentDefinition(validParentKey),
+      parentDefinition(invalidParentKey),
+    ]);
+    const childDefinition = fixture.definitions[0];
+    const validParentDefinition = fixture.definitions[1];
+    const invalidParentDefinition = fixture.definitions[2];
+    const inactiveDoctorUid = await setTenantTx(fixture.tenantId, (tx) => seedStaffUser(tx, {
+      tenantId: fixture.tenantId,
+      isActive: false,
+    }));
+
+    childFanoutInputs.set(fixture.tenantId, {
+      workflowDefinitionId: Number(childDefinition.id),
+      pathwayKey: childKey,
+      sourceEpisodeType: 'synthetic_child_episode',
+      sourceEpisodeId: `valid-child.${compactToken()}`,
+      owningClinicianUid: fixture.doctorUid,
+      accountableRole: 'DOCTOR',
+    });
+    const validParent = await startCarePathwayInstance(startInput(
+      fixture,
+      validParentDefinition,
+      'strict-child-valid-parent-start',
+    ));
+    await executePathwayCommand(commandInput(
+      fixture,
+      validParent.id,
+      `strict-child-valid.${compactToken()}`,
+      'launch_child',
+    ));
+
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      const children = await tx.$queryRawUnsafe(
+        `SELECT parent_instance_id::text, owning_clinician_uid::text, accountable_role
+           FROM care_pathway_instances
+          WHERE tenant_id = $1::uuid AND parent_instance_id = $2::uuid`,
+        fixture.tenantId,
+        validParent.id,
+      );
+      expect(children).toEqual([{
+        parent_instance_id: validParent.id,
+        owning_clinician_uid: fixture.doctorUid,
+        accountable_role: 'DOCTOR',
+      }]);
+    });
+
+    const invalidParent = await startCarePathwayInstance(startInput(
+      fixture,
+      invalidParentDefinition,
+      'strict-child-invalid-parent-start',
+    ));
+    childFanoutInputs.set(fixture.tenantId, {
+      workflowDefinitionId: Number(childDefinition.id),
+      pathwayKey: childKey,
+      sourceEpisodeType: 'synthetic_child_episode',
+      sourceEpisodeId: `invalid-child.${compactToken()}`,
+      owningClinicianUid: inactiveDoctorUid,
+      accountableRole: 'DOCTOR',
+    });
+    const before = await tenantRuntimeCounts(fixture.tenantId);
+
+    await expect(executePathwayCommand(commandInput(
+      fixture,
+      invalidParent.id,
+      `strict-child-invalid.${compactToken()}`,
+      'launch_child',
+    ))).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    });
+    await expect(tenantRuntimeCounts(fixture.tenantId)).resolves.toEqual(before);
+    const invalidParentBundle = await getCarePathwayInstance({
+      tenantId: fixture.tenantId,
+      id: invalidParent.id,
+    });
+    expect(invalidParentBundle.run).toMatchObject({ status: 'started', current_step_key: null });
+    expect(invalidParentBundle.steps).toEqual([
+      expect.objectContaining({ step_key: 'launch_child', status: 'pending' }),
+    ]);
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT COUNT(*)::integer AS count
+           FROM care_pathway_instances
+          WHERE tenant_id = $1::uuid AND parent_instance_id = $2::uuid`,
+        fixture.tenantId,
+        invalidParent.id,
+      );
+      expect(rows).toEqual([{ count: 0 }]);
+    });
+  }, 60_000);
+
+  it('holds named-owner viability stable until start commit and rejects a racing deactivation', async () => {
+    const fixture = await seedFixture([
+      waitDefinition(`synthetic_owner_lock_${compactToken()}`, 1),
+    ]);
+    const definition = fixture.definitions[0];
+    let started;
+    let updateOutcome;
+
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      const holderRows = await tx.$queryRawUnsafe(
+        'SELECT pg_backend_pid()::integer AS pid',
+      );
+      const holderBackendPid = Number(holderRows[0].pid);
+      started = await startCarePathwayInstance({
+        ...startInput(fixture, definition, 'named-owner-lock-start'),
+        tx,
+      });
+      let signalBackendReady;
+      const backendReady = new Promise((resolve) => {
+        signalBackendReady = resolve;
+      });
+      updateOutcome = setTenantTx(fixture.tenantId, async (updateTx) => {
+        const backendRows = await updateTx.$queryRawUnsafe(
+          'SELECT pg_backend_pid()::integer AS pid',
+        );
+        signalBackendReady(Number(backendRows[0].pid));
+        await updateTx.$executeRawUnsafe(
+          `UPDATE users
+              SET is_active = FALSE, status = 'inactive', updated_at = NOW()
+            WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+          fixture.tenantId,
+          fixture.doctorUid,
+        );
+      }).then(
+        () => ({ status: 'fulfilled' }),
+        (error) => ({ status: 'rejected', error }),
+      );
+
+      const updateBackendPid = await backendReady;
+      let lockObservation = null;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const rows = await tx.$queryRawUnsafe(
+          `SELECT state, wait_event_type, wait_event,
+                  pg_blocking_pids($1::integer)::integer[] AS blocking_pids
+             FROM pg_stat_activity
+            WHERE pid = $1::integer`,
+          updateBackendPid,
+        );
+        lockObservation = rows[0] || null;
+        if (lockObservation?.wait_event_type === 'Lock') break;
+        await new Promise((resolve) => { setTimeout(resolve, 25); });
+      }
+      expect(lockObservation).toMatchObject({
+        state: 'active',
+        wait_event_type: 'Lock',
+      });
+      expect(lockObservation.blocking_pids).toContain(holderBackendPid);
+    });
+
+    const outcome = await updateOutcome;
+    expect(outcome.status).toBe('rejected');
+    expect(databaseSqlState(outcome.error)).toBe('23514');
+    expect(String(outcome.error?.message || outcome.error)).toMatch(
+      /live pathway instance requires an active same-tenant clinically eligible named owner/i,
+    );
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT owner.is_active, owner.status, owner.role,
+                pathway.owning_clinician_uid::text
+           FROM users AS owner
+           JOIN care_pathway_instances AS pathway
+             ON pathway.tenant_id = owner.tenant_id
+            AND pathway.owning_clinician_uid = owner.uid
+          WHERE owner.tenant_id = $1::uuid
+            AND owner.uid = $2::uuid
+            AND pathway.id = $3::uuid`,
+        fixture.tenantId,
+        fixture.doctorUid,
+        started.id,
+      );
+      expect(rows).toEqual([{
+        is_active: true,
+        status: 'active',
+        role: 'DOCTOR',
+        owning_clinician_uid: fixture.doctorUid,
+      }]);
+    });
+  }, 60_000);
+
   it('persists sealed system-actor lineage through the executor evidence chain', async () => {
     const fixture = await seedFixture([
       waitDefinition(`synthetic_system_actor_${compactToken()}`, 1),
@@ -2109,6 +2470,467 @@ d('pathway executor PostgreSQL conformance', () => {
         stage_key: 'launch_child',
         step_key: 'launch_child',
       }]);
+    });
+  }, 60_000);
+
+  it('materializes a named-owner task and SLA with the same single user owner', async () => {
+    const ruleCode = `synthetic_exact_owner_${compactToken()}`.slice(0, 100);
+    const fixture = await seedFixture([
+      domainEvidenceTaskDefinition(`synthetic_exact_owner_${compactToken()}`, ruleCode),
+    ]);
+    const definition = fixture.definitions[0];
+    await seedDomainEvidenceRule(fixture, ruleCode, 'Synthetic exact owner');
+    domainEvidenceTenants.add(fixture.tenantId);
+    const started = await startCarePathwayInstance(startInput(
+      fixture,
+      definition,
+      'exact-owner-start',
+    ));
+    const materialized = await executePathwayCommand(commandInput(
+      fixture,
+      started.id,
+      `exact-owner-materialize.${compactToken()}`,
+      'check_domain_evidence',
+    ));
+    expect(materialized.instance.tasks).toHaveLength(1);
+
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT task.assigned_to_uid::text,
+                task.assigned_to_role,
+                task.workflow_sla_instance_id,
+                task.status AS task_status,
+                sla.id AS sla_id,
+                sla.assigned_user_uid::text,
+                sla.assigned_role_codes,
+                sla.status AS sla_status
+           FROM tasks AS task
+           JOIN workflow_sla_instances AS sla
+             ON sla.tenant_id = task.tenant_id
+            AND sla.id = task.workflow_sla_instance_id
+          WHERE task.tenant_id = $1::uuid
+            AND task.id = $2::integer`,
+        fixture.tenantId,
+        Number(materialized.instance.tasks[0].id),
+      );
+      expect(rows).toEqual([{
+        assigned_to_uid: fixture.doctorUid,
+        assigned_to_role: null,
+        workflow_sla_instance_id: materialized.instance.tasks[0].workflow_sla_instance_id,
+        task_status: 'open',
+        sla_id: materialized.instance.tasks[0].workflow_sla_instance_id,
+        assigned_user_uid: fixture.doctorUid,
+        assigned_role_codes: [],
+        sla_status: 'active',
+      }]);
+    });
+  }, 60_000);
+
+  it('rolls the executor transaction back when database owner integrity rejects a task', async () => {
+    const ruleCode = `synthetic_owner_rollback_${compactToken()}`.slice(0, 100);
+    const fixture = await seedFixture([
+      domainEvidenceTaskDefinition(`synthetic_owner_rollback_${compactToken()}`, ruleCode),
+    ]);
+    const definition = fixture.definitions[0];
+    await seedDomainEvidenceRule(fixture, ruleCode, 'Synthetic owner rollback');
+    domainEvidenceTenants.add(fixture.tenantId);
+    const started = await startCarePathwayInstance(startInput(
+      fixture,
+      definition,
+      'owner-integrity-rollback-start',
+    ));
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      await tx.$queryRawUnsafe(
+        `UPDATE tenants
+            SET settings = jsonb_set(
+              settings,
+              '{executor_deep_corrupt_owner}',
+              'true'::jsonb,
+              true
+            )
+          WHERE id = $1::uuid`,
+        fixture.tenantId,
+      );
+    });
+    const before = await tenantRuntimeCounts(fixture.tenantId);
+    const beforeSlaRows = await setTenantTx(fixture.tenantId, (tx) => tx.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid`,
+      fixture.tenantId,
+    ));
+
+    let integrityError = null;
+    await installOwnerIntegrityFailureTrigger();
+    try {
+      try {
+        await executePathwayCommand(commandInput(
+          fixture,
+          started.id,
+          `owner-integrity-rollback.${compactToken()}`,
+          'check_domain_evidence',
+        ));
+      } catch (error) {
+        integrityError = error;
+      }
+    } finally {
+      await dropOwnerIntegrityFailureTrigger();
+      await setTenantTx(fixture.tenantId, async (tx) => {
+        await tx.$queryRawUnsafe(
+          `UPDATE tenants
+              SET settings = settings - 'executor_deep_corrupt_owner'
+            WHERE id = $1::uuid`,
+          fixture.tenantId,
+        );
+      });
+    }
+
+    expect(integrityError).not.toBeNull();
+    expect(databaseSqlState(integrityError)).toBe('23514');
+    expect(String(integrityError?.message || integrityError)).toMatch(
+      /actionable clinical task requires exactly one live route-capable owner/i,
+    );
+
+    await expect(tenantRuntimeCounts(fixture.tenantId)).resolves.toEqual(before);
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      const slaRows = await tx.$queryRawUnsafe(
+        `SELECT COUNT(*)::integer AS count
+           FROM workflow_sla_instances
+          WHERE tenant_id = $1::uuid`,
+        fixture.tenantId,
+      );
+      expect(slaRows).toEqual(beforeSlaRows);
+    });
+    const bundle = await getCarePathwayInstance({
+      tenantId: fixture.tenantId,
+      id: started.id,
+    });
+    expect(bundle).toMatchObject({ clinical_status: 'planned' });
+    expect(bundle.run).toMatchObject({ status: 'started', current_step_key: null });
+    expect(bundle.steps).toEqual([
+      expect.objectContaining({ step_key: 'verify_domain_evidence', status: 'pending' }),
+    ]);
+    expect(bundle.tasks).toEqual([]);
+  }, 60_000);
+
+  it('revalidates the current named owner across all three replay entrypoints', async () => {
+    const startFixture = await seedFixture([
+      waitDefinition(`synthetic_named_start_replay_${compactToken()}`, 1),
+    ]);
+    const startDefinition = startFixture.definitions[0];
+    const nextStartOwnerUid = await setTenantTx(
+      startFixture.tenantId,
+      (tx) => seedStaffUser(tx, { tenantId: startFixture.tenantId }),
+    );
+    const startRequest = startInput(
+      startFixture,
+      startDefinition,
+      'named-owner-start-replay',
+    );
+    const started = await startCarePathwayInstance(startRequest);
+    const currentStartReplay = await startCarePathwayInstance(startRequest);
+    expect(currentStartReplay.replayed).toBe(true);
+    expect(currentStartReplay.events.map((event) => event.id)).toEqual(
+      started.events.map((event) => event.id),
+    );
+    await setTenantTx(startFixture.tenantId, async (tx) => {
+      await tx.$queryRawUnsafe(
+        `UPDATE care_pathway_instances
+            SET owning_clinician_uid = $3::uuid, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        startFixture.tenantId,
+        started.id,
+        nextStartOwnerUid,
+      );
+    });
+    const startCounts = await tenantRuntimeCounts(startFixture.tenantId);
+    await expect(startCarePathwayInstance(startRequest)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PATHWAY_SIGNAL_NOT_OWNED',
+    });
+    await expect(tenantRuntimeCounts(startFixture.tenantId)).resolves.toEqual(startCounts);
+
+    const commandFixture = await seedFixture([
+      waitDefinition(`synthetic_named_command_replay_${compactToken()}`, 2),
+    ]);
+    const commandDefinition = commandFixture.definitions[0];
+    const nextCommandOwnerUid = await setTenantTx(
+      commandFixture.tenantId,
+      (tx) => seedStaffUser(tx, { tenantId: commandFixture.tenantId }),
+    );
+    const commandStarted = await startCarePathwayInstance(startInput(
+      commandFixture,
+      commandDefinition,
+      'named-owner-command-replay-start',
+    ));
+    const commandKey = `named-owner-command-replay.${compactToken()}`;
+    const commandRequest = commandInput(
+      commandFixture,
+      commandStarted.id,
+      commandKey,
+      'advance_named_owner',
+    );
+    const commanded = await executePathwayCommand(commandRequest);
+    const currentCommandReplay = await executePathwayCommand(commandRequest);
+    expect(currentCommandReplay.replayed).toBe(true);
+    expect(currentCommandReplay.events.map((event) => event.id)).toEqual(
+      commanded.events.map((event) => event.id),
+    );
+    expect(conditionEvaluations.get(commandKey)).toBe(2);
+    expect(commanded.instance).toMatchObject({ clinical_status: 'active' });
+    expect(commanded.instance.run).toMatchObject({
+      status: 'blocked',
+      current_step_key: 'gate_2',
+    });
+    const commandCounts = await tenantRuntimeCounts(commandFixture.tenantId);
+    await expect(setTenantTx(commandFixture.tenantId, async (tx) => {
+      const unavailableOwnerRows = await tx.$queryRawUnsafe(
+        `UPDATE users
+            SET is_active = FALSE, status = 'inactive', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid
+          RETURNING uid::text, is_active, status`,
+        commandFixture.tenantId,
+        commandFixture.doctorUid,
+      );
+      expect(unavailableOwnerRows).toEqual([{
+        uid: commandFixture.doctorUid,
+        is_active: false,
+        status: 'inactive',
+      }]);
+      await expect(resolvePathwayTaskOwnerTx({
+        tx,
+        tenantId: commandFixture.tenantId,
+        requestedUid: commandFixture.doctorUid,
+      })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+      });
+      await expect(executePathwayCommand({
+        ...commandRequest,
+        tx,
+      })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+      });
+      throw new Error(ROLLBACK_MARKER);
+    })).rejects.toThrow(ROLLBACK_MARKER);
+    expect(conditionEvaluations.get(commandKey)).toBe(2);
+    await expect(tenantRuntimeCounts(commandFixture.tenantId)).resolves.toEqual(commandCounts);
+    await setTenantTx(commandFixture.tenantId, async (tx) => {
+      const ownerRows = await tx.$queryRawUnsafe(
+        `SELECT is_active, status
+           FROM users
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+        commandFixture.tenantId,
+        commandFixture.doctorUid,
+      );
+      expect(ownerRows).toEqual([{ is_active: true, status: 'active' }]);
+      await tx.$queryRawUnsafe(
+        `UPDATE care_pathway_instances
+            SET owning_clinician_uid = $3::uuid, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        commandFixture.tenantId,
+        commandStarted.id,
+        nextCommandOwnerUid,
+      );
+    });
+    await expect(executePathwayCommand(commandRequest)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PATHWAY_SIGNAL_NOT_OWNED',
+    });
+    expect(conditionEvaluations.get(commandKey)).toBe(2);
+    await expect(tenantRuntimeCounts(commandFixture.tenantId)).resolves.toEqual(commandCounts);
+
+    const evidenceRuleCode = `synthetic_named_evidence_${compactToken()}`.slice(0, 100);
+    const evidenceFixture = await seedFixture([
+      domainEvidenceApprovalDefinition(
+        `synthetic_named_evidence_replay_${compactToken()}`,
+        evidenceRuleCode,
+      ),
+    ]);
+    const evidenceDefinition = evidenceFixture.definitions[0];
+    const nextEvidenceOwnerUid = await setTenantTx(
+      evidenceFixture.tenantId,
+      (tx) => seedStaffUser(tx, { tenantId: evidenceFixture.tenantId }),
+    );
+    await seedDomainEvidenceRule(
+      evidenceFixture,
+      evidenceRuleCode,
+      'Synthetic named evidence replay',
+    );
+    domainEvidenceTenants.add(evidenceFixture.tenantId);
+    const evidenceStarted = await startCarePathwayInstance(startInput(
+      evidenceFixture,
+      evidenceDefinition,
+      'named-owner-evidence-replay-start',
+    ));
+    const evidenceMaterialized = await executePathwayCommand(commandInput(
+      evidenceFixture,
+      evidenceStarted.id,
+      `named-owner-evidence-materialize.${compactToken()}`,
+      'check_domain_evidence',
+    ));
+    const evidenceTask = evidenceMaterialized.instance.tasks[0];
+    const evidenceStep = evidenceMaterialized.instance.steps[0];
+    const evidenceRun = evidenceMaterialized.instance.run;
+    const evidenceRequest = {
+      ...commandInput(
+        evidenceFixture,
+        evidenceStarted.id,
+        `named-owner-evidence-complete.${compactToken()}`,
+        'complete_domain_evidence',
+      ),
+      taskId: Number(evidenceTask.id),
+      workflowRunId: Number(evidenceRun.id),
+      workflowStepId: Number(evidenceStep.id),
+      conditionHandler: 'synthetic.pathway_condition.v1',
+      evidence: {
+        kind: 'synthetic_verified_result',
+        resource_type: 'synthetic_result',
+        resource_id: `named-owner-evidence.${compactToken()}`,
+      },
+    };
+    const evidenceCompleted = await completePathwayTaskAndExecuteFromRegisteredEvidence(
+      evidenceRequest,
+    );
+    const currentEvidenceReplay = await completePathwayTaskAndExecuteFromRegisteredEvidence(
+      evidenceRequest,
+    );
+    expect(currentEvidenceReplay.replayed).toBe(true);
+    expect(currentEvidenceReplay.events.map((event) => event.id)).toEqual(
+      evidenceCompleted.events.map((event) => event.id),
+    );
+    expect(evidenceCompleted.instance.run).toMatchObject({
+      status: 'running',
+      current_step_key: 'approve_domain_evidence',
+    });
+    expect(evidenceCompleted.instance.approvals).toEqual([
+      expect.objectContaining({ status: 'pending' }),
+    ]);
+    await setTenantTx(evidenceFixture.tenantId, async (tx) => {
+      await tx.$queryRawUnsafe(
+        `UPDATE care_pathway_instances
+            SET owning_clinician_uid = $3::uuid, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        evidenceFixture.tenantId,
+        evidenceStarted.id,
+        nextEvidenceOwnerUid,
+      );
+    });
+    const evidenceCounts = await tenantRuntimeCounts(evidenceFixture.tenantId);
+    const readEvidenceClosureState = () => setTenantTx(
+      evidenceFixture.tenantId,
+      (tx) => tx.$queryRawUnsafe(
+        `SELECT task.status AS task_status,
+                sla.status AS sla_status,
+                sla.completed_at::text,
+                (SELECT approval.status
+                   FROM approvals AS approval
+                  WHERE approval.tenant_id = task.tenant_id
+                    AND approval.workflow_run_id = task.workflow_run_id
+                    AND approval.workflow_step_id = task.workflow_step_id
+                  LIMIT 1) AS approval_status,
+                (SELECT COUNT(*)::integer
+                   FROM task_comments AS comment
+                  WHERE comment.tenant_id = task.tenant_id
+                    AND comment.task_id = task.id) AS comment_count
+           FROM tasks AS task
+           JOIN workflow_sla_instances AS sla
+             ON sla.tenant_id = task.tenant_id
+            AND sla.id = task.workflow_sla_instance_id
+          WHERE task.tenant_id = $1::uuid AND task.id = $2::integer`,
+        evidenceFixture.tenantId,
+        Number(evidenceTask.id),
+      ),
+    );
+    const evidenceClosureState = await readEvidenceClosureState();
+    await expect(completePathwayTaskAndExecuteFromRegisteredEvidence(
+      evidenceRequest,
+    )).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PATHWAY_SIGNAL_NOT_OWNED',
+    });
+    await expect(tenantRuntimeCounts(evidenceFixture.tenantId)).resolves.toEqual(evidenceCounts);
+    await expect(readEvidenceClosureState()).resolves.toEqual(evidenceClosureState);
+    const evidenceBundle = await getCarePathwayInstance({
+      tenantId: evidenceFixture.tenantId,
+      id: evidenceStarted.id,
+    });
+    expect(evidenceBundle.tasks).toEqual([
+      expect.objectContaining({ id: evidenceTask.id, status: 'completed' }),
+    ]);
+    expect(evidenceBundle.approvals).toEqual([
+      expect.objectContaining({ status: 'pending' }),
+    ]);
+  }, 60_000);
+
+  it('documents the accepted activation blocker: role-only replay trusts stale actor roles', async () => {
+    const fixture = await seedFixture([
+      waitDefinition(`synthetic_role_replay_blocker_${compactToken()}`, 1),
+    ]);
+    const definition = fixture.definitions[0];
+    const roleQueueActorUid = await setTenantTx(
+      fixture.tenantId,
+      (tx) => seedStaffUser(tx, { tenantId: fixture.tenantId }),
+    );
+    const started = await startCarePathwayInstance(systemStartInput(fixture, definition, {
+      suffix: 'role-replay-blocker-start',
+      accountableRole: 'DOCTOR',
+    }));
+    expect(started.owning_clinician_uid).toBeNull();
+    const staleActor = actor(roleQueueActorUid);
+    const commandKey = `role-replay-blocker.${compactToken()}`;
+    const command = {
+      ...commandInput(fixture, started.id, commandKey, 'advance_role_queue'),
+      actor: staleActor,
+    };
+    const committed = await executePathwayCommand(command);
+    expect(committed.instance.run.status).toBe('completed');
+
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      await tx.$queryRawUnsafe(
+        `UPDATE users
+            SET role = 'RECEPTIONIST',
+                is_active = FALSE,
+                status = 'inactive',
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+        fixture.tenantId,
+        roleQueueActorUid,
+      );
+    });
+
+    // S1b-c1 accepts JWT/current-role activation as a later gate; this is
+    // regression evidence for that blocker, not a claim that it is solved.
+    const replayed = await executePathwayCommand(command);
+    expect(replayed.replayed).toBe(true);
+    expect(replayed.events.map((event) => event.id)).toEqual(
+      committed.events.map((event) => event.id),
+    );
+    await setTenantTx(fixture.tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT role, is_active, status
+           FROM users
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+        fixture.tenantId,
+        roleQueueActorUid,
+      );
+      expect(rows).toEqual([{
+        role: 'RECEPTIONIST',
+        is_active: false,
+        status: 'inactive',
+      }]);
+      const transitionRows = await tx.$queryRawUnsafe(
+        `SELECT COUNT(*)::integer AS count
+           FROM care_pathway_transition_events
+          WHERE tenant_id = $1::uuid
+            AND pathway_instance_id = $2::uuid
+            AND idempotency_key = $3::text`,
+        fixture.tenantId,
+        started.id,
+        committed.events[0].idempotency_key,
+      );
+      expect(transitionRows).toEqual([{ count: committed.events.length }]);
     });
   }, 60_000);
 

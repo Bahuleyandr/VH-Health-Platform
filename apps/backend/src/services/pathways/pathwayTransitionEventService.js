@@ -22,7 +22,7 @@ const transitionAppendSessions = new WeakSet();
 
 const INSTANCE_COLUMNS = `id, tenant_id, workflow_run_id, patient_uid, encounter_id,
   pathway_key, pathway_version, source_episode_type, source_episode_id,
-  patient_visibility_status, clinical_status, metadata`;
+  owning_clinician_uid, accountable_role, patient_visibility_status, clinical_status, metadata`;
 
 const EVENT_COLUMNS = `id, tenant_id, pathway_instance_id, patient_uid, workflow_run_id,
   sequence_number, transition_scope, transition_key, stage_key, workflow_step_id,

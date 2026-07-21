@@ -52,6 +52,8 @@ const INSTANCE = Object.freeze({
   pathway_version: 1,
   source_episode_type: 'synthetic_order',
   source_episode_id: 'order-42',
+  owning_clinician_uid: ACTOR_UID,
+  accountable_role: 'DOCTOR',
   patient_visibility_status: 'hidden',
   clinical_status: 'active',
   metadata: {}
@@ -229,7 +231,10 @@ describe('pathway transition replay', () => {
     });
 
     expect(tx.$queryRawUnsafe.mock.calls).toHaveLength(3);
-    expect(tx.$queryRawUnsafe.mock.calls[0][0]).toContain('FOR UPDATE');
+    const instanceLockSql = tx.$queryRawUnsafe.mock.calls[0][0];
+    expect(instanceLockSql).toContain('owning_clinician_uid');
+    expect(instanceLockSql).toContain('accountable_role');
+    expect(instanceLockSql).toContain('FOR UPDATE');
     expect(tx.$queryRawUnsafe.mock.calls[1][0]).toContain('pg_advisory_xact_lock');
     expect(tx.$queryRawUnsafe.mock.calls[1][1]).toBe(`${TENANT_ID}:${IDEMPOTENCY_KEY}`);
     expect(tx.$queryRawUnsafe.mock.calls[2][0]).toContain('ORDER BY effect_ordinal ASC');

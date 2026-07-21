@@ -466,6 +466,9 @@ export async function enqueueCriticalResultTask({
         sourceTable: resourceType,
         sourceId: resourceIdStr,
         priority: SEVERITY_PRIORITY[severity] || 'high',
+        // The exclusive task is authoritative; do not inherit the rule's
+        // generic DOCTOR/LAB_STAFF audience into this compatibility SLA.
+        assignedRoleCodes: [],
         metadata: {
           source,
           task_materialization_contract: TASK_MATERIALIZATION_CONTRACT,
@@ -750,6 +753,8 @@ export async function ensureCriticalResultTaskOpen({
           sourceTable: resourceType,
           sourceId: resourceIdStr,
           priority: SEVERITY_PRIORITY[severity] || 'high',
+          // Keep a newly opened correction clock owner-neutral as well.
+          assignedRoleCodes: [],
           metadata: {
             source,
             task_materialization_contract: TASK_MATERIALIZATION_CONTRACT,
@@ -853,6 +858,8 @@ export async function ensureCriticalResultTaskOpen({
                   completed_at = NULL,
                   breached_at = NULL,
                   escalated_at = NULL,
+                  assigned_user_uid = NULL,
+                  assigned_role_codes = ARRAY[]::text[],
                   started_at = NOW(),
                   due_at = NOW() + ($3::int * INTERVAL '1 minute'),
                   metadata = (

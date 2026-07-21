@@ -101,6 +101,21 @@ describe('policyCodeForRecordType — CareTeam ABAC family mappings (LOW-1)', ()
 });
 
 describe('policyCodeForRecordType — safe fallback is unchanged', () => {
+  it('adds pathway ownership only to the two clinical-workflow policies', () => {
+    expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS).relationship_checks)
+      .toContain('care_pathway_owner');
+    expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE).relationship_checks)
+      .toContain('care_pathway_owner');
+
+    for (const [code, policy] of Object.entries(ACCESS_POLICIES)) {
+      if ([
+        ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+        ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+      ].includes(code)) continue;
+      expect(policy.relationship_checks).not.toContain('care_pathway_owner');
+    }
+  });
+
   it('falls back to patient.record.view for unknown / unmapped record types', () => {
     expect(policyCodeForRecordType('PHI')).toBe(ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW);
     expect(policyCodeForRecordType('MEDICAL_RECORD')).toBe(ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW);

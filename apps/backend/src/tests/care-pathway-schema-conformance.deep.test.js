@@ -1231,7 +1231,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
         statement,
         params,
         '23514',
-        'incomplete human-action SLA requires exactly one owned actionable task',
+        'actionable clinical task requires exactly one live route-capable owner',
       );
     }
 
@@ -1243,7 +1243,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
         WHERE tenant_id = $1::uuid AND id = $2::integer`,
       [tenantId, task.rows[0].id],
       '23514',
-      'incomplete human-action SLA requires exactly one owned actionable task',
+      'actionable clinical task requires exactly one live route-capable owner',
     );
 
     await client.query('SET CONSTRAINTS ALL DEFERRED');
@@ -1460,13 +1460,21 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
         ? 'death_records'
         : resourceType;
       const sla = await client.query(
-        `INSERT INTO workflow_sla_instances
-           (tenant_id, rule_code, patient_uid, source_table, source_id,
-            status, due_at)
-         VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5::text,
-                 'active', '2026-07-19T12:00:00.123456Z'::timestamptz)
-         RETURNING id`,
-        [tenantId, ruleCode, patientUid, sourceTable, resourceId],
+         `INSERT INTO workflow_sla_instances
+            (tenant_id, rule_code, patient_uid, source_table, source_id,
+             status, due_at, assigned_role_codes)
+          VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5::text,
+                  'active', '2026-07-19T12:00:00.123456Z'::timestamptz,
+                  $6::text[])
+          RETURNING id`,
+        [
+          tenantId,
+          ruleCode,
+          patientUid,
+          sourceTable,
+          resourceId,
+          ruleCode === 'cold_chain_excursion_ack' ? ['DUTY_DOCTOR'] : [],
+        ],
       );
       const task = await client.query(
         `INSERT INTO tasks

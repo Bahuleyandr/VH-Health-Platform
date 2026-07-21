@@ -171,7 +171,7 @@ async function seedLinkedExcursion() {
           started_at, due_at, assigned_role_codes, metadata)
        VALUES ($1::uuid, $2::uuid, 'cold_chain_excursion_ack',
                'cold_chain_excursions', $3, 'active', 'critical', NOW(),
-               NOW() + INTERVAL '15 minutes', ARRAY['PHARMACY_STAFF']::text[],
+               NOW() + INTERVAL '15 minutes', ARRAY['PHARMACY_INCHARGE']::text[],
                '{"test":"cold_chain_ack_atomicity","task_materialization_contract":"application_atomic_v1"}'::jsonb)`,
       SLA_ID,
       TENANT_ID,
@@ -653,6 +653,7 @@ d('cold-chain acknowledgement transaction atomicity', () => {
       await tx.$executeRawUnsafe(
         `UPDATE workflow_sla_instances
             SET status = 'active',
+                assigned_role_codes = ARRAY['PHARMACY_STAFF']::text[],
                 due_at = NOW() - INTERVAL '1 minute',
                 completed_at = NULL,
                 breached_at = NULL,

@@ -1,10 +1,13 @@
 import {
   CLINICAL_STAFF_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
+  PATHWAY_NAMED_CLINICIAN_ROLES,
 } from '../../config/routeRolePolicy.js';
+import { AppError } from '../../utils/AppError.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CLINICAL_HUMAN_ROLE_SET = new Set(CLINICAL_STAFF_ROUTE_ROLES);
+const PATHWAY_NAMED_CLINICAL_OWNER_ROLE_SET = new Set(PATHWAY_NAMED_CLINICIAN_ROLES);
 const TASK_HUMAN_ROLE_SET = new Set([
   ...CLINICAL_STAFF_ROUTE_ROLES,
   ...COLD_CHAIN_ROUTE_ROLES,
@@ -27,6 +30,11 @@ export function isTaskHumanOwnerRole(value) {
 
 export const isPathwayHumanOwnerRole = isClinicalHumanOwnerRole;
 
+export function isPathwayNamedClinicalOwnerRole(value) {
+  const role = normalizeRole(value);
+  return Boolean(role && PATHWAY_NAMED_CLINICAL_OWNER_ROLE_SET.has(role));
+}
+
 async function findActiveNamedOwnerTx({ tx, tenantId, uid, rolePredicate }) {
   const normalizedUid = String(uid || '').trim().toLowerCase();
   if (!UUID_PATTERN.test(normalizedUid)) return null;
@@ -37,14 +45,60 @@ async function findActiveNamedOwnerTx({ tx, tenantId, uid, rolePredicate }) {
       WHERE tenant_id = $1::uuid
         AND uid = $2::uuid
         AND is_active = TRUE
+        AND LOWER(COALESCE(status, '')) = 'active'
+        AND is_deleted IS FALSE
+        AND deleted_at IS NULL
         AND role <> 'PATIENT'
-      LIMIT 1`,
+      LIMIT 1
+      FOR SHARE`,
     tenantId,
     normalizedUid,
   );
   const user = rows[0] || null;
   if (!user || !rolePredicate(user.role)) return null;
   return String(user.uid || normalizedUid).toLowerCase();
+}
+
+export async function resolvePathwayTaskOwnerTx({
+  tx,
+  tenantId,
+  requestedUid = null,
+  fallbackRole = null,
+}) {
+  if (requestedUid !== null && requestedUid !== undefined) {
+    const namedOwner = await findActiveNamedOwnerTx({
+      tx,
+      tenantId,
+      uid: requestedUid,
+      rolePredicate: isPathwayNamedClinicalOwnerRole,
+    });
+    if (!namedOwner) {
+      throw AppError.conflict(
+        'Named pathway owner is unavailable or not clinically eligible',
+        'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+      );
+    }
+    return Object.freeze({
+      assignedToUid: namedOwner,
+      assignedToRole: null,
+      resolution: 'requested_active_clinician',
+      fallbackReason: null,
+    });
+  }
+
+  const assignedToRole = normalizeRole(fallbackRole);
+  if (!isPathwayHumanOwnerRole(assignedToRole)) {
+    throw AppError.conflict(
+      'Pathway role queue is missing or not route-capable',
+      'PATHWAY_ROLE_OWNER_INVALID',
+    );
+  }
+  return Object.freeze({
+    assignedToUid: null,
+    assignedToRole,
+    resolution: 'route_role_queue',
+    fallbackReason: null,
+  });
 }
 
 export async function resolveClinicalTaskOwnerTx({
