@@ -466,6 +466,7 @@ export async function enqueueCriticalResultTask({
         sourceTable: resourceType,
         sourceId: resourceIdStr,
         priority: SEVERITY_PRIORITY[severity] || 'high',
+        assignedRoleCodes: [],
         metadata: {
           source,
           task_materialization_contract: TASK_MATERIALIZATION_CONTRACT,
@@ -750,6 +751,7 @@ export async function ensureCriticalResultTaskOpen({
           sourceTable: resourceType,
           sourceId: resourceIdStr,
           priority: SEVERITY_PRIORITY[severity] || 'high',
+          assignedRoleCodes: [],
           metadata: {
             source,
             task_materialization_contract: TASK_MATERIALIZATION_CONTRACT,
@@ -853,6 +855,8 @@ export async function ensureCriticalResultTaskOpen({
                   completed_at = NULL,
                   breached_at = NULL,
                   escalated_at = NULL,
+                  assigned_user_uid = NULL,
+                  assigned_role_codes = ARRAY[]::text[],
                   started_at = NOW(),
                   due_at = NOW() + ($3::int * INTERVAL '1 minute'),
                   metadata = (
