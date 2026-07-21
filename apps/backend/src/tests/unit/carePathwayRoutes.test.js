@@ -5,6 +5,13 @@ import request from 'supertest';
 const startCarePathwayInstance = jest.fn();
 const executePathwayCommand = jest.fn();
 const getCarePathwayInstance = jest.fn();
+const acceptCarePathwayOwnerTransfer = jest.fn();
+const cancelCarePathwayOwnerTransfer = jest.fn();
+const claimCarePathwayOwner = jest.fn();
+const declineCarePathwayOwnerTransfer = jest.fn();
+const getCarePathwayOwnerTransferForRecipient = jest.fn();
+const requestCarePathwayOwnerTransfer = jest.fn();
+const resolvePathwayInstanceIdForHandoff = jest.fn();
 const authorizePatientAccessRequest = jest.fn();
 const resolvePatientForResourceAccess = jest.fn();
 const resolveEnforcementModeForRequest = jest.fn();
@@ -56,6 +63,16 @@ jest.unstable_mockModule('../../services/pathways/pathwayExecutorService.js', ()
   getCarePathwayInstance,
 }));
 
+jest.unstable_mockModule('../../services/pathways/pathwayOwnershipService.js', () => ({
+  acceptCarePathwayOwnerTransfer,
+  cancelCarePathwayOwnerTransfer,
+  claimCarePathwayOwner,
+  declineCarePathwayOwnerTransfer,
+  getCarePathwayOwnerTransferForRecipient,
+  requestCarePathwayOwnerTransfer,
+  resolvePathwayInstanceIdForHandoff,
+}));
+
 jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () => ({
   isValidIdempotencyKey: (value) => (
     typeof value === 'string'
@@ -71,6 +88,7 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const ACTOR_UID = '11111111-1111-4111-8111-111111111111';
 const PATIENT_UID = '22222222-2222-4222-8222-222222222222';
 const INSTANCE_ID = '33333333-3333-4333-8333-333333333333';
+const HANDOFF_ID = '88888888-8888-4888-8888-888888888888';
 const UNRESOLVED_PATIENT_UID = '44444444-4444-4444-8444-444444444444';
 const UNAUTHORIZED_PATIENT_UID = '55555555-5555-4555-8555-555555555555';
 const INVALID_PATIENT_UID = 'not-a-patient-uuid';
@@ -106,7 +124,9 @@ function makeApp(onFinish = null) {
   app.use(express.json());
   app.use((req, res, next) => {
     req.tenantId = TENANT_ID;
-    req.user = { uid: ACTOR_UID, role: 'DOCTOR', roles: ['DOCTOR'] };
+    req.user = {
+      uid: ACTOR_UID, role: 'DOCTOR', rawRole: 'DOCTOR', roles: ['DOCTOR'],
+    };
     if (onFinish) res.on('finish', () => onFinish(req));
     next();
   });
@@ -121,6 +141,7 @@ function makeApp(onFinish = null) {
 function makeAppWithAccessDecision(accessDecision, user = {
   uid: ACTOR_UID,
   role: 'DOCTOR',
+  rawRole: 'DOCTOR',
   roles: ['DOCTOR'],
 }) {
   const app = express();
@@ -155,7 +176,12 @@ beforeEach(() => {
     if (!decision && req.body?.patient_uid === UNAUTHORIZED_PATIENT_UID) {
       decision = { ...SAFE_DENIAL, reason: 'No active patient relationship' };
     }
-    if (!decision && options.requireResolvedPatient && options.patient == null && req.params?.id) {
+    if (
+      !decision
+      && options.requireResolvedPatient
+      && options.patient == null
+      && (req.params?.id || req.params?.handoffId)
+    ) {
       decision = { ...SAFE_DENIAL, reason: 'Patient context could not be resolved' };
     }
     decision ||= {
@@ -194,6 +220,7 @@ describe('carePathwayRoutes', () => {
         uid: ACTOR_UID,
         roles: ['DOCTOR'],
         primaryRole: 'DOCTOR',
+        rawRole: 'DOCTOR',
         authorizationMode: 'patient_access_care_team',
       },
     }));
@@ -343,6 +370,7 @@ describe('carePathwayRoutes', () => {
         uid: ACTOR_UID,
         roles: ['DOCTOR'],
         primaryRole: 'DOCTOR',
+        rawRole: 'DOCTOR',
         authorizationMode: 'patient_access_care_team',
       },
     });
@@ -371,6 +399,7 @@ describe('carePathwayRoutes', () => {
         uid: ACTOR_UID,
         roles: ['DOCTOR'],
         primaryRole: 'DOCTOR',
+        rawRole: 'DOCTOR',
         authorizationMode: 'patient_access_break_glass',
         overrideReason: 'Emergency access for active resuscitation',
         breakGlassId: 44,
@@ -402,6 +431,7 @@ describe('carePathwayRoutes', () => {
     }, {
       uid: ACTOR_UID,
       role: 'RADIOLOGIST',
+      rawRole: 'RADIOLOGIST',
       roles: ['RADIOLOGIST'],
     }))
       .post(`/api/v1/care-pathways/instances/${INSTANCE_ID}/commands`)
@@ -564,6 +594,7 @@ describe('carePathwayRoutes', () => {
     }, {
       uid: ACTOR_UID,
       role: 'NURSING_STAFF',
+      rawRole: 'NURSING_STAFF',
       roles: ['DOCTOR', 'NURSING_STAFF'],
     }))
       .post(`/api/v1/care-pathways/instances/${INSTANCE_ID}/commands`)
@@ -587,5 +618,67 @@ describe('carePathwayRoutes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(finishedContext).toEqual({ patientUid: PATIENT_UID });
+  });
+
+  it('returns the guarded minimal transfer review to the exact recipient and audits its patient', async () => {
+    let finishedContext = null;
+    getCarePathwayOwnerTransferForRecipient.mockResolvedValueOnce({
+      handoff_id: HANDOFF_ID,
+      pathway_instance_id: INSTANCE_ID,
+      patient_uid: PATIENT_UID,
+      pathway_key: 'diagnostics_order_to_action',
+      pathway_clinical_status: 'active',
+      status: 'requested',
+      sender_uid: '99999999-9999-4999-8999-999999999999',
+      intended_recipient_uid: ACTOR_UID,
+      request_reason: 'Cover the result-review queue',
+      requested_at: new Date().toISOString(),
+      accepted_at: null,
+      declined_at: null,
+      cancelled_at: null,
+    });
+
+    const response = await request(makeApp((req) => { finishedContext = req.phiContext; }))
+      .get(`/api/v1/care-pathways/handoffs/${HANDOFF_ID}`);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual(expect.objectContaining({
+      handoff_id: HANDOFF_ID,
+      patient_uid: PATIENT_UID,
+      request_reason: 'Cover the result-review queue',
+    }));
+    expect(getCarePathwayOwnerTransferForRecipient).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      handoffId: HANDOFF_ID,
+      actor: {
+        kind: 'user',
+        uid: ACTOR_UID,
+        roles: ['DOCTOR'],
+        primaryRole: 'DOCTOR',
+        rawRole: 'DOCTOR',
+        authorizationMode: 'patient_access_care_team',
+      },
+    });
+    expect(finishedContext).toEqual({ patientUid: PATIENT_UID });
+  });
+
+  it('keeps inaccessible and malformed transfer ids non-enumerable before service access', async () => {
+    const denied = await request(makeAppWithAccessDecision({
+      ...SAFE_DENIAL,
+      policy_code: 'patient.care_pathway.transfer_read',
+    })).get(`/api/v1/care-pathways/handoffs/${HANDOFF_ID}`);
+    const malformed = await request(makeApp())
+      .get('/api/v1/care-pathways/handoffs/not-a-handoff-uuid');
+
+    expect([denied.statusCode, malformed.statusCode]).toEqual([403, 403]);
+    expect(denied.body).toEqual(expect.objectContaining({
+      code: 'PATIENT_ACCESS_DENIED',
+      message: 'Patient access is denied',
+    }));
+    expect(malformed.body).toEqual(expect.objectContaining({
+      code: 'PATIENT_ACCESS_DENIED',
+      message: 'Patient access is denied',
+    }));
+    expect(getCarePathwayOwnerTransferForRecipient).not.toHaveBeenCalled();
   });
 });

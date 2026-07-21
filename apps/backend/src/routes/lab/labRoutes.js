@@ -294,6 +294,7 @@ router.post('/alerts/critical/:id/ack', requireCriticalAlertAcknowledger, wrap(a
     actorRole: req.user?.role
       || (Array.isArray(req.user?.roles) ? req.user.roles[0] : req.user?.roles)
       || null,
+    actorRawRole: req.user?.rawRole || null,
     breakGlassId: req.body?.break_glass_id ?? null,
     read_back_method: req.body.read_back_method,
     notes: req.body.notes,

@@ -330,6 +330,7 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     // that assignee (post-authorization, a non-assignee non-role caller is 403).
     const acked = await taskService.acknowledgeTask({
       tenantId: DEFAULT_TENANT_ID, id: taskId, actorUid: DOCTOR_UID,
+      actorRoles: ['DOCTOR'], actorPrimaryRole: 'DOCTOR', actorRawRole: 'DOCTOR',
     });
     expect(acked.status).toBe('in_progress');
 
@@ -403,6 +404,8 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
       id: res.taskId,
       actorUid: DOCTOR_UID,
       actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
     });
 
     const slaAfter = await readSlaByKey('lab_result', R.lab);

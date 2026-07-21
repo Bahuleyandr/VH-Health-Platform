@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   getClinicalAccountabilityRoleCodes,
   getRolePolicy,
@@ -123,6 +125,13 @@ function actorRoleOf(req) {
   return normalizeRole(req?.acting?.actorRole ?? req?.user?.role);
 }
 
+function actorRawRoleOf(req) {
+  const role = String(req?.acting?.actorRawRole ?? req?.user?.rawRole ?? '')
+    .trim()
+    .toUpperCase();
+  return role || null;
+}
+
 function cleanUuid(value) {
   const text = value == null ? '' : String(value).trim();
   return UUID_RE.test(text) ? text : null;
@@ -165,6 +174,18 @@ function cleanBigInt(value) {
 
 function normalizeRole(value) {
   return String(value || '').trim().toUpperCase();
+}
+
+function namespacedPathwayOwnershipKey(req, actorUid, operation) {
+  const rawHeader = typeof req?.get === 'function'
+    ? req.get('Idempotency-Key')
+    : req?.headers?.['idempotency-key'];
+  const rawKey = typeof rawHeader === 'string' ? rawHeader.trim() : '';
+  if (!rawKey || rawKey.length > 200 || !/^[A-Za-z0-9_.:-]+$/.test(rawKey)) return null;
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify({ operation, rawKey }))
+    .digest('hex');
+  return `u:${actorUid}:${fingerprint}`;
 }
 
 function requestedPatientToken(req) {
@@ -1004,10 +1025,12 @@ async function findCarePathwayOwnerRelationship(req, patient, policy, resourceCo
   const patientUid = cleanUuid(patient?.uid);
   const actorUid = cleanUuid(actorUidOf(req));
   const actorRole = normalizeRole(role);
+  const actorRawRole = actorRawRoleOf(req);
   if (
     !pathwayInstanceId
     || !patientUid
     || !actorUid
+    || !actorRawRole
     || !CLINICAL_ACCOUNTABILITY_ROLES.has(actorRole)
   ) {
     return null;
@@ -1033,7 +1056,380 @@ async function findCarePathwayOwnerRelationship(req, patient, policy, resourceCo
     pathwayInstanceId,
     patientUid,
     actorUid,
+    actorRawRole,
+  );
+  return firstRow(rows);
+}
+
+async function findCarePathwayTransferRecipientRelationship(
+  req,
+  patient,
+  policy,
+  resourceContext,
+  role,
+) {
+  if (![
+    ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+    ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+    ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_TRANSFER_READ,
+  ].includes(policy?.code)) {
+    return null;
+  }
+  if (String(resourceContext?.resourceType || '').trim().toLowerCase() !== 'care_handoff_instance') {
+    return null;
+  }
+
+  const handoffInstanceId = cleanUuid(resourceContext?.resourceId);
+  const patientUid = cleanUuid(patient?.uid);
+  const actorUid = cleanUuid(actorUidOf(req));
+  const actorRole = normalizeRole(role);
+  const actorRawRole = actorRawRoleOf(req);
+  if (
+    !handoffInstanceId
+    || !patientUid
+    || !actorUid
+    || !actorRawRole
+    || !CLINICAL_ACCOUNTABILITY_ROLES.has(actorRole)
+  ) {
+    return null;
+  }
+
+  const authorizedStateSql = policy.code === ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_TRANSFER_READ
+    ? `AND (
+         (chi.status = 'requested'
+          AND review_task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+          AND cpi.owning_clinician_uid = chi.sender_uid)
+         OR
+         (
+           (
+             (chi.status = 'accepted'
+              AND chi.accepted_at IS NOT NULL
+              AND chi.accepted_by_uid = chi.intended_recipient_uid
+              AND review_task.status = 'completed'
+              AND review_task.completed_at IS NOT NULL)
+             OR
+             (chi.status = 'declined'
+              AND chi.declined_at IS NOT NULL
+              AND NULLIF(BTRIM(chi.decline_reason), '') IS NOT NULL
+              AND review_task.status = 'cancelled'
+              AND review_task.cancelled_at IS NOT NULL
+              AND review_task.cancellation_reason IS NOT DISTINCT FROM chi.decline_reason)
+             OR
+             (chi.status = 'cancelled'
+              AND chi.cancelled_at IS NOT NULL
+              AND NULLIF(BTRIM(chi.cancellation_reason), '') IS NOT NULL
+              AND review_task.status = 'cancelled'
+              AND review_task.cancelled_at IS NOT NULL
+              AND review_task.cancellation_reason IS NOT DISTINCT FROM chi.cancellation_reason)
+           )
+           AND EXISTS (
+             SELECT 1
+               FROM care_pathway_transition_events evidence
+              WHERE evidence.tenant_id = chi.tenant_id
+                AND evidence.pathway_instance_id = cpi.id
+                AND evidence.patient_uid = chi.patient_uid
+                AND evidence.transition_scope = 'handoff'
+                AND evidence.transition_key = CASE chi.status
+                  WHEN 'accepted' THEN 'pathway_owner_transfer_accepted'
+                  WHEN 'declined' THEN 'pathway_owner_transfer_declined'
+                  WHEN 'cancelled' THEN 'pathway_owner_transfer_cancelled'
+                END
+                AND evidence.source_resource_type = 'care_handoff_instance'
+                AND evidence.source_resource_id = chi.id::text
+                AND evidence.actor_uid = CASE
+                  WHEN chi.status IN ('accepted', 'declined')
+                    THEN chi.intended_recipient_uid
+                  WHEN chi.status = 'cancelled' THEN chi.sender_uid
+                END
+                AND evidence.system_actor_key IS NULL
+                AND evidence.effect_ordinal = 0
+                AND evidence.new_state ->> 'transfer_status' = chi.status
+           )
+         )
+       )`
+    : `AND (
+         (chi.status = 'requested'
+          AND review_task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+          AND cpi.owning_clinician_uid = chi.sender_uid)
+         OR
+         (chi.status = 'accepted'
+          AND chi.accepted_by_uid = chi.intended_recipient_uid
+          AND review_task.status = 'completed'
+          AND cpi.owning_clinician_uid = chi.intended_recipient_uid)
+       )`;
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT chi.id, cpi.id AS care_pathway_instance_id
+       FROM care_handoff_instances chi
+       JOIN care_pathway_instances cpi
+         ON cpi.tenant_id = chi.tenant_id
+        AND cpi.id = chi.sending_pathway_instance_id
+        AND cpi.patient_uid = chi.patient_uid
+        AND cpi.workflow_run_id = chi.sending_workflow_run_id
+       JOIN users recipient
+         ON recipient.tenant_id = chi.tenant_id
+        AND recipient.uid = chi.intended_recipient_uid
+       JOIN tasks review_task
+         ON review_task.tenant_id = chi.tenant_id
+        AND review_task.id = chi.task_id
+        AND review_task.patient_uid = chi.patient_uid
+      WHERE chi.tenant_id = $1::uuid
+        AND chi.id = $2::uuid
+        AND chi.patient_uid = $3::uuid
+        AND chi.handoff_type = 'covering_clinician_reassignment'
+        AND chi.recipient_kind = 'user'
+        AND chi.intended_recipient_uid = $4::uuid
+        AND chi.sender_uid IS NOT NULL
+        AND chi.receiving_pathway_instance_id = chi.sending_pathway_instance_id
+        AND chi.receiving_workflow_run_id = chi.sending_workflow_run_id
+        AND chi.receiving_step_key = chi.sending_step_key
+        AND chi.source_resource_type = 'care_pathway_instance'
+        AND chi.source_resource_id = chi.sending_pathway_instance_id::text
+        AND review_task.workflow_run_id IS NULL
+        AND review_task.workflow_step_id IS NULL
+        AND review_task.related_resource_type = 'care_handoff_instance'
+        AND review_task.related_resource_id = chi.id::text
+        AND review_task.assigned_to_uid = chi.intended_recipient_uid
+        AND review_task.assigned_to_role IS NULL
+        AND review_task.workflow_sla_instance_id IS NULL
+        AND review_task.sla_completion_semantics = 'none'
+        ${authorizedStateSql}
+        AND UPPER(BTRIM(recipient.role)) = $5::text
+        AND recipient.is_active = TRUE
+        AND LOWER(COALESCE(recipient.status, '')) = 'active'
+        AND recipient.is_deleted IS FALSE
+        AND recipient.deleted_at IS NULL
+      LIMIT 1`,
+    deriveTenantIdFromRequest(req),
+    handoffInstanceId,
+    patientUid,
+    actorUid,
+    actorRawRole,
+  );
+  return firstRow(rows);
+}
+
+async function findCarePathwayRoleQueueClaimantRelationship(
+  req,
+  patient,
+  policy,
+  resourceContext,
+  role,
+) {
+  if (policy?.code !== ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_QUEUE_CLAIM) {
+    return null;
+  }
+  if (String(resourceContext?.resourceType || '').trim().toLowerCase() !== 'care_pathway_instance') {
+    return null;
+  }
+
+  const pathwayInstanceId = cleanUuid(resourceContext?.resourceId);
+  const patientUid = cleanUuid(patient?.uid);
+  const actorUid = cleanUuid(actorUidOf(req));
+  const actorRole = normalizeRole(role);
+  const actorRawRole = actorRawRoleOf(req);
+  const replayKey = actorUid
+    ? namespacedPathwayOwnershipKey(req, actorUid, 'claim_care_pathway_owner')
+    : null;
+  if (
+    !pathwayInstanceId
+    || !patientUid
+    || !actorUid
+    || !actorRawRole
+    || !CLINICAL_ACCOUNTABILITY_ROLES.has(actorRole)
+  ) {
+    return null;
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH candidates AS (
+     SELECT cpi.id, task.id AS task_id, 0 AS authorization_priority
+       FROM care_pathway_instances cpi
+       JOIN workflow_runs run
+         ON run.tenant_id = cpi.tenant_id
+        AND run.id = cpi.workflow_run_id
+       JOIN workflow_steps step
+         ON step.tenant_id = run.tenant_id
+        AND step.workflow_run_id = run.id
+        AND step.step_key = run.current_step_key
+       JOIN tasks task
+         ON task.tenant_id = cpi.tenant_id
+        AND task.workflow_run_id = run.id
+        AND task.workflow_step_id = step.id
+        AND task.patient_uid = cpi.patient_uid
+       JOIN users claimant
+         ON claimant.tenant_id = cpi.tenant_id
+        AND claimant.uid = $4::uuid
+      WHERE cpi.tenant_id = $1::uuid
+        AND cpi.id = $2::uuid
+        AND cpi.patient_uid = $3::uuid
+        AND cpi.owning_clinician_uid IS NULL
+        AND cpi.clinical_status IN ('planned', 'active', 'on_hold')
+        AND run.status IN ('started', 'running', 'blocked')
+        AND step.step_kind IN ('task', 'approval')
+        AND step.status IN ('pending', 'in_progress', 'blocked')
+        AND task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+        AND task.related_resource_type = 'care_pathway_instance'
+        AND task.related_resource_id = cpi.id::text
+        AND task.assigned_to_uid IS NULL
+        AND NULLIF(BTRIM(task.assigned_to_role), '') IS NOT NULL
+        AND UPPER(BTRIM(task.assigned_to_role)) = $5::text
+        AND UPPER(BTRIM(task.assigned_to_role)) = UPPER(BTRIM(COALESCE(
+          NULLIF(BTRIM(step.assigned_role), ''),
+          NULLIF(BTRIM(cpi.accountable_role), '')
+        )))
+        AND UPPER(BTRIM(claimant.role)) = $7::text
+        AND claimant.is_active = TRUE
+        AND LOWER(COALESCE(claimant.status, '')) = 'active'
+        AND claimant.is_deleted IS FALSE
+        AND claimant.deleted_at IS NULL
+     UNION ALL
+     SELECT cpi.id, NULL::bigint AS task_id, 1 AS authorization_priority
+       FROM care_pathway_instances cpi
+       JOIN care_pathway_transition_events evidence
+         ON evidence.tenant_id = cpi.tenant_id
+        AND evidence.pathway_instance_id = cpi.id
+        AND evidence.patient_uid = cpi.patient_uid
+       JOIN users claimant
+         ON claimant.tenant_id = cpi.tenant_id
+        AND claimant.uid = $4::uuid
+      WHERE cpi.tenant_id = $1::uuid
+        AND cpi.id = $2::uuid
+        AND cpi.patient_uid = $3::uuid
+        AND cpi.owning_clinician_uid = $4::uuid
+        AND evidence.transition_scope = 'pathway'
+        AND evidence.transition_key = 'pathway_owner_claimed'
+        AND evidence.source_resource_type = 'care_pathway_instance'
+        AND evidence.source_resource_id = cpi.id::text
+        AND evidence.actor_uid = $4::uuid
+        AND evidence.system_actor_key IS NULL
+        AND evidence.idempotency_key = $6::text
+        AND evidence.effect_ordinal = 0
+        AND evidence.new_state ->> 'owning_clinician_uid' = $4::text
+        AND UPPER(BTRIM(claimant.role)) = $7::text
+        AND claimant.is_active = TRUE
+        AND LOWER(COALESCE(claimant.status, '')) = 'active'
+        AND claimant.is_deleted IS FALSE
+        AND claimant.deleted_at IS NULL
+     )
+     SELECT id, task_id
+       FROM candidates
+      ORDER BY authorization_priority, task_id NULLS LAST
+      LIMIT 1`,
+    deriveTenantIdFromRequest(req),
+    pathwayInstanceId,
+    patientUid,
+    actorUid,
     actorRole,
+    replayKey,
+    actorRawRole,
+  );
+  return firstRow(rows);
+}
+
+async function findCarePathwayTransferDeclineRecipientRelationship(
+  req,
+  patient,
+  policy,
+  resourceContext,
+  role,
+) {
+  if (policy?.code !== ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_TRANSFER_DECLINE) {
+    return null;
+  }
+  if (String(resourceContext?.resourceType || '').trim().toLowerCase() !== 'care_handoff_instance') {
+    return null;
+  }
+
+  const handoffInstanceId = cleanUuid(resourceContext?.resourceId);
+  const patientUid = cleanUuid(patient?.uid);
+  const actorUid = cleanUuid(actorUidOf(req));
+  const actorRole = normalizeRole(role);
+  const actorRawRole = actorRawRoleOf(req);
+  const replayKey = actorUid
+    ? namespacedPathwayOwnershipKey(req, actorUid, 'decline_care_pathway_owner_transfer')
+    : null;
+  if (
+    !handoffInstanceId
+    || !patientUid
+    || !actorUid
+    || !actorRawRole
+    || !CLINICAL_ACCOUNTABILITY_ROLES.has(actorRole)
+  ) {
+    return null;
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT chi.id, cpi.id AS care_pathway_instance_id, review_task.id AS task_id
+       FROM care_handoff_instances chi
+       JOIN care_pathway_instances cpi
+         ON cpi.tenant_id = chi.tenant_id
+        AND cpi.id = chi.sending_pathway_instance_id
+        AND cpi.patient_uid = chi.patient_uid
+        AND cpi.workflow_run_id = chi.sending_workflow_run_id
+       JOIN users recipient
+         ON recipient.tenant_id = chi.tenant_id
+        AND recipient.uid = chi.intended_recipient_uid
+       JOIN tasks review_task
+         ON review_task.tenant_id = chi.tenant_id
+        AND review_task.id = chi.task_id
+        AND review_task.patient_uid = chi.patient_uid
+      WHERE chi.tenant_id = $1::uuid
+        AND chi.id = $2::uuid
+        AND chi.patient_uid = $3::uuid
+        AND chi.handoff_type = 'covering_clinician_reassignment'
+        AND chi.recipient_kind = 'user'
+        AND chi.intended_recipient_uid = $4::uuid
+        AND chi.sender_uid IS NOT NULL
+        AND chi.receiving_pathway_instance_id = chi.sending_pathway_instance_id
+        AND chi.receiving_workflow_run_id = chi.sending_workflow_run_id
+        AND chi.receiving_step_key = chi.sending_step_key
+        AND chi.source_resource_type = 'care_pathway_instance'
+        AND chi.source_resource_id = chi.sending_pathway_instance_id::text
+        AND review_task.workflow_run_id IS NULL
+        AND review_task.workflow_step_id IS NULL
+        AND review_task.related_resource_type = 'care_handoff_instance'
+        AND review_task.related_resource_id = chi.id::text
+        AND review_task.assigned_to_uid = chi.intended_recipient_uid
+        AND review_task.assigned_to_role IS NULL
+        AND review_task.workflow_sla_instance_id IS NULL
+        AND review_task.sla_completion_semantics = 'none'
+        AND (
+          (chi.status = 'requested'
+           AND review_task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+           AND cpi.owning_clinician_uid = chi.sender_uid)
+          OR
+          (chi.status = 'declined'
+           AND review_task.status = 'cancelled'
+           AND cpi.owning_clinician_uid = chi.sender_uid
+           AND EXISTS (
+             SELECT 1
+               FROM care_pathway_transition_events evidence
+              WHERE evidence.tenant_id = chi.tenant_id
+                AND evidence.pathway_instance_id = cpi.id
+                AND evidence.patient_uid = chi.patient_uid
+                AND evidence.transition_scope = 'handoff'
+                AND evidence.transition_key = 'pathway_owner_transfer_declined'
+                AND evidence.source_resource_type = 'care_handoff_instance'
+                AND evidence.source_resource_id = chi.id::text
+                AND evidence.actor_uid = $4::uuid
+                AND evidence.system_actor_key IS NULL
+                AND evidence.idempotency_key = $6::text
+                AND evidence.effect_ordinal = 0
+           ))
+        )
+        AND UPPER(BTRIM(recipient.role)) = $5::text
+        AND recipient.is_active = TRUE
+        AND LOWER(COALESCE(recipient.status, '')) = 'active'
+        AND recipient.is_deleted IS FALSE
+        AND recipient.deleted_at IS NULL
+      LIMIT 1`,
+    deriveTenantIdFromRequest(req),
+    handoffInstanceId,
+    patientUid,
+    actorUid,
+    actorRawRole,
+    replayKey,
   );
   return firstRow(rows);
 }
@@ -1240,6 +1636,8 @@ async function writePatientAccessAudit(req, decision) {
         phi_access_level: decision.phi_access_level ?? null,
         referral_id: decision.referralId ?? null,
         care_pathway_instance_id: decision.carePathwayInstanceId ?? null,
+        care_handoff_instance_id: decision.careHandoffInstanceId ?? null,
+        care_pathway_task_id: decision.carePathwayTaskId ?? null,
         actor_id: req?.user?.id ?? null,
         subject_uid: req?.user?.uid ?? null,
         acting_as_dependent: req?.acting != null,
@@ -1365,6 +1763,49 @@ export async function authorizePatientAccessRequest(req, {
     }
   }
 
+  if (!decision && policy.relationship_checks.includes('care_pathway_role_queue_claimant')) {
+    const queueClaimant = await findCarePathwayRoleQueueClaimantRelationship(
+      req,
+      resolvedPatient,
+      policy,
+      resourceContext,
+      role,
+    );
+    if (queueClaimant?.id) {
+      decision = allowDecision(
+        args,
+        'care_pathway_role_queue_claimant',
+        'actor currently holds the exact live care pathway role queue',
+        {
+          carePathwayInstanceId: queueClaimant.id,
+          carePathwayTaskId: queueClaimant.task_id,
+        },
+      );
+    }
+  }
+
+  if (!decision && policy.relationship_checks.includes('care_pathway_transfer_decline_recipient')) {
+    const transferDeclineRecipient = await findCarePathwayTransferDeclineRecipientRelationship(
+      req,
+      resolvedPatient,
+      policy,
+      resourceContext,
+      role,
+    );
+    if (transferDeclineRecipient?.id && transferDeclineRecipient?.care_pathway_instance_id) {
+      decision = allowDecision(
+        args,
+        'care_pathway_transfer_decline_recipient',
+        'actor is the exact care pathway transfer decline recipient',
+        {
+          careHandoffInstanceId: transferDeclineRecipient.id,
+          carePathwayInstanceId: transferDeclineRecipient.care_pathway_instance_id,
+          carePathwayTaskId: transferDeclineRecipient.task_id,
+        },
+      );
+    }
+  }
+
   if (!decision && policy.relationship_checks.includes('care_pathway_owner')) {
     const pathwayOwner = await findCarePathwayOwnerRelationship(
       req,
@@ -1377,6 +1818,27 @@ export async function authorizePatientAccessRequest(req, {
       decision = allowDecision(args, 'care_pathway_owner', 'actor is the assigned care pathway owner', {
         carePathwayInstanceId: pathwayOwner.id,
       });
+    }
+  }
+
+  if (!decision && policy.relationship_checks.includes('care_pathway_transfer_recipient')) {
+    const transferRecipient = await findCarePathwayTransferRecipientRelationship(
+      req,
+      resolvedPatient,
+      policy,
+      resourceContext,
+      role,
+    );
+    if (transferRecipient?.id && transferRecipient?.care_pathway_instance_id) {
+      decision = allowDecision(
+        args,
+        'care_pathway_transfer_recipient',
+        'actor is the exact care pathway transfer recipient',
+        {
+          careHandoffInstanceId: transferRecipient.id,
+          carePathwayInstanceId: transferRecipient.care_pathway_instance_id,
+        },
+      );
     }
   }
 

@@ -37,6 +37,10 @@ import {
   acknowledgeLabCriticalAlertTaskFromTrustedWorkflow,
   LAB_CRITICAL_ALERT_ACK_CONTRACT_VERSION,
 } from '../workflow/taskService.js';
+import {
+  isTaskHumanOwnerRole,
+  resolveCurrentHumanActorTx,
+} from '../workflow/workflowHumanOwnerService.js';
 
 // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
 // lab result entry and pathologist sign-off are patient-facing clinical
@@ -2341,6 +2345,7 @@ async function acknowledgeAlertTransition(alertId, {
   acknowledged_by_name,
   actorRoles = [],
   actorRole = null,
+  actorRawRole = null,
   breakGlassId = null,
   read_back_method,
   notes,
@@ -2354,8 +2359,8 @@ async function acknowledgeAlertTransition(alertId, {
   ) {
     throw criticalAlertAckForbidden();
   }
-  const normalizedRoles = Array.isArray(actorRoles) ? actorRoles : [actorRoles];
-  const canonicalActorRole = actorRole || normalizedRoles.find(Boolean) || null;
+  const authenticatedRoles = Array.isArray(actorRoles) ? actorRoles : [actorRoles];
+  const authenticatedPrimaryRole = actorRole || authenticatedRoles.find(Boolean) || null;
   const numericExpectedTaskId = expectedTaskId == null ? null : Number(expectedTaskId);
   if (
     numericExpectedTaskId !== null
@@ -2369,6 +2374,19 @@ async function acknowledgeAlertTransition(alertId, {
   }
 
   const result = await setTenantTx(tenantId, async (tx) => {
+    const currentActor = await resolveCurrentHumanActorTx({
+      tx,
+      tenantId,
+      actorUid: acknowledged_by,
+      authenticatedRoles,
+      authenticatedPrimaryRole,
+      authenticatedRawRole: actorRawRole,
+      rolePredicate: isTaskHumanOwnerRole,
+    });
+    const verifiedActorUid = currentActor.uid;
+    const normalizedRoles = [currentActor.role];
+    const canonicalActorRole = currentActor.role;
+
     // Resolve only the non-PHI resource identity before taking any row lock.
     // Corrected-signoff generation creation locks in the opposite direction
     // (resource advisory lock, then prior alert row), so locking the alert
@@ -2466,7 +2484,7 @@ async function acknowledgeAlertTransition(alertId, {
           throw criticalAlertAckForbidden(alert.patient_uid);
         }
       } else if (!canReplayAcknowledgedCriticalAlert(alert, {
-        actorUid: acknowledged_by,
+        actorUid: verifiedActorUid,
         actorRoles: normalizedRoles,
       })) {
         throw criticalAlertAckForbidden(alert.patient_uid);
@@ -2501,8 +2519,10 @@ async function acknowledgeAlertTransition(alertId, {
             alertId: numericAlertId,
             resultId: alert.result_id,
             patientUid: alert.patient_uid,
-            actorUid: acknowledged_by,
+            actorUid: verifiedActorUid,
             actorRoles: normalizedRoles,
+            actorPrimaryRole: canonicalActorRole,
+            actorRawRole: currentActor.rawRole,
             breakGlassId,
             tx,
           });
@@ -2612,8 +2632,10 @@ async function acknowledgeAlertTransition(alertId, {
         alertId: numericAlertId,
         resultId: alert.result_id,
         patientUid: alert.patient_uid,
-        actorUid: acknowledged_by,
+        actorUid: verifiedActorUid,
         actorRoles: normalizedRoles,
+        actorPrimaryRole: canonicalActorRole,
+        actorRawRole: currentActor.rawRole,
         breakGlassId,
         tx,
       });
@@ -2627,7 +2649,7 @@ async function acknowledgeAlertTransition(alertId, {
     if (!durableAcknowledgedAt || Number.isNaN(Date.parse(durableAcknowledgedAt))) {
       throw new Error('Critical alert task acknowledgement has no durable timestamp');
     }
-    const durableAcknowledgedBy = acknowledged_by;
+    const durableAcknowledgedBy = verifiedActorUid;
     if (!UUID_PATTERN.test(String(durableAcknowledgedBy || ''))) {
       throw criticalAlertAckForbidden(alert.patient_uid);
     }
@@ -2822,6 +2844,7 @@ export async function acknowledgeCriticalAlertForInboxTask(taskId, {
   actorName = null,
   actorRoles = [],
   actorRole = null,
+  actorRawRole = null,
   breakGlassId = null,
   readBackMethod = null,
   notes = null,
@@ -2835,6 +2858,7 @@ export async function acknowledgeCriticalAlertForInboxTask(taskId, {
     acknowledged_by_name: actorName,
     actorRoles,
     actorRole,
+    actorRawRole,
     breakGlassId,
     read_back_method: readBackMethod,
     notes,

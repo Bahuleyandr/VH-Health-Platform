@@ -12,6 +12,7 @@ const materializeLabCriticalAlertGenerationMock = jest.fn();
 const claimLabResultIngestCommandMock = jest.fn();
 const completeLabResultIngestCommandMock = jest.fn();
 const finaliseHttpIdempotencyInTxMock = jest.fn();
+const resolveCurrentHumanActorTxMock = jest.fn();
 const criticalDetectionResults = new Map();
 
 const __prismaDefaultMock = {
@@ -25,6 +26,7 @@ const __prismaDefaultMock = {
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: __prismaDefaultMock,
+  isTenantTransactionClient: () => true,
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
@@ -60,6 +62,11 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   acknowledgeTask: acknowledgeTaskMock,
   acknowledgeLabCriticalAlertTaskFromTrustedWorkflow: acknowledgeTaskMock,
   LAB_CRITICAL_ALERT_ACK_CONTRACT_VERSION: 2,
+}));
+
+jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  isTaskHumanOwnerRole: () => true,
+  resolveCurrentHumanActorTx: resolveCurrentHumanActorTxMock,
 }));
 
 jest.unstable_mockModule('../../services/results/resultsInboxResourceLock.js', () => ({
@@ -789,6 +796,21 @@ describe('listLabWorklist STAT ordering (D45)', () => {
     emitLabEventMock.mockReset();
     lockResultsInboxResourceTxMock.mockReset();
     queryRawUnsafeMock.mockResolvedValue([]);
+    resolveCurrentHumanActorTxMock.mockReset();
+    resolveCurrentHumanActorTxMock.mockImplementation(async ({
+      actorUid,
+      authenticatedRoles = [],
+      authenticatedPrimaryRole = null,
+      authenticatedRawRole = null,
+    }) => {
+      const role = authenticatedPrimaryRole || authenticatedRoles.find(Boolean);
+      return {
+        uid: String(actorUid).toLowerCase(),
+        role,
+        queueRole: role,
+        rawRole: authenticatedRawRole || role,
+      };
+    });
   });
 
   it('orders STAT/URGENT bucket NEWEST-first within priority bucket', async () => {
@@ -919,6 +941,8 @@ describe('listLabWorklist STAT ordering (D45)', () => {
       patientUid,
       actorUid,
       actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
       breakGlassId: 44,
       tx: __prismaDefaultMock,
     });
@@ -948,6 +972,33 @@ describe('listLabWorklist STAT ordering (D45)', () => {
     expect(emitLabEventMock).toHaveBeenCalledWith('alert-acked', { tenantId });
     expect(emitCriticalLabAlertAcknowledgedMock.mock.invocationCallOrder[0])
       .toBeLessThan(emitLabEventMock.mock.invocationCallOrder[0]);
+  });
+
+  it('revalidates the current actor before direct alert replay or PHI read', async () => {
+    resolveCurrentHumanActorTxMock.mockRejectedValueOnce(AppError.forbidden(
+      'Current actor is inactive',
+      'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+    ));
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      result_id: 37,
+      patient_uid: '5e89c1aa-df0c-4d19-9e7e-40af85486f24',
+    }]);
+
+    await expect(acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: '33333333-3333-4333-8333-333333333333',
+      actorRoles: ['DOCTOR'],
+      actorRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+    });
+
+    expect(resolveCurrentHumanActorTxMock).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(acknowledgeTaskMock).not.toHaveBeenCalled();
+    expect(emitCriticalLabAlertAcknowledgedMock).not.toHaveBeenCalled();
   });
 
   it('rejects an unacknowledged stale alert generation before task or SLA mutation', async () => {

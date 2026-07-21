@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// Read-only evidence for migration 585's exclusive live-owner contract.
+// Read-only evidence for migrations 585-586's owner and acceptance contract.
 //
 // Migration 580's original readiness tool must keep working before the pathway
 // tables exist. This separate audit therefore requires the post-584 substrate,
-// verifies pre/post-585 tracker coherence, and never claims pathway activation.
+// verifies exact pre-585/post-585/post-586 tracker coherence, and never claims
+// pathway activation.
 
 import { pathToFileURL } from 'node:url';
 
@@ -13,7 +14,8 @@ export const ACKNOWLEDGEMENT_FLAG = '--ack-read-only-primary-scan';
 export const DEFAULT_SAMPLE_LIMIT = 5;
 export const MAX_SAMPLE_LIMIT = 25;
 export const BLOCKED_EXIT_CODE = 2;
-export const TARGET_MIGRATION = '585_care_pathway_exclusive_owner_integrity.sql';
+export const OWNER_INTEGRITY_MIGRATION = '585_care_pathway_exclusive_owner_integrity.sql';
+export const TARGET_MIGRATION = '586_care_pathway_owner_acceptance.sql';
 export const PREREQUISITE_MIGRATIONS = Object.freeze([
   '580_care_pathway_execution_spine.sql',
   '581_lab_critical_alert_generations.sql',
@@ -44,7 +46,11 @@ export const TENANT_INVENTORY_QUERY = `
    ORDER BY tenant.id
 `;
 
-const TRACKED_MIGRATIONS = [...PREREQUISITE_MIGRATIONS, TARGET_MIGRATION];
+const TRACKED_MIGRATIONS = [
+  ...PREREQUISITE_MIGRATIONS,
+  OWNER_INTEGRITY_MIGRATION,
+  TARGET_MIGRATION,
+];
 const TRACKED_MIGRATIONS_SQL = TRACKED_MIGRATIONS
   .map(name => `'${name}'`)
   .join(', ');
@@ -201,7 +207,424 @@ export const SCHEMA_STATE_QUERY = `
                     to_regclass('public.patient_access_audit_log')
               AND constraint_state.conname =
                     'patient_access_audit_log_access_source_check'
-         ), FALSE) AS patient_access_audit_source_is_post_585
+         ), FALSE) AS patient_access_audit_source_is_post_585,
+         -- Migration 586 extends this exact whitelist without weakening the
+         -- migration-585 owner-integrity substrate audited by this tool.
+         COALESCE((
+           SELECT constraint_state.contype = 'c'
+              AND constraint_state.convalidated
+              AND NOT constraint_state.connoinherit
+              AND pg_get_expr(
+                    constraint_state.conbin,
+                    constraint_state.conrelid
+                  ) = $$((access_source)::text = ANY ((ARRAY['role'::character varying, 'care_team'::character varying, 'clinical_authorship'::character varying, 'appointment'::character varying, 'admission'::character varying, 'guardian'::character varying, 'break_glass'::character varying, 'system'::character varying, 'unknown'::character varying, 'care_pathway_owner'::character varying, 'care_pathway_transfer_recipient'::character varying, 'care_pathway_transfer_decline_recipient'::character varying, 'care_pathway_role_queue_claimant'::character varying])::text[]))$$
+             FROM pg_constraint AS constraint_state
+            WHERE constraint_state.conrelid =
+                    to_regclass('public.patient_access_audit_log')
+              AND constraint_state.conname =
+                    'patient_access_audit_log_access_source_check'
+         ), FALSE) AS patient_access_audit_source_is_post_586,
+         NOT EXISTS (
+           SELECT 1
+             FROM pg_constraint AS constraint_state
+            WHERE constraint_state.conrelid = to_regclass('public.tasks')
+              AND constraint_state.conname = 'tasks_task_kind_check'
+         ) AS tasks_task_kind_is_absent_pre_586,
+         COALESCE((
+           SELECT constraint_state.contype = 'c'
+              AND constraint_state.convalidated
+              AND NOT constraint_state.connoinherit
+              AND pg_get_expr(
+                    constraint_state.conbin,
+                    constraint_state.conrelid
+                  ) = $$((task_kind)::text = ANY ((ARRAY['general'::character varying, 'follow_up'::character varying, 'review'::character varying, 'escalation'::character varying, 'verification'::character varying, 'admin'::character varying, 'consent'::character varying, 'investigation'::character varying, 'other'::character varying])::text[]))$$
+             FROM pg_constraint AS constraint_state
+            WHERE constraint_state.conrelid = to_regclass('public.tasks')
+              AND constraint_state.conname = 'tasks_task_kind_check'
+         ), FALSE) AS tasks_task_kind_is_pre_586,
+         COALESCE((
+           SELECT constraint_state.contype = 'c'
+              AND constraint_state.convalidated
+              AND NOT constraint_state.connoinherit
+              AND pg_get_expr(
+                    constraint_state.conbin,
+                    constraint_state.conrelid
+                  ) = $$((task_kind)::text = ANY ((ARRAY['general'::character varying, 'follow_up'::character varying, 'review'::character varying, 'escalation'::character varying, 'verification'::character varying, 'admin'::character varying, 'consent'::character varying, 'investigation'::character varying, 'other'::character varying, 'pathway_owner_transfer_review'::character varying])::text[]))$$
+             FROM pg_constraint AS constraint_state
+            WHERE constraint_state.conrelid = to_regclass('public.tasks')
+              AND constraint_state.conname = 'tasks_task_kind_check'
+         ), FALSE) AS tasks_task_kind_is_post_586,
+         COALESCE((
+           SELECT function_state.prokind = 'f'
+              AND function_state.prorettype = to_regtype('pg_catalog.void')
+              AND NOT function_state.prosecdef
+              AND function_state.provolatile = 'v'
+              AND language_state.lanname = 'plpgsql'
+              AND md5(replace(function_state.prosrc, CHR(13), '')) =
+                    '59915e01aefce768d69783a7a8f62611'
+             FROM pg_proc AS function_state
+             JOIN pg_language AS language_state
+               ON language_state.oid = function_state.prolang
+            WHERE function_state.oid = to_regprocedure(
+              'public.care_pathway_assert_actionable_task_owner(uuid,integer)'
+            )
+         ), FALSE) AS actionable_owner_function_is_pre_586,
+         COALESCE((
+           SELECT function_state.prokind = 'f'
+              AND function_state.prorettype = to_regtype('pg_catalog.void')
+              AND NOT function_state.prosecdef
+              AND function_state.provolatile = 'v'
+              AND language_state.lanname = 'plpgsql'
+              AND md5(replace(function_state.prosrc, CHR(13), '')) =
+                    '7480c16dacab9ea08019ec57a3095977'
+             FROM pg_proc AS function_state
+             JOIN pg_language AS language_state
+               ON language_state.oid = function_state.prolang
+            WHERE function_state.oid = to_regprocedure(
+              'public.care_pathway_assert_actionable_task_owner(uuid,integer)'
+            )
+         ), FALSE) AS actionable_owner_function_is_post_586,
+         COALESCE((
+           SELECT COUNT(*) = 3
+              AND BOOL_AND(
+                CASE attribute.attname
+                  WHEN 'request_reason' THEN
+                    format_type(attribute.atttypid, attribute.atttypmod) = 'text'
+                  WHEN 'request_fingerprint' THEN
+                    format_type(attribute.atttypid, attribute.atttypmod) =
+                      'character(64)'
+                  WHEN 'accepted_by_uid' THEN
+                    format_type(attribute.atttypid, attribute.atttypmod) = 'uuid'
+                  ELSE FALSE
+                END
+                AND NOT attribute.attnotnull
+                AND NOT attribute.atthasdef
+                AND attribute.attidentity = ''
+                AND attribute.attgenerated = ''
+                AND NOT attribute.attisdropped
+              )
+             FROM pg_attribute AS attribute
+            WHERE attribute.attrelid = to_regclass('public.care_handoff_instances')
+              AND attribute.attnum > 0
+              AND attribute.attname IN (
+                'request_reason', 'request_fingerprint', 'accepted_by_uid'
+              )
+         ), FALSE) AS owner_acceptance_columns_are_post_586,
+         COALESCE((
+           SELECT constraint_state.contype = 'f'
+              AND constraint_state.convalidated
+              AND NOT constraint_state.condeferrable
+              AND NOT constraint_state.condeferred
+              AND constraint_state.confupdtype = 'a'
+              AND constraint_state.confdeltype = 'a'
+              AND constraint_state.confmatchtype = 's'
+              AND constraint_state.confrelid = to_regclass('public.users')
+              AND ARRAY(
+                    SELECT attribute.attname::text
+                      FROM unnest(constraint_state.conkey) WITH ORDINALITY
+                           AS key_column(attribute_number, ordinal)
+                      JOIN pg_attribute AS attribute
+                        ON attribute.attrelid = constraint_state.conrelid
+                       AND attribute.attnum = key_column.attribute_number
+                     ORDER BY key_column.ordinal
+                  ) = ARRAY['tenant_id', 'accepted_by_uid']::text[]
+              AND ARRAY(
+                    SELECT attribute.attname::text
+                      FROM unnest(constraint_state.confkey) WITH ORDINALITY
+                           AS key_column(attribute_number, ordinal)
+                      JOIN pg_attribute AS attribute
+                        ON attribute.attrelid = constraint_state.confrelid
+                       AND attribute.attnum = key_column.attribute_number
+                     ORDER BY key_column.ordinal
+                  ) = ARRAY['tenant_id', 'uid']::text[]
+             FROM pg_constraint AS constraint_state
+            WHERE constraint_state.conrelid =
+                    to_regclass('public.care_handoff_instances')
+              AND constraint_state.conname =
+                    'fk_care_handoff_accepted_by_tenant'
+         ), FALSE) AS owner_acceptance_fk_is_post_586,
+         COALESCE((
+           SELECT constraint_state.contype = 'c'
+              AND constraint_state.convalidated
+              AND NOT constraint_state.connoinherit
+              AND md5(pg_get_expr(
+                    constraint_state.conbin,
+                    constraint_state.conrelid
+                  )) = 'bdb4981dd7542ba684c13efa0d0463fd'
+             FROM pg_constraint AS constraint_state
+            WHERE constraint_state.conrelid =
+                    to_regclass('public.care_handoff_instances')
+              AND constraint_state.conname =
+                    'care_handoff_covering_transfer_check'
+         ), FALSE) AS owner_acceptance_check_is_post_586,
+         COALESCE((
+           SELECT COUNT(*) = 3
+              AND BOOL_AND(
+                index_state.indisvalid
+                AND index_state.indisready
+                AND index_state.indislive
+                AND NOT index_state.indisprimary
+                AND NOT index_state.indisexclusion
+                AND access_method.amname = 'btree'
+                AND CASE index_relation.relname
+                  WHEN 'ux_care_handoff_one_live_covering_transfer' THEN
+                    index_state.indisunique
+                    AND index_state.indnkeyatts = 3
+                    AND index_state.indexprs IS NOT NULL
+                    AND ARRAY(
+                          SELECT attribute.attname::text
+                            FROM unnest(index_state.indkey::smallint[])
+                                 WITH ORDINALITY
+                                 AS key_column(attribute_number, ordinal)
+                            JOIN pg_attribute AS attribute
+                              ON attribute.attrelid = index_state.indrelid
+                             AND attribute.attnum = key_column.attribute_number
+                           WHERE key_column.ordinal <= index_state.indnkeyatts
+                           ORDER BY key_column.ordinal
+                        ) = ARRAY['tenant_id', 'sending_pathway_instance_id']::text[]
+                    AND index_state.indpred IS NULL
+                    AND md5(pg_get_expr(index_state.indexprs, index_state.indrelid)) =
+                          'b0eca7018572d7c4af3a9fa68339b956'
+                  WHEN 'idx_care_handoff_covering_recipient' THEN
+                    NOT index_state.indisunique
+                    AND index_state.indnkeyatts = 4
+                    AND index_state.indexprs IS NULL
+                    AND ARRAY(
+                          SELECT attribute.attname::text
+                            FROM unnest(index_state.indkey::smallint[])
+                                 WITH ORDINALITY
+                                 AS key_column(attribute_number, ordinal)
+                            JOIN pg_attribute AS attribute
+                              ON attribute.attrelid = index_state.indrelid
+                             AND attribute.attnum = key_column.attribute_number
+                           WHERE key_column.ordinal <= index_state.indnkeyatts
+                           ORDER BY key_column.ordinal
+                        ) = ARRAY[
+                          'tenant_id', 'intended_recipient_uid', 'status',
+                          'requested_at'
+                        ]::text[]
+                    AND NOT pg_index_column_has_property(
+                          index_relation.oid,
+                          1,
+                          'desc'
+                        )
+                    AND NOT pg_index_column_has_property(
+                          index_relation.oid,
+                          2,
+                          'desc'
+                        )
+                    AND NOT pg_index_column_has_property(
+                          index_relation.oid,
+                          3,
+                          'desc'
+                        )
+                    AND pg_index_column_has_property(
+                          index_relation.oid,
+                          4,
+                          'desc'
+                        )
+                    AND md5(pg_get_expr(index_state.indpred, index_state.indrelid)) =
+                          '4fc4cdc17d7e4356985e4f1883fd4ad8'
+                  WHEN 'idx_care_handoff_accepted_by' THEN
+                    NOT index_state.indisunique
+                    AND index_state.indnkeyatts = 3
+                    AND index_state.indexprs IS NULL
+                    AND ARRAY(
+                          SELECT attribute.attname::text
+                            FROM unnest(index_state.indkey::smallint[])
+                                 WITH ORDINALITY
+                                 AS key_column(attribute_number, ordinal)
+                            JOIN pg_attribute AS attribute
+                              ON attribute.attrelid = index_state.indrelid
+                             AND attribute.attnum = key_column.attribute_number
+                           WHERE key_column.ordinal <= index_state.indnkeyatts
+                           ORDER BY key_column.ordinal
+                        ) = ARRAY[
+                          'tenant_id', 'accepted_by_uid', 'accepted_at'
+                        ]::text[]
+                    AND NOT pg_index_column_has_property(
+                          index_relation.oid,
+                          1,
+                          'desc'
+                        )
+                    AND NOT pg_index_column_has_property(
+                          index_relation.oid,
+                          2,
+                          'desc'
+                        )
+                    AND pg_index_column_has_property(
+                          index_relation.oid,
+                          3,
+                          'desc'
+                        )
+                    AND md5(pg_get_expr(index_state.indpred, index_state.indrelid)) =
+                          'e59fe017a93956b51e6b7357b0499c22'
+                  ELSE FALSE
+                END
+              )
+             FROM pg_index AS index_state
+             JOIN pg_class AS index_relation
+               ON index_relation.oid = index_state.indexrelid
+             JOIN pg_class AS table_relation
+               ON table_relation.oid = index_state.indrelid
+             JOIN pg_namespace AS table_namespace
+               ON table_namespace.oid = table_relation.relnamespace
+             JOIN pg_am AS access_method
+               ON access_method.oid = index_relation.relam
+            WHERE table_namespace.nspname = 'public'
+              AND table_relation.relname = 'care_handoff_instances'
+              AND index_relation.relname IN (
+                'ux_care_handoff_one_live_covering_transfer',
+                'idx_care_handoff_covering_recipient',
+                'idx_care_handoff_accepted_by'
+              )
+         ), FALSE) AS owner_acceptance_indexes_are_post_586,
+         COALESCE((
+           WITH expected_functions (
+             function_signature,
+             return_type,
+             normalized_body_md5
+           ) AS (
+             VALUES
+               ('public.care_pathway_assert_covering_transfer(uuid,uuid,boolean)',
+                'void', '25103191a208510823b8dd781b767486'),
+               ('public.care_pathway_block_covering_transfer_mutation()',
+                'trigger', '3367a252dc072c031f5e8bdfc2fddfd5'),
+               ('public.care_pathway_covering_transfer_row_constraint()',
+                'trigger', 'c213e7999f7cbeb912bad8e563e9b262'),
+               ('public.care_pathway_covering_transfer_pathway_dependency()',
+                'trigger', '0930d51b662e68443ccd811c27ae6e6a'),
+               ('public.care_pathway_covering_transfer_task_dependency()',
+                'trigger', '0a2aef7fc3a3ca34da5cd2a1321c0ee0')
+           )
+           SELECT COUNT(*) = 5
+              AND BOOL_AND(
+                function_state.prokind = 'f'
+                AND function_state.prorettype =
+                      to_regtype('pg_catalog.' || expected.return_type)
+                AND NOT function_state.prosecdef
+                AND function_state.provolatile = 'v'
+                AND language_state.lanname = 'plpgsql'
+                AND function_state.proowner = handoff_relation.relowner
+                AND md5(replace(function_state.prosrc, CHR(13), '')) =
+                      expected.normalized_body_md5
+              )
+             FROM expected_functions AS expected
+             JOIN pg_proc AS function_state
+               ON function_state.oid = to_regprocedure(expected.function_signature)
+             JOIN pg_language AS language_state
+               ON language_state.oid = function_state.prolang
+             JOIN pg_class AS handoff_relation
+               ON handoff_relation.oid = to_regclass('public.care_handoff_instances')
+         ), FALSE) AS owner_acceptance_functions_are_post_586,
+         COALESCE((
+           WITH expected_triggers (
+             trigger_name,
+             table_name,
+             function_name,
+             trigger_type,
+             is_constraint
+           ) AS (
+             VALUES
+               ('trg_care_handoff_covering_transfer_immutable',
+                'care_handoff_instances',
+                'care_pathway_block_covering_transfer_mutation', 31, FALSE),
+               ('trg_care_handoff_covering_transfer_invariant',
+                'care_handoff_instances',
+                'care_pathway_covering_transfer_row_constraint', 29, TRUE),
+               ('trg_care_pathway_instances_covering_transfer_dependency',
+                'care_pathway_instances',
+                'care_pathway_covering_transfer_pathway_dependency', 29, TRUE),
+               ('trg_tasks_covering_transfer_dependency',
+                'tasks',
+                'care_pathway_covering_transfer_task_dependency', 29, TRUE)
+           )
+           SELECT COUNT(*) = 4
+              AND BOOL_AND(
+                trigger_state.tgtype = expected.trigger_type
+                AND NOT trigger_state.tgisinternal
+                AND trigger_state.tgenabled = 'O'
+                AND CASE WHEN expected.is_constraint THEN
+                  constraint_state.contype = 't'
+                  AND constraint_state.condeferrable
+                  AND constraint_state.condeferred
+                  AND trigger_state.tgdeferrable
+                  AND trigger_state.tginitdeferred
+                ELSE
+                  trigger_state.tgconstraint = 0
+                  AND NOT trigger_state.tgdeferrable
+                  AND NOT trigger_state.tginitdeferred
+                END
+              )
+             FROM expected_triggers AS expected
+             JOIN pg_trigger AS trigger_state
+               ON trigger_state.tgname = expected.trigger_name
+             JOIN pg_class AS table_state
+               ON table_state.oid = trigger_state.tgrelid
+              AND table_state.relname = expected.table_name
+             JOIN pg_namespace AS table_namespace
+               ON table_namespace.oid = table_state.relnamespace
+              AND table_namespace.nspname = 'public'
+             JOIN pg_proc AS function_state
+               ON function_state.oid = trigger_state.tgfoid
+              AND function_state.proname = expected.function_name
+             LEFT JOIN pg_constraint AS constraint_state
+               ON constraint_state.oid = NULLIF(trigger_state.tgconstraint, 0)
+         ), FALSE) AS owner_acceptance_triggers_are_post_586,
+         (
+           (SELECT COUNT(*)
+              FROM pg_attribute AS attribute
+             WHERE attribute.attrelid =
+                     to_regclass('public.care_handoff_instances')
+               AND attribute.attnum > 0
+               AND NOT attribute.attisdropped
+               AND attribute.attname IN (
+                 'request_reason', 'request_fingerprint', 'accepted_by_uid'
+               ))
+           +
+           (SELECT COUNT(*)
+              FROM pg_constraint AS constraint_state
+             WHERE constraint_state.conrelid =
+                     to_regclass('public.care_handoff_instances')
+               AND constraint_state.conname IN (
+                 'fk_care_handoff_accepted_by_tenant',
+                 'care_handoff_covering_transfer_check'
+               ))
+           +
+           (SELECT COUNT(*)
+              FROM pg_class AS relation_state
+              JOIN pg_namespace AS namespace_state
+                ON namespace_state.oid = relation_state.relnamespace
+             WHERE namespace_state.nspname = 'public'
+               AND relation_state.relname IN (
+                 'ux_care_handoff_one_live_covering_transfer',
+                 'idx_care_handoff_covering_recipient',
+                 'idx_care_handoff_accepted_by'
+               ))
+           +
+           (SELECT COUNT(*)
+              FROM pg_proc AS function_state
+              JOIN pg_namespace AS namespace_state
+                ON namespace_state.oid = function_state.pronamespace
+             WHERE namespace_state.nspname = 'public'
+               AND function_state.proname IN (
+                 'care_pathway_assert_covering_transfer',
+                 'care_pathway_block_covering_transfer_mutation',
+                 'care_pathway_covering_transfer_row_constraint',
+                 'care_pathway_covering_transfer_pathway_dependency',
+                 'care_pathway_covering_transfer_task_dependency'
+               ))
+           +
+           (SELECT COUNT(*)
+              FROM pg_trigger AS trigger_state
+             WHERE NOT trigger_state.tgisinternal
+               AND trigger_state.tgname IN (
+                 'trg_care_handoff_covering_transfer_immutable',
+                 'trg_care_handoff_covering_transfer_invariant',
+                 'trg_care_pathway_instances_covering_transfer_dependency',
+                 'trg_tasks_covering_transfer_dependency'
+               ))
+         )::integer AS owner_acceptance_artifact_presence_count
 `;
 
 export const OWNER_ISSUE_KEYS = Object.freeze([
@@ -575,37 +998,102 @@ export function ownerSchemaModeFromState(schemaState = {}) {
   const post585AuditSource = pgBooleanIsTrue(
     schemaState.patient_access_audit_source_is_post_585,
   );
+  const post586AuditSource = pgBooleanIsTrue(
+    schemaState.patient_access_audit_source_is_post_586,
+  );
+  const pre586TaskKind = pgBooleanIsTrue(
+    schemaState.tasks_task_kind_is_absent_pre_586,
+  ) || pgBooleanIsTrue(schemaState.tasks_task_kind_is_pre_586);
+  const post586TaskKind = pgBooleanIsTrue(schemaState.tasks_task_kind_is_post_586);
+  const pre586ActionableOwnerFunction = pgBooleanIsTrue(
+    schemaState.actionable_owner_function_is_pre_586,
+  );
+  const post586ActionableOwnerFunction = pgBooleanIsTrue(
+    schemaState.actionable_owner_function_is_post_586,
+  );
+  const ownerAcceptanceTuple = [
+    schemaState.owner_acceptance_columns_are_post_586,
+    schemaState.owner_acceptance_fk_is_post_586,
+    schemaState.owner_acceptance_check_is_post_586,
+    schemaState.owner_acceptance_indexes_are_post_586,
+    schemaState.owner_acceptance_functions_are_post_586,
+    schemaState.owner_acceptance_triggers_are_post_586,
+  ].map(pgBooleanIsTrue);
+  const ownerAcceptanceArtifactCount = asCount(
+    schemaState.owner_acceptance_artifact_presence_count ?? 0,
+    'owner_acceptance_artifact_presence_count',
+  );
+  const ownerIntegrityTuple = functionCount === 12
+    && triggerCount === 7
+    && ownerFkCount === 1;
+  const noOwnerAcceptanceArtifacts = ownerAcceptanceArtifactCount === 0
+    && ownerAcceptanceTuple.every(value => !value)
+    && !post586TaskKind
+    && !post586ActionableOwnerFunction
+    && !post586AuditSource;
   if (
     functionCount === 0
     && triggerCount === 0
     && ownerFkCount === 0
     && pre585AuditSource
     && !post585AuditSource
+    && pre586TaskKind
+    && !pre586ActionableOwnerFunction
+    && noOwnerAcceptanceArtifacts
   ) return 'pre_585';
   if (
-    functionCount === 12
-    && triggerCount === 7
-    && ownerFkCount === 1
+    ownerIntegrityTuple
     && !pre585AuditSource
     && post585AuditSource
-  ) return 'post_585';
-  return 'partial_585';
+    && pre586TaskKind
+    && pre586ActionableOwnerFunction
+    && noOwnerAcceptanceArtifacts
+  ) return 'post_585_pre_586';
+  if (
+    ownerIntegrityTuple
+    && !pre585AuditSource
+    && !post585AuditSource
+    && post586AuditSource
+    && !pre586TaskKind
+    && post586TaskKind
+    && !pre586ActionableOwnerFunction
+    && post586ActionableOwnerFunction
+    && ownerAcceptanceTuple.every(Boolean)
+    && ownerAcceptanceArtifactCount === 17
+  ) return 'post_586';
+  const hasOwnerAcceptanceSignal = ownerAcceptanceArtifactCount > 0
+    || post586AuditSource
+    || post586TaskKind
+    || post586ActionableOwnerFunction
+    || ownerAcceptanceTuple.some(Boolean);
+  return hasOwnerAcceptanceSignal ? 'partial_586' : 'partial_585';
 }
 
 export function buildMigrationState({ migrationRows = [], schemaMode } = {}) {
   const tracked = new Set((migrationRows || []).map(row => String(row.name)));
   const prerequisitesApplied = PREREQUISITE_MIGRATIONS
     .filter(name => tracked.has(name));
+  const ownerIntegrityApplied = tracked.has(OWNER_INTEGRITY_MIGRATION);
   const targetApplied = tracked.has(TARGET_MIGRATION);
   const trackerCoherent = schemaMode === 'pre_585'
-    ? prerequisitesApplied.length === PREREQUISITE_MIGRATIONS.length && !targetApplied
-    : schemaMode === 'post_585'
-      ? prerequisitesApplied.length === PREREQUISITE_MIGRATIONS.length && targetApplied
-      : false;
+    ? prerequisitesApplied.length === PREREQUISITE_MIGRATIONS.length
+      && !ownerIntegrityApplied
+      && !targetApplied
+    : schemaMode === 'post_585_pre_586'
+      ? prerequisitesApplied.length === PREREQUISITE_MIGRATIONS.length
+        && ownerIntegrityApplied
+        && !targetApplied
+      : schemaMode === 'post_586'
+        ? prerequisitesApplied.length === PREREQUISITE_MIGRATIONS.length
+          && ownerIntegrityApplied
+          && targetApplied
+        : false;
   return {
     prerequisites_applied: prerequisitesApplied,
     prerequisites_complete:
       prerequisitesApplied.length === PREREQUISITE_MIGRATIONS.length,
+    owner_integrity_migration: OWNER_INTEGRITY_MIGRATION,
+    owner_integrity_applied: ownerIntegrityApplied,
     target_migration: TARGET_MIGRATION,
     target_applied: targetApplied,
     tracker_coherent: trackerCoherent,
@@ -694,23 +1182,24 @@ export function buildOwnerRoutingReport({
     prerequisite_schema_missing_or_partial:
       schemaMode === 'prerequisites_missing_or_partial' ? 1 : 0,
     migration_585_schema_partial: schemaMode === 'partial_585' ? 1 : 0,
+    migration_586_schema_partial: schemaMode === 'partial_586' ? 1 : 0,
     migration_tracker_schema_mismatch: migrationState.tracker_coherent ? 0 : 1,
   };
   const globalBlockingFindingCount = Object.values(globalBlockers)
     .reduce((sum, count) => sum + count, 0);
   const ownerRoutingReady = tenantBlockingFindingCount === 0
     && globalBlockingFindingCount === 0
-    && (schemaMode === 'pre_585' || schemaMode === 'post_585');
+    && ['pre_585', 'post_585_pre_586', 'post_586'].includes(schemaMode);
 
   return {
-    schema_version: 1,
-    gate: 'care_pathway_exclusive_owner_routing_readiness',
+    schema_version: 2,
+    gate: 'care_pathway_owner_acceptance_readiness',
     generated_at: generatedAt,
     ready: ownerRoutingReady,
     owner_routing_ready: ownerRoutingReady,
     care_pathway_production_activation_ready: false,
     production_activation_reason:
-      'S1b-c1 proves owner integrity only; clinical/governance activation evidence remains pending',
+      'S1b-c2 proves owner and acceptance integrity only; clinical/governance activation evidence remains pending',
     scope: 'all_tenants',
     access_mode: 'primary_repeatable_read_read_only_transaction',
     sample_limit_per_tenant_per_section: sampleLimit,
@@ -789,7 +1278,7 @@ export async function collectOwnerRoutingReadiness({
     }
 
     let ownerRows = [];
-    if (schemaMode === 'pre_585' || schemaMode === 'post_585') {
+    if (['pre_585', 'post_585_pre_586', 'post_586'].includes(schemaMode)) {
       const ownerResult = await client.query(OWNER_REPORT_QUERY, [sampleLimit]);
       ownerRows = ownerResult.rows || [];
     }
@@ -864,7 +1353,7 @@ function usage() {
     '  node scripts/audit-care-pathway-owner-routing-readiness.mjs',
     `    ${ACKNOWLEDGEMENT_FLAG} [--json] [--sample-limit=${DEFAULT_SAMPLE_LIMIT}]`,
     '',
-    'Scans every tenant for migration-585 exclusive owner debt on the primary',
+    'Scans every tenant for migration-585/586 owner and acceptance debt on the primary',
     'inside a repeatable-read READ ONLY transaction. Evidence is bounded and',
     'contains only one-way row fingerprints plus non-PHI classifications.',
     'A clean report is not tenant or pathway activation evidence.',

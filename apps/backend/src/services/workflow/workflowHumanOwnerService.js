@@ -1,37 +1,153 @@
 import {
+  CLINICAL_INBOX_ROUTE_ROLES,
   CLINICAL_STAFF_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
   PATHWAY_NAMED_CLINICIAN_ROLES,
 } from '../../config/routeRolePolicy.js';
+import { isTenantTransactionClient } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  canonicalizeRequestRole,
+  normalizeRole as normalizeQueueRole,
+} from '../../utils/roles.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CLINICAL_HUMAN_ROLE_SET = new Set(CLINICAL_STAFF_ROUTE_ROLES);
 const PATHWAY_NAMED_CLINICAL_OWNER_ROLE_SET = new Set(PATHWAY_NAMED_CLINICIAN_ROLES);
 const TASK_HUMAN_ROLE_SET = new Set([
-  ...CLINICAL_STAFF_ROUTE_ROLES,
+  ...CLINICAL_INBOX_ROUTE_ROLES,
   ...COLD_CHAIN_ROUTE_ROLES,
 ]);
 
-function normalizeRole(value) {
+function normalizeRawRole(value) {
   const role = String(value || '').trim().toUpperCase();
   return role || null;
 }
 
+function currentActorForbidden() {
+  return AppError.forbidden(
+    'Current actor is not authorized for this work item',
+    'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+  );
+}
+
+function requireTransaction(tx) {
+  if (
+    !tx
+    || typeof tx.$queryRawUnsafe !== 'function'
+    || !isTenantTransactionClient(tx)
+  ) {
+    throw AppError.internal(
+      'Current human actor resolution requires a transaction',
+      'CURRENT_HUMAN_ACTOR_TX_REQUIRED',
+    );
+  }
+  return tx;
+}
+
+/**
+ * Resolve the authenticated user against current tenant data while the caller's
+ * transaction is open. JWT roles are evidence of the authenticated context,
+ * never the source of truth: the user's current database role must still be
+ * present in that context before it can authorize a clinical mutation.
+ */
+export async function resolveCurrentHumanActorTx({
+  tx,
+  tenantId,
+  actorUid,
+  authenticatedRoles = [],
+  authenticatedPrimaryRole = null,
+  authenticatedRawRole = null,
+  rolePredicate = isTaskHumanOwnerRole,
+} = {}) {
+  const db = requireTransaction(tx);
+  const uid = String(actorUid || '').trim().toLowerCase();
+  const roles = new Set((Array.isArray(authenticatedRoles) ? authenticatedRoles : [authenticatedRoles])
+    .map(canonicalizeRequestRole)
+    .filter(Boolean));
+  const primaryRole = canonicalizeRequestRole(authenticatedPrimaryRole);
+  const rawTokenRole = normalizeRawRole(authenticatedRawRole);
+  if (
+    !UUID_PATTERN.test(uid)
+    || roles.size === 0
+    || !primaryRole
+    || !rawTokenRole
+    || !roles.has(primaryRole)
+    || typeof rolePredicate !== 'function'
+  ) {
+    throw currentActorForbidden();
+  }
+
+  const rows = await db.$queryRawUnsafe(
+    `SELECT uid, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = TRUE
+        AND LOWER(COALESCE(status, '')) = 'active'
+        AND is_deleted IS FALSE
+        AND deleted_at IS NULL
+        AND role <> 'PATIENT'
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    uid,
+  );
+  const user = rows[0] || null;
+  const currentRawRole = normalizeRawRole(user?.role);
+  const currentRole = canonicalizeRequestRole(currentRawRole);
+  const queueRole = normalizeQueueRole(currentRawRole);
+  if (
+    !user?.uid
+    || !currentRole
+    || !queueRole
+    || currentRawRole !== rawTokenRole
+    || currentRole !== primaryRole
+    || !rolePredicate(currentRole)
+  ) {
+    throw currentActorForbidden();
+  }
+  return Object.freeze({
+    uid: String(user.uid).toLowerCase(),
+    role: currentRole,
+    queueRole,
+    rawRole: currentRawRole,
+  });
+}
+
+export async function resolveActivePathwayNamedClinicalOwnerTx({ tx, tenantId, uid } = {}) {
+  const db = requireTransaction(tx);
+  const ownerUid = await findActiveNamedOwnerTx({
+    tx: db,
+    tenantId,
+    uid,
+    rolePredicate: isPathwayNamedClinicalOwnerRole,
+  });
+  if (!ownerUid) {
+    throw AppError.conflict(
+      'Named pathway owner is unavailable or not clinically eligible',
+      'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+    );
+  }
+  return ownerUid;
+}
+
 export function isClinicalHumanOwnerRole(value) {
-  const role = normalizeRole(value);
+  const role = normalizeQueueRole(value);
   return Boolean(role && CLINICAL_HUMAN_ROLE_SET.has(role));
 }
 
 export function isTaskHumanOwnerRole(value) {
-  const role = normalizeRole(value);
+  const role = normalizeQueueRole(value);
   return Boolean(role && TASK_HUMAN_ROLE_SET.has(role));
 }
 
-export const isPathwayHumanOwnerRole = isClinicalHumanOwnerRole;
+export function isPathwayHumanOwnerRole(value) {
+  return isPathwayNamedClinicalOwnerRole(value);
+}
 
 export function isPathwayNamedClinicalOwnerRole(value) {
-  const role = normalizeRole(value);
+  const role = normalizeQueueRole(value);
   return Boolean(role && PATHWAY_NAMED_CLINICAL_OWNER_ROLE_SET.has(role));
 }
 
@@ -86,8 +202,8 @@ export async function resolvePathwayTaskOwnerTx({
     });
   }
 
-  const assignedToRole = normalizeRole(fallbackRole);
-  if (!isPathwayHumanOwnerRole(assignedToRole)) {
+  const assignedToRole = normalizeQueueRole(fallbackRole);
+  if (!isClinicalHumanOwnerRole(assignedToRole)) {
     throw AppError.conflict(
       'Pathway role queue is missing or not route-capable',
       'PATHWAY_ROLE_OWNER_INVALID',
@@ -122,7 +238,7 @@ export async function resolveClinicalTaskOwnerTx({
     });
   }
 
-  const normalizedFallback = normalizeRole(fallbackRole);
+  const normalizedFallback = normalizeQueueRole(fallbackRole);
   const assignedToRole = isClinicalHumanOwnerRole(normalizedFallback)
     ? normalizedFallback
     : 'DUTY_DOCTOR';

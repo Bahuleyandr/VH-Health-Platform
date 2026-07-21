@@ -19,6 +19,7 @@ const __prismaDefaultMock = {
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: __prismaDefaultMock,
+  isTenantTransactionClient: () => true,
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
@@ -47,6 +48,24 @@ jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () =
 }));
 jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
   emitLabEvent: emitLabEventMock,
+}));
+
+jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  isTaskHumanOwnerRole: () => true,
+  resolveCurrentHumanActorTx: async ({
+    actorUid,
+    authenticatedRoles = [],
+    authenticatedPrimaryRole = null,
+    authenticatedRawRole = null,
+  }) => {
+    const role = authenticatedPrimaryRole || authenticatedRoles.find(Boolean);
+    return {
+      uid: String(actorUid).toLowerCase(),
+      role,
+      queueRole: role,
+      rawRole: authenticatedRawRole || role,
+    };
+  },
 }));
 
 const { detectCriticalsForResults } = await import('../../services/lab/labResultsService.js');

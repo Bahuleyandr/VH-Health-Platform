@@ -2,6 +2,7 @@
 import logger from '../logging/logger.js';
 import prisma from '../lib/prisma.js';
 import { verifyToken } from '../utils/jwtUtils.js';
+import { canonicalizeRequestRole } from '../utils/roles.js';
 import {
   isTokenBlacklisted,
   isUserTokensRevoked,
@@ -63,13 +64,6 @@ async function resolveUserIdFromUid(uid) {
  * Normalize role names to what the RBAC layer expects.
  * SUPER_ADMIN → ADMIN, NURSE → NURSING_STAFF, etc.
  */
-function normalizeRole(raw) {
-  const r = String(raw || '').trim().toUpperCase();
-  if (r === 'SUPER_ADMIN') return 'ADMIN';
-  if (r === 'NURSE') return 'NURSING_STAFF';
-  return r;
-}
-
 /**
  * Pull Hasura-style custom claims (key usually ends with "/jwt/claims").
  */
@@ -195,11 +189,11 @@ export default async function jwtMiddleware(req, res, next) {
     hasura?.['x-hasura-default-role'] ??
     'PATIENT';
 
-  const role = normalizeRole(roleRaw);
+  const role = canonicalizeRequestRole(roleRaw);
 
   const rolesAllowed =
     (hasura?.['x-hasura-allowed-roles'] || [])
-      .map((r) => normalizeRole(r))
+      .map((r) => canonicalizeRequestRole(r))
       .filter(Boolean);
 
   // Optional fields
@@ -444,6 +438,7 @@ async function applyActingAsHop(req, dependentUidRaw) {
     actorUid: req.user.uid,
     actorId: req.user.id,
     actorRole: req.user.role,
+    actorRawRole: req.user.rawRole,
     actorPhone: req.user.phone,
     actorEmail: req.user.email,
   };

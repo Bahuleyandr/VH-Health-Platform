@@ -14,6 +14,10 @@ import {
   getTask,
   transitionTask,
 } from '../workflow/taskService.js';
+import {
+  isTaskHumanOwnerRole,
+  resolveCurrentHumanActorTx,
+} from '../workflow/workflowHumanOwnerService.js';
 import { startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
 
 const COLD_CHAIN_SLA_KEY = 'cold_chain_excursion_ack';
@@ -932,10 +936,21 @@ export async function ingestColdChainReading(input = {}, context = {}) {
   return result;
 }
 
-export async function acknowledgeColdChainExcursion({ tenantId, id, actorUid, actorRoles = [] } = {}) {
+export async function acknowledgeColdChainExcursion({
+  tenantId, id, actorUid, actorRoles = [], actorPrimaryRole = null, actorRawRole = null,
+} = {}) {
   const tid = requireTenantId(tenantId);
   const excursionId = normalizePositiveInt(id, 'excursion_id', { required: true });
   const result = await setTenantTx(tid, async (tx) => {
+    const currentActor = await resolveCurrentHumanActorTx({
+      tx,
+      tenantId: tid,
+      actorUid,
+      authenticatedRoles: actorRoles,
+      authenticatedPrimaryRole: actorPrimaryRole,
+      authenticatedRawRole: actorRawRole,
+      rolePredicate: isTaskHumanOwnerRole,
+    });
     const rows = await tx.$queryRawUnsafe(
       `UPDATE cold_chain_excursions
           SET status = CASE WHEN status = 'open' THEN 'acknowledged' ELSE status END,
@@ -948,7 +963,7 @@ export async function acknowledgeColdChainExcursion({ tenantId, id, actorUid, ac
         RETURNING *`,
       tid,
       excursionId,
-      actorUid || null,
+      currentActor.uid,
     );
     const excursion = rows[0];
     if (!excursion) throw AppError.notFound('Open cold-chain excursion not found', 'COLD_CHAIN_EXCURSION_NOT_FOUND');
@@ -962,8 +977,10 @@ export async function acknowledgeColdChainExcursion({ tenantId, id, actorUid, ac
       await acknowledgeColdChainTaskFromTrustedWorkflow({
         tenantId: tid,
         id: excursion.task_id,
-        actorUid,
-        actorRoles,
+        actorUid: currentActor.uid,
+        actorRoles: [currentActor.role],
+        actorPrimaryRole: currentActor.role,
+        actorRawRole: currentActor.rawRole,
         excursionId: excursion.id,
         tx,
       });
@@ -982,12 +999,23 @@ export async function recordColdChainCorrectiveAction({
   dispositionNote = null,
   actorUid = null,
   actorRoles = [],
+  actorPrimaryRole = null,
+  actorRawRole = null,
 } = {}) {
   const tid = requireTenantId(tenantId);
   const excursionId = normalizePositiveInt(id, 'excursion_id', { required: true });
   const action = cleanText(correctiveAction, 4000);
   if (!action) throw AppError.badRequest('corrective_action is required', 'COLD_CHAIN_CORRECTIVE_ACTION_REQUIRED');
   const result = await setTenantTx(tid, async (tx) => {
+    const currentActor = await resolveCurrentHumanActorTx({
+      tx,
+      tenantId: tid,
+      actorUid,
+      authenticatedRoles: actorRoles,
+      authenticatedPrimaryRole: actorPrimaryRole,
+      authenticatedRawRole: actorRawRole,
+      rolePredicate: isTaskHumanOwnerRole,
+    });
     const updatedRows = await tx.$queryRawUnsafe(
       `UPDATE cold_chain_excursions
           SET corrective_action = $3,
@@ -1004,7 +1032,7 @@ export async function recordColdChainCorrectiveAction({
       excursionId,
       action,
       cleanText(dispositionNote, 4000),
-      actorUid || null,
+      currentActor.uid,
     );
     const excursion = updatedRows[0];
     if (!excursion) throw AppError.notFound('Open cold-chain excursion not found', 'COLD_CHAIN_EXCURSION_NOT_FOUND');
@@ -1012,15 +1040,23 @@ export async function recordColdChainCorrectiveAction({
       await acknowledgeColdChainTaskFromTrustedWorkflow({
         tenantId: tid,
         id: excursion.task_id,
-        actorUid,
-        actorRoles,
+        actorUid: currentActor.uid,
+        actorRoles: [currentActor.role],
+        actorPrimaryRole: currentActor.role,
+        actorRawRole: currentActor.rawRole,
         excursionId: excursion.id,
         tx,
       });
     }
     const unit = await findUnit(tx, { tenantId: tid, unitId: excursion.unit_id });
     const reading = await latestReading(tx, { tenantId: tid, unitId: unit.id });
-    const maybeClosed = await closeExcursionIfAllowed(tx, { tenantId: tid, unit, excursion, reading, actorUid });
+    const maybeClosed = await closeExcursionIfAllowed(tx, {
+      tenantId: tid,
+      unit,
+      excursion,
+      reading,
+      actorUid: currentActor.uid,
+    });
     return { unit, excursion: maybeClosed };
   });
   emitColdChain(

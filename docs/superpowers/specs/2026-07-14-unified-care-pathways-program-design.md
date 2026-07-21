@@ -36,10 +36,10 @@ normal results may auto-close with an audited discretionary re-review path; abno
 require doctor review and countersignature; referral responsibility transfers only when the named
 receiving doctor explicitly accepts; surgical `sign_in` is mandatory; and a named clinician is an
 exclusive, active, route-capable owner rather than a role-queue hint. These are inputs to S1b-c and S2–S5,
-not claims that
-S1b-b already implements or activates them. D10's exclusive-routing prerequisite is the bounded,
-stacked S1b-c1 sub-slice; accepted covering-clinician reassignment and pathway-specific owner-source
-resolution remain S2–S4 work. Numeric timings and the standing policy list remain unsigned.
+not claims that S1b-b already implements or activates them. D10's exclusive-routing prerequisite is the
+bounded S1b-c1 sub-slice. S1b-c2 adds explicit current-role queue claim and accepted covering-clinician
+reassignment without creating or activating a pathway definition; pathway-specific owner-source
+resolution remains S2–S4 work. Numeric timings and the standing policy list remain unsigned.
 
 Round-2 verdict on v2: **APPROVE WITH CHANGES.** The architecture and vertical delivery strategy hold;
 the round-2 review found four correctness defects (a cursor that can lose events, an under-specified
@@ -846,9 +846,18 @@ the existing 574 collision remains and neither prefix may ever be reused.
     remain unchanged. Existing-instance PHI access requires the exact tenant+instance+patient+active
     current-clinical owner relationship and records `care_pathway_owner` audit evidence; start/body data
     cannot establish that access. This sub-slice does not classify every arbitrary generic task and adds
-    no transfer endpoint: broader generic clinical-task policy, explicit audited covering-clinician
-    acceptance and pathway-specific source resolution remain prerequisites.
-  - **S1b-c — reconciliation and activation evidence:** registered per-pathway/per-rule checks, breach
+    no transfer endpoint; generic role-task claim and explicit audited covering-clinician acceptance are
+    handled by S1b-c2, while pathway-specific source resolution remains a later prerequisite.
+  - **S1b-c2 — explicit owner claim and accepted transfer (stacked prerequisite):** migration 586 and
+    the current-actor contract revalidate active same-tenant identity and exact raw database-role parity
+    before inbox PHI or mutation. Generic role-only tasks may be explicitly claimed without acknowledging
+    them; pathway role claims atomically name one owner across the instance, actionable tasks, incomplete
+    SLAs and immutable transition evidence. A current owner may request a named covering clinician, but
+    responsibility changes only when that exact active recipient accepts. The recipient has a minimal
+    guarded request-read surface and may decline with reason; the sender may cancel with reason. Completed
+    SLA owner history is retained. There is no automatic expiry/reassignment, admin shortcut, pathway
+    activation, new clinical clock or inferred policy.
+  - **S1b-c3 — reconciliation and activation evidence:** registered per-pathway/per-rule checks, breach
     reconciliation, evidence-versioned sweep rows/metrics and recovery tooling; an absent check registry
     is an error and can never produce clean activation evidence.
   - **S1b-r — live outbox recovery hardening:** claim leases and stale-worker fencing, stale-processing

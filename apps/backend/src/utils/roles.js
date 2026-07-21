@@ -209,6 +209,15 @@ export function normalizeRole(role) {
 }
 
 /**
+ * Canonical role used at authenticated request boundaries. Keep the durable
+ * raw role alongside it whenever exact database parity is security-relevant.
+ */
+export function canonicalizeRequestRole(role) {
+  const normalized = normalizeRole(role);
+  return normalized === SUPER_ADMIN ? ADMIN : normalized;
+}
+
+/**
  * Quick check for admin-tier roles.
  * SUPER_ADMIN is always considered admin-tier.
  * @param {string} role

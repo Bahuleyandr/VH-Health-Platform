@@ -101,18 +101,69 @@ describe('policyCodeForRecordType — CareTeam ABAC family mappings (LOW-1)', ()
 });
 
 describe('policyCodeForRecordType — safe fallback is unchanged', () => {
-  it('adds pathway ownership only to the two clinical-workflow policies', () => {
+  it('adds pathway ownership to workflow policies and exact transfer-recipient access only to its three bounded policies', () => {
     expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS).relationship_checks)
       .toContain('care_pathway_owner');
     expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE).relationship_checks)
       .toContain('care_pathway_owner');
+    expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS).relationship_checks)
+      .toContain('care_pathway_transfer_recipient');
+    expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE).relationship_checks)
+      .toContain('care_pathway_transfer_recipient');
+    expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_TRANSFER_READ))
+      .toMatchObject({
+        code: 'patient.care_pathway.transfer_read',
+        resource_type: 'clinical_workflow',
+        action: 'VIEW',
+        required_phi_level: 'patient_relationship_required',
+        relationship_checks: ['care_pathway_transfer_recipient'],
+        break_glass_allowed: false,
+      });
 
     for (const [code, policy] of Object.entries(ACCESS_POLICIES)) {
       if ([
         ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
         ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+        ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_TRANSFER_READ,
       ].includes(code)) continue;
       expect(policy.relationship_checks).not.toContain('care_pathway_owner');
+      expect(policy.relationship_checks).not.toContain('care_pathway_transfer_recipient');
+    }
+  });
+
+  it('keeps role-queue claim authority on one break-glass-free claim-only policy', () => {
+    const claim = getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_QUEUE_CLAIM);
+    expect(claim).toMatchObject({
+      code: 'patient.care_pathway.queue_claim',
+      resource_type: 'clinical_workflow',
+      action: 'UPDATE',
+      required_phi_level: 'patient_relationship_required',
+      relationship_checks: ['care_pathway_role_queue_claimant'],
+      break_glass_allowed: false,
+    });
+    for (const [code, registeredPolicy] of Object.entries(ACCESS_POLICIES)) {
+      if (code === ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_QUEUE_CLAIM) continue;
+      expect(registeredPolicy.relationship_checks)
+        .not.toContain('care_pathway_role_queue_claimant');
+    }
+  });
+
+  it('keeps transfer-decline authority on one break-glass-free decline-only policy', () => {
+    const decline = getAccessPolicy(
+      ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_TRANSFER_DECLINE,
+    );
+    expect(decline).toMatchObject({
+      code: 'patient.care_pathway.transfer_decline',
+      resource_type: 'clinical_workflow',
+      action: 'UPDATE',
+      required_phi_level: 'patient_relationship_required',
+      relationship_checks: ['care_pathway_transfer_decline_recipient'],
+      break_glass_allowed: false,
+    });
+    for (const [code, registeredPolicy] of Object.entries(ACCESS_POLICIES)) {
+      if (code === ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_TRANSFER_DECLINE) continue;
+      expect(registeredPolicy.relationship_checks)
+        .not.toContain('care_pathway_transfer_decline_recipient');
     }
   });
 

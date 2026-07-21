@@ -240,7 +240,7 @@ async function seedCriticalObligation(
         related_resource_id, priority, status, assigned_to_role,
         workflow_sla_instance_id, sla_completion_semantics, metadata)
      VALUES
-       ($1, $2::uuid, 'critical_result_ack', 'Acknowledge critical result',
+       ($1, $2::uuid, 'review', 'Acknowledge critical result',
         $3::uuid, 'lab_result', $4::text, 'critical', $5, 'LAB_STAFF',
         $6::uuid, 'acknowledgement', $7::jsonb)`,
     [

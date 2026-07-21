@@ -15,6 +15,7 @@ const emitColdChainEventMock = jest.fn();
 const authenticateDeviceCredentialMock = jest.fn();
 const loggerErrorMock = jest.fn();
 const loggerWarnMock = jest.fn();
+const resolveCurrentHumanActorTxMock = jest.fn();
 
 const mockPrisma = {
   $queryRawUnsafe: queryRawMock,
@@ -28,6 +29,7 @@ const tenantTxClient = {
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
+  isTenantTransactionClient: () => true,
   setTenantTx: async (_tenantId, fn) => fn(tenantTxClient),
 }));
 
@@ -44,6 +46,11 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   transitionTask: transitionTaskMock,
   getTask: getTaskMock,
   createTask: createTaskMock,
+}));
+
+jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  isTaskHumanOwnerRole: () => true,
+  resolveCurrentHumanActorTx: resolveCurrentHumanActorTxMock,
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
@@ -104,6 +111,50 @@ describe('coldChainService invariants', () => {
     authenticateDeviceCredentialMock.mockReset();
     loggerErrorMock.mockReset();
     loggerWarnMock.mockReset();
+    resolveCurrentHumanActorTxMock.mockReset();
+    resolveCurrentHumanActorTxMock.mockImplementation(async ({
+      actorUid,
+      authenticatedRoles = [],
+      authenticatedPrimaryRole = null,
+      authenticatedRawRole = null,
+    }) => {
+      const role = authenticatedPrimaryRole || authenticatedRoles.find(Boolean);
+      return {
+        uid: String(actorUid).toLowerCase(),
+        role,
+        queueRole: role,
+        rawRole: authenticatedRawRole || role,
+      };
+    });
+  });
+
+  it('revalidates the current actor before mutating even a legacy excursion with no task', async () => {
+    resolveCurrentHumanActorTxMock.mockRejectedValueOnce(AppError.forbidden(
+      'Current actor is inactive',
+      'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+    ));
+    queryRawMock.mockResolvedValueOnce([{
+      id: 7,
+      unit_id: 11,
+      status: 'acknowledged',
+      task_id: null,
+    }]);
+
+    await expect(acknowledgeColdChainExcursion({
+      tenantId: TENANT_ID,
+      id: 7,
+      actorUid: ACTOR_UID,
+      actorRoles: ['PHARMACY_STAFF'],
+      actorPrimaryRole: 'PHARMACY_STAFF',
+      actorRawRole: 'PHARMACY_STAFF',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+    });
+
+    expect(resolveCurrentHumanActorTxMock).toHaveBeenCalledTimes(1);
+    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(acknowledgeColdChainTaskFromTrustedWorkflowMock).not.toHaveBeenCalled();
   });
 
   it('keeps door-open transients inside the grace window from opening an excursion', () => {
@@ -432,6 +483,8 @@ describe('coldChainService invariants', () => {
       id: 55,
       actorUid: ACTOR_UID,
       actorRoles: ['PHARMACY_STAFF'],
+      actorPrimaryRole: 'PHARMACY_STAFF',
+      actorRawRole: 'PHARMACY_STAFF',
       excursionId: 7,
       tx: tenantTxClient,
     });
@@ -496,6 +549,8 @@ describe('coldChainService invariants', () => {
       id: 55,
       actorUid: ACTOR_UID,
       actorRoles: ['PHARMACY_STAFF'],
+      actorPrimaryRole: 'PHARMACY_STAFF',
+      actorRawRole: 'PHARMACY_STAFF',
       excursionId: 7,
       tx: tenantTxClient,
     });

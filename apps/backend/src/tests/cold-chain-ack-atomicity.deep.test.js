@@ -349,6 +349,8 @@ d('cold-chain acknowledgement transaction atomicity', () => {
       correctiveAction: 'Moved degraded-policy stock to a backup unit',
       actorUid: ACTOR_UID,
       actorRoles: ['PHARMACY_STAFF'],
+      actorPrimaryRole: 'PHARMACY_STAFF',
+      actorRawRole: 'PHARMACY_STAFF',
     })).resolves.toMatchObject({ status: 'acknowledged' });
     const degradedTask = await prisma.$queryRawUnsafe(
       `SELECT task.status, task.workflow_sla_instance_id,
@@ -381,6 +383,8 @@ d('cold-chain acknowledgement transaction atomicity', () => {
       id: excursionId,
       actorUid: ACTOR_UID,
       actorRoles: ['PHARMACY_STAFF'],
+      actorPrimaryRole: 'PHARMACY_STAFF',
+      actorRawRole: 'PHARMACY_STAFF',
     })).rejects.toThrow(FORCED_POST_BODY_FAILURE);
 
     const excursionRows = await prisma.$queryRawUnsafe(
@@ -507,6 +511,8 @@ d('cold-chain acknowledgement transaction atomicity', () => {
       id: excursionId,
       actorUid: ACTOR_UID,
       actorRoles: ['PHARMACY_STAFF'],
+      actorPrimaryRole: 'PHARMACY_STAFF',
+      actorRawRole: 'PHARMACY_STAFF',
     })).resolves.toMatchObject({ status: 'acknowledged' });
 
     const taskRows = await prisma.$queryRawUnsafe(
@@ -604,6 +610,8 @@ d('cold-chain acknowledgement transaction atomicity', () => {
         id: taskId,
         actorUid: ACTOR_UID,
         actorRoles: ['PHARMACY_STAFF'],
+        actorPrimaryRole: 'PHARMACY_STAFF',
+        actorRawRole: 'PHARMACY_STAFF',
         tx,
       });
     });
@@ -719,6 +727,8 @@ d('cold-chain acknowledgement transaction atomicity', () => {
       correctiveAction: 'Moved stock to backup fridge',
       actorUid: ACTOR_UID,
       actorRoles: ['PHARMACY_STAFF'],
+      actorPrimaryRole: 'PHARMACY_STAFF',
+      actorRawRole: 'PHARMACY_STAFF',
     })).rejects.toThrow(FORCED_POST_BODY_FAILURE);
     ctl.failAfterBody = false;
 
@@ -751,6 +761,8 @@ d('cold-chain acknowledgement transaction atomicity', () => {
       correctiveAction: 'Moved stock to backup fridge',
       actorUid: ACTOR_UID,
       actorRoles: ['PHARMACY_STAFF'],
+      actorPrimaryRole: 'PHARMACY_STAFF',
+      actorRawRole: 'PHARMACY_STAFF',
     })).resolves.toMatchObject({
       status: 'acknowledged',
       corrective_action: 'Moved stock to backup fridge',

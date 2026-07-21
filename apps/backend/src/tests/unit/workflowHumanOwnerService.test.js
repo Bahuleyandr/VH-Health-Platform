@@ -4,25 +4,34 @@ import {
   getClinicalAccountabilityRoleCodes,
   getRolePolicy,
 } from '../../config/rolePolicyGraph.js';
-import {
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  isTenantTransactionClient: (value) => value?.__tenantTransaction === true,
+}));
+
+const {
   isClinicalHumanOwnerRole,
   isPathwayHumanOwnerRole,
   isPathwayNamedClinicalOwnerRole,
   isTaskHumanOwnerRole,
   repairCriticalResultTaskOwnerTx,
   resolveClinicalTaskOwnerTx,
+  resolveCurrentHumanActorTx,
   resolvePathwayTaskOwnerTx,
-} from '../../services/workflow/workflowHumanOwnerService.js';
+} = await import('../../services/workflow/workflowHumanOwnerService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const CLINICIAN = '22222222-2222-4222-8222-222222222222';
 const CLINICAL_ACCOUNTABILITY_ROLES = getClinicalAccountabilityRoleCodes();
 const NON_CLINICAL_ROLE_CODES = getRolePolicy().roles
-  .filter((role) => role.group !== 'clinical')
+  .filter((role) => (
+    role.group !== 'clinical'
+    && !isPathwayNamedClinicalOwnerRole(role.role_code)
+  ))
   .map((role) => role.role_code);
 
 function txWith(...results) {
   return {
+    __tenantTransaction: true,
     $queryRawUnsafe: jest.fn()
       .mockImplementationOnce(async () => results.shift())
       .mockImplementation(async () => results.shift() || []),
@@ -30,9 +39,119 @@ function txWith(...results) {
 }
 
 describe('workflow human owner policy', () => {
+  it('resolves only the exact database-current authenticated primary role', async () => {
+    const tx = txWith([{ uid: CLINICIAN, role: 'DOCTOR' }]);
+    await expect(resolveCurrentHumanActorTx({
+      tx,
+      tenantId: TENANT,
+      actorUid: CLINICIAN,
+      authenticatedRoles: ['NURSING_STAFF', 'DOCTOR'],
+      authenticatedPrimaryRole: 'DOCTOR',
+      authenticatedRawRole: 'DOCTOR',
+      rolePredicate: isTaskHumanOwnerRole,
+    })).resolves.toEqual({
+      uid: CLINICIAN,
+      role: 'DOCTOR',
+      queueRole: 'DOCTOR',
+      rawRole: 'DOCTOR',
+    });
+    expect(tx.$queryRawUnsafe.mock.calls[0][0]).toMatch(/FOR SHARE/);
+  });
+
+  it('rejects an allowed-role membership when the authenticated primary role is stale', async () => {
+    const tx = txWith([{ uid: CLINICIAN, role: 'DOCTOR' }]);
+    await expect(resolveCurrentHumanActorTx({
+      tx,
+      tenantId: TENANT,
+      actorUid: CLINICIAN,
+      authenticatedRoles: ['NURSING_STAFF', 'DOCTOR'],
+      authenticatedPrimaryRole: 'NURSING_STAFF',
+      authenticatedRawRole: 'DOCTOR',
+      rolePredicate: isTaskHumanOwnerRole,
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+    });
+  });
+
+  it.each([
+    ['SUPER_ADMIN', 'ADMIN', 'SUPER_ADMIN'],
+    ['NURSE', 'NURSING_STAFF', 'NURSING_STAFF'],
+  ])('keeps exact raw %s parity while returning canonical capability and queue roles', async (
+    rawRole,
+    canonicalRole,
+    queueRole,
+  ) => {
+    const tx = txWith([{ uid: CLINICIAN, role: rawRole }]);
+    await expect(resolveCurrentHumanActorTx({
+      tx,
+      tenantId: TENANT,
+      actorUid: CLINICIAN,
+      authenticatedRoles: [canonicalRole],
+      authenticatedPrimaryRole: canonicalRole,
+      authenticatedRawRole: rawRole,
+      rolePredicate: isTaskHumanOwnerRole,
+    })).resolves.toEqual({
+      uid: CLINICIAN,
+      role: canonicalRole,
+      queueRole,
+      rawRole,
+    });
+  });
+
+  it('rejects a token whose raw role no longer exactly matches the database', async () => {
+    const tx = txWith([{ uid: CLINICIAN, role: 'DOCTOR' }]);
+    await expect(resolveCurrentHumanActorTx({
+      tx,
+      tenantId: TENANT,
+      actorUid: CLINICIAN,
+      authenticatedRoles: ['DOCTOR'],
+      authenticatedPrimaryRole: 'DOCTOR',
+      authenticatedRawRole: 'DUTY_DOCTOR',
+      rolePredicate: isTaskHumanOwnerRole,
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+    });
+  });
+
+  it('rejects an inactive or missing current user with the same generic denial', async () => {
+    const tx = txWith([]);
+    await expect(resolveCurrentHumanActorTx({
+      tx,
+      tenantId: TENANT,
+      actorUid: CLINICIAN,
+      authenticatedRoles: ['DOCTOR'],
+      authenticatedPrimaryRole: 'DOCTOR',
+      authenticatedRawRole: 'DOCTOR',
+      rolePredicate: isTaskHumanOwnerRole,
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+      message: 'Current actor is not authorized for this work item',
+    });
+  });
+
+  it('requires the branded tenant transaction capability', async () => {
+    await expect(resolveCurrentHumanActorTx({
+      tx: { $queryRawUnsafe: jest.fn() },
+      tenantId: TENANT,
+      actorUid: CLINICIAN,
+      authenticatedRoles: ['DOCTOR'],
+      authenticatedPrimaryRole: 'DOCTOR',
+      authenticatedRawRole: 'DOCTOR',
+    })).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'CURRENT_HUMAN_ACTOR_TX_REQUIRED',
+    });
+  });
+
   it('separates pathway-clinical roles from the wider task route union', () => {
     expect(isClinicalHumanOwnerRole('DOCTOR')).toBe(true);
     expect(isPathwayHumanOwnerRole('NURSING_STAFF')).toBe(true);
+    expect(isPathwayHumanOwnerRole('DIETITIAN')).toBe(true);
+    expect(isPathwayHumanOwnerRole('PHYSIOTHERAPIST')).toBe(true);
+    expect(isPathwayHumanOwnerRole('COUNSELLOR')).toBe(true);
     expect(isPathwayNamedClinicalOwnerRole('CATH_LAB_INCHARGE')).toBe(true);
     expect(isPathwayNamedClinicalOwnerRole('RADIOLOGIST')).toBe(true);
     expect(isPathwayNamedClinicalOwnerRole('PATHOLOGIST')).toBe(true);
@@ -40,6 +159,10 @@ describe('workflow human owner policy', () => {
     expect(isPathwayNamedClinicalOwnerRole('COUNSELLOR')).toBe(true);
     expect(isPathwayNamedClinicalOwnerRole('ADMIN')).toBe(false);
     expect(isTaskHumanOwnerRole('LAB_STAFF')).toBe(true);
+    expect(isTaskHumanOwnerRole('PHYSIOTHERAPIST')).toBe(true);
+    expect(isTaskHumanOwnerRole('DIETITIAN')).toBe(true);
+    expect(isTaskHumanOwnerRole('COUNSELLOR')).toBe(true);
+    expect(isTaskHumanOwnerRole('QUALITY_OFFICER')).toBe(true);
     expect(isClinicalHumanOwnerRole('PATIENT')).toBe(false);
     expect(isTaskHumanOwnerRole('WEBHOOK_CLIENT')).toBe(false);
     expect(isTaskHumanOwnerRole('UNKNOWN_ROLE')).toBe(false);

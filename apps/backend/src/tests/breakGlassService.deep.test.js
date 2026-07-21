@@ -225,6 +225,8 @@ d('PHI break-glass lifecycle (deep, real engine/DB)', () => {
       id: task.id,
       actorUid: ACTOR_UID,
       actorRoles: ['CMO'],
+      actorPrimaryRole: 'CMO',
+      actorRawRole: 'CMO',
       breakGlassId: active.id,
     });
 

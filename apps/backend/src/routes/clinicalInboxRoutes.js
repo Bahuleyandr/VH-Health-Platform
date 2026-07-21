@@ -4,8 +4,8 @@
  * Mounted at /api/v1/clinical-inbox in app.js, clinical-accountability-gated
  * (requireRole(...CLINICAL_INBOX_ROUTE_ROLES)) + phiAccessLogger.
  *
- * This is a DELIBERATELY MINIMAL 2-endpoint surface — the per-clinician
- * "open critical work for me / my role" inbox + acknowledge — so clinical staff
+ * This is a DELIBERATELY MINIMAL 3-endpoint surface — the per-clinician
+ * inbox, role-queue claim, and acknowledge — so clinical staff
  * get exactly the safety-net endpoints and NOTHING ELSE. The rest of the
  * tasks/workflow/escalation-rules admin surface (getTask by id, listTasks,
  * upsertEscalationRule, transition/assign, workflow CRUD) stays ADMIN-only at
@@ -23,14 +23,37 @@ import express from 'express';
 import { AppError } from '../utils/AppError.js';
 import { success } from '../utils/responseHelper.js';
 import { getAuthenticatedActorRoles } from '../utils/roleHelpers.js';
+import { isValidIdempotencyKey } from '../services/idempotency/idempotencyService.js';
 import { acknowledgeCriticalAlertForInboxTask } from '../services/lab/labResultsService.js';
-import { acknowledgeTask, listInboxTasks } from '../services/workflow/taskService.js';
+import {
+  acknowledgeTask,
+  claimInboxTask,
+  listInboxTasks,
+} from '../services/workflow/taskService.js';
 
 const router = express.Router();
 
 function setPhiPatientContext(req, patientUid) {
   if (!patientUid) return;
   req.phiContext = { ...(req.phiContext || {}), patientUid: String(patientUid) };
+}
+
+function requireIdempotencyKey(req) {
+  const raw = req.get('Idempotency-Key');
+  const key = typeof raw === 'string' ? raw.trim() : '';
+  if (!key) {
+    throw AppError.badRequest(
+      'Idempotency-Key header is required',
+      'TASK_CLAIM_IDEMPOTENCY_KEY_REQUIRED',
+    );
+  }
+  if (!isValidIdempotencyKey(key)) {
+    throw AppError.badRequest(
+      'Idempotency-Key must be 1-200 chars [A-Za-z0-9_-:.]',
+      'TASK_CLAIM_IDEMPOTENCY_KEY_INVALID',
+    );
+  }
+  return key;
 }
 
 // GET /tasks/inbox — the caller's open / in_progress / overdue work (assignee =
@@ -42,10 +65,40 @@ router.get('/tasks/inbox', async (req, res, next) => {
       tenantId: req.tenantId,
       assigneeUid: req.user?.uid || null,
       roles: getAuthenticatedActorRoles(req.user),
+      primaryRole: req.user?.role || null,
+      rawRole: req.user?.rawRole || null,
       limit: req.query.limit,
     });
     return success(res, result, 'Inbox retrieved');
   } catch (err) { return next(err); }
+});
+
+router.post('/tasks/:id/claim', async (req, res, next) => {
+  try {
+    if (Object.keys(req.body || {}).length > 0) {
+      throw AppError.badRequest(
+        'Task claim request body must be empty',
+        'TASK_CLAIM_BODY_INVALID',
+      );
+    }
+    const row = await claimInboxTask({
+      tenantId: req.tenantId,
+      id: req.params.id,
+      actorUid: req.user?.uid || null,
+      actorRoles: getAuthenticatedActorRoles(req.user),
+      actorPrimaryRole: req.user?.role || null,
+      actorRawRole: req.user?.rawRole || null,
+      idempotencyKey: requireIdempotencyKey(req),
+    });
+    setPhiPatientContext(req, row?.patient_uid);
+    return success(res, row, row?.replayed ? 'Task claim replayed' : 'Task claimed');
+  } catch (err) {
+    setPhiPatientContext(req, err?.phiPatientUid);
+    if (err?.statusCode === 403 || err?.statusCode === 404) {
+      return next(AppError.forbidden('Not authorized to claim this task'));
+    }
+    return next(err);
+  }
 });
 
 // POST /tasks/:id/acknowledge — open|overdue → in_progress (stops the escalation
@@ -62,6 +115,7 @@ router.post('/tasks/:id/acknowledge', async (req, res, next) => {
       actorRole: req.user?.role
         || (Array.isArray(req.user?.roles) ? req.user.roles[0] : req.user?.roles)
         || null,
+      actorRawRole: req.user?.rawRole || null,
       breakGlassId: req.body?.break_glass_id ?? null,
       readBackMethod: req.body?.read_back_method ?? null,
       notes: req.body?.notes ?? null,
@@ -73,6 +127,8 @@ router.post('/tasks/:id/acknowledge', async (req, res, next) => {
         id: req.params.id,
         actorUid: req.user?.uid || null,
         actorRoles,
+        actorPrimaryRole: req.user?.role || null,
+        actorRawRole: req.user?.rawRole || null,
         breakGlassId: req.body?.break_glass_id ?? null,
       });
     setPhiPatientContext(req, row?.patient_uid);

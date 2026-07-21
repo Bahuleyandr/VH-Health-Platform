@@ -115,6 +115,9 @@ d('Results-inbox resource lock concurrency', () => {
       tenantId: DEFAULT_TENANT_ID,
       id: initial.taskId,
       actorUid: DOCTOR_UID,
+      actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
     });
     expect(acknowledged.status).toBe('in_progress');
 

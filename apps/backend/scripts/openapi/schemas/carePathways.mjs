@@ -151,6 +151,89 @@ export const schemas = {
     },
   },
   CarePathwayCommandResponse: envelope('CarePathwayCommandResult'),
+
+  CarePathwayOwnerTransferRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['covering_clinician_uid', 'reason'],
+    properties: {
+      covering_clinician_uid: { type: 'string', format: 'uuid' },
+      reason: { type: 'string', minLength: 1 },
+    },
+  },
+
+  CarePathwayOwnerTransferView: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'handoff_id',
+      'pathway_instance_id',
+      'patient_uid',
+      'pathway_key',
+      'pathway_clinical_status',
+      'status',
+      'sender_uid',
+      'intended_recipient_uid',
+      'request_reason',
+      'requested_at',
+      'accepted_at',
+      'declined_at',
+      'cancelled_at',
+    ],
+    properties: {
+      handoff_id: { type: 'string', format: 'uuid' },
+      pathway_instance_id: { type: 'string', format: 'uuid' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      pathway_key: { type: 'string', minLength: 1, maxLength: 120 },
+      pathway_clinical_status: {
+        type: 'string',
+        enum: [
+          'planned',
+          'active',
+          'on_hold',
+          'completed',
+          'cancelled',
+          'transferred',
+          'entered_in_error',
+        ],
+      },
+      status: {
+        type: 'string',
+        enum: ['requested', 'accepted', 'declined', 'cancelled'],
+      },
+      sender_uid: { type: 'string', format: 'uuid' },
+      intended_recipient_uid: { type: 'string', format: 'uuid' },
+      request_reason: { type: 'string', minLength: 1 },
+      requested_at: { type: 'string', format: 'date-time' },
+      accepted_at: nullableDateTime,
+      declined_at: nullableDateTime,
+      cancelled_at: nullableDateTime,
+    },
+  },
+  CarePathwayOwnerTransferViewResponse: envelope('CarePathwayOwnerTransferView'),
+
+  CarePathwayTransferDecisionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reason'],
+    properties: {
+      reason: { type: 'string', minLength: 1 },
+    },
+  },
+
+  CarePathwayOwnershipMutationResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['instance', 'events', 'replayed'],
+    properties: {
+      instance: { $ref: '#/components/schemas/CarePathwayInstance' },
+      handoff: { ...runtimeObject, nullable: true },
+      task: { ...runtimeObject, nullable: true },
+      events: { type: 'array', items: runtimeObject },
+      replayed: { type: 'boolean' },
+    },
+  },
+  CarePathwayOwnershipMutationResponse: envelope('CarePathwayOwnershipMutationResult'),
 };
 
 export const operations = {
@@ -179,5 +262,61 @@ export const operations = {
     parameters: [idempotencyKeyParameter],
     request: 'CarePathwayCommandRequest',
     response: 'CarePathwayCommandResponse',
+  },
+  'POST /api/v1/care-pathways/instances/{id}/claim': {
+    summary: 'Claim a role-owned care pathway instance',
+    description: 'Atomically assigns the live role-owned pathway instance, every actionable pathway task, and every corresponding incomplete SLA to the authenticated clinician only while their current database role exactly matches the queue.',
+    pathParameters: {
+      id: { type: 'string', format: 'uuid' },
+    },
+    parameters: [idempotencyKeyParameter],
+    response: 'CarePathwayOwnershipMutationResponse',
+  },
+  'POST /api/v1/care-pathways/instances/{id}/owner-transfer-requests': {
+    summary: 'Request an accepted covering-clinician transfer',
+    description: 'Creates an exact-recipient covering-transfer request and review task. The current owner remains responsible until the intended clinician accepts.',
+    pathParameters: {
+      id: { type: 'string', format: 'uuid' },
+    },
+    parameters: [idempotencyKeyParameter],
+    request: 'CarePathwayOwnerTransferRequest',
+    response: 'CarePathwayOwnershipMutationResponse',
+  },
+  'POST /api/v1/care-pathways/handoffs/{handoffId}/accept': {
+    summary: 'Accept a covering-clinician transfer',
+    description: 'Lets only the exact intended clinician accept a live covering-transfer request. Acceptance atomically transfers pathway, actionable-task, and incomplete-SLA ownership and records immutable evidence.',
+    pathParameters: {
+      handoffId: { type: 'string', format: 'uuid' },
+    },
+    parameters: [idempotencyKeyParameter],
+    response: 'CarePathwayOwnershipMutationResponse',
+  },
+  'GET /api/v1/care-pathways/handoffs/{handoffId}': {
+    summary: 'Read an exact-recipient covering-clinician transfer',
+    description: 'Returns the minimal patient and pathway context needed by the exact intended clinician to review a covering-transfer request. Terminal states require coherent immutable transition evidence and remain non-enumerable by handoff UUID.',
+    pathParameters: {
+      handoffId: { type: 'string', format: 'uuid' },
+    },
+    response: 'CarePathwayOwnerTransferViewResponse',
+  },
+  'POST /api/v1/care-pathways/handoffs/{handoffId}/decline': {
+    summary: 'Decline a covering-clinician transfer',
+    description: 'Lets only the exact intended clinician decline a requested covering transfer with a reason. Declining never changes pathway ownership.',
+    pathParameters: {
+      handoffId: { type: 'string', format: 'uuid' },
+    },
+    parameters: [idempotencyKeyParameter],
+    request: 'CarePathwayTransferDecisionRequest',
+    response: 'CarePathwayOwnershipMutationResponse',
+  },
+  'POST /api/v1/care-pathways/handoffs/{handoffId}/cancel': {
+    summary: 'Cancel a covering-clinician transfer request',
+    description: 'Lets only the unchanged current pathway owner cancel their pending covering-transfer request with a reason. Cancelling never changes pathway ownership.',
+    pathParameters: {
+      handoffId: { type: 'string', format: 'uuid' },
+    },
+    parameters: [idempotencyKeyParameter],
+    request: 'CarePathwayTransferDecisionRequest',
+    response: 'CarePathwayOwnershipMutationResponse',
   },
 };

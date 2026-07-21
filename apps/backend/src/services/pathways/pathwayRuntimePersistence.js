@@ -40,7 +40,10 @@ const HANDOFF_COLUMNS = `id, tenant_id, patient_uid, sending_pathway_instance_id
   receiving_workflow_run_id, receiving_step_key, handoff_type, source_resource_type,
   source_resource_id, urgency_code, policy_due_at, sender_uid, sender_system_key,
   recipient_kind, intended_recipient_uid, intended_recipient_role, intended_team_id,
-  external_recipient_ref, status, task_id, idempotency_key, metadata,
+  external_recipient_ref, status, task_id, idempotency_key, request_reason,
+  request_fingerprint, metadata,
+  decline_reason, cancellation_reason, requested_at, acknowledged_at, accepted_at,
+  accepted_by_uid, declined_at, completed_at, originator_closed_at, cancelled_at,
   created_at, updated_at`;
 
 function requireTx(tx) {
@@ -1193,6 +1196,41 @@ export async function activatePathwayInstanceCasTx({
   return rows[0];
 }
 
+export async function assignPathwayOwnerCasTx({
+  tx,
+  tenantId,
+  instanceId,
+  expectedOwnerUid = null,
+  nextOwnerUid,
+  actorUid,
+} = {}) {
+  const db = requireTx(tx);
+  const rows = await db.$queryRawUnsafe(
+    `UPDATE care_pathway_instances
+        SET owning_clinician_uid = $1::uuid,
+            updated_by = $2::uuid,
+            updated_at = NOW()
+      WHERE tenant_id = $3::uuid
+        AND id = $4::uuid
+        AND owning_clinician_uid IS NOT DISTINCT FROM $5::uuid
+        AND clinical_status IN ('planned', 'active', 'on_hold')
+        AND closed_at IS NULL
+      RETURNING ${INSTANCE_COLUMNS}`,
+    nextOwnerUid,
+    actorUid,
+    tenantId,
+    instanceId,
+    expectedOwnerUid,
+  );
+  if (!rows[0]) {
+    noRowConflict(
+      'Care pathway owner changed before ownership operation completion',
+      'PATHWAY_OWNER_CAS_CONFLICT',
+    );
+  }
+  return rows[0];
+}
+
 export default {
   assertPathwayTenantScopeTx,
   assertPathwayPatientContextTx,
@@ -1209,4 +1247,5 @@ export default {
   transitionPathwayStepCasTx,
   activatePathwayInstanceCasTx,
   closePathwayInstanceCasTx,
+  assignPathwayOwnerCasTx,
 };

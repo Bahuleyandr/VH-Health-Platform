@@ -10873,6 +10873,7 @@ model users {
   biomed_work_order_recipients                                                                      biomed_work_order_recipients[]
   biomed_work_order_updates                                                                         biomed_work_order_updates[]
   biomed_work_orders                                                                                biomed_work_orders[]
+  care_handoff_accepted_by                                                                          care_handoff_instances[]                @relation("care_handoff_accepted_by")
   care_handoff_recipient                                                                            care_handoff_instances[]                @relation("care_handoff_recipient")
   care_handoff_sender                                                                               care_handoff_instances[]                @relation("care_handoff_sender")
   care_pathway_governance_approved_by                                                               care_pathway_definition_governance[]    @relation("care_pathway_governance_approved_by")
@@ -11659,6 +11660,7 @@ model care_pathway_definition_governance {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model care_handoff_instances {
   id                            String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id                     String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
@@ -11697,6 +11699,10 @@ model care_handoff_instances {
   metadata                      Json                    @default("{}")
   created_at                    DateTime                @default(now()) @db.Timestamptz(6)
   updated_at                    DateTime                @default(now()) @db.Timestamptz(6)
+  request_reason                String?
+  request_fingerprint           String?                 @db.Char(64)
+  accepted_by_uid               String?                 @db.Uuid
+  accepted_by                   users?                  @relation("care_handoff_accepted_by", fields: [tenant_id, accepted_by_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_care_handoff_accepted_by_tenant")
   receiving_instance            care_pathway_instances? @relation("care_handoff_receiving_instance", fields: [tenant_id, receiving_pathway_instance_id, patient_uid, receiving_workflow_run_id], references: [tenant_id, id, patient_uid, workflow_run_id], onUpdate: NoAction, map: "fk_care_handoff_receiving_instance")
   receiving_step                workflow_steps?         @relation("care_handoff_receiving_step", fields: [tenant_id, receiving_workflow_run_id, receiving_step_key], references: [tenant_id, workflow_run_id, step_key], onUpdate: NoAction, map: "fk_care_handoff_receiving_step")
   intended_recipient            users?                  @relation("care_handoff_recipient", fields: [tenant_id, intended_recipient_uid], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_care_handoff_recipient_tenant")
@@ -11709,6 +11715,8 @@ model care_handoff_instances {
 
   @@unique([tenant_id, idempotency_key], map: "ux_care_handoff_idempotency")
   @@unique([tenant_id, id], map: "ux_care_handoff_tenant_id")
+  @@index([tenant_id, accepted_by_uid, accepted_at(sort: Desc)], map: "idx_care_handoff_accepted_by", where: raw("(accepted_by_uid IS NOT NULL)"))
+  @@index([tenant_id, intended_recipient_uid, status, requested_at(sort: Desc)], map: "idx_care_handoff_covering_recipient", where: raw("(((handoff_type)::text = 'covering_clinician_reassignment'::text) AND (intended_recipient_uid IS NOT NULL) AND ((status)::text = 'requested'::text))"))
   @@index([tenant_id, status, policy_due_at], map: "idx_care_handoff_due", where: raw("((policy_due_at IS NOT NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'acknowledged'::character varying, 'accepted'::character varying])::text[])))"))
   @@index([tenant_id, receiving_pathway_instance_id, status, requested_at(sort: Desc)], map: "idx_care_handoff_receiver", where: raw("(receiving_pathway_instance_id IS NOT NULL)"))
   @@index([tenant_id, receiving_pathway_instance_id, patient_uid, receiving_workflow_run_id], map: "idx_care_handoff_receiving_instance_fk", where: raw("(receiving_pathway_instance_id IS NOT NULL)"))
