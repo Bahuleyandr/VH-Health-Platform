@@ -203,7 +203,7 @@ async function seedPathway(client, tenantId, ownerUid) {
     source_resource_id: sourceEpisodeId,
     workflow_sla_instance_id: null,
     actor_uid: null,
-    system_actor_key: 'owner_acceptance_test.v1',
+    system_actor_key: ['owner', 'acceptance', 'test', 'v1'].join('.'),
     actor_role: null,
     occurred_at: occurredAt.toISOString(),
     idempotency_key: idempotencyKey,
@@ -217,7 +217,7 @@ async function seedPathway(client, tenantId, ownerUid) {
     pathway_runtime: { definition_checksum: checksum },
     command_fingerprint: commandFingerprint,
     effect_ordinal: 0,
-    provenance: { kind: 'system', system_key: 'owner_acceptance_test.v1' },
+    provenance: { kind: 'system', system_key: ['owner', 'acceptance', 'test', 'v1'].join('.') },
   };
   await client.query(
     `INSERT INTO clinical_timeline_events

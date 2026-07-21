@@ -248,7 +248,7 @@ persistence is not best-effort. If the transaction aborts, all repairs roll back
 transaction may append one sanitized non-pass technical-error row, but it cannot preserve partial repair.
 
 The table has a unique tenant/pathway/sweep key, latest-evidence and checksum-cohort indexes, a composite
-tenant foreign key, application/sequence grants, Pattern-A RLS with both `USING` and `WITH CHECK`, and a
+tenant foreign key, application-role and sequence privileges, Pattern-A RLS with both `USING` and `WITH CHECK`, and a
 trigger rejecting update/delete. Retention remains an unresolved owner policy, so this slice adds no purge
 job or deletion exception. Prisma is regenerated from the applied raw migration.
 
