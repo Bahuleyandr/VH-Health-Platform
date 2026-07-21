@@ -15,6 +15,10 @@ import * as users from '../../../scripts/openapi/schemas/users.mjs';
 import * as config from '../../../scripts/openapi/schemas/config.mjs';
 import * as portal from '../../../scripts/openapi/schemas/portal.mjs';
 import * as cathConsumables from '../../../scripts/openapi/schemas/cathConsumables.mjs';
+import * as clinicalInbox from '../../../scripts/openapi/schemas/clinicalInbox.mjs';
+import * as lab from '../../../scripts/openapi/schemas/lab.mjs';
+import * as carePathways from '../../../scripts/openapi/schemas/carePathways.mjs';
+import * as outboxRecovery from '../../../scripts/openapi/schemas/outboxRecovery.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -30,7 +34,11 @@ const MODULES = [
   users,
   config,
   portal,
-  cathConsumables
+  cathConsumables,
+  clinicalInbox,
+  lab,
+  carePathways,
+  outboxRecovery
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

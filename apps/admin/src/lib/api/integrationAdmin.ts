@@ -206,7 +206,7 @@ export interface WebhookDelivery {
   id: number;
   subscription_id: number | null;
   tenant_id: string;
-  event_outbox_id: number | null;
+  event_outbox_id: string | null;
   event_type: string;
   status: WebhookDeliveryStatus;
   attempt_number: number;
@@ -218,6 +218,9 @@ export interface WebhookDelivery {
   started_at: string | null;
   completed_at: string | null;
   next_retry_at: string | null;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+  redrive_count: number;
   created_at: string;
   updated_at: string;
   payload?: Record<string, unknown>;
@@ -228,6 +231,9 @@ export interface DispatchTickResult {
   succeeded: number;
   failed: number;
   dead: number;
+  parked: number;
+  lost_fence: number;
+  orphaned: number;
   halted?: boolean;
   reason?: string;
 }
@@ -235,7 +241,6 @@ export interface DispatchTickResult {
 export interface EnqueueResult {
   matched: number;
   enqueued: WebhookDelivery[];
-  skipped_reason?: string;
 }
 
 export async function listDeliveries(params: {
@@ -262,7 +267,6 @@ export async function getDelivery(id: number) {
 export async function enqueueDelivery(payload: {
   event_type: string;
   payload?: Record<string, unknown>;
-  event_outbox_id?: number | null;
   request_id?: string | null;
 }) {
   return postJSON<EnqueueResult>('/admin/webhook-deliveries/enqueue', payload);
@@ -272,13 +276,13 @@ export async function dispatchNow(payload: { batch_size?: number } = {}) {
   return postJSON<DispatchTickResult>('/admin/webhook-deliveries/dispatch-now', payload);
 }
 
-export async function markDeliveryDead(id: number, payload: { reason?: string | null } = {}) {
+export async function markDeliveryDead(id: number, payload: { reason: string }) {
   return fetchAdminAPI<WebhookDelivery>(`/admin/webhook-deliveries/${id}/mark-dead`, {
     method: 'PATCH',
     body: payload,
   });
 }
 
-export async function redriveDelivery(id: number) {
-  return postJSON<WebhookDelivery>(`/admin/webhook-deliveries/${id}/redrive`, {});
+export async function redriveDelivery(id: number, payload: { reason: string }) {
+  return postJSON<WebhookDelivery>(`/admin/webhook-deliveries/${id}/redrive`, payload);
 }

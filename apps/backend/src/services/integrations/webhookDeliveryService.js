@@ -1,30 +1,11 @@
-/**
- * Webhook delivery service (Phase A3 PR2).
- *
- * Pipeline:
- *
- *   enqueueDelivery   ── creates one webhook_deliveries row per matching
- *                        active subscription with status='pending'.
- *
- *   dispatchPendingDeliveries (called from a cron) ──
- *     1. Claim a batch of due rows: status IN ('pending','failed') AND
- *        next_retry_at <= NOW(); flip them to in_flight in one update.
- *     2. For each, sign + POST. Update status to succeeded / failed /
- *        dead based on the response. Schedule next_retry_at on retryable
- *        failures using exponential backoff. After RETRY_LIMIT attempts,
- *        the row is marked 'dead' and the subscription's failure
- *        counter increments (which may auto-pause it).
- *
- *   markDeliveryDead, redriveDelivery — admin escape hatches.
- *
- * Decision-support only: this is the ONLY place that opens an outbound
- * connection; callers describe intent + we audit every attempt.
- */
+import crypto from 'node:crypto';
 
-import crypto from 'crypto';
-
-import prisma from '../../lib/prisma.js';
+import { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import {
+  recordOutboxOperatorRedrive,
+  recordWebhookDeliveryLeaseReaped,
+} from '../../observability/reliabilityMetrics.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField } from '../../utils/fieldEncryption.js';
 import { assertSafeOutboundUrl, safeFetch } from '../../utils/ssrfGuard.js';
@@ -36,244 +17,439 @@ import {
   signWebhookPayload,
 } from './webhookSubscriptionService.js';
 
-export const DELIVERY_STATUSES = ['pending', 'in_flight', 'succeeded', 'failed', 'dead'];
+export const DELIVERY_STATUSES = Object.freeze([
+  'pending',
+  'in_flight',
+  'succeeded',
+  'failed',
+  'dead',
+]);
 
 const RETRY_LIMIT = 7;
-// Exponential-ish backoff in seconds; index = attempt_number that just
-// failed. Caps at 8 hours so a wedged endpoint dies cleanly within a day.
+const MAX_DB_INTEGER = 2_147_483_647;
 const BACKOFF_SECONDS = [30, 120, 600, 1_800, 3_600, 14_400, 28_800];
-
 const DEFAULT_BATCH = 25;
 const MAX_BATCH = 200;
+const DEFAULT_LEASE_SECONDS = 120;
+const MAX_LEASE_SECONDS = 900;
 const REQUEST_TIMEOUT_MS = 8_000;
 const RESPONSE_EXCERPT_MAX = 2_000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function resolveTenantId(options = {}) {
-  return requireTenantId(options.tenantId);
-}
-
-function isMissingSchemaError(err) {
-  return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
+function isMissingSchemaError(error) {
+  return /does not exist|relation .* does not exist/i.test(String(error?.message || ''));
 }
 
 function normalizeId(value, label = 'id') {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const candidate = Number(value);
+  if (!Number.isSafeInteger(candidate) || candidate <= 0) {
     throw AppError.badRequest(`${label} must be a positive integer`);
   }
-  return parsed;
+  return candidate;
 }
 
-function safeText(value, max) {
-  if (value === null || value === undefined) return null;
-  const text = String(value).trim();
-  if (!text) return null;
-  return max ? text.slice(0, max) : text;
+function boundedInteger(value, fallback, min, max, label) {
+  const candidate = value === undefined || value === null || value === ''
+    ? fallback
+    : Number(value);
+  if (!Number.isSafeInteger(candidate) || candidate < min || candidate > max) {
+    throw AppError.badRequest(`${label} is invalid`);
+  }
+  return candidate;
+}
+
+function safeText(value, max, label = 'value', { required = false } = {}) {
+  const text = value == null ? '' : String(value).trim();
+  if (required && !text) throw AppError.badRequest(`${label} is required`);
+  if (text.length > max) throw AppError.badRequest(`${label} is too long`);
+  return text || null;
+}
+
+function normalizeUuid(value, label) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!UUID_PATTERN.test(normalized)) throw AppError.badRequest(`${label} must be a UUID`);
+  return normalized;
+}
+
+function normalizePayload(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
 function backoffSecondsForAttempt(attemptNumber) {
-  const idx = Math.max(0, Math.min(attemptNumber, BACKOFF_SECONDS.length - 1));
-  return BACKOFF_SECONDS[idx];
+  const index = Math.max(0, Math.min(attemptNumber - 1, BACKOFF_SECONDS.length - 1));
+  return BACKOFF_SECONDS[index];
 }
 
 function computeNextRetryAt(attemptNumber) {
-  const seconds = backoffSecondsForAttempt(attemptNumber);
-  return new Date(Date.now() + seconds * 1000);
+  return new Date(Date.now() + backoffSecondsForAttempt(attemptNumber) * 1000);
 }
 
 function isRetryable(httpStatus) {
-  if (httpStatus == null) return true;          // network / timeout
+  if (httpStatus == null) return true;
   if (httpStatus >= 500 && httpStatus < 600) return true;
-  if (httpStatus === 408 || httpStatus === 425 || httpStatus === 429) return true;
-  return false;
+  return [408, 425, 429].includes(httpStatus);
 }
 
-// ---------------------------------------------------------------------------
-// Enqueue
-// ---------------------------------------------------------------------------
+function actorContext({ actorUid, actorRole, requestId }) {
+  return Object.freeze({
+    uid: normalizeUuid(actorUid, 'actor uid'),
+    role: safeText(actorRole, 50, 'actor role', { required: true }),
+    requestId: safeText(requestId, 180, 'request id'),
+  });
+}
 
-/**
- * Find every active subscription for (tenantId, eventType) and create a
- * pending webhook_deliveries row per match. Returns the inserted rows.
- *
- * Caller is typically the event_outbox worker; for ad-hoc admin tests
- * the same call shape works (admins can replay any event_type / payload).
- */
+function normalizeClaim(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    throw AppError.badRequest('webhook delivery claim is required');
+  }
+  const priorStatus = String(row.prior_status || 'pending');
+  if (!['pending', 'failed'].includes(priorStatus)) {
+    throw AppError.badRequest('webhook delivery prior status is invalid');
+  }
+  return Object.freeze({
+    id: normalizeId(row.id, 'delivery id'),
+    tenantId: requireTenantId(row.tenant_id),
+    subscriptionId: row.subscription_id == null
+      ? null
+      : normalizeId(row.subscription_id, 'subscription id'),
+    leaseOwner: normalizeUuid(row.lease_owner, 'lease owner'),
+    attemptNumber: boundedInteger(row.attempt_number, null, 1, MAX_DB_INTEGER, 'attempt number'),
+    priorStatus,
+  });
+}
+
 export async function enqueueDelivery({
-  tenantId = null,
+  tenantId,
   eventType,
   payload = {},
   eventOutboxId = null,
   requestId = null,
 } = {}) {
-  const tid = resolveTenantId({ tenantId });
-  const cleanType = safeText(eventType, 120);
-  if (!cleanType) throw AppError.badRequest('event_type is required');
-
-  let subscriptions;
-  try {
-    subscriptions = await prisma.$queryRawUnsafe(
-      `SELECT id, integration_id, endpoint_url, signing_credential_id,
-              signing_algorithm, max_consecutive_failures
-       FROM webhook_subscriptions
-       WHERE tenant_id = $1::uuid
-         AND event_type = $2
-         AND is_active = true`,
-      tid, cleanType,
+  const tid = requireTenantId(tenantId);
+  const cleanType = safeText(eventType, 120, 'event_type', { required: true });
+  if (eventOutboxId !== null && eventOutboxId !== undefined) {
+    throw AppError.badRequest(
+      'Ad-hoc webhook enqueue cannot attach an event_outbox_id',
+      'WEBHOOK_SOURCE_BRIDGE_INTERNAL_ONLY',
     );
-  } catch (err) {
-    if (isMissingSchemaError(err)) {
-      return { matched: 0, enqueued: [], skipped_reason: 'webhook_subscriptions_unavailable' };
+  }
+  const request = safeText(requestId, 64, 'request_id') || crypto.randomUUID();
+  return setTenantTx(tid, async (tx) => {
+    const subscriptions = await tx.$queryRawUnsafe(
+      `SELECT subscription.id
+         FROM webhook_subscriptions AS subscription
+         JOIN integrations AS integration
+           ON integration.tenant_id = subscription.tenant_id
+          AND integration.id = subscription.integration_id
+          AND integration.status = 'active'
+        WHERE subscription.tenant_id = $1::uuid
+          AND subscription.event_type = $2::text
+          AND subscription.is_active = TRUE
+          AND subscription.event_filter = '{}'::jsonb
+        ORDER BY subscription.id`,
+      tid,
+      cleanType,
+    );
+    if (!subscriptions.length) return Object.freeze({ matched: 0, enqueued: Object.freeze([]) });
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO webhook_deliveries
+         (subscription_id, tenant_id, event_outbox_id, event_type, payload,
+          status, attempt_number, next_retry_at, request_id)
+       SELECT subscription.id, subscription.tenant_id, NULL, $2::text,
+              $3::jsonb, 'pending', 0, NOW(), $4::text
+         FROM webhook_subscriptions AS subscription
+         JOIN integrations AS integration
+           ON integration.tenant_id = subscription.tenant_id
+          AND integration.id = subscription.integration_id
+          AND integration.status = 'active'
+        WHERE subscription.tenant_id = $1::uuid
+          AND subscription.event_type = $2::text
+          AND subscription.is_active = TRUE
+          AND subscription.event_filter = '{}'::jsonb
+      RETURNING id, subscription_id, tenant_id, event_outbox_id::text,
+                event_type, status, attempt_number, next_retry_at,
+                redrive_count, created_at`,
+      tid,
+      cleanType,
+      JSON.stringify(normalizePayload(payload)),
+      request,
+    );
+    if (rows.length !== subscriptions.length) {
+      throw new Error('Ad-hoc webhook enqueue coverage is incomplete');
     }
-    throw err;
-  }
-
-  if (!subscriptions.length) {
-    return { matched: 0, enqueued: [] };
-  }
-
-  const enqueued = [];
-  for (const sub of subscriptions) {
-    try {
-      const rows = await prisma.$queryRawUnsafe(
-        // event_outbox.id is BIGINT and webhook_deliveries.event_outbox_id was
-        // widened to match (migration 347). Bind the id as a STRING + cast
-        // $3::bigint so a value past 2^53 (JS Number's safe-int ceiling) survives
-        // verbatim — Number.parseInt would silently truncate/round it and point
-        // the delivery at the wrong outbox row.
-        `INSERT INTO webhook_deliveries
-           (subscription_id, tenant_id, event_outbox_id, event_type,
-            payload, status, attempt_number, next_retry_at, request_id)
-         VALUES ($1, $2::uuid, $3::bigint, $4, $5::jsonb, 'pending', 0, NOW(), $6)
-         RETURNING id, subscription_id, tenant_id, event_outbox_id,
-                   event_type, status, attempt_number, next_retry_at,
-                   created_at`,
-        sub.id, tid, eventOutboxId == null ? null : String(eventOutboxId),
-        cleanType, JSON.stringify(payload || {}),
-        requestId || crypto.randomUUID(),
-      );
-      enqueued.push(rows[0]);
-    } catch (err) {
-      if (isMissingSchemaError(err)) {
-        return { matched: subscriptions.length, enqueued, skipped_reason: 'webhook_deliveries_unavailable' };
-      }
-      logger.warn('webhook delivery enqueue failed', {
-        subscription_id: sub.id, error: err.message,
-      });
-    }
-  }
-  return { matched: subscriptions.length, enqueued };
+    return Object.freeze({ matched: subscriptions.length, enqueued: Object.freeze(rows) });
+  }, { isolationLevel: 'Serializable' });
 }
 
-// ---------------------------------------------------------------------------
-// Dispatcher
-// ---------------------------------------------------------------------------
+async function claimDueDeliveries({ tenantId, batchSize, leaseOwner, leaseSeconds }) {
+  const run = (tx) => tx.$queryRawUnsafe(
+    `WITH due AS MATERIALIZED (
+       SELECT delivery.tenant_id, delivery.id, delivery.status AS prior_status
+         FROM webhook_deliveries AS delivery
+         JOIN webhook_subscriptions AS subscription
+           ON subscription.tenant_id = delivery.tenant_id
+          AND subscription.id = delivery.subscription_id
+          AND subscription.is_active = TRUE
+          AND subscription.event_filter = '{}'::jsonb
+         JOIN integrations AS integration
+           ON integration.tenant_id = subscription.tenant_id
+          AND integration.id = subscription.integration_id
+          AND integration.status = 'active'
+        WHERE ($1::uuid IS NULL OR delivery.tenant_id = $1::uuid)
+          AND delivery.status IN ('pending', 'failed')
+          AND delivery.next_retry_at <= NOW()
+        ORDER BY delivery.next_retry_at, delivery.id
+        FOR UPDATE OF delivery SKIP LOCKED
+        LIMIT $2::integer
+     )
+     UPDATE webhook_deliveries AS delivery
+        SET status = 'in_flight',
+            attempt_number = delivery.attempt_number + 1,
+            lease_owner = $3::uuid,
+            lease_expires_at = NOW() + ($4::integer * INTERVAL '1 second'),
+            started_at = NOW(),
+            updated_at = NOW()
+       FROM due
+      WHERE delivery.tenant_id = due.tenant_id
+        AND delivery.id = due.id
+        AND delivery.status = due.prior_status
+    RETURNING delivery.id, delivery.subscription_id, delivery.tenant_id,
+              delivery.event_outbox_id::text, delivery.event_type, delivery.payload,
+              delivery.attempt_number, delivery.request_id, delivery.lease_owner,
+              delivery.lease_expires_at, due.prior_status`,
+    tenantId,
+    batchSize,
+    leaseOwner,
+    leaseSeconds,
+  );
+  return tenantId
+    ? setTenantTx(tenantId, run)
+    : setTenantTx(null, run, { superAdmin: true });
+}
 
-/**
- * Claim a batch of due deliveries and POST them. Cron-driven. Each call
- * dispatches at most `batchSize` rows; subsequent ticks pick up the
- * rest. Per-tenant if tenantId is supplied; otherwise scans all tenants.
- *
- * Returns { dispatched, succeeded, failed, dead } counts.
- */
+async function deadLetterOrphans({ tenantId, limit = MAX_BATCH }) {
+  const run = (tx) => tx.$queryRawUnsafe(
+    `WITH orphaned AS MATERIALIZED (
+       SELECT delivery.tenant_id, delivery.id
+         FROM webhook_deliveries AS delivery
+         LEFT JOIN webhook_subscriptions AS subscription
+           ON subscription.tenant_id = delivery.tenant_id
+          AND subscription.id = delivery.subscription_id
+        WHERE ($1::uuid IS NULL OR delivery.tenant_id = $1::uuid)
+          AND delivery.status IN ('pending', 'failed')
+          AND subscription.id IS NULL
+        ORDER BY delivery.id
+        FOR UPDATE OF delivery SKIP LOCKED
+        LIMIT $2::integer
+     )
+     UPDATE webhook_deliveries AS delivery
+        SET status = 'dead',
+            error_message = 'subscription_missing',
+            next_retry_at = NULL,
+            completed_at = COALESCE(completed_at, NOW()),
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            updated_at = NOW()
+       FROM orphaned
+      WHERE delivery.tenant_id = orphaned.tenant_id
+        AND delivery.id = orphaned.id
+        AND delivery.status IN ('pending', 'failed')
+    RETURNING delivery.id`,
+    tenantId,
+    limit,
+  );
+  return tenantId
+    ? setTenantTx(tenantId, run)
+    : setTenantTx(null, run, { superAdmin: true });
+}
+
+async function loadSubscriptionForClaim(claim) {
+  return setTenantTx(claim.tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT subscription.id, subscription.integration_id,
+              subscription.endpoint_url, subscription.signing_credential_id,
+              subscription.signing_algorithm, subscription.is_active,
+              subscription.event_filter,
+              integration.status AS integration_status,
+              credential.id AS credential_id, credential.ciphertext
+         FROM webhook_subscriptions AS subscription
+         JOIN integrations AS integration
+           ON integration.tenant_id = subscription.tenant_id
+          AND integration.id = subscription.integration_id
+         LEFT JOIN integration_credentials AS credential
+           ON credential.id = subscription.signing_credential_id
+          AND credential.tenant_id = subscription.tenant_id
+          AND credential.integration_id = subscription.integration_id
+        WHERE subscription.tenant_id = $1::uuid
+          AND subscription.id = $2::integer
+        LIMIT 1`,
+      claim.tenantId,
+      claim.subscriptionId,
+    );
+    return rows[0] || null;
+  });
+}
+
+async function parkClaim(claim) {
+  const rows = await setTenantTx(claim.tenantId, (tx) => tx.$queryRawUnsafe(
+    `UPDATE webhook_deliveries
+        SET status = $6::text,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            started_at = NULL,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::integer
+        AND status = 'in_flight'
+        AND lease_owner = $3::uuid
+        AND attempt_number = $4::integer
+        AND subscription_id = $5::integer
+    RETURNING id`,
+    claim.tenantId,
+    claim.id,
+    claim.leaseOwner,
+    claim.attemptNumber,
+    claim.subscriptionId,
+    claim.priorStatus,
+  ));
+  return rows.length === 1;
+}
+
+async function finishClaim(claim, {
+  status,
+  httpStatus = null,
+  responseExcerpt = null,
+  errorMessage = null,
+  signature = null,
+  nextRetryAt = null,
+  completedAt = null,
+  subscriptionOutcome = null,
+}) {
+  return setTenantTx(claim.tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE webhook_deliveries
+          SET status = $6::text,
+              http_status = $7::integer,
+              response_excerpt = $8::text,
+              error_message = $9::text,
+              signature = $10::text,
+              next_retry_at = $11::timestamptz,
+              completed_at = $12::timestamptz,
+              lease_owner = NULL,
+              lease_expires_at = NULL,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::integer
+          AND status = 'in_flight'
+          AND lease_owner = $3::uuid
+          AND attempt_number = $4::integer
+          AND subscription_id = $5::integer
+      RETURNING id, subscription_id, tenant_id, status, attempt_number`,
+      claim.tenantId,
+      claim.id,
+      claim.leaseOwner,
+      claim.attemptNumber,
+      claim.subscriptionId,
+      status,
+      httpStatus,
+      responseExcerpt,
+      errorMessage,
+      signature,
+      nextRetryAt,
+      completedAt,
+    );
+    if (rows.length !== 1) return Object.freeze({ updated: false, lost_fence: true });
+    if (subscriptionOutcome === 'success') {
+      await recordSubscriptionSuccess({
+        tx,
+        tenantId: claim.tenantId,
+        id: claim.subscriptionId,
+      });
+    } else if (subscriptionOutcome === 'failure') {
+      await recordSubscriptionFailure({
+        tx,
+        tenantId: claim.tenantId,
+        id: claim.subscriptionId,
+      });
+    }
+    return Object.freeze({ updated: true, lost_fence: false, delivery: rows[0] });
+  }, { isolationLevel: 'Serializable' });
+}
+
 export async function dispatchPendingDeliveries({
   tenantId = null,
   batchSize = DEFAULT_BATCH,
   fetchImpl = null,
+  leaseOwner = crypto.randomUUID(),
+  leaseSeconds = DEFAULT_LEASE_SECONDS,
 } = {}) {
-  const cap = Math.min(Math.max(Number.parseInt(batchSize, 10) || DEFAULT_BATCH, 1), MAX_BATCH);
-  // M17: default to the SSRF-pinned fetch so the actual delivery connection is
-  // pinned to the validated IPs (closes the DNS-rebind TOCTOU). Tests still
-  // inject fetchImpl. The assertSafeOutboundUrl preflight below stays for the
-  // early structured "preflight failed" path.
-  const fetcher = fetchImpl || ((u, o) => safeFetch(u, o, {
+  const tid = tenantId == null ? null : requireTenantId(tenantId);
+  const cap = boundedInteger(batchSize, DEFAULT_BATCH, 1, MAX_BATCH, 'batch size');
+  const owner = normalizeUuid(leaseOwner, 'lease owner');
+  const seconds = boundedInteger(
+    leaseSeconds,
+    DEFAULT_LEASE_SECONDS,
+    1,
+    MAX_LEASE_SECONDS,
+    'lease seconds',
+  );
+  const fetcher = fetchImpl || ((url, options) => safeFetch(url, options, {
     label: 'endpoint_url',
     allowlistEnv: 'WEBHOOK_DELIVERY_HOST_ALLOWLIST',
     allowPrivateEnv: 'WEBHOOK_DELIVERY_ALLOW_PRIVATE_TARGETS',
   }));
 
+  let orphaned;
   let claimed;
-  const claimSql = tenantId
-    ? `UPDATE webhook_deliveries
-       SET status = 'in_flight',
-           attempt_number = attempt_number + 1,
-           started_at = NOW(),
-           updated_at = NOW()
-       WHERE id IN (
-         SELECT id FROM webhook_deliveries
-         WHERE tenant_id = $1::uuid
-           AND status IN ('pending', 'failed')
-           AND next_retry_at <= NOW()
-         ORDER BY next_retry_at
-         FOR UPDATE SKIP LOCKED
-         LIMIT $2
-       )
-       RETURNING id, subscription_id, tenant_id, event_outbox_id,
-                 event_type, payload, attempt_number, request_id`
-    : `UPDATE webhook_deliveries
-       SET status = 'in_flight',
-           attempt_number = attempt_number + 1,
-           started_at = NOW(),
-           updated_at = NOW()
-       WHERE id IN (
-         SELECT id FROM webhook_deliveries
-         WHERE status IN ('pending', 'failed')
-           AND next_retry_at <= NOW()
-         ORDER BY next_retry_at
-         FOR UPDATE SKIP LOCKED
-         LIMIT $1
-       )
-       RETURNING id, subscription_id, tenant_id, event_outbox_id,
-                 event_type, payload, attempt_number, request_id`;
-
   try {
-    claimed = tenantId
-      ? await prisma.$queryRawUnsafe(claimSql, tenantId, cap)
-      : await prisma.$queryRawUnsafe(claimSql, cap);
-  } catch (err) {
-    if (isMissingSchemaError(err)) {
+    orphaned = await deadLetterOrphans({ tenantId: tid, limit: cap });
+    claimed = await claimDueDeliveries({
+      tenantId: tid,
+      batchSize: cap,
+      leaseOwner: owner,
+      leaseSeconds: seconds,
+    });
+  } catch (error) {
+    if (isMissingSchemaError(error)) {
       return { halted: true, reason: 'webhook_deliveries_unavailable' };
     }
-    throw err;
+    throw error;
   }
 
   let succeeded = 0;
   let failed = 0;
-  let dead = 0;
+  let dead = orphaned.length;
+  let parked = 0;
+  let lostFence = 0;
   for (const row of claimed) {
-    let subscription = null;
-    try {
-      const subRows = await prisma.$queryRawUnsafe(
-        `SELECT s.id, s.integration_id, s.tenant_id, s.endpoint_url,
-                s.signing_credential_id, s.signing_algorithm,
-                c.id AS credential_id, c.ciphertext
-         FROM webhook_subscriptions s
-         LEFT JOIN integration_credentials c
-           ON c.id = s.signing_credential_id
-          AND c.tenant_id = s.tenant_id
-          AND c.integration_id = s.integration_id
-         WHERE s.id = $1 AND s.tenant_id = $2::uuid
-         LIMIT 1`,
-        row.subscription_id,
-        row.tenant_id,
-      );
-      subscription = subRows[0];
-    } catch (err) {
-      logger.warn('webhook subscription fetch failed', { id: row.subscription_id, error: err.message });
-    }
-
+    const claim = normalizeClaim(row);
+    const subscription = await loadSubscriptionForClaim(claim);
     if (!subscription) {
-      // Subscription disappeared — kill the delivery.
-      await markStatus(row.id, {
+      const result = await finishClaim(claim, {
         status: 'dead',
-        error: 'subscription_missing',
+        errorMessage: 'subscription_missing',
         completedAt: new Date(),
       });
-      dead += 1;
+      if (result.updated) dead += 1;
+      else lostFence += 1;
+      continue;
+    }
+    if (
+      subscription.is_active !== true
+      || subscription.integration_status !== 'active'
+      || JSON.stringify(subscription.event_filter || {}) !== '{}'
+    ) {
+      if (await parkClaim(claim)) parked += 1;
+      else lostFence += 1;
       continue;
     }
 
-    let signed = { signature: '', header_value: '', algorithm: subscription.signing_algorithm, timestamp: null };
+    let signed = {
+      signature: '',
+      header_value: '',
+      algorithm: subscription.signing_algorithm,
+      timestamp: null,
+    };
     const url = subscription.endpoint_url;
     let httpStatus = null;
     let responseExcerpt = null;
@@ -297,9 +473,12 @@ export async function dispatchPendingDeliveries({
           algorithm: subscription.signing_algorithm,
         });
       }
-    } catch (err) {
-      errorMessage = String(err?.message || 'webhook_preflight_failed').slice(0, 1_000);
-      logger.warn('webhook delivery preflight failed', { delivery_id: row.id, error: errorMessage });
+    } catch (error) {
+      errorMessage = String(error?.message || 'webhook_preflight_failed').slice(0, 1_000);
+      logger.warn('webhook delivery preflight failed', {
+        delivery_id: row.id,
+        error: errorMessage,
+      });
     }
 
     if (!errorMessage) {
@@ -313,7 +492,7 @@ export async function dispatchPendingDeliveries({
             'X-VHHealth-Delivery-Id': String(row.id),
             'X-Request-Id': row.request_id || crypto.randomUUID(),
           },
-          body: JSON.stringify(row.payload || {}),
+          body: JSON.stringify(normalizePayload(row.payload)),
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
         httpStatus = response.status;
@@ -323,42 +502,45 @@ export async function dispatchPendingDeliveries({
         } catch {
           responseExcerpt = null;
         }
-      } catch (err) {
-        errorMessage = String(err?.message || 'fetch_failed').slice(0, 1_000);
+      } catch (error) {
+        errorMessage = String(error?.message || 'fetch_failed').slice(0, 1_000);
       }
     }
 
     const ok = httpStatus != null && httpStatus >= 200 && httpStatus < 300;
     if (ok) {
-      await markStatus(row.id, {
+      const result = await finishClaim(claim, {
         status: 'succeeded',
         httpStatus,
         responseExcerpt,
         signature: signed.signature || null,
         completedAt: new Date(),
+        subscriptionOutcome: 'success',
       });
-      await recordSubscriptionSuccess({ tenantId: row.tenant_id, id: row.subscription_id });
+      if (!result.updated) {
+        lostFence += 1;
+        continue;
+      }
+      succeeded += 1;
       try {
         await writeIntegrationLog({
-          tenantId: row.tenant_id,
+          tenantId: claim.tenantId,
           integrationId: subscription.integration_id,
           logType: 'webhook_send',
           severity: 'info',
           message: `Delivered ${row.event_type} to ${url} (HTTP ${httpStatus})`,
-          payload: { delivery_id: row.id, attempt: row.attempt_number },
+          payload: { delivery_id: row.id, attempt: claim.attemptNumber },
         });
-      } catch (logErr) {
-        logger.debug('webhook send log write failed', { error: logErr.message });
+      } catch (logError) {
+        logger.debug('webhook send log write failed', { error: logError.message });
       }
-      succeeded += 1;
       continue;
     }
 
-    const retryable = isRetryable(httpStatus) && row.attempt_number < RETRY_LIMIT;
+    const retryable = isRetryable(httpStatus) && claim.attemptNumber < RETRY_LIMIT;
     const nextStatus = retryable ? 'failed' : 'dead';
-    const nextRetryAt = retryable ? computeNextRetryAt(row.attempt_number) : null;
-
-    await markStatus(row.id, {
+    const nextRetryAt = retryable ? computeNextRetryAt(claim.attemptNumber) : null;
+    const result = await finishClaim(claim, {
       status: nextStatus,
       httpStatus,
       responseExcerpt,
@@ -366,238 +548,285 @@ export async function dispatchPendingDeliveries({
       signature: signed.signature || null,
       nextRetryAt,
       completedAt: nextStatus === 'dead' ? new Date() : null,
+      subscriptionOutcome: 'failure',
     });
-    if (nextStatus === 'dead') {
-      dead += 1;
-    } else {
-      failed += 1;
+    if (!result.updated) {
+      lostFence += 1;
+      continue;
     }
-    await recordSubscriptionFailure({ tenantId: row.tenant_id, id: row.subscription_id });
+    if (nextStatus === 'dead') dead += 1;
+    else failed += 1;
     try {
       await writeIntegrationLog({
-        tenantId: row.tenant_id,
+        tenantId: claim.tenantId,
         integrationId: subscription.integration_id,
         logType: nextStatus === 'dead' ? 'error' : 'webhook_send',
         severity: nextStatus === 'dead' ? 'error' : 'warn',
         message: `Delivery ${nextStatus}: ${row.event_type} → ${url} (HTTP ${httpStatus ?? 'n/a'})`,
         payload: {
           delivery_id: row.id,
-          attempt: row.attempt_number,
+          attempt: claim.attemptNumber,
           next_retry_at: nextRetryAt,
           error: errorMessage,
         },
       });
-    } catch (logErr) {
-      logger.debug('webhook send log write failed', { error: logErr.message });
+    } catch (logError) {
+      logger.debug('webhook send log write failed', { error: logError.message });
     }
   }
-
-  return { dispatched: claimed.length, succeeded, failed, dead };
+  return {
+    dispatched: claimed.length,
+    succeeded,
+    failed,
+    dead,
+    parked,
+    lost_fence: lostFence,
+    orphaned: orphaned.length,
+  };
 }
 
-/**
- * Reaper for stale in_flight deliveries (audit 2026-06-22 M10). dispatchPending
- * Deliveries claims rows by flipping them to 'in_flight'; if the worker crashes
- * AFTER the claim but BEFORE marking the row succeeded/failed/dead, the row stays
- * 'in_flight' forever — the claim only re-picks 'pending'/'failed', so a crashed
- * delivery never retries and never dead-letters. Reset rows that have been
- * in_flight longer than `staleMinutes` back to 'failed' + due now, so the next
- * dispatch pass re-claims them (and they eventually dead-letter via the normal
- * MAX-attempts path). Run from a cron tick.
- */
-export async function reapStaleInFlightDeliveries({ staleMinutes = 15 } = {}) {
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE webhook_deliveries
-          SET status = 'failed',
-              last_error = 'reaped: stale in_flight (worker crashed mid-delivery)',
-              next_retry_at = NOW(),
-              updated_at = NOW()
+export async function reapStaleInFlightDeliveries({ limit = MAX_BATCH } = {}) {
+  const safeLimit = boundedInteger(limit, MAX_BATCH, 1, MAX_BATCH, 'limit');
+  const rows = await setTenantTx(null, (tx) => tx.$queryRawUnsafe(
+    `WITH stale AS MATERIALIZED (
+       SELECT tenant_id, id, lease_owner, attempt_number
+         FROM webhook_deliveries
         WHERE status = 'in_flight'
-          AND started_at < NOW() - ($1::int * INTERVAL '1 minute')
-        RETURNING id`,
-      Number(staleMinutes) || 15,
-    );
-    return { reaped: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { reaped: 0 };
-    throw err;
-  }
+          AND lease_expires_at <= NOW()
+        ORDER BY lease_expires_at, id
+        FOR UPDATE SKIP LOCKED
+        LIMIT $1::integer
+     )
+     UPDATE webhook_deliveries AS delivery
+        SET status = CASE
+              WHEN stale.attempt_number >= $2::integer THEN 'dead'
+              ELSE 'failed'
+            END,
+            error_message = 'reaped: stale in_flight lease expired',
+            next_retry_at = CASE
+              WHEN stale.attempt_number >= $2::integer THEN NULL
+              ELSE NOW()
+            END,
+            completed_at = CASE
+              WHEN stale.attempt_number >= $2::integer
+                THEN COALESCE(delivery.completed_at, NOW())
+              ELSE NULL
+            END,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            updated_at = NOW()
+       FROM stale
+      WHERE delivery.tenant_id = stale.tenant_id
+        AND delivery.id = stale.id
+        AND delivery.status = 'in_flight'
+        AND delivery.lease_owner = stale.lease_owner
+        AND delivery.attempt_number = stale.attempt_number
+    RETURNING delivery.id, delivery.tenant_id, delivery.status, delivery.attempt_number`,
+    safeLimit,
+    RETRY_LIMIT,
+  ), { superAdmin: true, isolationLevel: 'Serializable' });
+  recordWebhookDeliveryLeaseReaped(rows.length);
+  return Object.freeze({
+    reaped: rows.length,
+    dead: rows.filter((row) => row.status === 'dead').length,
+    rows: Object.freeze(rows),
+  });
 }
-
-async function markStatus(id, {
-  status,
-  httpStatus = null,
-  responseExcerpt = null,
-  errorMessage = null,
-  signature = null,
-  nextRetryAt = null,
-  completedAt = null,
-}) {
-  try {
-    await prisma.$queryRawUnsafe(
-      `UPDATE webhook_deliveries
-       SET status = $1,
-           http_status = COALESCE($2, http_status),
-           response_excerpt = COALESCE($3, response_excerpt),
-           error_message = COALESCE($4, error_message),
-           signature = COALESCE($5, signature),
-           next_retry_at = $6,
-           completed_at = COALESCE($7, completed_at),
-           updated_at = NOW()
-       WHERE id = $8`,
-      status,
-      httpStatus,
-      responseExcerpt,
-      errorMessage,
-      signature,
-      nextRetryAt,
-      completedAt,
-      id,
-    );
-  } catch (err) {
-    logger.warn('webhook delivery markStatus failed', { id, status, error: err.message });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Admin operations
-// ---------------------------------------------------------------------------
 
 export async function listDeliveries({
-  tenantId = null,
+  tenantId,
   subscriptionId = null,
   status = null,
   eventType = null,
   limit = 50,
 } = {}) {
-  const tid = resolveTenantId({ tenantId });
+  const tid = requireTenantId(tenantId);
   const filters = ['tenant_id = $1::uuid'];
   const params = [tid];
   if (subscriptionId) {
     params.push(normalizeId(subscriptionId, 'subscription_id'));
-    filters.push(`subscription_id = $${params.length}`);
+    filters.push(`subscription_id = $${params.length}::integer`);
   }
   if (status) {
-    if (!DELIVERY_STATUSES.includes(String(status))) {
+    const normalizedStatus = String(status).trim();
+    if (!DELIVERY_STATUSES.includes(normalizedStatus)) {
       throw AppError.badRequest(`status must be one of: ${DELIVERY_STATUSES.join(', ')}`);
     }
-    params.push(status);
-    filters.push(`status = $${params.length}`);
+    params.push(normalizedStatus);
+    filters.push(`status = $${params.length}::text`);
   }
   if (eventType) {
-    params.push(safeText(eventType, 120));
-    filters.push(`event_type = $${params.length}`);
+    params.push(safeText(eventType, 120, 'event_type', { required: true }));
+    filters.push(`event_type = $${params.length}::text`);
   }
-  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 500);
+  const safeLimit = boundedInteger(limit, 50, 1, 500, 'limit');
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, subscription_id, tenant_id, event_outbox_id, event_type,
+    const rows = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
+      `SELECT id, subscription_id, tenant_id, event_outbox_id::text, event_type,
               status, attempt_number, http_status, response_excerpt,
               error_message, signature, request_id, started_at,
-              completed_at, next_retry_at, created_at, updated_at
-       FROM webhook_deliveries
-       WHERE ${filters.join(' AND ')}
-       ORDER BY created_at DESC
-       LIMIT $${params.length + 1}`,
-      ...params, safeLimit,
-    );
+              completed_at, next_retry_at, lease_owner, lease_expires_at,
+              redrive_count, created_at, updated_at
+         FROM webhook_deliveries
+        WHERE ${filters.join(' AND ')}
+        ORDER BY created_at DESC
+        LIMIT $${params.length + 1}::integer`,
+      ...params,
+      safeLimit,
+    ));
     return { deliveries: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { deliveries: [], count: 0 };
-    throw err;
+  } catch (error) {
+    if (isMissingSchemaError(error)) return { deliveries: [], count: 0 };
+    throw error;
   }
 }
 
-export async function getDelivery({ tenantId = null, id } = {}) {
-  const tid = resolveTenantId({ tenantId });
-  const did = normalizeId(id, 'delivery id');
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, subscription_id, tenant_id, event_outbox_id, event_type,
+export async function getDelivery({ tenantId, id } = {}) {
+  const tid = requireTenantId(tenantId);
+  const deliveryId = normalizeId(id, 'delivery id');
+  const rows = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
+    `SELECT id, subscription_id, tenant_id, event_outbox_id::text, event_type,
             payload, status, attempt_number, http_status, response_excerpt,
-            error_message, signature, request_id, started_at,
-            completed_at, next_retry_at, created_at, updated_at
-     FROM webhook_deliveries
-     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-    did, tid,
-  );
+            error_message, signature, request_id, started_at, completed_at,
+            next_retry_at, lease_owner, lease_expires_at, redrive_count,
+            created_at, updated_at
+       FROM webhook_deliveries
+      WHERE tenant_id = $1::uuid
+        AND id = $2::integer
+      LIMIT 1`,
+    tid,
+    deliveryId,
+  ));
   if (!rows[0]) throw AppError.notFound('Webhook delivery not found');
   return rows[0];
 }
 
-export async function markDeliveryDead({
-  tenantId = null,
+async function auditedDeliveryMutation({
+  tenantId,
   id,
-  reason = null,
-} = {}) {
-  const tid = resolveTenantId({ tenantId });
-  const did = normalizeId(id, 'delivery id');
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE webhook_deliveries
-     SET status = 'dead',
-         error_message = COALESCE($1, error_message),
-         next_retry_at = NULL,
-         completed_at = COALESCE(completed_at, NOW()),
-         updated_at = NOW()
-     WHERE id = $2 AND tenant_id = $3::uuid AND status IN ('pending', 'failed')
-     RETURNING id, subscription_id, status, error_message, completed_at`,
-    safeText(reason, 1_000), did, tid,
-  );
-  if (!rows[0]) {
-    throw AppError.notFound('Pending or failed webhook delivery not found');
-  }
-  return rows[0];
+  reason,
+  actorUid,
+  actorRole,
+  requestId,
+  operation,
+}) {
+  const tid = requireTenantId(tenantId);
+  const deliveryId = normalizeId(id, 'delivery id');
+  const operatorReason = safeText(reason, 1_000, 'reason', { required: true });
+  const actor = actorContext({ actorUid, actorRole, requestId });
+  const result = await setTenantTx(tid, async (tx) => {
+    const currentRows = await tx.$queryRawUnsafe(
+      `SELECT id, subscription_id, status, attempt_number, error_message,
+              redrive_count
+         FROM webhook_deliveries
+        WHERE tenant_id = $1::uuid
+          AND id = $2::integer
+        LIMIT 1
+        FOR UPDATE`,
+      tid,
+      deliveryId,
+    );
+    const current = currentRows[0];
+    if (!current) throw AppError.notFound('Webhook delivery not found or not eligible');
+    const eligible = operation === 'redrive'
+      ? current.status === 'dead'
+      : ['pending', 'failed'].includes(current.status);
+    if (!eligible) {
+      throw AppError.conflict(
+        operation === 'redrive'
+          ? 'Webhook delivery is not in the dead state'
+          : 'Webhook delivery is not pending or retryable-failed',
+      );
+    }
+    const rows = operation === 'redrive'
+      ? await tx.$queryRawUnsafe(
+        `UPDATE webhook_deliveries
+            SET status = 'pending',
+                attempt_number = 0,
+                http_status = NULL,
+                response_excerpt = NULL,
+                error_message = NULL,
+                signature = NULL,
+                started_at = NULL,
+                completed_at = NULL,
+                next_retry_at = NOW(),
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                redrive_count = redrive_count + 1,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND id = $2::integer
+            AND status = 'dead'
+        RETURNING id, subscription_id, tenant_id, event_outbox_id::text,
+                  event_type, status, attempt_number, redrive_count`,
+        tid,
+        deliveryId,
+      )
+      : await tx.$queryRawUnsafe(
+        `UPDATE webhook_deliveries
+            SET status = 'dead',
+                error_message = $3::text,
+                next_retry_at = NULL,
+                completed_at = COALESCE(completed_at, NOW()),
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND id = $2::integer
+            AND status IN ('pending', 'failed')
+        RETURNING id, subscription_id, tenant_id, event_outbox_id::text,
+                  event_type, status, attempt_number, redrive_count`,
+        tid,
+        deliveryId,
+        operatorReason,
+      );
+    if (rows.length !== 1) throw AppError.conflict('Webhook delivery mutation lost its state fence');
+    const action = operation === 'redrive'
+      ? 'WEBHOOK_DELIVERY_REDRIVEN'
+      : 'WEBHOOK_DELIVERY_MARKED_DEAD';
+    await tx.$queryRawUnsafe(
+      `INSERT INTO audit_logs
+         (tenant_id, uid, role, action, resource, resource_id, metadata, created_at)
+       VALUES ($1::uuid, $2::uuid, $3::text, $4::text,
+               'webhook_delivery', $5::text, $6::jsonb, NOW())`,
+      tid,
+      actor.uid,
+      actor.role,
+      action,
+      String(deliveryId),
+      JSON.stringify({
+        reason: operatorReason,
+        request_id: actor.requestId,
+        prior_status: current.status,
+        prior_attempt_number: Number(current.attempt_number),
+        prior_error: current.error_message || null,
+        prior_redrive_count: Number(current.redrive_count),
+        resulting_status: rows[0].status,
+        resulting_attempt_number: Number(rows[0].attempt_number),
+      }),
+    );
+    return rows[0];
+  }, { isolationLevel: 'Serializable' });
+  if (operation === 'redrive') recordOutboxOperatorRedrive('webhook_delivery');
+  return result;
 }
 
-/**
- * Re-arm a dead or already-succeeded delivery. The dispatcher will pick
- * it up on the next tick. Use sparingly; integration_logs records the
- * redrive so an admin trail exists.
- */
-export async function redriveDelivery({
-  tenantId = null,
-  id,
-  redrivenBy = null,
-} = {}) {
-  const tid = resolveTenantId({ tenantId });
-  const did = normalizeId(id, 'delivery id');
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE webhook_deliveries
-     SET status = 'pending',
-         next_retry_at = NOW(),
-         completed_at = NULL,
-         updated_at = NOW()
-     WHERE id = $1 AND tenant_id = $2::uuid AND status IN ('dead', 'succeeded', 'failed')
-     RETURNING id, subscription_id, tenant_id, event_type, status, attempt_number`,
-    did, tid,
-  );
-  if (!rows[0]) {
-    throw AppError.notFound('Webhook delivery not eligible for redrive');
-  }
-  // Best-effort log
-  try {
-    await writeIntegrationLog({
-      tenantId: tid,
-      integrationId: null,
-      logType: 'webhook_send',
-      severity: 'info',
-      message: `Delivery ${rows[0].id} redriven for ${rows[0].event_type}`,
-      payload: { redriven_by: redrivenBy ? String(redrivenBy) : null },
-    });
-  } catch (logErr) {
-    logger.debug('redrive log write failed', { error: logErr.message });
-  }
-  return rows[0];
+export async function markDeliveryDead(options = {}) {
+  return auditedDeliveryMutation({ ...options, operation: 'mark_dead' });
 }
 
-export const __testing__ = {
+export async function redriveDelivery(options = {}) {
+  return auditedDeliveryMutation({ ...options, operation: 'redrive' });
+}
+
+export const __testing__ = Object.freeze({
   BACKOFF_SECONDS,
   DELIVERY_STATUSES,
   RETRY_LIMIT,
   backoffSecondsForAttempt,
   computeNextRetryAt,
   isRetryable,
-};
+});
 
 export default {
   dispatchPendingDeliveries,
@@ -605,5 +834,6 @@ export default {
   getDelivery,
   listDeliveries,
   markDeliveryDead,
+  reapStaleInFlightDeliveries,
   redriveDelivery,
 };

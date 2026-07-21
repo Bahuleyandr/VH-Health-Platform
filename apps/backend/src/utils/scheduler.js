@@ -208,7 +208,7 @@ import { reconcileLedger, persistReconciliationCheck } from '../services/billing
 import { resolveLedgerModeForTenant } from '../services/billing/ledger/ledgerAuthoritativeMode.js';
 
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
-import { dispatchPendingDeliveries, enqueueDelivery, reapStaleInFlightDeliveries } from '../services/integrations/webhookDeliveryService.js';
+import { dispatchPendingDeliveries, reapStaleInFlightDeliveries } from '../services/integrations/webhookDeliveryService.js';
 import { dispatchPendingNHCXMessages, reapStaleNHCXDispatches } from '../services/nhcx/nhcxOutboundDispatcherService.js';
 
 // Event-outbox drain. publishEvent() writes event_outbox rows from ~40 producers
@@ -218,8 +218,9 @@ import { dispatchPendingNHCXMessages, reapStaleNHCXDispatches } from '../service
 // delivery pipeline via enqueueDelivery (event_outbox_id FK links the two).
 import {
   claimPendingEvents,
-  markDelivered as markEventDelivered,
-  markFailed as markEventFailed,
+  completeClaimedEventFanout,
+  failClaimedEvent,
+  reapStaleProcessingEvents,
 } from '../services/events/eventOutboxService.js';
 
 // Visit-status reaper — A8. Flips stale SCHEDULED appointments to MISSED.
@@ -394,32 +395,11 @@ export async function drainNotificationOutbox({ limit = 50 } = {}) {
 }
 
 /**
- * Drain the event_outbox: claim a batch of due 'pending' rows (FOR UPDATE SKIP
- * LOCKED via claimPendingEvents), bridge each to the webhook delivery pipeline,
- * and mark the row delivered or failed (with backoff / dead-letter).
- *
- * THE BRIDGE: for each claimed row we call enqueueDelivery({ tenantId, eventType,
- * payload, eventOutboxId: row.id }). enqueueDelivery finds every ACTIVE
- * webhook_subscription matching (tenant_id, event_type) and inserts one
- * webhook_deliveries row per match with its event_outbox_id FK set to row.id —
- * that FK is the durable link from the business event to its outbound deliveries.
- * The separate 'webhook-delivery-dispatch' cron then signs + POSTs those rows.
- *
- * Tenant: the cron runs under runWithSuperAdmin (GUC='bypass'), so we pass the
- * row's own tenant_id to enqueueDelivery explicitly — never relying on the GUC,
- * and never on ALLOW_DEFAULT_TENANT. A row with NO matching active subscription
- * is still a SUCCESS (matched:0, nothing to deliver) → markDelivered, so it
- * leaves the queue instead of looping forever.
- *
- * Outcome mapping per row:
- *   - enqueueDelivery resolves (incl. matched:0 / schema-unavailable) → markDelivered.
- *   - enqueueDelivery throws → markEventFailed (attempts++, backoff to 'pending',
- *     terminal 'failed' at MAX_ATTEMPTS). A backed-off row is not re-claimed
- *     before its available_at.
- *
- * Best-effort downstream: each row's bridge runs OUTSIDE any prisma.$transaction
- * (Phase-1.5 rule — a swallowed error inside a tx aborts it), and a single row's
- * failure never aborts the batch.
+ * Drain the event_outbox through leased claims. For each claim, subscription
+ * fan-out and source completion commit in one tenant transaction. The unique
+ * source/subscription bridge makes an ambiguous replay idempotent; an error
+ * rolls back both fan-out and source completion before the exact claim fence is
+ * failed with backoff.
  *
  * Exported for tests. `enqueueImpl` is an injection seam (mirrors
  * dispatchPendingDeliveries' fetchImpl) so the failure path can be exercised
@@ -427,41 +407,47 @@ export async function drainNotificationOutbox({ limit = 50 } = {}) {
  *
  * @param {Object} [opts]
  * @param {number} [opts.limit=100] Max rows per drain tick.
- * @param {Function} [opts.enqueueImpl] Override for enqueueDelivery (tests).
+ * @param {Function} [opts.completeImpl] Override for atomic completion (tests).
  * @param {Function} [opts.claimImpl] Override for claimPendingEvents (tests).
- * @returns {{ claimed:number, delivered:number, failed:number, enqueued:number }}
+ * @param {Function} [opts.failImpl] Override for fenced failure (tests).
+ * @returns {{ claimed:number, delivered:number, failed:number, lostFence:number, enqueued:number }}
  */
 export async function drainEventOutbox({
   limit = 100,
-  enqueueImpl = enqueueDelivery,
   claimImpl = claimPendingEvents,
+  completeImpl = completeClaimedEventFanout,
+  failImpl = failClaimedEvent,
 } = {}) {
-  const batch = await claimImpl(limit);
-  if (!batch.length) return { claimed: 0, delivered: 0, failed: 0, enqueued: 0 };
+  const batch = await claimImpl({ limit });
+  if (!batch.length) {
+    return { claimed: 0, delivered: 0, failed: 0, lostFence: 0, enqueued: 0 };
+  }
 
   let delivered = 0;
   let failed = 0;
+  let lostFence = 0;
   let enqueued = 0;
   for (const row of batch) {
     try {
-      const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
-      const result = await enqueueImpl({
-        tenantId: row.tenant_id,
-        eventType: row.event_type,
-        payload,
-        eventOutboxId: row.id,
-      });
-      enqueued += Array.isArray(result?.enqueued) ? result.enqueued.length : 0;
-      await markEventDelivered(row.id);
-      delivered += 1;
+      const result = await completeImpl({ claim: row });
+      if (result?.lost_fence) {
+        lostFence += 1;
+      } else if (result?.delivered) {
+        enqueued += Number(result.enqueued || 0);
+        delivered += 1;
+      }
     } catch (err) {
-      await markEventFailed(row.id, String(err?.message || err).slice(0, 1000));
-      failed += 1;
+      const result = await failImpl({
+        claim: row,
+        message: String(err?.message || err).slice(0, 1000),
+      });
+      if (result?.lost_fence) lostFence += 1;
+      else if (result?.failed) failed += 1;
       logger.warn(`event-outbox-drain: delivery failed for row ${row.id}:`, err.message);
     }
   }
-  logger.info(`Event outbox drain: claimed ${batch.length}, delivered ${delivered}, failed ${failed}, deliveries enqueued ${enqueued}`);
-  return { claimed: batch.length, delivered, failed, enqueued };
+  logger.info(`Event outbox drain: claimed ${batch.length}, delivered ${delivered}, failed ${failed}, lost fence ${lostFence}, deliveries enqueued ${enqueued}`);
+  return { claimed: batch.length, delivered, failed, lostFence, enqueued };
 }
 
 // CI-8 open-handle guard: every cron timer below is registered at import
@@ -598,14 +584,20 @@ if (process.env.NODE_ENV !== 'test') {
   // 📨 Every 2 minutes - drain the event_outbox. publishEvent() writes
   // event_outbox rows from ~40 producers but nothing drained them (the delivery
   // bridge was half-built), so rows sat at status='pending' forever. The drain
-  // claims due rows via FOR UPDATE SKIP LOCKED and bridges each to the webhook
-  // delivery pipeline (enqueueDelivery → webhook_deliveries.event_outbox_id),
-  // marking the row delivered (incl. when no subscription matches) or failed
-  // with backoff/dead-letter. Cross-process-safe via withJobLock's advisory
-  // lock + the SKIP LOCKED claim. The separate webhook-delivery-dispatch cron
-  // then signs + POSTs the enqueued deliveries.
+  // leases due rows via FOR UPDATE SKIP LOCKED, performs set-based idempotent
+  // subscription fan-out, and marks the source delivered in the same tenant
+  // transaction (including when no subscription matches). Failures back off or
+  // dead-letter at the cap. The separate webhook-delivery-dispatch cron then
+  // leases, signs and POSTs the enqueued deliveries.
   registerCron('*/2 * * * *', withJobLock('event-outbox-drain', async () => {
     await drainEventOutbox({ limit: 100 });
+  }));
+
+  registerCron('*/5 * * * *', withJobLock('event-outbox-stale-lease-reaper', async () => {
+    const result = await reapStaleProcessingEvents({ limit: 200 });
+    if (result.reaped) {
+      logger.warn(`Scheduled Task: reaped ${result.reaped} stale event-outbox leases`);
+    }
   }));
 
   // Every 2 minutes — default-off S1a shadow projector. The implementation is
@@ -886,9 +878,9 @@ if (process.env.NODE_ENV !== 'test') {
   // Every 5 minutes — reap stale in_flight webhook deliveries (audit M10). A
   // worker crash AFTER claiming a row (status='in_flight') but BEFORE completing
   // it orphans the delivery forever (the dispatcher only re-picks pending/failed).
-  // Reset rows in_flight > 15 min back to failed+due so they re-dispatch.
+  // Reclaim rows whose explicit worker lease expired.
   registerCron('*/5 * * * *', withJobLock('webhook-reap-stale-inflight', async () => {
-    const { reaped } = await reapStaleInFlightDeliveries({ staleMinutes: 15 });
+    const { reaped } = await reapStaleInFlightDeliveries({ limit: 200 });
     if (reaped) logger.warn(`Scheduled Task: reaped ${reaped} stale in_flight webhook deliveries`);
   }));
 

@@ -22,10 +22,15 @@ import { Gauge, Counter } from './metricPrimitives.js';
 const eventOutboxPending = new Gauge('event_outbox_pending_rows', 'event_outbox rows in pending status');
 const eventOutboxOldestAge = new Gauge('event_outbox_oldest_pending_age_seconds', 'Age of the oldest pending event_outbox row (seconds); 0 when none');
 const eventOutboxDeadLetter = new Gauge('event_outbox_dead_letter_rows', 'event_outbox rows in the terminal failed (dead-letter) status');
+const eventOutboxProcessing = new Gauge('event_outbox_processing_rows', 'event_outbox rows currently owned by a processing lease');
+const eventOutboxStaleProcessing = new Gauge('event_outbox_stale_processing_rows', 'event_outbox processing rows whose lease has expired');
 const notificationOutboxPending = new Gauge('notification_outbox_pending_rows', 'notification_outbox rows in PENDING status');
 const webhookPending = new Gauge('webhook_deliveries_pending_rows', 'webhook_deliveries rows in pending status');
 const webhookFailed = new Gauge('webhook_deliveries_failed_rows', 'webhook_deliveries rows in failed status (retrying)');
 const webhookDead = new Gauge('webhook_deliveries_dead_rows', 'webhook_deliveries rows in the terminal dead status (undelivered)');
+const webhookInFlight = new Gauge('webhook_deliveries_in_flight_rows', 'webhook_deliveries rows currently owned by a dispatch lease');
+const webhookStaleInFlight = new Gauge('webhook_deliveries_stale_in_flight_rows', 'webhook_deliveries in-flight rows whose lease has expired');
+const webhookParked = new Gauge('webhook_deliveries_parked_rows', 'Due or retryable webhook deliveries parked by a missing or inactive subscription/integration gate or unsupported filter');
 const pathwayProjectorInboxPending = new Gauge('pathway_projector_inbox_pending_rows', 'Pathway projector inbox rows awaiting a terminal outcome');
 const pathwayProjectorInboxOldestAge = new Gauge('pathway_projector_inbox_oldest_pending_age_seconds', 'Age of the oldest pending Pathway projector inbox row (seconds); 0 when none');
 const pathwayProjectorInboxLeased = new Gauge('pathway_projector_inbox_leased_rows', 'Pending Pathway projector inbox rows with a worker lease token');
@@ -51,6 +56,9 @@ const coldChainOpenExcursions = new Gauge('cold_chain_open_excursions', 'Open or
 const wsBroadcastDropped = new Counter('ws_broadcast_dropped_total', 'Observable WS broadcast/sendToUser drops (per-socket backpressure or cross-process fan-out fallback). NOTE: the at-most-once Redis-failover drop is invisible to the app — see ws_fanout_subscriber_errors_total for the failover-window proxy.', ['reason']);
 const wsFanoutSubscriberErrors = new Counter('ws_fanout_subscriber_errors_total', 'WS Redis fan-out subscriber error/reconnect events — the window during which a published broadcast can be silently dropped (at-most-once)', []);
 const eventDeadLettered = new Counter('event_outbox_dead_lettered_total', 'event_outbox rows that crossed MAX_ATTEMPTS into the terminal failed (dead-letter) state', []);
+const eventOutboxLeaseReaped = new Counter('event_outbox_stale_lease_reaped_total', 'Expired event_outbox processing leases recovered by the bounded source reaper', []);
+const webhookDeliveryLeaseReaped = new Counter('webhook_deliveries_stale_lease_reaped_total', 'Expired webhook delivery leases recovered by the bounded delivery reaper', []);
+const outboxOperatorRedrive = new Counter('outbox_operator_redrive_total', 'Audited operator dead-letter redrives by bounded queue kind', ['queue']);
 const ledgerReconciliationDrift = new Counter('ledger_reconciliation_drift_total', 'Money-ledger reconciliation drift signals from the periodic sweep (ledger vs legacy event tables / unwired invoice / unbalanced trial balance). Hard-alerted (Sentry fatal) at enforce mode.', ['kind']);
 const noteDraftJanitorDeletions = new Counter('note_draft_janitor_deletions_total', 'Clinical note_drafts rows removed by the daily TTL janitor (purgeExpiredNoteDrafts). A private-scratchpad cleanup — no canonical clinical events.', []);
 const noteDraftSaveErrors = new Counter('note_draft_save_errors_total', 'Clinical note-draft (autosave) UPSERTs that failed on an UNEXPECTED error (real DB/write failure). Deliberate 400 validation rejections (AppError NOTE_DRAFT_*) are client faults and are NOT counted here.', []);
@@ -65,6 +73,20 @@ export function recordWsFanoutSubscriberError() {
 }
 export function recordEventDeadLettered() {
   eventDeadLettered.inc({});
+}
+function recordPositiveCount(counter, value) {
+  const count = Number(value);
+  if (Number.isSafeInteger(count) && count > 0) counter.inc({}, count);
+}
+export function recordEventOutboxLeaseReaped(count) {
+  recordPositiveCount(eventOutboxLeaseReaped, count);
+}
+export function recordWebhookDeliveryLeaseReaped(count) {
+  recordPositiveCount(webhookDeliveryLeaseReaped, count);
+}
+const OUTBOX_REDRIVE_QUEUES = new Set(['event_outbox', 'webhook_delivery']);
+export function recordOutboxOperatorRedrive(queue) {
+  outboxOperatorRedrive.inc({ queue: OUTBOX_REDRIVE_QUEUES.has(queue) ? queue : 'other' });
 }
 const LEDGER_DRIFT_KINDS = new Set(['mismatch', 'unwired', 'events', 'trial_balance']);
 export function recordLedgerReconciliationDrift(kind) {
@@ -118,12 +140,16 @@ export async function collectReliabilityMetrics() {
       SELECT
         COUNT(*) FILTER (WHERE status = 'pending')                                   AS pending,
         COUNT(*) FILTER (WHERE status = 'failed')                                    AS dead_letter,
+        COUNT(*) FILTER (WHERE status = 'processing')                                AS processing,
+        COUNT(*) FILTER (WHERE status = 'processing' AND lease_expires_at <= NOW())  AS stale_processing,
         COALESCE(EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status = 'pending')))::bigint, 0) AS oldest_age
       FROM event_outbox
     `);
     eventOutboxPending.set({}, Number(eo?.pending ?? 0));
     eventOutboxDeadLetter.set({}, Number(eo?.dead_letter ?? 0));
     eventOutboxOldestAge.set({}, Number(eo?.oldest_age ?? 0));
+    eventOutboxProcessing.set({}, Number(eo?.processing ?? 0));
+    eventOutboxStaleProcessing.set({}, Number(eo?.stale_processing ?? 0));
 
     const [no] = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FILTER (WHERE status = 'PENDING') AS pending FROM notification_outbox`,
@@ -132,14 +158,38 @@ export async function collectReliabilityMetrics() {
 
     const [wd] = await prisma.$queryRawUnsafe(`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'pending') AS pending,
-        COUNT(*) FILTER (WHERE status = 'failed')  AS failed,
-        COUNT(*) FILTER (WHERE status = 'dead')    AS dead
-      FROM webhook_deliveries
+        COUNT(*) FILTER (WHERE delivery.status = 'pending') AS pending,
+        COUNT(*) FILTER (WHERE delivery.status = 'failed')  AS failed,
+        COUNT(*) FILTER (WHERE delivery.status = 'dead')    AS dead,
+        COUNT(*) FILTER (WHERE delivery.status = 'in_flight') AS in_flight,
+        COUNT(*) FILTER (
+          WHERE delivery.status = 'in_flight'
+            AND delivery.lease_expires_at <= NOW()
+        ) AS stale_in_flight,
+        COUNT(*) FILTER (
+          WHERE delivery.status IN ('pending', 'failed')
+            AND (
+              subscription.id IS NULL
+              OR subscription.is_active IS NOT TRUE
+              OR subscription.event_filter <> '{}'::jsonb
+              OR integration.id IS NULL
+              OR integration.status <> 'active'
+            )
+        ) AS parked
+      FROM webhook_deliveries AS delivery
+      LEFT JOIN webhook_subscriptions AS subscription
+        ON subscription.tenant_id = delivery.tenant_id
+       AND subscription.id = delivery.subscription_id
+      LEFT JOIN integrations AS integration
+        ON integration.tenant_id = subscription.tenant_id
+       AND integration.id = subscription.integration_id
     `);
     webhookPending.set({}, Number(wd?.pending ?? 0));
     webhookFailed.set({}, Number(wd?.failed ?? 0));
     webhookDead.set({}, Number(wd?.dead ?? 0));
+    webhookInFlight.set({}, Number(wd?.in_flight ?? 0));
+    webhookStaleInFlight.set({}, Number(wd?.stale_in_flight ?? 0));
+    webhookParked.set({}, Number(wd?.parked ?? 0));
 
     const [pi] = await prisma.$queryRawUnsafe(
       `SELECT
@@ -330,8 +380,10 @@ export async function collectReliabilityMetrics() {
 export function serializeReliabilityMetrics() {
   const metrics = [
     eventOutboxPending, eventOutboxOldestAge, eventOutboxDeadLetter,
+    eventOutboxProcessing, eventOutboxStaleProcessing,
     notificationOutboxPending,
     webhookPending, webhookFailed, webhookDead,
+    webhookInFlight, webhookStaleInFlight, webhookParked,
     pathwayProjectorInboxPending, pathwayProjectorInboxOldestAge,
     pathwayProjectorInboxLeased, pathwayProjectorInboxDead,
     pathwayProjectorInboxRetiredPending,
@@ -346,6 +398,7 @@ export function serializeReliabilityMetrics() {
     coldChainOpenExcursions,
     dbBreakerOpen,
     wsBroadcastDropped, wsFanoutSubscriberErrors, eventDeadLettered,
+    eventOutboxLeaseReaped, webhookDeliveryLeaseReaped, outboxOperatorRedrive,
     ledgerReconciliationDrift,
     noteDraftJanitorDeletions, noteDraftSaveErrors,
   ];

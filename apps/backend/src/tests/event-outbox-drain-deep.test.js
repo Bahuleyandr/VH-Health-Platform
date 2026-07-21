@@ -205,9 +205,13 @@ d('event_outbox drain (deep)', () => {
 
   async function claimOwnedPendingEvents(events, limit) {
     const eventIdList = events.map((event) => String(event.id));
+    const leaseOwner = randomUUID();
     return prisma.$queryRawUnsafe(
       `UPDATE event_outbox
-          SET status = 'processing'
+          SET status = 'processing',
+              attempts = attempts + 1,
+              lease_owner = $3::uuid,
+              lease_expires_at = NOW() + INTERVAL '2 minutes'
         WHERE id IN (
           SELECT id
             FROM event_outbox
@@ -219,9 +223,11 @@ d('event_outbox drain (deep)', () => {
            LIMIT $2::integer
         )
         RETURNING id, event_type, aggregate_type, aggregate_id, patient_uid,
-                  payload, status, attempts, available_at, tenant_id`,
+                  payload, status, attempts, available_at, tenant_id,
+                  lease_owner, lease_expires_at`,
       eventIdList,
       limit,
+      leaseOwner,
     );
   }
 
@@ -229,7 +235,7 @@ d('event_outbox drain (deep)', () => {
     return drainEventOutbox({
       ...options,
       limit: events.length,
-      claimImpl: (limit) => claimOwnedPendingEvents(events, limit),
+      claimImpl: ({ limit }) => claimOwnedPendingEvents(events, limit),
     });
   }
 
@@ -284,7 +290,7 @@ d('event_outbox drain (deep)', () => {
       );
       await stageOwnedClaimTargets([a, b], { preserveEvents: [future] });
 
-      const claimed = await claimPendingEvents(2);
+      const claimed = await claimPendingEvents({ limit: 2 });
       expect(claimed).toHaveLength(2);
       for (const r of claimed) {
         expect(r.status).toBe('processing');
@@ -302,8 +308,8 @@ d('event_outbox drain (deep)', () => {
       await stageOwnedClaimTargets(targets);
 
       const [c1, c2] = await Promise.all([
-        claimPendingEvents(2),
-        claimPendingEvents(2),
+        claimPendingEvents({ limit: 2 }),
+        claimPendingEvents({ limit: 2 }),
       ]);
       expect(c1).toHaveLength(2);
       expect(c2).toHaveLength(2);
@@ -428,10 +434,9 @@ d('event_outbox drain (deep)', () => {
     it('failure path: a delivery that throws marks the event failed with attempts bumped + backoff', async () => {
       const ev = await seedEvent();
       await stageOwnedClaimTargets([ev]);
-      // Force the bridge to throw via the injectable enqueueImpl seam.
-      const throwingEnqueue = jest.fn().mockRejectedValue(new Error('bridge boom'));
+      const throwingCompletion = jest.fn().mockRejectedValue(new Error('bridge boom'));
 
-      const result = await drainOwnedEvents([ev], { enqueueImpl: throwingEnqueue });
+      const result = await drainOwnedEvents([ev], { completeImpl: throwingCompletion });
       expect(result.claimed).toBe(1);
 
       const row = await eventRow(ev.id);
@@ -439,7 +444,7 @@ d('event_outbox drain (deep)', () => {
       expect(row.last_error).toMatch(/bridge boom/);
       // Not a terminal 'failed' on the first attempt — backed off to pending so
       // it retries after available_at; available_at pushed into the future.
-      expect(['pending', 'failed']).toContain(row.status);
+      expect(row.status).toBe('pending');
       expect(new Date(row.available_at).getTime()).toBeGreaterThan(Date.now());
     });
 
@@ -448,8 +453,8 @@ d('event_outbox drain (deep)', () => {
       // skipped (attempts stays 1) because available_at is in the future.
       const ev = await seedEvent();
       await stageOwnedClaimTargets([ev]);
-      const throwingEnqueue = jest.fn().mockRejectedValue(new Error('first failure'));
-      const firstDrain = await drainOwnedEvents([ev], { enqueueImpl: throwingEnqueue });
+      const throwingCompletion = jest.fn().mockRejectedValue(new Error('first failure'));
+      const firstDrain = await drainOwnedEvents([ev], { completeImpl: throwingCompletion });
       expect(firstDrain.claimed).toBe(1);
       const afterFirst = await eventRow(ev.id);
       expect(Number(afterFirst.attempts)).toBe(1);

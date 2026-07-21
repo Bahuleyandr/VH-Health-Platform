@@ -89,18 +89,33 @@ d('reliability metrics collector (QA DB)', () => {
   beforeAll(async () => {
     await cleanup();
     await prisma.$executeRawUnsafe(
-      `INSERT INTO event_outbox (event_type, aggregate_type, payload, status, available_at, created_at)
-       VALUES ('x', $1, '{}'::jsonb, 'pending', now() - interval '1 hour', now()),
-              ('x', $1, '{}'::jsonb, 'pending', now(), now()),
-              ('x', $1, '{}'::jsonb, 'failed',  now(), now())`,
+      `INSERT INTO event_outbox
+         (event_type, aggregate_type, payload, status, available_at, created_at,
+          lease_owner, lease_expires_at)
+       VALUES ('x', $1, '{}'::jsonb, 'pending', now() - interval '1 hour', now(), NULL, NULL),
+              ('x', $1, '{}'::jsonb, 'pending', now(), now(), NULL, NULL),
+              ('x', $1, '{}'::jsonb, 'failed',  now(), now(), NULL, NULL),
+              ('x', $1, '{}'::jsonb, 'processing', now(), now(), $2::uuid,
+               '2099-01-01T00:00:00Z'::timestamptz),
+              ('x', $1, '{}'::jsonb, 'processing', now(), now(), $3::uuid,
+               '2000-01-01T00:00:00Z'::timestamptz)`,
       MARK,
+      randomUUID(),
+      randomUUID(),
     );
     await prisma.$executeRawUnsafe(
-      `INSERT INTO webhook_deliveries (event_type, payload, status, created_at)
-       VALUES ($1, '{}'::jsonb, 'pending', now()),
-              ($1, '{}'::jsonb, 'failed',  now()),
-              ($1, '{}'::jsonb, 'dead',    now())`,
+      `INSERT INTO webhook_deliveries
+         (event_type, payload, status, created_at, lease_owner, lease_expires_at)
+       VALUES ($1, '{}'::jsonb, 'pending', now(), NULL, NULL),
+              ($1, '{}'::jsonb, 'failed',  now(), NULL, NULL),
+              ($1, '{}'::jsonb, 'dead',    now(), NULL, NULL),
+              ($1, '{}'::jsonb, 'in_flight', now(), $2::uuid,
+               '2099-01-01T00:00:00Z'::timestamptz),
+              ($1, '{}'::jsonb, 'in_flight', now(), $3::uuid,
+               '2000-01-01T00:00:00Z'::timestamptz)`,
       MARK,
+      randomUUID(),
+      randomUUID(),
     );
     await prisma.$executeRawUnsafe(
       `INSERT INTO notification_outbox (type, title, body, status, created_at)
@@ -148,12 +163,17 @@ d('reliability metrics collector (QA DB)', () => {
     expect(gaugeValue(out, 'event_outbox_pending_rows')).toBeGreaterThanOrEqual(2);
     expect(gaugeValue(out, 'event_outbox_dead_letter_rows')).toBeGreaterThanOrEqual(1);
     expect(gaugeValue(out, 'event_outbox_oldest_pending_age_seconds')).toBeGreaterThanOrEqual(3000);
+    expect(gaugeValue(out, 'event_outbox_processing_rows')).toBeGreaterThanOrEqual(2);
+    expect(gaugeValue(out, 'event_outbox_stale_processing_rows')).toBeGreaterThanOrEqual(1);
   }, 30_000);
 
   it('reports webhook + circuit-breaker gauges', async () => {
     await collectReliabilityMetrics();
     const out = serializeReliabilityMetrics();
     expect(gaugeValue(out, 'webhook_deliveries_dead_rows')).toBeGreaterThanOrEqual(1);
+    expect(gaugeValue(out, 'webhook_deliveries_in_flight_rows')).toBeGreaterThanOrEqual(2);
+    expect(gaugeValue(out, 'webhook_deliveries_stale_in_flight_rows')).toBeGreaterThanOrEqual(1);
+    expect(gaugeValue(out, 'webhook_deliveries_parked_rows')).toBeGreaterThanOrEqual(2);
     expect(gaugeValue(out, 'db_circuit_breaker_open')).toBe(0);
   }, 30_000);
 

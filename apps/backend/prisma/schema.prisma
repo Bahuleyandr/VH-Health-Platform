@@ -5064,24 +5064,28 @@ model event_consumer_offsets {
 }
 
 model event_outbox {
-  id             BigInt    @id @default(autoincrement())
-  event_type     String    @db.VarChar(120)
-  aggregate_type String    @db.VarChar(80)
-  aggregate_id   String?   @db.VarChar(120)
-  patient_uid    String?   @db.Uuid
-  payload        Json      @default("{}")
-  status         String    @default("pending") @db.VarChar(30)
-  attempts       Int       @default(0)
-  available_at   DateTime  @default(now()) @db.Timestamptz(6)
-  last_error     String?
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  delivered_at   DateTime? @db.Timestamptz(6)
-  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_tenant")
+  id               BigInt    @id @default(autoincrement())
+  event_type       String    @db.VarChar(120)
+  aggregate_type   String    @db.VarChar(80)
+  aggregate_id     String?   @db.VarChar(120)
+  patient_uid      String?   @db.Uuid
+  payload          Json      @default("{}")
+  status           String    @default("pending") @db.VarChar(30)
+  attempts         Int       @default(0)
+  available_at     DateTime  @default(now()) @db.Timestamptz(6)
+  last_error       String?
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  delivered_at     DateTime? @db.Timestamptz(6)
+  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  lease_owner      String?   @db.Uuid
+  lease_expires_at DateTime? @db.Timestamptz(6)
+  redrive_count    Int       @default(0)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_event_outbox_patient_created")
   @@index([status, available_at, id], map: "idx_event_outbox_status_available")
   @@index([event_type, created_at(sort: Desc)], map: "idx_event_outbox_type_created")
+  @@index([lease_expires_at, id], map: "idx_event_outbox_stale_processing", where: raw("((status)::text = 'processing'::text)"))
   @@index([tenant_id], map: "idx_event_outbox_tenant_id")
 }
 
@@ -11401,12 +11405,17 @@ model webhook_deliveries {
   metadata              Json                   @default("{}")
   created_at            DateTime               @default(now()) @db.Timestamptz(6)
   updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  lease_owner           String?                @db.Uuid
+  lease_expires_at      DateTime?              @db.Timestamptz(6)
+  redrive_count         Int                    @default(0)
   webhook_subscriptions webhook_subscriptions? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
   tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@unique([tenant_id, event_outbox_id, subscription_id], map: "ux_webhook_deliveries_source_subscription", where: raw("((event_outbox_id IS NOT NULL) AND (subscription_id IS NOT NULL))"))
   @@index([subscription_id, created_at(sort: Desc)], map: "idx_webhook_deliveries_subscription_time")
   @@index([tenant_id, status, next_retry_at], map: "idx_webhook_deliveries_tenant_status")
   @@index([event_outbox_id], map: "idx_webhook_deliveries_event_outbox", where: raw("(event_outbox_id IS NOT NULL)"))
+  @@index([lease_expires_at, id], map: "idx_webhook_deliveries_stale_in_flight", where: raw("((status)::text = 'in_flight'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

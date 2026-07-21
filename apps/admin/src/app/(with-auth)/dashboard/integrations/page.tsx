@@ -616,7 +616,7 @@ function DeliveriesTab() {
   });
 
   const markDead = useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason: string | null }) =>
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       markDeliveryDead(id, { reason }),
     onSuccess: () => {
       toast.success("Delivery marked dead");
@@ -626,7 +626,8 @@ function DeliveriesTab() {
   });
 
   const redrive = useMutation({
-    mutationFn: (id: number) => redriveDelivery(id),
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      redriveDelivery(id, { reason }),
     onSuccess: () => {
       toast.success("Delivery redriven — next dispatch tick will pick it up");
       queryClient.invalidateQueries({ queryKey: ["webhook-deliveries"] });
@@ -707,7 +708,12 @@ function DeliveriesTab() {
                         onClick={() => {
                           const reason = window.prompt(`Mark delivery #${row.id} dead? Reason:`, "");
                           if (reason == null) return;
-                          markDead.mutate({ id: row.id, reason: reason.trim() || null });
+                          const normalized = reason.trim();
+                          if (!normalized) {
+                            toast.error("A reason is required to mark a delivery dead");
+                            return;
+                          }
+                          markDead.mutate({ id: row.id, reason: normalized });
                         }}
                         disabled={markDead.isPending}
                         className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
@@ -716,10 +722,19 @@ function DeliveriesTab() {
                         Mark dead
                       </button>
                     ) : null}
-                    {(row.status === "dead" || row.status === "succeeded" || row.status === "failed") ? (
+                    {row.status === "dead" ? (
                       <button
                         type="button"
-                        onClick={() => redrive.mutate(row.id)}
+                        onClick={() => {
+                          const reason = window.prompt(`Redrive delivery #${row.id}? Reason:`, "");
+                          if (reason == null) return;
+                          const normalized = reason.trim();
+                          if (!normalized) {
+                            toast.error("A reason is required to redrive a delivery");
+                            return;
+                          }
+                          redrive.mutate({ id: row.id, reason: normalized });
+                        }}
                         disabled={redrive.isPending}
                         className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
                       >
@@ -843,11 +858,7 @@ function DebugTab() {
       return enqueueDelivery({ event_type: eventType.trim(), payload: parsed });
     },
     onSuccess: (result) => {
-      if (result.skipped_reason) {
-        toast.error(`Enqueue skipped: ${result.skipped_reason}`);
-      } else {
-        toast.success(`Matched ${result.matched} subscription${result.matched === 1 ? "" : "s"}; enqueued ${result.enqueued.length}.`);
-      }
+      toast.success(`Matched ${result.matched} subscription${result.matched === 1 ? "" : "s"}; enqueued ${result.enqueued.length}.`);
       queryClient.invalidateQueries({ queryKey: ["webhook-deliveries"] });
     },
     onError: (err: Error) => toast.error(err.message || "Enqueue failed"),

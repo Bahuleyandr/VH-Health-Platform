@@ -113,18 +113,21 @@ projections) never saw them. `EventOutboxDeadLetterRateRising` is the leading ed
 1. `SELECT id, event_type, last_error, attempts FROM event_outbox WHERE status='failed' ORDER BY id DESC LIMIT 50;`
    — the `last_error` is the cause.
 2. Fix the downstream (schema/endpoint/credential), then use only the typed,
-   reasoned dead-letter redrive operation once it is available. Do not reset
-   queue status with raw SQL; until typed recovery is deployed, preserve the
-   row and escalate to the integration/platform owner.
+   reasoned ADMIN `POST /api/v1/admin/events/:id/redrive` operation. It accepts
+   only `status='failed'`, requires a non-empty reason and writes the actor,
+   request, prior state and result to the immutable audit log. Do not reset
+   queue status with raw SQL.
 3. Record the lost-event window in the incident log; some events (e.g. ABDM push,
    billing) may need manual replay.
 
 ## WebhookDeliveriesDead
 
 `webhook_deliveries` rows in terminal `dead` status — outbound webhooks gave up.
-1. `SELECT id, subscription_id, event_type, last_error FROM webhook_deliveries WHERE status='dead' ORDER BY id DESC LIMIT 50;`.
+1. `SELECT id, subscription_id, event_type, error_message FROM webhook_deliveries WHERE status='dead' ORDER BY id DESC LIMIT 50;`.
 2. Usually a subscriber endpoint down/changed or auth rejected — confirm with the
-   integration owner; fix the subscription target, then re-enqueue.
+   integration owner; fix the subscription target, then use the ADMIN delivery
+   redrive action with a specific operator reason. Redrive accepts `dead` only,
+   resets the current retry cycle and preserves the old cycle in immutable audit.
 3. If a subscription is permanently gone, disable it to stop the dead pile-up.
 
 ## WebhookBacklog
@@ -133,6 +136,63 @@ projections) never saw them. `EventOutboxDeadLetterRateRising` is the leading ed
 1. Check the delivery worker logs for a slow/erroring subscriber dragging the batch.
 2. `SELECT subscription_id, count(*) FROM webhook_deliveries WHERE status='pending' GROUP BY 1 ORDER BY 2 DESC;`.
 3. A single bad subscriber backing up the queue → pause it; the rest drain.
+
+## OutboxStaleLeases
+
+One or more source `processing` or webhook `in_flight` leases have expired, or
+the reapers are repeatedly recovering claims. A single recovery can follow a pod
+restart; repeated recovery means worker crashes, database stalls or outbound
+timeouts need investigation.
+
+1. Check `event_outbox_stale_processing_rows`,
+   `webhook_deliveries_stale_in_flight_rows`, and the two
+   `*_stale_lease_reaped_total` counters in the Backend Reliability dashboard.
+2. Inventory without changing state:
+   `SELECT tenant_id,id,attempts,lease_owner,lease_expires_at FROM event_outbox WHERE status='processing' ORDER BY lease_expires_at,id LIMIT 100;`
+   and
+   `SELECT tenant_id,id,subscription_id,attempt_number,lease_owner,lease_expires_at FROM webhook_deliveries WHERE status='in_flight' ORDER BY lease_expires_at,id LIMIT 100;`.
+3. Confirm the distinct `event-outbox-stale-lease-reaper` and webhook stale
+   reaper jobs are running under their advisory locks. Do not clear lease fields
+   manually: the reapers fence by tenant, ID, owner and attempt epoch.
+4. Correlate lease expiry with pod restarts, database latency and endpoint
+   timeouts. A stale worker result must update zero rows and must not change a
+   subscription success/failure counter.
+
+## WebhookParkedWork
+
+`webhook_deliveries_parked_rows` counts pending/retryable work that cannot be
+claimed because its subscription is missing/inactive, its parent integration is
+inactive, or its historical `event_filter` is unsupported.
+
+1. Group parked work by gate using tenant-scoped database access; never include
+   payloads in an incident channel. Inspect subscription/integration status and
+   whether `event_filter = '{}'::jsonb`.
+2. Missing subscriptions are automatically moved to `dead` without an outbound
+   request. Intentionally paused subscription/integration work remains pending or
+   retryable-failed and becomes eligible after explicit reactivation.
+3. Do not invent filter evaluation during an incident. Clear or deactivate an
+   unsupported filter through the reviewed integration configuration workflow.
+
+## OutboxRecoveryCutover
+
+Migration 588 is scheduler-quiesced and is not rolling-compatible with old
+unfenced workers. Use this sequence only in a separately approved maintenance
+window; merging the code is not approval to deploy it.
+
+1. Inventory source states, duplicate non-null
+   `(tenant_id,event_outbox_id,subscription_id)` tuples, active non-empty
+   filters, processing/in-flight leases and parked work. Preserve counts and
+   sample IDs in the change record.
+2. Stop every event drain, webhook dispatcher and both stale reapers across the
+   fleet. Verify no old pod can restart.
+3. Snapshot the database, apply migration 588 once, deploy the matching build,
+   and only then resume the fenced workers.
+4. Verify lease constraints, the unique fan-out index, tenant-bound admin reads,
+   all five lease/parked gauges, and a reaper dry-run before ending the window.
+5. If preflight names duplicate tuples or active filters, abort without deleting
+   evidence. Resolve each named identity under change control and start a fresh
+   window. Rollback is scheduler/traffic hold plus forward fix or snapshot
+   restoration; never restart the old worker against the hardened schema.
 
 ## NotificationBacklog
 

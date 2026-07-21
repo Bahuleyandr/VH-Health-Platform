@@ -15883,6 +15883,150 @@
           "clinical_justification": {}
         }
       },
+      "EventOutboxList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "events",
+          "count"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventOutboxRow"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "EventOutboxListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/EventOutboxList"
+          }
+        }
+      },
+      "EventOutboxRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "event_type",
+          "aggregate_type",
+          "status",
+          "attempts",
+          "redrive_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "event_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "aggregate_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "aggregate_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "delivered",
+              "failed"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "available_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lease_owner": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "lease_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "redrive_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EventOutboxRowResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/EventOutboxRow"
+          }
+        }
+      },
       "ExpireStaleResponse": {
         "type": "object",
         "required": [
@@ -20431,6 +20575,20 @@
           "payload": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "OutboxReasonRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
           }
         }
       },
@@ -28763,6 +28921,310 @@
           },
           "count": {
             "type": "integer"
+          }
+        }
+      },
+      "WebhookDeliveryList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliveries",
+          "count"
+        ],
+        "properties": {
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryRow"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "WebhookDeliveryListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebhookDeliveryList"
+          }
+        }
+      },
+      "WebhookDeliveryRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "event_type",
+          "status",
+          "attempt_number",
+          "redrive_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "subscription_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "event_outbox_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "nullable": true
+          },
+          "event_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_flight",
+              "succeeded",
+              "failed",
+              "dead"
+            ]
+          },
+          "attempt_number": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "http_status": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 100,
+            "maximum": 599
+          },
+          "response_excerpt": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "request_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "next_retry_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lease_owner": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "lease_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "redrive_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WebhookDeliveryRowResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebhookDeliveryRow"
+          }
+        }
+      },
+      "WebhookDispatchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "batch_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "WebhookDispatchResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebhookDispatchResult"
+          }
+        }
+      },
+      "WebhookDispatchResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dispatched",
+          "succeeded",
+          "failed",
+          "dead",
+          "parked",
+          "lost_fence",
+          "orphaned"
+        ],
+        "properties": {
+          "dispatched": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "succeeded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dead": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lost_fence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "orphaned": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "WebhookEnqueueRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_type"
+        ],
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "WebhookEnqueueResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebhookEnqueueResult"
+          }
+        }
+      },
+      "WebhookEnqueueResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "matched",
+          "enqueued"
+        ],
+        "properties": {
+          "matched": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enqueued": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryRow"
+            }
           }
         }
       }
@@ -40962,66 +41424,89 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EventOutboxListResponse"
                 }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "processing",
+                "delivered",
+                "failed"
+              ],
+              "default": "pending"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/events/{id}/redrive": {
+      "post": {
+        "operationId": "post_api_v1_admin_events_by_id_redrive",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventOutboxRowResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutboxReasonRequest"
               }
             }
           }
         }
-      }
-    },
-    "/api/v1/admin/events/{id}/delivered": {
-      "post": {
-        "operationId": "post_api_v1_admin_events_by_id_delivered",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/v1/admin/events/{id}/failed": {
-      "post": {
-        "operationId": "post_api_v1_admin_events_by_id_failed",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
       }
     },
     "/api/v1/admin/executive-kpi/summary": {
@@ -46460,7 +46945,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDeliveryListResponse"
                 }
               }
             }
@@ -46472,13 +46957,23 @@
       "post": {
         "operationId": "post_api_v1_admin_webhook_deliveries_dispatch_now",
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDispatchResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookDispatchRequest"
               }
             }
           }
@@ -46489,13 +46984,23 @@
       "post": {
         "operationId": "post_api_v1_admin_webhook_deliveries_enqueue",
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookEnqueueResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookEnqueueRequest"
               }
             }
           }
@@ -46511,7 +47016,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDeliveryRowResponse"
                 }
               }
             }
@@ -46523,7 +47028,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
             }
           }
         ]
@@ -46538,7 +47044,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDeliveryRowResponse"
                 }
               }
             }
@@ -46550,22 +47056,33 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutboxReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/webhook-deliveries/{id}/redrive": {
       "post": {
         "operationId": "post_api_v1_admin_webhook_deliveries_by_id_redrive",
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDeliveryRowResponse"
                 }
               }
             }
@@ -46577,10 +47094,21 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutboxReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/webhook-subscriptions": {
