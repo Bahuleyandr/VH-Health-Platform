@@ -300,11 +300,14 @@ d('NL-13 P3 oncology completion deep chain', () => {
     }, { actorUid: DOCTOR_UID, actorRole: 'DOCTOR' });
     expect(boardCase.discussion_state).toBe('queued');
 
+    const [{ due_date: recommendationDueDate }] = await prisma.$queryRawUnsafe(
+      `SELECT (CURRENT_DATE + INTERVAL '7 days')::date::text AS due_date`,
+    );
     const recommendation = await createTumorBoardRecommendation(boardCase.id, {
       tenantId: TENANT_ID,
       recommendationType: 'systemic_therapy',
       recommendationText: 'Proceed with owner-approved protocol after consent review',
-      dueDate: '2026-07-20',
+      dueDate: recommendationDueDate,
       chemoPlanId,
       responsibleOwnerUid: DOCTOR_UID,
     }, { actorUid: DOCTOR_UID, actorRole: 'DOCTOR' });
