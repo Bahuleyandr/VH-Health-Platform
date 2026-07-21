@@ -49,9 +49,22 @@ describe('oncology completion validation helpers', () => {
 
   test('requires recommendation due dates that are not in the past', () => {
     const now = new Date('2026-07-09T10:00:00.000Z');
+    expect(normalizeRecommendationDueDate('2026-07-09', now)).toBe('2026-07-09');
     expect(normalizeRecommendationDueDate('2026-07-10', now)).toBe('2026-07-10');
     expect(() => normalizeRecommendationDueDate('', now)).toThrow(/due_date is required/);
     expect(() => normalizeRecommendationDueDate('2026-07-08', now)).toThrow(/cannot be in the past/);
+  });
+
+  test('uses the hospital calendar day at the IST midnight boundary', () => {
+    const beforeIstMidnight = new Date('2026-07-09T18:29:59.999Z');
+    expect(normalizeRecommendationDueDate('2026-07-09', beforeIstMidnight)).toBe('2026-07-09');
+    expect(() => normalizeRecommendationDueDate('2026-07-08', beforeIstMidnight))
+      .toThrow(/cannot be in the past/);
+
+    const atIstMidnight = new Date('2026-07-09T18:30:00.000Z');
+    expect(normalizeRecommendationDueDate('2026-07-10', atIstMidnight)).toBe('2026-07-10');
+    expect(() => normalizeRecommendationDueDate('2026-07-09', atIstMidnight))
+      .toThrow(/cannot be in the past/);
   });
 
   test('normalizes optional chemo plan, cycle, and administration links', () => {

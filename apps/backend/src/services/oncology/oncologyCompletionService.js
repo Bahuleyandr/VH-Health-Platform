@@ -1,6 +1,7 @@
 import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { istDateString } from '../../utils/dateUtils.js';
 import {
   recordCanonicalClinicalEvent,
   recordClinicalAuditEvent,
@@ -71,10 +72,7 @@ function dateOnly(value, name) {
 function futureOrTodayDate(value, name, now = new Date()) {
   const clean = dateOnly(value, name);
   if (!clean) return null;
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(`${clean}T00:00:00.000Z`);
-  if (due < today) {
+  if (clean < istDateString(now)) {
     throw AppError.badRequest(`${name} cannot be in the past`, 'ONCOLOGY_DUE_DATE_PAST');
   }
   return clean;
