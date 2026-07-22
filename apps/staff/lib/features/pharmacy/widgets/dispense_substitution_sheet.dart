@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/pharmacy_api_service.dart';
@@ -169,6 +170,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
   }
 
   Future<void> _dispense() async {
+    final s = AppStrings.of(context);
     final patient = _patientUid;
     final orig = _originalCatalogId;
     final chosen = _chosen;
@@ -181,7 +183,9 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
         qty == null ||
         qty <= 0) {
       setState(
-        () => _error = 'Select a substitute, a batch, and a valid quantity.',
+        () => _error = s.lookup(
+          's4.lib.pharmacy.select_substitute_batch_quantity',
+        ),
       );
       return;
     }
@@ -206,7 +210,11 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Dispensed ${chosen.displayName} as substitute'),
+          content: Text(
+            s.format('s4.dynamic.pharmacy.dispensed_as_substitute', {
+              'name': chosen.displayName,
+            }),
+          ),
         ),
       );
     } catch (e) {
@@ -217,17 +225,22 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
     }
   }
 
-  String _batchLabel(Map<String, dynamic> b) {
+  String _batchLabel(AppStrings s, Map<String, dynamic> b) {
     final n = b['batch_number'] ?? '—';
     final left = b['remaining_quantity'];
     final exp = (b['expiry_date'] ?? '').toString();
     final expShort = exp.length >= 10 ? exp.substring(0, 10) : exp;
-    return 'Batch $n · $left left · exp $expShort';
+    return s.format('s4.dynamic.pharmacy.substitute_batch_label', {
+      'number': n,
+      'left': left,
+      'expiry': expShort,
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -244,7 +257,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                   const Icon(Icons.swap_horiz),
                   const SizedBox(width: 8),
                   Text(
-                    'Dispense substitute',
+                    s.lookup('s4.lib.pharmacy.dispense_substitute'),
                     style: theme.textTheme.titleLarge,
                   ),
                   const Spacer(),
@@ -264,8 +277,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
                   child: Text(
-                    'No prescribed catalog lines are linked to this order, so a '
-                    'same-formulation substitute cannot be resolved automatically.',
+                    s.lookup('s4.lib.pharmacy.no_prescribed_catalog_lines'),
                     style: theme.textTheme.bodyMedium,
                   ),
                 )
@@ -273,16 +285,19 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                 DropdownButtonFormField<Map<String, dynamic>>(
                   initialValue: _selectedLine,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Prescribed medicine',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: s.lookup('s4.lib.pharmacy.prescribed_medicine'),
+                    border: const OutlineInputBorder(),
                   ),
                   items: _lines
                       .map(
                         (l) => DropdownMenuItem(
                           value: l,
                           child: Text(
-                            (l['name'] as String?) ?? 'Item ${l['catalog_id']}',
+                            (l['name'] as String?) ??
+                                s.format('s4.dynamic.pharmacy.item_fallback', {
+                                  'id': l['catalog_id'],
+                                }),
                           ),
                         ),
                       )
@@ -302,7 +317,9 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                 if (_chosen != null) ...[
                   const Divider(height: 24),
                   Text(
-                    'Substitute: ${_chosen!.displayName}',
+                    s.format('s4.dynamic.pharmacy.substitute_named', {
+                      'name': _chosen!.displayName,
+                    }),
                     style: theme.textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
@@ -313,22 +330,26 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                     )
                   else if (_batches.isEmpty)
                     Text(
-                      'No in-stock batches for ${_chosen!.displayName}.',
+                      s.format('s4.dynamic.pharmacy.no_in_stock_batches_for', {
+                        'name': _chosen!.displayName,
+                      }),
                       style: theme.textTheme.bodyMedium,
                     )
                   else ...[
                     DropdownButtonFormField<Map<String, dynamic>>(
                       initialValue: _selectedBatch,
                       isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Batch (earliest expiry first)',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: s.lookup(
+                          's4.lib.pharmacy.batch_earliest_expiry_first',
+                        ),
+                        border: const OutlineInputBorder(),
                       ),
                       items: _batches
                           .map(
                             (b) => DropdownMenuItem(
                               value: b,
-                              child: Text(_batchLabel(b)),
+                              child: Text(_batchLabel(s, b)),
                             ),
                           )
                           .toList(),
@@ -340,9 +361,9 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      decoration: const InputDecoration(
-                        labelText: 'Quantity',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: s.lookup('s4.lib.pharmacy.quantity'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ],
@@ -361,7 +382,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.check),
-                label: const Text('Dispense substitute'),
+                label: Text(s.lookup('s4.lib.pharmacy.dispense_substitute')),
                 onPressed:
                     (_dispensing || _chosen == null || _selectedBatch == null)
                     ? null

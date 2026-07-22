@@ -7709,6 +7709,7 @@ model pharmacy_catalog {
   drug_composition_curation_queue drug_composition_curation_queue[]
   tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_catalog_tenant")
   drug_compositions               drug_compositions?                @relation(fields: [composition_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacy_inventory_items        pharmacy_inventory_items[]
 
   @@index([is_active, is_available, in_stock], map: "idx_pharmacy_catalog_active")
   @@index([category], map: "idx_pharmacy_catalog_category")
@@ -7862,11 +7863,15 @@ model pharmacy_inventory_items {
   metadata                                                                                              Json                            @default("{}")
   created_at                                                                                            DateTime                        @default(now()) @db.Timestamptz(6)
   updated_at                                                                                            DateTime                        @default(now()) @db.Timestamptz(6)
+  composition_id                                                                                        Int?
+  catalog_id                                                                                            Int?
   cath_consumable_catalog_cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items           cath_consumable_catalog[]       @relation("cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items")
   cath_consumable_catalog_cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items cath_consumable_catalog[]       @relation("cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items")
   pharmacy_expiry_alerts                                                                                pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items                                                                          pharmacy_goods_receipt_items[]
   pharmacy_inventory_batches                                                                            pharmacy_inventory_batches[]
+  pharmacy_catalog                                                                                      pharmacy_catalog?               @relation(fields: [catalog_id], references: [id], onUpdate: NoAction)
+  drug_compositions                                                                                     drug_compositions?              @relation(fields: [composition_id], references: [id], onUpdate: NoAction)
   pharmacy_suppliers                                                                                    pharmacy_suppliers?             @relation(fields: [default_supplier_id], references: [id], onUpdate: NoAction)
   tenants                                                                                               tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   pharmacy_purchase_order_items                                                                         pharmacy_purchase_order_items[]
@@ -7879,6 +7884,8 @@ model pharmacy_inventory_items {
   @@index([tenant_id, status, display_name], map: "idx_pharmacy_items_tenant_status")
   @@index([tenant_id, facility_id, status], map: "idx_pharmacy_items_facility", where: raw("(facility_id IS NOT NULL)"))
   @@index([tenant_id, is_narcotic, status], map: "idx_pharmacy_items_narcotic", where: raw("(is_narcotic = true)"))
+  @@index([catalog_id], map: "idx_pharmacy_items_catalog", where: raw("(catalog_id IS NOT NULL)"))
+  @@index([composition_id], map: "idx_pharmacy_items_composition", where: raw("(composition_id IS NOT NULL)"))
 }
 
 model pharmacy_order_history {
@@ -16616,15 +16623,16 @@ model drug_composition_curation_queue {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model drug_compositions {
-  id                 Int                @id @default(autoincrement())
-  composition_key    String             @unique @db.VarChar(255)
-  display_label      String             @db.VarChar(255)
-  active_ingredients String[]           @default([])
-  source             String             @default("parsed") @db.VarChar(20)
-  atc_code           String?            @db.VarChar(20)
-  created_at         DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
-  pharmacy_catalog   pharmacy_catalog[]
+  id                       Int                        @id @default(autoincrement())
+  composition_key          String                     @unique @db.VarChar(255)
+  display_label            String                     @db.VarChar(255)
+  active_ingredients       String[]                   @default([])
+  source                   String                     @default("parsed") @db.VarChar(20)
+  atc_code                 String?                    @db.VarChar(20)
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  pharmacy_catalog         pharmacy_catalog[]
+  pharmacy_inventory_items pharmacy_inventory_items[]
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.

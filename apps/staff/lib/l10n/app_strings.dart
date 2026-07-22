@@ -7991,6 +7991,24 @@ class AppStrings {
           "Only Stores/Purchase, Pharmacy Incharge, or Admin can run expiry scans",
       's4.lib.pharmacy.order_created': "Pharmacy order created",
       's4.lib.pharmacy.order_note': "Order note",
+      's4.lib.pharmacy.substitute': "Substitute",
+      's4.lib.pharmacy.dispense_substitute': "Dispense substitute",
+      's4.lib.pharmacy.prescribed_medicine': "Prescribed medicine",
+      's4.lib.pharmacy.batch_earliest_expiry_first':
+          "Batch (earliest expiry first)",
+      's4.lib.pharmacy.quantity': "Quantity",
+      's4.lib.pharmacy.no_prescribed_catalog_lines':
+          "No prescribed catalog lines are linked to this order, so a same-formulation substitute cannot be resolved automatically.",
+      's4.lib.pharmacy.select_substitute_batch_quantity':
+          "Select a substitute, a batch, and a valid quantity.",
+      's4.dynamic.pharmacy.substitute_named': "Substitute: {name}",
+      's4.dynamic.pharmacy.no_in_stock_batches_for':
+          "No in-stock batches for {name}.",
+      's4.dynamic.pharmacy.dispensed_as_substitute':
+          "Dispensed {name} as substitute",
+      's4.dynamic.pharmacy.substitute_batch_label':
+          "Batch {number} · {left} left · exp {expiry}",
+      's4.dynamic.pharmacy.item_fallback': "Item {id}",
       's4.lib.pharmacy.order_note_required': "Order note is required",
       's4.lib.pharmacy.otc': "OTC",
       's4.lib.pharmacy.pack_size': "Pack size",
@@ -13724,6 +13742,23 @@ class AppStrings {
           "केवल Stores/Purchase, Pharmacy Incharge या Admin एक्सपायरी स्कैन चला सकते हैं",
       's4.lib.pharmacy.order_created': "फार्मेसी ऑर्डर बनाया गया",
       's4.lib.pharmacy.order_note': "आदेश नोट",
+      's4.lib.pharmacy.substitute': "विकल्प",
+      's4.lib.pharmacy.dispense_substitute': "विकल्प वितरित करें",
+      's4.lib.pharmacy.prescribed_medicine': "निर्धारित दवा",
+      's4.lib.pharmacy.batch_earliest_expiry_first': "बैच (जल्दी समाप्ति पहले)",
+      's4.lib.pharmacy.quantity': "मात्रा",
+      's4.lib.pharmacy.no_prescribed_catalog_lines':
+          "इस ऑर्डर से कोई निर्धारित कैटलॉग दवा जुड़ी नहीं है, इसलिए समान-संरचना विकल्प स्वतः निर्धारित नहीं किया जा सकता।",
+      's4.lib.pharmacy.select_substitute_batch_quantity':
+          "एक विकल्प, एक बैच और वैध मात्रा चुनें।",
+      's4.dynamic.pharmacy.substitute_named': "विकल्प: {name}",
+      's4.dynamic.pharmacy.no_in_stock_batches_for':
+          "{name} के लिए कोई स्टॉक बैच नहीं।",
+      's4.dynamic.pharmacy.dispensed_as_substitute':
+          "{name} को विकल्प के रूप में वितरित किया गया",
+      's4.dynamic.pharmacy.substitute_batch_label':
+          "बैच {number} · {left} शेष · समाप्ति {expiry}",
+      's4.dynamic.pharmacy.item_fallback': "आइटम {id}",
       's4.lib.pharmacy.order_note_required': "ऑर्डर नोट आवश्यक है",
       's4.lib.pharmacy.otc': "OTC",
       's4.lib.pharmacy.pack_size': "पैक का आकार",
@@ -20106,6 +20141,24 @@ class AppStrings {
           "Stores/Purchase, Pharmacy Incharge அல்லது Admin மட்டுமே காலாவதி ஸ்கேன் இயக்க முடியும்",
       's4.lib.pharmacy.order_created': "மருந்தக ஆர்டர் உருவாக்கப்பட்டது",
       's4.lib.pharmacy.order_note': "ஆர்டர் குறிப்பு",
+      's4.lib.pharmacy.substitute': "மாற்று",
+      's4.lib.pharmacy.dispense_substitute': "மாற்றை வழங்கு",
+      's4.lib.pharmacy.prescribed_medicine': "பரிந்துரைக்கப்பட்ட மருந்து",
+      's4.lib.pharmacy.batch_earliest_expiry_first':
+          "தொகுதி (முந்தைய காலாவதி முதலில்)",
+      's4.lib.pharmacy.quantity': "அளவு",
+      's4.lib.pharmacy.no_prescribed_catalog_lines':
+          "இந்த ஆர்டருடன் பரிந்துரைக்கப்பட்ட பட்டியல் மருந்துகள் எதுவும் இணைக்கப்படவில்லை, எனவே அதே கலவை கொண்ட மாற்றை தானாக நிர்ணயிக்க முடியாது.",
+      's4.lib.pharmacy.select_substitute_batch_quantity':
+          "ஒரு மாற்று, ஒரு தொகுதி மற்றும் சரியான அளவைத் தேர்ந்தெடுக்கவும்.",
+      's4.dynamic.pharmacy.substitute_named': "மாற்று: {name}",
+      's4.dynamic.pharmacy.no_in_stock_batches_for':
+          "{name} க்கு கையிருப்பு தொகுதிகள் இல்லை.",
+      's4.dynamic.pharmacy.dispensed_as_substitute':
+          "{name} மாற்றாக வழங்கப்பட்டது",
+      's4.dynamic.pharmacy.substitute_batch_label':
+          "தொகுதி {number} · {left} மீதம் · காலாவதி {expiry}",
+      's4.dynamic.pharmacy.item_fallback': "பொருள் {id}",
       's4.lib.pharmacy.order_note_required': "ஆர்டர் குறிப்பு தேவை",
       's4.lib.pharmacy.otc': "OTC",
       's4.lib.pharmacy.pack_size': "பேக் அளவு",
@@ -26449,6 +26502,24 @@ class AppStrings {
           "Stores/Purchase, Pharmacy Incharge లేదా Admin మాత్రమే ఎక్స్‌పైరీ స్కాన్ అమలు చేయగలరు",
       's4.lib.pharmacy.order_created': "ఫార్మసీ ఆర్డర్ సృష్టించబడింది",
       's4.lib.pharmacy.order_note': "ఆర్డర్ నోట్",
+      's4.lib.pharmacy.substitute': "ప్రత్యామ్నాయం",
+      's4.lib.pharmacy.dispense_substitute': "ప్రత్యామ్నాయాన్ని ఇవ్వండి",
+      's4.lib.pharmacy.prescribed_medicine': "సూచించిన మందు",
+      's4.lib.pharmacy.batch_earliest_expiry_first':
+          "బ్యాచ్ (ముందుగా గడువు ముగిసేవి మొదట)",
+      's4.lib.pharmacy.quantity': "పరిమాణం",
+      's4.lib.pharmacy.no_prescribed_catalog_lines':
+          "ఈ ఆర్డర్‌కు సూచించిన కేటలాగ్ మందులు ఏవీ లింక్ కాలేదు, కాబట్టి అదే కూర్పు గల ప్రత్యామ్నాయాన్ని స్వయంచాలకంగా నిర్ణయించలేము.",
+      's4.lib.pharmacy.select_substitute_batch_quantity':
+          "ఒక ప్రత్యామ్నాయం, ఒక బ్యాచ్ మరియు చెల్లుబాటు అయ్యే పరిమాణాన్ని ఎంచుకోండి.",
+      's4.dynamic.pharmacy.substitute_named': "ప్రత్యామ్నాయం: {name}",
+      's4.dynamic.pharmacy.no_in_stock_batches_for':
+          "{name} కోసం స్టాక్ బ్యాచ్‌లు లేవు.",
+      's4.dynamic.pharmacy.dispensed_as_substitute':
+          "{name} ప్రత్యామ్నాయంగా ఇవ్వబడింది",
+      's4.dynamic.pharmacy.substitute_batch_label':
+          "బ్యాచ్ {number} · {left} మిగిలి · గడువు {expiry}",
+      's4.dynamic.pharmacy.item_fallback': "ఐటమ్ {id}",
       's4.lib.pharmacy.order_note_required': "ఆర్డర్ గమనిక అవసరం",
       's4.lib.pharmacy.otc': "OTC",
       's4.lib.pharmacy.pack_size': "ప్యాక్ పరిమాణం",

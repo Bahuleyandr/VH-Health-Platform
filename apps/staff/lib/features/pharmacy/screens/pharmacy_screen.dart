@@ -2500,7 +2500,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
           ),
         if (status == 'CONFIRMED' || status == 'PREPARING' || status == 'READY')
           _ActionBtn(
-            label: 'Substitute',
+            label: s.lookup('s4.lib.pharmacy.substitute'),
             icon: Icons.swap_horiz,
             color: Colors.deepPurple,
             onTap: () => DispenseSubstitutionSheet.show(
