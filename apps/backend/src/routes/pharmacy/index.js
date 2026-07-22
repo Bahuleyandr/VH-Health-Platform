@@ -8,6 +8,7 @@ import inventoryV2Routes from './inventoryV2Routes.js';
 import medicationRoutes from './medicationRoutes.js';
 import orderRoutes from './orderRoutes.js';
 import wardIndentRoutes from './wardIndentRoutes.js';
+import { dispenseSubstitutionValidator } from '../../validators/pharmacy/orderValidators.js';
 
 const router = express.Router();
 
@@ -64,7 +65,8 @@ router.use('/search', medicationRoutes);
 // the canonical counter-dispense controller.
 wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
   post: [
-    ['/dispense', [], dispenseByBodyOrderId]
+    ['/dispense', [], dispenseByBodyOrderId],
+    ['/dispense-substitution', dispenseSubstitutionValidator, pharmacyOrderController.dispenseSubstitution]
   ]
 });
 
@@ -73,7 +75,8 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
 wrapAutoRBAC(router, 'pharmacyCatalogRoutes', {
   get: [
     ['/catalog', [], pharmacyOrderController.getCatalog],
-    ['/catalog/:id/alternatives', [], pharmacyOrderController.getCatalogAlternatives]
+    ['/catalog/:id/alternatives', [], pharmacyOrderController.getCatalogAlternatives],
+    ['/catalog/:id/dispensable-batches', [], pharmacyOrderController.getCatalogDispensableBatches]
   ]
 });
 

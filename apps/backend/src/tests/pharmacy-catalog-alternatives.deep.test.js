@@ -64,6 +64,12 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
 
   async function cleanup() {
     await prisma
+      .$executeRawUnsafe(`DELETE FROM pharmacy_inventory_batches WHERE batch_number LIKE 'ALTTEST-B-%'`)
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM pharmacy_inventory_items WHERE sku_code LIKE 'ALTTEST-SKU-%'`)
+      .catch(() => {});
+    await prisma
       .$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'ALTTEST %'`)
       .catch(() => {});
     await prisma
@@ -110,7 +116,23 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
       form, formKey, releaseKey, route, confidence,
       stockQuantity, inStock,
     );
-    return Number(rows[0].id);
+    const catalogId = Number(rows[0].id);
+    // Availability is now sourced from real batch stock (mig 586 catalog_id link), not
+    // catalog flags — so mirror stockQuantity into a linked in-stock batch.
+    if (stockQuantity > 0 && inStock) {
+      const it = await prisma.$queryRawUnsafe(
+        `INSERT INTO pharmacy_inventory_items (tenant_id, sku_code, display_name, catalog_id, composition_id)
+         VALUES ($1::uuid, $2, $3, $4, $5) RETURNING id`,
+        tenantId, `ALTTEST-SKU-${catalogId}`, name, catalogId, compositionId,
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO pharmacy_inventory_batches
+           (tenant_id, inventory_item_id, batch_number, expiry_date, received_quantity, remaining_quantity, status)
+         VALUES ($1::uuid, $2, $3, (NOW() + INTERVAL '365 days')::date, $4, $4, 'in_stock')`,
+        tenantId, Number(it[0].id), `ALTTEST-B-${catalogId}`, stockQuantity,
+      );
+    }
+    return catalogId;
   }
 
   beforeAll(async () => {

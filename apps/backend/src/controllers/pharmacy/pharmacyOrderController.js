@@ -1647,17 +1647,27 @@ export const getCatalogAlternatives = async (req, res) => {
   }
 
   try {
+    // Availability is a LIVE SUM over the brand's non-expired in_stock batches (mig 586
+    // linked pharmacy_inventory_items.catalog_id → pharmacy_catalog.id), so the pharmacist
+    // sees which alternative brands are actually on the shelf — not coarse catalog flags.
+    // Falls back to 0 (out_of_stock) for brands whose inventory isn't linked yet.
     const sql = `
       SELECT pc.id AS catalog_id, pc.name, pc.manufacturer, pc.generic_name,
              pc.strength, pc.strength_key, pc.strength_components, pc.form, pc.form_key,
              pc.release_key, pc.route, pc.composition_confidence,
-             pc.stock_quantity, pc.stock, pc.in_stock
+             COALESCE((
+               SELECT SUM(b.remaining_quantity)
+                 FROM pharmacy_inventory_batches b
+                 JOIN pharmacy_inventory_items i ON i.id = b.inventory_item_id
+                WHERE i.tenant_id = pc.tenant_id
+                  AND i.catalog_id = pc.id
+                  AND b.status = 'in_stock'
+                  AND b.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+             ), 0)::numeric AS available_stock
         FROM pharmacy_catalog pc
        WHERE pc.tenant_id = $1::uuid AND pc.is_active
          AND pc.composition_id = $2 AND pc.id <> $3
-       ORDER BY (COALESCE(pc.stock_quantity, pc.stock, 0) > 0) DESC,
-                COALESCE(pc.stock_quantity, pc.stock, 0) DESC,
-                pc.strength_key NULLS LAST, pc.name`;
+       ORDER BY available_stock DESC, pc.strength_key NULLS LAST, pc.name`;
     const rows = await prisma.$queryRawUnsafe(sql, tenantId, selected.composition_id, id);
 
     // "Is this a combination drug?" is derived from the molecule count on the
@@ -1682,19 +1692,12 @@ export const getCatalogAlternatives = async (req, res) => {
 
     const alternatives = rows.map((r) => {
       const catalogId = Number(r.catalog_id);
-      const stockQuantity =
-        r.stock_quantity === null || r.stock_quantity === undefined
-          ? null
-          : Number(r.stock_quantity);
-
-      let availabilityStatus;
-      if (stockQuantity != null && stockQuantity > 0) {
-        availabilityStatus = 'in_stock';
-      } else if (r.in_stock === true) {
-        availabilityStatus = 'may_be_available';
-      } else {
-        availabilityStatus = 'out_of_stock';
-      }
+      const availableStock =
+        r.available_stock === null || r.available_stock === undefined
+          ? 0
+          : Number(r.available_stock);
+      // Real batch stock → binary in/out; no more coarse "may_be_available" flag guess.
+      const availabilityStatus = availableStock > 0 ? 'in_stock' : 'out_of_stock';
 
       // Substitutable only when EVERY identity dimension matches.
       let substitutable =
@@ -1732,7 +1735,8 @@ export const getCatalogAlternatives = async (req, res) => {
         form_key: r.form_key ?? null,
         release_key: r.release_key ?? null,
         route: r.route ?? null,
-        stock_quantity: stockQuantity,
+        stock_quantity: availableStock,
+        available_stock: availableStock,
         availability_status: availabilityStatus,
         substitutable,
       };
@@ -1775,6 +1779,254 @@ export const getCatalogAlternatives = async (req, res) => {
   } catch (err) {
     logger.error('Get pharmacy catalog alternatives error:', err);
     return error(res, 'Failed to fetch alternatives', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// Server-side equivalence gate for a dispense-substitution — mirrors the /alternatives
+// `substitutable` rule so a pharmacist can never dispense an inequivalent brand even if a
+// client posts arbitrary catalog ids. Both identities are server-resolved beforehand.
+function substitutionAllowed(orig, sub) {
+  if (!orig || !sub) return false;
+  if (orig.composition_id == null || orig.composition_id !== sub.composition_id) return false;
+  if (orig.composition_confidence !== 'high' || sub.composition_confidence !== 'high') return false;
+  if (!orig.strength_key || orig.strength_key !== sub.strength_key) return false;
+  if (!orig.form_key || orig.form_key !== sub.form_key) return false;
+  if (normalizeReleaseKey(orig.release_key) !== normalizeReleaseKey(sub.release_key)) return false;
+  if (!routesMatch(orig.route, sub.route)) return false;
+  const oc = asComponentArray(orig.strength_components);
+  const sc = asComponentArray(sub.strength_components);
+  const isCombo = (Array.isArray(orig.active_ingredients) && orig.active_ingredients.length >= 2)
+    || (Array.isArray(oc) && oc.length >= 2);
+  if (isCombo) {
+    if (!Array.isArray(oc) || oc.length < 2 || !Array.isArray(sc) || sc.length < 2) return false;
+    if (!strengthComponentsEqual(oc, sc)) return false;
+  }
+  return true;
+}
+
+/**
+ * POST /pharmacy-orders/dispense-substitution
+ *
+ * Pharmacist dispenses an in-stock same-formulation alternative in place of the
+ * prescribed brand. Atomic in one tenant-scoped transaction: locks + validates +
+ * decrements the chosen batch, then writes the canonical clinical timeline + audit pair
+ * (hard-fail — rolls back the decrement if either event cannot be recorded). A best-
+ * effort brand-substitution audit follows post-commit. Both catalog ids are re-resolved
+ * server-side and the swap is re-checked for equivalence; client brand strings are never
+ * trusted. The batch decrement mirrors inventoryV2Service.recordMovement's core (inlined
+ * because that function opens its own transaction and cannot be composed with the
+ * canonical write).
+ */
+export const dispenseSubstitution = async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const {
+      patient_uid, encounter_id, inventory_item_id, inventory_batch_id,
+      quantity, original_catalog_id, final_catalog_id, reason,
+    } = req.body ?? {};
+
+    const qty = Math.abs(Number(quantity));
+    const origId = Number(original_catalog_id);
+    const finalId = Number(final_catalog_id);
+    const itemId = Number(inventory_item_id);
+    const batchId = Number(inventory_batch_id);
+
+    if (origId === finalId) {
+      throw AppError.badRequest('Substitute must differ from the original brand', 'SUBSTITUTE_SAME_AS_ORIGINAL');
+    }
+
+    // Phase 0 (outside tx): server-resolve BOTH catalog identities, tenant-scoped, and
+    // confirm the swap is genuinely equivalent before touching stock.
+    const ids = await resolveCompositionIdentitiesByCatalogIds(tenantId, [origId, finalId]);
+    const orig = ids.get(origId);
+    const sub = ids.get(finalId);
+    if (!orig || !sub) throw AppError.badRequest('Unresolvable catalog id', 'CATALOG_ID_UNRESOLVED');
+    if (!substitutionAllowed(orig, sub)) {
+      throw AppError.badRequest('Selected brand is not an equivalent substitute', 'SUBSTITUTE_NOT_EQUIVALENT');
+    }
+
+    // Lazy-load the canonical-clinical + substitution-audit chain at dispense time only.
+    // Importing these at module top-level would drag the canonical → prescription-safety →
+    // allergy chain into the pharmacy route load graph, breaking route-load isolation tests
+    // that mock allergySourceService without its full export surface (SEVERE_BLOCK_RANK, etc.).
+    const { recordCanonicalClinicalEvent } = await import(
+      '../../services/clinical/canonicalClinicalPlatformService.js'
+    );
+    const { recordBrandSubstitutionAudit } = await import(
+      '../../services/pharmacy/compositionSubstitutionAudit.js'
+    );
+
+    const result = await setTenantTx(tenantId, async (tx) => {
+      // 1. DETAIL — lock the batch, validate availability, insert the movement, decrement.
+      const batches = await tx.$queryRawUnsafe(
+        `SELECT id, remaining_quantity, status,
+                (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+           FROM pharmacy_inventory_batches
+          WHERE id = $1::int AND tenant_id = $2::uuid AND inventory_item_id = $3::int
+          FOR UPDATE`,
+        batchId, tenantId, itemId,
+      );
+      if (!batches.length) throw AppError.notFound('Inventory batch not found');
+      const batch = batches[0];
+      if (batch.status !== 'in_stock') {
+        throw AppError.badRequest(`Batch not available for issue (status: ${batch.status})`, 'INVENTORY_BATCH_UNAVAILABLE');
+      }
+      if (batch.is_expired) {
+        throw AppError.badRequest('Batch is expired and cannot be issued', 'INVENTORY_BATCH_EXPIRED');
+      }
+      if (Number(batch.remaining_quantity) - qty < 0) {
+        throw AppError.badRequest(`Insufficient stock. Available: ${batch.remaining_quantity}`, 'INVENTORY_INSUFFICIENT_STOCK');
+      }
+
+      const movement = (await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_stock_movements
+           (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+            quantity_delta, reference_type, reference_id, performed_by, notes)
+         VALUES ($1::uuid, $2::int, $3::int, 'issue', $4::numeric, 'dispense_substitution', $5, $6::uuid, $7)
+         RETURNING id`,
+        tenantId, itemId, batchId, -qty, String(finalId),
+        req.user?.uid ? String(req.user.uid) : null,
+        `Substitute for catalog ${origId}${reason ? `: ${reason}` : ''}`,
+      ))[0];
+
+      await tx.$executeRawUnsafe(
+        `UPDATE pharmacy_inventory_batches
+            SET remaining_quantity = remaining_quantity - $1::numeric,
+                status = CASE WHEN remaining_quantity - $1::numeric <= 0 THEN 'depleted' ELSE status END,
+                updated_at = NOW()
+          WHERE id = $2::int AND tenant_id = $3::uuid AND inventory_item_id = $4::int`,
+        qty, batchId, tenantId, itemId,
+      );
+
+      // 2. CANONICAL PAIR (same tx, hard-fail): { db: tx } + patientUid ⇒ throws
+      //    CANONICAL_TIMELINE/AUDIT_REQUIRED if either row fails ⇒ decrement rolls back.
+      await recordCanonicalClinicalEvent({
+        tenantId,
+        patientUid: patient_uid,
+        encounterId: encounter_id,
+        eventType: 'pharmacy.dispense_substitution',
+        eventStatus: 'dispensed',
+        sourceTable: 'pharmacy_stock_movements',
+        sourceId: String(movement.id),
+        resourceType: 'medication_brand_substitution',
+        resourceId: String(movement.id),
+        actorUid: req.user?.uid,
+        actorRole: req.user?.role,
+        summary: `Dispensed ${sub.name} as a substitute for ${orig.name}`,
+        beforeState: { catalog_id: orig.catalog_id, brand_name: orig.name },
+        afterState: { catalog_id: sub.catalog_id, brand_name: sub.name },
+        payload: { quantity: qty, inventory_item_id: itemId, inventory_batch_id: batchId, reason: reason ?? null },
+        timelineIdempotencyKey: `dispense_sub:${movement.id}`,
+        auditIdempotencyKey: `dispense_sub_audit:${movement.id}`,
+      }, { db: tx });
+
+      return { movement_id: movement.id, original_catalog_id: origId, final_catalog_id: finalId, quantity: qty };
+    });
+
+    // Phase 1.5 (post-commit, best-effort): the dedicated brand-substitution audit.
+    await recordBrandSubstitutionAudit({
+      tenantId,
+      patientUid: patient_uid,
+      encounterId: encounter_id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      surface: 'pharmacy_dispense',
+      resourceTable: 'pharmacy_stock_movements',
+      resourceId: result.movement_id,
+      originalCatalogId: origId,
+      finalCatalogId: finalId,
+      reason: reason ?? null,
+      requestId: req.id,
+    }).catch((e) => logger.warn(`Brand-substitution audit failed: ${e.message}`));
+
+    return success(res, result, 'Substitution dispensed');
+  } catch (err) {
+    return relayAppError(res, err, 'Failed to dispense substitution');
+  }
+};
+
+/**
+ * GET /pharmacy-orders/orders/:id/dispensable
+ *
+ * The patient + prescribed medication lines (each with its catalog_id) behind a pharmacy
+ * order — the context a pharmacist needs to dispense a same-formulation substitute. Tenant-
+ * scoped. `encounter_id` is not modelled on the order→Rx path (appointment_id/admission_id
+ * are surfaced instead). An order with no linked prescription lines returns empty lines.
+ */
+export const getOrderDispensableContext = async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) throw AppError.badRequest('Valid order id is required');
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT ep.patient_uid, ep.appointment_id, ep.admission_id,
+              (m.elem->>'catalog_id')::int AS catalog_id,
+              COALESCE(m.elem->>'name', m.elem->>'medication_name',
+                       m.elem->>'drug_name', m.elem->>'display_name') AS name,
+              m.elem->>'quantity' AS quantity
+         FROM pharmacy_orders po
+         JOIN e_prescriptions ep
+           ON ep.pharmacy_order_id = po.id AND ep.tenant_id = po.tenant_id
+         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb)) AS m(elem)
+        WHERE po.id = $1 AND po.tenant_id = $2::uuid`,
+      id, req.tenantId,
+    );
+    if (!rows.length) {
+      return success(res, { order_id: id, patient_uid: null, lines: [] }, 'Dispensable context');
+    }
+    const lines = rows
+      .filter((r) => r.catalog_id != null)
+      .map((r) => ({
+        catalog_id: Number(r.catalog_id),
+        name: r.name ?? null,
+        quantity: r.quantity != null && r.quantity !== '' && !Number.isNaN(Number(r.quantity)) ? Number(r.quantity) : null,
+      }));
+    return success(res, {
+      order_id: id,
+      patient_uid: rows[0].patient_uid ?? null,
+      appointment_id: rows[0].appointment_id ?? null,
+      admission_id: rows[0].admission_id ?? null,
+      lines,
+    }, 'Dispensable context');
+  } catch (err) {
+    return relayAppError(res, err, 'Failed to fetch dispensable context');
+  }
+};
+
+/**
+ * GET /pharmacy-orders/catalog/:id/dispensable-batches
+ *
+ * In-stock, non-expired, non-empty batches for a catalog brand (via the mig-586
+ * pharmacy_inventory_items.catalog_id link), FEFO-ordered — the pharmacist's batch picker
+ * for a dispense-substitution. Tenant-scoped.
+ */
+export const getCatalogDispensableBatches = async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) throw AppError.badRequest('Valid catalog id is required');
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT b.inventory_item_id, b.id AS inventory_batch_id, b.batch_number,
+              b.remaining_quantity, b.expiry_date
+         FROM pharmacy_inventory_batches b
+         JOIN pharmacy_inventory_items i ON i.id = b.inventory_item_id
+        WHERE i.tenant_id = $1::uuid AND i.catalog_id = $2
+          AND b.status = 'in_stock'
+          AND b.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          AND b.remaining_quantity > 0
+        ORDER BY b.expiry_date ASC, b.id`,
+      req.tenantId, id,
+    );
+    return success(res, {
+      catalog_id: id,
+      batches: rows.map((r) => ({
+        inventory_item_id: Number(r.inventory_item_id),
+        inventory_batch_id: Number(r.inventory_batch_id),
+        batch_number: r.batch_number ?? null,
+        remaining_quantity: Number(r.remaining_quantity),
+        expiry_date: r.expiry_date,
+      })),
+    }, 'Dispensable batches');
+  } catch (err) {
+    return relayAppError(res, err, 'Failed to fetch dispensable batches');
   }
 };
 

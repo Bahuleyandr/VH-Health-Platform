@@ -271,4 +271,56 @@ class PharmacyApiService {
       'cancellation_reason': reason,
     });
   }
+
+  /// POST /pharmacy-orders/dispense-substitution
+  ///
+  /// Pharmacist dispenses an in-stock, same-formulation alternative in place of a
+  /// prescribed brand. The backend re-resolves both catalog ids, re-checks equivalence,
+  /// decrements the chosen batch, and writes the canonical clinical timeline + audit
+  /// pair atomically. Returns `{ movement_id, original_catalog_id, final_catalog_id,
+  /// quantity }`. `finalCatalogId` is the chosen alternative (the panel's onSwap item's
+  /// catalogId); `originalCatalogId` is the prescribed brand.
+  static Future<Map<String, dynamic>> dispenseSubstitution({
+    required String patientUid,
+    int? encounterId,
+    required int inventoryItemId,
+    required int inventoryBatchId,
+    required num quantity,
+    required int originalCatalogId,
+    required int finalCatalogId,
+    String? reason,
+  }) async {
+    return _post('/pharmacy-orders/dispense-substitution', {
+      'patient_uid': patientUid,
+      'encounter_id': ?encounterId,
+      'inventory_item_id': inventoryItemId,
+      'inventory_batch_id': inventoryBatchId,
+      'quantity': quantity,
+      'original_catalog_id': originalCatalogId,
+      'final_catalog_id': finalCatalogId,
+      'reason': ?reason,
+    });
+  }
+
+  /// GET /pharmacy-orders/orders/:id/dispensable
+  /// The patient + prescribed catalog-id lines behind an order — the context a
+  /// pharmacist needs to dispense a same-formulation substitute.
+  /// Returns `{ order_id, patient_uid, appointment_id?, admission_id?, lines:[{catalog_id,name,quantity}] }`.
+  static Future<Map<String, dynamic>> getOrderDispensable(int orderId) async {
+    return _get('/pharmacy-orders/orders/$orderId/dispensable');
+  }
+
+  /// GET /pharmacy-orders/catalog/:id/dispensable-batches
+  /// In-stock, non-expired, FEFO-ordered batches for a catalog brand — the batch picker.
+  /// Each: `{ inventory_item_id, inventory_batch_id, batch_number, remaining_quantity, expiry_date }`.
+  static Future<List<Map<String, dynamic>>> getCatalogDispensableBatches(
+    int catalogId,
+  ) async {
+    final data = await _get(
+      '/pharmacy-orders/catalog/$catalogId/dispensable-batches',
+    );
+    return _listFrom(data, [
+      'batches',
+    ]).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
 }

@@ -138,6 +138,13 @@ describe('E-prescriptions — deep integration', () => {
          ($1::uuid, '9000050001', 'Prescription Test Patient', 'PATIENT', CURRENT_DATE - INTERVAL '2 years', true, NOW()),
          ($2::uuid, '9000050002', 'Prescription Test Doctor', 'DOCTOR', NULL, true, NOW()),
          ($3::uuid, '9000050003', 'Prescription Test Nurse', 'NURSING_STAFF', NULL, true, NOW())
+       ON CONFLICT (uid) DO UPDATE SET
+         phone = EXCLUDED.phone,
+         name = EXCLUDED.name,
+         role = EXCLUDED.role,
+         birthday = EXCLUDED.birthday,
+         is_active = EXCLUDED.is_active,
+         updated_at = NOW()
        RETURNING id, uid`,
       PATIENT_UID,
       DOCTOR_UID,

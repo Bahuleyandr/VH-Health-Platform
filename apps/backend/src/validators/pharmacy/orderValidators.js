@@ -28,3 +28,15 @@ export const phoneParamValidation = [
 export const uidParamValidation = [
   param('uid').isUUID().withMessage('Valid UID required')
 ];
+
+// Pharmacist dispenses an in-stock same-formulation alternative for a prescribed brand.
+export const dispenseSubstitutionValidator = [
+  body('patient_uid').isUUID().withMessage('Valid patient UID required'),
+  body('encounter_id').optional({ nullable: true }),
+  body('inventory_item_id').isInt({ min: 1 }).withMessage('Valid inventory_item_id required'),
+  body('inventory_batch_id').isInt({ min: 1 }).withMessage('Valid inventory_batch_id required'),
+  body('quantity').isFloat({ gt: 0 }).withMessage('quantity must be greater than 0'),
+  body('original_catalog_id').isInt({ min: 1 }).withMessage('Valid original_catalog_id required'),
+  body('final_catalog_id').isInt({ min: 1 }).withMessage('Valid final_catalog_id required'),
+  body('reason').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('Reason too long (max 500 characters)')
+];
