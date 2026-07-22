@@ -16,8 +16,6 @@ import { assertVerificationCleared, ensurePackBarcode } from '../../services/pha
 import { isCompositionSearchEnabled } from '../../services/pharmacy/compositionFeatureService.js';
 import { resolveCompositionIdentitiesByCatalogIds } from '../../services/pharmacy/compositionIdentityService.js';
 import { enrichCatalogRowForWrite } from '../../../scripts/backfill-drug-compositions.mjs';
-import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalClinicalPlatformService.js';
-import { recordBrandSubstitutionAudit } from '../../services/pharmacy/compositionSubstitutionAudit.js';
 
 // B1 — shared pharmacist clinical-verification gate for lifecycle
 // progressions (PREPARING / DISPATCH / counter dispense). Returns true when
@@ -1846,6 +1844,17 @@ export const dispenseSubstitution = async (req, res) => {
     if (!substitutionAllowed(orig, sub)) {
       throw AppError.badRequest('Selected brand is not an equivalent substitute', 'SUBSTITUTE_NOT_EQUIVALENT');
     }
+
+    // Lazy-load the canonical-clinical + substitution-audit chain at dispense time only.
+    // Importing these at module top-level would drag the canonical → prescription-safety →
+    // allergy chain into the pharmacy route load graph, breaking route-load isolation tests
+    // that mock allergySourceService without its full export surface (SEVERE_BLOCK_RANK, etc.).
+    const { recordCanonicalClinicalEvent } = await import(
+      '../../services/clinical/canonicalClinicalPlatformService.js'
+    );
+    const { recordBrandSubstitutionAudit } = await import(
+      '../../services/pharmacy/compositionSubstitutionAudit.js'
+    );
 
     const result = await setTenantTx(tenantId, async (tx) => {
       // 1. DETAIL — lock the batch, validate availability, insert the movement, decrement.
