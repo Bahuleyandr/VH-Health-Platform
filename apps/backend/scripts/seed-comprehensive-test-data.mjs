@@ -435,6 +435,63 @@ function semanticValue(column, table, index, ctx, maxLength) {
 // override column is still filled (the generic walk skips nullable non-FK
 // columns). Keep entries minimal and tied to the migration that needs them.
 const TABLE_COLUMN_SEED_OVERRIDES = {
+  // mig 591: structured Radiology/AP sign-off and addendum evidence is
+  // all-or-nothing. Seed complete, internally consistent normal-result
+  // snapshots instead of letting the generic FK walker populate only the
+  // signer columns and violate the coupled CHECK constraints.
+  radiology_orders: {
+    status: 'signed_off',
+    ordered_by: (ctx) => ctx.doctor.uid,
+    radiologist: (ctx) => ctx.doctor.uid,
+    report: 'Seed radiology report with no diagnostic abnormality.',
+    structured_report: JSON.stringify({
+      sections: { impression: 'No diagnostic abnormality.' },
+      seed: true,
+    }),
+    report_completed_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    report_signed_off_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    report_signed_off_by: (ctx) => ctx.doctor.uid,
+    result_classification: 'normal',
+    classification_basis: JSON.stringify({ explicit_normal_flag: true, seed: true }),
+    report_generation_version: 1,
+    classification_signed_by: (ctx) => ctx.doctor.uid,
+    classification_signed_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    signoff_idempotency_key: 'seed-radiology-signoff-v1',
+    signoff_request_sha256: '0'.repeat(64),
+  },
+  radiology_report_addenda: {
+    generation_version: 2,
+    previous_classification: 'normal',
+    result_classification: 'normal',
+    classification_basis: JSON.stringify({ explicit_normal_flag: true, seed: true }),
+    clinical_significance: 'unchanged',
+    signed_by: (ctx) => ctx.doctor.uid,
+    idempotency_key: 'seed-radiology-addendum-v2',
+    request_sha256: '1'.repeat(64),
+  },
+  ap_reports: {
+    report_status: 'final',
+    diagnosis_text: 'Seed anatomic pathology report with no diagnostic abnormality.',
+    report_author_uid: (ctx) => ctx.doctor.uid,
+    signed_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    signed_by: (ctx) => ctx.doctor.uid,
+    result_classification: 'normal',
+    classification_basis: JSON.stringify({ explicit_normal_flag: true, seed: true }),
+    report_generation_version: 1,
+    classification_signed_by: (ctx) => ctx.doctor.uid,
+    signoff_idempotency_key: 'seed-ap-signoff-v1',
+    signoff_request_sha256: '2'.repeat(64),
+  },
+  ap_report_addenda: {
+    generation_version: 2,
+    previous_classification: 'normal',
+    result_classification: 'normal',
+    classification_basis: JSON.stringify({ explicit_normal_flag: true, seed: true }),
+    clinical_significance: 'unchanged',
+    addendum_by: (ctx) => ctx.doctor.uid,
+    idempotency_key: 'seed-ap-addendum-v2',
+    request_sha256: '3'.repeat(64),
+  },
   // mig 562: started_at/due_at became nullable, but NULL is legal only for
   // stemi-sourced rows carrying explicit *_pending metadata — the generic
   // row must supply both clocks or every SLA-linked dependent cascades.
