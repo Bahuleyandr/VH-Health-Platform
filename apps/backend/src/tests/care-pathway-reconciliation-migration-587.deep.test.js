@@ -13,6 +13,13 @@ const prismaSchema = readFileSync(
   new URL('../../prisma/schema.prisma', import.meta.url),
   'utf8',
 );
+const runtimeGrantBlock = migrationSql.match(
+  /DO \$care_pathway_reconciliation_runtime_grants\$[\s\S]*?\$care_pathway_reconciliation_runtime_grants\$;/,
+)?.[0];
+
+if (!runtimeGrantBlock) {
+  throw new Error('Migration 587 runtime grant block was not found');
+}
 
 const FROZEN_MIGRATIONS = {
   '580_care_pathway_execution_spine.sql': [246628, 'a41495fc511bd5238fe548e9185a1461715b47aa54607c7f42ff8ad79edaa979'],
@@ -145,6 +152,13 @@ describeIfDb('migration 587 database reconciliation evidence contract', () => {
     client = new Client({ connectionString: databaseUrl });
     await client.connect();
     await client.query('BEGIN');
+    const runtimeRole = await client.query(
+      "SELECT pg_catalog.to_regrole('vhhealth_runtime') IS NOT NULL AS exists",
+    );
+    if (!runtimeRole.rows[0].exists) {
+      await client.query('CREATE ROLE vhhealth_runtime NOLOGIN');
+      await client.query(runtimeGrantBlock);
+    }
     tenantOne = randomUUID();
     tenantTwo = randomUUID();
     await client.query(
