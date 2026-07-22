@@ -202,12 +202,15 @@ router.post('/reports/:id/sign-off', requireApSigner, paramId(), validate, async
     const row = await pathologyService.signOffReport(req.params.id, {
       ...req.body,
       signed_by: actorUid(req),
+      idempotencyKey: req.get('Idempotency-Key'),
     }, {
       tenantId: resolveTenantOrThrow(req),
       actorUid: actorUid(req),
       actorRole: actorRole(req),
     });
-    emitPathologyEvent('report-signed-off', { tenantId: req.tenantId });
+    if (row.diagnostic_generation?.replayed !== true) {
+      emitPathologyEvent('report-signed-off', { tenantId: req.tenantId });
+    }
     return success(res, row, 'Pathology report signed off');
   } catch (err) {
     if (err.isOperational) return handleOperationalError(res, err);
@@ -221,12 +224,15 @@ router.post('/reports/:id/addenda', requireApSigner, paramId(), validate, async 
     const row = await pathologyService.appendAddendum(req.params.id, {
       ...req.body,
       addendum_by: actorUid(req),
+      idempotencyKey: req.get('Idempotency-Key'),
     }, {
       tenantId: resolveTenantOrThrow(req),
       actorUid: actorUid(req),
       actorRole: actorRole(req),
     });
-    emitPathologyEvent('report-addendum', { tenantId: req.tenantId });
+    if (row.diagnostic_generation?.replayed !== true) {
+      emitPathologyEvent('report-addendum', { tenantId: req.tenantId });
+    }
     return success(res, row, 'Pathology addendum appended', 201);
   } catch (err) {
     if (err.isOperational) return handleOperationalError(res, err);

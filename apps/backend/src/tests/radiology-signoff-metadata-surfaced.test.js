@@ -79,7 +79,13 @@ describe('radiology read surfaces sign-off metadata (31d32cc1)', () => {
   });
 
   it('after signOffReport, getOrderDetail surfaces the populated metadata (the repro fix)', async () => {
-    await radiologyService.signOffReport(orderId, { signed_off_by: RADIOLOGIST_UID });
+    await radiologyService.signOffReport(orderId, {
+      signed_off_by: RADIOLOGIST_UID,
+      result_classification: 'normal',
+      classification_basis: { source: 'radiologist_attestation' },
+      idempotencyKey: 'radiology-signoff-metadata-surfaced',
+      actorRole: 'RADIOLOGIST',
+    });
 
     const detail = await radiologyService.getOrderDetail(orderId);
     expect(detail.report_signed_off_at).toBeTruthy(); // not null after signoff
@@ -89,5 +95,9 @@ describe('radiology read surfaces sign-off metadata (31d32cc1)', () => {
     const ourRow = wl.orders.find(r => r.id === orderId);
     expect(ourRow.report_signed_off_at).toBeTruthy();
     expect(ourRow.report_signed_off_by).toBe(RADIOLOGIST_UID);
+    expect(ourRow.result_classification).toBe('normal');
+    expect(ourRow.report_generation_version).toBe(1);
+    expect(ourRow.classification_signed_by).toBe(RADIOLOGIST_UID);
+    expect(ourRow.latest_addendum_id).toBeNull();
   });
 });

@@ -2231,6 +2231,40 @@ class AppStrings {
   // REVIEW: clinical confirmation
   String get radiologyReportSubmitted => _t('radiology.report_submitted');
   String get radiologyOrderCancelled => _t('radiology.order_cancelled');
+  String get radiologySignOffReport => _t('radiology.sign_off_report');
+  String get radiologyAddAddendum => _t('radiology.add_addendum');
+  String get radiologyAddendumText => _t('radiology.addendum_text');
+  String get radiologyAddendumRequired => _t('radiology.addendum_required');
+  String get radiologyClassification => _t('radiology.classification');
+  String get radiologyGenerationVersion => _t('radiology.generation_version');
+  String get radiologyClassificationAttestation =>
+      _t('radiology.classification_attestation');
+  String get radiologyClassificationRequired =>
+      _t('radiology.classification_required');
+  String get radiologyClassificationCritical =>
+      _t('radiology.classification.critical');
+  String get radiologyClassificationAbnormal =>
+      _t('radiology.classification.abnormal');
+  String get radiologyClassificationNormal =>
+      _t('radiology.classification.normal');
+  String get radiologyClassificationIndeterminate =>
+      _t('radiology.classification.indeterminate');
+  String get radiologyClinicalSignificance =>
+      _t('radiology.clinical_significance');
+  String get radiologySignificanceRequired =>
+      _t('radiology.significance_required');
+  String get radiologySignificanceUnchanged =>
+      _t('radiology.significance.unchanged');
+  String get radiologySignificanceNewFinding =>
+      _t('radiology.significance.new_finding');
+  String get radiologySignificanceWorsened =>
+      _t('radiology.significance.worsened');
+  String get radiologySignificanceImproved =>
+      _t('radiology.significance.improved');
+  String get radiologySignificanceCorrected =>
+      _t('radiology.significance.corrected');
+  String get radiologyReportSignedOff => _t('radiology.report_signed_off');
+  String get radiologyAddendumSubmitted => _t('radiology.addendum_submitted');
   String get scheduleTitle => _t('schedule.title');
   String get schedulePrevWeek => _t('schedule.prev_week');
   String get scheduleNextWeek => _t('schedule.next_week');
@@ -5189,6 +5223,28 @@ class AppStrings {
       'radiology.findings_required': 'Findings are required',
       'radiology.report_submitted': 'Report submitted',
       'radiology.order_cancelled': 'Order cancelled',
+      'radiology.sign_off_report': 'Sign off report',
+      'radiology.add_addendum': 'Add addendum',
+      'radiology.addendum_text': 'Addendum',
+      'radiology.addendum_required': 'Addendum text is required',
+      'radiology.classification': 'Result classification',
+      'radiology.generation_version': 'Signed result version',
+      'radiology.classification_attestation':
+          'Choose the clinical classification you are signing for this report.',
+      'radiology.classification_required': 'Result classification is required',
+      'radiology.classification.critical': 'Critical',
+      'radiology.classification.abnormal': 'Abnormal',
+      'radiology.classification.normal': 'Normal',
+      'radiology.classification.indeterminate': 'Indeterminate',
+      'radiology.clinical_significance': 'Clinical significance',
+      'radiology.significance_required': 'Clinical significance is required',
+      'radiology.significance.unchanged': 'Unchanged',
+      'radiology.significance.new_finding': 'New finding',
+      'radiology.significance.worsened': 'Worsened',
+      'radiology.significance.improved': 'Improved',
+      'radiology.significance.corrected': 'Corrected',
+      'radiology.report_signed_off': 'Report signed off',
+      'radiology.addendum_submitted': 'Addendum submitted',
       's4.lib.ophthalmology.title': 'Ophthalmology',
       's4.lib.ophthalmology.patient_uid': 'Patient UID',
       's4.lib.ophthalmology.patient_uid_required': 'Patient UID is required',

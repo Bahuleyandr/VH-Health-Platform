@@ -30,6 +30,7 @@ import * as taskService from '../workflow/taskService.js';
 import {
   repairCriticalResultTaskOwnerTx,
   resolveClinicalTaskOwnerTx,
+  resolvePathwayTaskOwnerTx,
 } from '../workflow/workflowHumanOwnerService.js';
 import { lockResultsInboxResourceTx } from './resultsInboxResourceLock.js';
 // Reuse the mig-269 canonical SLA layer (do NOT add a new SLA system).
@@ -302,7 +303,45 @@ async function repairCriticalResultOwner({
   task,
   orderingClinicianUid,
   careTeamRoleHint,
+  exactNamedOwner = false,
 }) {
+  if (exactNamedOwner) {
+    const owner = await resolvePathwayTaskOwnerTx({
+      tx,
+      tenantId,
+      requestedUid: orderingClinicianUid,
+    });
+    if (
+      String(task?.assigned_to_uid || '').toLowerCase() === owner.assignedToUid
+      && task?.assigned_to_role == null
+    ) {
+      return task;
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE tasks
+          SET assigned_to_uid = $3::uuid,
+              assigned_to_role = NULL,
+              metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'critical_result_owner_resolution', $4::text,
+                'critical_result_owner_fallback_reason', NULL,
+                'critical_result_owner_repaired', TRUE
+              ),
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint
+          AND status IN ('open', 'blocked', 'overdue')
+        RETURNING id, status, completed_at, workflow_sla_instance_id,
+                  sla_completion_semantics, assigned_to_uid, assigned_to_role, metadata`,
+      tenantId,
+      task.id,
+      owner.assignedToUid,
+      owner.resolution,
+    );
+    if (!rows[0]) {
+      throw new Error('Exact critical-result task owner changed before repair');
+    }
+    return rows[0];
+  }
   return repairCriticalResultTaskOwnerTx({
     tx,
     tenantId,
@@ -327,14 +366,21 @@ async function createCriticalResultTask({
   slaKey,
   slaInstanceId,
   extraMetadata = null,
+  exactNamedOwner = false,
 }) {
   if (!slaInstanceId) throw new Error('Critical-result task requires an active SLA instance');
-  const owner = await resolveClinicalTaskOwnerTx({
-    tx,
-    tenantId,
-    requestedUid: orderingClinicianUid,
-    fallbackRole: resolveRoleCode(careTeamRoleHint),
-  });
+  const owner = exactNamedOwner
+    ? await resolvePathwayTaskOwnerTx({
+      tx,
+      tenantId,
+      requestedUid: orderingClinicianUid,
+    })
+    : await resolveClinicalTaskOwnerTx({
+      tx,
+      tenantId,
+      requestedUid: orderingClinicianUid,
+      fallbackRole: resolveRoleCode(careTeamRoleHint),
+    });
   return taskService.createTask({
     tenantId,
     tx,
@@ -398,6 +444,7 @@ export async function enqueueCriticalResultTask({
   careTeamRoleHint = null,
   slaKey = 'critical_result_ack',
   extraMetadata = null,
+  exactNamedOwner = false,
   tx: callerTx = null,
   strict = false,
 } = {}) {
@@ -534,6 +581,7 @@ export async function enqueueCriticalResultTask({
             task: upgraded,
             orderingClinicianUid,
             careTeamRoleHint,
+            exactNamedOwner,
           });
           return {
             created: false,
@@ -549,6 +597,7 @@ export async function enqueueCriticalResultTask({
             task: priorTask,
             orderingClinicianUid,
             careTeamRoleHint,
+            exactNamedOwner,
           });
           return {
             created: false,
@@ -575,6 +624,7 @@ export async function enqueueCriticalResultTask({
         slaKey,
         slaInstanceId,
         extraMetadata,
+        exactNamedOwner,
       });
 
       if (created?.id) {
@@ -608,6 +658,7 @@ export async function enqueueCriticalResultTask({
         task: conflict,
         orderingClinicianUid,
         careTeamRoleHint,
+        exactNamedOwner,
       });
       return { created: false, taskId: conflict.id, slaInstanceId };
     };

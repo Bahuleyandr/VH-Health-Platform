@@ -293,10 +293,15 @@ router.post('/:id/sign-off', requireRadiologySigner, paramId(), validate, async 
   try {
     const result = await radiologyService.signOffReport(parseInt(req.params.id, 10), {
       signed_off_by: req.user?.uid,
+      result_classification: req.body?.result_classification ?? req.body?.resultClassification,
+      classification_basis: req.body?.classification_basis ?? req.body?.classificationBasis,
+      idempotencyKey: req.get('Idempotency-Key'),
       tenantId: resolveTenantOrThrow(req),
       actorRole: actorRole(req),
     });
-    emitRadiologyEvent('report-signed-off', { tenantId: req.tenantId });
+    if (result.diagnostic_generation?.replayed !== true) {
+      emitRadiologyEvent('report-signed-off', { tenantId: req.tenantId });
+    }
     return success(res, result, 'Radiology report signed off');
   } catch (err) {
     if (err.isOperational) return handleOperationalError(res, err);
@@ -307,10 +312,10 @@ router.post('/:id/sign-off', requireRadiologySigner, paramId(), validate, async 
 
 /**
  * D50 — POST /radiology/:id/addendum
- * Append an addendum to a SIGNED radiology report. The original
- * sign-off metadata stays untouched; the addendum is appended to the
- * report blob with a labelled header (timestamp + author) and a
- * matching audit_logs entry. Required body: { addendum: string }.
+ * Append a signed immutable generation to a SIGNED radiology report.
+ * The original report and sign-off metadata stay untouched. Required
+ * body includes addendum text, explicit result classification, structured
+ * classification basis, and clinical significance.
  */
 router.post('/:id/addendum', requireRadiologySigner, paramId(), validate, async (req, res, next) => {
   try {
@@ -319,11 +324,17 @@ router.post('/:id/addendum', requireRadiologySigner, paramId(), validate, async 
       {
         addendum: req.body?.addendum,
         addendum_by: req.user?.uid,
+        result_classification: req.body?.result_classification ?? req.body?.resultClassification,
+        classification_basis: req.body?.classification_basis ?? req.body?.classificationBasis,
+        clinical_significance: req.body?.clinical_significance ?? req.body?.clinicalSignificance,
+        idempotencyKey: req.get('Idempotency-Key'),
         tenantId: resolveTenantOrThrow(req),
         actorRole: actorRole(req),
       },
     );
-    emitRadiologyEvent('report-addendum', { tenantId: req.tenantId });
+    if (result.diagnostic_generation?.replayed !== true) {
+      emitRadiologyEvent('report-addendum', { tenantId: req.tenantId });
+    }
     return success(res, result, 'Radiology report addendum appended');
   } catch (err) {
     if (err.isOperational) return handleOperationalError(res, err);

@@ -24,6 +24,7 @@ import {
   workflowRuntimeRegistry,
 } from '../workflow/workflowRuntimeRegistry.js';
 import { sha256ClinicalJson } from './diagnosticClassification.js';
+import { hasValidDiagnosticCriticalAcknowledgementReceipt } from './diagnosticCriticalAcknowledgementEvidence.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RESOURCE_TYPE_PATTERN = /^[a-z][a-z0-9_]{0,79}$/;
@@ -170,6 +171,14 @@ async function loadDoctorActionContextTx(tx, tenantId, generationId, taskId) {
             generation.snapshot_sha256,
             generation.ordering_owner_uid,
             generation.owner_source,
+            generation.critical_acknowledgement_task_id,
+            generation.critical_acknowledgement_sla_id,
+            acknowledgement_task.status AS critical_ack_task_status,
+            acknowledgement_task.metadata AS critical_ack_task_metadata,
+            acknowledgement_task.assigned_to_uid AS critical_ack_assigned_to_uid,
+            acknowledgement_task.assigned_to_role AS critical_ack_assigned_to_role,
+            acknowledgement_sla.status AS critical_ack_sla_status,
+            acknowledgement_sla.completed_at AS critical_ack_sla_completed_at,
             pathway.id AS pathway_instance_id,
             pathway.workflow_run_id,
             pathway.owning_clinician_uid,
@@ -202,6 +211,12 @@ async function loadDoctorActionContextTx(tx, tenantId, generationId, taskId) {
          ON generation.tenant_id = pathway.tenant_id
         AND generation.id::text = pathway.source_episode_id
         AND pathway.source_episode_type = 'diagnostic_result_generation'
+       LEFT JOIN tasks AS acknowledgement_task
+         ON acknowledgement_task.tenant_id = generation.tenant_id
+        AND acknowledgement_task.id = generation.critical_acknowledgement_task_id
+       LEFT JOIN workflow_sla_instances AS acknowledgement_sla
+         ON acknowledgement_sla.tenant_id = generation.tenant_id
+        AND acknowledgement_sla.id = generation.critical_acknowledgement_sla_id
       WHERE task.tenant_id = $1::uuid
         AND task.id = $2::bigint
         AND generation.id = $3::uuid
@@ -330,6 +345,22 @@ export async function recordDoctorDiagnosticDisposition(input = {}, context = {}
     });
     const row = await loadDoctorActionContextTx(tx, tenantId, generationId, taskId);
     assertDoctorActionAuthorization(row, actor);
+    if (
+      row?.classification === 'critical'
+      && row.critical_acknowledgement_task_id != null
+      && !hasValidDiagnosticCriticalAcknowledgementReceipt({
+        taskStatus: row.critical_ack_task_status,
+        slaCompletedAt: row.critical_ack_sla_completed_at,
+        taskMetadata: row.critical_ack_task_metadata,
+        assignedToUid: row.critical_ack_assigned_to_uid,
+        assignedToRole: row.critical_ack_assigned_to_role,
+      })
+    ) {
+      throw AppError.conflict(
+        'Critical result must be acknowledged before the doctor action is recorded',
+        'DIAGNOSTIC_CRITICAL_ACK_REQUIRED',
+      );
+    }
 
     const existing = await findActionByIdempotencyTx(tx, tenantId, idempotencyKey);
     if (existing) {

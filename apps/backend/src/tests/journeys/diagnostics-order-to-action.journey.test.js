@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import radiologyService from '../../services/radiology/radiologyService.js';
+import pathologyService from '../../services/pathology/pathologyService.js';
 import {
   closeNormalDiagnosticGenerationIfEligible,
   recordDoctorDiagnosticDisposition,
@@ -24,6 +26,7 @@ import { COMMON_PATHWAY_RECONCILIATION_CHECKS } from '../../services/pathways/pa
 import { releaseResultNow } from '../../services/portal/portalAccessService.js';
 import { workflowRuntimeRegistry } from '../../services/workflow/workflowRuntimeRegistry.js';
 import { getInvestigationById } from '../../services/investigation/investigationService.js';
+import { acknowledgeTask } from '../../services/workflow/taskService.js';
 
 const DB_CONFIGURED = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -39,6 +42,8 @@ async function seedGovernedDiagnosticsFixture() {
   const doctorUid = randomUUID();
   const otherDoctorUid = randomUUID();
   const approverUid = randomUUID();
+  const radiologistUid = randomUUID();
+  const pathologistUid = randomUUID();
   const compiled = compileDiagnosticsOrderToActionDefinition();
   return setTenantTx(tenantId, async (tx) => {
     await tx.$queryRawUnsafe(
@@ -53,14 +58,18 @@ async function seedGovernedDiagnosticsFixture() {
     await tx.$queryRawUnsafe(
       `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
        VALUES
-         ($1::uuid, $5::uuid, 'Diagnostic Patient', 'PATIENT', TRUE, 'active', NOW()),
-         ($2::uuid, $5::uuid, 'Ordering Doctor', 'DOCTOR', TRUE, 'active', NOW()),
-         ($3::uuid, $5::uuid, 'Other Doctor', 'DOCTOR', TRUE, 'active', NOW()),
-         ($4::uuid, $5::uuid, 'Governance Approver', 'ADMIN', TRUE, 'active', NOW())`,
+         ($1::uuid, $7::uuid, 'Diagnostic Patient', 'PATIENT', TRUE, 'active', NOW()),
+         ($2::uuid, $7::uuid, 'Ordering Doctor', 'DOCTOR', TRUE, 'active', NOW()),
+         ($3::uuid, $7::uuid, 'Other Doctor', 'DOCTOR', TRUE, 'active', NOW()),
+         ($4::uuid, $7::uuid, 'Governance Approver', 'ADMIN', TRUE, 'active', NOW()),
+         ($5::uuid, $7::uuid, 'Diagnostic Radiologist', 'RADIOLOGIST', TRUE, 'active', NOW()),
+         ($6::uuid, $7::uuid, 'Diagnostic Pathologist', 'PATHOLOGIST', TRUE, 'active', NOW())`,
       patientUid,
       doctorUid,
       otherDoctorUid,
       approverUid,
+      radiologistUid,
+      pathologistUid,
       tenantId,
     );
     const definitions = await tx.$queryRawUnsafe(
@@ -157,6 +166,8 @@ async function seedGovernedDiagnosticsFixture() {
       patientUid,
       doctorUid,
       otherDoctorUid,
+      radiologistUid,
+      pathologistUid,
       investigation: investigations[0],
     };
   });
@@ -268,6 +279,58 @@ async function loadActionTask(fixture, generationId) {
   });
 }
 
+async function loadCriticalAcknowledgement(fixture, generationId) {
+  return setTenantTx(fixture.tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT generation.critical_acknowledgement_task_id AS task_id,
+              generation.critical_acknowledgement_sla_id AS sla_id,
+              task.status AS task_status,
+              task.assigned_to_uid,
+              task.assigned_to_role,
+              task.related_resource_type,
+              task.related_resource_id,
+              task.metadata AS task_metadata,
+              sla.status AS sla_status,
+              sla.completed_at AS sla_completed_at
+         FROM diagnostic_result_generations AS generation
+         LEFT JOIN tasks AS task
+           ON task.tenant_id = generation.tenant_id
+          AND task.id = generation.critical_acknowledgement_task_id
+         LEFT JOIN workflow_sla_instances AS sla
+           ON sla.tenant_id = generation.tenant_id
+          AND sla.id = generation.critical_acknowledgement_sla_id
+        WHERE generation.tenant_id = $1::uuid
+          AND generation.id = $2::uuid
+        LIMIT 1`,
+      fixture.tenantId,
+      generationId,
+    );
+    return rows[0] || null;
+  });
+}
+
+function doctorActionInput(generation, task, prefix) {
+  return {
+    tenantId: generation.tenant_id,
+    generationId: String(generation.id),
+    taskId: Number(task.id),
+    disposition: 'no_action',
+    clinicalNote: 'Reviewed the complete signed diagnostic generation and recorded the decision.',
+    reason: 'Synthetic journey evidence does not require a real downstream clinical resource.',
+    generationSnapshotSha256: generation.snapshot_sha256,
+    idempotencyKey: `${prefix}-${token()}`,
+    attested: true,
+    activationEvidenceCapability: activationCapability,
+  };
+}
+
+const namedDoctorActor = (fixture) => ({
+  actorUid: fixture.doctorUid,
+  actorName: 'Ordering Doctor',
+  actorRole: 'DOCTOR',
+  actorRoles: ['DOCTOR'],
+});
+
 d('diagnostic result action pathway', () => {
   afterAll(async () => {
     await prisma.$disconnect();
@@ -306,6 +369,473 @@ d('diagnostic result action pathway', () => {
       Number(fixture.investigation.id),
     ));
     expect(generations[0].count).toBe(0);
+  });
+
+  it('creates a fresh exact-owner critical acknowledgement window for every radiology amendment', async () => {
+    const fixture = await seedGovernedDiagnosticsFixture();
+    const order = await setTenantTx(fixture.tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO radiology_orders
+           (tenant_id, patient_uid, modality, body_part, clinical_indication,
+            priority, status, ordered_by, radiologist, report,
+            report_completed_at, structured_report, created_at, updated_at)
+         VALUES
+           ($1::uuid, $2::uuid, 'ct', 'chest', 'Synthetic pathway journey',
+            'urgent', 'completed', $3::uuid, $4::uuid,
+            'Initial signed report content', NOW(),
+            '{"sections":[]}'::jsonb, NOW(), NOW())
+         RETURNING *`,
+        fixture.tenantId,
+        fixture.patientUid,
+        fixture.doctorUid,
+        fixture.radiologistUid,
+      );
+      return rows[0];
+    });
+
+    const signoffInput = {
+      signed_off_by: fixture.radiologistUid,
+      result_classification: 'critical',
+      classification_basis: { source: 'radiologist_attestation', code: 'journey_initial' },
+      idempotencyKey: `radiology-signoff-${token()}`,
+      tenantId: fixture.tenantId,
+      actorRole: 'RADIOLOGIST',
+    };
+    const signedAttempts = await Promise.all([
+      radiologyService.signOffReport(order.id, signoffInput),
+      radiologyService.signOffReport(order.id, signoffInput),
+    ]);
+    expect(signedAttempts.map((entry) => entry.diagnostic_generation.replayed).sort())
+      .toEqual([false, true]);
+    const signed = signedAttempts[0];
+    const firstGeneration = signed.diagnostic_generation;
+    const firstAck = await loadCriticalAcknowledgement(fixture, firstGeneration.id);
+    expect(firstAck).toMatchObject({
+      task_status: 'open',
+      assigned_to_uid: fixture.doctorUid,
+      assigned_to_role: null,
+      related_resource_type: 'diagnostic_result_generation',
+      related_resource_id: firstGeneration.id,
+      sla_status: 'active',
+    });
+
+    await projectGeneration(fixture, firstGeneration);
+    const firstActionTask = await loadActionTask(fixture, firstGeneration.id);
+    await expect(recordDoctorDiagnosticDisposition(
+      doctorActionInput(firstGeneration, firstActionTask, 'radiology-before-ack'),
+      namedDoctorActor(fixture),
+    )).rejects.toMatchObject({ code: 'DIAGNOSTIC_CRITICAL_ACK_REQUIRED' });
+
+    await acknowledgeTask({
+      tenantId: fixture.tenantId,
+      id: Number(firstAck.task_id),
+      actorUid: fixture.doctorUid,
+      actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
+    });
+    const acknowledged = await loadCriticalAcknowledgement(fixture, firstGeneration.id);
+    expect(acknowledged.task_status).toBe('in_progress');
+    expect(acknowledged.sla_completed_at).toBeTruthy();
+    expect(acknowledged.task_metadata).toMatchObject({
+      acknowledged_by: fixture.doctorUid,
+      acknowledged_via: 'assignee',
+    });
+
+    const addendumInput = {
+      addendum: 'A newly reviewed image confirms the critical finding.',
+      addendum_by: fixture.radiologistUid,
+      result_classification: 'critical',
+      classification_basis: { source: 'radiologist_attestation', code: 'journey_addendum' },
+      clinical_significance: 'worsened',
+      idempotencyKey: `radiology-addendum-${token()}`,
+      tenantId: fixture.tenantId,
+      actorRole: 'RADIOLOGIST',
+    };
+    const amendmentAttempts = await Promise.all([
+      radiologyService.appendReportAddendum(order.id, addendumInput),
+      radiologyService.appendReportAddendum(order.id, addendumInput),
+    ]);
+    expect(amendmentAttempts.map((entry) => entry.diagnostic_generation.replayed).sort())
+      .toEqual([false, true]);
+    expect(amendmentAttempts[0].addendum.id).toBe(amendmentAttempts[1].addendum.id);
+    expect(amendmentAttempts[0].addendum).not.toHaveProperty('idempotency_key');
+    expect(amendmentAttempts[0].addendum).not.toHaveProperty('request_sha256');
+    const amended = amendmentAttempts[0];
+    const successor = amended.diagnostic_generation;
+    expect(successor).toMatchObject({
+      source_kind: 'radiology_report',
+      source_version: 2,
+      predecessor_generation_id: firstGeneration.id,
+    });
+    const secondAck = await loadCriticalAcknowledgement(fixture, successor.id);
+    expect(secondAck).toMatchObject({
+      task_status: 'open',
+      assigned_to_uid: fixture.doctorUid,
+      assigned_to_role: null,
+      related_resource_id: successor.id,
+      sla_status: 'active',
+    });
+    expect(Number(secondAck.task_id)).not.toBe(Number(firstAck.task_id));
+    expect(String(secondAck.sla_id)).not.toBe(String(firstAck.sla_id));
+
+    const projected = await projectGeneration(fixture, successor);
+    expect(projected.predecessor_supersession).toMatchObject({ superseded: true });
+    const supersededAck = await loadCriticalAcknowledgement(fixture, firstGeneration.id);
+    expect(supersededAck.task_status).toBe('completed');
+    expect(supersededAck.sla_completed_at).toBeTruthy();
+
+    const corrected = await radiologyService.appendReportAddendum(order.id, {
+      addendum: 'Correction: specialist review now classifies the complete report as normal.',
+      addendum_by: fixture.radiologistUid,
+      result_classification: 'normal',
+      classification_basis: { source: 'radiologist_attestation', code: 'journey_correction' },
+      clinical_significance: 'corrected',
+      idempotencyKey: `radiology-correction-${token()}`,
+      tenantId: fixture.tenantId,
+      actorRole: 'RADIOLOGIST',
+    });
+    expect(corrected.diagnostic_generation).toMatchObject({
+      source_version: 3,
+      classification: 'normal',
+      predecessor_generation_id: successor.id,
+      critical_acknowledgement_task_id: null,
+      critical_acknowledgement_sla_id: null,
+    });
+    const olderAddendumReplay = await radiologyService.appendReportAddendum(
+      order.id,
+      addendumInput,
+    );
+    expect(olderAddendumReplay.diagnostic_generation).toMatchObject({
+      id: successor.id,
+      source_version: 2,
+      replayed: true,
+    });
+    const correctedProjection = await projectGeneration(fixture, corrected.diagnostic_generation);
+    expect(correctedProjection.predecessor_supersession).toMatchObject({ superseded: true });
+    const supersededSecondAck = await loadCriticalAcknowledgement(fixture, successor.id);
+    expect(supersededSecondAck.task_status).toBe('completed');
+    expect(supersededSecondAck.sla_completed_at).toBeTruthy();
+    const acknowledgementCheck = COMMON_PATHWAY_RECONCILIATION_CHECKS.find(
+      (check) => check.id === 'diagnostic_structured_ack_evidence',
+    );
+    const reconciled = await setTenantTx(fixture.tenantId, (tx) => acknowledgementCheck.run({
+      tx,
+      tenantId: fixture.tenantId,
+      pathwayKey: 'diagnostics_order_to_action',
+    }));
+    expect(reconciled.finding_count).toBe(0);
+  });
+
+  it('uses explicit specialist classification in shadow mode without creating acknowledgement work', async () => {
+    const fixture = await seedGovernedDiagnosticsFixture();
+    await setTenantTx(fixture.tenantId, (tx) => tx.$executeRawUnsafe(
+      `UPDATE tenants
+          SET settings = jsonb_set(
+                settings,
+                '{care_pathways,diagnostics_order_to_action}',
+                '"shadow"'::jsonb,
+                TRUE
+              )
+        WHERE id = $1::uuid`,
+      fixture.tenantId,
+    ));
+    const order = await setTenantTx(fixture.tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO radiology_orders
+           (tenant_id, patient_uid, modality, body_part, clinical_indication,
+            priority, status, ordered_by, radiologist, report,
+            report_completed_at, structured_report, created_at, updated_at)
+         VALUES
+           ($1::uuid, $2::uuid, 'ct', 'brain', 'Possible severe acute finding',
+            'stat', 'completed', $3::uuid, $4::uuid,
+            'Free text says critical and urgent but is not classification evidence.', NOW(),
+            '{"sections":[{"text":"AI HIGH RISK"}]}'::jsonb, NOW(), NOW())
+         RETURNING *`,
+        fixture.tenantId,
+        fixture.patientUid,
+        fixture.doctorUid,
+        fixture.radiologistUid,
+      );
+      return rows[0];
+    });
+    const signed = await radiologyService.signOffReport(order.id, {
+      signed_off_by: fixture.radiologistUid,
+      result_classification: 'normal',
+      classification_basis: { source: 'radiologist_attestation', code: 'shadow_normal' },
+      idempotencyKey: `radiology-shadow-signoff-${token()}`,
+      tenantId: fixture.tenantId,
+      actorRole: 'RADIOLOGIST',
+    });
+    expect(signed.diagnostic_generation).toMatchObject({
+      classification: 'normal',
+      critical_acknowledgement_task_id: null,
+      critical_acknowledgement_sla_id: null,
+    });
+
+    const amended = await radiologyService.appendReportAddendum(order.id, {
+      addendum: 'Benign wording; only the signed structured declaration marks this critical.',
+      addendum_by: fixture.radiologistUid,
+      result_classification: 'critical',
+      classification_basis: { source: 'radiologist_attestation', code: 'shadow_critical' },
+      clinical_significance: 'new_finding',
+      idempotencyKey: `radiology-shadow-addendum-${token()}`,
+      tenantId: fixture.tenantId,
+      actorRole: 'RADIOLOGIST',
+    });
+    expect(amended.diagnostic_generation).toMatchObject({
+      source_version: 2,
+      classification: 'critical',
+      predecessor_generation_id: signed.diagnostic_generation.id,
+      critical_acknowledgement_task_id: null,
+      critical_acknowledgement_sla_id: null,
+    });
+    const linkedTasks = await setTenantTx(fixture.tenantId, (tx) => tx.$queryRawUnsafe(
+      `SELECT id FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'diagnostic_result_generation'
+          AND related_resource_id IN ($2::text, $3::text)`,
+      fixture.tenantId,
+      signed.diagnostic_generation.id,
+      amended.diagnostic_generation.id,
+    ));
+    expect(linkedTasks).toHaveLength(0);
+  });
+
+  it('routes an indeterminate radiology report to named-doctor action without a critical SLA', async () => {
+    const fixture = await seedGovernedDiagnosticsFixture();
+    const order = await setTenantTx(fixture.tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO radiology_orders
+           (tenant_id, patient_uid, modality, body_part, clinical_indication,
+            priority, status, ordered_by, radiologist, report,
+            report_completed_at, structured_report, created_at, updated_at)
+         VALUES
+           ($1::uuid, $2::uuid, 'xray', 'chest', 'Uncertain finding journey',
+            'routine', 'completed', $3::uuid, $4::uuid,
+            'Signed report requires clinical correlation.', NOW(),
+            '{"sections":[]}'::jsonb, NOW(), NOW())
+         RETURNING *`,
+        fixture.tenantId,
+        fixture.patientUid,
+        fixture.doctorUid,
+        fixture.radiologistUid,
+      );
+      return rows[0];
+    });
+    const signed = await radiologyService.signOffReport(order.id, {
+      signed_off_by: fixture.radiologistUid,
+      result_classification: 'indeterminate',
+      classification_basis: { source: 'radiologist_attestation', code: 'journey_indeterminate' },
+      idempotencyKey: `radiology-indeterminate-${token()}`,
+      tenantId: fixture.tenantId,
+      actorRole: 'RADIOLOGIST',
+    });
+    expect(signed.diagnostic_generation).toMatchObject({
+      classification: 'indeterminate',
+      critical_acknowledgement_task_id: null,
+      critical_acknowledgement_sla_id: null,
+    });
+    await projectGeneration(fixture, signed.diagnostic_generation);
+    const task = await loadActionTask(fixture, signed.diagnostic_generation.id);
+    expect(task).toMatchObject({
+      status: 'open',
+      assigned_to_uid: fixture.doctorUid,
+      assigned_to_role: null,
+      sla_completion_semantics: 'domain_evidence',
+    });
+  });
+
+  it('routes an abnormal AP report to doctor cross-sign and gives its critical addendum a new acknowledgement task', async () => {
+    const fixture = await seedGovernedDiagnosticsFixture();
+    const report = await setTenantTx(fixture.tenantId, async (tx) => {
+      const cases = await tx.$queryRawUnsafe(
+        `INSERT INTO ap_cases
+           (tenant_id, case_number, patient_uid, source_investigation_id,
+            case_kind, priority, status, clinical_history, accessioned_by)
+         VALUES
+           ($1::uuid, $2::text, $3::uuid, $4::integer,
+            'histopathology', 'urgent', 'reported', 'Synthetic pathway journey', $5::uuid)
+         RETURNING *`,
+        fixture.tenantId,
+        `AP-JOURNEY-${token()}`,
+        fixture.patientUid,
+        Number(fixture.investigation.id),
+        fixture.pathologistUid,
+      );
+      const reports = await tx.$queryRawUnsafe(
+        `INSERT INTO ap_reports
+           (tenant_id, ap_case_id, report_status, gross_text, microscopic_text,
+            diagnosis_text, synoptic_fields, malignancy_flag, report_author_uid)
+         VALUES
+           ($1::uuid, $2::bigint, 'draft', 'Synthetic gross description',
+            'Synthetic microscopy', 'Synthetic diagnostic interpretation',
+            '{"journey":true}'::jsonb, 'not_assessed', $3::uuid)
+         RETURNING *`,
+        fixture.tenantId,
+        cases[0].id,
+        fixture.pathologistUid,
+      );
+      return reports[0];
+    });
+
+    const signoffInput = {
+      result_classification: 'abnormal',
+      classification_basis: { source: 'pathologist_attestation', code: 'journey_initial' },
+      idempotencyKey: `ap-signoff-${token()}`,
+    };
+    const signerContext = {
+      tenantId: fixture.tenantId,
+      actorUid: fixture.pathologistUid,
+      actorRole: 'PATHOLOGIST',
+    };
+    const signed = await pathologyService.signOffReport(report.id, signoffInput, signerContext);
+    const signedReplay = await pathologyService.signOffReport(report.id, signoffInput, signerContext);
+    expect(signed).not.toHaveProperty('signoff_idempotency_key');
+    expect(signed).not.toHaveProperty('signoff_request_sha256');
+    expect(signedReplay.diagnostic_generation).toMatchObject({
+      id: signed.diagnostic_generation.id,
+      replayed: true,
+    });
+    const firstGeneration = signed.diagnostic_generation;
+    expect(firstGeneration).toMatchObject({
+      source_kind: 'anatomical_pathology_report',
+      source_version: 1,
+      ordering_owner_uid: fixture.doctorUid,
+      critical_acknowledgement_task_id: null,
+    });
+    await projectGeneration(fixture, firstGeneration);
+    const actionTask = await loadActionTask(fixture, firstGeneration.id);
+    const crossSign = await recordDoctorDiagnosticDisposition(
+      doctorActionInput(firstGeneration, actionTask, 'ap-abnormal-cross-sign'),
+      namedDoctorActor(fixture),
+    );
+    expect(crossSign).toMatchObject({
+      generation_id: firstGeneration.id,
+      action_kind: 'doctor_disposition',
+      pathway: { clinical_status: 'completed' },
+    });
+
+    const addendumInput = {
+      addendum_text: 'The signed addendum records a new critical finding.',
+      result_classification: 'critical',
+      classification_basis: { source: 'pathologist_attestation', code: 'journey_addendum' },
+      clinical_significance: 'new_finding',
+      idempotencyKey: `ap-addendum-${token()}`,
+    };
+    const amended = await pathologyService.appendAddendum(report.id, addendumInput, signerContext);
+    const amendedReplay = await pathologyService.appendAddendum(
+      report.id,
+      addendumInput,
+      signerContext,
+    );
+    expect(amendedReplay.diagnostic_generation).toMatchObject({
+      id: amended.diagnostic_generation.id,
+      replayed: true,
+    });
+    expect(amended.addendum).not.toHaveProperty('idempotency_key');
+    expect(amended.addendum).not.toHaveProperty('request_sha256');
+    const successor = amended.diagnostic_generation;
+    expect(successor).toMatchObject({
+      source_kind: 'anatomical_pathology_report',
+      source_version: 2,
+      predecessor_generation_id: firstGeneration.id,
+      ordering_owner_uid: fixture.doctorUid,
+    });
+    const criticalAck = await loadCriticalAcknowledgement(fixture, successor.id);
+    expect(criticalAck).toMatchObject({
+      task_status: 'open',
+      assigned_to_uid: fixture.doctorUid,
+      assigned_to_role: null,
+      related_resource_id: successor.id,
+      sla_status: 'active',
+    });
+    await projectGeneration(fixture, successor);
+    const successorActionTask = await loadActionTask(fixture, successor.id);
+    await expect(recordDoctorDiagnosticDisposition(
+      doctorActionInput(successor, successorActionTask, 'ap-critical-before-ack'),
+      namedDoctorActor(fixture),
+    )).rejects.toMatchObject({ code: 'DIAGNOSTIC_CRITICAL_ACK_REQUIRED' });
+
+    const laterAddendum = await pathologyService.appendAddendum(report.id, {
+      addendum_text: 'A later signed addendum preserves the abnormal classification.',
+      result_classification: 'abnormal',
+      classification_basis: { source: 'pathologist_attestation', code: 'journey_later' },
+      clinical_significance: 'improved',
+      idempotencyKey: `ap-later-addendum-${token()}`,
+    }, signerContext);
+    expect(laterAddendum.diagnostic_generation.source_version).toBe(3);
+    const olderAddendumReplay = await pathologyService.appendAddendum(
+      report.id,
+      addendumInput,
+      signerContext,
+    );
+    expect(olderAddendumReplay.diagnostic_generation).toMatchObject({
+      id: successor.id,
+      source_version: 2,
+      replayed: true,
+    });
+  });
+
+  it('rolls back active AP sign-off when no named ordering doctor can be resolved', async () => {
+    const fixture = await seedGovernedDiagnosticsFixture();
+    const report = await setTenantTx(fixture.tenantId, async (tx) => {
+      const cases = await tx.$queryRawUnsafe(
+        `INSERT INTO ap_cases
+           (tenant_id, case_number, patient_uid, case_kind, priority,
+            status, clinical_history, accessioned_by)
+         VALUES
+           ($1::uuid, $2::text, $3::uuid, 'histopathology', 'urgent',
+            'reported', 'No linked orderer journey', $4::uuid)
+         RETURNING *`,
+        fixture.tenantId,
+        `AP-NO-OWNER-${token()}`,
+        fixture.patientUid,
+        fixture.pathologistUid,
+      );
+      const reports = await tx.$queryRawUnsafe(
+        `INSERT INTO ap_reports
+           (tenant_id, ap_case_id, report_status, gross_text, microscopic_text,
+            diagnosis_text, synoptic_fields, malignancy_flag, report_author_uid)
+         VALUES
+           ($1::uuid, $2::bigint, 'draft', 'Synthetic gross description',
+            'Synthetic microscopy', 'Signed abnormal diagnosis',
+            '{"journey":true}'::jsonb, 'not_assessed', $3::uuid)
+         RETURNING *`,
+        fixture.tenantId,
+        cases[0].id,
+        fixture.pathologistUid,
+      );
+      return reports[0];
+    });
+
+    await expect(pathologyService.signOffReport(report.id, {
+      result_classification: 'abnormal',
+      classification_basis: { source: 'pathologist_attestation', code: 'missing_owner' },
+      idempotencyKey: `ap-no-owner-${token()}`,
+    }, {
+      tenantId: fixture.tenantId,
+      actorUid: fixture.pathologistUid,
+      actorRole: 'PATHOLOGIST',
+    })).rejects.toMatchObject({ code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE' });
+
+    const evidence = await setTenantTx(fixture.tenantId, (tx) => tx.$queryRawUnsafe(
+      `SELECT report.signed_at, report.result_classification,
+              COUNT(generation.id)::integer AS generation_count
+         FROM ap_reports AS report
+         LEFT JOIN diagnostic_result_generations AS generation
+           ON generation.tenant_id = report.tenant_id
+          AND generation.ap_report_id = report.id
+        WHERE report.tenant_id = $1::uuid AND report.id = $2::bigint
+        GROUP BY report.id`,
+      fixture.tenantId,
+      report.id,
+    ));
+    expect(evidence[0]).toMatchObject({
+      signed_at: null,
+      result_classification: null,
+      generation_count: 0,
+    });
   });
 
   it('requires explicit attestation and allows only the named doctor to seal domain evidence', async () => {
@@ -438,7 +968,7 @@ d('diagnostic result action pathway', () => {
         pathwayKey: 'diagnostics_order_to_action',
       })),
     ));
-    expect(reconciled).toHaveLength(4);
+    expect(reconciled).toHaveLength(5);
     expect(reconciled.every((row) => row.finding_count === 0)).toBe(true);
   });
 

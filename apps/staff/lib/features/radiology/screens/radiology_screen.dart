@@ -29,6 +29,19 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     'Ultrasound',
     'PET',
   ];
+  static const _classificationOptions = [
+    'critical',
+    'abnormal',
+    'normal',
+    'indeterminate',
+  ];
+  static const _significanceOptions = [
+    'unchanged',
+    'new_finding',
+    'worsened',
+    'improved',
+    'corrected',
+  ];
 
   @override
   void initState() {
@@ -92,6 +105,29 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
       'urgent' => AppTheme.warningAmber,
       'stat' => AppTheme.errorRed,
       _ => Colors.grey,
+    };
+  }
+
+  String _classificationLabel(String? classification) {
+    final s = AppStrings.of(context);
+    return switch (classification?.toLowerCase()) {
+      'critical' => s.radiologyClassificationCritical,
+      'abnormal' => s.radiologyClassificationAbnormal,
+      'normal' => s.radiologyClassificationNormal,
+      'indeterminate' => s.radiologyClassificationIndeterminate,
+      _ => classification ?? '—',
+    };
+  }
+
+  String _significanceLabel(String significance) {
+    final s = AppStrings.of(context);
+    return switch (significance) {
+      'unchanged' => s.radiologySignificanceUnchanged,
+      'new_finding' => s.radiologySignificanceNewFinding,
+      'worsened' => s.radiologySignificanceWorsened,
+      'improved' => s.radiologySignificanceImproved,
+      'corrected' => s.radiologySignificanceCorrected,
+      _ => significance,
     };
   }
 
@@ -384,6 +420,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   void _showDetailSheet(Map<String, dynamic> o) {
     final status = o['status']?.toString().toLowerCase();
     final id = o['id'] as int?;
+    final isSigned = o['report_signed_off_at'] != null;
     final str = AppStrings.of(context);
 
     showModalBottomSheet(
@@ -466,6 +503,18 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                       str.radiologyLabelImpression,
                       o['impression'].toString(),
                     ),
+                  if (o['result_classification'] != null)
+                    _detailRow(
+                      str.radiologyClassification,
+                      _classificationLabel(
+                        o['result_classification']?.toString(),
+                      ),
+                    ),
+                  if (o['report_generation_version'] != null)
+                    _detailRow(
+                      str.radiologyGenerationVersion,
+                      o['report_generation_version'].toString(),
+                    ),
                   const SizedBox(height: 24),
                   if (id != null) ...[
                     if (status == 'pending' || status == 'in_progress')
@@ -480,6 +529,34 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                           label: Text(str.radiologySubmitReport),
                         ),
                       ),
+                    if (status == 'completed' && !isSigned) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _showSignOffForm(id);
+                          },
+                          icon: const Icon(Icons.verified),
+                          label: Text(str.radiologySignOffReport),
+                        ),
+                      ),
+                    ],
+                    if (isSigned) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _showAddendumForm(id);
+                          },
+                          icon: const Icon(Icons.post_add),
+                          label: Text(str.radiologyAddAddendum),
+                        ),
+                      ),
+                    ],
                     if (status != 'completed' && status != 'cancelled') ...[
                       const SizedBox(height: 10),
                       SizedBox(
@@ -634,6 +711,284 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
         );
       },
     );
+  }
+
+  void _showSignOffForm(int id) {
+    String? classification;
+    bool submitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final s = AppStrings.of(ctx);
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              top: 24,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.radiologySignOffReport,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  s.radiologyClassificationAttestation,
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: classification,
+                  decoration: InputDecoration(
+                    labelText: s.radiologyClassification,
+                  ),
+                  items: _classificationOptions
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(_classificationLabel(value)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: submitting
+                      ? null
+                      : (value) => setSheetState(() => classification = value),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: submitting
+                        ? null
+                        : () async {
+                            if (classification == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    s.radiologyClassificationRequired,
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            setSheetState(() => submitting = true);
+                            try {
+                              await RadiologyApiService.signOffReport(
+                                id,
+                                resultClassification: classification!,
+                              );
+                              if (!mounted || !sheetContext.mounted) return;
+                              Navigator.pop(sheetContext);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(s.radiologyReportSignedOff),
+                                ),
+                              );
+                              _fetchWorklist();
+                            } catch (e) {
+                              if (!mounted || !sheetContext.mounted) return;
+                              setSheetState(() => submitting = false);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '${s.errorSomethingWentWrong}: $e',
+                                  ),
+                                  backgroundColor: AppTheme.errorRed,
+                                ),
+                              );
+                            }
+                          },
+                    child: submitting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(s.radiologySignOffReport),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showAddendumForm(int id) {
+    final addendumController = TextEditingController();
+    String? classification;
+    String? significance;
+    bool submitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final s = AppStrings.of(ctx);
+          return SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              top: 24,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.radiologyAddAddendum,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: addendumController,
+                  maxLines: 5,
+                  enabled: !submitting,
+                  decoration: InputDecoration(
+                    labelText: s.radiologyAddendumText,
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: classification,
+                  decoration: InputDecoration(
+                    labelText: s.radiologyClassification,
+                  ),
+                  items: _classificationOptions
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(_classificationLabel(value)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: submitting
+                      ? null
+                      : (value) => setSheetState(() => classification = value),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: significance,
+                  decoration: InputDecoration(
+                    labelText: s.radiologyClinicalSignificance,
+                  ),
+                  items: _significanceOptions
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(_significanceLabel(value)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: submitting
+                      ? null
+                      : (value) => setSheetState(() => significance = value),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: submitting
+                        ? null
+                        : () async {
+                            final addendum = addendumController.text.trim();
+                            if (addendum.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(s.radiologyAddendumRequired),
+                                ),
+                              );
+                              return;
+                            }
+                            if (classification == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    s.radiologyClassificationRequired,
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            if (significance == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    s.radiologySignificanceRequired,
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            setSheetState(() => submitting = true);
+                            try {
+                              await RadiologyApiService.appendAddendum(
+                                id,
+                                addendum: addendum,
+                                resultClassification: classification!,
+                                clinicalSignificance: significance!,
+                              );
+                              if (!mounted || !sheetContext.mounted) return;
+                              Navigator.pop(sheetContext);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(s.radiologyAddendumSubmitted),
+                                ),
+                              );
+                              _fetchWorklist();
+                            } catch (e) {
+                              if (!mounted || !sheetContext.mounted) return;
+                              setSheetState(() => submitting = false);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '${s.errorSomethingWentWrong}: $e',
+                                  ),
+                                  backgroundColor: AppTheme.errorRed,
+                                ),
+                              );
+                            }
+                          },
+                    child: submitting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(s.actionSubmit),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    ).whenComplete(addendumController.dispose);
   }
 
   Future<void> _cancelOrder(BuildContext sheetCtx, int id) async {

@@ -7,6 +7,14 @@ import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatf
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { sha256ClinicalJson } from '../diagnostics/diagnosticClassification.js';
+import {
+  createAnatomicalPathologyDiagnosticGenerationTx,
+  normalizeDiagnosticIdempotencyKey,
+  normalizeStructuredAddendumSignificance,
+  normalizeStructuredClassificationBasis,
+  normalizeStructuredResultClassification,
+} from '../diagnostics/structuredReportDiagnosticGenerationService.js';
 
 const VALID_CASE_KINDS = ['histopathology', 'cytology', 'frozen_section'];
 const VALID_PRIORITIES = ['routine', 'urgent', 'stat'];
@@ -83,6 +91,35 @@ function normalizeWireValue(value) {
   }
   if (Array.isArray(value)) return value.map(normalizeWireValue);
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, normalizeWireValue(entry)]));
+}
+
+function latestStructuredAddendum(addenda) {
+  return addenda.reduce((latest, addendum) => {
+    if (addendum.generation_version == null) return latest;
+    if (!latest || Number(addendum.generation_version) > Number(latest.generation_version)) {
+      return addendum;
+    }
+    return latest;
+  }, null);
+}
+
+function projectCurrentApReport(report, addendum = null) {
+  if (!report) return null;
+  const {
+    signoff_idempotency_key: _signoffIdempotencyKey,
+    signoff_request_sha256: _signoffRequestSha256,
+    ...publicReport
+  } = report;
+  return {
+    ...publicReport,
+    result_classification: addendum?.result_classification ?? report.result_classification,
+    classification_basis: addendum?.classification_basis ?? report.classification_basis,
+    report_generation_version: addendum?.generation_version ?? report.report_generation_version,
+    classification_signed_by: addendum?.addendum_by ?? report.classification_signed_by,
+    classification_signed_at: addendum?.addendum_at ?? report.signed_at,
+    latest_clinical_significance: addendum?.clinical_significance ?? null,
+    latest_addendum_id: addendum?.id ?? null,
+  };
 }
 
 function requireIntId(id, label = 'id') {
@@ -288,7 +325,10 @@ async function loadCaseDetail(db, id, tenantId) {
   let addenda = [];
   if (reports[0]) {
     addenda = await db.$queryRawUnsafe(
-      `SELECT *
+      `SELECT id, tenant_id, ap_report_id, addendum_text, addendum_by,
+              addendum_at, metadata, created_at, generation_version,
+              previous_classification, result_classification,
+              classification_basis, clinical_significance
          FROM ap_report_addenda
         WHERE ap_report_id = $1::bigint AND tenant_id = $2::uuid
         ORDER BY addendum_at ASC, id ASC`,
@@ -297,13 +337,14 @@ async function loadCaseDetail(db, id, tenantId) {
     );
   }
 
+  const currentAddendum = latestStructuredAddendum(addenda);
   return normalizeWireValue({
     case: caseRows[0],
     specimens,
     gross_records: grossRecords,
     blocks,
     slides,
-    report: reports[0] || null,
+    report: projectCurrentApReport(reports[0], currentAddendum),
     addenda,
   });
 }
@@ -424,6 +465,13 @@ class PathologyService {
     return setTenant(tenantId, async (tx) => {
       const rows = await tx.$queryRawUnsafe(
         `SELECT c.*, r.id AS report_id, r.report_status, r.signed_at, r.signed_by,
+                COALESCE(latest_addendum.result_classification, r.result_classification) AS result_classification,
+                COALESCE(latest_addendum.classification_basis, r.classification_basis) AS classification_basis,
+                COALESCE(latest_addendum.generation_version, r.report_generation_version) AS report_generation_version,
+                COALESCE(latest_addendum.addendum_by, r.classification_signed_by) AS classification_signed_by,
+                COALESCE(latest_addendum.addendum_at, r.signed_at) AS classification_signed_at,
+                latest_addendum.clinical_significance AS latest_clinical_significance,
+                latest_addendum.id AS latest_addendum_id,
                 COALESCE(specimens.specimen_count, 0)::int AS specimen_count,
                 COALESCE(blocks.block_count, 0)::int AS block_count,
                 COALESCE(slides.slide_count, 0)::int AS slide_count,
@@ -431,6 +479,17 @@ class PathologyService {
            FROM ap_cases c
            LEFT JOIN ap_reports r
              ON r.tenant_id = c.tenant_id AND r.ap_case_id = c.id
+           LEFT JOIN LATERAL (
+             SELECT addendum.id, addendum.generation_version, addendum.result_classification,
+                    addendum.classification_basis, addendum.clinical_significance,
+                    addendum.addendum_by, addendum.addendum_at
+               FROM ap_report_addenda addendum
+              WHERE addendum.tenant_id = r.tenant_id
+                AND addendum.ap_report_id = r.id
+                AND addendum.generation_version IS NOT NULL
+              ORDER BY addendum.generation_version DESC, addendum.id DESC
+              LIMIT 1
+           ) latest_addendum ON TRUE
            LEFT JOIN LATERAL (
              SELECT COUNT(*) AS specimen_count
                FROM ap_case_specimens cs
@@ -721,19 +780,82 @@ class PathologyService {
 
   async signOffReport(reportId, data = {}, context = {}) {
     const tenantId = tenantOr(context.tenantId || context.tenant_id);
+    const signerUid = optionalUuid(context.actorUid);
+    const signerRole = cleanOptionalText(context.actorRole);
+    if (!signerUid) throw AppError.badRequest('signed_by is required');
+    if (!signerRole) throw AppError.badRequest('Authenticated signer role is required');
+    const classification = normalizeStructuredResultClassification(
+      data.result_classification ?? data.resultClassification,
+    );
+    const classificationBasis = normalizeStructuredClassificationBasis(
+      data.classification_basis ?? data.classificationBasis,
+    );
+    const idempotencyKey = normalizeDiagnosticIdempotencyKey(data.idempotencyKey);
+    const requestSha256 = sha256ClinicalJson({
+      ap_report_id: String(requireIntId(reportId)),
+      signer_uid: String(signerUid),
+      result_classification: classification,
+      classification_basis: classificationBasis,
+    });
     return setTenantTx(tenantId, async (tx) => {
       const reports = await tx.$queryRawUnsafe(
-        `SELECT r.*, c.case_number, c.patient_uid, c.encounter_id, c.case_kind, c.status AS case_status
+        `SELECT r.*, c.case_number, c.patient_uid, c.encounter_id, c.case_kind,
+                c.status AS case_status, c.source_investigation_id,
+                investigation.requested_by AS ordering_owner_uid
            FROM ap_reports r
            JOIN ap_cases c ON c.id = r.ap_case_id AND c.tenant_id = r.tenant_id
+           LEFT JOIN investigations AS investigation
+             ON investigation.tenant_id = c.tenant_id
+            AND investigation.id = c.source_investigation_id
           WHERE r.id = $1::bigint AND r.tenant_id = $2::uuid
-          LIMIT 1`,
+          LIMIT 1
+          FOR UPDATE OF r`,
         requireIntId(reportId),
         tenantId,
       );
       if (reports.length === 0) throw AppError.notFound('Pathology report not found');
       const report = reports[0];
-      if (report.signed_at) throw AppError.conflict('Pathology report is already signed');
+      if (report.signed_at) {
+        if (
+          report.signoff_idempotency_key === idempotencyKey
+          && report.signoff_request_sha256 === requestSha256
+        ) {
+          const diagnosticGeneration = await createAnatomicalPathologyDiagnosticGenerationTx({
+            tx,
+            tenantId,
+            patientUid: report.patient_uid,
+            encounterId: report.encounter_id,
+            sourceEpisodeKey: `ap_report:${report.id}`,
+            sourceVersion: 1,
+            sourceRowId: report.id,
+            apReportId: report.id,
+            orderingOwnerUid: report.ordering_owner_uid,
+            signerUid: report.classification_signed_by,
+            signerRole,
+            signedAt: report.signed_at,
+            resultClassification: report.result_classification,
+            classificationBasis: report.classification_basis,
+            sourceContentSha256: sha256ClinicalJson({
+              gross_text: report.gross_text,
+              microscopic_text: report.microscopic_text,
+              diagnosis_text: report.diagnosis_text,
+              synoptic_fields: report.synoptic_fields,
+              malignancy_flag: report.malignancy_flag,
+            }),
+          });
+          const {
+            signoff_idempotency_key: _signoffIdempotencyKey,
+            signoff_request_sha256: _signoffRequestSha256,
+            ordering_owner_uid: _orderingOwnerUid,
+            ...publicReport
+          } = report;
+          return normalizeWireValue({
+            ...publicReport,
+            diagnostic_generation: diagnosticGeneration,
+          });
+        }
+        throw AppError.conflict('Pathology report is already signed');
+      }
       if (!cleanOptionalText(report.diagnosis_text)) {
         throw AppError.badRequest('Diagnosis text is required before sign-off', 'AP_DIAGNOSIS_REQUIRED');
       }
@@ -741,14 +863,24 @@ class PathologyService {
       const rows = await tx.$queryRawUnsafe(
         `UPDATE ap_reports
             SET report_status = 'final',
-                signed_at = NOW(),
-                signed_by = $3::uuid,
-                updated_at = NOW()
-          WHERE id = $1::bigint AND tenant_id = $2::uuid
-          RETURNING *`,
+                 signed_at = NOW(),
+                 signed_by = $3::uuid,
+                 result_classification = $4::text,
+                 classification_basis = $5::jsonb,
+                 report_generation_version = 1,
+                 classification_signed_by = $3::uuid,
+                 signoff_idempotency_key = $6::text,
+                 signoff_request_sha256 = $7::text,
+                 updated_at = NOW()
+           WHERE id = $1::bigint AND tenant_id = $2::uuid
+           RETURNING *`,
         requireIntId(reportId),
         tenantId,
-        optionalUuid(data.signed_by ?? data.signedBy ?? context.actorUid),
+        signerUid,
+        classification,
+        JSON.stringify(classificationBasis),
+        idempotencyKey,
+        requestSha256,
       );
       const updated = await tx.$queryRawUnsafe(
         `UPDATE ap_cases
@@ -761,14 +893,45 @@ class PathologyService {
       await emitPathologyCanonicalEvent(tx, updated[0], 'pathology.report_signed_off', {
         sourceTable: 'ap_reports',
         sourceId: rows[0].id,
-        actorUid: data.signed_by ?? data.signedBy ?? context.actorUid,
+        actorUid: signerUid,
         actorRole: context.actorRole || null,
         beforeStatus: report.case_status,
         afterStatus: 'signed',
         occurredAt: rows[0].signed_at,
         summary: `Pathology report signed for case ${updated[0].case_number}`,
       });
-      return normalizeWireValue(rows[0]);
+      const diagnosticGeneration = await createAnatomicalPathologyDiagnosticGenerationTx({
+        tx,
+        tenantId,
+        patientUid: report.patient_uid,
+        encounterId: report.encounter_id,
+        sourceEpisodeKey: `ap_report:${rows[0].id}`,
+        sourceVersion: 1,
+        sourceRowId: rows[0].id,
+        apReportId: rows[0].id,
+        orderingOwnerUid: report.ordering_owner_uid,
+        signerUid,
+        signerRole,
+        signedAt: rows[0].signed_at,
+        resultClassification: classification,
+        classificationBasis,
+        sourceContentSha256: sha256ClinicalJson({
+          gross_text: rows[0].gross_text,
+          microscopic_text: rows[0].microscopic_text,
+          diagnosis_text: rows[0].diagnosis_text,
+          synoptic_fields: rows[0].synoptic_fields,
+          malignancy_flag: rows[0].malignancy_flag,
+        }),
+      });
+      const {
+        signoff_idempotency_key: _signoffIdempotencyKey,
+        signoff_request_sha256: _signoffRequestSha256,
+        ...publicReport
+      } = rows[0];
+      return normalizeWireValue({
+        ...publicReport,
+        diagnostic_generation: diagnosticGeneration,
+      });
     });
   }
 
@@ -776,60 +939,215 @@ class PathologyService {
     const tenantId = tenantOr(context.tenantId || context.tenant_id);
     const addendumText = cleanOptionalText(data.addendum_text ?? data.addendumText);
     if (!addendumText) throw AppError.badRequest('addendum_text is required');
+    const signerUid = optionalUuid(context.actorUid);
+    const signerRole = cleanOptionalText(context.actorRole);
+    if (!signerUid) throw AppError.badRequest('addendum_by is required');
+    if (!signerRole) throw AppError.badRequest('Authenticated signer role is required');
+    const classification = normalizeStructuredResultClassification(
+      data.result_classification ?? data.resultClassification,
+    );
+    const classificationBasis = normalizeStructuredClassificationBasis(
+      data.classification_basis ?? data.classificationBasis,
+    );
+    const significance = normalizeStructuredAddendumSignificance(
+      data.clinical_significance ?? data.clinicalSignificance,
+    );
+    const idempotencyKey = normalizeDiagnosticIdempotencyKey(data.idempotencyKey);
+    const requestSha256 = sha256ClinicalJson({
+      ap_report_id: String(requireIntId(reportId)),
+      addendum_text: addendumText,
+      signer_uid: String(signerUid),
+      result_classification: classification,
+      classification_basis: classificationBasis,
+      clinical_significance: significance,
+    });
 
     return setTenantTx(tenantId, async (tx) => {
       const reports = await tx.$queryRawUnsafe(
-        `SELECT r.*, c.case_number, c.patient_uid, c.encounter_id, c.case_kind, c.status AS case_status
+        `SELECT r.*, c.case_number, c.patient_uid, c.encounter_id, c.case_kind,
+                c.status AS case_status, c.source_investigation_id,
+                investigation.requested_by AS ordering_owner_uid
            FROM ap_reports r
            JOIN ap_cases c ON c.id = r.ap_case_id AND c.tenant_id = r.tenant_id
+           LEFT JOIN investigations AS investigation
+             ON investigation.tenant_id = c.tenant_id
+            AND investigation.id = c.source_investigation_id
           WHERE r.id = $1::bigint AND r.tenant_id = $2::uuid
-          LIMIT 1`,
+          LIMIT 1
+          FOR UPDATE OF r`,
         requireIntId(reportId),
         tenantId,
       );
       if (reports.length === 0) throw AppError.notFound('Pathology report not found');
       const report = reports[0];
       if (!report.signed_at) throw AppError.badRequest('Only signed pathology reports can receive addenda');
+      if (!report.result_classification || Number(report.report_generation_version) !== 1) {
+        throw AppError.conflict(
+          'Signed report has no structured initial classification; reconcile it before adding an amendment',
+          'DIAGNOSTIC_SOURCE_RECONCILIATION_REQUIRED',
+        );
+      }
       transitionApReportStatus(report.report_status, 'amended');
-      const rows = await tx.$queryRawUnsafe(
-        `INSERT INTO ap_report_addenda
-           (tenant_id, ap_report_id, addendum_text, addendum_by, metadata)
-         VALUES ($1::uuid, $2::bigint, $3, $4::uuid, $5::jsonb)
-         RETURNING *`,
+      const priorAddenda = await tx.$queryRawUnsafe(
+        `SELECT id, generation_version, addendum_text, previous_classification,
+                result_classification, classification_basis, clinical_significance,
+                addendum_by, addendum_at, idempotency_key, request_sha256
+           FROM ap_report_addenda
+          WHERE tenant_id = $1::uuid
+            AND ap_report_id = $2::bigint
+           ORDER BY generation_version ASC, id ASC`,
         tenantId,
         requireIntId(reportId),
-        addendumText,
-        optionalUuid(data.addendum_by ?? data.addendumBy ?? context.actorUid),
-        JSON.stringify(safeJsonObject(data.metadata)),
       );
-      const updatedReports = await tx.$queryRawUnsafe(
-        `UPDATE ap_reports
-            SET report_status = 'amended', amended_at = $3::timestamptz, updated_at = NOW()
-          WHERE id = $1::bigint AND tenant_id = $2::uuid
-          RETURNING *`,
-        requireIntId(reportId),
-        tenantId,
-        rows[0].addendum_at,
-      );
-      const updated = await tx.$queryRawUnsafe(
-        `UPDATE ap_cases
-            SET status = 'amended', updated_at = NOW()
-          WHERE id = $1::bigint AND tenant_id = $2::uuid
-          RETURNING ${AP_CASE_RETURNING}`,
-        report.ap_case_id,
-        tenantId,
-      );
-      await emitPathologyCanonicalEvent(tx, updated[0], 'pathology.report_addendum', {
-        sourceTable: 'ap_report_addenda',
-        sourceId: rows[0].id,
-        actorUid: data.addendum_by ?? data.addendumBy ?? context.actorUid,
-        actorRole: context.actorRole || null,
-        beforeStatus: report.case_status,
-        afterStatus: 'amended',
-        occurredAt: rows[0].addendum_at,
-        summary: `Pathology addendum appended for case ${updated[0].case_number}`,
+      if (priorAddenda.some((entry) => entry.generation_version == null)) {
+        throw AppError.conflict(
+          'Report has legacy addenda without structured classifications; reconcile them before adding an amendment',
+          'DIAGNOSTIC_SOURCE_RECONCILIATION_REQUIRED',
+        );
+      }
+      const predecessor = priorAddenda.at(-1) || null;
+      const replayAddendum = priorAddenda.find(
+        (entry) => entry.idempotency_key === idempotencyKey,
+      ) || null;
+      if (replayAddendum && replayAddendum.request_sha256 !== requestSha256) {
+        throw AppError.conflict(
+          'Idempotency-Key was reused with different pathology addendum content',
+          'DIAGNOSTIC_IDEMPOTENCY_CONFLICT',
+        );
+      }
+      const generationVersion = replayAddendum
+        ? Number(replayAddendum.generation_version)
+        : predecessor
+          ? Number(predecessor.generation_version) + 1
+          : 2;
+      const previousClassification = replayAddendum?.previous_classification
+        || predecessor?.result_classification
+        || report.result_classification;
+      let addendumRow = replayAddendum;
+      let updatedReport = report;
+      if (!addendumRow) {
+        const rows = await tx.$queryRawUnsafe(
+          `INSERT INTO ap_report_addenda
+             (tenant_id, ap_report_id, addendum_text, addendum_by, metadata,
+              generation_version, previous_classification, result_classification,
+              classification_basis, clinical_significance, idempotency_key,
+              request_sha256)
+           VALUES
+             ($1::uuid, $2::bigint, $3, $4::uuid, $5::jsonb,
+              $6::bigint, $7::text, $8::text, $9::jsonb, $10::text,
+              $11::text, $12::text)
+           RETURNING *`,
+          tenantId,
+          requireIntId(reportId),
+          addendumText,
+          signerUid,
+          JSON.stringify(safeJsonObject(data.metadata)),
+          generationVersion,
+          previousClassification,
+          classification,
+          JSON.stringify(classificationBasis),
+          significance,
+          idempotencyKey,
+          requestSha256,
+        );
+        [addendumRow] = rows;
+        const updatedReports = await tx.$queryRawUnsafe(
+          `UPDATE ap_reports
+              SET report_status = 'amended', amended_at = $3::timestamptz, updated_at = NOW()
+            WHERE id = $1::bigint AND tenant_id = $2::uuid
+            RETURNING *`,
+          requireIntId(reportId),
+          tenantId,
+          addendumRow.addendum_at,
+        );
+        [updatedReport] = updatedReports;
+        const updated = await tx.$queryRawUnsafe(
+          `UPDATE ap_cases
+              SET status = 'amended', updated_at = NOW()
+            WHERE id = $1::bigint AND tenant_id = $2::uuid
+            RETURNING ${AP_CASE_RETURNING}`,
+          report.ap_case_id,
+          tenantId,
+        );
+        await emitPathologyCanonicalEvent(tx, updated[0], 'pathology.report_addendum', {
+          sourceTable: 'ap_report_addenda',
+          sourceId: addendumRow.id,
+          actorUid: signerUid,
+          actorRole: context.actorRole || null,
+          beforeStatus: report.case_status,
+          afterStatus: 'amended',
+          occurredAt: addendumRow.addendum_at,
+          summary: `Pathology addendum appended for case ${updated[0].case_number}`,
+          payload: {
+            ap_report_addendum_id: addendumRow.id,
+            generation_version: generationVersion,
+            result_classification: classification,
+            clinical_significance: significance,
+          },
+        });
+      }
+      const generationAddenda = replayAddendum
+        ? priorAddenda.filter(
+          (entry) => Number(entry.generation_version) <= generationVersion,
+        )
+        : [...priorAddenda, addendumRow];
+      const sourceContentSha256 = sha256ClinicalJson({
+        gross_text: report.gross_text,
+        microscopic_text: report.microscopic_text,
+        diagnosis_text: report.diagnosis_text,
+        synoptic_fields: report.synoptic_fields,
+        malignancy_flag: report.malignancy_flag,
+        addenda: generationAddenda.map((entry) => ({
+          generation_version: Number(entry.generation_version),
+          addendum_text: entry.addendum_text,
+          result_classification: entry.result_classification,
+          classification_basis: entry.classification_basis,
+          clinical_significance: entry.clinical_significance,
+          signed_by: entry.addendum_by,
+          signed_at: entry.addendum_at,
+        })),
       });
-      return normalizeWireValue({ addendum: rows[0], report: updatedReports[0] });
+      const diagnosticGeneration = await createAnatomicalPathologyDiagnosticGenerationTx({
+        tx,
+        tenantId,
+        patientUid: report.patient_uid,
+        encounterId: report.encounter_id,
+        sourceEpisodeKey: `ap_report:${report.id}`,
+        sourceVersion: generationVersion,
+        sourceRowId: addendumRow.id,
+        apReportId: report.id,
+        apAddendumId: addendumRow.id,
+        orderingOwnerUid: report.ordering_owner_uid,
+        signerUid,
+        signerRole,
+        signedAt: addendumRow.addendum_at,
+        resultClassification: classification,
+        classificationBasis,
+        sourceContentSha256,
+        clinicalSignificance: significance,
+      });
+      const {
+        idempotency_key: _addendumIdempotencyKey,
+        request_sha256: _addendumRequestSha256,
+        ...publicAddendum
+      } = addendumRow;
+      const {
+        signoff_idempotency_key: _signoffIdempotencyKey,
+        signoff_request_sha256: _signoffRequestSha256,
+        case_number: _caseNumber,
+        patient_uid: _patientUid,
+        encounter_id: _encounterId,
+        case_kind: _caseKind,
+        case_status: _caseStatus,
+        source_investigation_id: _sourceInvestigationId,
+        ordering_owner_uid: _orderingOwnerUid,
+        ...publicReport
+      } = updatedReport;
+      return normalizeWireValue({
+        addendum: publicAddendum,
+        report: projectCurrentApReport(publicReport, addendumRow),
+        diagnostic_generation: diagnosticGeneration,
+      });
     });
   }
 

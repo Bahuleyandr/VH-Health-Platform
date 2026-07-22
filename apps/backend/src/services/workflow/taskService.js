@@ -1112,6 +1112,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   workflowSlaInstanceId,
   supersededByActorUid,
   supersedingDiagnosticGenerationId,
+  supersessionReason = 'diagnostic_generation_noncritical_correction',
   tx = null,
 } = {}) {
   if (!tx) {
@@ -1135,6 +1136,16 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
       supersedingDiagnosticGenerationId,
       'superseding_diagnostic_generation_id',
     );
+  const cleanSupersessionReason = safeText(supersessionReason, 120);
+  if (![
+    'diagnostic_generation_noncritical_correction',
+    'diagnostic_generation_superseded',
+  ].includes(cleanSupersessionReason)) {
+    throw AppError.badRequest(
+      'Acknowledgement supersession reason is invalid',
+      'ACKNOWLEDGEMENT_SUPERSESSION_INVALID',
+    );
+  }
   if (!expectedResourceType || !expectedResourceId || !expectedSlaId) {
     throw AppError.badRequest(
       'Trusted acknowledgement supersession requires its exact resource and SLA binding',
@@ -1164,7 +1175,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
     const prepared = await tx.$queryRawUnsafe(
       `UPDATE tasks
           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-                'supersession_reason', 'diagnostic_generation_noncritical_correction',
+                'supersession_reason', $6::text,
                 'superseded_at', $3::timestamptz,
                 'superseded_by_actor_uid', $4::uuid,
                 'superseded_by_diagnostic_generation_id', $5::uuid
@@ -1178,6 +1189,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
       supersededAt,
       supersessionActorUid,
       diagnosticGenerationId,
+      cleanSupersessionReason,
     );
     if (!prepared[0]) {
       throw AppError.conflict(
@@ -1209,7 +1221,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
     await tx.$executeRawUnsafe(
       `UPDATE workflow_sla_instances
           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-                'supersession_reason', 'diagnostic_generation_noncritical_correction',
+                'supersession_reason', $6::text,
                 'superseded_at', $3::timestamptz,
                 'superseded_by_actor_uid', $4::uuid,
                 'superseded_by_diagnostic_generation_id', $5::uuid
@@ -1222,6 +1234,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
       supersededAt,
       supersessionActorUid,
       diagnosticGenerationId,
+      cleanSupersessionReason,
     );
   }
   return completed;
@@ -2758,12 +2771,23 @@ export async function listInboxTasks({
               pathway.owning_clinician_uid AS pathway_owner_uid,
               pathway.accountable_role AS pathway_accountable_role,
               step.step_key AS pathway_stage_key,
-              generation.id AS diagnostic_generation_id,
-              generation.classification AS diagnostic_classification,
-              generation.snapshot_sha256 AS diagnostic_generation_snapshot_sha256,
-              generation.source_version AS diagnostic_source_version,
-              generation.predecessor_generation_id AS diagnostic_predecessor_generation_id,
-              (generation.predecessor_generation_id IS NOT NULL) AS diagnostic_is_correction
+              COALESCE(pathway_generation.id, direct_generation.id) AS diagnostic_generation_id,
+              COALESCE(pathway_generation.classification, direct_generation.classification)
+                AS diagnostic_classification,
+              COALESCE(pathway_generation.snapshot_sha256, direct_generation.snapshot_sha256)
+                AS diagnostic_generation_snapshot_sha256,
+              COALESCE(pathway_generation.source_version, direct_generation.source_version)
+                AS diagnostic_source_version,
+              COALESCE(
+                pathway_generation.predecessor_generation_id,
+                direct_generation.predecessor_generation_id
+              ) AS diagnostic_predecessor_generation_id,
+              (
+                COALESCE(
+                  pathway_generation.predecessor_generation_id,
+                  direct_generation.predecessor_generation_id
+                ) IS NOT NULL
+              ) AS diagnostic_is_correction
          FROM (
            SELECT ${TASK_RETURNING}
              FROM tasks
@@ -2784,11 +2808,15 @@ export async function listInboxTasks({
          LEFT JOIN care_pathway_instances AS pathway
            ON pathway.tenant_id = inbox.tenant_id
           AND pathway.workflow_run_id = inbox.workflow_run_id
-         LEFT JOIN diagnostic_result_generations AS generation
-           ON generation.tenant_id = pathway.tenant_id
+         LEFT JOIN diagnostic_result_generations AS pathway_generation
+           ON pathway_generation.tenant_id = pathway.tenant_id
           AND pathway.pathway_key = 'diagnostics_order_to_action'
           AND pathway.source_episode_type = 'diagnostic_result_generation'
-          AND generation.id::text = pathway.source_episode_id
+          AND pathway_generation.id::text = pathway.source_episode_id
+         LEFT JOIN diagnostic_result_generations AS direct_generation
+           ON direct_generation.tenant_id = inbox.tenant_id
+          AND inbox.related_resource_type = 'diagnostic_result_generation'
+          AND direct_generation.id::text = inbox.related_resource_id
        ORDER BY
          CASE inbox.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
          inbox.due_at NULLS LAST,

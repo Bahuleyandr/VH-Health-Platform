@@ -318,10 +318,18 @@ describe('Radiology order + report deep integration', () => {
     });
 
     it('radiologist signs off the completed report', async () => {
-      const res = await radiologist.post(`/api/v1/radiology/${orderId}/sign-off`).send({});
+      const res = await radiologist.post(`/api/v1/radiology/${orderId}/sign-off`).send({
+        result_classification: 'abnormal',
+        classification_basis: {
+          source: 'radiologist_attestation',
+          finding: 'right_lower_lobe_pneumonia',
+        },
+      }).set('Idempotency-Key', `radiology-deep-signoff-${orderId}`);
       expect(res.statusCode).toBe(200);
       expect(res.body.data.report_signed_off_by).toBe(RADIOLOGIST_UID);
       expect(res.body.data.report_signed_off_at).toBeTruthy();
+      expect(res.body.data.result_classification).toBe('abnormal');
+      expect(res.body.data.diagnostic_generation.source_version).toBe(1);
 
       await prisma.$executeRawUnsafe(
         `UPDATE radiology_orders
@@ -429,10 +437,69 @@ describe('Radiology order + report deep integration', () => {
     it('radiologist appends an addendum to the signed report', async () => {
       const res = await radiologist.post(`/api/v1/radiology/${orderId}/addendum`).send({
         addendum: 'Addendum: small right pleural effusion on lateral view, missed on first read.',
-      });
+        result_classification: 'abnormal',
+        classification_basis: {
+          source: 'radiologist_attestation',
+          finding: 'small_right_pleural_effusion',
+        },
+        clinical_significance: 'new_finding',
+      }).set('Idempotency-Key', `radiology-deep-addendum-${orderId}`);
       expect(res.statusCode).toBe(200);
-      expect(res.body.data.report).toContain(signedReportText);
-      expect(res.body.data.report).toMatch(/small right pleural effusion/);
+      expect(res.body.data.report).toBe(signedReportText);
+      expect(res.body.data.report_signed_off_by).toBe(RADIOLOGIST_UID);
+      expect(res.body.data.addendum.addendum_text).toMatch(/small right pleural effusion/);
+      expect(res.body.data.addendum.generation_version).toBe(2);
+      expect(res.body.data.diagnostic_generation.predecessor_generation_id).toBeTruthy();
+      expect(res.body.data).toMatchObject({
+        result_classification: 'abnormal',
+        classification_basis: {
+          finding: 'small_right_pleural_effusion',
+        },
+        report_generation_version: 2,
+        classification_signed_by: RADIOLOGIST_UID,
+        latest_clinical_significance: 'new_finding',
+        latest_addendum_id: res.body.data.addendum.id,
+      });
+
+      const detail = await radiologist.get(`/api/v1/radiology/${orderId}`);
+      expect(detail.statusCode).toBe(200);
+      expect(detail.body.data.report).toBe(signedReportText);
+      expect(detail.body.data.addenda).toHaveLength(1);
+      expect(detail.body.data.addenda[0]).toMatchObject({
+        generation_version: 2,
+        result_classification: 'abnormal',
+        clinical_significance: 'new_finding',
+      });
+      expect(detail.body.data.addenda[0]).not.toHaveProperty('idempotency_key');
+      expect(detail.body.data.addenda[0]).not.toHaveProperty('request_sha256');
+      expect(detail.body.data).toMatchObject({
+        result_classification: 'abnormal',
+        classification_basis: {
+          source: 'radiologist_attestation',
+          finding: 'small_right_pleural_effusion',
+        },
+        report_generation_version: 2,
+        classification_signed_by: RADIOLOGIST_UID,
+        latest_clinical_significance: 'new_finding',
+        latest_addendum_id: detail.body.data.addenda[0].id,
+      });
+
+      const worklist = await radiologist.get('/api/v1/radiology/worklist?modality=xray');
+      const worklistOrder = worklist.body.data.find((item) => item.id === orderId);
+      expect(worklistOrder).toMatchObject({
+        result_classification: 'abnormal',
+        report_generation_version: 2,
+        latest_clinical_significance: 'new_finding',
+        latest_addendum_id: detail.body.data.addenda[0].id,
+      });
+
+      const history = await radiologist.get(`/api/v1/radiology/patient/${PATIENT_UID}`);
+      const historyOrder = history.body.data.find((item) => item.id === orderId);
+      expect(historyOrder).toMatchObject({
+        result_classification: 'abnormal',
+        report_generation_version: 2,
+        latest_addendum_id: detail.body.data.addenda[0].id,
+      });
     });
 
     it('emits canonical timeline and audit rows for order/acquire/report/sign-off/addendum', async () => {
