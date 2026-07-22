@@ -7,7 +7,7 @@
 // completed once all of its results are finalised (a partial sign-off of a
 // multi-analyte panel leaves it in progress).
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import * as labResults from '../services/lab/labResultsService.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -99,18 +99,82 @@ describe('Lab order completes on result sign-off', () => {
   });
 
   afterAll(async () => {
-    for (const id of createdResultIds) {
-      await prisma.$executeRawUnsafe(`DELETE FROM lab_pathologist_signoffs WHERE $1 = ANY(result_ids)`, id).catch(() => {});
-      await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE id = $1::int`, id).catch(() => {});
-    }
-    for (const id of createdInvestigationIds) {
-      await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE id = $1::int`, id).catch(() => {});
-    }
-    for (const id of createdClinicalOrderIds) {
-      await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE id = $1::int`, id).catch(() => {});
-    }
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATHOLOGIST_UID).catch(() => {});
+    await setTenantTx(TENANT, async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_actions
+          WHERE tenant_id = $1::uuid
+            AND generation_id IN (
+              SELECT id
+                FROM diagnostic_result_generations
+               WHERE tenant_id = $1::uuid
+                 AND patient_uid = $2::uuid
+            )`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_generation_items
+          WHERE tenant_id = $1::uuid
+            AND generation_id IN (
+              SELECT id
+                FROM diagnostic_result_generations
+               WHERE tenant_id = $1::uuid
+                 AND patient_uid = $2::uuid
+            )`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_generations
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_timeline_events
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM lab_pathologist_signoffs
+          WHERE tenant_id = $1::uuid
+            AND result_ids && $2::int[]`,
+        TENANT,
+        createdResultIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM lab_results
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])`,
+        TENANT,
+        createdResultIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM investigations
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])`,
+        TENANT,
+        createdInvestigationIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_orders
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])`,
+        TENANT,
+        createdClinicalOrderIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM users
+          WHERE tenant_id = $1::uuid
+            AND uid = ANY($2::uuid[])`,
+        TENANT,
+        [PATIENT_UID, PATHOLOGIST_UID],
+      );
+    });
     await prisma.$disconnect().catch(() => {});
   });
 

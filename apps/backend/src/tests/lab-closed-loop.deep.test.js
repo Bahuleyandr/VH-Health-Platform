@@ -256,6 +256,7 @@ async function loadCriticalGenerationChain(resultId) {
             alert.unit,
             alert.superseded_at,
             alert.superseded_by_alert_id,
+            alert.superseded_by_diagnostic_generation_id,
             alert.generation_signoff_id,
             alert.generation_metadata,
             alert.acknowledged_at,
@@ -283,6 +284,28 @@ async function loadCriticalGenerationChain(resultId) {
       ORDER BY alert.id`,
     DEFAULT_TENANT,
     resultId,
+  );
+}
+
+async function loadDiagnosticGenerationChain(resultId) {
+  return prisma.$queryRawUnsafe(
+    `SELECT generation.id,
+            generation.source_version,
+            generation.classification,
+            generation.predecessor_generation_id,
+            item.value_snapshot,
+            item.source_critical,
+            item.classification AS item_classification
+       FROM diagnostic_result_generations AS generation
+       JOIN diagnostic_result_generation_items AS item
+         ON item.tenant_id = generation.tenant_id
+        AND item.generation_id = generation.id
+      WHERE generation.tenant_id = $1::uuid
+        AND item.source_table = 'lab_results'
+        AND item.source_row_id = $2::text
+      ORDER BY generation.source_version`,
+    DEFAULT_TENANT,
+    String(resultId),
   );
 }
 
@@ -757,7 +780,7 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     });
   });
 
-  test('corrected ASTM generations retain one exact current obligation across migration reruns', async () => {
+  test('critical ASTM corrections survive migration reruns and noncritical successors close their obligation', async () => {
     const thresholdRows = await prisma.$queryRawUnsafe(
       `INSERT INTO lab_critical_thresholds
          (tenant_id, test_code, test_name, unit, critical_high, applies_to,
@@ -927,26 +950,28 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
       patient_uid: patientUid,
     });
     chain = await loadCriticalGenerationChain(resultId);
-    expect(chain).toHaveLength(3);
-    expect(chain[1].superseded_by_alert_id).toBe(chain[2].id);
-    expect(chain[2]).toMatchObject({
-      value_text: '4.0',
-      superseded_at: null,
-      acknowledged_at: null,
-      task_status: 'open',
-      sla_status: 'active',
-      completed_at: null,
-      generation_metadata: {
-        kind: 'corrected_result_generation',
-        corrected_state: 'within_active_critical_thresholds',
-      },
+    expect(chain).toHaveLength(2);
+    const generationsAfterNoncriticalCorrection = await loadDiagnosticGenerationChain(resultId);
+    expect(generationsAfterNoncriticalCorrection).toHaveLength(3);
+    expect(chain[1]).toMatchObject({
+      superseded_by_alert_id: null,
+      superseded_by_diagnostic_generation_id: generationsAfterNoncriticalCorrection[2].id,
+      task_status: 'completed',
+      sla_status: 'completed',
       current_result_value_text: '4.0',
       current_result_is_critical: false,
     });
-    expect(Number(chain[2].value_numeric)).toBe(4);
-    expect(Number(chain[2].current_result_value_numeric)).toBe(4);
-    await rerunAstmMigrationWithoutMutation({ messageId, resultId });
-
+    expect(chain[1].superseded_at).toBeTruthy();
+    expect(generationsAfterNoncriticalCorrection[2]).toMatchObject({
+      classification: 'abnormal',
+      predecessor_generation_id: generationsAfterNoncriticalCorrection[1].id,
+      source_critical: false,
+      item_classification: 'abnormal',
+      value_snapshot: expect.objectContaining({
+        value_text: '4.0',
+        value_numeric: '4',
+      }),
+    });
     await prisma.$executeRawUnsafe(
       `UPDATE lab_critical_thresholds
           SET is_active = FALSE, updated_at = NOW()
@@ -972,52 +997,28 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
       patient_uid: patientUid,
     });
     chain = await loadCriticalGenerationChain(resultId);
-    expect(chain).toHaveLength(4);
-    expect(chain[2].superseded_by_alert_id).toBe(chain[3].id);
-    expect(chain[3]).toMatchObject({
-      superseded_at: null,
-      acknowledged_at: null,
-      task_status: 'open',
-      sla_status: 'active',
-      completed_at: null,
-      generation_metadata: {
-        kind: 'corrected_result_generation',
-        corrected_state: 'threshold_unavailable',
-      },
+    expect(chain).toHaveLength(2);
+    const finalDiagnosticGenerations = await loadDiagnosticGenerationChain(resultId);
+    expect(finalDiagnosticGenerations).toHaveLength(4);
+    expect(finalDiagnosticGenerations[3]).toMatchObject({
+      classification: 'abnormal',
+      predecessor_generation_id: finalDiagnosticGenerations[2].id,
+      source_critical: false,
+      item_classification: 'abnormal',
     });
-    await rerunAstmMigrationWithoutMutation({ messageId, resultId });
-
-    await acknowledgeAlert(chain[3].id, {
-      tenantId: DEFAULT_TENANT,
-      acknowledged_by: TEST_ACTOR_UID,
-      acknowledged_by_name: 'B3TEST Administrator',
-      actorRoles: ['ADMIN'],
-      actorRole: 'ADMIN',
-    });
-    chain = await loadCriticalGenerationChain(resultId);
-    expect(chain[3].acknowledged_at).toBeTruthy();
-    expect(chain[3].read_back_method).toBeNull();
-    expect(chain[3]).toMatchObject({
-      task_status: 'in_progress',
-      sla_status: 'completed',
-    });
-    expect(chain[3].completed_at).toEqual(chain[3].acknowledged_at);
-    const nullMethodEvidence = await prisma.$queryRawUnsafe(
-      `SELECT payload ? 'read_back_method' AS has_read_back_method,
-              payload->>'read_back_method' AS read_back_method
-         FROM clinical_timeline_events
+    const noncriticalReceipts = await prisma.$queryRawUnsafe(
+      `SELECT outcome, result_value_text
+         FROM lab_critical_alert_reconciliation_receipts
         WHERE tenant_id = $1::uuid
-          AND event_type = 'critical_result.acknowledged'
-          AND source_table = 'lab_critical_alerts'
-          AND source_id = $2::text`,
+          AND result_id = $2::int
+        ORDER BY signoff_id`,
       DEFAULT_TENANT,
-      String(chain[3].id),
+      resultId,
     );
-    expect(nullMethodEvidence).toEqual([{
-      has_read_back_method: true,
-      read_back_method: null,
-    }]);
-    await rerunAstmMigrationWithoutMutation({ messageId, resultId });
+    expect(noncriticalReceipts).toEqual([
+      { outcome: 'within_active_critical_thresholds', result_value_text: '4.0' },
+      { outcome: 'no_active_critical_threshold', result_value_text: '4.0' },
+    ]);
     const receiptCardinality = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS receipt_count,
               COUNT(DISTINCT acknowledgement_task_id)::int AS task_count,
@@ -1028,11 +1029,11 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
         WHERE tenant_id = $1::uuid
           AND alert_id = ANY($2::int[])`,
       DEFAULT_TENANT,
-      [Number(chain[0].id), Number(chain[3].id)],
+      [Number(chain[0].id), Number(chain[1].id)],
     );
     expect(receiptCardinality).toEqual([{
-      receipt_count: 2,
-      task_count: 2,
+      receipt_count: 1,
+      task_count: 1,
       sla_count: 1,
       min_contract_version: 2,
       max_contract_version: 2,

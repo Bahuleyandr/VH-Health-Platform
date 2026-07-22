@@ -11,6 +11,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   // setTenantTx, so the mock MUST provide it for ESM linking even though
   // getTodayQueue never calls it.
   setTenantTx: jest.fn(async (_tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock })),
+  isTenantTransactionClient: () => true,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

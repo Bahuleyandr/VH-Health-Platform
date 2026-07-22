@@ -247,6 +247,40 @@ async function cleanup() {
       TENANT,
       scopedResultIds,
     );
+    const diagnosticGenerationRows = await tx.$queryRawUnsafe(
+      `SELECT DISTINCT generation.id
+         FROM diagnostic_result_generations AS generation
+         JOIN diagnostic_result_generation_items AS item
+           ON item.tenant_id = generation.tenant_id
+          AND item.generation_id = generation.id
+        WHERE generation.tenant_id = $1::uuid
+          AND item.source_table = 'lab_results'
+          AND item.source_row_id = ANY($2::text[])`,
+      TENANT,
+      scopedResultIdTexts,
+    );
+    const diagnosticGenerationIds = diagnosticGenerationRows.map((row) => row.id);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_actions
+        WHERE tenant_id = $1::uuid
+          AND generation_id = ANY($2::uuid[])`,
+      TENANT,
+      diagnosticGenerationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_generation_items
+        WHERE tenant_id = $1::uuid
+          AND generation_id = ANY($2::uuid[])`,
+      TENANT,
+      diagnosticGenerationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_generations
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::uuid[])`,
+      TENANT,
+      diagnosticGenerationIds,
+    );
     await tx.$executeRawUnsafe(
       `DELETE FROM task_comments
         WHERE tenant_id = $1::uuid

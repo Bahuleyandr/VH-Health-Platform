@@ -42,6 +42,37 @@ async function cleanupFixture() {
       // the append-only clinical audit chain deliberately remains untouched.
       await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
       await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_actions
+          WHERE tenant_id = $1::uuid
+            AND generation_id IN (
+              SELECT id
+                FROM diagnostic_result_generations
+               WHERE tenant_id = $1::uuid
+                 AND patient_uid = $2::uuid
+            )`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_generation_items
+          WHERE tenant_id = $1::uuid
+            AND generation_id IN (
+              SELECT id
+                FROM diagnostic_result_generations
+               WHERE tenant_id = $1::uuid
+                 AND patient_uid = $2::uuid
+            )`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_generations
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
         `DELETE FROM lab_pathologist_signoffs
           WHERE tenant_id = $1::uuid
             AND result_ids && $2::int[]`,

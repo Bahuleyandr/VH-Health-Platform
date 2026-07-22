@@ -2036,6 +2036,16 @@ export async function signOffResults({
       'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS lock_result',
       `${tid}:lab-signoff:${episode.key}`,
     );
+    if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
+      for (const resultId of ids) {
+        await lockResultsInboxResourceTx({
+          tx,
+          tenantId: tid,
+          resourceType: 'lab_result',
+          resourceId: String(resultId),
+        });
+      }
+    }
     const sourceColumn = episode.type === 'investigation' ? 'investigation_id' : 'booking_id';
     const panelRows = await tx.$queryRawUnsafe(
       `SELECT id, patient_uid, booking_id, investigation_id, loinc_code,
@@ -2089,14 +2099,6 @@ export async function signOffResults({
     }
 
     if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
-      for (const resultId of ids) {
-        await lockResultsInboxResourceTx({
-          tx,
-          tenantId: tid,
-          resourceType: 'lab_result',
-          resourceId: String(resultId),
-        });
-      }
       if (owned.some((row) => !row.signed_off_at || !['final', 'corrected', 'verified', 'amended'].includes(String(row.status || '').toLowerCase()))) {
         throw AppError.conflict(
           'Corrective sign-off requires an already signed current generation',
