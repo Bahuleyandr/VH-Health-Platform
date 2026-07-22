@@ -24,6 +24,7 @@ const __txMock = {
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
+  isTenantTransactionClient: () => true,
   setTenantTx: async (_tenantId, fn) => fn(__txMock),
   setTenant: async (_tenantId, fn) => fn(__txMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__txMock),

@@ -2245,7 +2245,9 @@ export async function startCarePathwayInstance(input = {}) {
       normalized.tenantId,
       normalized.actor,
     );
-    if (effectiveActor.kind === 'user') assertStartOwnership(normalized, effectiveActor);
+    if (effectiveActor.kind === 'user' && !normalized.parentInstanceId) {
+      assertStartOwnership(normalized, effectiveActor);
+    }
     const commandFingerprint = fingerprint({
       operation: 'start_care_pathway_instance',
       registryVersion: registry.version,

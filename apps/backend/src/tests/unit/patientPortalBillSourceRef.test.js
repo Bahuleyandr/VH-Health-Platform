@@ -24,6 +24,8 @@ jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', ()
   sendPushNotification: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/portal/portalAccessService.js', () => ({
+  evaluatePanelRelease: jest.fn(),
+  getResultEpisodeReleaseDecision: jest.fn(async () => ({ outcome: 'unsupported_source' })),
   releaseVisibilitySql: jest.fn(() => 'TRUE'),
   releaseDelayHours: jest.fn(() => 0),
 }));

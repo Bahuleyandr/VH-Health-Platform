@@ -29,6 +29,7 @@ const prismaStub = makeStub();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaStub,
+  isTenantTransactionClient: () => true,
   prisma: prismaStub,
   prismaReadOnly: prismaStub,
   setTenant: jest.fn(),

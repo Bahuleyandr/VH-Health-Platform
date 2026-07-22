@@ -41,6 +41,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
     $executeRawUnsafe: executeRawMock,
     $transaction: txMock,
   },
+  isTenantTransactionClient: () => true,
   setTenantTx: setTenantTxMock,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -48,6 +49,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   completeWorkflowSla: jest.fn(),
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
   isSchemaMissing: jest.fn(() => false),
   recordClinicalAuditEvent: jest.fn(),
   startWorkflowSla: jest.fn(),

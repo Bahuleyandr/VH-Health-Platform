@@ -15,6 +15,7 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: prismaMock,
+  isTenantTransactionClient: () => true,
   setTenantTx: setTenantTxMock,
 }));
 

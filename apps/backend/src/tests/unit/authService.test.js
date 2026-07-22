@@ -10,6 +10,7 @@ import mockPrisma from '../__mocks__/prisma.js';
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: mockPrisma,
+  isTenantTransactionClient: () => true,
   setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),

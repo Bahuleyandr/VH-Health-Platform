@@ -23,6 +23,7 @@ const prismaDefaultMock = {
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: prismaDefaultMock,
+  isTenantTransactionClient: () => true,
   // SEC-3: admissionService imports setTenantTx for its tenant-scoped discharge
   // transactions. This test only exercises markDischargeDrugsDispensed (not a
   // converted path), but the named import must still resolve at module load.

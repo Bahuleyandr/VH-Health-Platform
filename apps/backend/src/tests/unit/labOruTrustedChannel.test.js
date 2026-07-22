@@ -10,6 +10,7 @@ const tx = {
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: tx,
+  isTenantTransactionClient: () => true,
   setTenantTx: async (_tenantId, fn) => fn(tx),
   setTenant: async (_tenantId, fn) => fn(tx),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(tx),
@@ -21,6 +22,8 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
+  recordClinicalAuditEvent: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(),
 }));
 
@@ -30,6 +33,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeServ
 
 jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => ({
   materializeLabCriticalAlertGeneration: jest.fn(),
+  supersedeCriticalAlertWithDiagnosticGenerationTx: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../services/lab/labResultIngestCommandService.js', () => ({

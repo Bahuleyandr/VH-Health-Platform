@@ -9,6 +9,7 @@ const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
   default: __prismaDefaultMock,
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
@@ -103,7 +104,8 @@ describe('lab result release tenant predicates', () => {
         signed_off_at: new Date(),
         release_hold: true,
       }])
-      .mockResolvedValueOnce([{ id: 45, release_hold: false }]);
+      .mockResolvedValueOnce([{ id: 45, release_hold: false }])
+      .mockResolvedValueOnce([]);
 
     await releaseResultNow(45, {
       actorUid: ACTOR_UID,

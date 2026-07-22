@@ -1,11 +1,5 @@
 import { jest } from '@jest/globals';
 
-import { compileWorkflowDefinition } from '../../services/workflow/workflowDefinitionCompiler.js';
-import {
-  createRegisteredWorkflowSystemActor,
-  createWorkflowRuntimeRegistry,
-} from '../../services/workflow/workflowRuntimeRegistry.js';
-
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const PATIENT = '22222222-2222-4222-8222-222222222222';
 const ACTOR_UID = '33333333-3333-4333-8333-333333333333';
@@ -102,6 +96,13 @@ jest.unstable_mockModule('../../services/pathways/pathwayRuntimePersistence.js',
   transitionPathwayStepCasTx: transitionStepMock,
 }));
 
+const { compileWorkflowDefinition } = await import(
+  '../../services/workflow/workflowDefinitionCompiler.js'
+);
+const {
+  createRegisteredWorkflowSystemActor,
+  createWorkflowRuntimeRegistry,
+} = await import('../../services/workflow/workflowRuntimeRegistry.js');
 const {
   completePathwayTaskAndExecuteFromRegisteredEvidence,
   createPathwayActivationEvidenceCapabilityForTests,
@@ -114,8 +115,9 @@ function userActor() {
   return {
     kind: 'user',
     uid: ACTOR_UID,
-    roles: ['NURSING_STAFF', 'ADMIN'],
+    roles: ['NURSING_STAFF', 'DOCTOR'],
     primaryRole: 'NURSING_STAFF',
+    rawRole: 'NURSING_STAFF',
     authorizationMode: 'authenticated_pathway_route',
   };
 }
@@ -163,7 +165,7 @@ function makeChildDefinition(registry, { id, stepCount }) {
     steps: Array.from({ length: stepCount }, (_unused, index) => ({
       step_key: `child_task_${index}`,
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: {
         task_kind: 'review',
         priority: 'normal',
@@ -206,7 +208,7 @@ function makeRuntime(raw, registry, { status = 'started' } = {}) {
       source_episode_type: 'synthetic_episode',
       source_episode_id: 'episode-1',
       owning_clinician_uid: ACTOR_UID,
-      accountable_role: 'ADMIN',
+      accountable_role: 'DOCTOR',
       clinical_status: started ? 'planned' : 'active',
       closed_at: null,
       metadata: {},
@@ -312,7 +314,7 @@ function installCompletedDomainEvidenceRuntime(registry, workflowKey) {
     steps: [{
       step_key: 'verify',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       work_semantics: {
         task_kind: 'verification',
@@ -435,9 +437,14 @@ async function invokeOwnedReplay({
     pathwayInstance: runtime.instance,
   });
   if (currentOwnerUid) {
-    TX.$queryRawUnsafe.mockResolvedValueOnce(ownerAvailable
-      ? [{ uid: currentOwnerUid, role: 'DOCTOR' }]
-      : []);
+    if (actorKind === 'user') {
+      TX.$queryRawUnsafe.mockResolvedValueOnce([
+        { uid: ACTOR_UID, role: 'NURSING_STAFF' },
+      ]);
+    }
+    TX.$queryRawUnsafe.mockResolvedValueOnce(
+      ownerAvailable ? [{ uid: currentOwnerUid, role: 'DOCTOR' }] : [],
+    );
   }
 
   if (branch === 'start') {
@@ -516,7 +523,7 @@ it.each(REPLAY_BRANCHES)(
       branch,
       currentOwnerUid: OTHER_ACTOR_UID,
     })).rejects.toMatchObject({ code: 'PATHWAY_SIGNAL_NOT_OWNED' });
-    expect(TX.$queryRawUnsafe.mock.calls[0][2]).toBe(OTHER_ACTOR_UID);
+    expect(TX.$queryRawUnsafe.mock.calls[1][2]).toBe(OTHER_ACTOR_UID);
     expect(assertReplayPinMock).not.toHaveBeenCalled();
     expect(resolveModeMock).not.toHaveBeenCalled();
     expect(lockRuntimeMock).not.toHaveBeenCalled();
@@ -558,7 +565,7 @@ it('fails closed for production active mode but accepts an identity-sealed test 
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -596,7 +603,7 @@ it('completes registered evidence and executes it through one branded transactio
     steps: [{
       step_key: 'verify',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       work_semantics: {
         task_kind: 'verification',
@@ -826,7 +833,7 @@ it('suppresses task materialization in shadow while recording the suppression', 
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -845,7 +852,7 @@ it('derives a human task deadline only from its linked SLA and verifies the exac
     steps: [{
       step_key: 'acknowledge',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: {
         task_kind: 'review',
         priority: 'high',
@@ -910,6 +917,7 @@ it('uses role-only routing for an unnamed pathway owner across the task and SLA'
     }],
   }, registry);
   runtime.instance.owning_clinician_uid = null;
+  runtime.instance.accountable_role = 'NURSING_STAFF';
   installRuntimeMocks();
   resolveModeMock.mockResolvedValue('active');
   startWorkflowSlaMock.mockResolvedValue({
@@ -950,7 +958,7 @@ it('does not let a matching role mask a named pathway owner', async () => {
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -971,7 +979,7 @@ it('revalidates a named owner before materializing the next human stage', async 
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -1003,12 +1011,14 @@ it('rejects a stale named-owner command before executing a non-human stage', asy
     steps: [{
       step_key: 'wait_for_evidence',
       step_kind: 'wait',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
     }],
   }, registry, { status: 'running' });
   installRuntimeMocks();
-  TX.$queryRawUnsafe.mockResolvedValueOnce([]);
+  TX.$queryRawUnsafe
+    .mockResolvedValueOnce([{ uid: ACTOR_UID, role: 'NURSING_STAFF' }])
+    .mockResolvedValueOnce([]);
 
   await expect(executePathwayCommand(command({ registry }))).rejects.toMatchObject({
     code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
@@ -1024,7 +1034,7 @@ it('rolls back when a materialized task deadline differs from its linked SLA', a
     steps: [{
       step_key: 'acknowledge',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: {
         task_kind: 'review',
         priority: 'high',
@@ -1085,7 +1095,7 @@ it('materializes a task-first approval and links the approval to that task', asy
   expect(createApprovalMock).toHaveBeenCalledWith(expect.objectContaining({
     taskId: expect.any(Number),
     materializationKey: `${INSTANCE_ID}:approve:approval`,
-    requiredRole: 'ADMIN',
+    requiredRole: 'DOCTOR',
   }));
   for (const transitionKey of ['task_materialized', 'approval_materialized']) {
     expect(appendEventMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -1118,7 +1128,7 @@ it('gives conditions only frozen read snapshots and preserves primary actor role
     steps: [{
       step_key: 'wait_for_evidence',
       step_kind: 'wait',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
     }],
   }, registry, { status: 'running' });
@@ -1142,7 +1152,7 @@ it('executes an active registered action once and completes its one-step run', a
     steps: [{
       step_key: 'record_marker',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       action_handler: 'synthetic.action.v1',
     }],
   }, registry);
@@ -1181,7 +1191,7 @@ it('gives an action only frozen data and no transaction or query capability', as
     steps: [{
       step_key: 'record_marker',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       action_handler: 'synthetic.action.v1',
     }],
   }, registry);
@@ -1206,7 +1216,7 @@ it('rejects a trusted action that mutates any executor-owned runtime row through
     steps: [{
       step_key: 'record_marker',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       action_handler: 'synthetic.action.v1',
     }],
   }, registry);
@@ -1235,7 +1245,7 @@ it('rejects a trusted action that mutates its governed definition evidence', asy
     steps: [{
       step_key: 'record_marker',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       action_handler: 'synthetic.action.v1',
     }],
   }, registry);
@@ -1264,7 +1274,7 @@ it('rejects a trusted action that mutates a materialized child run, step or task
     steps: [{
       step_key: 'record_marker',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       action_handler: 'synthetic.action.v1',
     }],
   }, registry);
@@ -1314,7 +1324,7 @@ it('rejects a trusted action that changes transition ledger count or sequence', 
     steps: [{
       step_key: 'record_marker',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       action_handler: 'synthetic.action.v1',
     }],
   }, registry);
@@ -1339,7 +1349,7 @@ it('validates the authoritative post-handler runtime instead of a stale pre-relo
     steps: [{
       step_key: 'record_marker',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       action_handler: 'synthetic.action.v1',
     }],
   }, registry);
@@ -1387,7 +1397,7 @@ it('materializes a registered child once and waits on the same durable child on 
       pathwayKey: 'synthetic_child',
       sourceEpisodeType: 'synthetic_child_episode',
       sourceEpisodeId: 'child-episode-1',
-      accountableRole: 'ADMIN',
+      accountableRole: 'DOCTOR',
     }];
   });
   const registry = registryFor({
@@ -1398,7 +1408,7 @@ it('materializes a registered child once and waits on the same durable child on 
     steps: [{
       step_key: 'launch_child',
       step_kind: 'subworkflow',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       child_rules: [{
         rule_key: 'child_rule',
         fanout_handler: 'synthetic.child.v1',
@@ -1412,7 +1422,7 @@ it('materializes a registered child once and waits on the same durable child on 
     steps: [{
       step_key: 'child_review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -1570,7 +1580,7 @@ it('rejects a fresh pathway command while mode is off before runtime persistence
     steps: [{
       step_key: 'automate',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       action_handler: 'synthetic.action.v1',
     }],
@@ -1609,7 +1619,7 @@ it('preflights governed SLA rules before inserting any pathway runtime row', asy
     steps: [{
       step_key: 'acknowledge',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: {
         task_kind: 'review',
         priority: 'high',
@@ -1651,7 +1661,7 @@ it('server-stamps user commands but permits registered system event chronology',
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -1684,7 +1694,7 @@ it('fingerprints equivalent sealed BIGINT system event ids identically for repla
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -1724,11 +1734,12 @@ it('namespaces idempotency by actor class, user, operation and business target',
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
   runtime.instance.owning_clinician_uid = null;
+  runtime.instance.accountable_role = 'NURSING_STAFF';
   installRuntimeMocks();
   const rawKey = 'caller-visible-retry-key';
   const otherUser = {
@@ -1773,7 +1784,7 @@ it('deduplicates one sealed system event across raw keys but fingerprints lineag
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -1821,7 +1832,7 @@ it('accepts the exact JSON byte ceiling and rejects one byte beyond it before da
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -1851,7 +1862,7 @@ it('rejects a vacuous blocking child fan-out', async () => {
     steps: [{
       step_key: 'launch_child',
       step_kind: 'subworkflow',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       child_rules: [{
         rule_key: 'blocking_child',
         fanout_handler: 'synthetic.child.v1',
@@ -1894,7 +1905,7 @@ it('rejects user-selected command lineage while permitting sealed system lineage
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -1944,7 +1955,7 @@ it('keeps system start episode identity independent from sealed event lineage', 
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -1966,7 +1977,7 @@ it('keeps system start episode identity independent from sealed event lineage', 
     pathwayKey: 'synthetic_system_start',
     sourceEpisodeType: 'investigation_order',
     sourceEpisodeId: 'order-44',
-    accountableRole: 'ADMIN',
+    accountableRole: 'DOCTOR',
     triggerKind: 'event',
     idempotencyKey: 'system_start_501',
     actor,
@@ -2079,7 +2090,7 @@ it('enforces canonical user start source and rejects unregistered parent links',
   })).rejects.toMatchObject({ code: 'PATHWAY_MANUAL_TEAM_FORBIDDEN' });
   await expect(startCarePathwayInstance({
     ...base,
-    accountableRole: 'ADMIN',
+    accountableRole: 'DOCTOR',
   })).rejects.toMatchObject({ code: 'PATHWAY_MANUAL_ACCOUNTABLE_ROLE_FORBIDDEN' });
   expect(acquireStartLocksMock).not.toHaveBeenCalled();
   expect(findInstanceByKeyMock).not.toHaveBeenCalled();
@@ -2174,14 +2185,14 @@ it('does not let a condition exception abandon active human work', async () => {
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       exception_transitions: [{ decision_code: 'abnormal', target_step_key: 'follow_up' }],
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }, {
       step_key: 'follow_up',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry, { status: 'running' });
@@ -2190,7 +2201,7 @@ it('does not let a condition exception abandon active human work', async () => {
     workflow_run_id: 77,
     workflow_step_id: 100,
     status: 'open',
-    assigned_to_role: 'ADMIN',
+    assigned_to_role: 'DOCTOR',
   });
   installRuntimeMocks();
 
@@ -2219,7 +2230,7 @@ it('keeps satisfied domain evidence task-first until the persisted task is compl
     steps: [{
       step_key: 'verify_result',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       work_semantics: {
         task_kind: 'verification',
@@ -2236,7 +2247,7 @@ it('keeps satisfied domain evidence task-first until the persisted task is compl
     workflow_sla_instance_id: '99999999-9999-4999-8999-999999999999',
     sla_completion_semantics: 'domain_evidence',
     status: 'open',
-    assigned_to_role: 'ADMIN',
+    assigned_to_role: 'DOCTOR',
   });
   installRuntimeMocks();
   resolveModeMock.mockResolvedValue('active');
@@ -2272,7 +2283,7 @@ it('advances a domain-evidence task only after persisted completion and fresh sa
     steps: [{
       step_key: 'verify_result',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       work_semantics: {
         task_kind: 'verification',
@@ -2290,7 +2301,7 @@ it('advances a domain-evidence task only after persisted completion and fresh sa
     workflow_sla_instance_id: '99999999-9999-4999-8999-999999999999',
     sla_completion_semantics: 'domain_evidence',
     status: 'completed',
-    assigned_to_role: 'ADMIN',
+    assigned_to_role: 'DOCTOR',
   });
   installRuntimeMocks();
   resolveModeMock.mockResolvedValue('active');
@@ -2314,7 +2325,7 @@ it('advances a domain-evidence task only after persisted completion and fresh sa
     workflow_sla_instance_id: '99999999-9999-4999-8999-999999999999',
     sla_completion_semantics: 'domain_evidence',
     status: 'completed',
-    assigned_to_role: 'ADMIN',
+    assigned_to_role: 'DOCTOR',
   });
   installRuntimeMocks();
   resolveModeMock.mockResolvedValue('active');
@@ -2344,14 +2355,14 @@ it('evaluates an initial condition before effects and skips a rejected action br
     steps: [{
       step_key: 'classify',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       action_handler: 'synthetic.action.v1',
       exception_transitions: [{ decision_code: 'abnormal', target_step_key: 'manual_review' }],
     }, {
       step_key: 'manual_review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'high', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -2383,24 +2394,24 @@ it('CAS-skips every intervening step before activating a forward-exception targe
     steps: [{
       step_key: 'classify',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       action_handler: 'synthetic.action.v1',
       exception_transitions: [{ decision_code: 'abnormal', target_step_key: 'abnormal_review' }],
     }, {
       step_key: 'normal_review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }, {
       step_key: 'normal_approval',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }, {
       step_key: 'abnormal_review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'high', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -2445,12 +2456,12 @@ it('continues from a satisfied wait into destination task materialization', asyn
     steps: [{
       step_key: 'wait_for_ready',
       step_kind: 'wait',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
     }, {
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -2472,16 +2483,16 @@ it('continues from a completed task into task-first approval materialization', a
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }, {
       step_key: 'approve',
       step_kind: 'approval',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: {
         approval_kind: 'synthetic_gate',
         required_approvers: 1,
-        required_role: 'ADMIN',
+        required_role: 'DOCTOR',
         task_kind: 'review',
         priority: 'normal',
         sla_completion_semantics: 'none',
@@ -2493,7 +2504,7 @@ it('continues from a completed task into task-first approval materialization', a
     workflow_run_id: 77,
     workflow_step_id: 100,
     status: 'completed',
-    assigned_to_role: 'ADMIN',
+    assigned_to_role: 'DOCTOR',
   });
   installRuntimeMocks();
   resolveModeMock.mockResolvedValue('active');
@@ -2514,7 +2525,7 @@ it('rejects ownership transfer until destination acceptance evidence exists', ()
     steps: [{
       step_key: 'transfer',
       step_kind: 'subworkflow',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       child_rules: [{
         rule_key: 'destination',
         fanout_handler: 'synthetic.child.v1',
@@ -2532,7 +2543,7 @@ it('requires a concrete owner for a non-blocking named-owner child', async () =>
     pathwayKey: 'synthetic_child',
     sourceEpisodeType: 'synthetic_child_episode',
     sourceEpisodeId: 'child-episode-1',
-    accountableRole: 'ADMIN',
+    accountableRole: 'DOCTOR',
   }]);
   const registry = registryFor({ fanout: { stepKinds: ['subworkflow'], resolve: fanout } });
   runtime = makeRuntime({
@@ -2540,7 +2551,7 @@ it('requires a concrete owner for a non-blocking named-owner child', async () =>
     steps: [{
       step_key: 'launch',
       step_kind: 'subworkflow',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       child_rules: [{
         rule_key: 'named_child',
         fanout_handler: 'synthetic.child.v1',
@@ -2567,7 +2578,7 @@ it('ignores a failed informational child when the blocking child completed', asy
     steps: [{
       step_key: 'children',
       step_kind: 'subworkflow',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       child_rules: [{
         rule_key: 'blocking_child',
         fanout_handler: 'synthetic.child.v1',
@@ -2609,7 +2620,7 @@ it('replays the committed result snapshot rather than a newer mutable bundle', a
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -2642,7 +2653,7 @@ it('rejects a corrupted started graph before any state mutation', async () => {
     steps: [{
       step_key: 'review',
       step_kind: 'task',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
     }],
   }, registry);
@@ -2681,7 +2692,7 @@ it('isolates condition evidence loading in a rolled-back savepoint', async () =>
     steps: [{
       step_key: 'wait',
       step_kind: 'wait',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
     }],
   }, registry, { status: 'running' });
@@ -2713,7 +2724,7 @@ it('evaluates a blocked condition before action materialization', async () => {
     steps: [{
       step_key: 'act',
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       condition_handler: 'synthetic.condition.v1',
       action_handler: 'synthetic.action.v1',
     }],
@@ -2737,7 +2748,7 @@ it('prevalidates fan-out bounds before starting any child', async () => {
     pathwayKey: 'synthetic_child',
     sourceEpisodeType: 'synthetic_child_episode',
     sourceEpisodeId: `child-${index}`,
-    accountableRole: 'ADMIN',
+    accountableRole: 'DOCTOR',
   })));
   const registry = registryFor({ fanout: { stepKinds: ['subworkflow'], resolve: fanout } });
   runtime = makeRuntime({
@@ -2745,7 +2756,7 @@ it('prevalidates fan-out bounds before starting any child', async () => {
     steps: [{
       step_key: 'children',
       step_kind: 'subworkflow',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       child_rules: [{
         rule_key: 'bounded_children',
         fanout_handler: 'synthetic.child.v1',
@@ -2773,7 +2784,7 @@ it('runs a long deterministic automation chain without recursive stack growth', 
     steps: Array.from({ length: 100 }, (_unused, index) => ({
       step_key: `action_${index}`,
       step_kind: 'automation',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       action_handler: 'synthetic.action.v1',
     })),
   }, registry);
@@ -2842,6 +2853,7 @@ it('lets a registered child fan-out inherit parent authorization for a different
     uid: ACTOR_UID,
     roles: ['NURSING_STAFF'],
     primaryRole: 'NURSING_STAFF',
+    rawRole: 'NURSING_STAFF',
     authorizationMode: 'authenticated_pathway_route',
   };
 
@@ -2904,7 +2916,7 @@ it('allows exactly 512 compiled child workflow steps in one sealed parent comman
     pathwayKey: 'synthetic_child',
     sourceEpisodeType: 'synthetic_child_episode',
     sourceEpisodeId: `child-budget-${index}`,
-    accountableRole: 'ADMIN',
+    accountableRole: 'DOCTOR',
   }));
   const fanout = jest.fn(async () => childInputs);
   const registry = registryFor({ fanout: { stepKinds: ['subworkflow'], resolve: fanout } });
@@ -2913,7 +2925,7 @@ it('allows exactly 512 compiled child workflow steps in one sealed parent comman
     steps: [{
       step_key: 'dispatch',
       step_kind: 'subworkflow',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       child_rules: [{
         rule_key: 'budgeted_children',
         fanout_handler: 'synthetic.child.v1',
@@ -2963,7 +2975,7 @@ it('rejects the 513th compiled child workflow step before its child insert', asy
     pathwayKey: 'synthetic_child',
     sourceEpisodeType: 'synthetic_child_episode',
     sourceEpisodeId: `child-over-budget-${index}`,
-    accountableRole: 'ADMIN',
+    accountableRole: 'DOCTOR',
   }));
   const fanout = jest.fn(async () => childInputs);
   const registry = registryFor({ fanout: { stepKinds: ['subworkflow'], resolve: fanout } });
@@ -2972,7 +2984,7 @@ it('rejects the 513th compiled child workflow step before its child insert', asy
     steps: [{
       step_key: 'dispatch',
       step_kind: 'subworkflow',
-      assigned_role: 'ADMIN',
+      assigned_role: 'DOCTOR',
       child_rules: [{
         rule_key: 'budgeted_children',
         fanout_handler: 'synthetic.child.v1',

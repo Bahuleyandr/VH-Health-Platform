@@ -15,6 +15,8 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: primaryQueryRawUnsafeMock },
   prismaReadOnly: { $queryRawUnsafe: readOnlyQueryRawUnsafeMock },
   circuitBreakerStatus: () => ({ open: false }),
+  isTenantTransactionClient: () => true,
+  setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: primaryQueryRawUnsafeMock }),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
