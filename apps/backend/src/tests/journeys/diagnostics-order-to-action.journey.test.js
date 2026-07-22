@@ -407,7 +407,8 @@ d('diagnostic result action pathway', () => {
     ]);
     expect(signedAttempts.map((entry) => entry.diagnostic_generation.replayed).sort())
       .toEqual([false, true]);
-    const signed = signedAttempts[0];
+    const signed = signedAttempts.find((entry) => !entry.diagnostic_generation.replayed);
+    expect(signed).toBeDefined();
     const firstGeneration = signed.diagnostic_generation;
     const firstAck = await loadCriticalAcknowledgement(fixture, firstGeneration.id);
     expect(firstAck).toMatchObject({
@@ -461,7 +462,8 @@ d('diagnostic result action pathway', () => {
     expect(amendmentAttempts[0].addendum.id).toBe(amendmentAttempts[1].addendum.id);
     expect(amendmentAttempts[0].addendum).not.toHaveProperty('idempotency_key');
     expect(amendmentAttempts[0].addendum).not.toHaveProperty('request_sha256');
-    const amended = amendmentAttempts[0];
+    const amended = amendmentAttempts.find((entry) => !entry.diagnostic_generation.replayed);
+    expect(amended).toBeDefined();
     const successor = amended.diagnostic_generation;
     expect(successor).toMatchObject({
       source_kind: 'radiology_report',
