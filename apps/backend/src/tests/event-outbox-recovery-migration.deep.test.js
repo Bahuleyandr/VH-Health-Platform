@@ -12,14 +12,14 @@ const migrationSql = readFileSync(
 const prismaSchema = readFileSync(new URL('../../prisma/schema.prisma', import.meta.url), 'utf8');
 
 const FROZEN_MIGRATIONS = {
-  '578_pathway_projector_inbox.sql': [10265, '2660b1546692ef8f7f685b88946f9836e35281f1f29c9db92ea582cc9d022e16'],
-  '579_workflow_runtime_hardening.sql': [7618, '544f05896a4cc53216c29d1ceb307d00d69ffdff964398587eeb03013356652f'],
-  '580_care_pathway_execution_spine.sql': [253110, '08a4c5999194f9a11d5be46a450aa5a935258bde347944d1a40454e49f991534'],
-  '581_lab_critical_alert_generations.sql': [113292, 'f85eda5b76dfd05699fdbdc9a8f6a5f8b12a39e1e0929d001944ecb5cbca6da3'],
-  '582_lab_oru_replay_idempotency.sql': [66045, 'c70070ad84e5673eb3036bb5a73bbca6070486de0af487e8ee87aa4a1fd0514e'],
-  '583_lab_astm_atomic_replay.sql': [181391, '347ae413947d1a2b2a1924f43512197a7cff8b5bc78adf84f163e97fd4336261'],
-  '584_care_pathway_governance_pinning.sql': [75505, '597b523c408761db20bc6cc286007c7bf3e3dd2d5ac3bbbd78f679b3c1019363'],
-  '585_care_pathway_exclusive_owner_integrity.sql': [41422, 'db6fd812dd40b168468b4d7b33eaa49fba7216ba01c57f8e2c3117d8ac839cae'],
+  '578_pathway_projector_inbox.sql': [10009, '3929ecadded11b7cdf6cac34f62290bd70f937a765d062eab6137355ed19fde4'],
+  '579_workflow_runtime_hardening.sql': [7369, '5bccaf46f7143f50e854d7e7cb8de74a0e8ad7c68f2db32907c354d4af6c1ba8'],
+  '580_care_pathway_execution_spine.sql': [246628, 'a41495fc511bd5238fe548e9185a1461715b47aa54607c7f42ff8ad79edaa979'],
+  '581_lab_critical_alert_generations.sql': [110528, '43afb83d57e50e738540addcc02875c35826884b3d9d4d7b31bbaebb77b61cb4'],
+  '582_lab_oru_replay_idempotency.sql': [64558, 'f0cea6e6ea63f9cf5932acbd99ee9508a2e838d3715d09b969aed99e3a0e41f0'],
+  '583_lab_astm_atomic_replay.sql': [177245, '7d1abe4238fa95d4bafbea9e86052df8c53ca8361fefdcf407ea9e44e10919f1'],
+  '584_care_pathway_governance_pinning.sql': [73446, 'f799232a9007cb3a69dea11d7131c96913578e94bb8c62b9c1b6106921c31eb7'],
+  '585_care_pathway_exclusive_owner_integrity.sql': [40234, 'ecb84da8a3e2dae58ee9df644f16878f597255c1cbb778d582601affd29c9c9a'],
   '586_care_pathway_owner_acceptance.sql': [44168, '07c44ff3f686eb5e481466c288ea4582a93fee70e1e85226a743cc01bdcde288'],
   '587_care_pathway_reconciliation_evidence.sql': [6308, 'd341d84194a16f49b5af4ac8ea81cd60e32271b10aa3a1af04d58d44a500f068'],
 };
@@ -40,8 +40,9 @@ async function expectFailure(client, operation, code, constraint) {
 describe('migration 588 static outbox recovery contract', () => {
   test('keeps migrations 578 through 587 byte-for-byte frozen', () => {
     for (const [name, [bytes, checksum]] of Object.entries(FROZEN_MIGRATIONS)) {
-      const contents = readFileSync(new URL(`../migrations/${name}`, import.meta.url));
-      expect(contents.byteLength).toBe(bytes);
+      const contents = readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
+        .replace(/\r\n/g, '\n');
+      expect(Buffer.byteLength(contents, 'utf8')).toBe(bytes);
       expect(createHash('sha256').update(contents).digest('hex')).toBe(checksum);
     }
   });

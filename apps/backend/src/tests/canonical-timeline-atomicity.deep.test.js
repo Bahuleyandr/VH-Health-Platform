@@ -78,6 +78,7 @@ const recordCanonicalSpy = jest.fn(async (input, options) => {
 
 jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: recordCanonicalSpy,
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
 }));
 
 const prismaModule = await import('../lib/prisma.js');

@@ -18,28 +18,28 @@ const prismaSchema = readFileSync(
 
 const FROZEN_MIGRATIONS = {
   '580_care_pathway_execution_spine.sql': {
-    bytes: 253110,
-    sha256: '08a4c5999194f9a11d5be46a450aa5a935258bde347944d1a40454e49f991534',
+    bytes: 246628,
+    sha256: 'a41495fc511bd5238fe548e9185a1461715b47aa54607c7f42ff8ad79edaa979',
   },
   '581_lab_critical_alert_generations.sql': {
-    bytes: 113292,
-    sha256: 'f85eda5b76dfd05699fdbdc9a8f6a5f8b12a39e1e0929d001944ecb5cbca6da3',
+    bytes: 110528,
+    sha256: '43afb83d57e50e738540addcc02875c35826884b3d9d4d7b31bbaebb77b61cb4',
   },
   '582_lab_oru_replay_idempotency.sql': {
-    bytes: 66045,
-    sha256: 'c70070ad84e5673eb3036bb5a73bbca6070486de0af487e8ee87aa4a1fd0514e',
+    bytes: 64558,
+    sha256: 'f0cea6e6ea63f9cf5932acbd99ee9508a2e838d3715d09b969aed99e3a0e41f0',
   },
   '583_lab_astm_atomic_replay.sql': {
-    bytes: 181391,
-    sha256: '347ae413947d1a2b2a1924f43512197a7cff8b5bc78adf84f163e97fd4336261',
+    bytes: 177245,
+    sha256: '7d1abe4238fa95d4bafbea9e86052df8c53ca8361fefdcf407ea9e44e10919f1',
   },
   '584_care_pathway_governance_pinning.sql': {
-    bytes: 75505,
-    sha256: '597b523c408761db20bc6cc286007c7bf3e3dd2d5ac3bbbd78f679b3c1019363',
+    bytes: 73446,
+    sha256: 'f799232a9007cb3a69dea11d7131c96913578e94bb8c62b9c1b6106921c31eb7',
   },
   '585_care_pathway_exclusive_owner_integrity.sql': {
-    bytes: 41422,
-    sha256: 'db6fd812dd40b168468b4d7b33eaa49fba7216ba01c57f8e2c3117d8ac839cae',
+    bytes: 40234,
+    sha256: 'ecb84da8a3e2dae58ee9df644f16878f597255c1cbb778d582601affd29c9c9a',
   },
 };
 
@@ -493,8 +493,9 @@ async function expectDeferredFailure(client, statement, params, code, message) {
 describe('migration 586 static owner-acceptance contract', () => {
   test('keeps migrations 580 through 585 byte-for-byte frozen', () => {
     for (const [name, expected] of Object.entries(FROZEN_MIGRATIONS)) {
-      const contents = readFileSync(new URL(`../migrations/${name}`, import.meta.url));
-      expect(contents.byteLength).toBe(expected.bytes);
+      const contents = readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
+        .replace(/\r\n/g, '\n');
+      expect(Buffer.byteLength(contents, 'utf8')).toBe(expected.bytes);
       expect(createHash('sha256').update(contents).digest('hex')).toBe(expected.sha256);
     }
   });
