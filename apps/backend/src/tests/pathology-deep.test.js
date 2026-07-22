@@ -185,23 +185,58 @@ describe('Anatomic pathology deep integration', () => {
     expect(rejectedSignOff.statusCode).toBe(403);
     expect(rejectedSignOff.body.details?.code).toBe('AP_SIGNER_REQUIRED');
 
-    const signed = await pathologist.post(`/api/v1/pathology/reports/${report.body.data.id}/sign-off`).send({});
+    const signed = await pathologist.post(`/api/v1/pathology/reports/${report.body.data.id}/sign-off`).send({
+      result_classification: 'abnormal',
+      classification_basis: {
+        source: 'pathologist_attestation',
+        interpretation: `${caseKind}_diagnosis`,
+      },
+    }).set('Idempotency-Key', `pathology-deep-signoff-${report.body.data.id}`);
     expect(signed.statusCode).toBe(200);
     expect(signed.body.data.report_status).toBe('final');
     expect(signed.body.data.signed_by).toBe(PATHOLOGIST_UID);
+    expect(signed.body.data.diagnostic_generation.source_version).toBe(1);
 
     const addendum = await pathologist.post(`/api/v1/pathology/reports/${report.body.data.id}/addenda`).send({
       addendum_text: 'Addendum appended after clinico-pathologic correlation.',
-    });
+      result_classification: 'abnormal',
+      classification_basis: {
+        source: 'pathologist_attestation',
+        interpretation: `${caseKind}_correlation`,
+      },
+      clinical_significance: 'unchanged',
+    }).set('Idempotency-Key', `pathology-deep-addendum-${report.body.data.id}`);
     expect(addendum.statusCode).toBe(201);
     expect(addendum.body.data.report.report_status).toBe('amended');
+    expect(addendum.body.data.report.report_generation_version).toBe(2);
+    expect(addendum.body.data.report.classification_basis).toMatchObject({
+      interpretation: `${caseKind}_correlation`,
+    });
+    expect(addendum.body.data.report).not.toHaveProperty('signoff_idempotency_key');
+    expect(addendum.body.data.report).not.toHaveProperty('signoff_request_sha256');
+    expect(addendum.body.data.addendum.generation_version).toBe(2);
+    expect(addendum.body.data.diagnostic_generation.predecessor_generation_id).toBeTruthy();
 
     const detail = await pathologist.get(`/api/v1/pathology/cases/${caseId}`);
     expect(detail.statusCode).toBe(200);
     expect(detail.body.data.blocks).toHaveLength(1);
     expect(detail.body.data.slides).toHaveLength(1);
     expect(detail.body.data.addenda).toHaveLength(1);
+    expect(detail.body.data.addenda[0]).not.toHaveProperty('idempotency_key');
+    expect(detail.body.data.addenda[0]).not.toHaveProperty('request_sha256');
     expect(detail.body.data.case.status).toBe('amended');
+    expect(detail.body.data.report).toMatchObject({
+      result_classification: 'abnormal',
+      classification_basis: {
+        interpretation: `${caseKind}_correlation`,
+      },
+      report_generation_version: 2,
+      classification_signed_by: PATHOLOGIST_UID,
+      latest_clinical_significance: 'unchanged',
+      latest_addendum_id: detail.body.data.addenda[0].id,
+    });
+    expect(detail.body.data.report).not.toHaveProperty('signoff_idempotency_key');
+    expect(detail.body.data.report).not.toHaveProperty('signoff_request_sha256');
 
     const eventRows = await prisma.$queryRawUnsafe(
       `SELECT event_type, source_table
@@ -224,6 +259,14 @@ describe('Anatomic pathology deep integration', () => {
 
     const worklist = await pathologist.get('/api/v1/pathology/worklist?limit=10');
     expect(worklist.statusCode).toBe(200);
-    expect(worklist.body.data.some((row) => row.id === caseId && row.current_tat_stage)).toBe(true);
+    const worklistCase = worklist.body.data.find((row) => row.id === caseId);
+    expect(worklistCase.current_tat_stage).toBeTruthy();
+    expect(worklistCase).toMatchObject({
+      result_classification: 'abnormal',
+      report_generation_version: 2,
+      classification_signed_by: PATHOLOGIST_UID,
+      latest_clinical_significance: 'unchanged',
+      latest_addendum_id: detail.body.data.addenda[0].id,
+    });
   });
 });

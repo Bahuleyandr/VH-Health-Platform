@@ -87,6 +87,38 @@ class RadiologyApiService {
     return _put('/radiology/$id/report', reportData);
   }
 
+  /// POST /radiology/:id/sign-off
+  static Future<Map<String, dynamic>> signOffReport(
+    int id, {
+    required String resultClassification,
+  }) async {
+    return _post('/radiology/$id/sign-off', {
+      'result_classification': resultClassification,
+      'classification_basis': {
+        'basis_code': 'authenticated_specialist_report_review',
+        'source': 'signed_radiology_report',
+      },
+    });
+  }
+
+  /// POST /radiology/:id/addendum
+  static Future<Map<String, dynamic>> appendAddendum(
+    int id, {
+    required String addendum,
+    required String resultClassification,
+    required String clinicalSignificance,
+  }) async {
+    return _post('/radiology/$id/addendum', {
+      'addendum': addendum,
+      'result_classification': resultClassification,
+      'classification_basis': {
+        'basis_code': 'authenticated_specialist_addendum_review',
+        'source': 'signed_radiology_addendum',
+      },
+      'clinical_significance': clinicalSignificance,
+    });
+  }
+
   /// PUT /radiology/:id/cancel
   static Future<Map<String, dynamic>> cancelOrder(int id) async {
     return _put('/radiology/$id/cancel', {});

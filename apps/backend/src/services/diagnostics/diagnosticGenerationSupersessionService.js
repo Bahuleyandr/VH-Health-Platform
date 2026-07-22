@@ -7,6 +7,7 @@ import {
   executePathwayCommand,
 } from '../pathways/pathwayExecutorService.js';
 import { sha256ClinicalJson } from './diagnosticClassification.js';
+import { supersedeAcknowledgementTaskFromTrustedWorkflow } from '../workflow/taskService.js';
 
 async function loadSupersessionContextTx(tx, tenantId, successorGenerationId) {
   const rows = await tx.$queryRawUnsafe(
@@ -14,6 +15,10 @@ async function loadSupersessionContextTx(tx, tenantId, successorGenerationId) {
             predecessor.patient_uid,
             predecessor.snapshot_sha256,
             successor.id AS successor_generation_id,
+            successor.signer_uid AS successor_signer_uid,
+            predecessor.critical_acknowledgement_task_id,
+            predecessor.critical_acknowledgement_sla_id,
+            acknowledgement_task.status AS acknowledgement_task_status,
             pathway.id AS pathway_instance_id,
             pathway.workflow_run_id,
             pathway.clinical_status,
@@ -60,6 +65,9 @@ async function loadSupersessionContextTx(tx, tenantId, successorGenerationId) {
           ORDER BY action.occurred_at DESC, action.id DESC
           LIMIT 1
        ) AS prior_action ON TRUE
+       LEFT JOIN tasks AS acknowledgement_task
+         ON acknowledgement_task.tenant_id = predecessor.tenant_id
+        AND acknowledgement_task.id = predecessor.critical_acknowledgement_task_id
       WHERE successor.tenant_id = $1::uuid
         AND successor.id = $2::uuid
       LIMIT 1
@@ -178,6 +186,22 @@ export async function supersedePriorDiagnosticGenerationTx({
   const row = await loadSupersessionContextTx(tx, tenantId, successorGenerationId);
   if (!row) return Object.freeze({ superseded: false, reason: 'no_predecessor' });
   const recorded = await recordSupersessionActionTx(tx, tenantId, row);
+  if (
+    row.critical_acknowledgement_task_id != null
+    && ['open', 'in_progress', 'blocked', 'overdue'].includes(row.acknowledgement_task_status)
+  ) {
+    await supersedeAcknowledgementTaskFromTrustedWorkflow({
+      tenantId,
+      id: Number(row.critical_acknowledgement_task_id),
+      relatedResourceType: 'diagnostic_result_generation',
+      relatedResourceId: String(row.predecessor_generation_id),
+      workflowSlaInstanceId: row.critical_acknowledgement_sla_id,
+      supersededByActorUid: row.successor_signer_uid,
+      supersedingDiagnosticGenerationId: row.successor_generation_id,
+      supersessionReason: 'diagnostic_generation_superseded',
+      tx,
+    });
+  }
   if (!row.pathway_instance_id || !['planned', 'active', 'on_hold'].includes(row.clinical_status)) {
     return Object.freeze({
       superseded: true,

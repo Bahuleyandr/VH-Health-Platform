@@ -7,6 +7,14 @@ import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatf
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { sha256ClinicalJson } from '../diagnostics/diagnosticClassification.js';
+import {
+  createRadiologyDiagnosticGenerationTx,
+  normalizeDiagnosticIdempotencyKey,
+  normalizeStructuredAddendumSignificance,
+  normalizeStructuredClassificationBasis,
+  normalizeStructuredResultClassification,
+} from '../diagnostics/structuredReportDiagnosticGenerationService.js';
 
 const VALID_MODALITIES = ['xray', 'ct', 'mri', 'ultrasound', 'mammography', 'fluoroscopy'];
 const VALID_PRIORITIES = ['routine', 'urgent', 'stat'];
@@ -32,7 +40,35 @@ const RAD_RETURNING = `id, patient_uid, encounter_id, modality, body_part, clini
     report_signed_off_at, report_signed_off_by, acquired_at, acquired_by,
     acquired_by_name, tech_uid, tech_name, tech_license_number,
     pacs_study_instance_uid, acquisition_evidence, template_id, structured_report,
+    result_classification, classification_basis, report_generation_version,
+    classification_signed_by, classification_signed_at,
     tenant_id, notes, created_at, updated_at`;
+
+const RAD_CURRENT_READ_PROJECTION = `ro.id, ro.patient_uid, ro.encounter_id, ro.modality,
+    ro.body_part, ro.clinical_indication, ro.priority, ro.status, ro.ordered_by,
+    ro.radiologist, ro.report, ro.report_completed_at, ro.report_signed_off_at,
+    ro.report_signed_off_by, ro.acquired_at, ro.acquired_by, ro.acquired_by_name,
+    ro.tech_uid, ro.tech_name, ro.tech_license_number, ro.pacs_study_instance_uid,
+    ro.acquisition_evidence, ro.template_id, ro.structured_report,
+    COALESCE(latest_addendum.result_classification, ro.result_classification) AS result_classification,
+    COALESCE(latest_addendum.classification_basis, ro.classification_basis) AS classification_basis,
+    COALESCE(latest_addendum.generation_version, ro.report_generation_version) AS report_generation_version,
+    COALESCE(latest_addendum.signed_by, ro.classification_signed_by) AS classification_signed_by,
+    COALESCE(latest_addendum.signed_at, ro.classification_signed_at) AS classification_signed_at,
+    latest_addendum.clinical_significance AS latest_clinical_significance,
+    latest_addendum.id AS latest_addendum_id,
+    ro.tenant_id, ro.notes, ro.created_at, ro.updated_at`;
+
+const RAD_LATEST_ADDENDUM_JOIN = `LEFT JOIN LATERAL (
+    SELECT addendum.id, addendum.generation_version, addendum.result_classification,
+           addendum.classification_basis, addendum.clinical_significance,
+           addendum.signed_by, addendum.signed_at
+      FROM radiology_report_addenda addendum
+     WHERE addendum.tenant_id = ro.tenant_id
+       AND addendum.radiology_order_id = ro.id
+     ORDER BY addendum.generation_version DESC, addendum.id DESC
+     LIMIT 1
+  ) latest_addendum ON TRUE`;
 
 function tenantOr(value) {
   return requireTenantId(value);
@@ -607,16 +643,9 @@ class RadiologyService {
       params.push(listQuery.offset);
 
       const result = await tx.$queryRawUnsafe(
-        `SELECT ro.id, ro.patient_uid, ro.encounter_id, ro.modality, ro.body_part,
-                ro.clinical_indication, ro.priority, ro.status, ro.ordered_by,
-                ro.radiologist, ro.report, ro.report_completed_at,
-                ro.report_signed_off_at, ro.report_signed_off_by,
-                ro.acquired_at, ro.acquired_by, ro.acquired_by_name,
-                ro.tech_uid, ro.tech_name, ro.tech_license_number,
-                ro.pacs_study_instance_uid, ro.acquisition_evidence,
-                ro.template_id, ro.structured_report, ro.tenant_id,
-                ro.notes, ro.created_at, ro.updated_at
+        `SELECT ${RAD_CURRENT_READ_PROJECTION}
          FROM radiology_orders ro
+         ${RAD_LATEST_ADDENDUM_JOIN}
          ${whereClause}
          ORDER BY
            CASE ro.priority WHEN 'stat' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
@@ -664,7 +693,8 @@ class RadiologyService {
       const existing = await tx.$queryRawUnsafe(
         `SELECT id, tenant_id, patient_uid, encounter_id, status, report_signed_off_at
            FROM radiology_orders
-          WHERE id = $1::int AND tenant_id = $2::uuid`,
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          FOR UPDATE`,
         requireIntId(id),
         tenantId,
       );
@@ -738,10 +768,11 @@ class RadiologyService {
       const total = parseInt(countResult[0].count, 10);
 
       const result = await tx.$queryRawUnsafe(
-        `SELECT ${RAD_RETURNING}
-           FROM radiology_orders
-          WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
-          ORDER BY created_at DESC
+        `SELECT ${RAD_CURRENT_READ_PROJECTION}
+           FROM radiology_orders ro
+           ${RAD_LATEST_ADDENDUM_JOIN}
+          WHERE ro.patient_uid = $1::uuid AND ro.tenant_id = $2::uuid
+          ORDER BY ro.created_at DESC
           LIMIT $3 OFFSET $4`,
         patientUid,
         tenantId,
@@ -755,15 +786,31 @@ class RadiologyService {
 
   async getOrderDetail(id, filters = {}) {
     const tenantId = tenantOr(filters.tenantId || filters.tenant_id);
-    const result = await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
-      `SELECT ${RAD_RETURNING}
-         FROM radiology_orders
-        WHERE id = $1::int AND tenant_id = $2::uuid`,
-      requireIntId(id),
-      tenantId,
-    ), { readOnly: true });
-    if (result.length === 0) throw AppError.notFound('Radiology order not found');
-    return normalizeWireValue(result[0]);
+    const detail = await setTenant(tenantId, async (tx) => {
+      const result = await tx.$queryRawUnsafe(
+        `SELECT ${RAD_CURRENT_READ_PROJECTION}
+           FROM radiology_orders ro
+           ${RAD_LATEST_ADDENDUM_JOIN}
+          WHERE ro.id = $1::int AND ro.tenant_id = $2::uuid`,
+        requireIntId(id),
+        tenantId,
+      );
+      if (result.length === 0) throw AppError.notFound('Radiology order not found');
+      const addenda = await tx.$queryRawUnsafe(
+        `SELECT id, radiology_order_id, generation_version, addendum_text,
+                previous_classification, result_classification,
+                classification_basis, clinical_significance, signed_by,
+                signed_at, metadata, created_at
+           FROM radiology_report_addenda
+          WHERE tenant_id = $1::uuid
+            AND radiology_order_id = $2::int
+          ORDER BY generation_version ASC, id ASC`,
+        tenantId,
+        requireIntId(id),
+      );
+      return { ...result[0], addenda };
+    }, { readOnly: true });
+    return normalizeWireValue(detail);
   }
 
   async markAcquired(id, { tech_uid, tech_name, tech_license_number, acquisition_evidence, tenantId, actorRole } = {}) {
@@ -830,19 +877,42 @@ class RadiologyService {
     return normalizeWireValue(order);
   }
 
-  async appendReportAddendum(id, { addendum, addendum_by, tenantId, actorRole } = {}) {
+  async appendReportAddendum(id, {
+    addendum,
+    addendum_by,
+    result_classification,
+    classification_basis,
+    clinical_significance,
+    idempotencyKey: rawIdempotencyKey,
+    tenantId,
+    actorRole,
+  } = {}) {
     const scopedTenantId = tenantOr(tenantId);
     if (!addendum || typeof addendum !== 'string' || !addendum.trim()) {
       throw AppError.badRequest('addendum text is required');
     }
     if (!addendum_by) throw AppError.badRequest('addendum_by is required');
+    if (!actorRole) throw AppError.badRequest('Authenticated signer role is required');
     const cleanAddendum = String(addendum).trim();
+    const classification = normalizeStructuredResultClassification(result_classification);
+    const classificationBasis = normalizeStructuredClassificationBasis(classification_basis);
+    const significance = normalizeStructuredAddendumSignificance(clinical_significance);
+    const idempotencyKey = normalizeDiagnosticIdempotencyKey(rawIdempotencyKey);
+    const requestSha256 = sha256ClinicalJson({
+      radiology_order_id: String(requireIntId(id)),
+      addendum_text: cleanAddendum,
+      signer_uid: String(addendum_by),
+      result_classification: classification,
+      classification_basis: classificationBasis,
+      clinical_significance: significance,
+    });
 
-    const order = await setTenantTx(scopedTenantId, async (tx) => {
+    const result = await setTenantTx(scopedTenantId, async (tx) => {
       const existing = await tx.$queryRawUnsafe(
-        `SELECT id, tenant_id, patient_uid, encounter_id, status, report, report_signed_off_at
+        `SELECT ${RAD_RETURNING}
            FROM radiology_orders
-          WHERE id = $1::int AND tenant_id = $2::uuid`,
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          FOR UPDATE`,
         requireIntId(id),
         scopedTenantId,
       );
@@ -856,56 +926,186 @@ class RadiologyService {
           'REPORT_NOT_SIGNED_OFF',
         );
       }
-      const stampedAddendum = `\n\n--- Addendum (${new Date().toISOString()} by ${addendum_by}) ---\n${cleanAddendum}`;
-      const baseReport = existing[0].report || '';
-      const newReport = `${baseReport}${stampedAddendum}`;
-
-      const result = await tx.$queryRawUnsafe(
-        `UPDATE radiology_orders
-            SET report = $1, updated_at = NOW()
-          WHERE id = $2::int AND tenant_id = $3::uuid
-          RETURNING ${RAD_RETURNING}`,
-        newReport,
-        requireIntId(id),
+      if (!existing[0].result_classification || Number(existing[0].report_generation_version) !== 1) {
+        throw AppError.conflict(
+          'Signed report has no structured initial classification; reconcile it before adding an amendment',
+          'DIAGNOSTIC_SOURCE_RECONCILIATION_REQUIRED',
+        );
+      }
+      const priorAddenda = await tx.$queryRawUnsafe(
+        `SELECT id, generation_version, addendum_text, previous_classification,
+                result_classification, classification_basis, clinical_significance,
+                signed_by, signed_at, idempotency_key, request_sha256
+           FROM radiology_report_addenda
+          WHERE tenant_id = $1::uuid
+            AND radiology_order_id = $2::int
+          ORDER BY generation_version ASC, id ASC`,
         scopedTenantId,
+        requireIntId(id),
       );
-      const row = result[0];
-
-      await tx.$executeRawUnsafe(
-        `INSERT INTO audit_logs
-           (uid, action, resource, resource_id, metadata, ip_address)
-         VALUES ($1::uuid, 'RADIOLOGY_REPORT_ADDENDUM', 'radiology_order', $2, $3::jsonb, NULL)`,
-        String(addendum_by), String(id),
-        JSON.stringify({
-          radiology_order_id: id,
-          addendum_text: cleanAddendum.slice(0, 4000),
-          appended_at: new Date().toISOString(),
-        }),
-      );
-      await emitRadiologyCanonicalEvent(tx, row, 'radiology.report_addendum', {
-        actorUid: addendum_by,
-        actorRole,
-        summary: `Radiology report addendum appended for ${row.modality} ${row.body_part}`,
-        payload: { addendum_preview: cleanAddendum.slice(0, 240) },
-        beforeStatus: existing[0].status,
-        afterStatus: row.status,
-        occurredAt: row.updated_at,
+      const predecessor = priorAddenda.at(-1) || null;
+      const replayAddendum = priorAddenda.find(
+        (entry) => entry.idempotency_key === idempotencyKey,
+      ) || null;
+      if (replayAddendum && replayAddendum.request_sha256 !== requestSha256) {
+        throw AppError.conflict(
+          'Idempotency-Key was reused with different radiology addendum content',
+          'DIAGNOSTIC_IDEMPOTENCY_CONFLICT',
+        );
+      }
+      const generationVersion = replayAddendum
+        ? Number(replayAddendum.generation_version)
+        : predecessor
+          ? Number(predecessor.generation_version) + 1
+          : 2;
+      const previousClassification = replayAddendum?.previous_classification
+        || predecessor?.result_classification
+        || existing[0].result_classification;
+      let addendumRow = replayAddendum;
+      if (!addendumRow) {
+        const inserted = await tx.$queryRawUnsafe(
+          `INSERT INTO radiology_report_addenda
+             (tenant_id, radiology_order_id, generation_version, addendum_text,
+              previous_classification, result_classification, classification_basis,
+              clinical_significance, signed_by, idempotency_key, request_sha256,
+              metadata)
+           VALUES
+             ($1::uuid, $2::int, $3::bigint, $4::text,
+              $5::text, $6::text, $7::jsonb, $8::text, $9::uuid,
+              $10::text, $11::text, '{}'::jsonb)
+           RETURNING *`,
+          scopedTenantId,
+          requireIntId(id),
+          generationVersion,
+          cleanAddendum,
+          previousClassification,
+          classification,
+          JSON.stringify(classificationBasis),
+          significance,
+          addendum_by,
+          idempotencyKey,
+          requestSha256,
+        );
+        [addendumRow] = inserted;
+      }
+      const encounterId = await resolveCanonicalEncounterUuid(tx, existing[0]);
+      const generationAddenda = replayAddendum
+        ? priorAddenda.filter(
+          (entry) => Number(entry.generation_version) <= generationVersion,
+        )
+        : [...priorAddenda, addendumRow];
+      const sourceContentSha256 = sha256ClinicalJson({
+        report: existing[0].report,
+        structured_report: existing[0].structured_report,
+        addenda: generationAddenda.map((entry) => ({
+          generation_version: Number(entry.generation_version),
+          addendum_text: entry.addendum_text,
+          result_classification: entry.result_classification,
+          classification_basis: entry.classification_basis,
+          clinical_significance: entry.clinical_significance,
+          signed_by: entry.signed_by,
+          signed_at: entry.signed_at,
+        })),
       });
-      return row;
+      const diagnosticGeneration = await createRadiologyDiagnosticGenerationTx({
+        tx,
+        tenantId: scopedTenantId,
+        patientUid: existing[0].patient_uid,
+        encounterId,
+        sourceEpisodeKey: `radiology_order:${existing[0].id}`,
+        sourceVersion: generationVersion,
+        sourceRowId: addendumRow.id,
+        radiologyOrderId: existing[0].id,
+        radiologyAddendumId: addendumRow.id,
+        orderingOwnerUid: existing[0].ordered_by,
+        signerUid: addendum_by,
+        signerRole: actorRole,
+        signedAt: addendumRow.signed_at,
+        resultClassification: classification,
+        classificationBasis,
+        sourceContentSha256,
+        clinicalSignificance: significance,
+      });
+
+      if (!replayAddendum) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO audit_logs
+             (uid, action, resource, resource_id, metadata, ip_address)
+           VALUES ($1::uuid, 'RADIOLOGY_REPORT_ADDENDUM', 'radiology_order', $2, $3::jsonb, NULL)`,
+          String(addendum_by), String(id),
+          JSON.stringify({
+            radiology_order_id: id,
+            radiology_addendum_id: addendumRow.id,
+            generation_version: generationVersion,
+            result_classification: classification,
+            clinical_significance: significance,
+            appended_at: addendumRow.signed_at,
+          }),
+        );
+        await emitRadiologyCanonicalEvent(tx, existing[0], 'radiology.report_addendum', {
+          actorUid: addendum_by,
+          actorRole,
+          summary: `Radiology report addendum appended for ${existing[0].modality} ${existing[0].body_part}`,
+          payload: {
+            radiology_addendum_id: addendumRow.id,
+            generation_version: generationVersion,
+            result_classification: classification,
+            clinical_significance: significance,
+          },
+          beforeStatus: existing[0].status,
+          afterStatus: existing[0].status,
+          occurredAt: addendumRow.signed_at,
+        });
+      }
+      const {
+        idempotency_key: _idempotencyKey,
+        request_sha256: _requestSha256,
+        ...publicAddendum
+      } = addendumRow;
+      return {
+        ...existing[0],
+        result_classification: addendumRow.result_classification,
+        classification_basis: addendumRow.classification_basis,
+        report_generation_version: addendumRow.generation_version,
+        classification_signed_by: addendumRow.signed_by,
+        classification_signed_at: addendumRow.signed_at,
+        latest_clinical_significance: addendumRow.clinical_significance,
+        latest_addendum_id: addendumRow.id,
+        addendum: publicAddendum,
+        diagnostic_generation: diagnosticGeneration,
+      };
     });
 
     logger.info('Radiology report addendum appended', { orderId: id, addendum_by });
-    return normalizeWireValue(order);
+    return normalizeWireValue(result);
   }
 
-  async signOffReport(id, { signed_off_by, tenantId, actorRole } = {}) {
+  async signOffReport(id, {
+    signed_off_by,
+    result_classification,
+    classification_basis,
+    idempotencyKey: rawIdempotencyKey,
+    tenantId,
+    actorRole,
+  } = {}) {
     const scopedTenantId = tenantOr(tenantId);
     if (!signed_off_by) throw AppError.badRequest('signed_off_by is required');
-    const order = await setTenantTx(scopedTenantId, async (tx) => {
+    if (!actorRole) throw AppError.badRequest('Authenticated signer role is required');
+    const classification = normalizeStructuredResultClassification(result_classification);
+    const classificationBasis = normalizeStructuredClassificationBasis(classification_basis);
+    const idempotencyKey = normalizeDiagnosticIdempotencyKey(rawIdempotencyKey);
+    const requestSha256 = sha256ClinicalJson({
+      radiology_order_id: String(requireIntId(id)),
+      signer_uid: String(signed_off_by),
+      result_classification: classification,
+      classification_basis: classificationBasis,
+    });
+    const result = await setTenantTx(scopedTenantId, async (tx) => {
       const existing = await tx.$queryRawUnsafe(
-        `SELECT id, tenant_id, patient_uid, encounter_id, status, report_completed_at, report_signed_off_at
+        `SELECT ${RAD_RETURNING}, signoff_idempotency_key, signoff_request_sha256
            FROM radiology_orders
-          WHERE id = $1::int AND tenant_id = $2::uuid`,
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          FOR UPDATE`,
         requireIntId(id),
         scopedTenantId,
       );
@@ -914,20 +1114,78 @@ class RadiologyService {
         throw AppError.badRequest('Cannot sign off — report has not been submitted yet');
       }
       if (existing[0].report_signed_off_at) {
+        if (
+          existing[0].signoff_idempotency_key === idempotencyKey
+          && existing[0].signoff_request_sha256 === requestSha256
+        ) {
+          const diagnosticGeneration = await createRadiologyDiagnosticGenerationTx({
+            tx,
+            tenantId: scopedTenantId,
+            patientUid: existing[0].patient_uid,
+            encounterId: await resolveCanonicalEncounterUuid(tx, existing[0]),
+            sourceEpisodeKey: `radiology_order:${existing[0].id}`,
+            sourceVersion: 1,
+            sourceRowId: existing[0].id,
+            radiologyOrderId: existing[0].id,
+            orderingOwnerUid: existing[0].ordered_by,
+            signerUid: existing[0].classification_signed_by,
+            signerRole: actorRole,
+            signedAt: existing[0].classification_signed_at,
+            resultClassification: existing[0].result_classification,
+            classificationBasis: existing[0].classification_basis,
+            sourceContentSha256: sha256ClinicalJson({
+              report: existing[0].report,
+              structured_report: existing[0].structured_report,
+            }),
+          });
+          return { ...existing[0], diagnostic_generation: diagnosticGeneration };
+        }
         throw AppError.conflict('Report is already signed off', 'REPORT_SIGNED_OFF');
       }
       const result = await tx.$queryRawUnsafe(
         `UPDATE radiology_orders
             SET report_signed_off_at = NOW(),
                 report_signed_off_by = $1::uuid,
+                result_classification = $4::text,
+                classification_basis = $5::jsonb,
+                report_generation_version = 1,
+                classification_signed_by = $1::uuid,
+                classification_signed_at = NOW(),
+                signoff_idempotency_key = $6::text,
+                signoff_request_sha256 = $7::text,
                 updated_at = NOW()
           WHERE id = $2::int AND tenant_id = $3::uuid
-          RETURNING ${RAD_RETURNING}, report_signed_off_at, report_signed_off_by`,
+          RETURNING ${RAD_RETURNING}`,
         signed_off_by,
         requireIntId(id),
         scopedTenantId,
+        classification,
+        JSON.stringify(classificationBasis),
+        idempotencyKey,
+        requestSha256,
       );
       const row = result[0];
+      const encounterId = await resolveCanonicalEncounterUuid(tx, row);
+      const diagnosticGeneration = await createRadiologyDiagnosticGenerationTx({
+        tx,
+        tenantId: scopedTenantId,
+        patientUid: row.patient_uid,
+        encounterId,
+        sourceEpisodeKey: `radiology_order:${row.id}`,
+        sourceVersion: 1,
+        sourceRowId: row.id,
+        radiologyOrderId: row.id,
+        orderingOwnerUid: row.ordered_by,
+        signerUid: signed_off_by,
+        signerRole: actorRole,
+        signedAt: row.classification_signed_at,
+        resultClassification: classification,
+        classificationBasis,
+        sourceContentSha256: sha256ClinicalJson({
+          report: row.report,
+          structured_report: row.structured_report,
+        }),
+      });
       await emitRadiologyCanonicalEvent(tx, row, 'radiology.report_signed_off', {
         actorUid: signed_off_by,
         actorRole,
@@ -943,11 +1201,16 @@ class RadiologyService {
         requireIntId(id),
       ).catch(() => []);
       if (metrics[0]) await maybeEmitTatAlert(tx, metrics[0]);
-      return row;
+      return { ...row, diagnostic_generation: diagnosticGeneration };
     });
 
     logger.info('Radiology report signed off', { orderId: id, signed_off_by });
-    return normalizeWireValue(order);
+    const {
+      signoff_idempotency_key: _signoffIdempotencyKey,
+      signoff_request_sha256: _signoffRequestSha256,
+      ...publicResult
+    } = result;
+    return normalizeWireValue(publicResult);
   }
 
   async recordPeerReview(id, data = {}, context = {}) {

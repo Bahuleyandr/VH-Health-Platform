@@ -379,18 +379,46 @@ async function diagnosticGenerationEvidence({ tx, tenantId, pathwayKey }) {
               COUNT(*) FILTER (
                 WHERE item.source_table = 'lab_results' AND lab.id IS NULL
               )::integer AS missing_lab_rows,
-              COUNT(*) FILTER (
-                WHERE item.source_table = 'investigations' AND shared.id IS NULL
-              )::integer AS missing_investigation_rows
+               COUNT(*) FILTER (
+                 WHERE item.source_table = 'investigations' AND shared.id IS NULL
+               )::integer AS missing_investigation_rows,
+               COUNT(*) FILTER (
+                 WHERE item.source_table = 'radiology_orders' AND radiology_order.id IS NULL
+               )::integer AS missing_radiology_order_rows,
+               COUNT(*) FILTER (
+                 WHERE item.source_table = 'radiology_report_addenda' AND radiology_addendum.id IS NULL
+               )::integer AS missing_radiology_addendum_rows,
+               COUNT(*) FILTER (
+                 WHERE item.source_table = 'ap_reports' AND ap_report.id IS NULL
+               )::integer AS missing_ap_report_rows,
+               COUNT(*) FILTER (
+                 WHERE item.source_table = 'ap_report_addenda' AND ap_addendum.id IS NULL
+               )::integer AS missing_ap_addendum_rows
          FROM diagnostic_result_generation_items AS item
          LEFT JOIN lab_results AS lab
            ON lab.tenant_id = item.tenant_id
           AND item.source_table = 'lab_results'
           AND lab.id::text = item.source_row_id
-         LEFT JOIN investigations AS shared
+          LEFT JOIN investigations AS shared
            ON shared.tenant_id = item.tenant_id
           AND item.source_table = 'investigations'
-          AND shared.id::text = item.source_row_id
+           AND shared.id::text = item.source_row_id
+          LEFT JOIN radiology_orders AS radiology_order
+            ON radiology_order.tenant_id = item.tenant_id
+           AND item.source_table = 'radiology_orders'
+           AND radiology_order.id::text = item.source_row_id
+          LEFT JOIN radiology_report_addenda AS radiology_addendum
+            ON radiology_addendum.tenant_id = item.tenant_id
+           AND item.source_table = 'radiology_report_addenda'
+           AND radiology_addendum.id::text = item.source_row_id
+          LEFT JOIN ap_reports AS ap_report
+            ON ap_report.tenant_id = item.tenant_id
+           AND item.source_table = 'ap_reports'
+           AND ap_report.id::text = item.source_row_id
+          LEFT JOIN ap_report_addenda AS ap_addendum
+            ON ap_addendum.tenant_id = item.tenant_id
+           AND item.source_table = 'ap_report_addenda'
+           AND ap_addendum.id::text = item.source_row_id
         WHERE item.tenant_id = $1::uuid
         GROUP BY item.tenant_id, item.generation_id
      )
@@ -404,7 +432,19 @@ async function diagnosticGenerationEvidence({ tx, tenantId, pathwayKey }) {
         AND signoff.id = generation.lab_signoff_id
        LEFT JOIN investigations AS investigation
          ON investigation.tenant_id = generation.tenant_id
-        AND investigation.id = generation.investigation_id
+         AND investigation.id = generation.investigation_id
+       LEFT JOIN radiology_orders AS radiology_order
+         ON radiology_order.tenant_id = generation.tenant_id
+        AND radiology_order.id = generation.radiology_order_id
+       LEFT JOIN radiology_report_addenda AS radiology_addendum
+         ON radiology_addendum.tenant_id = generation.tenant_id
+        AND radiology_addendum.id = generation.radiology_addendum_id
+       LEFT JOIN ap_reports AS ap_report
+         ON ap_report.tenant_id = generation.tenant_id
+        AND ap_report.id = generation.ap_report_id
+       LEFT JOIN ap_report_addenda AS ap_addendum
+         ON ap_addendum.tenant_id = generation.tenant_id
+        AND ap_addendum.id = generation.ap_addendum_id
       WHERE generation.tenant_id = $1::uuid
         AND (
           items.generation_id IS NULL
@@ -412,9 +452,23 @@ async function diagnosticGenerationEvidence({ tx, tenantId, pathwayKey }) {
           OR items.snapshot_sha256 IS DISTINCT FROM generation.snapshot_sha256::text
           OR items.missing_lab_rows > 0
           OR items.missing_investigation_rows > 0
+          OR items.missing_radiology_order_rows > 0
+          OR items.missing_radiology_addendum_rows > 0
+          OR items.missing_ap_report_rows > 0
+          OR items.missing_ap_addendum_rows > 0
           OR (generation.source_kind = 'lab_panel' AND signoff.id IS NULL)
           OR (generation.source_kind = 'shared_investigation' AND investigation.id IS NULL)
+          OR (generation.source_kind = 'radiology_report' AND radiology_order.id IS NULL)
+          OR (generation.source_kind = 'radiology_report'
+              AND generation.source_version > 1
+              AND radiology_addendum.id IS NULL)
+          OR (generation.source_kind = 'anatomical_pathology_report' AND ap_report.id IS NULL)
+          OR (generation.source_kind = 'anatomical_pathology_report'
+              AND generation.source_version > 1
+              AND ap_addendum.id IS NULL)
           OR (generation.source_kind = 'shared_investigation'
+              AND generation.ordering_owner_uid IS NULL)
+          OR (generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
               AND generation.ordering_owner_uid IS NULL)
           OR (generation.ordering_owner_uid IS NOT NULL
               AND NOT care_pathway_named_clinician_is_viable(
@@ -620,6 +674,130 @@ async function diagnosticObligationEvidence({ tx, tenantId, pathwayKey }) {
   ));
 }
 
+async function diagnosticStructuredAcknowledgementEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+    return result('DIAGNOSTIC_STRUCTURED_ACK_EVIDENCE_DRIFT', 0);
+  }
+  return result('DIAGNOSTIC_STRUCTURED_ACK_EVIDENCE_DRIFT', await count(
+    tx,
+    `SELECT COUNT(*)::integer AS finding_count
+       FROM diagnostic_result_generations AS generation
+       JOIN tenants AS tenant
+         ON tenant.id = generation.tenant_id
+       LEFT JOIN tasks AS task
+         ON task.tenant_id = generation.tenant_id
+        AND task.id = generation.critical_acknowledgement_task_id
+       LEFT JOIN workflow_sla_instances AS sla
+         ON sla.tenant_id = generation.tenant_id
+        AND sla.id = generation.critical_acknowledgement_sla_id
+       LEFT JOIN diagnostic_result_generations AS successor
+         ON successor.tenant_id = generation.tenant_id
+        AND successor.predecessor_generation_id = generation.id
+      WHERE generation.tenant_id = $1::uuid
+        AND generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
+        AND (
+          (
+            generation.classification = 'critical'
+            AND LOWER(COALESCE(
+                  tenant.settings #>> '{care_pathways,diagnostics_order_to_action}',
+                  'off'
+                )) = 'active'
+            AND successor.id IS NULL
+            AND (
+              generation.critical_acknowledgement_task_id IS NULL
+              OR generation.critical_acknowledgement_sla_id IS NULL
+            )
+          )
+          OR (
+            (generation.critical_acknowledgement_task_id IS NULL)
+              <> (generation.critical_acknowledgement_sla_id IS NULL)
+          )
+          OR (
+            generation.critical_acknowledgement_task_id IS NOT NULL
+            AND (
+              task.id IS NULL
+              OR sla.id IS NULL
+              OR generation.classification <> 'critical'
+              OR task.related_resource_type <> 'diagnostic_result_generation'
+              OR task.related_resource_id <> generation.id::text
+              OR task.workflow_sla_instance_id IS DISTINCT FROM sla.id
+              OR task.sla_completion_semantics <> 'acknowledgement'
+              OR task.assigned_to_uid IS DISTINCT FROM generation.ordering_owner_uid
+              OR task.assigned_to_role IS NOT NULL
+              OR sla.rule_code <> 'critical_result_ack'
+              OR sla.source_table <> 'diagnostic_result_generation'
+              OR sla.source_id <> generation.id::text
+              OR task.status NOT IN ('open', 'in_progress', 'blocked', 'overdue', 'completed')
+              OR (
+                task.status IN ('open', 'blocked', 'overdue')
+                AND sla.completed_at IS NOT NULL
+              )
+              OR (
+                task.status IN ('in_progress', 'completed')
+                AND task.metadata->>'supersession_reason' IS NULL
+                AND (
+                  jsonb_typeof(COALESCE(task.metadata, '{}'::jsonb)) <> 'object'
+                  OR NOT COALESCE(
+                    task.metadata->>'acknowledged_at'
+                      ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$',
+                    FALSE
+                  )
+                  OR NOT COALESCE(
+                    pg_input_is_valid(
+                      task.metadata->>'acknowledged_at',
+                      'timestamp with time zone'
+                    ),
+                    FALSE
+                  )
+                  OR NOT COALESCE(
+                    task.metadata->>'acknowledged_by'
+                      ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+                    FALSE
+                  )
+                  OR COALESCE(task.metadata->>'acknowledged_via', '')
+                       NOT IN ('assignee', 'role', 'admin', 'override')
+                  OR (
+                    task.metadata->>'acknowledged_via' = 'assignee'
+                    AND task.metadata->>'acknowledged_by' IS DISTINCT FROM task.assigned_to_uid::text
+                  )
+                  OR (
+                    task.metadata->>'acknowledged_via' = 'role'
+                    AND task.assigned_to_role IS NULL
+                  )
+                  OR (
+                    task.metadata->>'acknowledged_via' = 'override'
+                    AND (
+                      NULLIF(BTRIM(task.metadata->>'acknowledge_override_source'), '') IS NULL
+                      OR NULLIF(BTRIM(task.metadata->>'acknowledge_override_id'), '') IS NULL
+                      OR NULLIF(BTRIM(task.metadata->>'acknowledge_override_reason'), '') IS NULL
+                    )
+                  )
+                  OR sla.completed_at IS NULL
+                )
+              )
+              OR (
+                task.metadata->>'supersession_reason' IS NOT NULL
+                AND (
+                  task.status <> 'completed'
+                  OR sla.completed_at IS NULL
+                  OR successor.id IS NULL
+                  OR task.metadata->>'supersession_reason'
+                       IS DISTINCT FROM 'diagnostic_generation_superseded'
+                  OR task.metadata->>'superseded_by_diagnostic_generation_id'
+                       IS DISTINCT FROM successor.id::text
+                  OR sla.metadata->>'supersession_reason'
+                       IS DISTINCT FROM 'diagnostic_generation_superseded'
+                  OR sla.metadata->>'superseded_by_diagnostic_generation_id'
+                       IS DISTINCT FROM successor.id::text
+                )
+              )
+            )
+          )
+        )`,
+    tenantId,
+  ));
+}
+
 export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'runtime_pins', handlerVersion: 'care_pathway.runtime_pins.v1', run: runtimePins }),
   Object.freeze({ id: 'transition_sequence', handlerVersion: 'care_pathway.transition_sequence.v1', run: transitionSequence }),
@@ -634,6 +812,7 @@ export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'diagnostic_projection_evidence', handlerVersion: 'care_pathway.diagnostic_projection_evidence.v1', run: diagnosticProjectionEvidence }),
   Object.freeze({ id: 'diagnostic_action_evidence', handlerVersion: 'care_pathway.diagnostic_action_evidence.v1', run: diagnosticActionEvidence }),
   Object.freeze({ id: 'diagnostic_obligation_evidence', handlerVersion: 'care_pathway.diagnostic_obligation_evidence.v1', run: diagnosticObligationEvidence }),
+  Object.freeze({ id: 'diagnostic_structured_ack_evidence', handlerVersion: 'care_pathway.diagnostic_structured_ack_evidence.v3', run: diagnosticStructuredAcknowledgementEvidence }),
 ]);
 
 export default COMMON_PATHWAY_RECONCILIATION_CHECKS;
