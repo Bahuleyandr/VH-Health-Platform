@@ -88181,6 +88181,33 @@
         ]
       }
     },
+    "/api/v1/pharmacy-orders/catalog/{id}/dispensable-batches": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_catalog_by_id_dispensable_batches",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/pharmacy-orders/category": {
       "get": {
         "operationId": "get_api_v1_pharmacy_orders_category",
@@ -88364,6 +88391,23 @@
     "/api/v1/pharmacy-orders/dispense": {
       "post": {
         "operationId": "post_api_v1_pharmacy_orders_dispense",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/dispense-substitution": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_dispense_substitution",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -89042,6 +89086,33 @@
     "/api/v1/pharmacy-orders/orders/{id}/dispatch": {
       "post": {
         "operationId": "post_api_v1_pharmacy_orders_orders_by_id_dispatch",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy-orders/orders/{id}/dispensable": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_orders_by_id_dispensable",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -90220,6 +90291,33 @@
         ]
       }
     },
+    "/api/v1/pharmacy/catalog/{id}/dispensable-batches": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_catalog_by_id_dispensable_batches",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/pharmacy/category": {
       "get": {
         "operationId": "get_api_v1_pharmacy_category",
@@ -90403,6 +90501,23 @@
     "/api/v1/pharmacy/dispense": {
       "post": {
         "operationId": "post_api_v1_pharmacy_dispense",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/dispense-substitution": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_dispense_substitution",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -91081,6 +91196,33 @@
     "/api/v1/pharmacy/orders/{id}/dispatch": {
       "post": {
         "operationId": "post_api_v1_pharmacy_orders_by_id_dispatch",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy/orders/{id}/dispensable": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_by_id_dispensable",
         "responses": {
           "200": {
             "description": "Successful response",

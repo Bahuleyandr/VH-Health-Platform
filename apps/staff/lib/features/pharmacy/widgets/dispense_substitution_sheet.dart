@@ -4,18 +4,21 @@ import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/pharmacy_api_service.dart';
 import 'composition_alternatives_panel.dart';
 
-typedef DispensableContextLoader = Future<Map<String, dynamic>> Function(int orderId);
-typedef DispensableBatchLoader = Future<List<Map<String, dynamic>>> Function(int catalogId);
-typedef SubstitutionDispenser = Future<void> Function({
-  required String patientUid,
-  int? encounterId,
-  required int inventoryItemId,
-  required int inventoryBatchId,
-  required num quantity,
-  required int originalCatalogId,
-  required int finalCatalogId,
-  String? reason,
-});
+typedef DispensableContextLoader =
+    Future<Map<String, dynamic>> Function(int orderId);
+typedef DispensableBatchLoader =
+    Future<List<Map<String, dynamic>>> Function(int catalogId);
+typedef SubstitutionDispenser =
+    Future<void> Function({
+      required String patientUid,
+      int? encounterId,
+      required int inventoryItemId,
+      required int inventoryBatchId,
+      required num quantity,
+      required int originalCatalogId,
+      required int finalCatalogId,
+      String? reason,
+    });
 
 /// Bottom sheet where a pharmacist dispenses an in-stock, same-formulation alternative
 /// for a prescribed brand on a pharmacy order.
@@ -54,13 +57,17 @@ class DispenseSubstitutionSheet extends StatefulWidget {
       isScrollControlled: true,
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: DispenseSubstitutionSheet(orderId: orderId, onDispensed: onDispensed),
+        child: DispenseSubstitutionSheet(
+          orderId: orderId,
+          onDispensed: onDispensed,
+        ),
       ),
     );
   }
 
   @override
-  State<DispenseSubstitutionSheet> createState() => _DispenseSubstitutionSheetState();
+  State<DispenseSubstitutionSheet> createState() =>
+      _DispenseSubstitutionSheetState();
 }
 
 class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
@@ -89,9 +96,11 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
     super.dispose();
   }
 
-  int? get _originalCatalogId => (_selectedLine?['catalog_id'] as num?)?.toInt();
+  int? get _originalCatalogId =>
+      (_selectedLine?['catalog_id'] as num?)?.toInt();
 
-  String get _selectedLabel => (_selectedLine?['name'] as String?) ?? 'Prescribed brand';
+  String get _selectedLabel =>
+      (_selectedLine?['name'] as String?) ?? 'Prescribed brand';
 
   Future<void> _load() async {
     setState(() {
@@ -99,7 +108,9 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       _error = null;
     });
     try {
-      final ctx = await (widget.contextLoader ?? PharmacyApiService.getOrderDispensable)(widget.orderId);
+      final ctx =
+          await (widget.contextLoader ??
+              PharmacyApiService.getOrderDispensable)(widget.orderId);
       final lines = ((ctx['lines'] as List?) ?? const [])
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
@@ -138,12 +149,15 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       _error = null;
     });
     try {
-      final batches = await (widget.batchLoader ?? PharmacyApiService.getCatalogDispensableBatches)(item.catalogId);
+      final batches =
+          await (widget.batchLoader ??
+              PharmacyApiService.getCatalogDispensableBatches)(item.catalogId);
       final defaultQty = (_selectedLine?['quantity'] as num?);
       setState(() {
         _batches = batches;
         _selectedBatch = batches.isNotEmpty ? batches.first : null;
-        _qtyCtrl.text = (defaultQty != null && defaultQty > 0 ? defaultQty : 1).toString();
+        _qtyCtrl.text = (defaultQty != null && defaultQty > 0 ? defaultQty : 1)
+            .toString();
         _loadingBatches = false;
       });
     } catch (e) {
@@ -160,8 +174,15 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
     final chosen = _chosen;
     final batch = _selectedBatch;
     final qty = num.tryParse(_qtyCtrl.text.trim());
-    if (patient == null || orig == null || chosen == null || batch == null || qty == null || qty <= 0) {
-      setState(() => _error = 'Select a substitute, a batch, and a valid quantity.');
+    if (patient == null ||
+        orig == null ||
+        chosen == null ||
+        batch == null ||
+        qty == null ||
+        qty <= 0) {
+      setState(
+        () => _error = 'Select a substitute, a batch, and a valid quantity.',
+      );
       return;
     }
     setState(() {
@@ -169,7 +190,8 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       _error = null;
     });
     try {
-      final SubstitutionDispenser dispenser = widget.dispenser ?? PharmacyApiService.dispenseSubstitution;
+      final SubstitutionDispenser dispenser =
+          widget.dispenser ?? PharmacyApiService.dispenseSubstitution;
       await dispenser(
         patientUid: patient,
         inventoryItemId: (batch['inventory_item_id'] as num).toInt(),
@@ -183,7 +205,9 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       widget.onDispensed?.call();
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Dispensed ${chosen.displayName} as substitute')),
+        SnackBar(
+          content: Text('Dispensed ${chosen.displayName} as substitute'),
+        ),
       );
     } catch (e) {
       setState(() {
@@ -206,7 +230,9 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
     final theme = Theme.of(context);
     return SafeArea(
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           child: Column(
@@ -217,7 +243,10 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                 children: [
                   const Icon(Icons.swap_horiz),
                   const SizedBox(width: 8),
-                  Text('Dispense substitute', style: theme.textTheme.titleLarge),
+                  Text(
+                    'Dispense substitute',
+                    style: theme.textTheme.titleLarge,
+                  ),
                   const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -244,9 +273,19 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                 DropdownButtonFormField<Map<String, dynamic>>(
                   initialValue: _selectedLine,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Prescribed medicine', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Prescribed medicine',
+                    border: OutlineInputBorder(),
+                  ),
                   items: _lines
-                      .map((l) => DropdownMenuItem(value: l, child: Text((l['name'] as String?) ?? 'Item ${l['catalog_id']}')))
+                      .map(
+                        (l) => DropdownMenuItem(
+                          value: l,
+                          child: Text(
+                            (l['name'] as String?) ?? 'Item ${l['catalog_id']}',
+                          ),
+                        ),
+                      )
                       .toList(),
                   onChanged: _onSelectLine,
                 ),
@@ -262,25 +301,49 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                 ),
                 if (_chosen != null) ...[
                   const Divider(height: 24),
-                  Text('Substitute: ${_chosen!.displayName}', style: theme.textTheme.titleMedium),
+                  Text(
+                    'Substitute: ${_chosen!.displayName}',
+                    style: theme.textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
                   if (_loadingBatches)
-                    const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator())
+                    const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: LinearProgressIndicator(),
+                    )
                   else if (_batches.isEmpty)
-                    Text('No in-stock batches for ${_chosen!.displayName}.', style: theme.textTheme.bodyMedium)
+                    Text(
+                      'No in-stock batches for ${_chosen!.displayName}.',
+                      style: theme.textTheme.bodyMedium,
+                    )
                   else ...[
                     DropdownButtonFormField<Map<String, dynamic>>(
                       initialValue: _selectedBatch,
                       isExpanded: true,
-                      decoration: const InputDecoration(labelText: 'Batch (earliest expiry first)', border: OutlineInputBorder()),
-                      items: _batches.map((b) => DropdownMenuItem(value: b, child: Text(_batchLabel(b)))).toList(),
+                      decoration: const InputDecoration(
+                        labelText: 'Batch (earliest expiry first)',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _batches
+                          .map(
+                            (b) => DropdownMenuItem(
+                              value: b,
+                              child: Text(_batchLabel(b)),
+                            ),
+                          )
+                          .toList(),
                       onChanged: (b) => setState(() => _selectedBatch = b),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _qtyCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'Quantity', border: OutlineInputBorder()),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Quantity',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ],
                 ],
@@ -292,10 +355,17 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
               const SizedBox(height: 16),
               FilledButton.icon(
                 icon: _dispensing
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.check),
                 label: const Text('Dispense substitute'),
-                onPressed: (_dispensing || _chosen == null || _selectedBatch == null) ? null : _dispense,
+                onPressed:
+                    (_dispensing || _chosen == null || _selectedBatch == null)
+                    ? null
+                    : _dispense,
               ),
             ],
           ),

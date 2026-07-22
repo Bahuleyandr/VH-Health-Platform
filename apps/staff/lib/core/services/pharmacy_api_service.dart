@@ -316,10 +316,11 @@ class PharmacyApiService {
   static Future<List<Map<String, dynamic>>> getCatalogDispensableBatches(
     int catalogId,
   ) async {
-    final data = await _get('/pharmacy-orders/catalog/$catalogId/dispensable-batches');
-    return _listFrom(data, ['batches'])
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
+    final data = await _get(
+      '/pharmacy-orders/catalog/$catalogId/dispensable-batches',
+    );
+    return _listFrom(data, [
+      'batches',
+    ]).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
 }
