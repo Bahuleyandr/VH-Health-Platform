@@ -529,6 +529,22 @@ router.get('/lab-results/:id', requirePatient, wrap(async (req) =>
   }),
 ));
 
+router.get('/diagnostic-results', requirePatient, wrap(async (req) =>
+  portal.listMyStructuredDiagnosticResults({
+    tenantId: tenantOf(req),
+    patient_uid: await effectivePatientUid(req),
+    limit: req.query.limit,
+  }),
+));
+
+router.get('/diagnostic-results/:id', requirePatient, wrap(async (req) =>
+  portal.getMyStructuredDiagnosticResult({
+    tenantId: tenantOf(req),
+    patient_uid: await effectivePatientUid(req),
+    id: req.params.id,
+  }),
+));
+
 // ── Proxy access grants (E6 — consent trail) ────────────────────────
 router.post('/proxy/grants', requirePatient, singleUpload, validatePatientUpload, validateFileContent, wrap(async (req) =>
   portalAccess.createProxyGrant({

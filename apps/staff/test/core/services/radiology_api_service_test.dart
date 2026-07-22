@@ -111,4 +111,73 @@ void main() {
       });
     },
   );
+
+  test('holds a structured result using its immutable generation id', () async {
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        expect(request.method, 'PATCH');
+        expect(
+          request.url.path,
+          endsWith('/diagnostic-results/release/generation-42/hold'),
+        );
+        expect(jsonDecode(request.body), {
+          'hold': true,
+          'reason': 'Complete specialist review',
+        });
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'release_state': {
+                'generation_id': 'generation-42',
+                'release_hold': true,
+              },
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final state = await RadiologyApiService.setPatientReleaseHold(
+      'generation-42',
+      hold: true,
+      reason: 'Complete specialist review',
+    );
+
+    expect(state['release_state']['release_hold'], isTrue);
+  });
+
+  test('explicitly releases a reviewed structured result', () async {
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(
+          request.url.path,
+          endsWith('/diagnostic-results/release/generation-43/release-now'),
+        );
+        expect(jsonDecode(request.body), isEmpty);
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'release_state': {
+                'generation_id': 'generation-43',
+                'released_to_patient_at': '2026-07-22T12:00:00.000Z',
+              },
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final state = await RadiologyApiService.releaseToPatientNow(
+      'generation-43',
+    );
+
+    expect(state['release_state']['released_to_patient_at'], isNotNull);
+  });
 }

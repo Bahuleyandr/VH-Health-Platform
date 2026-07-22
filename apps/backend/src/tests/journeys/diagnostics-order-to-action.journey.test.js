@@ -23,7 +23,15 @@ import {
 } from '../../services/pathways/diagnosticsPathwayDefinition.js';
 import { projectDiagnosticPathwayEvent } from '../../services/pathways/diagnosticPathwayProjector.js';
 import { COMMON_PATHWAY_RECONCILIATION_CHECKS } from '../../services/pathways/pathwayReconciliationChecks.js';
-import { releaseResultNow } from '../../services/portal/portalAccessService.js';
+import {
+  releaseResultNow,
+  releaseStructuredDiagnosticResultNow,
+  setStructuredDiagnosticReleaseHold,
+} from '../../services/portal/portalAccessService.js';
+import {
+  getMyStructuredDiagnosticResult,
+  listMyStructuredDiagnosticResults,
+} from '../../services/portal/patientPortalService.js';
 import { workflowRuntimeRegistry } from '../../services/workflow/workflowRuntimeRegistry.js';
 import { getInvestigationById } from '../../services/investigation/investigationService.js';
 import { acknowledgeTask } from '../../services/workflow/taskService.js';
@@ -527,6 +535,50 @@ d('diagnostic result action pathway', () => {
       pathwayKey: 'diagnostics_order_to_action',
     }));
     expect(reconciled.finding_count).toBe(0);
+
+    const beforeRelease = await listMyStructuredDiagnosticResults({
+      tenantId: fixture.tenantId,
+      patient_uid: fixture.patientUid,
+    });
+    expect(beforeRelease).toHaveLength(0);
+    const held = await setStructuredDiagnosticReleaseHold(
+      corrected.diagnostic_generation.id,
+      { hold: true, reason: 'Complete specialist release review' },
+      {
+        actorUid: fixture.radiologistUid,
+        actorRole: 'RADIOLOGIST',
+        actorRoles: ['RADIOLOGIST'],
+        tenantId: fixture.tenantId,
+      },
+    );
+    expect(held).toMatchObject({ release_hold: true, source_version: 3 });
+    await releaseStructuredDiagnosticResultNow(corrected.diagnostic_generation.id, {
+      actorUid: fixture.radiologistUid,
+      actorRole: 'RADIOLOGIST',
+      actorRoles: ['RADIOLOGIST'],
+      tenantId: fixture.tenantId,
+    });
+    const released = await listMyStructuredDiagnosticResults({
+      tenantId: fixture.tenantId,
+      patient_uid: fixture.patientUid,
+    });
+    expect(released).toEqual([
+      expect.objectContaining({
+        id: corrected.diagnostic_generation.id,
+        result_type: 'radiology',
+        source_version: 3,
+        amended: true,
+      }),
+    ]);
+    const patientDetail = await getMyStructuredDiagnosticResult({
+      tenantId: fixture.tenantId,
+      patient_uid: fixture.patientUid,
+      id: corrected.diagnostic_generation.id,
+    });
+    expect(patientDetail.report_text).toContain('Initial signed report content');
+    expect(patientDetail.addenda).toHaveLength(2);
+    expect(patientDetail).not.toHaveProperty('classification_basis');
+    expect(patientDetail).not.toHaveProperty('structured_report');
   });
 
   it('uses explicit specialist classification in shadow mode without creating acknowledgement work', async () => {
@@ -717,6 +769,34 @@ d('diagnostic result action pathway', () => {
       action_kind: 'doctor_disposition',
       pathway: { clinical_status: 'completed' },
     });
+    await releaseStructuredDiagnosticResultNow(firstGeneration.id, {
+      actorUid: fixture.pathologistUid,
+      actorRole: 'PATHOLOGIST',
+      actorRoles: ['PATHOLOGIST'],
+      tenantId: fixture.tenantId,
+    });
+    const releasedAbnormal = await listMyStructuredDiagnosticResults({
+      tenantId: fixture.tenantId,
+      patient_uid: fixture.patientUid,
+    });
+    expect(releasedAbnormal).toEqual([
+      expect.objectContaining({
+        id: firstGeneration.id,
+        result_type: 'anatomical_pathology',
+        source_version: 1,
+      }),
+    ]);
+    const patientDetail = await getMyStructuredDiagnosticResult({
+      tenantId: fixture.tenantId,
+      patient_uid: fixture.patientUid,
+      id: firstGeneration.id,
+    });
+    expect(patientDetail.report_text).toBe('Synthetic diagnostic interpretation');
+    expect(patientDetail.addenda).toEqual([]);
+    expect(patientDetail).not.toHaveProperty('gross_text');
+    expect(patientDetail).not.toHaveProperty('microscopic_text');
+    expect(patientDetail).not.toHaveProperty('synoptic_fields');
+    expect(patientDetail).not.toHaveProperty('classification_basis');
 
     const addendumInput = {
       addendum_text: 'The signed addendum records a new critical finding.',
@@ -744,6 +824,11 @@ d('diagnostic result action pathway', () => {
       predecessor_generation_id: firstGeneration.id,
       ordering_owner_uid: fixture.doctorUid,
     });
+    const afterAddendum = await listMyStructuredDiagnosticResults({
+      tenantId: fixture.tenantId,
+      patient_uid: fixture.patientUid,
+    });
+    expect(afterAddendum).toEqual([]);
     const criticalAck = await loadCriticalAcknowledgement(fixture, successor.id);
     expect(criticalAck).toMatchObject({
       task_status: 'open',

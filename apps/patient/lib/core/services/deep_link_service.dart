@@ -32,6 +32,7 @@ class DeepLinkService {
     '/portal/bills',
     '/portal/lab-orders',
     '/portal/lab-results',
+    '/portal/diagnostic-results',
     '/portal/tpa/claims',
     '/portal/messages',
     '/portal/maternity/timeline',

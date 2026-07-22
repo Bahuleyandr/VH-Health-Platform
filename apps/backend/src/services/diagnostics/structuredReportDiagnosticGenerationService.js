@@ -6,6 +6,7 @@ import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatf
 import { publishEvent } from '../events/eventOutboxService.js';
 import { CARE_PATHWAY_KEYS, PATHWAY_MODES } from '../pathways/pathwayMode.js';
 import { resolvePathwayModeTx } from '../pathways/pathwayRuntimePersistence.js';
+import { ensureStructuredDiagnosticReleaseStateTx } from '../portal/portalAccessService.js';
 import { enqueueCriticalResultTask } from '../results/resultsInboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { resolvePathwayTaskOwnerTx } from '../workflow/workflowHumanOwnerService.js';
@@ -248,7 +249,12 @@ async function createStructuredReportGenerationTx({
         'DIAGNOSTIC_GENERATION_CORRUPTION',
       );
     }
-    return Object.freeze({ ...existing, replayed: true });
+    const releaseState = await ensureStructuredDiagnosticReleaseStateTx({
+      tx: db,
+      tenantId: tid,
+      generationId: existing.id,
+    });
+    return Object.freeze({ ...existing, release_state: releaseState, replayed: true });
   }
 
   const predecessors = await db.$queryRawUnsafe(
@@ -448,6 +454,12 @@ async function createStructuredReportGenerationTx({
     canonical.audit.id,
   );
 
+  const releaseState = await ensureStructuredDiagnosticReleaseStateTx({
+    tx: db,
+    tenantId: tid,
+    generationId,
+  });
+
   await db.$queryRawUnsafe(
     `INSERT INTO diagnostic_result_generation_items
        (tenant_id, patient_uid, generation_id, source_table, source_row_id,
@@ -498,6 +510,7 @@ async function createStructuredReportGenerationTx({
 
   return Object.freeze({
     ...inserted[0],
+    release_state: releaseState,
     items: [{ ...itemSnapshot, item_snapshot_sha256: itemSnapshotSha256 }],
     event_id: event.id,
     replayed: false,

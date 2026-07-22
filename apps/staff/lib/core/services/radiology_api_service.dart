@@ -30,6 +30,14 @@ class RadiologyApiService {
     return _handle(resp);
   }
 
+  static Future<Map<String, dynamic>> _patch(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final resp = await ApiClient.patch(path, body: body);
+    return _handle(resp);
+  }
+
   static Map<String, dynamic> _handle(ApiResponse resp) {
     if (resp.isSuccess && resp.raw is Map) {
       final raw = resp.raw as Map<String, dynamic>;
@@ -117,6 +125,21 @@ class RadiologyApiService {
       },
       'clinical_significance': clinicalSignificance,
     });
+  }
+
+  static Future<Map<String, dynamic>> setPatientReleaseHold(
+    String generationId, {
+    required bool hold,
+    String? reason,
+  }) {
+    return _patch('/diagnostic-results/release/$generationId/hold', {
+      'hold': hold,
+      'reason': reason,
+    });
+  }
+
+  static Future<Map<String, dynamic>> releaseToPatientNow(String generationId) {
+    return _post('/diagnostic-results/release/$generationId/release-now', {});
   }
 
   /// PUT /radiology/:id/cancel

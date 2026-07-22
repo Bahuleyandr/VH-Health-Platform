@@ -46,6 +46,30 @@ export function releaseVisibilitySql(delayParam) {
     )`;
 }
 
+export function structuredDiagnosticReleaseVisibilitySql(
+  delayParam,
+  generationAlias = 'generation',
+  releaseAlias = 'release_state',
+) {
+  return `${releaseAlias}.generation_id IS NOT NULL
+    AND ${releaseAlias}.release_hold = false
+    AND (
+      ${generationAlias}.classification = 'normal'
+      OR EXISTS (
+        SELECT 1
+          FROM diagnostic_result_actions AS patient_release_action
+         WHERE patient_release_action.tenant_id = ${generationAlias}.tenant_id
+           AND patient_release_action.generation_id = ${generationAlias}.id
+           AND patient_release_action.action_kind = 'doctor_disposition'
+      )
+    )
+    AND (
+      (${releaseAlias}.released_to_patient_at IS NOT NULL
+        AND ${releaseAlias}.released_to_patient_at <= NOW())
+      OR ${generationAlias}.signed_at <= NOW() - make_interval(hours => ${delayParam}::int)
+    )`;
+}
+
 const STRUCTURED_RELEASE_FIELDS = [
   'status',
   'signed_off_at',
@@ -156,11 +180,45 @@ export async function getDiagnosticGenerationReleaseDecisionTx({
     generationId,
   );
   const generation = generations[0] || null;
-  if (!generation || generation.source_kind !== 'lab_panel') {
+  if (!generation) {
+    return Object.freeze({
+      outcome: 'unsupported_source',
+      policy: null,
+      generation_id: generationId ? String(generationId) : null,
+    });
+  }
+  if (['radiology_report', 'anatomical_pathology_report'].includes(generation.source_kind)) {
+    const releaseRows = await tx.$queryRawUnsafe(
+      `SELECT release_state.generation_id,
+              (${structuredDiagnosticReleaseVisibilitySql('$3')}) AS release_visible
+         FROM diagnostic_result_generations AS generation
+         LEFT JOIN diagnostic_result_release_states AS release_state
+           ON release_state.tenant_id = generation.tenant_id
+          AND release_state.generation_id = generation.id
+          AND release_state.patient_uid = generation.patient_uid
+        WHERE generation.tenant_id = $1::uuid
+          AND generation.id = $2::uuid
+        LIMIT 1`,
+      tid,
+      generation.id,
+      releaseDelayHours(),
+    );
+    return Object.freeze({
+      outcome: !releaseRows[0]?.generation_id
+        ? 'unsupported_source'
+        : releaseRows[0].release_visible === true
+          ? 'visible'
+          : 'not_visible',
+      policy: 'structured_diagnostic_visibility.v1',
+      generation_id: String(generation.id),
+      release_state_present: Boolean(releaseRows[0]?.generation_id),
+    });
+  }
+  if (generation.source_kind !== 'lab_panel') {
     return Object.freeze({
       outcome: 'unsupported_source',
       policy: 'lab_result_visibility.v1',
-      generation_id: generationId ? String(generationId) : null,
+      generation_id: String(generation.id),
     });
   }
   const rows = await tx.$queryRawUnsafe(
@@ -189,8 +247,54 @@ export async function getDiagnosticGenerationReleaseDecisionTx({
   });
 }
 
+export async function ensureStructuredDiagnosticReleaseStateTx({
+  tx,
+  tenantId,
+  generationId,
+} = {}) {
+  if (!isTenantTransactionClient(tx)) {
+    throw AppError.internal(
+      'Structured diagnostic release registration requires a tenant transaction',
+      'DIAGNOSTIC_RELEASE_TX_REQUIRED',
+    );
+  }
+  const tid = requireTenantId(tenantId);
+  const inserted = await tx.$queryRawUnsafe(
+    `INSERT INTO diagnostic_result_release_states
+       (generation_id, tenant_id, patient_uid)
+     SELECT generation.id, generation.tenant_id, generation.patient_uid
+       FROM diagnostic_result_generations AS generation
+      WHERE generation.tenant_id = $1::uuid
+        AND generation.id = $2::uuid
+        AND generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
+     ON CONFLICT (generation_id) DO NOTHING
+     RETURNING generation_id, tenant_id, patient_uid, release_hold,
+               release_hold_reason, released_to_patient_at, state_version`,
+    tid,
+    generationId,
+  );
+  if (inserted[0]) return inserted[0];
+  const existing = await tx.$queryRawUnsafe(
+    `SELECT generation_id, tenant_id, patient_uid, release_hold,
+            release_hold_reason, released_to_patient_at, state_version
+       FROM diagnostic_result_release_states
+      WHERE tenant_id = $1::uuid
+        AND generation_id = $2::uuid
+      LIMIT 1`,
+    tid,
+    generationId,
+  );
+  if (!existing[0]) {
+    throw AppError.conflict(
+      'Structured diagnostic generation cannot be registered for patient release',
+      'DIAGNOSTIC_RELEASE_SOURCE_UNSUPPORTED',
+    );
+  }
+  return existing[0];
+}
+
 function isResultReleaseActorRole(role) {
-  return isClinical(role) || isAdmin(role) || role === 'SUPER_ADMIN';
+  return isClinical(role) || isAdmin(role) || role === 'SUPER_ADMIN' || role === 'PATHOLOGIST';
 }
 
 async function resolveReleaseActorTx(tx, tenantId, {
@@ -207,6 +311,269 @@ async function resolveReleaseActorTx(tx, tenantId, {
     authenticatedPrimaryRole: actorRole,
     authenticatedRawRole: actorRawRole || actorRole,
     rolePredicate: isResultReleaseActorRole,
+  });
+}
+
+async function getStructuredDiagnosticReleaseStateTx(tx, tenantId, generationId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT release_state.generation_id, release_state.tenant_id,
+            release_state.patient_uid, release_state.release_hold,
+            release_state.release_hold_by, release_state.release_hold_reason,
+            release_state.release_hold_at, release_state.released_to_patient_at,
+            release_state.released_by, release_state.state_version,
+            generation.source_kind, generation.source_version,
+            generation.classification, generation.signed_at,
+            EXISTS (
+              SELECT 1
+                FROM diagnostic_result_generations AS successor
+               WHERE successor.tenant_id = generation.tenant_id
+                 AND successor.predecessor_generation_id = generation.id
+            ) AS superseded,
+            EXISTS (
+              SELECT 1
+                FROM diagnostic_result_actions AS action
+               WHERE action.tenant_id = generation.tenant_id
+                 AND action.generation_id = generation.id
+                 AND action.action_kind = 'normal_auto_closed'
+            ) AS normal_auto_closed,
+            EXISTS (
+              SELECT 1
+                FROM diagnostic_result_actions AS action
+               WHERE action.tenant_id = generation.tenant_id
+                 AND action.generation_id = generation.id
+                 AND action.action_kind = 'doctor_disposition'
+            ) AS doctor_disposition_recorded,
+            (${structuredDiagnosticReleaseVisibilitySql('$3')}) AS patient_visible
+       FROM diagnostic_result_release_states AS release_state
+       JOIN diagnostic_result_generations AS generation
+         ON generation.tenant_id = release_state.tenant_id
+        AND generation.id = release_state.generation_id
+        AND generation.patient_uid = release_state.patient_uid
+      WHERE release_state.tenant_id = $1::uuid
+        AND release_state.generation_id = $2::uuid
+      LIMIT 1
+      FOR UPDATE OF release_state`,
+    tenantId,
+    generationId,
+    releaseDelayHours(),
+  );
+  if (!rows[0]) {
+    throw AppError.notFound(
+      'Diagnostic result release state not found',
+      'DIAGNOSTIC_RELEASE_NOT_FOUND',
+    );
+  }
+  return rows[0];
+}
+
+function publicStructuredReleaseState(row) {
+  return {
+    generation_id: String(row.generation_id),
+    patient_uid: row.patient_uid,
+    source_kind: row.source_kind,
+    source_version: Number(row.source_version),
+    classification: row.classification,
+    signed_at: row.signed_at,
+    release_hold: row.release_hold,
+    release_hold_reason: row.release_hold_reason,
+    release_hold_at: row.release_hold_at,
+    released_to_patient_at: row.released_to_patient_at,
+    state_version: Number(row.state_version),
+    superseded: row.superseded,
+    doctor_disposition_recorded: row.doctor_disposition_recorded,
+    patient_visible: row.patient_visible,
+  };
+}
+
+export async function setStructuredDiagnosticReleaseHold(generationId, {
+  hold,
+  reason = null,
+}, {
+  actorUid = null,
+  actorRole = null,
+  actorRoles = [],
+  actorRawRole = null,
+  tenantId,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const wantHold = hold === true;
+  const normalizedReason = reason == null ? null : String(reason).trim();
+  if (wantHold && !normalizedReason) {
+    throw AppError.badRequest(
+      'A reason is required to hold a diagnostic result from the patient',
+      'PORTAL_HOLD_REASON_REQUIRED',
+    );
+  }
+  return setTenantTx(tid, async (tx) => {
+    const actor = await resolveReleaseActorTx(tx, tid, {
+      actorUid, actorRole, actorRoles, actorRawRole,
+    });
+    const current = await getStructuredDiagnosticReleaseStateTx(tx, tid, generationId);
+    if (current.superseded) {
+      throw AppError.conflict(
+        'Only the current diagnostic generation can change patient release state',
+        'DIAGNOSTIC_RELEASE_GENERATION_SUPERSEDED',
+      );
+    }
+    if (wantHold && current.patient_visible) {
+      throw AppError.conflict(
+        'A patient-visible result cannot be hidden until release-reversal policy is approved',
+        'DIAGNOSTIC_RELEASE_REVERSAL_POLICY_REQUIRED',
+      );
+    }
+    if (
+      current.release_hold === wantHold
+      && (!wantHold || current.release_hold_reason === normalizedReason)
+    ) {
+      return publicStructuredReleaseState(current);
+    }
+    const updated = await tx.$queryRawUnsafe(
+      `UPDATE diagnostic_result_release_states
+          SET release_hold = $3::boolean,
+              release_hold_by = CASE WHEN $3::boolean THEN $4::uuid ELSE NULL END,
+              release_hold_reason = CASE WHEN $3::boolean THEN $5::text ELSE NULL END,
+              release_hold_at = CASE WHEN $3::boolean THEN NOW() ELSE NULL END,
+              state_version = state_version + 1,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND generation_id = $2::uuid
+          AND state_version = $6::bigint
+      RETURNING *`,
+      tid,
+      generationId,
+      wantHold,
+      actor.uid,
+      wantHold ? normalizedReason : null,
+      current.state_version,
+    );
+    if (!updated[0]) {
+      throw AppError.conflict(
+        'Diagnostic result release state changed concurrently',
+        'PORTAL_RELEASE_STATE_RACE',
+      );
+    }
+    const revision = await currentCanonicalTransactionRevision(tx);
+    const eventType = wantHold
+      ? 'diagnostic.result_release_hold'
+      : 'diagnostic.result_release_unhold';
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: current.patient_uid,
+      eventType,
+      eventSubtype: current.source_kind,
+      eventStatus: wantHold ? 'held' : 'released',
+      sourceTable: 'diagnostic_result_release_states',
+      sourceId: String(generationId),
+      resourceType: 'diagnostic_result_generation',
+      resourceTable: 'diagnostic_result_generations',
+      resourceId: String(generationId),
+      actorUid: actor.uid,
+      actorRole: actor.rawRole,
+      visibleToPatient: false,
+      summary: wantHold
+        ? 'Diagnostic result release held'
+        : 'Diagnostic result release hold lifted',
+      beforeState: publicStructuredReleaseState(current),
+      afterState: publicStructuredReleaseState({ ...current, ...updated[0] }),
+      metadata: { reason: wantHold ? normalizedReason : null },
+      timelineIdempotencyKey: `diagnostic_result_release_states:${generationId}:${eventType}:tx:${revision}`,
+      auditIdempotencyKey: `diagnostic_result_release_states:${generationId}:audit:${eventType}:tx:${revision}`,
+    }, { db: tx });
+    return publicStructuredReleaseState({ ...current, ...updated[0] });
+  });
+}
+
+export async function releaseStructuredDiagnosticResultNow(generationId, {
+  actorUid = null,
+  actorRole = null,
+  actorRoles = [],
+  actorRawRole = null,
+  tenantId,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  return setTenantTx(tid, async (tx) => {
+    const actor = await resolveReleaseActorTx(tx, tid, {
+      actorUid, actorRole, actorRoles, actorRawRole,
+    });
+    const current = await getStructuredDiagnosticReleaseStateTx(tx, tid, generationId);
+    if (current.superseded) {
+      throw AppError.conflict(
+        'Only the current diagnostic generation can be released to the patient',
+        'DIAGNOSTIC_RELEASE_GENERATION_SUPERSEDED',
+      );
+    }
+    if (current.released_to_patient_at && current.release_hold === false) {
+      return publicStructuredReleaseState(current);
+    }
+    if (current.classification !== 'normal' && !current.doctor_disposition_recorded) {
+      throw AppError.conflict(
+        'Doctor review and signed disposition are required before patient release',
+        'DIAGNOSTIC_RELEASE_DOCTOR_DISPOSITION_REQUIRED',
+      );
+    }
+    const updated = await tx.$queryRawUnsafe(
+      `UPDATE diagnostic_result_release_states
+          SET released_to_patient_at = NOW(),
+              released_by = $3::uuid,
+              release_hold = FALSE,
+              release_hold_by = NULL,
+              release_hold_reason = NULL,
+              release_hold_at = NULL,
+              state_version = state_version + 1,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND generation_id = $2::uuid
+          AND state_version = $4::bigint
+      RETURNING *`,
+      tid,
+      generationId,
+      actor.uid,
+      current.state_version,
+    );
+    if (!updated[0]) {
+      throw AppError.conflict(
+        'Diagnostic result release state changed concurrently',
+        'PORTAL_RELEASE_STATE_RACE',
+      );
+    }
+    const revision = await currentCanonicalTransactionRevision(tx);
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: current.patient_uid,
+      eventType: 'diagnostic.result_released_early',
+      eventSubtype: current.source_kind,
+      eventStatus: 'released',
+      sourceTable: 'diagnostic_result_release_states',
+      sourceId: String(generationId),
+      resourceType: 'diagnostic_result_generation',
+      resourceTable: 'diagnostic_result_generations',
+      resourceId: String(generationId),
+      actorUid: actor.uid,
+      actorRole: actor.rawRole,
+      visibleToPatient: false,
+      summary: 'Diagnostic result released to patient',
+      beforeState: publicStructuredReleaseState(current),
+      afterState: publicStructuredReleaseState({ ...current, ...updated[0] }),
+      metadata: { was_on_hold: current.release_hold },
+      timelineIdempotencyKey: `diagnostic_result_release_states:${generationId}:diagnostic.result_released_early:tx:${revision}`,
+      auditIdempotencyKey: `diagnostic_result_release_states:${generationId}:audit:diagnostic.result_released_early:tx:${revision}`,
+    }, { db: tx });
+    if (current.classification === 'normal') {
+      await publishEvent({
+        eventType: 'diagnostic.result.release_became_eligible',
+        aggregateType: 'diagnostic_result_generation',
+        aggregateId: String(generationId),
+        patientUid: current.patient_uid,
+        tenantId: tid,
+        tx,
+        payload: {
+          generation_id: String(generationId),
+          release_source: 'explicit_early_release',
+          source_kind: current.source_kind,
+        },
+      });
+    }
+    return publicStructuredReleaseState({ ...current, ...updated[0] });
   });
 }
 
@@ -667,10 +1034,14 @@ export async function getLabTrend({ tenantId, patientUid, testCode = null, loinc
 export default {
   releaseDelayHours,
   releaseVisibilitySql,
+  structuredDiagnosticReleaseVisibilitySql,
   evaluateResultRelease,
   evaluatePanelRelease,
   getResultEpisodeReleaseDecision,
   getDiagnosticGenerationReleaseDecisionTx,
+  ensureStructuredDiagnosticReleaseStateTx,
+  setStructuredDiagnosticReleaseHold,
+  releaseStructuredDiagnosticResultNow,
   setResultReleaseHold,
   releaseResultNow,
   createProxyGrant,

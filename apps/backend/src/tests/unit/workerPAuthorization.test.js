@@ -66,6 +66,7 @@ jest.unstable_mockModule('../../services/portal/portalAccessService.js', () => (
   evaluatePanelRelease: jest.fn(),
   getResultEpisodeReleaseDecision: jest.fn(async () => ({ outcome: 'unsupported_source' })),
   releaseVisibilitySql: jest.fn(() => 'TRUE'),
+  structuredDiagnosticReleaseVisibilitySql: jest.fn(() => 'TRUE'),
   releaseDelayHours: jest.fn(() => 0),
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({

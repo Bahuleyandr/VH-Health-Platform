@@ -311,6 +311,7 @@ import dentalRoutes from './routes/clinical/dentalRoutes.js';
 import ophthalmologyRoutes from './routes/clinical/ophthalmologyRoutes.js';
 import physioRoutes from './routes/clinical/physioRoutes.js';
 import resultReleaseRoutes from './routes/lab/resultReleaseRoutes.js';
+import structuredDiagnosticReleaseRoutes from './routes/diagnostics/structuredDiagnosticReleaseRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -1340,6 +1341,7 @@ app.use('/api/v1/billing/revenue-cycle', requireRole(...BILLING_ROUTE_ROLES), re
 // early). Mounted BEFORE the generic /lab routers so their narrower
 // LAB_ROUTE_ROLES gate cannot shadow the clinical-staff gate here.
 app.use('/api/v1/lab/release', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), resultReleaseRoutes);
+app.use('/api/v1/diagnostic-results/release', requireRole(...CLINICAL_STAFF_ROLES, 'PATHOLOGIST'), phiAccessLogger('DIAGNOSTIC_RESULT'), structuredDiagnosticReleaseRoutes);
 // Analyzer ingestion is mounted before the generic lab router because its
 // narrow route gate admits configured machine service accounts. The router
 // contains only the two ingest endpoints, so machine roles cannot reach lab

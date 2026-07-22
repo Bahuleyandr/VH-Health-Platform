@@ -27,6 +27,7 @@ const MANUAL_SEED_TABLES = new Set([
   'diagnostic_result_generations',
   'diagnostic_result_generation_items',
   'diagnostic_result_actions',
+  'diagnostic_result_release_states',
   'clinical_timeline_events',
   'clinical_audit_events',
   'lab_analyzers',
@@ -1657,6 +1658,7 @@ async function seedDiagnosticResultEvidence() {
     'diagnostic_result_generations',
     'diagnostic_result_generation_items',
     'diagnostic_result_actions',
+    'diagnostic_result_release_states',
   ];
   const existingCounts = [];
   for (const table of targetTables) existingCounts.push(await tableCount(table));
@@ -1675,8 +1677,44 @@ async function seedDiagnosticResultEvidence() {
      AND role = 'DOCTOR' AND is_active = TRUE AND status = 'active'`,
     [DEFAULT_TENANT_ID],
   );
+  let radiology = await first(
+    'radiology_orders',
+    'id, patient_uid, modality, body_part, report_generation_version',
+    'tenant_id = $1::uuid AND patient_uid = $2::uuid AND report_signed_off_at IS NOT NULL',
+    [DEFAULT_TENANT_ID, investigation?.patient_uid],
+  );
   if (!investigation?.id || !investigation.patient_uid || !doctor?.uid) {
     throw new Error('Diagnostic-result seed evidence requires a patient-linked investigation and doctor.');
+  }
+  if (!radiology?.id) {
+    const seededRadiology = await client.query(
+      `INSERT INTO radiology_orders
+         (tenant_id, patient_uid, modality, body_part, clinical_indication,
+          priority, status, ordered_by, radiologist, report,
+          report_completed_at, report_signed_off_at, report_signed_off_by,
+          result_classification, classification_basis, report_generation_version,
+          classification_signed_by, classification_signed_at,
+          signoff_idempotency_key, signoff_request_sha256,
+          created_at, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, 'ct', 'chest', 'Synthetic seed evidence',
+          'routine', 'signed_off', $3::uuid, $3::uuid,
+          'Seed radiology report with no diagnostic abnormality.',
+          $4::timestamptz, $4::timestamptz, $3::uuid,
+          'normal', $5::jsonb, 1, $3::uuid, $4::timestamptz,
+          'seed-radiology-generation-signoff-v1', $6::char(64),
+          $4::timestamptz, $4::timestamptz)
+       RETURNING id, patient_uid, modality, body_part, report_generation_version`,
+      [
+        DEFAULT_TENANT_ID,
+        investigation.patient_uid,
+        doctor.uid,
+        new Date('2026-05-04T11:00:00.000Z'),
+        JSON.stringify({ explicit_normal_flag: true, seed: true }),
+        '4'.repeat(64),
+      ],
+    );
+    radiology = seededRadiology.rows[0];
   }
 
   const itemHash = createHash('sha256')
@@ -1736,22 +1774,22 @@ async function seedDiagnosticResultEvidence() {
     `INSERT INTO diagnostic_result_generations
        (id, tenant_id, patient_uid, source_kind, source_table,
         source_episode_type, source_episode_key, source_version,
-        investigation_id, ordering_owner_uid, owner_source, signer_uid,
+        radiology_order_id, ordering_owner_uid, owner_source, signer_uid,
         signer_role, signed_at, classification, classification_basis,
         snapshot_sha256, item_count, canonical_timeline_event_id,
         canonical_audit_event_id)
      VALUES
-       ($1::uuid, $2::uuid, $3::uuid, 'shared_investigation', 'investigations',
-        'investigation', $4::text, $5::bigint, $6::integer, $7::uuid,
+       ($1::uuid, $2::uuid, $3::uuid, 'radiology_report', 'radiology_orders',
+        'radiology_order', $4::text, $5::bigint, $6::integer, $7::uuid,
         'named_orderer', $7::uuid, $8::text, $9::timestamptz, 'normal',
         $10::jsonb, $11::char(64), 1, $12::uuid, $13::uuid)`,
     [
       generationId,
       DEFAULT_TENANT_ID,
       investigation.patient_uid,
-      `investigation:${investigation.id}`,
-      Number(investigation.result_version || 1),
-      investigation.id,
+      `radiology_order:${radiology.id}`,
+      Number(radiology.report_generation_version || 1),
+      radiology.id,
       doctor.uid,
       doctor.role,
       signedAt,
@@ -1767,18 +1805,24 @@ async function seedDiagnosticResultEvidence() {
         source_version, source_ordinal, item_name, value_snapshot,
         normalized_flag, source_critical, classification, item_snapshot_sha256)
      VALUES
-       ($1::uuid, $2::uuid, $3::uuid, 'investigations', $4::text, $5::text,
+       ($1::uuid, $2::uuid, $3::uuid, 'radiology_orders', $4::text, $5::text,
         1, $6::text, $7::jsonb, 'N', FALSE, 'normal', $8::char(64))`,
     [
       DEFAULT_TENANT_ID,
       investigation.patient_uid,
       generationId,
-      String(investigation.id),
-      String(investigation.result_version || 1),
-      investigation.test_name || 'Seed diagnostic test',
-      JSON.stringify({ value: 'within reference range', seed: true }),
+      String(radiology.id),
+      String(radiology.report_generation_version || 1),
+      [radiology.modality, radiology.body_part].filter(Boolean).join(' ') || 'Seed radiology report',
+      JSON.stringify({ report: 'No diagnostic abnormality.', seed: true }),
       itemHash,
     ],
+  );
+  await client.query(
+    `INSERT INTO diagnostic_result_release_states
+       (generation_id, tenant_id, patient_uid)
+     VALUES ($1::uuid, $2::uuid, $3::uuid)`,
+    [generationId, DEFAULT_TENANT_ID, investigation.patient_uid],
   );
 
   const actionTimeline = await client.query(

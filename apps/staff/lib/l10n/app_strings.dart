@@ -2265,6 +2265,20 @@ class AppStrings {
       _t('radiology.significance.corrected');
   String get radiologyReportSignedOff => _t('radiology.report_signed_off');
   String get radiologyAddendumSubmitted => _t('radiology.addendum_submitted');
+  String get radiologyPatientRelease => _t('radiology.patient_release');
+  String get radiologyPatientReleasePending =>
+      _t('radiology.patient_release_pending');
+  String get radiologyPatientReleaseNeedsDoctorReview =>
+      _t('radiology.patient_release_needs_doctor_review');
+  String get radiologyPatientReleased => _t('radiology.patient_released');
+  String get radiologyHoldFromPatient => _t('radiology.hold_from_patient');
+  String get radiologyLiftPatientHold => _t('radiology.lift_patient_hold');
+  String get radiologyReleaseToPatientNow =>
+      _t('radiology.release_to_patient_now');
+  String get radiologyReleaseHoldReason => _t('radiology.release_hold_reason');
+  String get radiologyReleaseHoldReasonRequired =>
+      _t('radiology.release_hold_reason_required');
+  String get radiologyReleaseUpdated => _t('radiology.release_updated');
   String get scheduleTitle => _t('schedule.title');
   String get schedulePrevWeek => _t('schedule.prev_week');
   String get scheduleNextWeek => _t('schedule.next_week');
@@ -5245,6 +5259,17 @@ class AppStrings {
       'radiology.significance.corrected': 'Corrected',
       'radiology.report_signed_off': 'Report signed off',
       'radiology.addendum_submitted': 'Addendum submitted',
+      'radiology.patient_release': 'Patient release',
+      'radiology.patient_release_pending': 'Not released yet',
+      'radiology.patient_release_needs_doctor_review':
+          'Awaiting doctor review before patient release',
+      'radiology.patient_released': 'Released to patient',
+      'radiology.hold_from_patient': 'Hold from patient',
+      'radiology.lift_patient_hold': 'Lift patient release hold',
+      'radiology.release_to_patient_now': 'Release to patient now',
+      'radiology.release_hold_reason': 'Reason for patient release hold',
+      'radiology.release_hold_reason_required': 'A hold reason is required',
+      'radiology.release_updated': 'Patient release updated',
       's4.lib.ophthalmology.title': 'Ophthalmology',
       's4.lib.ophthalmology.patient_uid': 'Patient UID',
       's4.lib.ophthalmology.patient_uid_required': 'Patient UID is required',

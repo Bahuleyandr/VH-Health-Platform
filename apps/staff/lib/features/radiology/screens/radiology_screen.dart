@@ -421,6 +421,15 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     final status = o['status']?.toString().toLowerCase();
     final id = o['id'] as int?;
     final isSigned = o['report_signed_off_at'] != null;
+    final generationId = o['diagnostic_generation_id']?.toString();
+    final releaseHeld = o['patient_release_hold'] == true;
+    final releasedAt = o['released_to_patient_at'];
+    final releaseLocked =
+        releasedAt != null || o['patient_release_auto_closed'] == true;
+    final classification = o['result_classification']?.toString();
+    final releaseReviewComplete =
+        classification == 'normal' ||
+        o['patient_release_doctor_reviewed'] == true;
     final str = AppStrings.of(context);
 
     showModalBottomSheet(
@@ -515,6 +524,22 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                       str.radiologyGenerationVersion,
                       o['report_generation_version'].toString(),
                     ),
+                  if (generationId != null)
+                    _detailRow(
+                      str.radiologyPatientRelease,
+                      releaseHeld
+                          ? str.radiologyHoldFromPatient
+                          : !releaseReviewComplete
+                          ? str.radiologyPatientReleaseNeedsDoctorReview
+                          : releaseLocked
+                          ? str.radiologyPatientReleased
+                          : str.radiologyPatientReleasePending,
+                    ),
+                  if (releaseHeld && o['patient_release_hold_reason'] != null)
+                    _detailRow(
+                      str.radiologyReleaseHoldReason,
+                      o['patient_release_hold_reason'].toString(),
+                    ),
                   const SizedBox(height: 24),
                   if (id != null) ...[
                     if (status == 'pending' || status == 'in_progress')
@@ -556,6 +581,51 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                           label: Text(str.radiologyAddAddendum),
                         ),
                       ),
+                      if (generationId != null) ...[
+                        const SizedBox(height: 10),
+                        if (!releaseLocked || releaseHeld)
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                if (releaseHeld) {
+                                  _updatePatientReleaseHold(
+                                    generationId,
+                                    hold: false,
+                                  );
+                                } else {
+                                  _showPatientReleaseHoldDialog(generationId);
+                                }
+                              },
+                              icon: Icon(
+                                releaseHeld
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                              label: Text(
+                                releaseHeld
+                                    ? str.radiologyLiftPatientHold
+                                    : str.radiologyHoldFromPatient,
+                              ),
+                            ),
+                          ),
+                        if (releaseReviewComplete &&
+                            (!releaseLocked || releaseHeld)) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                _releaseToPatientNow(generationId);
+                              },
+                              icon: const Icon(Icons.send_outlined),
+                              label: Text(str.radiologyReleaseToPatientNow),
+                            ),
+                          ),
+                        ],
+                      ],
                     ],
                     if (status != 'completed' && status != 'cancelled') ...[
                       const SizedBox(height: 10),
@@ -580,6 +650,92 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
         );
       },
     );
+  }
+
+  Future<void> _showPatientReleaseHoldDialog(String generationId) async {
+    final controller = TextEditingController();
+    final s = AppStrings.of(context);
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(s.radiologyHoldFromPatient),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: InputDecoration(labelText: s.radiologyReleaseHoldReason),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(s.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(s.radiologyReleaseHoldReasonRequired)),
+                );
+                return;
+              }
+              Navigator.pop(dialogContext, value);
+            },
+            child: Text(s.radiologyHoldFromPatient),
+          ),
+        ],
+      ),
+    ).whenComplete(controller.dispose);
+    if (reason == null || !mounted) return;
+    await _updatePatientReleaseHold(generationId, hold: true, reason: reason);
+  }
+
+  Future<void> _updatePatientReleaseHold(
+    String generationId, {
+    required bool hold,
+    String? reason,
+  }) async {
+    final s = AppStrings.of(context);
+    try {
+      await RadiologyApiService.setPatientReleaseHold(
+        generationId,
+        hold: hold,
+        reason: reason,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.radiologyReleaseUpdated)));
+      await _fetchWorklist();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${s.errorSomethingWentWrong}: $e'),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    }
+  }
+
+  Future<void> _releaseToPatientNow(String generationId) async {
+    final s = AppStrings.of(context);
+    try {
+      await RadiologyApiService.releaseToPatientNow(generationId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.radiologyReleaseUpdated)));
+      await _fetchWorklist();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${s.errorSomethingWentWrong}: $e'),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    }
   }
 
   Widget _detailRow(String label, String value) {

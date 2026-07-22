@@ -63,6 +63,14 @@ type ApReport = {
   report_status: string;
   malignancy_flag: string;
   signed_at?: string | null;
+  diagnostic_generation_id?: string | null;
+  diagnostic_generation_version?: number | null;
+  patient_release_classification?: string | null;
+  patient_release_hold?: boolean | null;
+  patient_release_hold_reason?: string | null;
+  released_to_patient_at?: string | null;
+  patient_release_doctor_reviewed?: boolean | null;
+  patient_release_auto_closed?: boolean | null;
 };
 
 type ApCaseDetail = {
@@ -151,6 +159,7 @@ function PathologyDashboard() {
     malignancy_flag: "not_assessed",
   });
   const [addendumText, setAddendumText] = useState("");
+  const [releaseHoldReason, setReleaseHoldReason] = useState("");
 
   useRealtimeInvalidation(PATHOLOGY_CHANNEL, [WORKLIST_KEY, TAT_KEY]);
 
@@ -261,6 +270,32 @@ function PathologyDashboard() {
       setAddendumText("");
       invalidatePathology();
     },
+  });
+
+  const releaseHoldMutation = useMutation({
+    mutationFn: (hold: boolean) => {
+      const generationId = detail.data?.report?.diagnostic_generation_id;
+      if (!generationId) throw new Error("Sign the report first");
+      return fetchAdminAPI(`/diagnostic-results/release/${generationId}/hold`, {
+        method: "PATCH",
+        body: hold ? { hold: true, reason: releaseHoldReason } : { hold: false },
+      });
+    },
+    onSuccess: () => {
+      setReleaseHoldReason("");
+      invalidatePathology();
+    },
+  });
+
+  const releaseNowMutation = useMutation({
+    mutationFn: () => {
+      const generationId = detail.data?.report?.diagnostic_generation_id;
+      if (!generationId) throw new Error("Sign the report first");
+      return fetchAdminAPI(`/diagnostic-results/release/${generationId}/release-now`, {
+        method: "POST",
+      });
+    },
+    onSuccess: () => invalidatePathology(),
   });
 
   return (
@@ -388,6 +423,13 @@ function PathologyDashboard() {
             setAddendumText={setAddendumText}
             addendumBusy={addendumMutation.isPending}
             onAddendum={() => addendumMutation.mutate()}
+            releaseHoldReason={releaseHoldReason}
+            setReleaseHoldReason={setReleaseHoldReason}
+            releaseHoldBusy={releaseHoldMutation.isPending}
+            onReleaseHold={(hold) => releaseHoldMutation.mutate(hold)}
+            releaseNowBusy={releaseNowMutation.isPending}
+            onReleaseNow={() => releaseNowMutation.mutate()}
+            releaseError={releaseHoldMutation.error ?? releaseNowMutation.error}
           />
         </div>
       )}
@@ -523,6 +565,13 @@ function WorkflowPanel(props: {
   setAddendumText: (value: string) => void;
   addendumBusy: boolean;
   onAddendum: () => void;
+  releaseHoldReason: string;
+  setReleaseHoldReason: (value: string) => void;
+  releaseHoldBusy: boolean;
+  onReleaseHold: (hold: boolean) => void;
+  releaseNowBusy: boolean;
+  onReleaseNow: () => void;
+  releaseError: Error | null;
 }) {
   if (!props.selectedCase) {
     return (
@@ -534,6 +583,12 @@ function WorkflowPanel(props: {
 
   const reportId = props.detail?.report?.id ?? props.selectedCase.report_id;
   const signed = Boolean(props.detail?.report?.signed_at ?? props.selectedCase.signed_at);
+  const releaseState = props.detail?.report ?? null;
+  const actionableRelease = releaseState?.patient_release_classification === "normal"
+    || releaseState?.patient_release_doctor_reviewed === true;
+  const releaseLocked = Boolean(
+    releaseState?.released_to_patient_at || releaseState?.patient_release_auto_closed,
+  );
   const defaultBlockId = props.selectedBlockId || props.detail?.blocks[0]?.id || "";
 
   return (
@@ -699,6 +754,66 @@ function WorkflowPanel(props: {
             </button>
           </div>
         </ActionBox>
+
+        {signed && releaseState?.diagnostic_generation_id && (
+          <ActionBox icon={CheckCircle2} title="Patient release">
+            <div className="space-y-1 text-sm">
+              <p>
+                Generation {releaseState.diagnostic_generation_version ?? "-"}
+                {releaseState.patient_release_classification
+                  ? ` - ${titleize(releaseState.patient_release_classification)}`
+                  : ""}
+              </p>
+              {releaseState.patient_release_hold ? (
+                <p className="text-amber-700">
+                  On hold{releaseState.patient_release_hold_reason ? `: ${releaseState.patient_release_hold_reason}` : ""}
+                </p>
+              ) : releaseLocked ? (
+                <p className="text-emerald-700">
+                  Released to the patient
+                  {releaseState.released_to_patient_at ? ` ${fmtDate(releaseState.released_to_patient_at)}` : ""}
+                </p>
+              ) : releaseState.patient_release_classification === "normal" ? (
+                <p className="text-muted-foreground">Scheduled for automatic release after the configured delay.</p>
+              ) : releaseState.patient_release_doctor_reviewed ? (
+                <p className="text-emerald-700">Doctor review recorded. Ready for patient release.</p>
+              ) : (
+                <p className="text-amber-700">Awaiting doctor review. Hidden from the patient.</p>
+              )}
+            </div>
+            {!releaseState.patient_release_hold && !releaseLocked && (
+              <input
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                placeholder="Reason for holding release"
+                value={props.releaseHoldReason}
+                onChange={(event) => props.setReleaseHoldReason(event.target.value)}
+              />
+            )}
+            <div className="flex flex-wrap gap-2">
+              {(!releaseLocked || releaseState.patient_release_hold) && (
+                <button
+                  type="button"
+                  disabled={props.releaseHoldBusy || (!releaseState.patient_release_hold && props.releaseHoldReason.trim().length === 0)}
+                  onClick={() => props.onReleaseHold(!releaseState.patient_release_hold)}
+                  className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50"
+                >
+                  {releaseState.patient_release_hold ? "Lift hold" : "Hold from patient"}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={props.releaseNowBusy || !actionableRelease || (releaseLocked && !releaseState.patient_release_hold)}
+                onClick={props.onReleaseNow}
+                className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+              >
+                Release now
+              </button>
+            </div>
+            {props.releaseError && (
+              <p className="text-sm text-red-700">{props.releaseError.message}</p>
+            )}
+          </ActionBox>
+        )}
 
         <ActionBox icon={MessageSquarePlus} title="Addendum">
           <textarea
