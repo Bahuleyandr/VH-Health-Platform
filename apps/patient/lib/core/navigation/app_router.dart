@@ -53,6 +53,7 @@ import 'package:vhhealth/features/portal/services/discharge_summaries_repository
 import 'package:vhhealth/features/portal/screens/discharge_summaries_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_orders_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
+import 'package:vhhealth/features/portal/screens/structured_diagnostic_results_screen.dart';
 import 'package:vhhealth/features/portal/screens/messages_screen.dart';
 import 'package:vhhealth/features/portal/screens/message_thread_screen.dart';
 import 'package:vhhealth/features/portal/screens/tpa_claims_screen.dart';
@@ -414,6 +415,40 @@ class AppRouter {
             );
           }
           return LabResultDetailScreen(
+            resultId: id,
+            initialResult: args?.initialResult,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/portal/diagnostic-results',
+        builder: (context, state) => const StructuredDiagnosticResultsScreen(),
+      ),
+      GoRoute(
+        path: '/portal/diagnostic-results/:id',
+        redirect: (context, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return RegExp(
+                r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+              ).hasMatch(id)
+              ? null
+              : '/portal/diagnostic-results';
+        },
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          final extra = state.extra;
+          final args = extra is StructuredDiagnosticResultDetailRouteArgs
+              ? extra
+              : null;
+          final repository = args?.repository;
+          if (repository != null) {
+            return StructuredDiagnosticResultDetailScreen(
+              resultId: id,
+              initialResult: args?.initialResult,
+              repository: repository,
+            );
+          }
+          return StructuredDiagnosticResultDetailScreen(
             resultId: id,
             initialResult: args?.initialResult,
           );

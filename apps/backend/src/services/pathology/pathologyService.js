@@ -313,9 +313,43 @@ async function loadCaseDetail(db, id, tenantId) {
       tenantId,
     ),
     db.$queryRawUnsafe(
-      `SELECT *
-         FROM ap_reports
-        WHERE ap_case_id = $1::bigint AND tenant_id = $2::uuid
+      `SELECT report.*,
+              latest_generation.id AS diagnostic_generation_id,
+              latest_generation.source_version AS diagnostic_generation_version,
+              latest_generation.classification AS patient_release_classification,
+              release_state.release_hold AS patient_release_hold,
+              release_state.release_hold_reason AS patient_release_hold_reason,
+              release_state.release_hold_at AS patient_release_hold_at,
+              release_state.released_to_patient_at,
+              release_state.state_version AS patient_release_state_version,
+              EXISTS (
+                SELECT 1
+                  FROM diagnostic_result_actions patient_release_action
+                 WHERE patient_release_action.tenant_id = report.tenant_id
+                   AND patient_release_action.generation_id = latest_generation.id
+                   AND patient_release_action.action_kind = 'doctor_disposition'
+              ) AS patient_release_doctor_reviewed,
+              EXISTS (
+                SELECT 1
+                  FROM diagnostic_result_actions patient_release_closed
+                 WHERE patient_release_closed.tenant_id = report.tenant_id
+                   AND patient_release_closed.generation_id = latest_generation.id
+                   AND patient_release_closed.action_kind = 'normal_auto_closed'
+              ) AS patient_release_auto_closed
+         FROM ap_reports report
+         LEFT JOIN LATERAL (
+           SELECT generation.id, generation.source_version, generation.classification
+             FROM diagnostic_result_generations generation
+            WHERE generation.tenant_id = report.tenant_id
+              AND generation.source_kind = 'anatomical_pathology_report'
+              AND generation.ap_report_id = report.id
+            ORDER BY generation.source_version DESC, generation.id DESC
+            LIMIT 1
+         ) latest_generation ON TRUE
+         LEFT JOIN diagnostic_result_release_states release_state
+           ON release_state.tenant_id = report.tenant_id
+          AND release_state.generation_id = latest_generation.id
+        WHERE report.ap_case_id = $1::bigint AND report.tenant_id = $2::uuid
         LIMIT 1`,
       requireIntId(id),
       tenantId,

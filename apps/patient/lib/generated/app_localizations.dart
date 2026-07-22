@@ -2000,6 +2000,72 @@ abstract class AppLocalizations {
   /// **'A trend is not available for this result because no test code is linked.'**
   String get labResultTrendUnavailable;
 
+  /// No description provided for @diagnosticResultsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Imaging and pathology reports'**
+  String get diagnosticResultsTitle;
+
+  /// No description provided for @diagnosticResultsEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No released reports yet'**
+  String get diagnosticResultsEmptyTitle;
+
+  /// No description provided for @diagnosticResultsEmptySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Clinician-signed reports released by your care team will appear here.'**
+  String get diagnosticResultsEmptySubtitle;
+
+  /// No description provided for @diagnosticResultsLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load imaging and pathology reports.'**
+  String get diagnosticResultsLoadFailed;
+
+  /// No description provided for @diagnosticResultDetailsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostic report'**
+  String get diagnosticResultDetailsTitle;
+
+  /// No description provided for @diagnosticResultDetailLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load this diagnostic report.'**
+  String get diagnosticResultDetailLoadFailed;
+
+  /// No description provided for @diagnosticResultRadiology.
+  ///
+  /// In en, this message translates to:
+  /// **'Imaging report'**
+  String get diagnosticResultRadiology;
+
+  /// No description provided for @diagnosticResultPathology.
+  ///
+  /// In en, this message translates to:
+  /// **'Pathology report'**
+  String get diagnosticResultPathology;
+
+  /// No description provided for @diagnosticResultAmended.
+  ///
+  /// In en, this message translates to:
+  /// **'Amended'**
+  String get diagnosticResultAmended;
+
+  /// No description provided for @diagnosticResultAddendum.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed addendum'**
+  String get diagnosticResultAddendum;
+
+  /// No description provided for @diagnosticResultAdvice.
+  ///
+  /// In en, this message translates to:
+  /// **'Please discuss this report with your doctor if you have questions about what it means for your care.'**
+  String get diagnosticResultAdvice;
+
   /// No description provided for @summaryAllergies.
   ///
   /// In en, this message translates to:

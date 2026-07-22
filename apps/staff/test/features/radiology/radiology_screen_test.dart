@@ -35,6 +35,10 @@ void main() {
                   'report_signed_off_at': '2026-07-22T10:00:00.000Z',
                   'result_classification': 'critical',
                   'report_generation_version': 2,
+                  'diagnostic_generation_id':
+                      '33333333-3333-4333-8333-333333333333',
+                  'patient_release_hold': false,
+                  'patient_release_doctor_reviewed': false,
                   'created_at': '2026-07-22T09:00:00.000Z',
                 },
               ],
@@ -66,6 +70,11 @@ void main() {
       expect(find.text('Signed result version'), findsOneWidget);
       expect(find.text('2'), findsOneWidget);
       expect(find.text('Add addendum'), findsOneWidget);
+      expect(
+        find.text('Awaiting doctor review before patient release'),
+        findsOneWidget,
+      );
+      expect(find.text('Release to patient now'), findsNothing);
 
       await tester.ensureVisible(find.text('Add addendum'));
       await tester.pumpAndSettle();

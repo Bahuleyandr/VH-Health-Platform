@@ -19,6 +19,7 @@ import {
   getResultEpisodeReleaseDecision,
   releaseVisibilitySql,
   releaseDelayHours,
+  structuredDiagnosticReleaseVisibilitySql,
 } from './portalAccessService.js';
 import { getClinicalAiModule } from '../ai/clinicalAiModuleService.js';
 import { PATIENT_EXPLAINER_MODULE_KEYS } from '../ai/patientExplainersService.js';
@@ -199,6 +200,21 @@ function labResultCard(result) {
     priority: result.abnormal_flag ? 18 : 42,
     route: '/portal/lab-results',
     ctaLabel: 'View result',
+    sourceId: result.id,
+  });
+}
+
+function structuredDiagnosticResultCard(result) {
+  if (!result) return null;
+  const radiology = result.result_type === 'radiology';
+  return buildCard({
+    type: radiology ? 'radiology_result_ready' : 'pathology_result_ready',
+    title: radiology ? 'Imaging report ready' : 'Pathology report ready',
+    subtitle: result.title,
+    status: result.amended ? 'amended' : 'signed',
+    priority: 20,
+    route: '/portal/diagnostic-results',
+    ctaLabel: 'View report',
     sourceId: result.id,
   });
 }
@@ -607,6 +623,7 @@ function buildTodayCards({
   latestPrescription,
   pendingLabOrder,
   latestLabResult,
+  latestStructuredDiagnosticResult,
   openBill,
   openClaim,
   unreadMessage,
@@ -618,6 +635,7 @@ function buildTodayCards({
     messageCard(unreadMessage),
     billCard(openBill),
     labResultCard(latestLabResult),
+    structuredDiagnosticResultCard(latestStructuredDiagnosticResult),
     labOrderCard(pendingLabOrder),
     prescriptionCard(latestPrescription),
     claimCard(openClaim),
@@ -651,6 +669,7 @@ export async function getPatientCommandCenter({
     prescriptions,
     labOrders,
     labResults,
+    structuredDiagnosticResults,
     bills,
     claims,
     threads,
@@ -664,6 +683,7 @@ export async function getPatientCommandCenter({
     safeCommandSection('prescriptions', () => listLatestPrescriptions({ patient_id: patientId }), []),
     safeCommandSection('lab_orders', () => listMyLabOrders({ tenantId, patient_uid, limit: 25 }), []),
     safeCommandSection('lab_results', () => listMyLabResults({ tenantId, patient_uid, limit: 25 }), []),
+    safeCommandSection('diagnostic_results', () => listMyStructuredDiagnosticResults({ tenantId, patient_uid, limit: 25 }), []),
     safeCommandSection('bills', () => listMyBills({ tenantId, patient_uid }), []),
     safeCommandSection('claims', () => listMyClaims({ tenantId, patient_uid }), []),
     safeCommandSection('messages', () => listMyThreads({ tenantId, patient_uid, limit: 25 }), []),
@@ -701,13 +721,15 @@ export async function getPatientCommandCenter({
     uploads.length +
     prescriptions.length +
     clinicalNotes.length +
-    labResults.length;
+    labResults.length +
+    structuredDiagnosticResults.length;
 
   const today = buildTodayCards({
     nextAppointment,
     latestPrescription: latestRx,
     pendingLabOrder,
     latestLabResult: latestResult,
+    latestStructuredDiagnosticResult: first(structuredDiagnosticResults),
     openBill,
     openClaim,
     unreadMessage,
@@ -2137,6 +2159,171 @@ export async function getMyLabResult({ tenantId, patient_uid, id }) {
   );
   if (!rows.length) throw AppError.notFound('Lab result not found');
   return rows[0];
+}
+
+function requireDiagnosticGenerationId(value) {
+  const id = String(value || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)) {
+    throw AppError.badRequest('diagnostic result id must be a UUID');
+  }
+  return id;
+}
+
+function structuredDiagnosticResultForWire(row) {
+  const sourceKind = String(row.source_kind);
+  const isRadiology = sourceKind === 'radiology_report';
+  const title = isRadiology
+    ? [row.modality, row.body_part].filter(Boolean).join(' ')
+    : row.case_number
+      ? `Anatomical pathology report ${row.case_number}`
+      : 'Anatomical pathology report';
+  return {
+    id: String(row.id),
+    result_type: isRadiology ? 'radiology' : 'anatomical_pathology',
+    title: title || (isRadiology ? 'Radiology report' : 'Anatomical pathology report'),
+    source_version: Number(row.source_version),
+    signed_at: row.signed_at,
+    released_to_patient_at: row.released_to_patient_at,
+    amended: Number(row.source_version) > 1,
+  };
+}
+
+export async function listMyStructuredDiagnosticResults({
+  tenantId,
+  patient_uid,
+  limit = 100,
+}) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const tid = requireTenantId(tenantId);
+  const boundedLimit = Math.min(Math.max(asInt(limit, 100), 1), 200);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT generation.id, generation.source_kind, generation.source_version,
+            generation.signed_at, release_state.released_to_patient_at,
+            radiology.modality, radiology.body_part, ap_case.case_number
+       FROM diagnostic_result_generations AS generation
+       JOIN diagnostic_result_release_states AS release_state
+         ON release_state.tenant_id = generation.tenant_id
+        AND release_state.generation_id = generation.id
+        AND release_state.patient_uid = generation.patient_uid
+       LEFT JOIN radiology_orders AS radiology
+         ON radiology.tenant_id = generation.tenant_id
+        AND radiology.id = generation.radiology_order_id
+       LEFT JOIN ap_reports AS ap_report
+         ON ap_report.tenant_id = generation.tenant_id
+        AND ap_report.id = generation.ap_report_id
+       LEFT JOIN ap_cases AS ap_case
+         ON ap_case.tenant_id = ap_report.tenant_id
+        AND ap_case.id = ap_report.ap_case_id
+      WHERE generation.tenant_id = $1::uuid
+        AND generation.patient_uid = $2::uuid
+        AND generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
+        AND NOT EXISTS (
+          SELECT 1
+            FROM diagnostic_result_generations AS successor
+           WHERE successor.tenant_id = generation.tenant_id
+             AND successor.predecessor_generation_id = generation.id
+        )
+        AND ${structuredDiagnosticReleaseVisibilitySql('$3')}
+      ORDER BY generation.signed_at DESC, generation.id DESC
+      LIMIT $4::integer`,
+    tid,
+    String(patient_uid),
+    releaseDelayHours(),
+    boundedLimit,
+  );
+  return rows.map(structuredDiagnosticResultForWire);
+}
+
+export async function getMyStructuredDiagnosticResult({
+  tenantId,
+  patient_uid,
+  id,
+}) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const tid = requireTenantId(tenantId);
+  const generationId = requireDiagnosticGenerationId(id);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT generation.id, generation.source_kind, generation.source_version,
+            generation.signed_at, generation.radiology_order_id,
+            generation.ap_report_id, release_state.released_to_patient_at,
+            radiology.modality, radiology.body_part, radiology.report,
+            ap_report.diagnosis_text, ap_case.case_number
+       FROM diagnostic_result_generations AS generation
+       JOIN diagnostic_result_release_states AS release_state
+         ON release_state.tenant_id = generation.tenant_id
+        AND release_state.generation_id = generation.id
+        AND release_state.patient_uid = generation.patient_uid
+       LEFT JOIN radiology_orders AS radiology
+         ON radiology.tenant_id = generation.tenant_id
+        AND radiology.id = generation.radiology_order_id
+       LEFT JOIN ap_reports AS ap_report
+         ON ap_report.tenant_id = generation.tenant_id
+        AND ap_report.id = generation.ap_report_id
+       LEFT JOIN ap_cases AS ap_case
+         ON ap_case.tenant_id = ap_report.tenant_id
+        AND ap_case.id = ap_report.ap_case_id
+      WHERE generation.tenant_id = $1::uuid
+        AND generation.patient_uid = $2::uuid
+        AND generation.id = $3::uuid
+        AND generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
+        AND NOT EXISTS (
+          SELECT 1
+            FROM diagnostic_result_generations AS successor
+           WHERE successor.tenant_id = generation.tenant_id
+             AND successor.predecessor_generation_id = generation.id
+        )
+        AND ${structuredDiagnosticReleaseVisibilitySql('$4')}
+      LIMIT 1`,
+    tid,
+    String(patient_uid),
+    generationId,
+    releaseDelayHours(),
+  );
+  if (!rows[0]) throw AppError.notFound('Diagnostic result not found');
+  const row = rows[0];
+  const base = structuredDiagnosticResultForWire(row);
+  if (row.source_kind === 'radiology_report') {
+    const addenda = await prisma.$queryRawUnsafe(
+      `SELECT generation_version, addendum_text, signed_at
+         FROM radiology_report_addenda
+        WHERE tenant_id = $1::uuid
+          AND radiology_order_id = $2::integer
+          AND generation_version <= $3::bigint
+        ORDER BY generation_version, id`,
+      tid,
+      Number(row.radiology_order_id),
+      row.source_version,
+    );
+    return {
+      ...base,
+      report_text: row.report,
+      addenda: addenda.map((entry) => ({
+        version: Number(entry.generation_version),
+        text: entry.addendum_text,
+        signed_at: entry.signed_at,
+      })),
+    };
+  }
+  const addenda = await prisma.$queryRawUnsafe(
+    `SELECT generation_version, addendum_text, addendum_at AS signed_at
+       FROM ap_report_addenda
+      WHERE tenant_id = $1::uuid
+        AND ap_report_id = $2::bigint
+        AND generation_version <= $3::bigint
+      ORDER BY generation_version, id`,
+    tid,
+    row.ap_report_id,
+    row.source_version,
+  );
+  return {
+    ...base,
+    report_text: row.diagnosis_text,
+    addenda: addenda.map((entry) => ({
+      version: Number(entry.generation_version),
+      text: entry.addendum_text,
+      signed_at: entry.signed_at,
+    })),
+  };
 }
 
 // ── Secure messaging (patient ↔ staff) ──────────────────────────────

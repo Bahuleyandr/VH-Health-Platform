@@ -1033,6 +1033,43 @@ class AppLocalizationsMl extends AppLocalizations {
       'ടെസ്റ്റ് കോഡ് ബന്ധിപ്പിച്ചിട്ടില്ലാത്തതിനാൽ ഈ ഫലത്തിന് ട്രെൻഡ് ലഭ്യമല്ല.';
 
   @override
+  String get diagnosticResultsTitle => 'Imaging and pathology reports';
+
+  @override
+  String get diagnosticResultsEmptyTitle => 'No released reports yet';
+
+  @override
+  String get diagnosticResultsEmptySubtitle =>
+      'Clinician-signed reports released by your care team will appear here.';
+
+  @override
+  String get diagnosticResultsLoadFailed =>
+      'Unable to load imaging and pathology reports.';
+
+  @override
+  String get diagnosticResultDetailsTitle => 'Diagnostic report';
+
+  @override
+  String get diagnosticResultDetailLoadFailed =>
+      'Unable to load this diagnostic report.';
+
+  @override
+  String get diagnosticResultRadiology => 'Imaging report';
+
+  @override
+  String get diagnosticResultPathology => 'Pathology report';
+
+  @override
+  String get diagnosticResultAmended => 'Amended';
+
+  @override
+  String get diagnosticResultAddendum => 'Signed addendum';
+
+  @override
+  String get diagnosticResultAdvice =>
+      'Please discuss this report with your doctor if you have questions about what it means for your care.';
+
+  @override
   String get summaryAllergies => 'അലർജികൾ';
 
   @override

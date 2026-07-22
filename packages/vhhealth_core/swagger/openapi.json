@@ -70079,6 +70079,60 @@
         ]
       }
     },
+    "/api/v1/diagnostic-results/release/{generationId}/hold": {
+      "patch": {
+        "operationId": "patch_api_v1_diagnostic_results_release_by_generationId_hold",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "generationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/diagnostic-results/release/{generationId}/release-now": {
+      "post": {
+        "operationId": "post_api_v1_diagnostic_results_release_by_generationId_release_now",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "generationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/dialysis/access/{id}/abandon": {
       "post": {
         "operationId": "post_api_v1_dialysis_access_by_id_abandon",
@@ -86835,6 +86889,50 @@
         }
       }
     },
+    "/api/v1/patient/diagnostic-results": {
+      "get": {
+        "operationId": "get_api_v1_patient_diagnostic_results",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient/diagnostic-results/{id}": {
+      "get": {
+        "operationId": "get_api_v1_patient_diagnostic_results_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/patient/discharge-summaries": {
       "get": {
         "operationId": "get_api_v1_patient_discharge_summaries",
@@ -92439,6 +92537,50 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/portal/diagnostic-results": {
+      "get": {
+        "operationId": "get_api_v1_portal_diagnostic_results",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/portal/diagnostic-results/{id}": {
+      "get": {
+        "operationId": "get_api_v1_portal_diagnostic_results_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/portal/discharge-summaries": {

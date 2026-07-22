@@ -57,6 +57,26 @@ const RAD_CURRENT_READ_PROJECTION = `ro.id, ro.patient_uid, ro.encounter_id, ro.
     COALESCE(latest_addendum.signed_at, ro.classification_signed_at) AS classification_signed_at,
     latest_addendum.clinical_significance AS latest_clinical_significance,
     latest_addendum.id AS latest_addendum_id,
+    latest_generation.id AS diagnostic_generation_id,
+    release_state.release_hold AS patient_release_hold,
+    release_state.release_hold_reason AS patient_release_hold_reason,
+    release_state.release_hold_at AS patient_release_hold_at,
+    release_state.released_to_patient_at,
+    release_state.state_version AS patient_release_state_version,
+    EXISTS (
+      SELECT 1
+        FROM diagnostic_result_actions patient_release_action
+       WHERE patient_release_action.tenant_id = ro.tenant_id
+         AND patient_release_action.generation_id = latest_generation.id
+         AND patient_release_action.action_kind = 'doctor_disposition'
+    ) AS patient_release_doctor_reviewed,
+    EXISTS (
+      SELECT 1
+        FROM diagnostic_result_actions patient_release_closed
+       WHERE patient_release_closed.tenant_id = ro.tenant_id
+         AND patient_release_closed.generation_id = latest_generation.id
+         AND patient_release_closed.action_kind = 'normal_auto_closed'
+    ) AS patient_release_auto_closed,
     ro.tenant_id, ro.notes, ro.created_at, ro.updated_at`;
 
 const RAD_LATEST_ADDENDUM_JOIN = `LEFT JOIN LATERAL (
@@ -69,6 +89,19 @@ const RAD_LATEST_ADDENDUM_JOIN = `LEFT JOIN LATERAL (
      ORDER BY addendum.generation_version DESC, addendum.id DESC
      LIMIT 1
   ) latest_addendum ON TRUE`;
+
+const RAD_LATEST_GENERATION_JOIN = `LEFT JOIN LATERAL (
+    SELECT generation.id, generation.classification
+      FROM diagnostic_result_generations generation
+     WHERE generation.tenant_id = ro.tenant_id
+       AND generation.source_kind = 'radiology_report'
+       AND generation.radiology_order_id = ro.id
+     ORDER BY generation.source_version DESC, generation.id DESC
+     LIMIT 1
+  ) latest_generation ON TRUE
+  LEFT JOIN diagnostic_result_release_states release_state
+    ON release_state.tenant_id = ro.tenant_id
+   AND release_state.generation_id = latest_generation.id`;
 
 function tenantOr(value) {
   return requireTenantId(value);
@@ -646,6 +679,7 @@ class RadiologyService {
         `SELECT ${RAD_CURRENT_READ_PROJECTION}
          FROM radiology_orders ro
          ${RAD_LATEST_ADDENDUM_JOIN}
+         ${RAD_LATEST_GENERATION_JOIN}
          ${whereClause}
          ORDER BY
            CASE ro.priority WHEN 'stat' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
@@ -771,6 +805,7 @@ class RadiologyService {
         `SELECT ${RAD_CURRENT_READ_PROJECTION}
            FROM radiology_orders ro
            ${RAD_LATEST_ADDENDUM_JOIN}
+           ${RAD_LATEST_GENERATION_JOIN}
           WHERE ro.patient_uid = $1::uuid AND ro.tenant_id = $2::uuid
           ORDER BY ro.created_at DESC
           LIMIT $3 OFFSET $4`,
@@ -791,6 +826,7 @@ class RadiologyService {
         `SELECT ${RAD_CURRENT_READ_PROJECTION}
            FROM radiology_orders ro
            ${RAD_LATEST_ADDENDUM_JOIN}
+           ${RAD_LATEST_GENERATION_JOIN}
           WHERE ro.id = $1::int AND ro.tenant_id = $2::uuid`,
         requireIntId(id),
         tenantId,
