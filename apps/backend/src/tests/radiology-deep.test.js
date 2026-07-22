@@ -189,8 +189,18 @@ describe('Radiology order + report deep integration', () => {
     });
 
     it('rejects report submission without required fields', async () => {
-      const res = await radiologist.put('/api/v1/radiology/1/report').send({});
-      expect([400, 404, 500]).toContain(res.statusCode);
+      const order = await doctor.post('/api/v1/radiology/orders').send({
+        patient_uid: PATIENT_UID,
+        modality: 'xray',
+        body_part: 'chest',
+        clinical_indication: 'Validate empty report rejection',
+      });
+      expect(order.statusCode).toBe(201);
+
+      const res = await radiologist
+        .put(`/api/v1/radiology/${order.body.data.id}/report`)
+        .send({});
+      expect(res.statusCode).toBe(400);
     });
   });
 
