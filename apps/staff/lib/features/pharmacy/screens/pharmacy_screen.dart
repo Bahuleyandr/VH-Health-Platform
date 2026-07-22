@@ -12,6 +12,7 @@ import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
+import '../widgets/dispense_substitution_sheet.dart';
 
 class PharmacyScreen extends StatefulWidget {
   const PharmacyScreen({super.key});
@@ -2496,6 +2497,17 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             icon: Icons.medication,
             color: AppTheme.warningAmber,
             onTap: () => _markPreparing(order),
+          ),
+        if (status == 'CONFIRMED' || status == 'PREPARING' || status == 'READY')
+          _ActionBtn(
+            label: 'Substitute',
+            icon: Icons.swap_horiz,
+            color: Colors.deepPurple,
+            onTap: () => DispenseSubstitutionSheet.show(
+              context,
+              orderId: (order['id'] as num).toInt(),
+              onDispensed: _loadOrders,
+            ),
           ),
         if (status == 'PREPARING' || status == 'READY')
           _ActionBtn(

@@ -48,6 +48,8 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     // a staff queue alias rather than falling through to the legacy :phone route.
     ['/', [], pharmacyOrderController.getOrderQueue],
     ['/:id/detail', [], pharmacyOrderController.getOrderDetail],
+    // Patient + prescribed catalog_id lines behind an order — pharmacist substitution context.
+    ['/:id/dispensable', [], pharmacyOrderController.getOrderDispensableContext],
     ['/:id', [], pharmacyOrderController.getOrderDetail],
     // Dispense label / receipt for printing or in-app display. Available
     // once the order has been DISPENSED or DELIVERED. Wave-3 batch-1.
