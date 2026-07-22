@@ -22,6 +22,7 @@ const startWorkflowSlaMock = jest.fn();
 const loggerErrorMock = jest.fn();
 const loggerWarnMock = jest.fn();
 const resolveClinicalTaskOwnerTxMock = jest.fn();
+const resolvePathwayTaskOwnerTxMock = jest.fn();
 const repairCriticalResultTaskOwnerTxMock = jest.fn();
 const lockResultsInboxResourceTxMock = jest.fn();
 // Candidate-row reader used by promoteTaskCandidate inside the tenant tx.
@@ -52,6 +53,7 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
 
 jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
   resolveClinicalTaskOwnerTx: resolveClinicalTaskOwnerTxMock,
+  resolvePathwayTaskOwnerTx: resolvePathwayTaskOwnerTxMock,
   repairCriticalResultTaskOwnerTx: repairCriticalResultTaskOwnerTxMock,
 }));
 
@@ -102,6 +104,15 @@ beforeEach(() => {
     assignedToRole: requestedUid ? null : fallbackRole,
     resolution: requestedUid ? 'requested_active_clinician' : 'route_role_fallback',
     fallbackReason: requestedUid ? null : 'no_named_clinician',
+  }));
+  resolvePathwayTaskOwnerTxMock.mockReset().mockImplementation(async ({
+    requestedUid,
+    fallbackRole,
+  }) => ({
+    assignedToUid: requestedUid || null,
+    assignedToRole: requestedUid ? null : fallbackRole,
+    resolution: requestedUid ? 'requested_active_clinician' : 'route_role_queue',
+    fallbackReason: null,
   }));
   repairCriticalResultTaskOwnerTxMock.mockReset().mockImplementation(async ({ task }) => task);
   lockResultsInboxResourceTxMock.mockReset().mockResolvedValue(undefined);
