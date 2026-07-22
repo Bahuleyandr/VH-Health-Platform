@@ -3,8 +3,11 @@ import {
   recordWsBroadcastDropped,
   recordEventDeadLettered,
   recordWsFanoutSubscriberError,
+  recordEventOutboxLeaseReaped,
   recordNoteDraftJanitorDeletions,
   recordNoteDraftSaveError,
+  recordOutboxOperatorRedrive,
+  recordWebhookDeliveryLeaseReaped,
   serializeReliabilityMetrics,
 } from '../../observability/reliabilityMetrics.js';
 
@@ -15,19 +18,33 @@ describe('reliabilityMetrics serialization', () => {
       'event_outbox_pending_rows',
       'event_outbox_oldest_pending_age_seconds',
       'event_outbox_dead_letter_rows',
+      'event_outbox_processing_rows',
+      'event_outbox_stale_processing_rows',
       'notification_outbox_pending_rows',
       'webhook_deliveries_pending_rows',
       'webhook_deliveries_failed_rows',
       'webhook_deliveries_dead_rows',
+      'webhook_deliveries_in_flight_rows',
+      'webhook_deliveries_stale_in_flight_rows',
+      'webhook_deliveries_parked_rows',
       'pathway_projector_inbox_pending_rows',
       'pathway_projector_inbox_oldest_pending_age_seconds',
       'pathway_projector_inbox_leased_rows',
       'pathway_projector_inbox_dead_rows',
       'pathway_projector_inbox_retired_pending_rows',
+      'care_pathway_reconciliation_failing_shadow_tenants',
+      'care_pathway_reconciliation_technical_error_tenants',
+      'care_pathway_reconciliation_current_findings',
+      'care_pathway_reconciliation_current_repairs',
+      'care_pathway_reconciliation_latest_registry_evidence_age_seconds',
+      'care_pathway_reconciliation_active_without_authority_tenants',
       'db_circuit_breaker_open',
       'ws_broadcast_dropped_total',
       'ws_fanout_subscriber_errors_total',
       'event_outbox_dead_lettered_total',
+      'event_outbox_stale_lease_reaped_total',
+      'webhook_deliveries_stale_lease_reaped_total',
+      'outbox_operator_redrive_total',
       'note_draft_janitor_deletions_total',
       'note_draft_save_errors_total',
     ]) {
@@ -41,11 +58,19 @@ describe('reliabilityMetrics serialization', () => {
     recordWsBroadcastDropped('fanout_local_fallback');
     recordWsFanoutSubscriberError();
     recordEventDeadLettered();
+    recordEventOutboxLeaseReaped(2);
+    recordWebhookDeliveryLeaseReaped(3);
+    recordOutboxOperatorRedrive('event_outbox');
+    recordOutboxOperatorRedrive('unexpected');
     const out = serializeReliabilityMetrics();
     expect(out).toContain('ws_broadcast_dropped_total{reason="backpressure"} 2');
     expect(out).toContain('ws_broadcast_dropped_total{reason="fanout_local_fallback"} 1');
     expect(out).toContain('ws_fanout_subscriber_errors_total 1');
     expect(out).toContain('event_outbox_dead_lettered_total 1');
+    expect(out).toContain('event_outbox_stale_lease_reaped_total 2');
+    expect(out).toContain('webhook_deliveries_stale_lease_reaped_total 3');
+    expect(out).toContain('outbox_operator_redrive_total{queue="event_outbox"} 1');
+    expect(out).toContain('outbox_operator_redrive_total{queue="other"} 1');
   });
 
   // Read a no-label counter's current value from the serialized exposition text

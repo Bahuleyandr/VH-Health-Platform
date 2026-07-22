@@ -13,6 +13,9 @@
 
 import prisma from '../lib/prisma.js';
 import * as labResults from '../services/lab/labResultsService.js';
+import {
+  getResultEpisodeReleaseDecision,
+} from '../services/portal/portalAccessService.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ADULT_UID = 'f5555555-5555-4555-8555-555555550001';
@@ -22,15 +25,25 @@ const PATHOLOGIST_UID = 'f5555555-5555-4555-8555-555555550009';
 
 let adultResultId;
 let minorResultId;
-const allUids = [ADULT_UID, GUARDIAN_UID, MINOR_UID];
+const allUids = [ADULT_UID, GUARDIAN_UID, MINOR_UID, PATHOLOGIST_UID];
+let previousReleaseDelay;
 
 async function insertUser(uid, phone, name, guardianDbId = null) {
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO users (uid, phone, name, role, is_active, guardian_user_id, updated_at)
-     VALUES ($1::uuid, $2, $3, 'PATIENT', true, $4::int, NOW())
-     ON CONFLICT (uid) DO UPDATE SET phone = EXCLUDED.phone, guardian_user_id = EXCLUDED.guardian_user_id
+    `INSERT INTO users
+       (uid, tenant_id, phone, name, role, status, is_active, is_deleted,
+        guardian_user_id, updated_at)
+     VALUES ($1::uuid, $5::uuid, $2, $3, 'PATIENT', 'active', true, false, $4::int, NOW())
+     ON CONFLICT (uid) DO UPDATE
+       SET tenant_id = EXCLUDED.tenant_id,
+           phone = EXCLUDED.phone,
+           guardian_user_id = EXCLUDED.guardian_user_id,
+           status = EXCLUDED.status,
+           is_active = true,
+           is_deleted = false,
+           deleted_at = NULL
      RETURNING id`,
-    uid, phone, name, guardianDbId,
+    uid, phone, name, guardianDbId, TENANT,
   );
   return rows[0].id;
 }
@@ -66,9 +79,26 @@ async function insertResult(patientUid) {
 
 describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
   beforeAll(async () => {
+    previousReleaseDelay = process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS;
+    process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS = '0';
     await insertUser(ADULT_UID, '9811100001', 'Adult Patient');
     const guardianDbId = await insertUser(GUARDIAN_UID, '9811100002', 'Guardian Parent');
     await insertUser(MINOR_UID, '9811100003', 'Minor Dependent', guardianDbId);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users
+         (uid, tenant_id, phone, name, role, status, is_active, is_deleted, updated_at)
+       VALUES ($1::uuid, $2::uuid, '9811100009', 'Result Pathologist',
+               'PATHOLOGIST', 'active', true, false, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET tenant_id = EXCLUDED.tenant_id,
+             role = EXCLUDED.role,
+             status = EXCLUDED.status,
+             is_active = true,
+             is_deleted = false,
+             deleted_at = NULL`,
+      PATHOLOGIST_UID,
+      TENANT,
+    );
     adultResultId = await insertResult(ADULT_UID);
     minorResultId = await insertResult(MINOR_UID);
   });
@@ -88,11 +118,13 @@ describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
       allUids,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, allUids).catch(() => {});
+    if (previousReleaseDelay === undefined) delete process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS;
+    else process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS = previousReleaseDelay;
     await prisma.$disconnect().catch(() => {});
   });
 
   it('queues a result-ready notification to the patient on verified sign-off', async () => {
-    await labResults.signOffResults({
+    const signoff = await labResults.signOffResults({
       tenantId: TENANT,
       signed_off_by: PATHOLOGIST_UID,
       signed_off_by_role: 'PATHOLOGIST',
@@ -100,6 +132,11 @@ describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
       decision: 'verified',
       patient_uid: ADULT_UID,
     });
+    await expect(getResultEpisodeReleaseDecision({
+      tenantId: TENANT,
+      patientUid: ADULT_UID,
+      investigationId: Number(String(signoff.episode_key).split(':')[1]),
+    })).resolves.toEqual({ outcome: 'visible' });
 
     const notifs = await prisma.$queryRawUnsafe(
       `SELECT title, body, type FROM notifications
@@ -133,15 +170,18 @@ describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
     expect(guardianNotifs[0].body).toMatch(/dependent/i);
   });
 
-  it('does NOT notify on a non-verifying decision (e.g. rejected)', async () => {
+  it('rejects a non-sign-off decision and does not notify', async () => {
     const rid = await insertResult(ADULT_UID);
-    await labResults.signOffResults({
+    await expect(labResults.signOffResults({
       tenantId: TENANT,
       signed_off_by: PATHOLOGIST_UID,
       signed_off_by_role: 'PATHOLOGIST',
       result_ids: [rid],
       decision: 'rejected',
       patient_uid: ADULT_UID,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_DECISION_UNSUPPORTED',
     });
     // Only the verified sign-off (test 1) should have produced a notification.
     const notifs = await prisma.$queryRawUnsafe(

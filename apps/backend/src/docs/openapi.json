@@ -4336,6 +4336,385 @@
           }
         }
       },
+      "CarePathwayOwnerTransferRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "covering_clinician_uid",
+          "reason"
+        ],
+        "properties": {
+          "covering_clinician_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "CarePathwayOwnerTransferView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "handoff_id",
+          "pathway_instance_id",
+          "patient_uid",
+          "pathway_key",
+          "pathway_clinical_status",
+          "status",
+          "sender_uid",
+          "intended_recipient_uid",
+          "request_reason",
+          "requested_at",
+          "accepted_at",
+          "declined_at",
+          "cancelled_at"
+        ],
+        "properties": {
+          "handoff_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pathway_instance_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pathway_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "pathway_clinical_status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "active",
+              "on_hold",
+              "completed",
+              "cancelled",
+              "transferred",
+              "entered_in_error"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "accepted",
+              "declined",
+              "cancelled"
+            ]
+          },
+          "sender_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "intended_recipient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "request_reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "declined_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancelled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "CarePathwayOwnerTransferViewResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CarePathwayOwnerTransferView"
+          }
+        }
+      },
+      "CarePathwayOwnershipMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CarePathwayOwnershipMutationResult"
+          }
+        }
+      },
+      "CarePathwayOwnershipMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instance",
+          "events",
+          "replayed"
+        ],
+        "properties": {
+          "instance": {
+            "$ref": "#/components/schemas/CarePathwayInstance"
+          },
+          "handoff": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "task": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CarePathwayReconciliationEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "sweep_id",
+          "pathway_key",
+          "pathway_mode",
+          "registry_version",
+          "registry_checksum",
+          "governance_checksum",
+          "governance_count",
+          "covered_governance_count",
+          "expected_check_count",
+          "executed_check_count",
+          "finding_count",
+          "repair_count",
+          "error_count",
+          "registry_complete",
+          "passed",
+          "check_results",
+          "started_at",
+          "completed_at",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "sweep_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pathway_key": {
+            "type": "string",
+            "enum": [
+              "diagnostics_order_to_action",
+              "referral_request_to_closure",
+              "op_contact_to_recovery",
+              "inpatient_admission_to_recovery",
+              "emergency_arrival_to_aftercare",
+              "surgery_decision_to_recovery"
+            ]
+          },
+          "pathway_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "shadow",
+              "active"
+            ]
+          },
+          "registry_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "registry_checksum": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "governance_checksum": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "governance_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "covered_governance_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expected_check_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "executed_check_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "finding_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "repair_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "error_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "registry_complete": {
+            "type": "boolean"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "check_results": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/CarePathwayReconciliationResult"
+            }
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CarePathwayReconciliationEvidenceList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence",
+          "count",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarePathwayReconciliationEvidence"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          }
+        }
+      },
+      "CarePathwayReconciliationEvidenceListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CarePathwayReconciliationEvidenceList"
+          }
+        }
+      },
+      "CarePathwayReconciliationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "finding_count",
+          "repair_count",
+          "error_count"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,119}$"
+          },
+          "finding_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "repair_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "error_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "CarePathwaySignal": {
         "type": "object",
         "additionalProperties": false,
@@ -4393,6 +4772,19 @@
             "type": "object",
             "nullable": true,
             "additionalProperties": true
+          }
+        }
+      },
+      "CarePathwayTransferDecisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1
           }
         }
       },
@@ -11999,6 +12391,90 @@
           }
         ]
       },
+      "DiagnosticDownstreamEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resource_type",
+          "resource_id"
+        ],
+        "properties": {
+          "resource_type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,79}$"
+          },
+          "resource_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        }
+      },
+      "DiagnosticResultActionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "task_id",
+          "disposition",
+          "clinical_note",
+          "generation_snapshot_sha256",
+          "attested"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "treated",
+              "repeated",
+              "referred",
+              "no_action"
+            ]
+          },
+          "clinical_note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "generation_snapshot_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "downstream_evidence": {
+            "$ref": "#/components/schemas/DiagnosticDownstreamEvidence"
+          },
+          "attested": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "Explicit clinician confirmation of the electronic attestation statement."
+          }
+        }
+      },
+      "DiagnosticResultReopenRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
       "DischargeConsultRow": {
         "type": "object",
         "additionalProperties": false,
@@ -15491,6 +15967,150 @@
           "clinical_justification": {}
         }
       },
+      "EventOutboxList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "events",
+          "count"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventOutboxRow"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "EventOutboxListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/EventOutboxList"
+          }
+        }
+      },
+      "EventOutboxRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "event_type",
+          "aggregate_type",
+          "status",
+          "attempts",
+          "redrive_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "event_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "aggregate_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "aggregate_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "delivered",
+              "failed"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "available_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lease_owner": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "lease_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "redrive_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EventOutboxRowResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/EventOutboxRow"
+          }
+        }
+      },
       "ExpireStaleResponse": {
         "type": "object",
         "required": [
@@ -16748,6 +17368,31 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "InvestigationResultRecordRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {},
+          "interpretation": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "technician_notes": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "re_run": {
+            "type": "boolean"
+          },
+          "re_run_reason": {
+            "type": "string",
+            "minLength": 5
           }
         }
       },
@@ -18029,6 +18674,120 @@
             "type": "string",
             "minLength": 1,
             "description": "HL7 ORU^R01 payload. Local investigation references in ORC-2/OBR-2 must use VHINV-<positive PostgreSQL integer>. Bare numeric, malformed VHINV, and reserved VHBOOK identifiers are rejected. A VHINV-linked single-analyte message requires exact investigations.test_code equality with the OBR-4 and every OBX-3 code component. Unrecognized external alphanumeric identifiers remain unlinked shadow data."
+          }
+        }
+      },
+      "LabPathologistSignoff": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "episode_key",
+          "classification",
+          "result_snapshot_sha256",
+          "receipt"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "episode_key": {
+            "type": "string",
+            "pattern": "^(investigation|booking):[1-9][0-9]*$"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "abnormal",
+              "normal",
+              "indeterminate"
+            ]
+          },
+          "result_snapshot_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "receipt": {
+            "type": "object",
+            "required": [
+              "idempotency_key",
+              "request_body_sha256"
+            ],
+            "properties": {
+              "idempotency_key": {
+                "type": "string",
+                "nullable": true
+              },
+              "request_body_sha256": {
+                "type": "string",
+                "nullable": true,
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      },
+      "LabPathologistSignoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "result_ids",
+          "decision"
+        ],
+        "properties": {
+          "result_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "corrected",
+              "amended"
+            ]
+          },
+          "comments": {
+            "type": "string",
+            "nullable": true
+          },
+          "booking_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Compatibility assertion only; ownership is derived from locked tenant rows."
+          }
+        }
+      },
+      "LabPathologistSignoffResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LabPathologistSignoff"
           }
         }
       },
@@ -20039,6 +20798,20 @@
           "payload": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "OutboxReasonRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
           }
         }
       },
@@ -28373,6 +29146,310 @@
             "type": "integer"
           }
         }
+      },
+      "WebhookDeliveryList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliveries",
+          "count"
+        ],
+        "properties": {
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryRow"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "WebhookDeliveryListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebhookDeliveryList"
+          }
+        }
+      },
+      "WebhookDeliveryRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "event_type",
+          "status",
+          "attempt_number",
+          "redrive_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "subscription_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "event_outbox_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "nullable": true
+          },
+          "event_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_flight",
+              "succeeded",
+              "failed",
+              "dead"
+            ]
+          },
+          "attempt_number": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "http_status": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 100,
+            "maximum": 599
+          },
+          "response_excerpt": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "request_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "next_retry_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lease_owner": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "lease_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "redrive_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WebhookDeliveryRowResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebhookDeliveryRow"
+          }
+        }
+      },
+      "WebhookDispatchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "batch_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "WebhookDispatchResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebhookDispatchResult"
+          }
+        }
+      },
+      "WebhookDispatchResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dispatched",
+          "succeeded",
+          "failed",
+          "dead",
+          "parked",
+          "lost_fence",
+          "orphaned"
+        ],
+        "properties": {
+          "dispatched": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "succeeded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dead": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lost_fence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "orphaned": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "WebhookEnqueueRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_type"
+        ],
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "WebhookEnqueueResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebhookEnqueueResult"
+          }
+        }
+      },
+      "WebhookEnqueueResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "matched",
+          "enqueued"
+        ],
+        "properties": {
+          "matched": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enqueued": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryRow"
+            }
+          }
+        }
       }
     }
   },
@@ -30256,6 +31333,124 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/admin/care-pathways/reconciliation": {
+      "get": {
+        "operationId": "get_api_v1_admin_care_pathways_reconciliation",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarePathwayReconciliationEvidenceListResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read the latest care-pathway reconciliation evidence",
+        "description": "Returns PHI-free append-only evidence for the request tenant. SUPER_ADMIN cross-tenant access requires the audited x-tenant-id override and reason headers.",
+        "parameters": [
+          {
+            "name": "pathway_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "diagnostics_order_to_action",
+                "referral_request_to_closure",
+                "op_contact_to_recovery",
+                "inpatient_admission_to_recovery",
+                "emergency_arrival_to_aftercare",
+                "surgery_decision_to_recovery"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/care-pathways/reconciliation/history": {
+      "get": {
+        "operationId": "get_api_v1_admin_care_pathways_reconciliation_history",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarePathwayReconciliationEvidenceListResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read care-pathway reconciliation evidence history",
+        "description": "Returns paginated PHI-free append-only evidence ordered newest first. This endpoint has no mutation, retry, redrive, reset, reassign, dismiss, pass, or mode-change operation.",
+        "parameters": [
+          {
+            "name": "pathway_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "diagnostics_order_to_action",
+                "referral_request_to_closure",
+                "op_contact_to_recovery",
+                "inpatient_admission_to_recovery",
+                "emergency_arrival_to_aftercare",
+                "surgery_decision_to_recovery"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          }
+        ]
       }
     },
     "/api/v1/admin/care-plans": {
@@ -40452,66 +41647,89 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EventOutboxListResponse"
                 }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "processing",
+                "delivered",
+                "failed"
+              ],
+              "default": "pending"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/events/{id}/redrive": {
+      "post": {
+        "operationId": "post_api_v1_admin_events_by_id_redrive",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventOutboxRowResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutboxReasonRequest"
               }
             }
           }
         }
-      }
-    },
-    "/api/v1/admin/events/{id}/delivered": {
-      "post": {
-        "operationId": "post_api_v1_admin_events_by_id_delivered",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/v1/admin/events/{id}/failed": {
-      "post": {
-        "operationId": "post_api_v1_admin_events_by_id_failed",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
       }
     },
     "/api/v1/admin/executive-kpi/summary": {
@@ -45950,7 +47168,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDeliveryListResponse"
                 }
               }
             }
@@ -45962,13 +47180,23 @@
       "post": {
         "operationId": "post_api_v1_admin_webhook_deliveries_dispatch_now",
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDispatchResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookDispatchRequest"
               }
             }
           }
@@ -45979,13 +47207,23 @@
       "post": {
         "operationId": "post_api_v1_admin_webhook_deliveries_enqueue",
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookEnqueueResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookEnqueueRequest"
               }
             }
           }
@@ -46001,7 +47239,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDeliveryRowResponse"
                 }
               }
             }
@@ -46013,7 +47251,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
             }
           }
         ]
@@ -46028,7 +47267,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDeliveryRowResponse"
                 }
               }
             }
@@ -46040,22 +47279,33 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutboxReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/webhook-deliveries/{id}/redrive": {
       "post": {
         "operationId": "post_api_v1_admin_webhook_deliveries_by_id_redrive",
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WebhookDeliveryRowResponse"
                 }
               }
             }
@@ -46067,10 +47317,21 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutboxReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/webhook-subscriptions": {
@@ -54342,6 +55603,179 @@
         ]
       }
     },
+    "/api/v1/care-pathways/handoffs/{handoffId}": {
+      "get": {
+        "operationId": "get_api_v1_care_pathways_handoffs_by_handoffId",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarePathwayOwnerTransferViewResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read an exact-recipient covering-clinician transfer",
+        "description": "Returns the minimal patient and pathway context needed by the exact intended clinician to review a covering-transfer request. Terminal states require coherent immutable transition evidence and remain non-enumerable by handoff UUID.",
+        "parameters": [
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/care-pathways/handoffs/{handoffId}/accept": {
+      "post": {
+        "operationId": "post_api_v1_care_pathways_handoffs_by_handoffId_accept",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarePathwayOwnershipMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Accept a covering-clinician transfer",
+        "description": "Lets only the exact intended clinician accept a live covering-transfer request. Acceptance atomically transfers pathway, actionable-task, and incomplete-SLA ownership and records immutable evidence.",
+        "parameters": [
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/care-pathways/handoffs/{handoffId}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_care_pathways_handoffs_by_handoffId_cancel",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarePathwayOwnershipMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Cancel a covering-clinician transfer request",
+        "description": "Lets only the unchanged current pathway owner cancel their pending covering-transfer request with a reason. Cancelling never changes pathway ownership.",
+        "parameters": [
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarePathwayTransferDecisionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/care-pathways/handoffs/{handoffId}/decline": {
+      "post": {
+        "operationId": "post_api_v1_care_pathways_handoffs_by_handoffId_decline",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarePathwayOwnershipMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Decline a covering-clinician transfer",
+        "description": "Lets only the exact intended clinician decline a requested covering transfer with a reason. Declining never changes pathway ownership.",
+        "parameters": [
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarePathwayTransferDecisionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/care-pathways/instances": {
       "post": {
         "operationId": "post_api_v1_care_pathways_instances",
@@ -54414,6 +55848,47 @@
         ]
       }
     },
+    "/api/v1/care-pathways/instances/{id}/claim": {
+      "post": {
+        "operationId": "post_api_v1_care_pathways_instances_by_id_claim",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarePathwayOwnershipMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Claim a role-owned care pathway instance",
+        "description": "Atomically assigns the live role-owned pathway instance, every actionable pathway task, and every corresponding incomplete SLA to the authenticated clinician only while their current database role exactly matches the queue.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/care-pathways/instances/{id}/commands": {
       "post": {
         "operationId": "post_api_v1_care_pathways_instances_by_id_commands",
@@ -54459,6 +55934,57 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CarePathwayCommandRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/care-pathways/instances/{id}/owner-transfer-requests": {
+      "post": {
+        "operationId": "post_api_v1_care_pathways_instances_by_id_owner_transfer_requests",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarePathwayOwnershipMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Request an accepted covering-clinician transfer",
+        "description": "Creates an exact-recipient covering-transfer request and review task. The current owner remains responsible until the intended clinician accepts.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarePathwayOwnerTransferRequest"
               }
             }
           }
@@ -63647,6 +65173,108 @@
         }
       }
     },
+    "/api/v1/clinical-inbox/diagnostic-results/{generationId}/actions": {
+      "post": {
+        "operationId": "post_api_v1_clinical_inbox_diagnostic_results_by_generationId_actions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record a doctor-signed diagnostic result action",
+        "description": "Completes only the current doctor-owned domain-evidence task and atomically records the disposition, signature, pathway transition, and minimal-PHI event.",
+        "parameters": [
+          {
+            "name": "generationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticResultActionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-inbox/diagnostic-results/{generationId}/reopen": {
+      "post": {
+        "operationId": "post_api_v1_clinical_inbox_diagnostic_results_by_generationId_reopen",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Reopen an auto-closed normal diagnostic result",
+        "description": "Allows the exact current pathway owner to preserve the prior closure and create a new doctor-review obligation with an audited reason.",
+        "parameters": [
+          {
+            "name": "generationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticResultReopenRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/clinical-inbox/tasks/inbox": {
       "get": {
         "operationId": "get_api_v1_clinical_inbox_tasks_inbox",
@@ -63701,6 +65329,48 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/clinical-inbox/tasks/{id}/claim": {
+      "post": {
+        "operationId": "post_api_v1_clinical_inbox_tasks_by_id_claim",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Claim a role-owned clinical inbox task",
+        "description": "Atomically assigns an actionable role-queue task to the authenticated clinician only while their current database role still exactly matches the queue. Claiming does not acknowledge or complete the task or its linked SLA.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ]
       }
     },
     "/api/v1/clinical/ambient/encounters": {
@@ -79346,6 +81016,8 @@
             }
           }
         },
+        "summary": "Record technical investigation results",
+        "description": "The authenticated current database actor is recorded as the technical result recorder. reviewed_by and other caller-supplied reviewer identities are rejected and this command does not constitute doctor countersignature.",
         "parameters": [
           {
             "name": "id",
@@ -79355,7 +81027,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestigationResultRecordRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/investigations/{id}/status": {
@@ -79999,8 +81681,33 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/LabPathologistSignoffResponse"
                 }
+              }
+            }
+          }
+        },
+        "summary": "Sign one laboratory result episode",
+        "description": "Requires a stable Idempotency-Key, a database-current pathologist-tier actor, one tenant/patient/source episode, and a legal initial or corrective generation state.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabPathologistSignoffRequest"
               }
             }
           }

@@ -1,12 +1,3 @@
-/**
- * Phase A3 PR2 — webhookDeliveryService unit tests.
- *
- * Mocks prisma + the subscription / signing / log helpers so we can
- * drive every branch of the dispatcher (success / 5xx retryable /
- * 4xx non-retryable / network error / dead-after-N-attempts) without
- * a live HTTP endpoint.
- */
-
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
@@ -20,14 +11,16 @@ const signMock = jest.fn(() => ({
   timestamp: 1,
 }));
 
-const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
+const prismaMock = { $queryRawUnsafe: queryUnsafeMock };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: __prismaDefaultMock,
-  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
-  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
-  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
-  pickTenantClient: () => __prismaDefaultMock,
+  default: prismaMock,
+  circuitBreakerStatus: () => ({ open: false }),
+  isTenantTransactionClient: () => true,
+  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
+  setTenant: async (_tenantId, fn) => fn(prismaMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
+  pickTenantClient: () => prismaMock,
 }));
 jest.unstable_mockModule('../../services/integrations/webhookSubscriptionService.js', () => ({
   recordSubscriptionFailure: recordFailureMock,
@@ -50,6 +43,8 @@ const {
 } = await import('../../services/integrations/webhookDeliveryService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
+const ACTOR = '00000000-0000-4000-8000-000000000002';
+const LEASE_OWNER = '00000000-0000-4000-8000-000000000003';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
@@ -65,305 +60,307 @@ function mockNext(rows) {
   queryUnsafeMock.mockResolvedValueOnce(rows);
 }
 
-// ---------------------------------------------------------------------------
-// enqueueDelivery
-// ---------------------------------------------------------------------------
+function claimRow(overrides = {}) {
+  return {
+    id: 100,
+    subscription_id: 1,
+    tenant_id: TENANT,
+    event_outbox_id: null,
+    event_type: 'patient.admitted',
+    payload: { x: 1 },
+    attempt_number: 1,
+    request_id: 'req-1',
+    lease_owner: LEASE_OWNER,
+    lease_expires_at: new Date(Date.now() + 60_000),
+    prior_status: 'pending',
+    ...overrides,
+  };
+}
+
+function subscriptionRow(overrides = {}) {
+  return {
+    id: 1,
+    integration_id: 10,
+    endpoint_url: 'https://8.8.8.8/hook',
+    signing_credential_id: null,
+    signing_algorithm: 'none',
+    is_active: true,
+    event_filter: {},
+    integration_status: 'active',
+    credential_id: null,
+    ciphertext: null,
+    ...overrides,
+  };
+}
+
+function terminalRow(status, attemptNumber = 1) {
+  return {
+    id: 100,
+    subscription_id: 1,
+    tenant_id: TENANT,
+    status,
+    attempt_number: attemptNumber,
+  };
+}
+
+function setupDispatch({ claim = claimRow(), subscription = subscriptionRow() } = {}) {
+  mockNext([]); // orphan sweep
+  mockNext([claim]); // leased claim
+  mockNext(subscription ? [subscription] : []); // fresh authorization/gate read
+}
+
 describe('enqueueDelivery', () => {
-  it('rejects empty event_type', async () => {
+  it('rejects empty event_type and source-bridge impersonation', async () => {
     await expect(enqueueDelivery({ tenantId: TENANT })).rejects.toThrow(/event_type/);
+    await expect(enqueueDelivery({
+      tenantId: TENANT,
+      eventType: 'patient.admitted',
+      eventOutboxId: '1',
+    })).rejects.toMatchObject({ code: 'WEBHOOK_SOURCE_BRIDGE_INTERNAL_ONLY' });
   });
 
-  it('returns matched=0 when no active subscription matches', async () => {
+  it('returns no work when no active empty-filter subscription matches', async () => {
     mockNext([]);
-    const result = await enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' });
-    expect(result).toEqual({ matched: 0, enqueued: [] });
+    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' }))
+      .resolves.toEqual({ matched: 0, enqueued: [] });
   });
 
-  it('halts gracefully when webhook_subscriptions is missing', async () => {
+  it('fails loudly when the required schema is unavailable', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "webhook_subscriptions" does not exist'));
-    const result = await enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' });
-    expect(result.skipped_reason).toBe('webhook_subscriptions_unavailable');
-    expect(result.matched).toBe(0);
+    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' }))
+      .rejects.toThrow(/does not exist/);
   });
 
-  it('inserts one delivery per matching subscription', async () => {
+  it('uses one set-based insert and verifies complete coverage', async () => {
+    mockNext([{ id: 1 }, { id: 2 }]);
     mockNext([
-      { id: 1, integration_id: 10, endpoint_url: 'https://a.example/h', signing_credential_id: 1, signing_algorithm: 'hmac-sha256' },
-      { id: 2, integration_id: 11, endpoint_url: 'https://b.example/h', signing_credential_id: 2, signing_algorithm: 'none' },
+      { id: 100, subscription_id: 1, status: 'pending', attempt_number: 0 },
+      { id: 101, subscription_id: 2, status: 'pending', attempt_number: 0 },
     ]);
-    mockNext([{ id: 100, subscription_id: 1, status: 'pending', attempt_number: 0 }]);
-    mockNext([{ id: 101, subscription_id: 2, status: 'pending', attempt_number: 0 }]);
-
     const result = await enqueueDelivery({
-      tenantId: TENANT, eventType: 'patient.admitted', payload: { patient_uid: 'X' },
+      tenantId: TENANT,
+      eventType: 'patient.admitted',
+      payload: { patient_uid: 'X' },
     });
-    expect(result.matched).toBe(2);
+    expect(result).toMatchObject({ matched: 2 });
     expect(result.enqueued).toHaveLength(2);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO webhook_deliveries[\s\S]+SELECT/);
+  });
+
+  it('rolls back through the caller transaction when fan-out coverage is incomplete', async () => {
+    mockNext([{ id: 1 }, { id: 2 }]);
+    mockNext([{ id: 100, subscription_id: 1 }]);
+    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' }))
+      .rejects.toThrow(/coverage is incomplete/);
   });
 });
 
-// ---------------------------------------------------------------------------
-// dispatchPendingDeliveries
-// ---------------------------------------------------------------------------
-describe('dispatchPendingDeliveries — happy path', () => {
-  it('marks delivery succeeded on HTTP 2xx + records subscription success', async () => {
-    // 1. Claim batch — returns one delivery
-    mockNext([{
-      id: 100, subscription_id: 1, tenant_id: TENANT, event_outbox_id: null,
-      event_type: 'patient.admitted', payload: { x: 1 }, attempt_number: 1,
-      request_id: 'req-1',
-    }]);
-    // 2. Subscription fetch
-    mockNext([{
-      id: 1, integration_id: 10, tenant_id: TENANT,
-      endpoint_url: 'https://8.8.8.8/hook',
-      signing_credential_id: 5, signing_algorithm: 'hmac-sha256',
-      credential_id: 5, ciphertext: 'whsec_abc',
-    }]);
-    // 3. markStatus — UPDATE webhook_deliveries (success)
-    mockNext([]);
-    const fetchMock = jest.fn(async () => ({
-      status: 200,
-      text: async () => 'ok',
-    }));
-
-    const result = await dispatchPendingDeliveries({ batchSize: 5, fetchImpl: fetchMock });
-    expect(result).toEqual({ dispatched: 1, succeeded: 1, failed: 0, dead: 0 });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://8.8.8.8/hook');
-    expect(init.method).toBe('POST');
-    expect(init.headers['X-VHHealth-Signature']).toBe('t=1,sig=abc,algo=hmac-sha256');
-    expect(init.headers['X-VHHealth-Event-Type']).toBe('patient.admitted');
-    expect(recordSuccessMock).toHaveBeenCalledWith({ tenantId: TENANT, id: 1 });
-    expect(recordFailureMock).not.toHaveBeenCalled();
-  });
-
-  it('halts on schema-missing without throwing', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "webhook_deliveries" does not exist'));
-    const result = await dispatchPendingDeliveries({});
-    expect(result.halted).toBe(true);
-    expect(result.reason).toBe('webhook_deliveries_unavailable');
-  });
-});
-
-describe('dispatchPendingDeliveries — failure paths', () => {
-  function setupSingleDelivery(attemptNumber = 1, signingAlgorithm = 'hmac-sha256') {
-    mockNext([{
-      id: 100, subscription_id: 1, tenant_id: TENANT, event_outbox_id: null,
-      event_type: 'patient.admitted', payload: { x: 1 }, attempt_number: attemptNumber,
-      request_id: 'req-1',
-    }]);
-    mockNext([{
-      id: 1, integration_id: 10, tenant_id: TENANT,
-      endpoint_url: 'https://8.8.8.8/hook',
-      signing_credential_id: 5, signing_algorithm: signingAlgorithm,
-      credential_id: 5, ciphertext: 'whsec_abc',
-    }]);
-    // markStatus update
-    mockNext([]);
-  }
-
-  it('5xx → status=failed (retryable), schedules next_retry_at, increments subscription failure counter', async () => {
-    setupSingleDelivery(1);
-    const fetchMock = jest.fn(async () => ({ status: 503, text: async () => 'busy' }));
-    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
-    expect(result).toEqual({ dispatched: 1, succeeded: 0, failed: 1, dead: 0 });
-    expect(recordFailureMock).toHaveBeenCalledWith({ tenantId: TENANT, id: 1 });
-    const updateCall = queryUnsafeMock.mock.calls.find((args) =>
-      String(args[0]).includes('UPDATE webhook_deliveries') && args[1] === 'failed',
-    );
-    expect(updateCall).toBeTruthy();
-  });
-
-  it('4xx (404) → status=dead immediately, no retry', async () => {
-    setupSingleDelivery(1);
-    const fetchMock = jest.fn(async () => ({ status: 404, text: async () => 'not found' }));
-    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
-    expect(result.dead).toBe(1);
-    expect(result.failed).toBe(0);
-  });
-
-  it('429 is retryable', async () => {
-    setupSingleDelivery(1);
-    const fetchMock = jest.fn(async () => ({ status: 429, text: async () => 'slow down' }));
-    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
-    expect(result.failed).toBe(1);
-    expect(result.dead).toBe(0);
-  });
-
-  it('attempt_number >= RETRY_LIMIT → marks dead even on 5xx', async () => {
-    setupSingleDelivery(__testing__.RETRY_LIMIT);
-    const fetchMock = jest.fn(async () => ({ status: 502, text: async () => 'bad gateway' }));
-    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
-    expect(result.dead).toBe(1);
-    expect(result.failed).toBe(0);
-  });
-
-  it('network failure (no httpStatus) is retryable until limit', async () => {
-    setupSingleDelivery(1);
-    const fetchMock = jest.fn(async () => { throw new Error('fetch failed'); });
-    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
-    expect(result.failed).toBe(1);
-  });
-
-  it('skips signing when algorithm=none', async () => {
-    setupSingleDelivery(1, 'none');
+describe('dispatchPendingDeliveries', () => {
+  it('fences a successful delivery and records subscription success only after CAS', async () => {
+    setupDispatch();
+    mockNext([terminalRow('succeeded')]);
     const fetchMock = jest.fn(async () => ({ status: 200, text: async () => 'ok' }));
-    await dispatchPendingDeliveries({ fetchImpl: fetchMock });
-    expect(signMock).not.toHaveBeenCalled();
+
+    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock, leaseOwner: LEASE_OWNER });
+
+    expect(result).toEqual({
+      dispatched: 1,
+      succeeded: 1,
+      failed: 0,
+      dead: 0,
+      parked: 0,
+      lost_fence: 0,
+      orphaned: 0,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].headers['X-VHHealth-Delivery-Id']).toBe('100');
+    expect(recordSuccessMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      id: 1,
+      tx: prismaMock,
+    }));
   });
 
-  it('does not fetch loopback endpoints even when a poisoned row is claimed', async () => {
-    mockNext([{
-      id: 100, subscription_id: 1, tenant_id: TENANT, event_outbox_id: null,
-      event_type: 'patient.admitted', payload: { x: 1 }, attempt_number: 1,
-      request_id: 'req-1',
-    }]);
-    mockNext([{
-      id: 1, integration_id: 10, tenant_id: TENANT,
-      endpoint_url: 'http://127.0.0.1/hook',
-      signing_credential_id: 5, signing_algorithm: 'hmac-sha256',
-      credential_id: 5, ciphertext: 'whsec_abc',
-    }]);
+  it('does not credit success when a stale worker loses its lease fence', async () => {
+    setupDispatch();
     mockNext([]);
-    const fetchMock = jest.fn();
-    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.failed).toBe(1);
-    const updateCall = queryUnsafeMock.mock.calls.find((args) =>
-      String(args[0]).includes('UPDATE webhook_deliveries') && args[1] === 'failed',
-    );
-    expect(updateCall?.[4]).toMatch(/private|loopback|link-local|SSRF/i);
+    const result = await dispatchPendingDeliveries({
+      fetchImpl: jest.fn(async () => ({ status: 204, text: async () => '' })),
+      leaseOwner: LEASE_OWNER,
+    });
+    expect(result.succeeded).toBe(0);
+    expect(result.lost_fence).toBe(1);
+    expect(recordSuccessMock).not.toHaveBeenCalled();
   });
 
-  it('does not fetch when the signing credential is missing or cross-tenant', async () => {
-    mockNext([{
-      id: 100, subscription_id: 1, tenant_id: TENANT, event_outbox_id: null,
-      event_type: 'patient.admitted', payload: { x: 1 }, attempt_number: 1,
-      request_id: 'req-1',
-    }]);
-    mockNext([{
-      id: 1, integration_id: 10, tenant_id: TENANT,
-      endpoint_url: 'https://8.8.8.8/hook',
-      signing_credential_id: 5, signing_algorithm: 'hmac-sha256',
-      credential_id: null, ciphertext: null,
-    }]);
-    mockNext([]);
-    const fetchMock = jest.fn();
-    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(signMock).not.toHaveBeenCalled();
-    expect(result.failed).toBe(1);
+  it.each([
+    [503, 1, 'failed'],
+    [429, 1, 'failed'],
+    [404, 1, 'dead'],
+    [502, __testing__.RETRY_LIMIT, 'dead'],
+    [502, __testing__.RETRY_LIMIT + 1, 'dead'],
+  ])('maps HTTP %s at attempt %s to %s', async (httpStatus, attemptNumber, expectedStatus) => {
+    setupDispatch({ claim: claimRow({ attempt_number: attemptNumber }) });
+    mockNext([terminalRow(expectedStatus, attemptNumber)]);
+    const result = await dispatchPendingDeliveries({
+      fetchImpl: jest.fn(async () => ({ status: httpStatus, text: async () => 'response' })),
+      leaseOwner: LEASE_OWNER,
+    });
+    expect(result[expectedStatus === 'dead' ? 'dead' : 'failed']).toBe(1);
+    expect(recordFailureMock).toHaveBeenCalledWith(expect.objectContaining({ tx: prismaMock }));
   });
 
-  it('marks dead when subscription is missing', async () => {
-    mockNext([{
-      id: 100, subscription_id: 999, tenant_id: TENANT, event_outbox_id: null,
-      event_type: 'patient.admitted', payload: {}, attempt_number: 1, request_id: 'req',
-    }]);
-    mockNext([]); // subscription fetch returns nothing
-    mockNext([]); // markStatus
+  it('parks a claim without fetching when the subscription or parent integration is inactive', async () => {
+    setupDispatch({ subscription: subscriptionRow({ integration_status: 'inactive' }) });
+    mockNext([{ id: 100 }]);
     const fetchMock = jest.fn();
-    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
+    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock, leaseOwner: LEASE_OWNER });
+    expect(result.parked).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const update = queryUnsafeMock.mock.calls[3];
+    expect(update[0]).toMatch(/SET status = \$6::text/);
+    expect(update[6]).toBe('pending');
+  });
+
+  it('parks poisoned non-empty-filter rows without inventing filter semantics', async () => {
+    setupDispatch({ subscription: subscriptionRow({ event_filter: { patient_uid: 'X' } }) });
+    mockNext([{ id: 100 }]);
+    const fetchMock = jest.fn();
+    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock, leaseOwner: LEASE_OWNER });
+    expect(result.parked).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('dead-letters missing subscriptions without outbound fetch', async () => {
+    setupDispatch({ subscription: null });
+    mockNext([terminalRow('dead')]);
+    const fetchMock = jest.fn();
+    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock, leaseOwner: LEASE_OWNER });
     expect(result.dead).toBe(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('halts explicitly when delivery schema is unavailable', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "webhook_deliveries" does not exist'));
+    await expect(dispatchPendingDeliveries({ leaseOwner: LEASE_OWNER })).resolves.toEqual({
+      halted: true,
+      reason: 'webhook_deliveries_unavailable',
+    });
+  });
 });
 
-// ---------------------------------------------------------------------------
-// Backoff math
-// ---------------------------------------------------------------------------
-describe('backoff', () => {
-  it('exposes the canonical schedule', () => {
+describe('backoff and retry contract', () => {
+  it('keeps the canonical bounded schedule', () => {
     expect(__testing__.BACKOFF_SECONDS).toEqual([30, 120, 600, 1_800, 3_600, 14_400, 28_800]);
-  });
-  it('clamps negative + over-limit attempt numbers', () => {
     expect(__testing__.backoffSecondsForAttempt(-1)).toBe(30);
     expect(__testing__.backoffSecondsForAttempt(99)).toBe(28_800);
   });
-  it('isRetryable matches the retry contract', () => {
+
+  it('retries only transport, timeout, throttle, and server failures', () => {
     expect(__testing__.isRetryable(null)).toBe(true);
-    expect(__testing__.isRetryable(200)).toBe(false);
     expect(__testing__.isRetryable(404)).toBe(false);
     expect(__testing__.isRetryable(408)).toBe(true);
     expect(__testing__.isRetryable(429)).toBe(true);
     expect(__testing__.isRetryable(500)).toBe(true);
-    expect(__testing__.isRetryable(599)).toBe(true);
-  });
-  it('computeNextRetryAt returns a Date in the future', () => {
-    const before = Date.now();
-    const next = __testing__.computeNextRetryAt(0);
-    expect(next).toBeInstanceOf(Date);
-    expect(next.getTime()).toBeGreaterThanOrEqual(before + 30_000);
   });
 });
 
-// ---------------------------------------------------------------------------
-// listDeliveries / getDelivery / mark-dead / redrive
-// ---------------------------------------------------------------------------
-describe('listDeliveries', () => {
-  it('returns empty on schema-missing', async () => {
+describe('tenant-scoped reads and audited operator mutations', () => {
+  it('validates list filters and tolerates a legacy missing read schema', async () => {
+    await expect(listDeliveries({ tenantId: TENANT, status: 'weird' }))
+      .rejects.toThrow(/status must be one of/);
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "webhook_deliveries" does not exist'));
-    expect(await listDeliveries({ tenantId: TENANT })).toEqual({ deliveries: [], count: 0 });
+    await expect(listDeliveries({ tenantId: TENANT })).resolves.toEqual({ deliveries: [], count: 0 });
   });
-  it('rejects unknown status', async () => {
-    await expect(listDeliveries({ tenantId: TENANT, status: 'weird' })).rejects.toThrow(/status must be one of/);
-  });
-});
 
-describe('getDelivery', () => {
-  it('throws 404 when missing', async () => {
+  it('does not disclose a missing delivery', async () => {
     mockNext([]);
-    await expect(getDelivery({ tenantId: TENANT, id: 99 })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(getDelivery({ tenantId: TENANT, id: 99 }))
+      .rejects.toMatchObject({ statusCode: 404 });
   });
-});
 
-describe('markDeliveryDead', () => {
-  it('throws 404 when not pending or failed', async () => {
-    mockNext([]);
-    await expect(markDeliveryDead({ tenantId: TENANT, id: 99 })).rejects.toMatchObject({ statusCode: 404 });
+  it('requires reason and server-derived actor context before mark-dead', async () => {
+    await expect(markDeliveryDead({ tenantId: TENANT, id: 100 }))
+      .rejects.toThrow(/reason is required/);
+    await expect(markDeliveryDead({ tenantId: TENANT, id: 100, reason: 'Operator decision' }))
+      .rejects.toThrow(/actor uid/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
-  it('flips status + records reason', async () => {
-    mockNext([{ id: 100, status: 'dead', error_message: 'manual' }]);
-    const row = await markDeliveryDead({ tenantId: TENANT, id: 100, reason: 'manual' });
+
+  it('marks only pending/failed rows dead and writes the audit in the same transaction', async () => {
+    mockNext([{
+      id: 100, subscription_id: 1, status: 'failed', attempt_number: 2,
+      error_message: 'retry exhausted soon', redrive_count: 0,
+    }]);
+    mockNext([{
+      id: 100, subscription_id: 1, tenant_id: TENANT, event_outbox_id: '7',
+      event_type: 'patient.admitted', status: 'dead', attempt_number: 2, redrive_count: 0,
+    }]);
+    mockNext([]);
+    const row = await markDeliveryDead({
+      tenantId: TENANT,
+      id: 100,
+      reason: 'Endpoint permanently retired',
+      actorUid: ACTOR,
+      actorRole: 'ADMIN',
+      requestId: 'request-1',
+    });
     expect(row.status).toBe('dead');
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/INSERT INTO audit_logs/);
+    expect(queryUnsafeMock.mock.calls[2][4]).toBe('WEBHOOK_DELIVERY_MARKED_DEAD');
   });
-});
 
-describe('redriveDelivery', () => {
-  it('throws 404 when not in eligible status', async () => {
+  it('redrives dead only, resets retry state, and increments redrive_count with audit', async () => {
+    mockNext([{
+      id: 100, subscription_id: 1, status: 'dead', attempt_number: 7,
+      error_message: 'terminal', redrive_count: 2,
+    }]);
+    mockNext([{
+      id: 100, subscription_id: 1, tenant_id: TENANT, event_outbox_id: '7',
+      event_type: 'patient.admitted', status: 'pending', attempt_number: 0, redrive_count: 3,
+    }]);
     mockNext([]);
-    await expect(redriveDelivery({ tenantId: TENANT, id: 99 })).rejects.toMatchObject({ statusCode: 404 });
+    const row = await redriveDelivery({
+      tenantId: TENANT,
+      id: 100,
+      reason: 'Endpoint owner confirmed recovery',
+      actorUid: ACTOR,
+      actorRole: 'SUPER_ADMIN',
+      requestId: 'request-2',
+    });
+    expect(row).toMatchObject({ status: 'pending', attempt_number: 0, redrive_count: 3 });
+    expect(queryUnsafeMock.mock.calls[2][4]).toBe('WEBHOOK_DELIVERY_REDRIVEN');
   });
-  it('flips status to pending and writes a log', async () => {
-    mockNext([{ id: 100, status: 'pending', subscription_id: 1, event_type: 'p.a' }]);
-    const row = await redriveDelivery({ tenantId: TENANT, id: 100, redrivenBy: 'admin' });
-    expect(row.status).toBe('pending');
-    expect(writeLogMock).toHaveBeenCalled();
+
+  it('rejects redrive from any state other than dead', async () => {
+    mockNext([{
+      id: 100, subscription_id: 1, status: 'failed', attempt_number: 2,
+      error_message: 'retryable', redrive_count: 0,
+    }]);
+    await expect(redriveDelivery({
+      tenantId: TENANT,
+      id: 100,
+      reason: 'Too early',
+      actorUid: ACTOR,
+      actorRole: 'ADMIN',
+    })).rejects.toMatchObject({ statusCode: 409 });
   });
 });
 
-// ---------------------------------------------------------------------------
-// reapStaleInFlightDeliveries (M10)
-// ---------------------------------------------------------------------------
-describe('reapStaleInFlightDeliveries (M10)', () => {
-  it('resets stale in_flight rows to failed + due and returns the count', async () => {
-    mockNext([{ id: 10 }, { id: 11 }]);
-    const result = await reapStaleInFlightDeliveries({ staleMinutes: 15 });
-    expect(result).toEqual({ reaped: 2 });
-
-    const [sql, param] = queryUnsafeMock.mock.calls[0];
-    expect(sql).toMatch(/UPDATE webhook_deliveries/i);
-    expect(sql).toMatch(/status = 'failed'/i);
-    expect(sql).toMatch(/WHERE\s+status = 'in_flight'/i);
-    expect(sql).toMatch(/started_at < NOW\(\) - \(\$1::int \* INTERVAL '1 minute'\)/i);
-    expect(param).toBe(15);
-  });
-
-  it('halts gracefully (reaped:0) when webhook_deliveries is missing', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "webhook_deliveries" does not exist'));
-    const result = await reapStaleInFlightDeliveries();
-    expect(result).toEqual({ reaped: 0 });
+describe('reapStaleInFlightDeliveries', () => {
+  it('uses the lease expiry fence and reports terminal rows separately', async () => {
+    mockNext([
+      { id: 10, tenant_id: TENANT, status: 'failed', attempt_number: 2 },
+      { id: 11, tenant_id: TENANT, status: 'dead', attempt_number: 7 },
+    ]);
+    const result = await reapStaleInFlightDeliveries({ limit: 25 });
+    expect(result).toMatchObject({ reaped: 2, dead: 1 });
+    const [sql, limit, retryLimit] = queryUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/lease_expires_at <= NOW\(\)/);
+    expect(sql).toMatch(/delivery\.lease_owner = stale\.lease_owner/);
+    expect(limit).toBe(25);
+    expect(retryLimit).toBe(__testing__.RETRY_LIMIT);
   });
 });

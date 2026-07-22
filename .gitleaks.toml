@@ -113,4 +113,13 @@ regexes = [
   # value entropy >3.5). These are arbitrary opaque idempotency tokens for the
   # postAdvanceRefundEntry unit test, not credentials.
   '''ipd-advance-refund-\d+''',
+  # Care-pathway migration test actor key. This is a deterministic fixture
+  # identifier persisted as event provenance, not an authentication secret.
+  # Keep the exact value allowlisted because PR range scans inspect the commit
+  # that introduced it even after the working-tree fixture is rewritten.
+  '''owner_acceptance_test\.v1''',
+  # Documentation phrase describing PostgreSQL application-role and sequence
+  # privileges. The generic-api-key rule classified the historical slash form
+  # as a credential, so retain an exact history-only exception.
+  '''application/sequence''',
 ]

@@ -2,16 +2,20 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
 const recordClinicalAuditEventMock = jest.fn();
+const recordCanonicalClinicalEventMock = jest.fn();
+const resolveCurrentHumanActorTxMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
   default: __prismaDefaultMock,
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
+  isTenantTransactionClient: () => true,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -23,6 +27,12 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordClinicalAuditEvent: recordClinicalAuditEventMock,
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
+}));
+
+jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  resolveCurrentHumanActorTx: resolveCurrentHumanActorTxMock,
 }));
 
 const {
@@ -38,6 +48,16 @@ describe('lab result release tenant predicates', () => {
   beforeEach(() => {
     queryRawUnsafeMock.mockReset();
     recordClinicalAuditEventMock.mockReset();
+    recordCanonicalClinicalEventMock.mockReset().mockResolvedValue({
+      timeline: { id: 'timeline-1' },
+      audit: { id: 'audit-1' },
+    });
+    resolveCurrentHumanActorTxMock.mockReset().mockResolvedValue({
+      uid: ACTOR_UID,
+      role: 'DOCTOR',
+      queueRole: 'DOCTOR',
+      rawRole: 'DOCTOR',
+    });
   });
 
   it('sets release hold only for a result inside the caller tenant', async () => {
@@ -69,8 +89,9 @@ describe('lab result release tenant predicates', () => {
     expect(update[1]).toBe(44);
     expect(update[5]).toBe(TENANT_ID);
 
-    expect(recordClinicalAuditEventMock).toHaveBeenCalledWith(
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: TENANT_ID, resourceId: '44' }),
+      { db: __prismaDefaultMock },
     );
   });
 
@@ -83,7 +104,8 @@ describe('lab result release tenant predicates', () => {
         signed_off_at: new Date(),
         release_hold: true,
       }])
-      .mockResolvedValueOnce([{ id: 45, release_hold: false }]);
+      .mockResolvedValueOnce([{ id: 45, release_hold: false }])
+      .mockResolvedValueOnce([]);
 
     await releaseResultNow(45, {
       actorUid: ACTOR_UID,
@@ -93,6 +115,6 @@ describe('lab result release tenant predicates', () => {
 
     const update = queryRawUnsafeMock.mock.calls[1];
     expect(update[0]).toMatch(/WHERE id = \$1::int[\s\S]*tenant_id = \$2::uuid/);
-    expect(update.slice(1)).toEqual([45, TENANT_ID]);
+    expect(update.slice(1)).toEqual([45, TENANT_ID, true, undefined]);
   });
 });

@@ -20,10 +20,13 @@
  * rules + automation rules write rows; admins approve / dispatch them.
  */
 
+import { createHash } from 'node:crypto';
+
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
+import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
 import { roleCanBreakGlass } from '../security/breakGlassService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
@@ -31,6 +34,10 @@ import {
   validateWorkflowDefinitionSteps,
 } from './workflowDefinitionContract.js';
 import { assertWorkflowJsonBudget } from './workflowJsonGuard.js';
+import {
+  isTaskHumanOwnerRole,
+  resolveCurrentHumanActorTx,
+} from './workflowHumanOwnerService.js';
 
 export { WORKFLOW_STEP_KINDS };
 
@@ -40,7 +47,18 @@ const TEXT_MAX = 8000;
 const SHORT_MAX = 255;
 const HANDLER_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.v[1-9][0-9]*$/;
 
-export const TASK_KINDS = ['general', 'follow_up', 'review', 'escalation', 'verification', 'admin', 'consent', 'investigation', 'other'];
+export const TASK_KINDS = [
+  'general',
+  'follow_up',
+  'review',
+  'pathway_owner_transfer_review',
+  'escalation',
+  'verification',
+  'admin',
+  'consent',
+  'investigation',
+  'other',
+];
 export const TASK_PRIORITIES = ['low', 'normal', 'high', 'critical'];
 export const TASK_STATUSES = ['open', 'in_progress', 'blocked', 'completed', 'cancelled', 'overdue'];
 export const TASK_SLA_COMPLETION_SEMANTICS = ['none', 'acknowledgement', 'domain_evidence'];
@@ -61,11 +79,13 @@ const ACKNOWLEDGEMENT_TRANSITION_AUTHORITY = Symbol('ACKNOWLEDGEMENT_TRANSITION_
 const LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY = Symbol(
   'LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY',
 );
+const COVERING_TRANSFER_TASK_AUTHORITY = Symbol('COVERING_TRANSFER_TASK_AUTHORITY');
 
 const GENERIC_RUNTIME_DENIED_APPROVAL_KINDS = new Set([
   'care_pathway_definition_governance',
   'credential_privilege_grant',
 ]);
+const COVERING_TRANSFER_TASK_CONTRACT = 'covering_clinician_transfer_review_v1';
 
 const TASK_TRANSITIONS = {
   open: ['in_progress', 'blocked', 'completed', 'cancelled'],
@@ -917,6 +937,24 @@ async function getTaskForUpdate({ tenantId, id, db }) {
   return rows[0];
 }
 
+function isCoveringTransferReviewTask(taskRow) {
+  return taskRow?.task_kind === 'pathway_owner_transfer_review'
+    && taskRow?.related_resource_type === 'care_handoff_instance'
+    && taskRow?.metadata?.task_contract === COVERING_TRANSFER_TASK_CONTRACT;
+}
+
+function assertGenericTaskMutationAllowed(taskRow, authority = null) {
+  if (
+    isCoveringTransferReviewTask(taskRow)
+    && authority !== COVERING_TRANSFER_TASK_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'Covering-transfer review tasks must use the pathway ownership workflow',
+      'COVERING_TRANSFER_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+}
+
 export async function transitionTask({
   tenantId = null, id, nextStatus,
   cancellationReason = null,
@@ -925,6 +963,7 @@ export async function transitionTask({
   domainEvidenceAuthority = null,
   slaSourceBindingAuthority = null,
   acknowledgementTransitionAuthority = null,
+  coveringTransferTaskAuthority = null,
   tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
@@ -945,12 +984,14 @@ export async function transitionTask({
       domainEvidenceAuthority,
       slaSourceBindingAuthority,
       acknowledgementTransitionAuthority,
+      coveringTransferTaskAuthority,
       tx: scopedTx,
     }));
   }
   const db = tx;
 
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
+  assertGenericTaskMutationAllowed(current, coveringTransferTaskAuthority);
   const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db });
   await assertPathwayExecutorAuthority({
     tenantId: tid,
@@ -1070,6 +1111,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   relatedResourceId,
   workflowSlaInstanceId,
   supersededByActorUid,
+  supersedingDiagnosticGenerationId,
   tx = null,
 } = {}) {
   if (!tx) {
@@ -1087,6 +1129,12 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   const expectedResourceType = safeText(relatedResourceType, 120);
   const expectedResourceId = safeText(relatedResourceId, 255);
   const expectedSlaId = maybeUuid(workflowSlaInstanceId, 'workflow_sla_instance_id');
+  const diagnosticGenerationId = supersedingDiagnosticGenerationId == null
+    ? null
+    : maybeUuid(
+      supersedingDiagnosticGenerationId,
+      'superseding_diagnostic_generation_id',
+    );
   if (!expectedResourceType || !expectedResourceId || !expectedSlaId) {
     throw AppError.badRequest(
       'Trusted acknowledgement supersession requires its exact resource and SLA binding',
@@ -1111,6 +1159,34 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   if (!['open', 'overdue', 'blocked', 'in_progress'].includes(current.status)) {
     throw AppError.invalidTransition(current.status, 'completed', TASK_TRANSITIONS[current.status] || []);
   }
+  const supersededAt = diagnosticGenerationId ? new Date() : null;
+  if (diagnosticGenerationId) {
+    const prepared = await tx.$queryRawUnsafe(
+      `UPDATE tasks
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'supersession_reason', 'diagnostic_generation_noncritical_correction',
+                'superseded_at', $3::timestamptz,
+                'superseded_by_actor_uid', $4::uuid,
+                'superseded_by_diagnostic_generation_id', $5::uuid
+              ),
+              updated_at = $3::timestamptz
+        WHERE tenant_id = $1::uuid
+          AND id = $2::integer
+        RETURNING ${TASK_RETURNING}`,
+      tid,
+      taskId,
+      supersededAt,
+      supersessionActorUid,
+      diagnosticGenerationId,
+    );
+    if (!prepared[0]) {
+      throw AppError.conflict(
+        'Acknowledgement task changed before supersession',
+        'ACKNOWLEDGEMENT_SUPERSESSION_CONFLICT',
+      );
+    }
+    current = prepared[0];
+  }
   if (current.status === 'blocked') {
     current = await transitionTask({
       tenantId: tid,
@@ -1121,7 +1197,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
       tx,
     });
   }
-  return transitionTask({
+  const completed = await transitionTask({
     tenantId: tid,
     id: taskId,
     nextStatus: 'completed',
@@ -1129,6 +1205,26 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
     slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
     tx,
   });
+  if (diagnosticGenerationId) {
+    await tx.$executeRawUnsafe(
+      `UPDATE workflow_sla_instances
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'supersession_reason', 'diagnostic_generation_noncritical_correction',
+                'superseded_at', $3::timestamptz,
+                'superseded_by_actor_uid', $4::uuid,
+                'superseded_by_diagnostic_generation_id', $5::uuid
+              ),
+              updated_at = $3::timestamptz
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid`,
+      tid,
+      expectedSlaId,
+      supersededAt,
+      supersessionActorUid,
+      diagnosticGenerationId,
+    );
+  }
+  return completed;
 }
 
 const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
@@ -1534,6 +1630,225 @@ export async function completePathwayTaskFromRegisteredEvidence({
   });
 }
 
+const TASK_CLAIMABLE_STATUSES = new Set(['open', 'in_progress', 'blocked', 'overdue']);
+const TASK_CLAIM_FORBIDDEN_MESSAGE = 'Not authorized to claim this task';
+
+function normalizeClaimIdempotencyKey(value) {
+  const key = typeof value === 'string' ? value.trim() : '';
+  if (!isValidIdempotencyKey(key)) {
+    throw AppError.badRequest(
+      'Idempotency-Key must be 1-200 chars [A-Za-z0-9_-:.]',
+      'TASK_CLAIM_IDEMPOTENCY_KEY_INVALID',
+    );
+  }
+  return key;
+}
+
+function deriveTaskClaimReceipt({ tenantId, taskId, actorUid, rawKey }) {
+  const commandFingerprint = createHash('sha256')
+    .update(JSON.stringify({
+      operation: 'clinical_inbox_task_claim',
+      tenantId,
+      taskId: String(taskId),
+      actorUid,
+    }))
+    .digest('hex');
+  const receipt = createHash('sha256')
+    .update(JSON.stringify({ commandFingerprint, rawKey }))
+    .digest('hex');
+  return Object.freeze({
+    commandFingerprint,
+    receipt: `task-claim-v1:${receipt}`,
+  });
+}
+
+function taskClaimForbidden(taskRow = null) {
+  const err = AppError.forbidden(TASK_CLAIM_FORBIDDEN_MESSAGE, 'TASK_CLAIM_FORBIDDEN');
+  if (taskRow?.patient_uid) {
+    Object.defineProperty(err, 'phiPatientUid', {
+      value: String(taskRow.patient_uid),
+      enumerable: false,
+    });
+  }
+  return err;
+}
+
+function acknowledgedByUid(taskRow) {
+  const value = String(taskRow?.metadata?.acknowledged_by || '').trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(value) ? value : null;
+}
+
+async function claimTaskForCurrentActorTx({
+  tenantId,
+  taskId,
+  actor,
+  idempotencyKey,
+  db,
+} = {}) {
+  const current = await getTaskForUpdate({ tenantId, id: taskId, db });
+  const claimReceipt = deriveTaskClaimReceipt({
+    tenantId,
+    taskId,
+    actorUid: actor.uid,
+    rawKey: idempotencyKey,
+  });
+  const currentUid = String(current.assigned_to_uid || '').trim().toLowerCase() || null;
+  const currentRole = String(current.assigned_to_role || '').trim().toUpperCase() || null;
+  const receiptKey = String(current.metadata?.role_claim_receipt || '').trim();
+  const receiptFingerprint = String(current.metadata?.role_claim_command_fingerprint || '').trim();
+  const receiptActor = String(current.metadata?.role_claimed_by || '').trim().toLowerCase();
+
+  if (
+    currentUid === actor.uid
+    && receiptKey === claimReceipt.receipt
+    && receiptFingerprint === claimReceipt.commandFingerprint
+    && receiptActor === actor.uid
+  ) {
+    return Object.freeze({ task: current, replayed: true });
+  }
+  if (
+    !TASK_CLAIMABLE_STATUSES.has(String(current.status || '').toLowerCase())
+    || currentUid
+    || !currentRole
+    || currentRole !== actor.queueRole
+  ) {
+    throw taskClaimForbidden(current);
+  }
+  const recordedAcker = acknowledgedByUid(current);
+  const recordedRoleAcknowledgementReceipt = Boolean(
+    current.status === 'in_progress'
+    && recordedAcker
+  );
+  if (recordedRoleAcknowledgementReceipt && recordedAcker !== actor.uid) {
+    throw taskClaimForbidden(current);
+  }
+
+  const attachedRunId = await taskRowWorkflowRunId({ tenantId, taskRow: current, db });
+  await assertPathwayExecutorAuthority({
+    tenantId,
+    workflowRunId: attachedRunId,
+    db,
+    executorAuthority: null,
+  });
+  const linkedSla = await assertTaskSlaSourceBinding({ tenantId, taskRow: current, db });
+  const claimedAt = new Date().toISOString();
+  const rows = await db.$queryRawUnsafe(
+    `UPDATE tasks
+        SET assigned_to_uid = $3::uuid,
+            assigned_to_role = NULL,
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'role_claim_receipt', $4::text,
+                   'role_claim_command_fingerprint', $8::text,
+                   'role_claimed_by', $3::text,
+                   'role_claimed_from_role', $5::text,
+                   'role_claimed_at', $6::text
+                 ),
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status = $7::text
+        AND assigned_to_uid IS NULL
+        AND UPPER(BTRIM(assigned_to_role)) = $5::text
+      RETURNING ${TASK_RETURNING}`,
+    tenantId,
+    taskId,
+    actor.uid,
+    claimReceipt.receipt,
+    actor.queueRole,
+    claimedAt,
+    current.status,
+    claimReceipt.commandFingerprint,
+  );
+  const claimed = rows[0];
+  if (!claimed) throw taskClaimForbidden(current);
+
+  if (linkedSla && !linkedSla.completed_at && !['completed', 'cancelled'].includes(linkedSla.status)) {
+    const slaRows = await db.$queryRawUnsafe(
+      `UPDATE workflow_sla_instances
+          SET assigned_user_uid = $3::uuid,
+              assigned_role_codes = ARRAY[]::text[],
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid
+          AND completed_at IS NULL
+          AND status NOT IN ('completed', 'cancelled')
+        RETURNING id`,
+      tenantId,
+      linkedSla.id,
+      actor.uid,
+    );
+    if (!slaRows[0]) {
+      throw AppError.conflict(
+        'Task claim changed before linked SLA ownership was updated',
+        'TASK_CLAIM_SLA_CONFLICT',
+      );
+    }
+  }
+
+  await postTaskComment({
+    tenantId,
+    taskId,
+    authorUid: actor.uid,
+    body: `Task claimed from ${actor.queueRole} role queue`,
+    bodyKind: 'state_change',
+    metadata: {
+      from_assigned_to_role: actor.queueRole,
+      to_assigned_to_uid: actor.uid,
+      claimed_at: claimedAt,
+      claim_receipt: claimReceipt.receipt,
+      command_fingerprint: claimReceipt.commandFingerprint,
+    },
+    tx: db,
+  });
+  return Object.freeze({ task: claimed, replayed: false });
+}
+
+export async function claimInboxTask({
+  tenantId = null,
+  id,
+  actorUid = null,
+  actorRoles = [],
+  actorPrimaryRole = null,
+  actorRawRole = null,
+  idempotencyKey,
+  tx = null,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const taskId = normalizeId(id, 'task id');
+  const key = normalizeClaimIdempotencyKey(idempotencyKey);
+  if (!tx) {
+    return setTenantTx(tid, (tenantTx) => claimInboxTask({
+      tenantId: tid,
+      id: taskId,
+      actorUid,
+      actorRoles,
+      actorPrimaryRole,
+      actorRawRole,
+      idempotencyKey: key,
+      tx: tenantTx,
+    }));
+  }
+  const actor = await resolveCurrentHumanActorTx({
+    tx,
+    tenantId: tid,
+    actorUid,
+    authenticatedRoles: actorRoles,
+    authenticatedPrimaryRole: actorPrimaryRole,
+    authenticatedRawRole: actorRawRole,
+    rolePredicate: isTaskHumanOwnerRole,
+  });
+  const claimed = await claimTaskForCurrentActorTx({
+    tenantId: tid,
+    taskId,
+    actor,
+    idempotencyKey: key,
+    db: tx,
+  });
+  return Object.freeze({ ...claimed.task, replayed: claimed.replayed });
+}
+
 /**
  * Acknowledge a task: open|overdue → in_progress, stamping
  * `metadata.acknowledged_at` and appending a `state_change` task_comment.
@@ -1574,25 +1889,56 @@ function ackForbidden(taskRow = null) {
 // Caller text is never authority. Normal authority comes from assignment or task
 // administration; an override must already have been verified against a durable
 // server-side authority record before it reaches this resolver.
-function resolveDirectAckAuthorization(taskRow, { actorUid = null, actorRoles = [] } = {}) {
+function resolveDirectAckAuthorization(taskRow, {
+  actorUid = null,
+  actorRoles = [],
+  actorRole = null,
+  actorQueueRole = null,
+} = {}) {
   const roles = actorRolesUpper(actorRoles);
+  const canonicalRole = String(actorRole || '').trim().toUpperCase() || null;
+  const queueRole = String(actorQueueRole || '').trim().toUpperCase() || null;
   const callerUid = actorUid ? String(actorUid).toLowerCase() : null;
   const assignedUid = taskRow?.assigned_to_uid ? String(taskRow.assigned_to_uid).toLowerCase() : null;
   const assignedRole = taskRow?.assigned_to_role ? String(taskRow.assigned_to_role).trim().toUpperCase() : null;
+  const claimedBy = String(taskRow?.metadata?.role_claimed_by || '').trim().toLowerCase() || null;
+  const claimedFromRole = String(taskRow?.metadata?.role_claimed_from_role || '')
+    .trim().toUpperCase() || null;
 
   if (!callerUid) return null;
+  if (
+    callerUid === assignedUid
+    && callerUid === claimedBy
+    && queueRole
+    && queueRole === claimedFromRole
+  ) {
+    return { mode: 'role', assignedRole: claimedFromRole };
+  }
   if (callerUid && assignedUid && callerUid === assignedUid) return { mode: 'assignee' };
-  if (!assignedUid && assignedRole && roles.includes(assignedRole)) {
+  if (
+    !assignedUid
+    && assignedRole
+    && (queueRole ? queueRole === assignedRole : roles.includes(assignedRole))
+  ) {
     return { mode: 'role', assignedRole };
   }
-  if (roles.some((r) => isAdmin(r)) || roles.includes('SUPER_ADMIN')) return { mode: 'admin' };
+  if (isAdmin(canonicalRole) || roles.some((r) => isAdmin(r))) return { mode: 'admin' };
   return null;
 }
 
 function resolveAckAuthorization(taskRow, {
-  actorUid = null, actorRoles = [], verifiedOverride = null,
+  actorUid = null,
+  actorRoles = [],
+  actorRole = null,
+  actorQueueRole = null,
+  verifiedOverride = null,
 } = {}) {
-  const direct = resolveDirectAckAuthorization(taskRow, { actorUid, actorRoles });
+  const direct = resolveDirectAckAuthorization(taskRow, {
+    actorUid,
+    actorRoles,
+    actorRole,
+    actorQueueRole,
+  });
   if (direct) return direct;
   if (verifiedOverride?.source && verifiedOverride?.id && verifiedOverride?.reason) {
     return { mode: 'override', ...verifiedOverride };
@@ -1662,6 +2008,8 @@ async function resolveVerifiedAckAuthorization({
   taskRow,
   actorUid,
   actorRoles,
+  actorRole,
+  actorQueueRole,
   breakGlassId,
   trustedOverride,
   db,
@@ -1672,7 +2020,12 @@ async function resolveVerifiedAckAuthorization({
     if (!verifiedOverride) throw ackForbidden(taskRow);
   }
 
-  let authz = resolveDirectAckAuthorization(taskRow, { actorUid, actorRoles });
+  let authz = resolveDirectAckAuthorization(taskRow, {
+    actorUid,
+    actorRoles,
+    actorRole,
+    actorQueueRole,
+  });
   if (!authz && !verifiedOverride && breakGlassId !== null && breakGlassId !== undefined) {
     verifiedOverride = await loadVerifiedPatientBreakGlass({
       tenantId,
@@ -1687,6 +2040,8 @@ async function resolveVerifiedAckAuthorization({
   authz ||= resolveAckAuthorization(taskRow, {
     actorUid,
     actorRoles,
+    actorRole,
+    actorQueueRole,
     verifiedOverride,
   });
   return { authz, verifiedOverride };
@@ -1700,8 +2055,17 @@ const ACK_AUTHORITY_PREDICATE = `
     ($3::text = 'assignee' AND tasks.assigned_to_uid = $4::uuid)
     OR (
       $3::text = 'role'
-      AND tasks.assigned_to_uid IS NULL
-      AND UPPER(TRIM(tasks.assigned_to_role)) = $5::text
+      AND (
+        (
+          tasks.assigned_to_uid IS NULL
+          AND UPPER(TRIM(tasks.assigned_to_role)) = $5::text
+        )
+        OR (
+          tasks.assigned_to_uid = $4::uuid
+          AND LOWER(COALESCE(tasks.metadata->>'role_claimed_by', '')) = LOWER($4::text)
+          AND UPPER(COALESCE(tasks.metadata->>'role_claimed_from_role', '')) = $5::text
+        )
+      )
     )
     OR $3::text = 'admin'
     OR (
@@ -2010,6 +2374,8 @@ async function acknowledgeTaskInternal({
   id,
   actorUid = null,
   actorRoles = [],
+  actorPrimaryRole = null,
+  actorRawRole = null,
   breakGlassId = null,
   trustedOverride = null,
   labCriticalAlertAuthority = null,
@@ -2018,11 +2384,61 @@ async function acknowledgeTaskInternal({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
-  const ackUid = requireActorUid(actorUid);
   const db = tx || prisma;
 
+  const currentActor = await resolveCurrentHumanActorTx({
+    tx: db,
+    tenantId: tid,
+    actorUid: requireActorUid(actorUid),
+    authenticatedRoles: actorRoles,
+    authenticatedPrimaryRole: actorPrimaryRole,
+    authenticatedRawRole: actorRawRole,
+    rolePredicate: (role) => (
+      isTaskHumanOwnerRole(role)
+      || isAdmin(role)
+      || role === 'SUPER_ADMIN'
+    ),
+  });
+  const ackUid = currentActor.uid;
+  const currentActorRoles = [currentActor.role];
+
   // Pre-read for a clean, intention-revealing error before attempting the write.
-  const current = await getTask({ tenantId: tid, id: taskId, tx });
+  let current = await getTask({ tenantId: tid, id: taskId, tx });
+
+  const recordedRoleAcknowledgementReceipt = Boolean(
+    current.status === 'in_progress'
+    && !current.assigned_to_uid
+    && current.assigned_to_role
+    && acknowledgedByUid(current),
+  );
+  if (
+    recordedRoleAcknowledgementReceipt
+    && acknowledgedByUid(current) !== ackUid
+    && !isAdmin(currentActor.role)
+  ) {
+    throw ackForbidden(current);
+  }
+
+  // A role-queue acknowledgement is also the moment responsibility becomes
+  // personal. Claim under the same transaction before stopping the SLA clock.
+  // Legacy in_progress rows may be repaired only by their recorded acker.
+  if (
+    !current.assigned_to_uid
+    && String(current.assigned_to_role || '').trim().toUpperCase() === currentActor.queueRole
+    && (
+      !recordedRoleAcknowledgementReceipt
+      || acknowledgedByUid(current) === ackUid
+    )
+  ) {
+    const claim = await claimTaskForCurrentActorTx({
+      tenantId: tid,
+      taskId,
+      actor: currentActor,
+      idempotencyKey: `task-role-ack:${taskId}:${ackUid}`,
+      db,
+    });
+    current = claim.task;
+  }
 
   // Authorize BEFORE any idempotent return, so an unauthorized caller neither
   // stops the clock nor learns the task's state/PHI. Throws forbidden otherwise.
@@ -2030,7 +2446,9 @@ async function acknowledgeTaskInternal({
     tenantId: tid,
     taskRow: current,
     actorUid: ackUid,
-    actorRoles,
+    actorRoles: currentActorRoles,
+    actorRole: currentActor.role,
+    actorQueueRole: currentActor.queueRole,
     breakGlassId,
     trustedOverride,
     db,
@@ -2110,7 +2528,9 @@ async function acknowledgeTaskInternal({
       tenantId: tid,
       taskRow: after,
       actorUid: ackUid,
-      actorRoles,
+      actorRoles: currentActorRoles,
+      actorRole: currentActor.role,
+      actorQueueRole: currentActor.queueRole,
       breakGlassId,
       trustedOverride,
       db,
@@ -2208,10 +2628,15 @@ async function acknowledgeTaskInternal({
 }
 
 export async function acknowledgeTask({
-  tenantId = null, id, actorUid = null, actorRoles = [], breakGlassId = null,
+  tenantId = null, id, actorUid = null, actorRoles = [], actorPrimaryRole = null,
+  actorRawRole = null,
+  breakGlassId = null,
   executorAuthority = null, tx = null,
 } = {}) {
-  const args = { tenantId, id, actorUid, actorRoles, breakGlassId, executorAuthority, tx };
+  const args = {
+    tenantId, id, actorUid, actorRoles, actorPrimaryRole, actorRawRole,
+    breakGlassId, executorAuthority, tx,
+  };
   if (tx) return acknowledgeTaskInternal(args);
 
   const tid = resolveTenantId({ tenantId });
@@ -2230,6 +2655,8 @@ export async function acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
   patientUid,
   actorUid = null,
   actorRoles = [],
+  actorPrimaryRole = null,
+  actorRawRole = null,
   breakGlassId = null,
   tx = null,
 } = {}) {
@@ -2244,6 +2671,8 @@ export async function acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
     id,
     actorUid,
     actorRoles,
+    actorPrimaryRole,
+    actorRawRole,
     breakGlassId,
     labCriticalAlertAuthority: {
       capability: LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY,
@@ -2260,6 +2689,8 @@ export async function acknowledgeColdChainTaskFromTrustedWorkflow({
   id,
   actorUid = null,
   actorRoles = [],
+  actorPrimaryRole = null,
+  actorRawRole = null,
   excursionId,
   tx = null,
 } = {}) {
@@ -2275,7 +2706,7 @@ export async function acknowledgeColdChainTaskFromTrustedWorkflow({
     id: String(excursionId),
   };
   return acknowledgeTaskInternal({
-    tenantId, id, actorUid, actorRoles, trustedOverride, tx,
+    tenantId, id, actorUid, actorRoles, actorPrimaryRole, actorRawRole, trustedOverride, tx,
   });
 }
 
@@ -2288,49 +2719,229 @@ export async function acknowledgeColdChainTaskFromTrustedWorkflow({
  * uses; degrades to empty when the schema is absent (mirrors listTasks).
  */
 export async function listInboxTasks({
-  tenantId = null, assigneeUid = null, roles = [], limit = DEFAULT_LIST_LIMIT,
+  tenantId = null,
+  assigneeUid = null,
+  roles = [],
+  primaryRole = null,
+  rawRole = null,
+  limit = DEFAULT_LIST_LIMIT,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
-  const uid = maybeUuid(assigneeUid, 'assignee_uid');
-  const roleList = (Array.isArray(roles) ? roles : [roles])
-    .map((r) => safeText(r, 80))
-    .filter(Boolean);
-
-  const params = [tid];
-  // me OR my role(s)
-  const ownership = [];
-  if (uid) {
-    params.push(uid);
-    ownership.push(`assigned_to_uid = $${params.length}::uuid`);
+  if (!tx) {
+    return setTenantTx(tid, (tenantTx) => listInboxTasks({
+      tenantId: tid,
+      assigneeUid,
+      roles,
+      primaryRole,
+      rawRole,
+      limit,
+      tx: tenantTx,
+    }));
   }
-  if (roleList.length > 0) {
-    params.push(roleList);
-    ownership.push(`(assigned_to_uid IS NULL AND assigned_to_role = ANY($${params.length}::text[]))`);
-  }
-  // No assignee and no roles → nothing is "mine".
-  if (ownership.length === 0) {
-    return { tasks: [], count: 0 };
-  }
+  const actor = await resolveCurrentHumanActorTx({
+    tx,
+    tenantId: tid,
+    actorUid: assigneeUid,
+    authenticatedRoles: roles,
+    authenticatedPrimaryRole: primaryRole,
+    authenticatedRawRole: rawRole,
+    rolePredicate: isTaskHumanOwnerRole,
+  });
 
   const safeLimit = normalizeLimit(limit);
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT ${TASK_RETURNING} FROM tasks
-       WHERE tenant_id = $1::uuid
-         AND status IN ('open', 'in_progress', 'overdue')
-         AND (${ownership.join(' OR ')})
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT inbox.*,
+              pathway.id AS pathway_instance_id,
+              pathway.pathway_key,
+              pathway.owning_clinician_uid AS pathway_owner_uid,
+              pathway.accountable_role AS pathway_accountable_role,
+              step.step_key AS pathway_stage_key,
+              generation.id AS diagnostic_generation_id,
+              generation.classification AS diagnostic_classification,
+              generation.snapshot_sha256 AS diagnostic_generation_snapshot_sha256,
+              generation.source_version AS diagnostic_source_version,
+              generation.predecessor_generation_id AS diagnostic_predecessor_generation_id,
+              (generation.predecessor_generation_id IS NOT NULL) AS diagnostic_is_correction
+         FROM (
+           SELECT ${TASK_RETURNING}
+             FROM tasks
+            WHERE tenant_id = $1::uuid
+              AND status IN ('open', 'in_progress', 'overdue')
+              AND (
+                assigned_to_uid = $2::uuid
+                OR (
+                  assigned_to_uid IS NULL
+                  AND UPPER(BTRIM(assigned_to_role)) = $3::text
+                )
+              )
+         ) AS inbox
+         LEFT JOIN workflow_steps AS step
+           ON step.tenant_id = inbox.tenant_id
+          AND step.id = inbox.workflow_step_id
+          AND step.workflow_run_id = inbox.workflow_run_id
+         LEFT JOIN care_pathway_instances AS pathway
+           ON pathway.tenant_id = inbox.tenant_id
+          AND pathway.workflow_run_id = inbox.workflow_run_id
+         LEFT JOIN diagnostic_result_generations AS generation
+           ON generation.tenant_id = pathway.tenant_id
+          AND pathway.pathway_key = 'diagnostics_order_to_action'
+          AND pathway.source_episode_type = 'diagnostic_result_generation'
+          AND generation.id::text = pathway.source_episode_id
        ORDER BY
-         CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
-         due_at NULLS LAST,
-         created_at DESC
-       LIMIT $${params.length + 1}`,
-      ...params, safeLimit,
+         CASE inbox.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+         inbox.due_at NULLS LAST,
+         inbox.created_at DESC
+       LIMIT $4`,
+      tid,
+      actor.uid,
+      actor.queueRole,
+      safeLimit,
     );
     return { tasks: rows, count: rows.length };
   } catch (err) {
     if (isMissingSchemaError(err)) return { tasks: [], count: 0 };
     throw err;
   }
+}
+
+export async function settleCoveringTransferReviewTaskTx({
+  tenantId = null,
+  id,
+  handoffId,
+  recipientUid,
+  actorUid,
+  outcome,
+  reason = null,
+  tx,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  if (!tx) {
+    throw AppError.internal(
+      'Covering-transfer task settlement requires a transaction',
+      'COVERING_TRANSFER_TASK_TX_REQUIRED',
+    );
+  }
+  const taskId = normalizeId(id, 'task id');
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanRecipientUid = maybeUuid(recipientUid, 'recipient_uid');
+  const cleanActorUid = requireActorUid(actorUid);
+  const cleanOutcome = normalizeEnum(
+    outcome,
+    ['accepted', 'declined', 'cancelled'],
+    'outcome',
+    { required: true },
+  );
+  const cleanReason = safeText(reason, TEXT_MAX);
+  if (cleanOutcome !== 'accepted' && !cleanReason) {
+    throw AppError.badRequest(
+      'A reason is required to close a covering-transfer task',
+      'COVERING_TRANSFER_TASK_REASON_REQUIRED',
+    );
+  }
+
+  const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
+  assertGenericTaskMutationAllowed(current, COVERING_TRANSFER_TASK_AUTHORITY);
+  const bindings = await tx.$queryRawUnsafe(
+    `SELECT chi.id
+       FROM care_handoff_instances chi
+       JOIN tasks task
+         ON task.tenant_id = chi.tenant_id
+        AND task.id = chi.task_id
+      WHERE chi.tenant_id = $1::uuid
+        AND chi.id = $2::uuid
+        AND chi.task_id = $3::bigint
+        AND chi.intended_recipient_uid = $4::uuid
+        AND chi.handoff_type = 'covering_clinician_reassignment'
+        AND chi.status = 'requested'
+        AND task.patient_uid = chi.patient_uid
+        AND task.workflow_run_id IS NULL
+        AND task.workflow_step_id IS NULL
+        AND task.task_kind = 'pathway_owner_transfer_review'
+        AND task.related_resource_type = 'care_handoff_instance'
+        AND task.related_resource_id = chi.id::text
+        AND task.assigned_to_uid = chi.intended_recipient_uid
+        AND task.assigned_to_role IS NULL
+        AND task.workflow_sla_instance_id IS NULL
+        AND task.sla_completion_semantics = 'none'
+      LIMIT 1
+      FOR SHARE`,
+    tid,
+    cleanHandoffId,
+    taskId,
+    cleanRecipientUid,
+  );
+  if (
+    !bindings[0]
+    || current.workflow_run_id !== null
+    || current.workflow_step_id !== null
+    || String(current.patient_uid || '') === ''
+    || current.related_resource_type !== 'care_handoff_instance'
+    || String(current.related_resource_id || '').toLowerCase() !== cleanHandoffId.toLowerCase()
+    || String(current.assigned_to_uid || '').toLowerCase() !== cleanRecipientUid.toLowerCase()
+    || current.assigned_to_role !== null
+    || current.workflow_sla_instance_id !== null
+    || current.sla_completion_semantics !== 'none'
+    || !TASK_CLAIMABLE_STATUSES.has(current.status)
+  ) {
+    throw AppError.conflict(
+      'Covering-transfer review task binding is invalid',
+      'COVERING_TRANSFER_TASK_BINDING_INVALID',
+    );
+  }
+
+  const nextStatus = cleanOutcome === 'accepted' ? 'completed' : 'cancelled';
+  const settledAt = new Date().toISOString();
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET status = $3::text,
+            completed_at = CASE WHEN $3::text = 'completed' THEN $4::timestamptz ELSE NULL END,
+            cancelled_at = CASE WHEN $3::text = 'cancelled' THEN $4::timestamptz ELSE NULL END,
+            cancellation_reason = CASE WHEN $3::text = 'cancelled' THEN $5::text ELSE NULL END,
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'covering_transfer_outcome', $6::text,
+                   'covering_transfer_settled_by', $7::text,
+                   'covering_transfer_settled_at', $4::text
+                 ),
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status = $8::text
+      RETURNING ${TASK_RETURNING}`,
+    tid,
+    taskId,
+    nextStatus,
+    settledAt,
+    cleanReason,
+    cleanOutcome,
+    cleanActorUid,
+    current.status,
+  );
+  const settled = rows[0];
+  if (!settled) {
+    throw AppError.conflict(
+      'Covering-transfer review task changed before settlement',
+      'COVERING_TRANSFER_TASK_CAS_CONFLICT',
+    );
+  }
+  await postTaskComment({
+    tenantId: tid,
+    taskId,
+    authorUid: cleanActorUid,
+    body: `Covering clinician transfer ${cleanOutcome}`,
+    bodyKind: 'state_change',
+    metadata: {
+      from: current.status,
+      to: nextStatus,
+      outcome: cleanOutcome,
+      handoff_id: cleanHandoffId,
+      ...(cleanReason ? { reason: cleanReason } : {}),
+    },
+    tx,
+  });
+  return settled;
 }
 
 export async function reassignTask({
@@ -2365,6 +2976,7 @@ export async function reassignTask({
     }));
   }
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
+  assertGenericTaskMutationAllowed(current);
   const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db });
   await assertPathwayExecutorAuthority({
     tenantId: tid,
@@ -3359,6 +3971,7 @@ export default {
   createTask,
   listTasks,
   listInboxTasks,
+  claimInboxTask,
   getTask,
   transitionTask,
   supersedeAcknowledgementTaskFromTrustedWorkflow,
@@ -3366,6 +3979,7 @@ export default {
   completePathwayTaskFromRegisteredEvidence,
   acknowledgeTask,
   acknowledgeColdChainTaskFromTrustedWorkflow,
+  settleCoveringTransferReviewTaskTx,
   reassignTask,
   postTaskComment,
   listTaskComments,

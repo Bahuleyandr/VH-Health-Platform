@@ -21,6 +21,7 @@ const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: __prismaDefaultMock,
+  isTenantTransactionClient: () => true,
   prismaReadOnly: __prismaDefaultMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),

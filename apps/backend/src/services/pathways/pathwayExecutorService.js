@@ -16,6 +16,7 @@ import {
 import { assertWorkflowJsonBudget } from '../workflow/workflowJsonGuard.js';
 import {
   isPathwayHumanOwnerRole,
+  resolveCurrentHumanActorTx,
   resolvePathwayTaskOwnerTx,
 } from '../workflow/workflowHumanOwnerService.js';
 import {
@@ -482,6 +483,10 @@ function normalizeActor(actor, registry) {
       'PATHWAY_ACTOR_PRIMARY_ROLE_INVALID',
     );
   }
+  const rawRole = requireText(actor.rawRole, 'actor.rawRole', 80).toUpperCase();
+  if (!ROLE_RE.test(rawRole)) {
+    throw AppError.unauthorized('Authenticated raw pathway role is required');
+  }
   const authorizationMode = requireText(
     actor.authorizationMode,
     'actor.authorizationMode',
@@ -509,6 +514,7 @@ function normalizeActor(actor, registry) {
     uid,
     roles: Object.freeze(roles),
     primaryRole,
+    rawRole,
     authorizationMode,
     ...(overrideReason ? { overrideReason } : {}),
     ...(breakGlassId ? { breakGlassId } : {}),
@@ -617,6 +623,24 @@ function compilePinnedDefinition(definition, registry) {
 
 function actorUid(actor) {
   return actor.kind === 'user' ? actor.uid : null;
+}
+
+async function resolveCurrentPathwayActorTx(tx, tenantId, actor) {
+  if (actor.kind !== 'user') return actor;
+  const current = await resolveCurrentHumanActorTx({
+    tx,
+    tenantId,
+    actorUid: actor.uid,
+    authenticatedRoles: actor.roles,
+    authenticatedPrimaryRole: actor.primaryRole,
+    authenticatedRawRole: actor.rawRole,
+    rolePredicate: isPathwayHumanOwnerRole,
+  });
+  return Object.freeze({
+    ...actor,
+    roles: Object.freeze([current.role]),
+    primaryRole: current.role,
+  });
 }
 
 function hasAnyRole(actor, roles) {
@@ -2214,28 +2238,36 @@ async function applyCurrentStagePlan(ctx, initialPlan) {
 export async function startCarePathwayInstance(input = {}) {
   const registry = normalizeRegistry(input.registry ?? workflowRuntimeRegistry);
   const normalized = normalizeStartInput(input, registry);
-  const commandFingerprint = fingerprint({
-    operation: 'start_care_pathway_instance',
-    registryVersion: registry.version,
-    tenantId: normalized.tenantId,
-    workflowDefinitionId: normalized.workflowDefinitionId,
-    patientUid: normalized.patientUid,
-    encounterId: normalized.encounterId,
-    pathwayKey: normalized.pathwayKey,
-    sourceEpisodeType: normalized.sourceEpisodeType,
-    sourceEpisodeId: normalized.sourceEpisodeId,
-    parentInstanceId: normalized.parentInstanceId,
-    owningClinicianUid: normalized.owningClinicianUid,
-    owningTeamId: normalized.owningTeamId,
-    accountableRole: normalized.accountableRole,
-    triggerKind: normalized.triggerKind,
-    triggerPayload: normalized.triggerPayload,
-    context: normalized.context,
-    metadata: normalized.metadata,
-    actor: actorFingerprintIdentity(normalized.actor),
-  });
 
   return inTenantTx(normalized.tenantId, input.tx ?? null, async (tx) => {
+    const effectiveActor = await resolveCurrentPathwayActorTx(
+      tx,
+      normalized.tenantId,
+      normalized.actor,
+    );
+    if (effectiveActor.kind === 'user' && !normalized.parentInstanceId) {
+      assertStartOwnership(normalized, effectiveActor);
+    }
+    const commandFingerprint = fingerprint({
+      operation: 'start_care_pathway_instance',
+      registryVersion: registry.version,
+      tenantId: normalized.tenantId,
+      workflowDefinitionId: normalized.workflowDefinitionId,
+      patientUid: normalized.patientUid,
+      encounterId: normalized.encounterId,
+      pathwayKey: normalized.pathwayKey,
+      sourceEpisodeType: normalized.sourceEpisodeType,
+      sourceEpisodeId: normalized.sourceEpisodeId,
+      parentInstanceId: normalized.parentInstanceId,
+      owningClinicianUid: normalized.owningClinicianUid,
+      owningTeamId: normalized.owningTeamId,
+      accountableRole: normalized.accountableRole,
+      triggerKind: normalized.triggerKind,
+      triggerPayload: normalized.triggerPayload,
+      context: normalized.context,
+      metadata: normalized.metadata,
+      actor: actorFingerprintIdentity(effectiveActor),
+    });
     await acquirePathwayStartLocksTx({
       tx,
       ...normalized,
@@ -2265,7 +2297,7 @@ export async function startCarePathwayInstance(input = {}) {
         tx,
         normalized.tenantId,
         existing,
-        normalized.actor,
+        effectiveActor,
       );
       await assertPathwayReplayDefinitionPinTx({
         tx,
@@ -2341,7 +2373,7 @@ export async function startCarePathwayInstance(input = {}) {
       context: normalized.context,
       metadata: normalized.metadata,
       idempotencyKey: normalized.idempotencyKey,
-      actorUid: actorUid(normalized.actor),
+      actorUid: actorUid(effectiveActor),
     });
     const resultSnapshot = freezeHandlerValue({
       ...created.instance,
@@ -2366,16 +2398,16 @@ export async function startCarePathwayInstance(input = {}) {
         clinical_status: created.instance.clinical_status,
         run_status: created.run.status,
       },
-      sourceResourceType: normalized.actor.kind === 'system'
-        ? normalized.actor.signalContext.sourceResourceType
+      sourceResourceType: effectiveActor.kind === 'system'
+        ? effectiveActor.signalContext.sourceResourceType
         : normalized.sourceEpisodeType,
-      sourceResourceId: normalized.actor.kind === 'system'
-        ? normalized.actor.signalContext.sourceResourceId
+      sourceResourceId: effectiveActor.kind === 'system'
+        ? effectiveActor.signalContext.sourceResourceId
         : normalized.sourceEpisodeId,
-      occurredAt: normalized.actor.kind === 'system'
-        ? normalized.actor.signalContext.occurredAt
+      occurredAt: effectiveActor.kind === 'system'
+        ? effectiveActor.signalContext.occurredAt
         : null,
-      actor: normalized.actor,
+      actor: effectiveActor,
       registry,
       eventPayload: {
         mode: runtimeMode.mode,
@@ -2435,8 +2467,18 @@ async function executePathwayCommandInternal(
 ) {
   const registry = normalizeRegistry(input.registry ?? workflowRuntimeRegistry);
   const normalized = normalizedCommand ?? normalizeCommandInput(input, registry);
-  const commandFingerprint = pathwayCommandFingerprint(normalized, registry, commandOperation);
   return inTenantTx(normalized.tenantId, normalized.tx, async (tx) => {
+    const effectiveActor = await resolveCurrentPathwayActorTx(
+      tx,
+      normalized.tenantId,
+      normalized.actor,
+    );
+    const effectiveNormalized = Object.freeze({ ...normalized, actor: effectiveActor });
+    const commandFingerprint = pathwayCommandFingerprint(
+      effectiveNormalized,
+      registry,
+      commandOperation,
+    );
     const replay = await findPathwayTransitionReplayTx({
       tx,
       tenantId: normalized.tenantId,
@@ -2450,7 +2492,7 @@ async function executePathwayCommandInternal(
         tx,
         normalized.tenantId,
         replay.pathwayInstance,
-        normalized.actor,
+        effectiveActor,
       );
       await assertPathwayReplayDefinitionPinTx({
         tx,
@@ -2487,7 +2529,7 @@ async function executePathwayCommandInternal(
     }
     const compiled = compilePinnedDefinition(runtime.definition, registry);
     assertRuntimeGraph(runtime, compiled);
-    await assertCommandOwnership(tx, normalized.tenantId, runtime, compiled, normalized.actor);
+    await assertCommandOwnership(tx, normalized.tenantId, runtime, compiled, effectiveActor);
     const recorder = createRecorder({
       tx,
       tenantId: normalized.tenantId,
@@ -2496,7 +2538,7 @@ async function executePathwayCommandInternal(
       idempotencyKey: normalized.idempotencyKey,
       commandFingerprint,
       signal: normalized.signal,
-      actor: normalized.actor,
+      actor: effectiveActor,
       registry,
       runtimeMode,
       definitionChecksum: compiled.checksum,
@@ -2515,7 +2557,7 @@ async function executePathwayCommandInternal(
       runtime,
       compiled,
       signal: normalized.signal,
-      actor: normalized.actor,
+      actor: effectiveActor,
       registry,
       runtimeMode,
       recorder,
@@ -2677,9 +2719,18 @@ export async function completePathwayTaskAndExecuteFromRegisteredEvidence(input 
   const registry = normalizeRegistry(input.registry ?? workflowRuntimeRegistry);
   const normalized = normalizeCommandInput(input, registry);
   const commandOperation = normalizeDomainEvidenceCommandOperation(input);
-  const commandFingerprint = pathwayCommandFingerprint(normalized, registry, commandOperation);
   return inTenantTx(normalized.tenantId, normalized.tx, async (tx) => {
-    const commandEnvelope = Object.freeze({ ...normalized, tx });
+    const effectiveActor = await resolveCurrentPathwayActorTx(
+      tx,
+      normalized.tenantId,
+      normalized.actor,
+    );
+    const commandEnvelope = Object.freeze({ ...normalized, actor: effectiveActor, tx });
+    const commandFingerprint = pathwayCommandFingerprint(
+      commandEnvelope,
+      registry,
+      commandOperation,
+    );
     const replay = await findPathwayTransitionReplayTx({
       tx,
       tenantId: commandEnvelope.tenantId,

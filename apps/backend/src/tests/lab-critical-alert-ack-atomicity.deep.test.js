@@ -9,9 +9,11 @@ const FORCED_FAILURE = 'forced critical-lab canonical audit failure';
 const ctl = { failPattern: null, faultHit: false };
 
 const actualPrismaModule = await import('../lib/prisma.js');
+const actualHumanOwnerModule = await import('../services/workflow/workflowHumanOwnerService.js');
+const proxiedTransactions = new WeakMap();
 
 function acknowledgementFaultProxy(tx) {
-  return new Proxy(tx, {
+  const proxy = new Proxy(tx, {
     get(target, prop, receiver) {
       if (prop === '$queryRawUnsafe') {
         return async (sql, ...params) => {
@@ -26,6 +28,8 @@ function acknowledgementFaultProxy(tx) {
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
+  proxiedTransactions.set(proxy, tx);
+  return proxy;
 }
 
 jest.unstable_mockModule('../lib/prisma.js', () => ({
@@ -35,6 +39,13 @@ jest.unstable_mockModule('../lib/prisma.js', () => ({
     (tx) => fn(acknowledgementFaultProxy(tx)),
     options,
   ),
+}));
+jest.unstable_mockModule('../services/workflow/workflowHumanOwnerService.js', () => ({
+  ...actualHumanOwnerModule,
+  resolveCurrentHumanActorTx: (input = {}) => actualHumanOwnerModule.resolveCurrentHumanActorTx({
+    ...input,
+    tx: proxiedTransactions.get(input.tx) || input.tx,
+  }),
 }));
 
 const prisma = (await import('../lib/prisma.js')).default;
@@ -95,7 +106,7 @@ adminApp.use(express.json());
 adminApp.use((req, _res, next) => {
   req.id = 'lab-critical-admin-deep';
   req.tenantId = TENANT_ID;
-  req.user = { ...inboxActor, role: 'ADMIN', roles: ['ADMIN'] };
+  req.user = { ...inboxActor, role: 'ADMIN', roles: ['ADMIN'], rawRole: 'ADMIN' };
   next();
 });
 adminApp.use('/api/v1/admin/workflow', tasksWorkflowRoutes);
@@ -536,12 +547,20 @@ d('critical-lab alert acknowledgement authorization and atomicity', () => {
       message: 'Not authorized to acknowledge this task',
     });
     expect(JSON.stringify(response.body)).not.toMatch(/potassium|patient|critical alert/i);
-    expect(finishedPhiContext).toMatchObject({ patientUid: PATIENT_UID });
+    expect(finishedPhiContext).toBeNull();
 
     expectOpenState(await readState());
   }, 30_000);
 
   it('blocks an ADMIN generic task acknowledgement before any split write', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE users
+          SET role = 'ADMIN', updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid`,
+      TENANT_ID,
+      ASSIGNEE_UID,
+    );
     const response = await request(adminApp)
       .post(`/api/v1/admin/workflow/tasks/${taskId}/acknowledge`)
       .send({});
@@ -899,7 +918,7 @@ d('critical-lab alert acknowledgement authorization and atomicity', () => {
       actorRole: 'DOCTOR',
     })).rejects.toMatchObject({
       statusCode: 403,
-      message: 'Not authorized to acknowledge this critical alert',
+      code: 'FORBIDDEN',
     });
 
     const state = await readState();
@@ -1047,7 +1066,7 @@ d('critical-lab alert acknowledgement authorization and atomicity', () => {
       actorRole: 'NURSE',
     })).rejects.toMatchObject({
       statusCode: 403,
-      message: 'Not authorized to acknowledge this critical alert',
+      code: 'CURRENT_HUMAN_ACTOR_FORBIDDEN',
     });
     const replayState = await readState();
     expect(replayState.commentCount).toBe(1);

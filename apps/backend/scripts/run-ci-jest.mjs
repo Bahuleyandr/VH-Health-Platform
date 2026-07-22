@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
 const jestBin = path.join(backendRoot, 'node_modules', 'jest', 'bin', 'jest.js');
 const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 8);
-const oldSpaceMb = Number(process.env.JEST_OLD_SPACE_MB || 3072);
+const oldSpaceMb = Number(process.env.JEST_OLD_SPACE_MB || 4096);
 const testTimeoutMs = Number(process.env.JEST_TEST_TIMEOUT_MS || 60000);
 const startChunk = Number(process.env.JEST_CI_START_CHUNK || 1);
 const endChunk = process.env.JEST_CI_END_CHUNK
@@ -21,7 +21,7 @@ const mandatoryIsolatedTestPatterns = [
 ];
 const configuredIsolatedTestPatterns = String(
   process.env.JEST_CI_ISOLATED_TESTS
-    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js,hl7-outbound.deep.test.js,lab-walk-in.journey.test.js,user-profile-authz.deep.test.js,pathway-event-delivery.deep.test.js,pathway-projector-replay.deep.test.js',
+    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js,hl7-outbound.deep.test.js,lab-walk-in.journey.test.js,user-profile-authz.deep.test.js,canonical-timeline-atomicity.deep.test.js,clinical-inbox-ack-atomicity.deep.test.js,billing-add-void-atomicity.deep.test.js,billing-masters-contract.deep.test.js,billing-money-path-concurrency-deep.test.js,billing-v2-cashdrawer-paymentlinks-contract.deep.test.js,billing-v2-invoice-contract.deep.test.js,billing-v2-money-movement-contract.deep.test.js,billing-ward-indent-itemize-d58.test.js,billing.test.js,pathway-event-delivery.deep.test.js,pathway-projector-replay.deep.test.js',
 )
   .split(',')
   .map((pattern) => pattern.trim())

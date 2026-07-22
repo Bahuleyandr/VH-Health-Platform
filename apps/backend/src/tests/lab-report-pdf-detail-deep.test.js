@@ -34,7 +34,11 @@ const PATIENT_MRN = 'VH-LAB-D19';
 
 const createdInvestigationIds = [];
 
-async function seedCompletedOrderWithResults() {
+async function seedCompletedOrderWithResults({
+  includePreliminary = true,
+  explicitlyReleased = true,
+  holdFirst = false,
+} = {}) {
   const inv = await prisma.$queryRawUnsafe(
     `INSERT INTO investigations
        (patient_uid, patient_id, phone, test_name, test_type, status,
@@ -54,23 +58,25 @@ async function seedCompletedOrderWithResults() {
     `INSERT INTO lab_results
        (tenant_id, patient_uid, patient_name, investigation_id, test_code,
         test_name, value_text, value_numeric, unit, reference_range,
-        abnormal_flag, status, signed_off_at)
+        abnormal_flag, status, signed_off_at, released_to_patient_at,
+        release_hold, release_hold_reason)
      VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'HB',
              'Haemoglobin', '13.2', 13.2, 'g/dL', '13-17', NULL,
-             'final', NOW())
+             'final', NOW(), CASE WHEN $4::boolean THEN NOW() ELSE NULL END,
+             $5::boolean, CASE WHEN $5::boolean THEN 'Clinical review' ELSE NULL END)
      RETURNING id`,
-    TENANT, PATIENT_UID, invId,
+    TENANT, PATIENT_UID, invId, explicitlyReleased, holdFirst,
   );
   const wbcRows = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
        (tenant_id, patient_uid, patient_name, investigation_id, test_code,
         test_name, value_text, value_numeric, unit, reference_range,
-        abnormal_flag, status, signed_off_at)
+        abnormal_flag, status, signed_off_at, released_to_patient_at)
      VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'WBC',
              'WBC Count', '12.1', 12.1, 'x10^9/L', '4-11', 'H',
-             'final', NOW())
+             'final', NOW(), CASE WHEN $4::boolean THEN NOW() ELSE NULL END)
      RETURNING id`,
-    TENANT, PATIENT_UID, invId,
+    TENANT, PATIENT_UID, invId, explicitlyReleased,
   );
   await prisma.$executeRawUnsafe(
     `INSERT INTO lab_pathologist_signoffs
@@ -82,14 +88,16 @@ async function seedCompletedOrderWithResults() {
   );
   // A preliminary (unsigned) analyte — medico-legally unverified, MUST be
   // excluded from the patient-facing report + detail read.
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO lab_results
-       (tenant_id, patient_uid, patient_name, investigation_id, test_code,
-        test_name, value_text, status)
-     VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'PLT',
-             'Platelets', '250', 'preliminary')`,
-    TENANT, PATIENT_UID, invId,
-  );
+  if (includePreliminary) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO lab_results
+         (tenant_id, patient_uid, patient_name, investigation_id, test_code,
+          test_name, value_text, status)
+       VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'PLT',
+               'Platelets', '250', 'preliminary')`,
+      TENANT, PATIENT_UID, invId,
+    );
+  }
   return invId;
 }
 
@@ -111,10 +119,19 @@ function withTextCapture(fn) {
 describe('Lab report PDF + detail for a completed signed-off order', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, gender, birthday, updated_at)
-       VALUES ($1::uuid, '9006060801', 'R. Subramaniam', 'PATIENT', true, 'MALE', '1955-03-10', NOW())
-       ON CONFLICT (uid) DO NOTHING`,
+      `INSERT INTO users
+         (uid, tenant_id, phone, name, role, status, is_active, is_deleted,
+          gender, birthday, updated_at)
+       VALUES ($1::uuid, $2::uuid, '9006060801', 'R. Subramaniam', 'PATIENT',
+               'active', true, false, 'MALE', '1955-03-10', NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET tenant_id = EXCLUDED.tenant_id,
+             status = EXCLUDED.status,
+             is_active = true,
+             is_deleted = false,
+             deleted_at = NULL`,
       PATIENT_UID,
+      TENANT,
     );
     await prisma.$executeRawUnsafe(
       `DELETE FROM patient_identifiers
@@ -190,17 +207,66 @@ describe('Lab report PDF + detail for a completed signed-off order', () => {
     });
   });
 
-  it('detail read merges the verified lab_results so the values are not blank', async () => {
+  it('patient detail withholds the whole panel while one analyte is preliminary', async () => {
     const invId = await seedCompletedOrderWithResults();
-    const detail = await portal.getMyLabOrder({ patient_uid: PATIENT_UID, id: String(invId) });
+    const detail = await portal.getMyLabOrder({
+      tenantId: TENANT,
+      patient_uid: PATIENT_UID,
+      id: String(invId),
+    });
+
+    expect(detail.lab_results).toBeUndefined();
+    expect(detail.result_summary).toBeUndefined();
+    expect(detail.interpretation).toBeUndefined();
+    const orders = await portal.listMyLabOrders({
+      tenantId: TENANT,
+      patient_uid: PATIENT_UID,
+    });
+    const listed = orders.find((order) => Number(order.id) === Number(invId));
+    expect(listed.test_name).toBe('Complete Blood Count');
+    expect(listed.result_summary).toBeUndefined();
+    await expect(portal.generateMyLabOrderPdfBuffer({
+      tenantId: TENANT,
+      patient_uid: PATIENT_UID,
+      id: String(invId),
+    })).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it.each([
+    ['auto-release delay', { explicitlyReleased: false }],
+    ['clinical hold', { holdFirst: true }],
+  ])('patient detail and PDF fail closed for a final panel behind %s', async (_label, options) => {
+    const invId = await seedCompletedOrderWithResults({
+      includePreliminary: false,
+      ...options,
+    });
+    const detail = await portal.getMyLabOrder({
+      tenantId: TENANT,
+      patient_uid: PATIENT_UID,
+      id: String(invId),
+    });
+    expect(detail.lab_results).toBeUndefined();
+    expect(detail.result_summary).toBeUndefined();
+    await expect(portal.generateMyLabOrderPdfBuffer({
+      tenantId: TENANT,
+      patient_uid: PATIENT_UID,
+      id: String(invId),
+    })).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('patient detail returns the complete panel after every analyte is final and releasable', async () => {
+    const invId = await seedCompletedOrderWithResults({ includePreliminary: false });
+    const detail = await portal.getMyLabOrder({
+      tenantId: TENANT,
+      patient_uid: PATIENT_UID,
+      id: String(invId),
+    });
 
     expect(Array.isArray(detail.lab_results)).toBe(true);
-    // Two verified analytes returned; the preliminary one excluded.
     expect(detail.lab_results).toHaveLength(2);
     const byCode = Object.fromEntries(detail.lab_results.map((r) => [r.test_code, r]));
     expect(byCode.HB.value_text).toBe('13.2');
     expect(byCode.HB.unit).toBe('g/dL');
     expect(byCode.WBC.abnormal_flag).toBe('H');
-    expect(detail.lab_results.some((r) => r.test_code === 'PLT')).toBe(false);
   });
 });

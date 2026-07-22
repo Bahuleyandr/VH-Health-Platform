@@ -51,6 +51,14 @@ spec:
           annotations:
             summary: "Events are crossing into dead-letter (rate>0 over 15m)"
             runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxdeadletters"
+        - alert: EventOutboxStaleProcessing
+          expr: max(event_outbox_stale_processing_rows) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "event_outbox contains expired processing leases — source work is stranded until reaped"
+            runbook: "docs/RUNBOOK_ONCALL.md#outboxstaleleases"
         - alert: WebhookDeliveriesDead
           expr: max(webhook_deliveries_dead_rows) > 0
           for: 5m
@@ -67,6 +75,22 @@ spec:
           annotations:
             summary: "webhook_deliveries pending backlog >200 for 15m"
             runbook: "docs/RUNBOOK_ONCALL.md#webhookbacklog"
+        - alert: WebhookDeliveryStaleInFlight
+          expr: max(webhook_deliveries_stale_in_flight_rows) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "webhook_deliveries contains expired in-flight leases — dispatch workers may be crashing or timing out"
+            runbook: "docs/RUNBOOK_ONCALL.md#outboxstaleleases"
+        - alert: OutboxLeaseReapingRepeated
+          expr: sum(increase(event_outbox_stale_lease_reaped_total[15m])) + sum(increase(webhook_deliveries_stale_lease_reaped_total[15m])) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Outbox stale-lease reapers recovered more than three claims in 15m — investigate worker instability"
+            runbook: "docs/RUNBOOK_ONCALL.md#outboxstaleleases"
         - alert: NotificationOutboxBacklog
           expr: max(notification_outbox_pending_rows) > 500
           for: 15m
@@ -108,6 +132,38 @@ spec:
           annotations:
             summary: "Backend read-replica lag above 30s — read-only routes may serve stale data"
             runbook: "docs/RUNBOOK_ONCALL.md#dbreadreplicalaghigh"
+        - alert: CarePathwayReconciliationTechnicalError
+          expr: max by (pathway_key) (care_pathway_reconciliation_technical_error_tenants) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Care-pathway reconciliation is failing technically for {{ $labels.pathway_key }}"
+            runbook: "docs/RUNBOOK_ONCALL.md#carepathwayreconciliationtechnicalerror"
+        - alert: CarePathwayActiveWithoutAuthority
+          expr: max by (pathway_key) (care_pathway_reconciliation_active_without_authority_tenants) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "A tenant configured {{ $labels.pathway_key }} active without production activation authority"
+            runbook: "docs/RUNBOOK_ONCALL.md#carepathwayactivewithoutauthority"
+        - alert: PathwayProjectorDeadRowsPresent
+          expr: max(pathway_projector_inbox_dead_rows) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pathway projector inbox contains terminal dead rows"
+            runbook: "docs/RUNBOOK_ONCALL.md#pathwayprojectordebt"
+        - alert: PathwayProjectorRetiredPendingRowsPresent
+          expr: max(pathway_projector_inbox_retired_pending_rows) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Retired pathway projector generations still contain pending work"
+            runbook: "docs/RUNBOOK_ONCALL.md#pathwayprojectordebt"
     - name: backend-safety-signals
       interval: 30s
       rules:

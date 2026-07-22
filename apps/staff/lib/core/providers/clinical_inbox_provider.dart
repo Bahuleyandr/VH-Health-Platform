@@ -14,7 +14,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
   final ClinicalInboxApi _api;
   final Duration pollInterval;
 
-  final Set<String> _acknowledgingIds = <String>{};
+  final Set<String> _mutatingIds = <String>{};
   final List<StreamSubscription<RealtimeEvent>> _subscriptions = [];
   Timer? _pollTimer;
   List<ClinicalInboxTask> _tasks = const [];
@@ -27,9 +27,11 @@ class ClinicalInboxProvider extends ChangeNotifier {
   bool get isRefreshing => _refreshing;
   String? get lastError => _lastError;
   int get pendingCount =>
-      _tasks.where((task) => task.needsAcknowledgement).length;
+      _tasks.where((task) => task.needsClinicalAction).length;
 
-  bool isAcknowledging(String id) => _acknowledgingIds.contains(id);
+  bool isMutating(String id) => _mutatingIds.contains(id);
+
+  bool isAcknowledging(String id) => isMutating(id);
 
   Future<void> start() async {
     if (_started) return;
@@ -71,8 +73,8 @@ class ClinicalInboxProvider extends ChangeNotifier {
   }
 
   Future<void> acknowledge(String id, {int? breakGlassId}) async {
-    if (_acknowledgingIds.contains(id)) return;
-    _acknowledgingIds.add(id);
+    if (_mutatingIds.contains(id)) return;
+    _mutatingIds.add(id);
     notifyListeners();
     try {
       final updated = await _api.acknowledgeTask(
@@ -87,7 +89,76 @@ class ClinicalInboxProvider extends ChangeNotifier {
       _lastError = e.toString();
       rethrow;
     } finally {
-      _acknowledgingIds.remove(id);
+      _mutatingIds.remove(id);
+      notifyListeners();
+    }
+  }
+
+  Future<ClinicalInboxTask> claimForReview(String id) async {
+    if (_mutatingIds.contains(id)) {
+      throw StateError('This task is already being updated');
+    }
+    _mutatingIds.add(id);
+    notifyListeners();
+    try {
+      await _api.claimTask(id);
+      await refresh();
+      _lastError = null;
+      return _tasks.firstWhere((task) => task.id == id);
+    } catch (e) {
+      _lastError = e.toString();
+      rethrow;
+    } finally {
+      _mutatingIds.remove(id);
+      notifyListeners();
+    }
+  }
+
+  Future<DiagnosticActionReceipt> recordDiagnosticAction(
+    DiagnosticActionCommand command,
+  ) async {
+    if (_mutatingIds.contains(command.taskId)) {
+      throw StateError('This task is already being updated');
+    }
+    _mutatingIds.add(command.taskId);
+    notifyListeners();
+    try {
+      final receipt = await _api.recordDiagnosticAction(command);
+      await refresh();
+      _lastError = null;
+      return receipt;
+    } catch (e) {
+      _lastError = e.toString();
+      rethrow;
+    } finally {
+      _mutatingIds.remove(command.taskId);
+      notifyListeners();
+    }
+  }
+
+  Future<DiagnosticActionReceipt> reopenDiagnosticResult({
+    required String generationId,
+    required String reason,
+  }) async {
+    final mutationId = 'generation:$generationId';
+    if (_mutatingIds.contains(mutationId)) {
+      throw StateError('This result is already being updated');
+    }
+    _mutatingIds.add(mutationId);
+    notifyListeners();
+    try {
+      final receipt = await _api.reopenDiagnosticResult(
+        generationId: generationId,
+        reason: reason,
+      );
+      await refresh();
+      _lastError = null;
+      return receipt;
+    } catch (e) {
+      _lastError = e.toString();
+      rethrow;
+    } finally {
+      _mutatingIds.remove(mutationId);
       notifyListeners();
     }
   }
@@ -122,7 +193,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
       'critical' => 1,
       'high' => 2,
       'normal' => 3,
-      _ => task.needsAcknowledgement ? 4 : 5,
+      _ => task.needsClinicalAction ? 4 : 5,
     };
   }
 

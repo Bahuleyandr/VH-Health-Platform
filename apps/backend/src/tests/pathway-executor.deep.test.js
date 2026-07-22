@@ -67,6 +67,14 @@ const {
   startCarePathwayInstance,
 } = await import('../services/pathways/pathwayExecutorService.js');
 const {
+  acceptCarePathwayOwnerTransfer,
+  cancelCarePathwayOwnerTransfer,
+  claimCarePathwayOwner,
+  declineCarePathwayOwnerTransfer,
+  getCarePathwayOwnerTransferForRecipient,
+  requestCarePathwayOwnerTransfer,
+} = await import('../services/pathways/pathwayOwnershipService.js');
+const {
   acquirePathwayStartLocksTx,
 } = await import('../services/pathways/pathwayRuntimePersistence.js');
 
@@ -128,7 +136,9 @@ const registry = createWorkflowRuntimeRegistry({
       evaluate: async (context) => {
         const { tenantId, signal, loadedEvidence } = context;
         if (domainEvidenceTenants.has(tenantId)) {
-          const task = context.tasks[0] || null;
+          const task = context.tasks.find(
+            (candidate) => String(candidate.workflow_step_id) === String(context.step.id),
+          ) || null;
           const sla = context.slas.find(
             (candidate) => String(candidate.id) === String(task?.workflow_sla_instance_id || ''),
           ) || null;
@@ -226,6 +236,7 @@ function actor(uid) {
     uid,
     roles: Object.freeze(['DOCTOR']),
     primaryRole: 'DOCTOR',
+    rawRole: 'DOCTOR',
     authorizationMode: 'assigned_user',
   });
 }
@@ -521,6 +532,31 @@ function domainEvidenceTaskDefinition(pathwayKey, ruleCode) {
   };
 }
 
+function domainEvidenceHistoryDefinition(pathwayKey, ruleCode) {
+  const definition = domainEvidenceTaskDefinition(pathwayKey, ruleCode);
+  return {
+    ...definition,
+    steps: [
+      {
+        ...definition.steps[0],
+        step_key: 'verify_initial_domain_evidence',
+        work_semantics: {
+          ...definition.steps[0].work_semantics,
+          title: 'Verify initial synthetic domain evidence',
+        },
+      },
+      {
+        ...definition.steps[0],
+        step_key: 'verify_current_domain_evidence',
+        work_semantics: {
+          ...definition.steps[0].work_semantics,
+          title: 'Verify current synthetic domain evidence',
+        },
+      },
+    ],
+  };
+}
+
 function domainEvidenceApprovalDefinition(pathwayKey, ruleCode) {
   return {
     workflow_key: pathwayKey,
@@ -595,6 +631,29 @@ async function seedDomainEvidenceRule(fixture, ruleCode, title = 'Synthetic doma
       title,
     );
   });
+}
+
+async function seedMaterializedOwnershipFixture({ roleOwned = false } = {}) {
+  const ruleCode = `synthetic_ownership_${compactToken()}`.slice(0, 100);
+  const fixture = await seedFixture([
+    domainEvidenceTaskDefinition(`synthetic_ownership_${compactToken()}`, ruleCode),
+  ]);
+  const definition = fixture.definitions[0];
+  await seedDomainEvidenceRule(fixture, ruleCode, 'Synthetic pathway ownership');
+  domainEvidenceTenants.add(fixture.tenantId);
+  const started = roleOwned
+    ? await startCarePathwayInstance(systemStartInput(fixture, definition, {
+      suffix: 'ownership-role-start',
+      accountableRole: 'DOCTOR',
+    }))
+    : await startCarePathwayInstance(startInput(fixture, definition, 'ownership-named-start'));
+  const materialized = await executePathwayCommand(commandInput(
+    fixture,
+    started.id,
+    `ownership-materialize.${compactToken()}`,
+    'check_domain_evidence',
+  ));
+  return { fixture, definition, started, materialized };
 }
 
 function approvalDefinition(pathwayKey) {
@@ -732,6 +791,44 @@ async function dropOwnerIntegrityFailureTrigger() {
   ).catch(() => {});
 }
 
+async function dropOwnershipEventFailureTrigger() {
+  await prisma.$executeRawUnsafe(
+    'DROP TRIGGER IF EXISTS trg_pathway_ownership_deep_fail_event ON care_pathway_transition_events',
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    'DROP FUNCTION IF EXISTS pathway_ownership_deep_fail_event()',
+  ).catch(() => {});
+}
+
+async function installOwnershipEventFailureTrigger() {
+  await dropOwnershipEventFailureTrigger();
+  await prisma.$executeRawUnsafe(
+    `CREATE FUNCTION pathway_ownership_deep_fail_event()
+     RETURNS trigger
+     LANGUAGE plpgsql
+     AS $$
+     BEGIN
+       IF NEW.transition_key = 'pathway_owner_transfer_requested'
+          AND EXISTS (
+            SELECT 1
+              FROM tenants
+             WHERE id = NEW.tenant_id
+               AND settings ->> 'ownership_deep_fail_event' = 'true'
+          )
+       THEN
+         RAISE EXCEPTION 'forced pathway ownership event failure';
+       END IF;
+       RETURN NEW;
+     END;
+     $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE TRIGGER trg_pathway_ownership_deep_fail_event
+       BEFORE INSERT ON care_pathway_transition_events
+       FOR EACH ROW EXECUTE FUNCTION pathway_ownership_deep_fail_event()`,
+  );
+}
+
 async function installOwnerIntegrityFailureTrigger() {
   await dropOwnerIntegrityFailureTrigger();
   await prisma.$executeRawUnsafe(
@@ -840,6 +937,7 @@ d('pathway executor PostgreSQL conformance', () => {
 
   afterAll(async () => {
     await dropOwnerIntegrityFailureTrigger();
+    await dropOwnershipEventFailureTrigger();
     await dropSkipFailureTrigger();
     await dropStaleCasTrigger();
     await prisma.$disconnect().catch(() => {});
@@ -2709,8 +2807,8 @@ d('pathway executor PostgreSQL conformance', () => {
         ...commandRequest,
         tx,
       })).rejects.toMatchObject({
-        statusCode: 409,
-        code: 'PATHWAY_NAMED_OWNER_UNAVAILABLE',
+        statusCode: 403,
+        code: 'CURRENT_HUMAN_ACTOR_FORBIDDEN',
       });
       throw new Error(ROLLBACK_MARKER);
     })).rejects.toThrow(ROLLBACK_MARKER);
@@ -2864,7 +2962,7 @@ d('pathway executor PostgreSQL conformance', () => {
     ]);
   }, 60_000);
 
-  it('documents the accepted activation blocker: role-only replay trusts stale actor roles', async () => {
+  it('rejects role-only replay when the current actor is inactive or no longer in the queue role', async () => {
     const fixture = await seedFixture([
       waitDefinition(`synthetic_role_replay_blocker_${compactToken()}`, 1),
     ]);
@@ -2900,13 +2998,10 @@ d('pathway executor PostgreSQL conformance', () => {
       );
     });
 
-    // S1b-c1 accepts JWT/current-role activation as a later gate; this is
-    // regression evidence for that blocker, not a claim that it is solved.
-    const replayed = await executePathwayCommand(command);
-    expect(replayed.replayed).toBe(true);
-    expect(replayed.events.map((event) => event.id)).toEqual(
-      committed.events.map((event) => event.id),
-    );
+    await expect(executePathwayCommand(command)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CURRENT_HUMAN_ACTOR_FORBIDDEN',
+    });
     await setTenantTx(fixture.tenantId, async (tx) => {
       const rows = await tx.$queryRawUnsafe(
         `SELECT role, is_active, status
@@ -3000,5 +3095,427 @@ d('pathway executor PostgreSQL conformance', () => {
       timeline_count: 0,
       audit_count: 0,
     });
+  }, 60_000);
+
+  it('claims one role-owned pathway atomically under contention and replays only the winner', async () => {
+    const { fixture, materialized } = await seedMaterializedOwnershipFixture({ roleOwned: true });
+    const competingUid = await setTenantTx(fixture.tenantId, (tx) => seedStaffUser(tx, {
+      tenantId: fixture.tenantId,
+    }));
+    expect(materialized.instance).toMatchObject({ owning_clinician_uid: null });
+    expect(materialized.instance.tasks).toEqual([
+      expect.objectContaining({ assigned_to_uid: null, assigned_to_role: 'DOCTOR' }),
+    ]);
+
+    const attempts = [
+      {
+        tenantId: fixture.tenantId,
+        pathwayInstanceId: materialized.instance.id,
+        idempotencyKey: `claim-a.${compactToken()}`,
+        actor: actor(fixture.doctorUid),
+      },
+      {
+        tenantId: fixture.tenantId,
+        pathwayInstanceId: materialized.instance.id,
+        idempotencyKey: `claim-b.${compactToken()}`,
+        actor: actor(competingUid),
+      },
+    ];
+    const settled = await Promise.allSettled(attempts.map(claimCarePathwayOwner));
+    const fulfilled = settled
+      .map((outcome, index) => ({ outcome, index }))
+      .filter(({ outcome }) => outcome.status === 'fulfilled');
+    const rejected = settled.filter((outcome) => outcome.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toMatchObject({ statusCode: 409 });
+
+    const winner = fulfilled[0].outcome.value;
+    const winnerInput = attempts[fulfilled[0].index];
+    const replay = await claimCarePathwayOwner(winnerInput);
+    expect(replay.replayed).toBe(true);
+    expect(replay.events.map((event) => event.id)).toEqual(winner.events.map((event) => event.id));
+    expect(replay.instance.owning_clinician_uid).toBe(winnerInput.actor.uid);
+
+    const ownership = await setTenantTx(fixture.tenantId, (tx) => tx.$queryRawUnsafe(
+      `SELECT task.assigned_to_uid::text AS task_owner_uid,
+              task.assigned_to_role,
+              sla.assigned_user_uid::text AS sla_owner_uid,
+              sla.assigned_role_codes
+         FROM tasks task
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = task.tenant_id
+          AND sla.id = task.workflow_sla_instance_id
+        WHERE task.tenant_id = $1::uuid
+          AND task.id = $2::bigint`,
+      fixture.tenantId,
+      Number(materialized.instance.tasks[0].id),
+    ));
+    expect(ownership).toEqual([{
+      task_owner_uid: winnerInput.actor.uid,
+      assigned_to_role: null,
+      sla_owner_uid: winnerInput.actor.uid,
+      assigned_role_codes: [],
+    }]);
+  }, 60_000);
+
+  it('lets the exact recipient review and accept a transfer while preserving completed SLA attribution', async () => {
+    const live = await seedMaterializedOwnershipFixture();
+    const coveringUid = await setTenantTx(live.fixture.tenantId, (tx) => seedStaffUser(tx, {
+      tenantId: live.fixture.tenantId,
+    }));
+    const requestInput = {
+      tenantId: live.fixture.tenantId,
+      pathwayInstanceId: live.materialized.instance.id,
+      coveringClinicianUid: coveringUid,
+      reason: 'Cover the live diagnostic review queue',
+      idempotencyKey: `transfer-request.${compactToken()}`,
+      actor: actor(live.fixture.doctorUid),
+    };
+    const requested = await requestCarePathwayOwnerTransfer(requestInput);
+    const review = await getCarePathwayOwnerTransferForRecipient({
+      tenantId: live.fixture.tenantId,
+      handoffId: requested.handoff.id,
+      actor: actor(coveringUid),
+    });
+    expect(review).toMatchObject({
+      handoff_id: requested.handoff.id,
+      patient_uid: live.fixture.patientUid,
+      intended_recipient_uid: coveringUid,
+      request_reason: requestInput.reason,
+      status: 'requested',
+    });
+    const acceptInput = {
+      tenantId: live.fixture.tenantId,
+      handoffId: requested.handoff.id,
+      idempotencyKey: `transfer-accept.${compactToken()}`,
+      actor: actor(coveringUid),
+    };
+    const accepted = await acceptCarePathwayOwnerTransfer(acceptInput);
+    expect(accepted).toMatchObject({
+      replayed: false,
+      instance: { owning_clinician_uid: coveringUid },
+      handoff: { status: 'accepted', accepted_by_uid: coveringUid },
+      task: { status: 'completed' },
+    });
+    await expect(acceptCarePathwayOwnerTransfer(acceptInput)).resolves.toMatchObject({
+      replayed: true,
+      instance: { owning_clinician_uid: coveringUid },
+    });
+    const liveOwners = await setTenantTx(live.fixture.tenantId, (tx) => tx.$queryRawUnsafe(
+      `SELECT task.assigned_to_uid::text AS task_owner_uid,
+              sla.assigned_user_uid::text AS sla_owner_uid,
+              sla.status AS sla_status
+         FROM tasks task
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = task.tenant_id
+          AND sla.id = task.workflow_sla_instance_id
+        WHERE task.tenant_id = $1::uuid
+          AND task.id = $2::bigint`,
+      live.fixture.tenantId,
+      Number(live.materialized.instance.tasks[0].id),
+    ));
+    expect(liveOwners).toEqual([{
+      task_owner_uid: coveringUid,
+      sla_owner_uid: coveringUid,
+      sla_status: 'active',
+    }]);
+
+    const historicalRuleCode = `synthetic_ownership_history_${compactToken()}`.slice(0, 100);
+    const historicalFixture = await seedFixture([
+      domainEvidenceHistoryDefinition(
+        `synthetic_ownership_history_${compactToken()}`,
+        historicalRuleCode,
+      ),
+    ]);
+    await seedDomainEvidenceRule(
+      historicalFixture,
+      historicalRuleCode,
+      'Synthetic pathway ownership history',
+    );
+    domainEvidenceTenants.add(historicalFixture.tenantId);
+    const historicalStarted = await startCarePathwayInstance(startInput(
+      historicalFixture,
+      historicalFixture.definitions[0],
+      'ownership-history-start',
+    ));
+    const historicalInitial = await executePathwayCommand(commandInput(
+      historicalFixture,
+      historicalStarted.id,
+      `ownership-history-materialize.${compactToken()}`,
+      'check_initial_domain_evidence',
+    ));
+    const historical = await completePathwayTaskAndExecuteFromRegisteredEvidence({
+      ...commandInput(
+        historicalFixture,
+        historicalStarted.id,
+        `ownership-history-complete.${compactToken()}`,
+        'verify_initial_domain_evidence',
+      ),
+      taskId: Number(historicalInitial.instance.tasks[0].id),
+      workflowRunId: Number(historicalInitial.instance.run.id),
+      workflowStepId: Number(historicalInitial.instance.steps[0].id),
+      conditionHandler: 'synthetic.pathway_condition.v1',
+      evidence: {
+        kind: 'synthetic_verified_result',
+        resource_type: 'synthetic_result',
+        resource_id: 'historical-result',
+      },
+    });
+    expect(historical.instance.run).toMatchObject({
+      status: 'running',
+      current_step_key: 'verify_current_domain_evidence',
+    });
+    expect(historical.instance.tasks).toHaveLength(2);
+    const historicalCompletedTask = historical.instance.tasks.find(
+      (task) => task.status === 'completed',
+    );
+    const historicalActionableTask = historical.instance.tasks.find(
+      (task) => task.status === 'open',
+    );
+    expect(historicalCompletedTask).toBeDefined();
+    expect(historicalActionableTask).toBeDefined();
+    const historicalCoveringUid = await setTenantTx(
+      historicalFixture.tenantId,
+      (tx) => seedStaffUser(tx, { tenantId: historicalFixture.tenantId }),
+    );
+    const historicalRequested = await requestCarePathwayOwnerTransfer({
+      tenantId: historicalFixture.tenantId,
+      pathwayInstanceId: historical.instance.id,
+      coveringClinicianUid: historicalCoveringUid,
+      reason: 'Cover the pathway without rewriting completed SLA history',
+      idempotencyKey: `historical-transfer-request.${compactToken()}`,
+      actor: actor(historicalFixture.doctorUid),
+    });
+    await acceptCarePathwayOwnerTransfer({
+      tenantId: historicalFixture.tenantId,
+      handoffId: historicalRequested.handoff.id,
+      idempotencyKey: `historical-transfer-accept.${compactToken()}`,
+      actor: actor(historicalCoveringUid),
+    });
+    const historicalOwners = await setTenantTx(
+      historicalFixture.tenantId,
+      (tx) => tx.$queryRawUnsafe(
+        `SELECT task.assigned_to_uid::text AS task_owner_uid,
+                sla.assigned_user_uid::text AS sla_owner_uid,
+                sla.status AS sla_status,
+                (sla.completed_at IS NOT NULL) AS sla_completed,
+                step.ordering
+           FROM tasks task
+           JOIN workflow_sla_instances sla
+             ON sla.tenant_id = task.tenant_id
+            AND sla.id = task.workflow_sla_instance_id
+           JOIN workflow_steps step
+             ON step.tenant_id = task.tenant_id
+            AND step.id = task.workflow_step_id
+          WHERE task.tenant_id = $1::uuid
+            AND task.id = ANY($2::bigint[])
+          ORDER BY step.ordering`,
+        historicalFixture.tenantId,
+        [Number(historicalCompletedTask.id), Number(historicalActionableTask.id)],
+      ),
+    );
+    expect(historicalOwners).toEqual([
+      {
+        task_owner_uid: historicalFixture.doctorUid,
+        sla_owner_uid: historicalFixture.doctorUid,
+        sla_status: 'completed',
+        sla_completed: true,
+        ordering: 0,
+      },
+      {
+        task_owner_uid: historicalCoveringUid,
+        sla_owner_uid: historicalCoveringUid,
+        sla_status: 'active',
+        sla_completed: false,
+        ordering: 1,
+      },
+    ]);
+  }, 60_000);
+
+  it('keeps exact request replay and sender cancellation available after recipient deactivation', async () => {
+    const { fixture, materialized } = await seedMaterializedOwnershipFixture();
+    const coveringUid = await setTenantTx(fixture.tenantId, (tx) => seedStaffUser(tx, {
+      tenantId: fixture.tenantId,
+    }));
+    const requestInput = {
+      tenantId: fixture.tenantId,
+      pathwayInstanceId: materialized.instance.id,
+      coveringClinicianUid: coveringUid,
+      reason: 'Temporary cover while the primary clinician is unavailable',
+      idempotencyKey: `lifecycle-request.${compactToken()}`,
+      actor: actor(fixture.doctorUid),
+    };
+    const requested = await requestCarePathwayOwnerTransfer(requestInput);
+    await setTenantTx(fixture.tenantId, (tx) => tx.$queryRawUnsafe(
+      `UPDATE users
+          SET is_active = FALSE, status = 'inactive', updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      fixture.tenantId,
+      coveringUid,
+    ));
+
+    await expect(requestCarePathwayOwnerTransfer(requestInput)).resolves.toMatchObject({
+      replayed: true,
+      handoff: { id: requested.handoff.id, status: 'requested' },
+    });
+    await expect(getCarePathwayOwnerTransferForRecipient({
+      tenantId: fixture.tenantId,
+      handoffId: requested.handoff.id,
+      actor: actor(coveringUid),
+    })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(cancelCarePathwayOwnerTransfer({
+      tenantId: fixture.tenantId,
+      handoffId: requested.handoff.id,
+      reason: 'Cover is no longer required',
+      idempotencyKey: `lifecycle-cancel.${compactToken()}`,
+      actor: actor(fixture.doctorUid),
+    })).resolves.toMatchObject({
+      replayed: false,
+      handoff: { status: 'cancelled' },
+      instance: { owning_clinician_uid: fixture.doctorUid },
+    });
+    await expect(requestCarePathwayOwnerTransfer(requestInput)).resolves.toMatchObject({
+      replayed: true,
+      handoff: { status: 'cancelled' },
+    });
+  }, 60_000);
+
+  it('denies stage-advanced acceptance but still permits exact decline and sender cancellation', async () => {
+    const declineCase = await seedMaterializedOwnershipFixture();
+    const declineRecipientUid = await setTenantTx(
+      declineCase.fixture.tenantId,
+      (tx) => seedStaffUser(tx, { tenantId: declineCase.fixture.tenantId }),
+    );
+    const declineRequest = await requestCarePathwayOwnerTransfer({
+      tenantId: declineCase.fixture.tenantId,
+      pathwayInstanceId: declineCase.materialized.instance.id,
+      coveringClinicianUid: declineRecipientUid,
+      reason: 'Request cover before the stage advances',
+      idempotencyKey: `advanced-decline-request.${compactToken()}`,
+      actor: actor(declineCase.fixture.doctorUid),
+    });
+    await setTenantTx(declineCase.fixture.tenantId, async (tx) => {
+      await tx.$queryRawUnsafe(
+        `UPDATE workflow_steps SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND workflow_run_id = $2::bigint`,
+        declineCase.fixture.tenantId,
+        Number(declineCase.materialized.instance.workflow_run_id),
+      );
+      await tx.$queryRawUnsafe(
+        `UPDATE workflow_runs SET current_step_key = NULL, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+        declineCase.fixture.tenantId,
+        Number(declineCase.materialized.instance.workflow_run_id),
+      );
+    });
+    await expect(acceptCarePathwayOwnerTransfer({
+      tenantId: declineCase.fixture.tenantId,
+      handoffId: declineRequest.handoff.id,
+      idempotencyKey: `advanced-accept.${compactToken()}`,
+      actor: actor(declineRecipientUid),
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATHWAY_TRANSFER_BINDING_INVALID',
+    });
+    await expect(declineCarePathwayOwnerTransfer({
+      tenantId: declineCase.fixture.tenantId,
+      handoffId: declineRequest.handoff.id,
+      reason: 'The originating stage has already advanced',
+      idempotencyKey: `advanced-decline.${compactToken()}`,
+      actor: actor(declineRecipientUid),
+    })).resolves.toMatchObject({ handoff: { status: 'declined' } });
+
+    const cancelCase = await seedMaterializedOwnershipFixture();
+    const cancelRecipientUid = await setTenantTx(
+      cancelCase.fixture.tenantId,
+      (tx) => seedStaffUser(tx, { tenantId: cancelCase.fixture.tenantId }),
+    );
+    const cancelRequest = await requestCarePathwayOwnerTransfer({
+      tenantId: cancelCase.fixture.tenantId,
+      pathwayInstanceId: cancelCase.materialized.instance.id,
+      coveringClinicianUid: cancelRecipientUid,
+      reason: 'Request cover before an independent stage advance',
+      idempotencyKey: `advanced-cancel-request.${compactToken()}`,
+      actor: actor(cancelCase.fixture.doctorUid),
+    });
+    await setTenantTx(cancelCase.fixture.tenantId, async (tx) => {
+      await tx.$queryRawUnsafe(
+        `UPDATE workflow_steps SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND workflow_run_id = $2::bigint`,
+        cancelCase.fixture.tenantId,
+        Number(cancelCase.materialized.instance.workflow_run_id),
+      );
+      await tx.$queryRawUnsafe(
+        `UPDATE workflow_runs SET current_step_key = NULL, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+        cancelCase.fixture.tenantId,
+        Number(cancelCase.materialized.instance.workflow_run_id),
+      );
+    });
+    await expect(cancelCarePathwayOwnerTransfer({
+      tenantId: cancelCase.fixture.tenantId,
+      handoffId: cancelRequest.handoff.id,
+      reason: 'Cancel after the originating stage advanced',
+      idempotencyKey: `advanced-cancel.${compactToken()}`,
+      actor: actor(cancelCase.fixture.doctorUid),
+    })).resolves.toMatchObject({ handoff: { status: 'cancelled' } });
+  }, 60_000);
+
+  it('rolls back the review task and handoff when transition evidence insertion fails', async () => {
+    const { fixture, materialized } = await seedMaterializedOwnershipFixture();
+    const coveringUid = await setTenantTx(fixture.tenantId, async (tx) => {
+      const uid = await seedStaffUser(tx, { tenantId: fixture.tenantId });
+      await tx.$queryRawUnsafe(
+        `UPDATE tenants
+            SET settings = jsonb_set(settings, '{ownership_deep_fail_event}', 'true'::jsonb, true)
+          WHERE id = $1::uuid`,
+        fixture.tenantId,
+      );
+      return uid;
+    });
+    await installOwnershipEventFailureTrigger();
+    try {
+      await expect(requestCarePathwayOwnerTransfer({
+        tenantId: fixture.tenantId,
+        pathwayInstanceId: materialized.instance.id,
+        coveringClinicianUid: coveringUid,
+        reason: 'This request must roll back with its evidence',
+        idempotencyKey: `forced-event-failure.${compactToken()}`,
+        actor: actor(fixture.doctorUid),
+      })).rejects.toThrow('forced pathway ownership event failure');
+    } finally {
+      await dropOwnershipEventFailureTrigger();
+      await setTenantTx(fixture.tenantId, (tx) => tx.$queryRawUnsafe(
+        `UPDATE tenants SET settings = settings - 'ownership_deep_fail_event'
+          WHERE id = $1::uuid`,
+        fixture.tenantId,
+      ));
+    }
+    const counts = await setTenantTx(fixture.tenantId, (tx) => tx.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::integer
+            FROM care_handoff_instances
+           WHERE tenant_id = $1::uuid
+             AND sending_pathway_instance_id = $2::uuid
+             AND handoff_type = 'covering_clinician_reassignment') AS handoff_count,
+         (SELECT COUNT(*)::integer
+            FROM tasks
+           WHERE tenant_id = $1::uuid
+             AND task_kind = 'pathway_owner_transfer_review'
+             AND related_resource_type = 'care_handoff_instance') AS review_task_count,
+         (SELECT COUNT(*)::integer
+            FROM care_pathway_transition_events
+           WHERE tenant_id = $1::uuid
+             AND pathway_instance_id = $2::uuid
+             AND transition_key = 'pathway_owner_transfer_requested') AS transfer_event_count`,
+      fixture.tenantId,
+      materialized.instance.id,
+    ));
+    expect(counts).toEqual([{
+      handoff_count: 0,
+      review_task_count: 0,
+      transfer_event_count: 0,
+    }]);
   }, 60_000);
 });

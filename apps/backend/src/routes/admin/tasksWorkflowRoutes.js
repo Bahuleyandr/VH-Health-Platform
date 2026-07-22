@@ -110,6 +110,8 @@ router.get('/tasks/inbox', async (req, res, next) => {
       tenantId: req.tenantId,
       assigneeUid: req.user?.uid || null,
       roles: getAuthenticatedActorRoles(req.user),
+      primaryRole: req.user?.role || null,
+      rawRole: req.user?.rawRole || null,
       limit: req.query.limit,
     });
     return success(res, result, 'Inbox retrieved');
@@ -126,6 +128,8 @@ router.post('/tasks/:id/acknowledge', async (req, res, next) => {
       id: req.params.id,
       actorUid: req.user?.uid || null,
       actorRoles: getAuthenticatedActorRoles(req.user),
+      actorPrimaryRole: req.user?.role || null,
+      actorRawRole: req.user?.rawRole || null,
     });
     return success(res, row, 'Task acknowledged');
   } catch (err) { return next(err); }

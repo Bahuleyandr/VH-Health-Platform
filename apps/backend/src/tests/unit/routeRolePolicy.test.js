@@ -41,18 +41,23 @@ describe('routeRolePolicy', () => {
     for (const role of nonClinicalRoles) {
       expect(routePolicy.PATHWAY_NAMED_CLINICIAN_ROLES).not.toContain(role);
     }
-    const dedicatedClinicalAudiences = [
-      routePolicy.CARE_PATHWAY_ROUTE_ROLES,
-      routePolicy.CLINICAL_INBOX_ROUTE_ROLES,
-    ];
     const expectedAudience = [
       ...new Set([
         ...routePolicy.CLINICAL_STAFF_ROUTE_ROLES,
         ...routePolicy.PATHWAY_NAMED_CLINICIAN_ROLES,
       ]),
     ];
-    for (const audience of dedicatedClinicalAudiences) {
-      expect(audience).toEqual(expectedAudience);
+    const expectedClinicalInboxAudience = [
+      ...expectedAudience,
+      'LAB_STAFF',
+      'QUALITY_OFFICER',
+    ];
+    expect(routePolicy.CARE_PATHWAY_ROUTE_ROLES).toEqual(expectedAudience);
+    expect(routePolicy.CLINICAL_INBOX_ROUTE_ROLES).toEqual(expectedClinicalInboxAudience);
+    for (const audience of [
+      routePolicy.CARE_PATHWAY_ROUTE_ROLES,
+      routePolicy.CLINICAL_INBOX_ROUTE_ROLES,
+    ]) {
       expect(audience).toEqual(expect.arrayContaining(clinicalRoles));
       expect(audience).toEqual(expect.arrayContaining(routePolicy.CLINICAL_STAFF_ROUTE_ROLES));
     }

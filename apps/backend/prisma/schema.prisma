@@ -5064,24 +5064,28 @@ model event_consumer_offsets {
 }
 
 model event_outbox {
-  id             BigInt    @id @default(autoincrement())
-  event_type     String    @db.VarChar(120)
-  aggregate_type String    @db.VarChar(80)
-  aggregate_id   String?   @db.VarChar(120)
-  patient_uid    String?   @db.Uuid
-  payload        Json      @default("{}")
-  status         String    @default("pending") @db.VarChar(30)
-  attempts       Int       @default(0)
-  available_at   DateTime  @default(now()) @db.Timestamptz(6)
-  last_error     String?
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  delivered_at   DateTime? @db.Timestamptz(6)
-  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_tenant")
+  id               BigInt    @id @default(autoincrement())
+  event_type       String    @db.VarChar(120)
+  aggregate_type   String    @db.VarChar(80)
+  aggregate_id     String?   @db.VarChar(120)
+  patient_uid      String?   @db.Uuid
+  payload          Json      @default("{}")
+  status           String    @default("pending") @db.VarChar(30)
+  attempts         Int       @default(0)
+  available_at     DateTime  @default(now()) @db.Timestamptz(6)
+  last_error       String?
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  delivered_at     DateTime? @db.Timestamptz(6)
+  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  lease_owner      String?   @db.Uuid
+  lease_expires_at DateTime? @db.Timestamptz(6)
+  redrive_count    Int       @default(0)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_event_outbox_patient_created")
   @@index([status, available_at, id], map: "idx_event_outbox_status_available")
   @@index([event_type, created_at(sort: Desc)], map: "idx_event_outbox_type_created")
+  @@index([lease_expires_at, id], map: "idx_event_outbox_stale_processing", where: raw("((status)::text = 'processing'::text)"))
   @@index([tenant_id], map: "idx_event_outbox_tenant_id")
 }
 
@@ -6232,12 +6236,14 @@ model investigations {
   tube_scanned_at                          DateTime?                           @db.Timestamptz(6)
   ap_cases                                 ap_cases[]
   clinical_ai_lab_autoverifications        clinical_ai_lab_autoverifications[]
+  diagnostic_result_generations            diagnostic_result_generations[]
   investigation_bookings                   investigation_bookings[]
   tenants                                  tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigations_tenant")
   users_investigations_patient_idTousers   users?                              @relation("investigations_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
   users_investigations_requested_byTousers users?                              @relation("investigations_requested_byTousers", fields: [requested_by], references: [uid], onUpdate: NoAction)
   lab_results                              lab_results[]
 
+  @@unique([tenant_id, id], map: "ux_diagnostic_investigations_tenant_id")
   @@index([doctor_id], map: "idx_investigations_doctor")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_investigations_patient_uid_created")
   @@index([scheduled_date], map: "idx_investigations_scheduled_date")
@@ -9634,6 +9640,7 @@ model tasks {
   approvals                                   approvals[]                                  @relation("approvals_task_tenant")
   care_handoff_instances                      care_handoff_instances[]
   cold_chain_excursions                       cold_chain_excursions[]
+  diagnostic_result_actions                   diagnostic_result_actions[]
   engagement_follow_up_steps                  engagement_follow_up_steps[]
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts?
   lab_critical_alerts                         lab_critical_alerts[]                        @relation("lab_critical_alert_ack_task")
@@ -9653,6 +9660,7 @@ model tasks {
   @@unique([tenant_id, id, workflow_run_id], map: "ux_tasks_tenant_run_identity")
   @@unique([tenant_id, stage_occurrence_key], map: "ux_tasks_stage_occurrence", where: raw("(stage_occurrence_key IS NOT NULL)"))
   @@unique([tenant_id, id], map: "ux_tasks_tenant_id_for_lab_ack_receipt")
+  @@unique([tenant_id, id], map: "ux_diagnostic_task_tenant_id")
   @@index([tenant_id, parent_task_id, workflow_run_id], map: "idx_tasks_parent_same_run", where: raw("(parent_task_id IS NOT NULL)"))
   @@index([tenant_id, workflow_sla_instance_id], map: "idx_tasks_workflow_sla", where: raw("(workflow_sla_instance_id IS NOT NULL)"))
   @@index([tenant_id, workflow_step_id, workflow_run_id], map: "idx_tasks_workflow_step_same_run", where: raw("(workflow_step_id IS NOT NULL)"))
@@ -9818,6 +9826,7 @@ model tenants {
   care_handoff_instances                     care_handoff_instances[]
   care_pathway_definition_governance         care_pathway_definition_governance[]
   care_pathway_instances                     care_pathway_instances[]
+  care_pathway_reconciliation_checks         care_pathway_reconciliation_checks[]
   care_pathway_transition_events             care_pathway_transition_events[]
   care_plan_activities                       care_plan_activities[]
   care_plan_goals                            care_plan_goals[]
@@ -9971,6 +9980,7 @@ model tenants {
   device_presence_logs                       device_presence_logs[]
   devices                                    devices[]
   diagnoses                                  diagnoses[]
+  diagnostic_result_generations              diagnostic_result_generations[]
   dialysis_billing_settings                  dialysis_billing_settings?
   dialysis_intra_obs                         dialysis_intra_obs[]
   dialysis_machine_qa_logs                   dialysis_machine_qa_logs[]
@@ -10873,6 +10883,7 @@ model users {
   biomed_work_order_recipients                                                                      biomed_work_order_recipients[]
   biomed_work_order_updates                                                                         biomed_work_order_updates[]
   biomed_work_orders                                                                                biomed_work_orders[]
+  care_handoff_accepted_by                                                                          care_handoff_instances[]                @relation("care_handoff_accepted_by")
   care_handoff_recipient                                                                            care_handoff_instances[]                @relation("care_handoff_recipient")
   care_handoff_sender                                                                               care_handoff_instances[]                @relation("care_handoff_sender")
   care_pathway_governance_approved_by                                                               care_pathway_definition_governance[]    @relation("care_pathway_governance_approved_by")
@@ -10902,6 +10913,10 @@ model users {
   device_patient_associations                                                                       device_patient_associations[]
   device_presence_logs                                                                              device_presence_logs[]
   device_vital_sample_observations                                                                  device_vital_sample_observations[]
+  diagnostic_result_actions                                                                         diagnostic_result_actions[]
+  diagnostic_result_generations_diagnostic_result_generations_tenant_id_ordering_owner_uidTousers   diagnostic_result_generations[]         @relation("diagnostic_result_generations_tenant_id_ordering_owner_uidTousers")
+  diagnostic_result_generations_diagnostic_result_generations_tenant_id_patient_uidTousers          diagnostic_result_generations[]         @relation("diagnostic_result_generations_tenant_id_patient_uidTousers")
+  diagnostic_result_generations_diagnostic_result_generations_tenant_id_signer_uidTousers           diagnostic_result_generations[]         @relation("diagnostic_result_generations_tenant_id_signer_uidTousers")
   doctors                                                                                           doctors[]
   ed_encounter_evidence                                                                             ed_encounter_evidence[]
   ed_injury_diagram_attachments                                                                     ed_injury_diagram_attachments[]
@@ -11399,12 +11414,17 @@ model webhook_deliveries {
   metadata              Json                   @default("{}")
   created_at            DateTime               @default(now()) @db.Timestamptz(6)
   updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  lease_owner           String?                @db.Uuid
+  lease_expires_at      DateTime?              @db.Timestamptz(6)
+  redrive_count         Int                    @default(0)
   webhook_subscriptions webhook_subscriptions? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
   tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@unique([tenant_id, event_outbox_id, subscription_id], map: "ux_webhook_deliveries_source_subscription", where: raw("((event_outbox_id IS NOT NULL) AND (subscription_id IS NOT NULL))"))
   @@index([subscription_id, created_at(sort: Desc)], map: "idx_webhook_deliveries_subscription_time")
   @@index([tenant_id, status, next_retry_at], map: "idx_webhook_deliveries_tenant_status")
   @@index([event_outbox_id], map: "idx_webhook_deliveries_event_outbox", where: raw("(event_outbox_id IS NOT NULL)"))
+  @@index([lease_expires_at, id], map: "idx_webhook_deliveries_stale_in_flight", where: raw("((status)::text = 'in_flight'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11595,6 +11615,7 @@ model care_pathway_instances {
   tenants                                                                                                                                           tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_care_pathway_instances_tenant")
   updated_by_user                                                                                                                                   users?                           @relation("care_pathway_instance_updated_by", fields: [tenant_id, updated_by], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_care_pathway_instances_updated_by_tenant")
   care_pathway_transition_events                                                                                                                    care_pathway_transition_events[]
+  diagnostic_result_actions                                                                                                                         diagnostic_result_actions[]
 
   @@unique([tenant_id, workflow_run_id, pathway_key, pathway_version], map: "ux_care_pathway_instances_run_identity")
   @@unique([tenant_id, pathway_key, source_episode_type, source_episode_id], map: "ux_care_pathway_instances_active_episode", where: raw("((clinical_status)::text = ANY ((ARRAY['planned'::character varying, 'active'::character varying, 'on_hold'::character varying])::text[]))"))
@@ -11659,6 +11680,7 @@ model care_pathway_definition_governance {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model care_handoff_instances {
   id                            String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id                     String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
@@ -11697,6 +11719,10 @@ model care_handoff_instances {
   metadata                      Json                    @default("{}")
   created_at                    DateTime                @default(now()) @db.Timestamptz(6)
   updated_at                    DateTime                @default(now()) @db.Timestamptz(6)
+  request_reason                String?
+  request_fingerprint           String?                 @db.Char(64)
+  accepted_by_uid               String?                 @db.Uuid
+  accepted_by                   users?                  @relation("care_handoff_accepted_by", fields: [tenant_id, accepted_by_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_care_handoff_accepted_by_tenant")
   receiving_instance            care_pathway_instances? @relation("care_handoff_receiving_instance", fields: [tenant_id, receiving_pathway_instance_id, patient_uid, receiving_workflow_run_id], references: [tenant_id, id, patient_uid, workflow_run_id], onUpdate: NoAction, map: "fk_care_handoff_receiving_instance")
   receiving_step                workflow_steps?         @relation("care_handoff_receiving_step", fields: [tenant_id, receiving_workflow_run_id, receiving_step_key], references: [tenant_id, workflow_run_id, step_key], onUpdate: NoAction, map: "fk_care_handoff_receiving_step")
   intended_recipient            users?                  @relation("care_handoff_recipient", fields: [tenant_id, intended_recipient_uid], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_care_handoff_recipient_tenant")
@@ -11709,6 +11735,8 @@ model care_handoff_instances {
 
   @@unique([tenant_id, idempotency_key], map: "ux_care_handoff_idempotency")
   @@unique([tenant_id, id], map: "ux_care_handoff_tenant_id")
+  @@index([tenant_id, accepted_by_uid, accepted_at(sort: Desc)], map: "idx_care_handoff_accepted_by", where: raw("(accepted_by_uid IS NOT NULL)"))
+  @@index([tenant_id, intended_recipient_uid, status, requested_at(sort: Desc)], map: "idx_care_handoff_covering_recipient", where: raw("(((handoff_type)::text = 'covering_clinician_reassignment'::text) AND (intended_recipient_uid IS NOT NULL) AND ((status)::text = 'requested'::text))"))
   @@index([tenant_id, status, policy_due_at], map: "idx_care_handoff_due", where: raw("((policy_due_at IS NOT NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'acknowledged'::character varying, 'accepted'::character varying])::text[])))"))
   @@index([tenant_id, receiving_pathway_instance_id, status, requested_at(sort: Desc)], map: "idx_care_handoff_receiver", where: raw("(receiving_pathway_instance_id IS NOT NULL)"))
   @@index([tenant_id, receiving_pathway_instance_id, patient_uid, receiving_workflow_run_id], map: "idx_care_handoff_receiving_instance_fk", where: raw("(receiving_pathway_instance_id IS NOT NULL)"))
@@ -12645,9 +12673,11 @@ model lab_critical_alerts {
   generation_signoff_id                       Int?
   acknowledgement_task_id                     Int?
   generation_metadata                         Json                                         @default("{}")
+  superseded_by_diagnostic_generation_id      String?                                      @db.Uuid
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts?
   successor_reconciliation_receipts           lab_critical_alert_reconciliation_receipts[] @relation("lab_alert_receipt_successor_alert")
   acknowledgement_task                        tasks?                                       @relation("lab_critical_alert_ack_task", fields: [tenant_id, acknowledgement_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_acknowledgement_task")
+  diagnostic_result_generations               diagnostic_result_generations?               @relation(fields: [tenant_id, superseded_by_diagnostic_generation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_diagnostic_successor")
   generation_signoff                          lab_pathologist_signoffs?                    @relation("lab_critical_alert_generation_signoff", fields: [tenant_id, generation_signoff_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_generation_signoff")
   lab_results                                 lab_results                                  @relation(fields: [tenant_id, result_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_result_patient_tenant")
   superseded_by_alert                         lab_critical_alerts?                         @relation("lab_critical_alert_supersession", fields: [tenant_id, superseded_by_alert_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_superseded_by_alert")
@@ -12663,6 +12693,7 @@ model lab_critical_alerts {
   @@index([tenant_id, acknowledgement_task_id], map: "idx_lab_critical_alert_ack_task_lookup", where: raw("(acknowledgement_task_id IS NOT NULL)"))
   @@index([tenant_id, result_id, id(sort: Desc)], map: "idx_lab_critical_alert_current_generation", where: raw("(superseded_at IS NULL)"))
   @@index([tenant_id, fired_at(sort: Desc)], map: "idx_critical_alerts_tenant_pending", where: raw("((acknowledged_at IS NULL) AND (superseded_at IS NULL))"))
+  @@index([tenant_id, superseded_by_diagnostic_generation_id], map: "idx_lab_critical_alert_diagnostic_successor", where: raw("(superseded_by_diagnostic_generation_id IS NOT NULL)"))
 }
 
 /// Immutable, typed evidence for corrected/amended lab sign-offs that either
@@ -12745,6 +12776,7 @@ model lab_pathologist_signoffs {
   comments                                    String?
   signed_at                                   DateTime                                      @default(now()) @db.Timestamptz(6)
   created_at                                  DateTime                                      @default(now()) @db.Timestamptz(6)
+  diagnostic_result_generations               diagnostic_result_generations[]
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts[]
   reconciliation_receipts                     lab_critical_alert_reconciliation_receipts[]  @relation("lab_alert_receipt_signoff")
   successor_reconciliation_receipts           lab_critical_alert_reconciliation_receipts[]  @relation("lab_alert_receipt_successor_signoff")
@@ -15458,6 +15490,7 @@ model patient_encounters {
   cath_procedure_logs                 cath_procedure_logs[]
   cath_procedure_reports              cath_procedure_reports[]
   cath_report_addenda                 cath_report_addenda[]
+  diagnostic_result_generations       diagnostic_result_generations[]
   nuclear_medicine_orders             nuclear_medicine_orders[]
   oncology_diagnoses                  oncology_diagnoses[]
   oncology_staging_records            oncology_staging_records[]
@@ -15513,6 +15546,8 @@ model clinical_timeline_events {
   cath_lab_cases                                                                                              cath_lab_cases[]
   cath_post_procedure_orders                                                                                  cath_post_procedure_orders[]
   cath_procedure_logs                                                                                         cath_procedure_logs[]
+  diagnostic_result_actions                                                                                   diagnostic_result_actions[]
+  diagnostic_result_generations                                                                               diagnostic_result_generations[]
   ed_encounter_evidence                                                                                       ed_encounter_evidence[]
   lab_critical_alert_acknowledgement_receipts                                                                 lab_critical_alert_acknowledgement_receipts?
   mlc_completeness_reviews                                                                                    mlc_completeness_reviews[]
@@ -15539,6 +15574,7 @@ model clinical_timeline_events {
 
   @@unique([tenant_id, id], map: "ux_clinical_timeline_events_tenant_id_for_cath")
   @@unique([tenant_id, id], map: "ux_clinical_timeline_tenant_id_for_lab_ack_receipt")
+  @@unique([tenant_id, id], map: "ux_diagnostic_timeline_tenant_id")
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_timeline_patient_occurred")
   @@index([tenant_id, encounter_id, occurred_at(sort: Desc)], map: "idx_clinical_timeline_encounter_occurred", where: raw("(encounter_id IS NOT NULL)"))
   @@index([source_table, source_id], map: "idx_clinical_timeline_source", where: raw("((source_table IS NOT NULL) AND (source_id IS NOT NULL))"))
@@ -15578,6 +15614,8 @@ model clinical_audit_events {
   cath_lab_cases                                                                                        cath_lab_cases[]
   cath_post_procedure_orders                                                                            cath_post_procedure_orders[]
   cath_procedure_logs                                                                                   cath_procedure_logs[]
+  diagnostic_result_actions                                                                             diagnostic_result_actions[]
+  diagnostic_result_generations                                                                         diagnostic_result_generations[]
   ed_encounter_evidence                                                                                 ed_encounter_evidence[]
   ed_injury_diagram_attachments                                                                         ed_injury_diagram_attachments[]
   lab_critical_alert_acknowledgement_receipts                                                           lab_critical_alert_acknowledgement_receipts?
@@ -15593,6 +15631,7 @@ model clinical_audit_events {
 
   @@unique([tenant_id, id], map: "ux_clinical_audit_events_tenant_id_for_cath")
   @@unique([tenant_id, id], map: "ux_clinical_audit_tenant_id_for_lab_ack_receipt")
+  @@unique([tenant_id, id], map: "ux_diagnostic_audit_tenant_id")
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_patient_time", where: raw("(patient_uid IS NOT NULL)"))
   @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time", where: raw("(actor_uid IS NOT NULL)"))
   @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource", where: raw("((resource_table IS NOT NULL) AND (resource_id IS NOT NULL))"))
@@ -15606,26 +15645,29 @@ model clinical_audit_events {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model clinical_document_signatures {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id           String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid         String?  @db.Uuid
-  document_type       String   @db.VarChar(60)
-  document_table      String   @db.VarChar(100)
-  document_id         String   @db.VarChar(120)
-  content_hash        String   @db.Char(64)
-  signer_uid          String   @db.Uuid
-  signer_role         String?  @db.VarChar(80)
-  signer_name         String?  @db.VarChar(200)
-  signature_method    String   @default("electronic_attestation") @db.VarChar(30)
-  signature_statement String?
-  esign_txn_ref       String?  @db.VarChar(160)
-  certificate_ref     String?  @db.VarChar(200)
-  audit_event_id      String?  @db.Uuid
-  signed_at           DateTime @default(now()) @db.Timestamptz(6)
-  metadata            Json     @default("{}")
-  created_at          DateTime @default(now()) @db.Timestamptz(6)
-  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_document_signatures_tenant")
+  id                        String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                 String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid               String?                    @db.Uuid
+  document_type             String                     @db.VarChar(60)
+  document_table            String                     @db.VarChar(100)
+  document_id               String                     @db.VarChar(120)
+  content_hash              String                     @db.Char(64)
+  signer_uid                String                     @db.Uuid
+  signer_role               String?                    @db.VarChar(80)
+  signer_name               String?                    @db.VarChar(200)
+  signature_method          String                     @default("electronic_attestation") @db.VarChar(30)
+  signature_statement       String?
+  esign_txn_ref             String?                    @db.VarChar(160)
+  certificate_ref           String?                    @db.VarChar(200)
+  audit_event_id            String?                    @db.Uuid
+  signed_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  metadata                  Json                       @default("{}")
+  created_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  tenants                   tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_document_signatures_tenant")
+  diagnostic_result_actions diagnostic_result_actions?
 
+  @@unique([tenant_id, document_id], map: "ux_clinical_signature_diagnostic_action", where: raw("(((document_type)::text = 'diagnostic_result_action'::text) AND ((document_table)::text = 'diagnostic_result_actions'::text))"))
+  @@unique([tenant_id, id], map: "ux_diagnostic_signature_tenant_id")
   @@index([document_table, document_id, signed_at(sort: Desc)], map: "idx_clinical_document_signatures_document")
   @@index([tenant_id, patient_uid, signed_at(sort: Desc)], map: "idx_clinical_document_signatures_patient")
 }
@@ -24133,6 +24175,170 @@ model lab_critical_alert_acknowledgement_receipts {
   @@unique([tenant_id, acknowledgement_task_id], map: "ux_lab_critical_alert_ack_receipt_task")
   @@unique([tenant_id, timeline_event_id], map: "ux_lab_critical_alert_ack_receipt_timeline")
   @@index([tenant_id, workflow_sla_instance_id, acknowledged_at(sort: Desc)], map: "idx_lab_critical_alert_ack_receipt_sla")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model care_pathway_reconciliation_checks {
+  id                       BigInt   @id @default(autoincrement())
+  sweep_id                 String   @db.Uuid
+  tenant_id                String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  pathway_key              String   @db.VarChar(120)
+  pathway_mode             String   @db.VarChar(16)
+  registry_version         Int
+  registry_checksum        String   @db.Char(64)
+  governance_checksum      String   @db.Char(64)
+  governance_count         Int
+  covered_governance_count Int
+  expected_check_count     Int
+  executed_check_count     Int
+  finding_count            Int
+  repair_count             Int
+  error_count              Int
+  registry_complete        Boolean  @default(false)
+  passed                   Boolean  @default(false)
+  check_results            Json     @default("[]")
+  started_at               DateTime @db.Timestamptz(6)
+  completed_at             DateTime @db.Timestamptz(6)
+  created_at               DateTime @default(now()) @db.Timestamptz(6)
+  tenants                  tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "care_pathway_reconciliation_tenant_fk")
+
+  @@unique([tenant_id, pathway_key, sweep_id], map: "ux_care_pathway_reconciliation_sweep")
+  @@unique([tenant_id, id], map: "ux_care_pathway_reconciliation_tenant_id")
+  @@index([tenant_id, pathway_key, registry_checksum, governance_checksum, completed_at(sort: Desc), id(sort: Desc)], map: "idx_care_pathway_reconciliation_cohort")
+  @@index([tenant_id, pathway_key, completed_at(sort: Desc), id(sort: Desc)], map: "idx_care_pathway_reconciliation_latest")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model diagnostic_result_actions {
+  id                                                                                                                                     String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                                              String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                                                                                                                            String                         @db.Uuid
+  generation_id                                                                                                                          String                         @db.Uuid
+  pathway_instance_id                                                                                                                    String?                        @db.Uuid
+  task_id                                                                                                                                Int?
+  action_kind                                                                                                                            String                         @db.VarChar(40)
+  disposition                                                                                                                            String?                        @db.VarChar(30)
+  clinical_note                                                                                                                          String?
+  reason                                                                                                                                 String?
+  generation_snapshot_sha256                                                                                                             String                         @db.Char(64)
+  actor_uid                                                                                                                              String?                        @db.Uuid
+  actor_role                                                                                                                             String?                        @db.VarChar(80)
+  downstream_resource_type                                                                                                               String?                        @db.VarChar(80)
+  downstream_resource_id                                                                                                                 String?                        @db.VarChar(160)
+  idempotency_key                                                                                                                        String                         @db.VarChar(200)
+  request_sha256                                                                                                                         String                         @db.Char(64)
+  predecessor_action_id                                                                                                                  String?                        @db.Uuid
+  superseding_generation_id                                                                                                              String?                        @db.Uuid
+  release_decision                                                                                                                       Json?
+  signature_id                                                                                                                           String?                        @db.Uuid
+  canonical_timeline_event_id                                                                                                            String                         @db.Uuid
+  canonical_audit_event_id                                                                                                               String                         @db.Uuid
+  occurred_at                                                                                                                            DateTime                       @default(now()) @db.Timestamptz(6)
+  created_at                                                                                                                             DateTime                       @default(now()) @db.Timestamptz(6)
+  users                                                                                                                                  users?                         @relation(fields: [tenant_id, actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_actor")
+  clinical_audit_events                                                                                                                  clinical_audit_events          @relation(fields: [tenant_id, canonical_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_audit")
+  diagnostic_result_generations_diagnostic_result_actions_tenant_id_generation_id_patient_uidTodiagnostic_result_generations             diagnostic_result_generations  @relation("diagnostic_result_actions_tenant_id_generation_id_patient_uidTodiagnostic_result_generations", fields: [tenant_id, generation_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_generation")
+  care_pathway_instances                                                                                                                 care_pathway_instances?        @relation(fields: [tenant_id, pathway_instance_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_pathway")
+  diagnostic_result_actions                                                                                                              diagnostic_result_actions?     @relation("diagnostic_result_actionsTodiagnostic_result_actions", fields: [tenant_id, predecessor_action_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_predecessor")
+  other_diagnostic_result_actions                                                                                                        diagnostic_result_actions[]    @relation("diagnostic_result_actionsTodiagnostic_result_actions")
+  clinical_document_signatures                                                                                                           clinical_document_signatures?  @relation(fields: [tenant_id, signature_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_signature")
+  diagnostic_result_generations_diagnostic_result_actions_tenant_id_superseding_generation_id_patient_uidTodiagnostic_result_generations diagnostic_result_generations? @relation("diagnostic_result_actions_tenant_id_superseding_generation_id_patient_uidTodiagnostic_result_generations", fields: [tenant_id, superseding_generation_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_superseding_generation")
+  tasks                                                                                                                                  tasks?                         @relation(fields: [tenant_id, task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_task")
+  clinical_timeline_events                                                                                                               clinical_timeline_events       @relation(fields: [tenant_id, canonical_timeline_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_action_timeline")
+
+  @@unique([tenant_id, idempotency_key], map: "ux_diagnostic_action_idempotency")
+  @@unique([tenant_id, signature_id], map: "ux_diagnostic_action_signature", where: raw("(signature_id IS NOT NULL)"))
+  @@unique([tenant_id, id], map: "ux_diagnostic_actions_tenant_id")
+  @@unique([tenant_id, id, patient_uid], map: "ux_diagnostic_actions_tenant_patient")
+  @@index([tenant_id, pathway_instance_id, occurred_at(sort: Desc)], map: "idx_diagnostic_actions_pathway_time", where: raw("(pathway_instance_id IS NOT NULL)"))
+  @@index([tenant_id, task_id], map: "idx_diagnostic_actions_task", where: raw("(task_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model diagnostic_result_generation_items {
+  id                            String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                     String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                   String                        @db.Uuid
+  generation_id                 String                        @db.Uuid
+  source_table                  String                        @db.VarChar(100)
+  source_row_id                 String                        @db.VarChar(120)
+  source_version                String                        @db.VarChar(120)
+  source_ordinal                Int
+  item_code                     String?                       @db.VarChar(120)
+  item_name                     String                        @db.VarChar(240)
+  value_snapshot                Json
+  normalized_flag               String?                       @db.VarChar(20)
+  source_critical               Boolean?
+  classification                String                        @db.VarChar(20)
+  item_snapshot_sha256          String                        @db.Char(64)
+  created_at                    DateTime                      @default(now()) @db.Timestamptz(6)
+  diagnostic_result_generations diagnostic_result_generations @relation(fields: [tenant_id, generation_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_item_generation")
+
+  @@unique([tenant_id, generation_id, source_table, source_row_id, source_version, source_ordinal], map: "ux_diagnostic_generation_item_source")
+  @@unique([tenant_id, id], map: "ux_diagnostic_generation_items_tenant_id")
+  @@index([tenant_id, generation_id, source_ordinal], map: "idx_diagnostic_generation_items_generation")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model diagnostic_result_generations {
+  id                                                                                                                                 String                               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                                                                                                                        String                               @db.Uuid
+  encounter_id                                                                                                                       String?                              @db.Uuid
+  source_kind                                                                                                                        String                               @db.VarChar(40)
+  source_table                                                                                                                       String                               @db.VarChar(100)
+  source_episode_type                                                                                                                String                               @db.VarChar(80)
+  source_episode_key                                                                                                                 String                               @db.VarChar(160)
+  source_version                                                                                                                     BigInt
+  lab_signoff_id                                                                                                                     Int?
+  investigation_id                                                                                                                   Int?
+  ordering_owner_uid                                                                                                                 String?                              @db.Uuid
+  owner_source                                                                                                                       String                               @db.VarChar(40)
+  signer_uid                                                                                                                         String                               @db.Uuid
+  signer_role                                                                                                                        String                               @db.VarChar(80)
+  signed_at                                                                                                                          DateTime                             @db.Timestamptz(6)
+  classification                                                                                                                     String                               @db.VarChar(20)
+  classification_basis                                                                                                               Json
+  snapshot_sha256                                                                                                                    String                               @db.Char(64)
+  item_count                                                                                                                         Int
+  predecessor_generation_id                                                                                                          String?                              @db.Uuid
+  canonical_timeline_event_id                                                                                                        String                               @db.Uuid
+  canonical_audit_event_id                                                                                                           String                               @db.Uuid
+  created_at                                                                                                                         DateTime                             @default(now()) @db.Timestamptz(6)
+  diagnostic_result_actions_diagnostic_result_actions_tenant_id_generation_id_patient_uidTodiagnostic_result_generations             diagnostic_result_actions[]          @relation("diagnostic_result_actions_tenant_id_generation_id_patient_uidTodiagnostic_result_generations")
+  diagnostic_result_actions_diagnostic_result_actions_tenant_id_superseding_generation_id_patient_uidTodiagnostic_result_generations diagnostic_result_actions[]          @relation("diagnostic_result_actions_tenant_id_superseding_generation_id_patient_uidTodiagnostic_result_generations")
+  diagnostic_result_generation_items                                                                                                 diagnostic_result_generation_items[]
+  clinical_audit_events                                                                                                              clinical_audit_events                @relation(fields: [tenant_id, canonical_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_audit")
+  patient_encounters                                                                                                                 patient_encounters?                  @relation(fields: [tenant_id, encounter_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_encounter")
+  investigations                                                                                                                     investigations?                      @relation(fields: [tenant_id, investigation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_investigation")
+  lab_pathologist_signoffs                                                                                                           lab_pathologist_signoffs?            @relation(fields: [tenant_id, lab_signoff_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_lab_signoff")
+  users_diagnostic_result_generations_tenant_id_ordering_owner_uidTousers                                                            users?                               @relation("diagnostic_result_generations_tenant_id_ordering_owner_uidTousers", fields: [tenant_id, ordering_owner_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_owner")
+  users_diagnostic_result_generations_tenant_id_patient_uidTousers                                                                   users                                @relation("diagnostic_result_generations_tenant_id_patient_uidTousers", fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_patient")
+  diagnostic_result_generations                                                                                                      diagnostic_result_generations?       @relation("diagnostic_result_generationsTodiagnostic_result_generations", fields: [tenant_id, predecessor_generation_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_predecessor")
+  other_diagnostic_result_generations                                                                                                diagnostic_result_generations?       @relation("diagnostic_result_generationsTodiagnostic_result_generations")
+  users_diagnostic_result_generations_tenant_id_signer_uidTousers                                                                    users                                @relation("diagnostic_result_generations_tenant_id_signer_uidTousers", fields: [tenant_id, signer_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_signer")
+  tenants                                                                                                                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_tenant")
+  clinical_timeline_events                                                                                                           clinical_timeline_events             @relation(fields: [tenant_id, canonical_timeline_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diagnostic_generation_timeline")
+  lab_critical_alerts                                                                                                                lab_critical_alerts[]
+
+  @@unique([tenant_id, source_kind, source_episode_key, source_version], map: "ux_diagnostic_generation_source_version")
+  @@unique([tenant_id, predecessor_generation_id, patient_uid], map: "ux_diagnostic_generations_successor")
+  @@unique([tenant_id, id], map: "ux_diagnostic_generations_tenant_id")
+  @@unique([tenant_id, id, patient_uid], map: "ux_diagnostic_generations_tenant_patient")
+  @@index([tenant_id, source_kind, source_episode_key, source_version(sort: Desc)], map: "idx_diagnostic_generations_episode")
+  @@index([tenant_id, ordering_owner_uid, signed_at(sort: Desc)], map: "idx_diagnostic_generations_owner_open", where: raw("(ordering_owner_uid IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, signed_at(sort: Desc), id(sort: Desc)], map: "idx_diagnostic_generations_patient_time")
 }
 
 enum transplant_organ_type {

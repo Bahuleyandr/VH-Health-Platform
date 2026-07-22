@@ -78,6 +78,17 @@ function normalizeJsonObject(value, label) {
   return value;
 }
 
+function requireEmptyEventFilter(value) {
+  const filter = normalizeJsonObject(value, 'event_filter');
+  if (Object.keys(filter).length !== 0) {
+    throw AppError.badRequest(
+      'Non-empty event_filter is not supported; leave event_filter empty or deactivate the subscription',
+      'WEBHOOK_EVENT_FILTER_UNSUPPORTED',
+    );
+  }
+  return filter;
+}
+
 function isValidUrl(value) {
   try {
     const url = new URL(value);
@@ -137,7 +148,8 @@ async function assertSigningCredentialOwned({ tenantId, integrationId, credentia
 
 async function loadSubscriptionOwnership({ tenantId, id }) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, tenant_id, integration_id, signing_credential_id, signing_algorithm
+    `SELECT id, tenant_id, integration_id, signing_credential_id,
+            signing_algorithm, event_filter
      FROM webhook_subscriptions
      WHERE id = $1 AND tenant_id = $2::uuid
      LIMIT 1`,
@@ -267,7 +279,7 @@ export async function createSubscription({
   const credentialId = signingCredentialId
     ? await assertSigningCredentialOwned({ tenantId: tid, integrationId: intId, credentialId: signingCredentialId })
     : null;
-  const cleanFilter = normalizeJsonObject(eventFilter, 'event_filter');
+  const cleanFilter = requireEmptyEventFilter(eventFilter);
   const cleanMetadata = normalizeJsonObject(metadata, 'metadata');
   const cap = Math.max(1, Math.min(Number.parseInt(maxConsecutiveFailures, 10) || 10, 1_000));
 
@@ -373,8 +385,10 @@ export async function updateSubscription({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const sid = normalizeId(id, 'subscription id');
-  const needsSigningOwnership = signingCredentialId !== undefined || signingAlgorithm !== undefined;
-  const current = needsSigningOwnership
+  const needsSigningOwnership = signingCredentialId !== undefined
+    || signingAlgorithm !== undefined;
+  const needsCurrent = needsSigningOwnership || isActive === true;
+  const current = needsCurrent
     ? await loadSubscriptionOwnership({ tenantId: tid, id: sid })
     : null;
   const updates = [];
@@ -392,7 +406,7 @@ export async function updateSubscription({
     updates.push(`endpoint_url = $${params.length}`);
   }
   if (eventFilter !== undefined) {
-    params.push(JSON.stringify(normalizeJsonObject(eventFilter, 'event_filter')));
+    params.push(JSON.stringify(requireEmptyEventFilter(eventFilter)));
     updates.push(`event_filter = $${params.length}::jsonb`);
   }
   let nextSigningCredentialId = current?.signing_credential_id ?? null;
@@ -417,6 +431,16 @@ export async function updateSubscription({
     throw AppError.badRequest('signing_credential_id is required for hmac signing');
   }
   if (isActive !== undefined) {
+    if (
+      isActive === true
+      && eventFilter === undefined
+      && Object.keys(current?.event_filter || {}).length !== 0
+    ) {
+      throw AppError.badRequest(
+        'Clear the unsupported event_filter before activating this subscription',
+        'WEBHOOK_EVENT_FILTER_UNSUPPORTED',
+      );
+    }
     params.push(Boolean(isActive));
     updates.push(`is_active = $${params.length}`);
   }
@@ -488,6 +512,7 @@ export async function recordSubscriptionFailure({ tx = null, tenantId, id }) {
     );
     return rows[0] || null;
   } catch (err) {
+    if (tx) throw err;
     logger.warn('webhook subscription failure-counter update failed', { error: err.message });
     return null;
   }
@@ -514,6 +539,7 @@ export async function recordSubscriptionSuccess({ tx = null, tenantId, id }) {
     );
     return rows[0] || null;
   } catch (err) {
+    if (tx) throw err;
     logger.warn('webhook subscription success-counter update failed', { error: err.message });
     return null;
   }

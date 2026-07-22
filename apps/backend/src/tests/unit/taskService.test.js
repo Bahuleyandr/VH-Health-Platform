@@ -10,9 +10,13 @@ import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
 const lockPathwayRuntimeTxMock = jest.fn();
+const resolveCurrentHumanActorTxMock = jest.fn();
 const PATHWAY_TEST_CAPABILITY = Object.freeze({ kind: 'test_pathway_executor_capability' });
 
-const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryUnsafeMock,
+  __tenantTransaction: true,
+};
 const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(__prismaDefaultMock));
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -32,10 +36,16 @@ jest.unstable_mockModule('../../services/pathways/pathwayExecutorService.js', ()
   isPathwayExecutorCapability: (value) => value === PATHWAY_TEST_CAPABILITY,
 }));
 
+jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  isTaskHumanOwnerRole: () => true,
+  resolveCurrentHumanActorTx: resolveCurrentHumanActorTxMock,
+}));
+
 const {
   acknowledgeColdChainTaskFromTrustedWorkflow,
   acknowledgeLabCriticalAlertTaskFromTrustedWorkflow,
   acknowledgeTask,
+  claimInboxTask,
   completePathwayTaskFromRegisteredEvidence,
   completeTaskFromDomainEvidence,
   createApproval,
@@ -95,6 +105,21 @@ beforeEach(() => {
   queryUnsafeMock.mockReset();
   setTenantTxMock.mockClear();
   lockPathwayRuntimeTxMock.mockReset();
+  resolveCurrentHumanActorTxMock.mockReset();
+  resolveCurrentHumanActorTxMock.mockImplementation(async ({
+    actorUid, authenticatedRoles, authenticatedPrimaryRole,
+  }) => ({
+    uid: actorUid,
+    role: authenticatedPrimaryRole
+      || (Array.isArray(authenticatedRoles) ? authenticatedRoles[0] : authenticatedRoles)
+      || 'DOCTOR',
+    queueRole: authenticatedPrimaryRole
+      || (Array.isArray(authenticatedRoles) ? authenticatedRoles[0] : authenticatedRoles)
+      || 'DOCTOR',
+    rawRole: authenticatedPrimaryRole
+      || (Array.isArray(authenticatedRoles) ? authenticatedRoles[0] : authenticatedRoles)
+      || 'DOCTOR',
+  }));
 });
 
 // ---------------------------------------------------------------------------
@@ -404,6 +429,207 @@ describe('createTask', () => {
 // ---------------------------------------------------------------------------
 // acknowledgeTask + listInboxTasks (results-inbox)
 // ---------------------------------------------------------------------------
+
+describe('claimInboxTask', () => {
+  const claimInput = (overrides = {}) => ({
+    tenantId: TENANT,
+    id: 41,
+    actorUid: USER,
+    actorRoles: ['DOCTOR'],
+    actorPrimaryRole: 'DOCTOR',
+    actorRawRole: 'DOCTOR',
+    idempotencyKey: 'claim-key',
+    ...overrides,
+  });
+  const roleTask = (overrides = {}) => ({
+    id: 41,
+    status: 'open',
+    assigned_to_uid: null,
+    assigned_to_role: 'DOCTOR',
+    workflow_run_id: null,
+    workflow_step_id: null,
+    workflow_sla_instance_id: null,
+    metadata: {},
+    ...overrides,
+  });
+
+  it('claims an exact current role queue and stores only a derived receipt', async () => {
+    const claimed = roleTask({
+      assigned_to_uid: USER,
+      assigned_to_role: null,
+      metadata: {},
+    });
+    queryUnsafeMock
+      .mockResolvedValueOnce([roleTask()])
+      .mockResolvedValueOnce([claimed])
+      .mockResolvedValueOnce([{ id: 1 }]);
+
+    await expect(claimInboxTask(claimInput())).resolves.toMatchObject({
+      id: 41,
+      assigned_to_uid: USER,
+      replayed: false,
+    });
+
+    const updateCall = queryUnsafeMock.mock.calls[1];
+    expect(updateCall[0]).toMatch(/role_claim_receipt/);
+    expect(updateCall[0]).toMatch(/role_claim_command_fingerprint/);
+    expect(updateCall[4]).toMatch(/^task-claim-v1:[0-9a-f]{64}$/);
+    expect(updateCall[8]).toMatch(/^[0-9a-f]{64}$/);
+    expect(queryUnsafeMock.mock.calls.flat().join(' ')).not.toContain('claim-key');
+  });
+
+  it('replays only the exact actor, task, and derived command receipt', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([roleTask()])
+      .mockImplementationOnce(async (...args) => [{
+        ...roleTask(),
+        assigned_to_uid: USER,
+        assigned_to_role: null,
+        metadata: {
+          role_claim_receipt: args[4],
+          role_claim_command_fingerprint: args[8],
+          role_claimed_by: USER,
+        },
+      }])
+      .mockResolvedValueOnce([{ id: 1 }]);
+    const first = await claimInboxTask(claimInput());
+
+    queryUnsafeMock.mockReset();
+    queryUnsafeMock.mockResolvedValueOnce([first]);
+    await expect(claimInboxTask(claimInput())).resolves.toMatchObject({ replayed: true });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('derives different receipts for the same raw key across targets', async () => {
+    const receipts = [];
+    for (const id of [41, 42]) {
+      queryUnsafeMock.mockReset();
+      queryUnsafeMock
+        .mockResolvedValueOnce([roleTask({ id })])
+        .mockImplementationOnce(async (...args) => {
+          receipts.push(args[4]);
+          return [{ ...roleTask({ id }), assigned_to_uid: USER, assigned_to_role: null }];
+        })
+        .mockResolvedValueOnce([{ id: 1 }]);
+      await claimInboxTask(claimInput({ id }));
+    }
+    expect(receipts[0]).not.toBe(receipts[1]);
+  });
+
+  it('denies a losing actor without mutating the winner receipt', async () => {
+    const other = APPROVER_A;
+    queryUnsafeMock.mockResolvedValueOnce([roleTask({
+      assigned_to_uid: USER,
+      assigned_to_role: null,
+      metadata: {
+        role_claim_receipt: 'task-claim-v1:old',
+        role_claim_command_fingerprint: 'old',
+        role_claimed_by: USER,
+      },
+    })]);
+
+    await expect(claimInboxTask(claimInput({ actorUid: other })))
+      .rejects.toMatchObject({ statusCode: 403, code: 'TASK_CLAIM_FORBIDDEN' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('denies pathway-bound role tasks before a write', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([roleTask({ workflow_run_id: 77 })])
+      .mockResolvedValueOnce([{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }]);
+
+    await expect(claimInboxTask(claimInput()))
+      .rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it.each([
+    ['active', null, true],
+    ['completed', new Date('2026-07-20T00:00:00.000Z'), false],
+  ])('moves %s linked SLA ownership only while the clock is live', async (
+    status,
+    completedAt,
+    expectsSlaUpdate,
+  ) => {
+    const task = roleTask({
+      related_resource_type: 'lab_result',
+      related_resource_id: '1',
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+    });
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow({ status, completed_at: completedAt })])
+      .mockResolvedValueOnce([{ ...task, assigned_to_uid: USER, assigned_to_role: null }]);
+    if (expectsSlaUpdate) queryUnsafeMock.mockResolvedValueOnce([{ id: DEFAULT_SLA_ID }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+
+    await claimInboxTask(claimInput());
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => (
+      /UPDATE workflow_sla_instances/i.test(sql)
+    ))).toBe(expectsSlaUpdate);
+  });
+
+  it('fails the claim transaction when linked SLA ownership cannot move', async () => {
+    const task = roleTask({
+      related_resource_type: 'lab_result',
+      related_resource_id: '1',
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+    });
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow({ status: 'active', completed_at: null })])
+      .mockResolvedValueOnce([{ ...task, assigned_to_uid: USER, assigned_to_role: null }])
+      .mockResolvedValueOnce([]);
+
+    await expect(claimInboxTask(claimInput()))
+      .rejects.toMatchObject({ code: 'TASK_CLAIM_SLA_CONFLICT' });
+  });
+
+  it('denies a different claimant when a role acknowledgement already names its actor', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([roleTask({
+      status: 'in_progress',
+      metadata: {
+        acknowledged_at: '2026-07-20T00:00:00.000Z',
+        acknowledged_by: APPROVER_A,
+        ack_contract_version: 2,
+      },
+    })]);
+
+    await expect(claimInboxTask(claimInput()))
+      .rejects.toMatchObject({ statusCode: 403, code: 'TASK_CLAIM_FORBIDDEN' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the recorded acker claim a legacy role-owned acknowledgement without changing its receipt', async () => {
+    const legacy = roleTask({
+      status: 'in_progress',
+      metadata: {
+        acknowledged_at: '2026-07-20T00:00:00.000Z',
+        acknowledged_by: USER,
+        ack_contract_version: 2,
+      },
+    });
+    queryUnsafeMock
+      .mockResolvedValueOnce([legacy])
+      .mockResolvedValueOnce([{
+        ...legacy,
+        assigned_to_uid: USER,
+        assigned_to_role: null,
+      }])
+      .mockResolvedValueOnce([{ id: 1 }]);
+
+    await expect(claimInboxTask(claimInput())).resolves.toMatchObject({
+      assigned_to_uid: USER,
+      assigned_to_role: null,
+      metadata: expect.objectContaining({
+        acknowledged_at: '2026-07-20T00:00:00.000Z',
+        acknowledged_by: USER,
+      }),
+    });
+  });
+});
 
 describe('acknowledgeTask', () => {
   it('blocks an alert-bound critical task on every generic caller before mutation', async () => {
@@ -891,14 +1117,34 @@ describe('acknowledgeTask authorization', () => {
   });
 
   it('allows a holder of the assigned role when there is no named assignee', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', assigned_to_uid: null, assigned_to_role: 'DUTY_DOCTOR', metadata: {} }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 6 }]);
+    const roleTask = {
+      id: 1,
+      status: 'open',
+      assigned_to_uid: null,
+      assigned_to_role: 'DUTY_DOCTOR',
+      metadata: {},
+    };
+    const claimed = {
+      ...roleTask,
+      assigned_to_uid: USER,
+      assigned_to_role: null,
+      metadata: {
+        role_claimed_by: USER,
+        role_claimed_from_role: 'DUTY_DOCTOR',
+      },
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([roleTask])
+      .mockResolvedValueOnce([roleTask])
+      .mockResolvedValueOnce([claimed])
+      .mockResolvedValueOnce([{ id: 6 }])
+      .mockResolvedValueOnce([{ ...claimed, status: 'in_progress' }])
+      .mockResolvedValueOnce([{ id: 7 }]);
     const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER, actorRoles: ['DUTY_DOCTOR'] });
     expect(row.status).toBe('in_progress');
-    expect(queryUnsafeMock.mock.calls[1].slice(1)[2]).toBe('role');
-    expect(queryUnsafeMock.mock.calls[1].slice(1)[4]).toBe('DUTY_DOCTOR');
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(
+    expect(queryUnsafeMock.mock.calls[4].slice(1)[2]).toBe('role');
+    expect(queryUnsafeMock.mock.calls[4].slice(1)[4]).toBe('DUTY_DOCTOR');
+    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(
       /'role'[\s\S]+assigned_to_uid IS NULL[\s\S]+assigned_to_role/i,
     );
   });
@@ -922,8 +1168,39 @@ describe('acknowledgeTask authorization', () => {
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not let a different role holder repair a malformed durable acknowledgement receipt', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: 'in_progress',
+      assigned_to_uid: null,
+      assigned_to_role: 'DOCTOR',
+      metadata: {
+        acknowledged_by: OTHER,
+      },
+    }]);
+
+    await expect(acknowledgeTask({
+      tenantId: TENANT,
+      id: 1,
+      actorUid: USER,
+      actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
   it('denies stale role authority when a named assignee appears before the guarded update', async () => {
     queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'open',
+        assigned_to_uid: null,
+        assigned_to_role: 'DUTY_DOCTOR',
+        metadata: {},
+      }])
       .mockResolvedValueOnce([{
         id: 1,
         status: 'open',
@@ -945,12 +1222,10 @@ describe('acknowledgeTask authorization', () => {
       id: 1,
       actorUid: USER,
       actorRoles: ['DUTY_DOCTOR'],
-    })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+    })).rejects.toMatchObject({ statusCode: 403, code: 'TASK_CLAIM_FORBIDDEN' });
 
     expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(
-      /'role'[\s\S]+assigned_to_uid IS NULL[\s\S]+assigned_to_role/i,
-    );
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/UPDATE tasks/i);
   });
 
   it('allows an ADMIN task-administrator on any task', async () => {
@@ -1241,7 +1516,10 @@ describe('acknowledgeTask authorization', () => {
     const { resolveAckAuthorization } = __testing__;
     expect(resolveAckAuthorization({ assigned_to_uid: USER }, { actorUid: USER }).mode).toBe('assignee');
     expect(resolveAckAuthorization({ assigned_to_role: 'DOCTOR' }, { actorUid: OTHER, actorRoles: ['DOCTOR'] }).mode).toBe('role');
-    expect(resolveAckAuthorization({ assigned_to_uid: OTHER }, { actorUid: USER, actorRoles: ['SUPER_ADMIN'] }).mode).toBe('admin');
+    expect(resolveAckAuthorization(
+      { assigned_to_uid: OTHER },
+      { actorUid: USER, actorRoles: ['ADMIN'], actorRole: 'ADMIN' },
+    ).mode).toBe('admin');
     expect(() => resolveAckAuthorization(
       { assigned_to_uid: OTHER, assigned_to_role: 'DOCTOR' },
       { actorUid: USER, actorRoles: ['DOCTOR'] },
@@ -1257,18 +1535,31 @@ describe('acknowledgeColdChainTaskFromTrustedWorkflow', () => {
   const OTHER = '99999999-9999-4999-8999-999999999999';
 
   it('records normal role authority when the responder holds the task assignment', async () => {
+    const roleTask = {
+      id: 55,
+      status: 'open',
+      assigned_to_uid: null,
+      assigned_to_role: 'PHARMACY_STAFF',
+      related_resource_type: 'cold_chain_excursions',
+      related_resource_id: '7',
+      metadata: {},
+    };
+    const claimed = {
+      ...roleTask,
+      assigned_to_uid: USER,
+      assigned_to_role: null,
+      metadata: {
+        role_claimed_by: USER,
+        role_claimed_from_role: 'PHARMACY_STAFF',
+      },
+    };
     const txQuery = jest.fn()
-      .mockResolvedValueOnce([{
-        id: 55,
-        status: 'open',
-        assigned_to_uid: null,
-        assigned_to_role: 'PHARMACY_STAFF',
-        related_resource_type: 'cold_chain_excursions',
-        related_resource_id: '7',
-        metadata: {},
-      }])
-      .mockResolvedValueOnce([{ id: 55, status: 'in_progress', metadata: {} }])
-      .mockResolvedValueOnce([{ id: 9, body_kind: 'state_change' }]);
+      .mockResolvedValueOnce([roleTask])
+      .mockResolvedValueOnce([roleTask])
+      .mockResolvedValueOnce([claimed])
+      .mockResolvedValueOnce([{ id: 9, body_kind: 'state_change' }])
+      .mockResolvedValueOnce([{ ...claimed, status: 'in_progress' }])
+      .mockResolvedValueOnce([{ id: 10, body_kind: 'state_change' }]);
     const tx = { $queryRawUnsafe: txQuery };
 
     await acknowledgeColdChainTaskFromTrustedWorkflow({
@@ -1280,7 +1571,7 @@ describe('acknowledgeColdChainTaskFromTrustedWorkflow', () => {
       tx,
     });
 
-    const updateParams = txQuery.mock.calls[1].slice(1);
+    const updateParams = txQuery.mock.calls[4].slice(1);
     expect(updateParams[2]).toBe('role');
     expect(updateParams[4]).toBe('PHARMACY_STAFF');
     expect(updateParams[5]).toBeNull();
@@ -1377,11 +1668,11 @@ describe('listInboxTasks', () => {
     // me OR my role
     expect(sql).toMatch(/assigned_to_uid = /);
     expect(sql).toMatch(/assigned_to_role/);
-    expect(sql).toMatch(/assigned_to_uid IS NULL AND assigned_to_role = ANY/);
+    expect(sql).toMatch(/assigned_to_uid IS NULL[\s\S]+UPPER\(BTRIM\(assigned_to_role\)\) = \$3::text/);
     // inbox status set
     expect(sql).toMatch(/'open', 'in_progress', 'overdue'/);
     // ordering
-    expect(sql).toMatch(/CASE priority WHEN 'critical' THEN 0/);
+    expect(sql).toMatch(/CASE inbox\.priority WHEN 'critical' THEN 0/);
     expect(sql).toMatch(/due_at/);
   });
 

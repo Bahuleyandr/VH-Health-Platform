@@ -7,7 +7,7 @@
 // completed once all of its results are finalised (a partial sign-off of a
 // multi-analyte panel leaves it in progress).
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import * as labResults from '../services/lab/labResultsService.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -83,23 +83,98 @@ async function clinicalOrderState(id) {
 describe('Lab order completes on result sign-off', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, '9007070701', 'Lab Order Patient', 'PATIENT', true, NOW())
-       ON CONFLICT (uid) DO NOTHING`, PATIENT_UID);
+      `INSERT INTO users
+         (uid, tenant_id, phone, name, role, status, is_active, is_deleted, updated_at)
+       VALUES
+         ($1::uuid, $3::uuid, '9007070701', 'Lab Order Patient', 'PATIENT', 'active', true, false, NOW()),
+         ($2::uuid, $3::uuid, '9007070709', 'Lab Order Pathologist', 'PATHOLOGIST', 'active', true, false, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET tenant_id = EXCLUDED.tenant_id,
+             role = EXCLUDED.role,
+             status = EXCLUDED.status,
+             is_active = true,
+             is_deleted = false,
+             deleted_at = NULL`,
+      PATIENT_UID, PATHOLOGIST_UID, TENANT);
   });
 
   afterAll(async () => {
-    for (const id of createdResultIds) {
-      await prisma.$executeRawUnsafe(`DELETE FROM lab_pathologist_signoffs WHERE $1 = ANY(result_ids)`, id).catch(() => {});
-      await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE id = $1::int`, id).catch(() => {});
-    }
-    for (const id of createdInvestigationIds) {
-      await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE id = $1::int`, id).catch(() => {});
-    }
-    for (const id of createdClinicalOrderIds) {
-      await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE id = $1::int`, id).catch(() => {});
-    }
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await setTenantTx(TENANT, async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_actions
+          WHERE tenant_id = $1::uuid
+            AND generation_id IN (
+              SELECT id
+                FROM diagnostic_result_generations
+               WHERE tenant_id = $1::uuid
+                 AND patient_uid = $2::uuid
+            )`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_generation_items
+          WHERE tenant_id = $1::uuid
+            AND generation_id IN (
+              SELECT id
+                FROM diagnostic_result_generations
+               WHERE tenant_id = $1::uuid
+                 AND patient_uid = $2::uuid
+            )`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM diagnostic_result_generations
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_timeline_events
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid`,
+        TENANT,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM lab_pathologist_signoffs
+          WHERE tenant_id = $1::uuid
+            AND result_ids && $2::int[]`,
+        TENANT,
+        createdResultIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM lab_results
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])`,
+        TENANT,
+        createdResultIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM investigations
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])`,
+        TENANT,
+        createdInvestigationIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_orders
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])`,
+        TENANT,
+        createdClinicalOrderIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM users
+          WHERE tenant_id = $1::uuid
+            AND uid = ANY($2::uuid[])`,
+        TENANT,
+        [PATIENT_UID, PATHOLOGIST_UID],
+      );
+    });
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -151,17 +226,20 @@ describe('Lab order completes on result sign-off', () => {
     expect(await investigationStatus(invId)).toBe('COMPLETED');
   });
 
-  it('does not complete the order on a non-verifying decision', async () => {
+  it('rejects a non-sign-off decision without completing the order', async () => {
     const invId = await seedInvestigation();
     const resultId = await seedResult(invId);
 
-    await labResults.signOffResults({
+    await expect(labResults.signOffResults({
       tenantId: TENANT,
       signed_off_by: PATHOLOGIST_UID,
       signed_off_by_role: 'PATHOLOGIST',
       result_ids: [resultId],
       decision: 'rejected',
       patient_uid: PATIENT_UID,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_DECISION_UNSUPPORTED',
     });
 
     expect(await investigationStatus(invId)).toBe('IN_PROGRESS');

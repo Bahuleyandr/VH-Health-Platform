@@ -340,6 +340,46 @@ describe('Investigation order workflow — deep integration', () => {
       expect(rows[0].collected_at).toBeTruthy();
       expect(rows[0].sample_barcode).toBeTruthy();
       expect(rows[0].verified_at).toBeTruthy();
+
+      const patientRead = await patientAs(patientIntId)
+        .get(`/api/v1/investigations/${invId}`);
+      expect(patientRead.statusCode).toBe(200);
+      expect(patientRead.body.data.investigation.status).toBe('COMPLETED');
+      expect(patientRead.body.data.investigation.results).toBeUndefined();
+      expect(patientRead.body.data.investigation.interpretation).toBeUndefined();
+
+      const ready = await prisma.$queryRawUnsafe(
+        `SELECT id FROM notifications
+          WHERE uid = $1::uuid AND type = 'lab_result_ready'`,
+        PATIENT_UID,
+      );
+      expect(ready).toHaveLength(0);
+    });
+
+    it('rejects caller-supplied reviewer identity before recording results', async () => {
+      const order = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId,
+        test_name: 'Reviewer spoof guard',
+        type: 'LAB',
+        priority: 'NORMAL',
+      });
+      expect(order.statusCode).toBe(200);
+      const invId = order.body.data.investigation.id;
+
+      const response = await lab.put(`/api/v1/investigations/${invId}/results`).send({
+        results: { value: 'normal' },
+        reviewed_by: DOCTOR_UID,
+      });
+      expect(response.statusCode).toBe(400);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT status, results, verified_by
+           FROM investigations WHERE id = $1::int`,
+        invId,
+      );
+      expect(rows[0].status).not.toBe('COMPLETED');
+      expect(rows[0].results).toBeNull();
+      expect(rows[0].verified_by).toBeNull();
     });
 
     it('accepts lowercase status updates from legacy staff clients', async () => {

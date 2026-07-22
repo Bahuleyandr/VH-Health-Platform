@@ -52,6 +52,10 @@ const integrationRouter = express.Router();
 const subscriptionRouter = express.Router();
 const deliveryRouter = express.Router();
 
+function actorRole(req) {
+  return String(req.user?.rawRole || req.user?.role || '').trim().toUpperCase();
+}
+
 // ---------------------------------------------------------------------------
 // Integrations
 // ---------------------------------------------------------------------------
@@ -290,7 +294,6 @@ deliveryRouter.post('/enqueue', async (req, res, next) => {
       tenantId: req.tenantId,
       eventType: req.body?.event_type,
       payload: req.body?.payload || {},
-      eventOutboxId: req.body?.event_outbox_id || null,
       requestId: req.body?.request_id || null,
     });
     return success(res, result, 'Webhook deliveries enqueued', 201);
@@ -325,7 +328,10 @@ deliveryRouter.patch('/:id/mark-dead', async (req, res, next) => {
     const row = await markDeliveryDead({
       tenantId: req.tenantId,
       id: req.params.id,
-      reason: req.body?.reason || null,
+      reason: req.body?.reason,
+      actorUid: req.user?.uid,
+      actorRole: actorRole(req),
+      requestId: req.id,
     });
     return success(res, row, 'Webhook delivery marked dead');
   } catch (err) {
@@ -338,7 +344,10 @@ deliveryRouter.post('/:id/redrive', async (req, res, next) => {
     const row = await redriveDelivery({
       tenantId: req.tenantId,
       id: req.params.id,
-      redrivenBy: req.user?.uid || null,
+      reason: req.body?.reason,
+      actorUid: req.user?.uid,
+      actorRole: actorRole(req),
+      requestId: req.id,
     });
     return success(res, row, 'Webhook delivery redriven', 201);
   } catch (err) {

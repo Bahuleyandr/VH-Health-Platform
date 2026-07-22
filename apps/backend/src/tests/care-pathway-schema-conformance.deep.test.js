@@ -962,7 +962,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
     );
     const task = await client.query(
       `INSERT INTO tasks (tenant_id, workflow_run_id, task_kind, title)
-       VALUES ($1::uuid, $2::integer, 'pathway_stage', 'Parent task')
+       VALUES ($1::uuid, $2::integer, 'review', 'Parent task')
        RETURNING id`,
       [tenantId, runId],
     );
@@ -970,7 +970,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
     await expectStatementFailure(
       client,
       `INSERT INTO tasks (tenant_id, workflow_step_id, task_kind, title)
-       VALUES ($1::uuid, $2::integer, 'pathway_stage', 'Missing run')`,
+       VALUES ($1::uuid, $2::integer, 'review', 'Missing run')`,
       [tenantId, step.rows[0].id],
       '23514',
     );
@@ -992,7 +992,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
     await expectStatementFailure(
       client,
       `INSERT INTO tasks (tenant_id, parent_task_id, task_kind, title)
-       VALUES ($1::uuid, $2::integer, 'generic', 'Mismatched child')`,
+       VALUES ($1::uuid, $2::integer, 'general', 'Mismatched child')`,
       [tenantId, task.rows[0].id],
       '23503',
       'parent and child task workflow runs must match',
@@ -1000,13 +1000,13 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
 
     const genericParent = await client.query(
       `INSERT INTO tasks (tenant_id, task_kind, title)
-       VALUES ($1::uuid, 'generic', 'Generic parent')
+       VALUES ($1::uuid, 'general', 'Generic parent')
        RETURNING id`,
       [tenantId],
     );
     const genericChild = await client.query(
       `INSERT INTO tasks (tenant_id, parent_task_id, task_kind, title)
-       VALUES ($1::uuid, $2::integer, 'generic', 'Generic child')
+       VALUES ($1::uuid, $2::integer, 'general', 'Generic child')
        RETURNING id`,
       [tenantId, genericParent.rows[0].id],
     );
@@ -1083,7 +1083,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
          (tenant_id, workflow_run_id, workflow_step_id, task_kind, title,
           patient_uid, related_resource_type, related_resource_id,
           workflow_sla_instance_id, sla_completion_semantics, due_at)
-       VALUES ($1::uuid, $2::integer, $3::integer, 'pathway_stage', 'Bound task',
+       VALUES ($1::uuid, $2::integer, $3::integer, 'review', 'Bound task',
                $4::uuid, $5::text, $6::text, $7::uuid, $8::text,
                (SELECT due_at FROM workflow_sla_instances WHERE id = $7::uuid))`,
       [
@@ -1796,7 +1796,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
       `INSERT INTO tasks
          (tenant_id, workflow_run_id, workflow_step_id, task_kind, title,
           patient_uid, workflow_sla_instance_id, sla_completion_semantics, due_at)
-       SELECT $1::uuid, $2::integer, $3::integer, 'pathway_stage',
+       SELECT $1::uuid, $2::integer, $3::integer, 'review',
               'Wait for domain evidence', $4::uuid, sla.id, 'domain_evidence', sla.due_at
          FROM workflow_sla_instances AS sla
         WHERE sla.tenant_id = $1::uuid
@@ -2150,7 +2150,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
           related_resource_type, related_resource_id,
           workflow_sla_instance_id, sla_completion_semantics, due_at,
           assigned_to_role)
-       SELECT $1::uuid, 'critical_result_ack', 'Critical result', $2::uuid,
+       SELECT $1::uuid, 'review', 'Critical result', $2::uuid,
               'lab_results', 'deadline-result', sla.id, 'acknowledgement',
               ${taskDueExpression}, 'DUTY_DOCTOR'
          FROM workflow_sla_instances AS sla

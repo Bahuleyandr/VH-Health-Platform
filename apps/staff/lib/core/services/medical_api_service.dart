@@ -154,6 +154,11 @@ class MedicalApiService {
     return _get('/investigations/status/pending');
   }
 
+  /// GET /investigations/:id — one investigation with staff review context.
+  static Future<Map<String, dynamic>> getInvestigationById(String id) async {
+    return _get('/investigations/$id');
+  }
+
   /// GET /investigations/doctor/:doctor_id — investigations for a doctor
   static Future<Map<String, dynamic>> getDoctorInvestigations(
     String doctorId,

@@ -231,6 +231,8 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
       tenantId: DEFAULT_TENANT_ID,
       assigneeUid: DOCTOR_UID,
       roles: ['DOCTOR'],
+      primaryRole: 'DOCTOR',
+      rawRole: 'DOCTOR',
     });
     const ids = inbox.tasks.map((t) => t.id);
     expect(ids).toContain(taskId);
@@ -285,6 +287,9 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
       tenantId: DEFAULT_TENANT_ID,
       id: taskId,
       actorUid: DOCTOR_UID,
+      actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
     });
     expect(acked.status).toBe('in_progress');
     expect(acked.metadata.acknowledged_at).toBeTruthy();
@@ -312,6 +317,8 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
       tenantId: DEFAULT_TENANT_ID,
       assigneeUid: DOCTOR_UID,
       roles: ['DOCTOR'],
+      primaryRole: 'DOCTOR',
+      rawRole: 'DOCTOR',
     });
     expect(inbox.tasks.map((t) => t.id)).not.toContain(taskId);
   });

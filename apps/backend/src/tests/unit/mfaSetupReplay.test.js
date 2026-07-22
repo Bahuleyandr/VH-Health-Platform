@@ -10,6 +10,7 @@ const updateManyMock = jest.fn();
 const __prismaDefault = { admins: { findUnique: findUniqueMock, updateMany: updateManyMock } };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefault,
+  isTenantTransactionClient: () => true,
   setTenantTx: async (_t, fn) => fn(__prismaDefault),
   setTenant: async (_t, fn) => fn(__prismaDefault),
   prismaReadOnly: __prismaDefault,

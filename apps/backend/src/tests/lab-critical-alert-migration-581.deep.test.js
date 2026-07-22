@@ -155,7 +155,7 @@ async function seedClosedContract(
         related_resource_id, priority, status, assigned_to_role,
         workflow_sla_instance_id, sla_completion_semantics, metadata)
      VALUES
-       ($1, $2::uuid, 'critical_result_ack', 'Acknowledge critical result',
+       ($1, $2::uuid, 'review', 'Acknowledge critical result',
         $3::uuid, 'lab_result', $4::text, 'critical', $5, 'LAB_STAFF',
         $6::uuid, 'acknowledgement', $7::jsonb)`,
     [
@@ -279,7 +279,7 @@ async function seedActiveObligation(client) {
         related_resource_id, priority, status, assigned_to_role,
         workflow_sla_instance_id, sla_completion_semantics, metadata)
      VALUES
-       ($1, $2::uuid, 'critical_result_ack', 'Acknowledge critical result',
+       ($1, $2::uuid, 'review', 'Acknowledge critical result',
         $3::uuid, 'lab_result', $4::text, 'critical', 'open', 'LAB_STAFF',
         $5::uuid, 'acknowledgement',
         jsonb_build_object(
@@ -531,7 +531,7 @@ async function writeCorrectedGeneration(client) {
           workflow_sla_instance_id, sla_completion_semantics, metadata,
           created_at, updated_at)
        VALUES
-         ($1::int, $2::uuid, 'critical_result_ack', 'Acknowledge corrected critical result',
+         ($1::int, $2::uuid, 'review', 'Acknowledge corrected critical result',
           $3::uuid, 'lab_result', $4::text, 'critical', 'open', 'LAB_STAFF',
           $5::uuid, 'acknowledgement',
           jsonb_build_object(

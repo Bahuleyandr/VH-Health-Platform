@@ -41,7 +41,7 @@
     "@tanstack/react-query": "^5.101.0",
     "@tanstack/react-query-devtools": "^5.101.0",
     "@tanstack/react-virtual": "^3.14.2",
-    "axios": "^1.17.0",
+    "axios": "^1.18.1",
     "bcrypt": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -50,6 +50,7 @@
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.17.0",
     "next": "16.2.7",
+    "sharp": "^0.35.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-error-boundary": "^6.1.2",
@@ -102,6 +103,7 @@
     "undici": "^8.5.0"
   },
   "overrides": {
+    "sharp": "$sharp",
     "postcss": "8.5.15",
     "glob": "^10.5.0",
     "rimraf": "^5.0.10",
@@ -112,6 +114,9 @@
     },
     "@rollup/plugin-terser": {
       "serialize-javascript": "^7.0.5"
+    },
+    "@redocly/openapi-core": {
+      "js-yaml": "4.3.0"
     },
     "openapi-typescript": {
       "typescript": "$typescript"

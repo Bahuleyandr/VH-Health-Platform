@@ -31,6 +31,7 @@ app.use((req, _res, next) => {
   req.user = {
     uid: '11111111-1111-4111-8111-111111111111',
     role: 'ADMIN',
+    rawRole: 'ADMIN',
     roles: ['NURSING_STAFF'],
   };
   req.tenantId = '00000000-0000-4000-8000-000000000001';
@@ -59,6 +60,8 @@ describe('cold-chain actor context', () => {
       dispositionNote: undefined,
       actorUid: '11111111-1111-4111-8111-111111111111',
       actorRoles: ['NURSING_STAFF', 'ADMIN'],
+      actorPrimaryRole: 'ADMIN',
+      actorRawRole: 'ADMIN',
     });
   });
 });

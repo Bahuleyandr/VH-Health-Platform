@@ -112,17 +112,22 @@ Rows in terminal `status='failed'` (reached `MAX_ATTEMPTS=7`) — events
 projections) never saw them. `EventOutboxDeadLetterRateRising` is the leading edge.
 1. `SELECT id, event_type, last_error, attempts FROM event_outbox WHERE status='failed' ORDER BY id DESC LIMIT 50;`
    — the `last_error` is the cause.
-2. Fix the downstream (schema/endpoint/credential), then re-drive: reset the row
-   to `pending` with `available_at=now()` once the consumer is healthy.
+2. Fix the downstream (schema/endpoint/credential), then use only the typed,
+   reasoned ADMIN `POST /api/v1/admin/events/:id/redrive` operation. It accepts
+   only `status='failed'`, requires a non-empty reason and writes the actor,
+   request, prior state and result to the immutable audit log. Do not reset
+   queue status with raw SQL.
 3. Record the lost-event window in the incident log; some events (e.g. ABDM push,
    billing) may need manual replay.
 
 ## WebhookDeliveriesDead
 
 `webhook_deliveries` rows in terminal `dead` status — outbound webhooks gave up.
-1. `SELECT id, subscription_id, event_type, last_error FROM webhook_deliveries WHERE status='dead' ORDER BY id DESC LIMIT 50;`.
+1. `SELECT id, subscription_id, event_type, error_message FROM webhook_deliveries WHERE status='dead' ORDER BY id DESC LIMIT 50;`.
 2. Usually a subscriber endpoint down/changed or auth rejected — confirm with the
-   integration owner; fix the subscription target, then re-enqueue.
+   integration owner; fix the subscription target, then use the ADMIN delivery
+   redrive action with a specific operator reason. Redrive accepts `dead` only,
+   resets the current retry cycle and preserves the old cycle in immutable audit.
 3. If a subscription is permanently gone, disable it to stop the dead pile-up.
 
 ## WebhookBacklog
@@ -132,6 +137,63 @@ projections) never saw them. `EventOutboxDeadLetterRateRising` is the leading ed
 2. `SELECT subscription_id, count(*) FROM webhook_deliveries WHERE status='pending' GROUP BY 1 ORDER BY 2 DESC;`.
 3. A single bad subscriber backing up the queue → pause it; the rest drain.
 
+## OutboxStaleLeases
+
+One or more source `processing` or webhook `in_flight` leases have expired, or
+the reapers are repeatedly recovering claims. A single recovery can follow a pod
+restart; repeated recovery means worker crashes, database stalls or outbound
+timeouts need investigation.
+
+1. Check `event_outbox_stale_processing_rows`,
+   `webhook_deliveries_stale_in_flight_rows`, and the two
+   `*_stale_lease_reaped_total` counters in the Backend Reliability dashboard.
+2. Inventory without changing state:
+   `SELECT tenant_id,id,attempts,lease_owner,lease_expires_at FROM event_outbox WHERE status='processing' ORDER BY lease_expires_at,id LIMIT 100;`
+   and
+   `SELECT tenant_id,id,subscription_id,attempt_number,lease_owner,lease_expires_at FROM webhook_deliveries WHERE status='in_flight' ORDER BY lease_expires_at,id LIMIT 100;`.
+3. Confirm the distinct `event-outbox-stale-lease-reaper` and webhook stale
+   reaper jobs are running under their advisory locks. Do not clear lease fields
+   manually: the reapers fence by tenant, ID, owner and attempt epoch.
+4. Correlate lease expiry with pod restarts, database latency and endpoint
+   timeouts. A stale worker result must update zero rows and must not change a
+   subscription success/failure counter.
+
+## WebhookParkedWork
+
+`webhook_deliveries_parked_rows` counts pending/retryable work that cannot be
+claimed because its subscription is missing/inactive, its parent integration is
+inactive, or its historical `event_filter` is unsupported.
+
+1. Group parked work by gate using tenant-scoped database access; never include
+   payloads in an incident channel. Inspect subscription/integration status and
+   whether `event_filter = '{}'::jsonb`.
+2. Missing subscriptions are automatically moved to `dead` without an outbound
+   request. Intentionally paused subscription/integration work remains pending or
+   retryable-failed and becomes eligible after explicit reactivation.
+3. Do not invent filter evaluation during an incident. Clear or deactivate an
+   unsupported filter through the reviewed integration configuration workflow.
+
+## OutboxRecoveryCutover
+
+Migration 588 is scheduler-quiesced and is not rolling-compatible with old
+unfenced workers. Use this sequence only in a separately approved maintenance
+window; merging the code is not approval to deploy it.
+
+1. Inventory source states, duplicate non-null
+   `(tenant_id,event_outbox_id,subscription_id)` tuples, active non-empty
+   filters, processing/in-flight leases and parked work. Preserve counts and
+   sample IDs in the change record.
+2. Stop every event drain, webhook dispatcher and both stale reapers across the
+   fleet. Verify no old pod can restart.
+3. Snapshot the database, apply migration 588 once, deploy the matching build,
+   and only then resume the fenced workers.
+4. Verify lease constraints, the unique fan-out index, tenant-bound admin reads,
+   all five lease/parked gauges, and a reaper dry-run before ending the window.
+5. If preflight names duplicate tuples or active filters, abort without deleting
+   evidence. Resolve each named identity under change control and start a fresh
+   window. Rollback is scheduler/traffic hold plus forward fix or snapshot
+   restoration; never restart the old worker against the hardened schema.
+
 ## NotificationBacklog
 
 `notification_outbox` PENDING >500 for 15m — the notification sender is behind or
@@ -140,6 +202,49 @@ the provider (FCM/SMS) is failing.
    sustained climb is usually a provider outage or a credential problem.
 2. `SELECT type, count(*) FROM notification_outbox WHERE status='PENDING' GROUP BY 1 ORDER BY 2 DESC;`.
 3. Provider down → backlog drains on recovery (intent is persisted, never lost).
+
+## CarePathwayReconciliationTechnicalError
+
+The latest append-only receipt for at least one tenant/pathway contains a bounded
+technical error. This is an evidence-collection failure, not permission to infer
+that clinical state is healthy.
+
+1. Use the ADMIN read-only reconciliation workbench to identify the pathway,
+   receipt timestamp, registry checksum and stable error code. Do not request or
+   paste patient/task/resource identifiers into the incident channel.
+2. Confirm migration 587, the current registry version and the default-off
+   scheduler configuration are coherent. Correlate the receipt time with backend
+   logs; logs intentionally expose only tenant, pathway and stable error code.
+3. Do not edit an evidence row, reset an SLA, reassign work or redrive a queue
+   with SQL. Escalate the stable code to the owning domain or platform team; any
+   mutation must use a separately reviewed typed, reasoned operation.
+
+## CarePathwayActiveWithoutAuthority
+
+A tenant setting says `active`, but this release deliberately has no production
+activation capability. The executor remains fail-closed.
+
+1. Treat this as configuration/governance drift. Confirm the affected fixed
+   `pathway_key` metric and the latest read-only reconciliation receipt.
+2. Do not attempt to mint activation authority or directly edit tenant settings
+   in SQL. Escalate to the pathway owner and platform governance owner for an
+   audited return to `off` or `shadow` through the approved settings process.
+3. Confirm no pathway task, notification or patient projection was produced by
+   reconciliation; the receipt should contain `ACTIVE_WITHOUT_ACTIVATION_AUTHORITY`.
+
+## PathwayProjectorDebt
+
+The current projector generation has terminal dead work, or a retired generation
+still has pending work.
+
+1. Inspect bounded projector metrics and the read-only reconciliation workbench.
+   Preserve event and inbox rows as evidence; do not paste payloads into tickets.
+2. Repair the producer/handler cause first. Use only the typed, audited projector
+   recovery operation delivered by the queue-recovery slice; never change inbox
+   status, lease or generation offsets with raw SQL.
+3. Re-run reconciliation after typed recovery. A repaired sweep is non-clean; a
+   later unchanged zero-drift sweep is required before evidence can count toward
+   owner review.
 
 ## WsBroadcastDrops
 

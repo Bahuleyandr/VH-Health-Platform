@@ -6,6 +6,7 @@ import * as investigationService from '../../services/investigation/investigatio
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { getAuthenticatedActorRoles } from '../../utils/roleHelpers.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 // List investigations with filtering
@@ -89,7 +90,8 @@ export const getInvestigationById = async (req, res) => {
     const investigation = await investigationService.getInvestigationById(
       id,
       userRole,
-      userId
+      userId,
+      req.tenantId,
     );
 
     if (!investigation) {
@@ -349,7 +351,10 @@ export const addInvestigationResults = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { results, interpretation, technician_notes, reviewed_by, re_run, re_run_reason } = req.body;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'reviewed_by')) {
+      return error(res, 'reviewed_by is server-derived and must not be supplied', 400);
+    }
+    const { results, interpretation, technician_notes, re_run, re_run_reason } = req.body;
 
     if (!results) {
       return error(res, 'Results are required', 400);
@@ -357,10 +362,14 @@ export const addInvestigationResults = async (req, res) => {
 
     const investigation = await investigationService.addResults(
       id,
-      { results, interpretation, technician_notes, reviewed_by, re_run, re_run_reason },
+      { results, interpretation, technician_notes, re_run, re_run_reason },
       userId,
       req.tenantId,
       req.user?.role || null,
+      {
+        actorRoles: getAuthenticatedActorRoles(req.user),
+        actorRawRole: req.user?.rawRole || req.user?.role || null,
+      },
     );
 
     if (!investigation) {

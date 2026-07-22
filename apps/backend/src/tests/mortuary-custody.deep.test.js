@@ -357,7 +357,9 @@ d('Mortuary body custody chain (NL-6/N6-12)', () => {
       tenantId: DEFAULT_TENANT_ID,
       id: task.id,
       actorUid: ACTOR_UID,
-      actorRoles: ['MEDICAL_RECORDS'],
+      actorRoles: ['ADMIN'],
+      actorPrimaryRole: 'ADMIN',
+      actorRawRole: 'ADMIN',
     });
     expect(acknowledged.status).toBe('in_progress');
 

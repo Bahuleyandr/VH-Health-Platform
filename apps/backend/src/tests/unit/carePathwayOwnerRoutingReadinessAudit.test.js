@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
 import { jest } from '@jest/globals';
 
 import { getClinicalAccountabilityRoleCodes } from '../../config/rolePolicyGraph.js';
@@ -11,6 +14,7 @@ import {
   MIGRATION_TRACKER_QUERY,
   OWNER_ISSUE_KEYS,
   OWNER_REPORT_QUERY,
+  OWNER_INTEGRITY_MIGRATION,
   PREREQUISITE_MIGRATIONS,
   READ_ONLY_CHECK_QUERY,
   ROLLBACK_QUERY,
@@ -30,6 +34,23 @@ import {
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const GENERATED_AT = '2026-07-21T00:00:00.000Z';
+const OWNER_ACCEPTANCE_MIGRATION_SQL = readFileSync(
+  new URL('../../migrations/586_care_pathway_owner_acceptance.sql', import.meta.url),
+  'utf8',
+).replaceAll('\r', '');
+
+function migrationFunctionBodyMd5(functionName) {
+  const declaration = `CREATE OR REPLACE FUNCTION ${functionName}(`;
+  const declarationStart = OWNER_ACCEPTANCE_MIGRATION_SQL.indexOf(declaration);
+  const bodyStart = OWNER_ACCEPTANCE_MIGRATION_SQL.indexOf('AS $$', declarationStart);
+  const bodyEnd = OWNER_ACCEPTANCE_MIGRATION_SQL.indexOf('$$;', bodyStart);
+  if (declarationStart < 0 || bodyStart < 0 || bodyEnd < 0) {
+    throw new Error(`Migration function body not found: ${functionName}`);
+  }
+  return createHash('md5')
+    .update(OWNER_ACCEPTANCE_MIGRATION_SQL.slice(bodyStart + 5, bodyEnd))
+    .digest('hex');
+}
 
 function primaryState(overrides = {}) {
   return {
@@ -57,6 +78,19 @@ function pre585Schema(overrides = {}) {
     deferred_owner_fk_count: 0,
     patient_access_audit_source_is_pre_585: true,
     patient_access_audit_source_is_post_585: false,
+    patient_access_audit_source_is_post_586: false,
+    tasks_task_kind_is_absent_pre_586: false,
+    tasks_task_kind_is_pre_586: true,
+    tasks_task_kind_is_post_586: false,
+    actionable_owner_function_is_pre_586: false,
+    actionable_owner_function_is_post_586: false,
+    owner_acceptance_columns_are_post_586: false,
+    owner_acceptance_fk_is_post_586: false,
+    owner_acceptance_check_is_post_586: false,
+    owner_acceptance_indexes_are_post_586: false,
+    owner_acceptance_functions_are_post_586: false,
+    owner_acceptance_triggers_are_post_586: false,
+    owner_acceptance_artifact_presence_count: 0,
     ...overrides,
   };
 }
@@ -68,14 +102,39 @@ function post585Schema(overrides = {}) {
     deferred_owner_fk_count: 1,
     patient_access_audit_source_is_pre_585: false,
     patient_access_audit_source_is_post_585: true,
+    actionable_owner_function_is_pre_586: true,
     ...overrides,
   });
 }
 
-function migrationRows({ targetApplied = false, omitPrerequisite = null } = {}) {
+function post586Schema(overrides = {}) {
+  return post585Schema({
+    patient_access_audit_source_is_post_585: false,
+    patient_access_audit_source_is_post_586: true,
+    tasks_task_kind_is_pre_586: false,
+    tasks_task_kind_is_post_586: true,
+    actionable_owner_function_is_pre_586: false,
+    actionable_owner_function_is_post_586: true,
+    owner_acceptance_columns_are_post_586: true,
+    owner_acceptance_fk_is_post_586: true,
+    owner_acceptance_check_is_post_586: true,
+    owner_acceptance_indexes_are_post_586: true,
+    owner_acceptance_functions_are_post_586: true,
+    owner_acceptance_triggers_are_post_586: true,
+    owner_acceptance_artifact_presence_count: 17,
+    ...overrides,
+  });
+}
+
+function migrationRows({
+  ownerApplied = false,
+  targetApplied = false,
+  omitPrerequisite = null,
+} = {}) {
   const rows = PREREQUISITE_MIGRATIONS
     .filter(name => name !== omitPrerequisite)
     .map(name => ({ name }));
+  if (ownerApplied) rows.push({ name: OWNER_INTEGRITY_MIGRATION });
   if (targetApplied) rows.push({ name: TARGET_MIGRATION });
   return rows;
 }
@@ -134,12 +193,17 @@ describe('care-pathway exclusive owner-routing readiness audit', () => {
   });
 
   describe('schema and tracker modes', () => {
-    it('distinguishes missing prerequisites, pre-585, post-585, and partial 585', () => {
+    it('distinguishes missing prerequisites, both exact migration boundaries, and partial states', () => {
       expect(ownerSchemaModeFromState(pre585Schema({
         prerequisite_column_count: 28,
       }))).toBe('prerequisites_missing_or_partial');
       expect(ownerSchemaModeFromState(pre585Schema())).toBe('pre_585');
-      expect(ownerSchemaModeFromState(post585Schema())).toBe('post_585');
+      expect(ownerSchemaModeFromState(pre585Schema({
+        tasks_task_kind_is_absent_pre_586: true,
+        tasks_task_kind_is_pre_586: false,
+      }))).toBe('pre_585');
+      expect(ownerSchemaModeFromState(post585Schema())).toBe('post_585_pre_586');
+      expect(ownerSchemaModeFromState(post586Schema())).toBe('post_586');
       expect(ownerSchemaModeFromState(pre585Schema({
         patient_access_audit_source_is_pre_585: false,
       }))).toBe('partial_585');
@@ -147,11 +211,38 @@ describe('care-pathway exclusive owner-routing readiness audit', () => {
         patient_access_audit_source_is_pre_585: true,
         patient_access_audit_source_is_post_585: false,
       }))).toBe('partial_585');
+      expect(ownerSchemaModeFromState(post585Schema({
+        patient_access_audit_source_is_post_586: true,
+      }))).toBe('partial_586');
       expect(ownerSchemaModeFromState(pre585Schema({
         owner_function_count: 11,
         owner_trigger_count: 7,
         deferred_owner_fk_count: 1,
       }))).toBe('partial_585');
+    });
+
+    it.each([
+      'owner_acceptance_columns_are_post_586',
+      'owner_acceptance_fk_is_post_586',
+      'owner_acceptance_check_is_post_586',
+      'owner_acceptance_indexes_are_post_586',
+      'owner_acceptance_functions_are_post_586',
+      'owner_acceptance_triggers_are_post_586',
+      'tasks_task_kind_is_post_586',
+      'actionable_owner_function_is_post_586',
+      'patient_access_audit_source_is_post_586',
+    ])('fails a post-586 schema with a missing or mutated %s artifact', (field) => {
+      expect(ownerSchemaModeFromState(post586Schema({ [field]: false })))
+        .toBe('partial_586');
+    });
+
+    it('requires the exact complete named owner-acceptance artifact set', () => {
+      expect(ownerSchemaModeFromState(post586Schema({
+        owner_acceptance_artifact_presence_count: 16,
+      }))).toBe('partial_586');
+      expect(ownerSchemaModeFromState(post586Schema({
+        owner_acceptance_artifact_presence_count: 18,
+      }))).toBe('partial_586');
     });
 
     it('requires tracker state to agree with the exact schema branch', () => {
@@ -164,43 +255,111 @@ describe('care-pathway exclusive owner-routing readiness audit', () => {
         tracker_coherent: true,
       });
       expect(buildMigrationState({
-        migrationRows: migrationRows({ targetApplied: true }),
-        schemaMode: 'post_585',
+        migrationRows: migrationRows({ ownerApplied: true }),
+        schemaMode: 'post_585_pre_586',
       })).toMatchObject({
         prerequisites_complete: true,
-        target_applied: true,
+        owner_integrity_applied: true,
+        target_applied: false,
         tracker_coherent: true,
       });
       expect(buildMigrationState({
         migrationRows: migrationRows({
+          ownerApplied: true,
           targetApplied: true,
           omitPrerequisite: PREREQUISITE_MIGRATIONS[2],
         }),
-        schemaMode: 'post_585',
+        schemaMode: 'post_586',
       }).tracker_coherent).toBe(false);
       expect(buildMigrationState({
-        migrationRows: migrationRows({ targetApplied: true }),
+        migrationRows: migrationRows({ ownerApplied: true, targetApplied: true }),
         schemaMode: 'pre_585',
+      }).tracker_coherent).toBe(false);
+      expect(buildMigrationState({
+        migrationRows: migrationRows({ ownerApplied: true, targetApplied: true }),
+        schemaMode: 'post_586',
+      })).toMatchObject({
+        owner_integrity_applied: true,
+        target_applied: true,
+        tracker_coherent: true,
+      });
+      expect(buildMigrationState({
+        migrationRows: migrationRows({ targetApplied: true }),
+        schemaMode: 'post_586',
       }).tracker_coherent).toBe(false);
     });
   });
 
   describe('migration-585 predicate parity and evidence safety', () => {
-    it('requires the exact pre/post-585 patient-access source whitelists', () => {
+    it('requires the exact pre-585, post-585, and full post-586 patient-access source whitelists', () => {
       expect(SCHEMA_STATE_QUERY).toContain(
         "'unknown'::character varying])::text[]))$$",
       );
       expect(SCHEMA_STATE_QUERY).toContain(
         "'unknown'::character varying, 'care_pathway_owner'::character varying])::text[]))$$",
       );
+      expect(SCHEMA_STATE_QUERY).toContain(
+        "'care_pathway_owner'::character varying, 'care_pathway_transfer_recipient'::character varying, 'care_pathway_transfer_decline_recipient'::character varying, 'care_pathway_role_queue_claimant'::character varying])::text[]))$$",
+      );
       expect(SCHEMA_STATE_QUERY).toContain('constraint_state.convalidated');
       expect(SCHEMA_STATE_QUERY).toContain('NOT constraint_state.connoinherit');
       expect(SCHEMA_STATE_QUERY).toContain(
         'patient_access_audit_source_is_post_585',
       );
-      expect(SCHEMA_STATE_QUERY).not.toMatch(
-        /pg_get_expr\([\s\S]*?\)\s+(?:LIKE|ILIKE)\s+[\s\S]*care_pathway_owner/i,
+      expect(SCHEMA_STATE_QUERY).toContain(
+        'patient_access_audit_source_is_post_586',
       );
+      expect(SCHEMA_STATE_QUERY).not.toMatch(
+        /pg_get_expr\([\s\S]*?\)\s+(?:LIKE|ILIKE)\s+[\s\S]*care_pathway_(?:owner|transfer_recipient|transfer_decline_recipient|role_queue_claimant)/i,
+      );
+    });
+
+    it('pins the complete migration-586 schema tuple without fuzzy catalog matching', () => {
+      for (const artifact of [
+        'tasks_task_kind_is_absent_pre_586',
+        'tasks_task_kind_is_post_586',
+        'actionable_owner_function_is_post_586',
+        'owner_acceptance_columns_are_post_586',
+        'owner_acceptance_fk_is_post_586',
+        'owner_acceptance_check_is_post_586',
+        'owner_acceptance_indexes_are_post_586',
+        'owner_acceptance_functions_are_post_586',
+        'owner_acceptance_triggers_are_post_586',
+        'owner_acceptance_artifact_presence_count',
+      ]) expect(SCHEMA_STATE_QUERY).toContain(artifact);
+      for (const objectName of [
+        'fk_care_handoff_accepted_by_tenant',
+        'care_handoff_covering_transfer_check',
+        'ux_care_handoff_one_live_covering_transfer',
+        'idx_care_handoff_covering_recipient',
+        'idx_care_handoff_accepted_by',
+        'care_pathway_assert_covering_transfer',
+        'care_pathway_block_covering_transfer_mutation',
+        'care_pathway_covering_transfer_row_constraint',
+        'care_pathway_covering_transfer_pathway_dependency',
+        'care_pathway_covering_transfer_task_dependency',
+        'trg_care_handoff_covering_transfer_immutable',
+        'trg_care_handoff_covering_transfer_invariant',
+        'trg_care_pathway_instances_covering_transfer_dependency',
+        'trg_tasks_covering_transfer_dependency',
+      ]) expect(SCHEMA_STATE_QUERY).toContain(objectName);
+      expect(SCHEMA_STATE_QUERY).toContain('owner_acceptance_artifact_presence_count');
+      expect(SCHEMA_STATE_QUERY).not.toMatch(/\b(?:LIKE|ILIKE)\b/i);
+    });
+
+    it('pins the readiness function hashes to the exact migration-586 bodies', () => {
+      for (const functionName of [
+        'care_pathway_assert_actionable_task_owner',
+        'care_pathway_assert_covering_transfer',
+        'care_pathway_block_covering_transfer_mutation',
+        'care_pathway_covering_transfer_row_constraint',
+        'care_pathway_covering_transfer_pathway_dependency',
+        'care_pathway_covering_transfer_task_dependency',
+      ]) {
+        expect(SCHEMA_STATE_QUERY).toContain(
+          migrationFunctionBodyMd5(functionName),
+        );
+      }
     });
 
     it('uses the canonical role-policy clinical group for named accountability', () => {
@@ -391,6 +550,7 @@ describe('care-pathway exclusive owner-routing readiness audit', () => {
       expect(report.global_blockers).toEqual({
         prerequisite_schema_missing_or_partial: 1,
         migration_585_schema_partial: 0,
+        migration_586_schema_partial: 0,
         migration_tracker_schema_mismatch: 1,
       });
       expect(auditExitCode(report)).toBe(BLOCKED_EXIT_CODE);
@@ -400,7 +560,16 @@ describe('care-pathway exclusive owner-routing readiness audit', () => {
   describe('database-enforced snapshot', () => {
     it.each([
       ['pre_585', pre585Schema(), migrationRows()],
-      ['post_585', post585Schema(), migrationRows({ targetApplied: true })],
+      [
+        'post_585_pre_586',
+        post585Schema(),
+        migrationRows({ ownerApplied: true }),
+      ],
+      [
+        'post_586',
+        post586Schema(),
+        migrationRows({ ownerApplied: true, targetApplied: true }),
+      ],
     ])('runs a coherent %s scan in one all-tenant read-only snapshot', async (
       schemaMode,
       schemaState,

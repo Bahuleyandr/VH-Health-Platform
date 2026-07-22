@@ -34,16 +34,28 @@ const { DEFAULT_TENANT_ID } = await import('../services/tenant/tenantService.js'
 const { addResults } = await import('../services/investigation/investigationService.js');
 const { createTask, transitionTask } = await import('../services/workflow/taskService.js');
 
-const PATIENT_UID = randomUUID();
-const DOCTOR_UID = randomUUID();
-const SUFFIX = randomUUID().replaceAll('-', '').slice(0, 9);
-const PATIENT_PHONE = `8${String(parseInt(SUFFIX, 16) % 1_000_000_000).padStart(9, '0')}`;
-const DOCTOR_PHONE = `7${String((parseInt(SUFFIX, 16) + 1) % 1_000_000_000).padStart(9, '0')}`;
+let PATIENT_UID;
+let DOCTOR_UID;
+let PATIENT_PHONE;
+let DOCTOR_PHONE;
 
 let investigationId;
 
 async function cleanup() {
   if (investigationId) {
+    const immutableEvidence = await prisma.$queryRawUnsafe(
+      `SELECT 1
+         FROM diagnostic_result_generations
+        WHERE tenant_id = $1::uuid
+          AND investigation_id = $2::integer
+        LIMIT 1`,
+      DEFAULT_TENANT_ID,
+      investigationId,
+    ).catch(() => []);
+    if (immutableEvidence.length > 0) {
+      investigationId = null;
+      return;
+    }
     await prisma.$executeRawUnsafe(
       `DELETE FROM notification_outbox
         WHERE payload->>'investigation_id' = $1::text`,
@@ -71,12 +83,23 @@ async function cleanup() {
       'DELETE FROM investigations WHERE id = $1::int',
       investigationId,
     ).catch(() => {});
+    investigationId = null;
   }
-  await prisma.$executeRawUnsafe(
-    'DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)',
-    PATIENT_UID,
-    DOCTOR_UID,
-  ).catch(() => {});
+  if (PATIENT_UID && DOCTOR_UID) {
+    await prisma.$executeRawUnsafe(
+      'DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)',
+      PATIENT_UID,
+      DOCTOR_UID,
+    ).catch(() => {});
+  }
+}
+
+function resetIdentity() {
+  PATIENT_UID = randomUUID();
+  DOCTOR_UID = randomUUID();
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 9);
+  PATIENT_PHONE = `8${String(parseInt(suffix, 16) % 1_000_000_000).padStart(9, '0')}`;
+  DOCTOR_PHONE = `7${String((parseInt(suffix, 16) + 1) % 1_000_000_000).padStart(9, '0')}`;
 }
 
 async function seedInvestigation() {
@@ -115,6 +138,7 @@ d('investigation critical-result transaction atomicity', () => {
     notificationFault.enabled = false;
     notificationFault.hit = false;
     await cleanup();
+    resetIdentity();
     await seedInvestigation();
   });
 
@@ -214,7 +238,7 @@ d('investigation critical-result transaction atomicity', () => {
     });
   }, 30_000);
 
-  it('commits the critical result and task rails when the post-commit notification insert fails', async () => {
+  it('commits the critical result and task rails without notifying for an unsupported release source', async () => {
     notificationFault.enabled = true;
 
     await expect(addResults(
@@ -231,7 +255,7 @@ d('investigation critical-result transaction atomicity', () => {
       'DOCTOR',
     )).resolves.toMatchObject({ status: 'COMPLETED', result_version: 1 });
 
-    expect(notificationFault.hit).toBe(true);
+    expect(notificationFault.hit).toBe(false);
     const timelineKey = `investigations:${investigationId}:result:v1`;
     const auditKey = `investigations:${investigationId}:audit:result:v1`;
     const rows = await prisma.$queryRawUnsafe(

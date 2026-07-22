@@ -9,6 +9,7 @@ const queryRawMock = jest.fn();
 const enqueueCriticalResultTaskMock = jest.fn();
 const ensureCriticalResultTaskOpenMock = jest.fn();
 const notificationQueueMock = jest.fn();
+const createSharedInvestigationGenerationTxMock = jest.fn();
 let transactionCommitted = false;
 const setTenantTxMock = jest.fn(async (_tenantId, fn) => {
   const result = await fn(__prismaDefaultMock);
@@ -30,16 +31,33 @@ const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawMock,
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: __prismaDefaultMock,
   setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
+  isTenantTransactionClient: () => true,
 }));
 
 const recordCanonicalClinicalEventMock = jest.fn();
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+  recordClinicalAuditEvent: jest.fn().mockResolvedValue(null),
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
+}));
+
+jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  resolveCurrentHumanActorTx: jest.fn(async ({
+    actorUid,
+    authenticatedPrimaryRole,
+    authenticatedRawRole,
+  }) => ({
+    uid: actorUid,
+    role: authenticatedPrimaryRole,
+    queueRole: authenticatedPrimaryRole,
+    rawRole: authenticatedRawRole || authenticatedPrimaryRole,
+  })),
 }));
 
 jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => ({
@@ -49,6 +67,10 @@ jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => 
 
 jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
   default: { queue: notificationQueueMock },
+}));
+
+jest.unstable_mockModule('../../services/diagnostics/diagnosticResultGenerationService.js', () => ({
+  createSharedInvestigationGenerationTx: createSharedInvestigationGenerationTxMock,
 }));
 
 const {
@@ -77,6 +99,11 @@ beforeEach(() => {
   enqueueCriticalResultTaskMock.mockReset().mockResolvedValue({ created: true, taskId: 1 });
   ensureCriticalResultTaskOpenMock.mockReset().mockResolvedValue({ created: true, taskId: 2 });
   notificationQueueMock.mockReset().mockResolvedValue({ id: 9, status: 'PENDING' });
+  createSharedInvestigationGenerationTxMock.mockReset().mockResolvedValue({
+    id: '22222222-2222-4222-8222-222222222222',
+    classification: 'indeterminate',
+    snapshot_sha256: 'a'.repeat(64),
+  });
   recordCanonicalClinicalEventMock.mockReset().mockResolvedValue({
     timeline: { id: 'timeline-1' },
     audit: { id: 'audit-1' },
@@ -171,7 +198,7 @@ describe('investigationService critical-result task routing', () => {
     };
   }
 
-  it('queues the captured patient notification only after the clinical transaction resolves', async () => {
+  it('does not notify the patient when a generic investigation source has no release policy', async () => {
     findUniqueMock.mockResolvedValueOnce({
       id: 51,
       results: null,
@@ -186,11 +213,6 @@ describe('investigationService critical-result task routing', () => {
       resultSummary: 'Potassium: 4.2',
       patient: { id: 7, name: 'Patient One', phone: '9876543210' },
     }));
-    notificationQueueMock.mockImplementationOnce(async () => {
-      expect(transactionCommitted).toBe(true);
-      return { id: 9, status: 'PENDING' };
-    });
-
     const result = await addResults(
       51,
       { results: normalResults },
@@ -201,14 +223,7 @@ describe('investigationService critical-result task routing', () => {
 
     expect(result).toMatchObject({ id: 51, status: 'COMPLETED' });
     expect(result).not.toHaveProperty('users_investigations_patient_idTousers');
-    expect(notificationQueueMock).toHaveBeenCalledWith({
-      type: 'lab_result_ready',
-      recipientId: 7,
-      recipientPhone: '9876543210',
-      title: 'Lab result is ready',
-      body: 'Hi Patient One, your Serum Potassium result is ready. Open the app to view.',
-      data: { investigation_id: 51, test_name: 'Serum Potassium' },
-    });
+    expect(notificationQueueMock).not.toHaveBeenCalled();
   });
 
   it('keeps a successful critical result and its task rails when post-commit notification enqueue fails', async () => {
@@ -228,11 +243,6 @@ describe('investigationService critical-result task routing', () => {
       expect(transactionCommitted).toBe(false);
       return { created: true, taskId: 1 };
     });
-    notificationQueueMock.mockImplementationOnce(async () => {
-      expect(transactionCommitted).toBe(true);
-      return null;
-    });
-
     await expect(addResults(
       51,
       { results: criticalResults },
@@ -244,7 +254,7 @@ describe('investigationService critical-result task routing', () => {
     expect(transactionCommitted).toBe(true);
     expect(recordCanonicalClinicalEventMock).toHaveBeenCalledTimes(1);
     expect(enqueueCriticalResultTaskMock).toHaveBeenCalledTimes(1);
-    expect(notificationQueueMock).toHaveBeenCalledTimes(1);
+    expect(notificationQueueMock).not.toHaveBeenCalled();
   });
 
   it('uses plain enqueue only for the initial critical result', async () => {
@@ -334,7 +344,7 @@ describe('investigationService critical-result task routing', () => {
 
     expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        eventType: 'investigation.result_ready',
+        eventType: 'investigation.result_recorded',
         payload: expect.objectContaining({ critical: false }),
       }),
       { db: __prismaDefaultMock },

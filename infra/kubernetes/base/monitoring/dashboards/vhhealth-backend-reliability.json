@@ -112,6 +112,77 @@
           "expr": "max(db_read_replica_lag_seconds)"
         }
       ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "event_outbox leases (processing/stale)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "expr": "max(event_outbox_processing_rows)",
+          "legendFormat": "processing"
+        },
+        {
+          "expr": "max(event_outbox_stale_processing_rows)",
+          "legendFormat": "stale"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "webhook leases (in-flight/stale)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "targets": [
+        {
+          "expr": "max(webhook_deliveries_in_flight_rows)",
+          "legendFormat": "in-flight"
+        },
+        {
+          "expr": "max(webhook_deliveries_stale_in_flight_rows)",
+          "legendFormat": "stale"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "webhook deliveries parked by gates",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "targets": [
+        {
+          "expr": "max(webhook_deliveries_parked_rows)"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "outbox stale leases reaped",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "targets": [
+        {
+          "expr": "sum(rate(event_outbox_stale_lease_reaped_total[15m]))",
+          "legendFormat": "source"
+        },
+        {
+          "expr": "sum(rate(webhook_deliveries_stale_lease_reaped_total[15m]))",
+          "legendFormat": "webhook"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "audited operator redrives",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "targets": [
+        {
+          "expr": "sum by (queue)(increase(outbox_operator_redrive_total[1h]))",
+          "legendFormat": "{{queue}}"
+        }
+      ]
     }
   ]
 }

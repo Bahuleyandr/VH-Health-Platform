@@ -124,6 +124,47 @@ async function openTasksFor(resultId) {
 }
 
 async function signOff(ids, decision, patientUid) {
+  if (decision === 'corrected' || decision === 'amended') {
+    await setTenantTx(TENANT, async (tx) => {
+      const predecessors = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM lab_pathologist_signoffs
+          WHERE tenant_id = $1::uuid
+            AND result_ids = $2::int[]
+            AND decision IN ('verified', 'corrected', 'amended')
+          LIMIT 1`,
+        TENANT,
+        ids,
+      );
+      if (predecessors.length === 0) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO lab_pathologist_signoffs
+             (tenant_id, patient_uid, result_ids, signed_off_by, decision, comments, signed_at)
+           VALUES ($1::uuid, $2::uuid, $3::int[], $4::uuid, 'verified',
+                   'S2a fixture predecessor generation', NOW() - INTERVAL '1 second')`,
+          TENANT,
+          patientUid,
+          ids,
+          PATHOLOGIST_UID,
+        );
+      }
+      await tx.$executeRawUnsafe(
+        `UPDATE lab_results
+            SET status = CASE
+                           WHEN signed_off_at IS NULL THEN 'final'
+                           ELSE status
+                         END,
+                signed_off_at = COALESCE(signed_off_at, NOW() - INTERVAL '1 second'),
+                signed_off_by = COALESCE(signed_off_by, $1::uuid),
+                updated_at = clock_timestamp()
+          WHERE tenant_id = $2::uuid
+            AND id = ANY($3::int[])`,
+        PATHOLOGIST_UID,
+        TENANT,
+        ids,
+      );
+    });
+  }
   return labResults.signOffResults({
     tenantId: TENANT,
     signed_off_by: PATHOLOGIST_UID,
@@ -205,6 +246,40 @@ async function cleanup() {
           AND result_id = ANY($2::int[])`,
       TENANT,
       scopedResultIds,
+    );
+    const diagnosticGenerationRows = await tx.$queryRawUnsafe(
+      `SELECT DISTINCT generation.id
+         FROM diagnostic_result_generations AS generation
+         JOIN diagnostic_result_generation_items AS item
+           ON item.tenant_id = generation.tenant_id
+          AND item.generation_id = generation.id
+        WHERE generation.tenant_id = $1::uuid
+          AND item.source_table = 'lab_results'
+          AND item.source_row_id = ANY($2::text[])`,
+      TENANT,
+      scopedResultIdTexts,
+    );
+    const diagnosticGenerationIds = diagnosticGenerationRows.map((row) => row.id);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_actions
+        WHERE tenant_id = $1::uuid
+          AND generation_id = ANY($2::uuid[])`,
+      TENANT,
+      diagnosticGenerationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_generation_items
+        WHERE tenant_id = $1::uuid
+          AND generation_id = ANY($2::uuid[])`,
+      TENANT,
+      diagnosticGenerationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_generations
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::uuid[])`,
+      TENANT,
+      diagnosticGenerationIds,
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM task_comments
@@ -579,14 +654,13 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       expect(prior.prior_ack_contract_version).toBe(2);
     });
 
-    it('re-notifies the patient that the result was corrected', async () => {
+    it('does not announce a corrected result before its release policy permits visibility', async () => {
       const notifs = await prisma.$queryRawUnsafe(
         `SELECT title, body, data FROM notifications
           WHERE uid = $1::uuid AND type = 'lab_result_corrected'`,
         PATIENT_A_UID,
       );
-      expect(notifs.length).toBeGreaterThanOrEqual(1);
-      expect(notifs[0].body).toMatch(/correct/i);
+      expect(notifs).toHaveLength(0);
     });
   });
 
@@ -1481,7 +1555,7 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       expect(completedSla[0].completed_at).toBeTruthy();
     }, 30_000);
 
-    it('preserves shipped PR #587 high-to-normal reack behavior pending D4/D5', async () => {
+    it('hands a high-to-noncritical correction to its immutable diagnostic generation', async () => {
       const invId = await insertInvestigation(PATIENT_B_UID);
       const { result, alerts } = await recordManualResult({
         tenantId: TENANT,
@@ -1510,39 +1584,71 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       await signOff([result.id], 'corrected', PATIENT_B_UID);
 
       const currentRows = await prisma.$queryRawUnsafe(
-        `SELECT id, value_text, value_numeric, threshold_breached, threshold_value,
-                generation_metadata
-           FROM lab_critical_alerts
-          WHERE tenant_id = $1::uuid AND result_id = $2::int
-          ORDER BY id DESC
+        `SELECT alert.id, alert.value_text, alert.value_numeric,
+                alert.threshold_breached, alert.threshold_value,
+                alert.superseded_at,
+                alert.superseded_by_diagnostic_generation_id,
+                generation.classification AS diagnostic_classification
+           FROM lab_critical_alerts AS alert
+           JOIN diagnostic_result_generations AS generation
+             ON generation.tenant_id = alert.tenant_id
+            AND generation.id = alert.superseded_by_diagnostic_generation_id
+          WHERE alert.tenant_id = $1::uuid AND alert.result_id = $2::int
+          ORDER BY alert.id DESC
           LIMIT 1`,
         TENANT,
         result.id,
       );
       expect(currentRows[0]).toMatchObject({
-        value_text: '4.0',
-        threshold_breached: null,
-        threshold_value: null,
+        value_text: '8.2',
+        threshold_breached: 'high',
+        diagnostic_classification: 'indeterminate',
       });
-      expect(Number(currentRows[0].value_numeric)).toBe(4);
-      expect(currentRows[0].generation_metadata).toMatchObject({
-        corrected_state: 'within_active_critical_thresholds',
-        prior_threshold_breached: 'high',
-        active_threshold_low: 2.5,
-        active_threshold_high: 6,
-      });
+      expect(Number(currentRows[0].value_numeric)).toBe(8.2);
+      expect(currentRows[0].superseded_at).toBeTruthy();
+      expect(currentRows[0].superseded_by_diagnostic_generation_id).toBeTruthy();
 
       const tasks = await openTasksFor(result.id);
-      expect(tasks).toHaveLength(2);
-      const currentTask = tasks.find((task) => task.status === 'open');
-      expect(currentTask).toMatchObject({
-        status: 'open',
-        title: 'Corrected lab result review: Potassium [test]',
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toMatchObject({
+        status: 'completed',
         metadata: {
-          lab_alert_generation_state: 'within_active_critical_thresholds',
+          supersession_reason: 'diagnostic_generation_noncritical_correction',
+          superseded_by_diagnostic_generation_id:
+            currentRows[0].superseded_by_diagnostic_generation_id,
         },
       });
-      expect(currentTask.description).toMatch(/does not breach the active critical thresholds/i);
+      const slaRows = await prisma.$queryRawUnsafe(
+        `SELECT status, completed_at, metadata
+           FROM workflow_sla_instances
+          WHERE tenant_id = $1::uuid
+            AND id = $2::uuid`,
+        TENANT,
+        tasks[0].workflow_sla_instance_id,
+      );
+      expect(slaRows[0]).toMatchObject({
+        status: 'completed',
+        metadata: {
+          supersession_reason: 'diagnostic_generation_noncritical_correction',
+          superseded_by_diagnostic_generation_id:
+            currentRows[0].superseded_by_diagnostic_generation_id,
+        },
+      });
+      expect(slaRows[0].completed_at).toBeTruthy();
+      const receipts = await prisma.$queryRawUnsafe(
+        `SELECT outcome, source
+           FROM lab_critical_alert_reconciliation_receipts
+          WHERE tenant_id = $1::uuid
+            AND result_id = $2::integer
+          ORDER BY id DESC
+          LIMIT 1`,
+        TENANT,
+        result.id,
+      );
+      expect(receipts).toEqual([{
+        outcome: 'within_active_critical_thresholds',
+        source: 'diagnostic_generation_supersession',
+      }]);
     });
 
     it('re-evaluates a high-to-low correction against the current low threshold', async () => {
@@ -1609,14 +1715,13 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
   });
 
   // ── Scenario C — patient re-notify honors the release policy ─────────
-  // A row a clinician explicitly held from the patient (migration 294,
-  // portalAccessService) must NOT be announced; the non-held row in the
-  // same corrected batch must be.
+  // Whole-panel release is authoritative: one held row suppresses the
+  // corrected-result announcement for the entire episode.
   describe('corrected sign-off notifies only per the release policy', () => {
     let heldId;
     let plainId;
 
-    it('notifies for the released row and never references the held row', async () => {
+    it('does not announce a panel while any corrected row is held', async () => {
       const invId = await insertInvestigation(PATIENT_C_UID);
       heldId = await insertRawResult(PATIENT_C_UID, invId, '4.2', { releaseHold: true });
       plainId = await insertRawResult(PATIENT_C_UID, invId, '4.4');
@@ -1628,19 +1733,19 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
           WHERE uid = $1::uuid AND type = 'lab_result_corrected'`,
         PATIENT_C_UID,
       );
-      expect(notifs.length).toBe(1);
-      const notifiedIds = notifs[0].data?.result_ids || [];
-      expect(notifiedIds).toContain(plainId);
-      expect(notifiedIds).not.toContain(heldId);
+      expect(notifs).toHaveLength(0);
     });
   });
 
   // ── Regression guard — rejected sign-off stays inert ─────────────────
-  it('a rejected sign-off does not fire the corrected-result loop', async () => {
+  it('rejects a non-sign-off decision without firing the corrected-result loop', async () => {
     const invId = await insertInvestigation(PATIENT_C_UID);
     const rid = await insertRawResult(PATIENT_C_UID, invId, '7.9');
 
-    await signOff([rid], 'rejected', PATIENT_C_UID);
+    await expect(signOff([rid], 'rejected', PATIENT_C_UID)).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_SIGNOFF_DECISION_UNSUPPORTED',
+    });
 
     expect((await openTasksFor(rid)).length).toBe(0);
     const rows = await prisma.$queryRawUnsafe(

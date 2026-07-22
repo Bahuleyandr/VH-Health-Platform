@@ -35,6 +35,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   prismaReadOnly: { $queryRawUnsafe: queryRawUnsafeMock },
   setTenantTx: async (_t, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
   setTenant: async (_t, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
+  isTenantTransactionClient: () => true,
 }));
 // tenantContext is imported by scheduler.js at module load.
 jest.unstable_mockModule('../../lib/tenantContext.js', () => ({

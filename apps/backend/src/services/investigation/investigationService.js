@@ -17,6 +17,9 @@ import {
   enqueueCriticalResultTask,
   ensureCriticalResultTaskOpen,
 } from '../results/resultsInboxService.js';
+import { getResultEpisodeReleaseDecision } from '../portal/portalAccessService.js';
+import { resolveCurrentHumanActorTx } from '../workflow/workflowHumanOwnerService.js';
+import { createSharedInvestigationGenerationTx } from '../diagnostics/diagnosticResultGenerationService.js';
 
 // Relation names Prisma generates for the two FKs pointing at `users`
 // (migration 082 declared both). Verbose because Prisma has to disambiguate
@@ -190,6 +193,113 @@ function flattenRelations(row, fields = {}) {
   return flat;
 }
 
+async function getDiagnosticReviewContextForInvestigation({
+  tenantId,
+  investigationId,
+  actorUid,
+}) {
+  const tid = requireTenantId(tenantId);
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT generation.id AS generation_id,
+              generation.classification,
+              generation.snapshot_sha256,
+              generation.source_version,
+              generation.predecessor_generation_id,
+              generation.owner_source,
+              generation.ordering_owner_uid,
+              generation.signed_at,
+              pathway.id AS pathway_instance_id,
+              pathway.clinical_status AS pathway_status,
+              pathway.owning_clinician_uid AS pathway_owner_uid,
+              pathway.accountable_role,
+              closure.id AS normal_auto_closed_action_id,
+              reopened.id AS latest_reopened_action_id
+         FROM diagnostic_result_generations AS generation
+         LEFT JOIN LATERAL (
+           SELECT instance.id, instance.clinical_status,
+                  instance.owning_clinician_uid, instance.accountable_role
+             FROM care_pathway_instances AS instance
+            WHERE instance.tenant_id = generation.tenant_id
+              AND instance.pathway_key = 'diagnostics_order_to_action'
+              AND instance.source_episode_type = 'diagnostic_result_generation'
+              AND instance.source_episode_id = generation.id::text
+            ORDER BY instance.created_at DESC, instance.id DESC
+            LIMIT 1
+         ) AS pathway ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT action.id
+             FROM diagnostic_result_actions AS action
+            WHERE action.tenant_id = generation.tenant_id
+              AND action.generation_id = generation.id
+              AND action.action_kind = 'normal_auto_closed'
+            ORDER BY action.created_at DESC, action.id DESC
+            LIMIT 1
+         ) AS closure ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT action.id
+             FROM diagnostic_result_actions AS action
+            WHERE action.tenant_id = generation.tenant_id
+              AND action.generation_id = generation.id
+              AND action.action_kind = 'doctor_reopened'
+            ORDER BY action.created_at DESC, action.id DESC
+            LIMIT 1
+         ) AS reopened ON TRUE
+        WHERE generation.tenant_id = $1::uuid
+          AND generation.investigation_id = $2::integer
+          AND NOT EXISTS (
+            SELECT 1
+              FROM diagnostic_result_generations AS successor
+             WHERE successor.tenant_id = generation.tenant_id
+               AND successor.predecessor_generation_id = generation.id
+          )
+        ORDER BY generation.source_version DESC, generation.created_at DESC
+        LIMIT 1`,
+      tid,
+      Number(investigationId),
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const pathwayOwnerUid = String(row.pathway_owner_uid || '').toLowerCase();
+    const callerUid = String(actorUid || '').trim().toLowerCase();
+    return {
+      generation_id: String(row.generation_id),
+      classification: row.classification,
+      snapshot_sha256: row.snapshot_sha256,
+      source_version: Number(row.source_version),
+      predecessor_generation_id: row.predecessor_generation_id
+        ? String(row.predecessor_generation_id)
+        : null,
+      is_correction: Boolean(row.predecessor_generation_id),
+      owner_source: row.owner_source,
+      ordering_owner_uid: row.ordering_owner_uid
+        ? String(row.ordering_owner_uid)
+        : null,
+      signed_at: row.signed_at,
+      pathway_instance_id: row.pathway_instance_id
+        ? String(row.pathway_instance_id)
+        : null,
+      pathway_status: row.pathway_status || null,
+      pathway_owner_uid: row.pathway_owner_uid
+        ? String(row.pathway_owner_uid)
+        : null,
+      accountable_role: row.accountable_role || null,
+      normal_auto_closed_action_id: row.normal_auto_closed_action_id
+        ? String(row.normal_auto_closed_action_id)
+        : null,
+      latest_reopened_action_id: row.latest_reopened_action_id
+        ? String(row.latest_reopened_action_id)
+        : null,
+      can_reopen: row.classification === 'normal'
+        && row.pathway_status === 'completed'
+        && Boolean(row.normal_auto_closed_action_id)
+        && !row.latest_reopened_action_id
+        && Boolean(callerUid)
+        && pathwayOwnerUid === callerUid,
+    };
+  });
+}
+
 // Get investigations with filtering
 export const getInvestigations = async (page, limit, filters, userRole, userId, sort = {}) => {
   const offset = (page - 1) * limit;
@@ -329,14 +439,15 @@ export const getInvestigations = async (page, limit, filters, userRole, userId, 
 };
 
 // Get single investigation by ID
-export const getInvestigationById = async (id, userRole, userId) => {
-  const where = { id: parseInt(id) };
+export const getInvestigationById = async (id, userRole, userId, tenantId) => {
+  const tid = requireTenantId(tenantId);
+  const where = { id: parseInt(id), tenant_id: tid };
 
   // Patients can only view their own investigations — scope by patient_id
   // rather than filtering after the read.
   if (userRole === 'PATIENT') {
     const users = await prisma.users.findUnique({
-      where: { uid: userId },
+      where: { uid: userId, tenant_id: tid },
       select: { id: true },
     });
     if (!users) {
@@ -370,6 +481,24 @@ export const getInvestigationById = async (id, userRole, userId) => {
   if (userRole === 'PATIENT') {
     delete flat.doctor_phone;
     delete flat.doctor_email;
+    const decision = await getResultEpisodeReleaseDecision({
+      tenantId: tid,
+      patientUid: userId,
+      investigationId: row.id,
+    });
+    if (decision.outcome !== 'visible') {
+      for (const field of [
+        'results', 'structured_results', 'interpretation', 'result_summary',
+        'conclusion', 'notes', 'file_key', 'result_uploaded_at',
+        'verified_at', 'verified_by', 'previous_results',
+      ]) delete flat[field];
+    }
+  } else {
+    flat.diagnostic_review = await getDiagnosticReviewContextForInvestigation({
+      tenantId: tid,
+      investigationId: row.id,
+      actorUid: userId,
+    });
   }
 
   return flat;
@@ -756,8 +885,15 @@ function elevatePanicFlags(results) {
 // the per-version re_run_reason to reconstruct the full timeline.
 // Finding:
 // 2026-05-08-lab-walk-in-lab-tech-results-overwrite-no-history.
-export const addResults = async (id, resultData, userId, tenantId = null, actorRole = null) => {
-  const { results, interpretation, reviewed_by, re_run, re_run_reason } = resultData;
+export const addResults = async (
+  id,
+  resultData,
+  userId,
+  tenantId = null,
+  actorRole = null,
+  actorContext = {},
+) => {
+  const { results, interpretation, re_run, re_run_reason } = resultData;
 
   const investId = parseInt(id, 10);
   if (!Number.isInteger(investId)) return null;
@@ -767,6 +903,17 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
   // Use a transaction so a partial fail leaves the row intact.
   try {
     const committed = await setTenantTx(tid, async (tx) => {
+      const actor = await resolveCurrentHumanActorTx({
+        tx,
+        tenantId: tid,
+        actorUid: userId,
+        authenticatedRoles: actorContext.actorRoles?.length
+          ? actorContext.actorRoles
+          : [actorRole],
+        authenticatedPrimaryRole: actorRole,
+        authenticatedRawRole: actorContext.actorRawRole || actorRole,
+        rolePredicate: (role) => LAB_STAFF_ROLES.includes(role),
+      });
       const existing = await tx.investigations.findUnique({
         where: { id: investId },
         select: {
@@ -806,7 +953,7 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
             status: existing.status ?? null,
             completed_at: existing.completed_at ?? null,
             superseded_at: now.toISOString(),
-            superseded_by: userId ?? null,
+            superseded_by: actor.uid,
             re_run_reason: re_run_reason.trim(),
             version: existing.result_version ?? 1,
           },
@@ -870,7 +1017,7 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
         completed_at: now,
         result_uploaded_at: now,
         verified_at: now,
-        verified_by: reviewed_by || userId || null,
+        verified_by: actor.uid,
         result_summary: resultSummary,
         previous_results: priorHistory.length ? priorHistory : null,
         // Coerce to Number — Prisma sometimes returns BigInt for Int
@@ -906,31 +1053,40 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
         users_investigations_patient_idTousers: patient,
         ...updatedInvestigation
       } = updated;
-      const notificationPayload = patient?.phone ? {
+      const releaseDecision = await getResultEpisodeReleaseDecision({
+        tenantId: tid,
+        patientUid: updatedInvestigation.patient_uid,
+        investigationId: updatedInvestigation.id,
+        db: tx,
+      });
+      const notificationPayload = patient?.phone && releaseDecision.outcome === 'visible' ? {
         type: 'lab_result_ready',
         recipientId: patient.id,
         recipientPhone: patient.phone,
-        title: 'Lab result is ready',
-        body: `Hi ${patient.name || ''}, your ${updatedInvestigation.test_name} result is ready. Open the app to view.`,
-        data: {
-          investigation_id: updatedInvestigation.id,
-          test_name: updatedInvestigation.test_name,
-        },
+        title: 'Lab results ready',
+        body: 'Your lab results are ready to view.',
+        data: { investigation_id: updatedInvestigation.id },
       } : null;
       const critical = hasCriticalResultSignal(updatedInvestigation.results);
+      const diagnosticGeneration = await createSharedInvestigationGenerationTx({
+        tx,
+        tenantId: tid,
+        investigation: updatedInvestigation,
+        signerRole: actor.rawRole,
+      });
       await recordRequiredInvestigationEvent({
           tenantId: requireTenantId(tenantId),
           patientUid: updatedInvestigation.patient_uid,
-          eventType: critical ? 'investigation.result_critical' : 'investigation.result_ready',
+          eventType: critical ? 'investigation.result_critical' : 'investigation.result_recorded',
           eventSubtype: updatedInvestigation.test_type,
           eventStatus: updatedInvestigation.status,
           sourceTable: 'investigations',
           sourceId: updatedInvestigation.id,
           resourceType: 'investigation',
           resourceId: updatedInvestigation.id,
-          actorUid: reviewed_by || userId || null,
-          actorRole,
-          summary: `${updatedInvestigation.test_name} result ${critical ? 'critical' : 'ready'}`,
+          actorUid: actor.uid,
+          actorRole: actor.rawRole,
+          summary: `${updatedInvestigation.test_name} result ${critical ? 'critical' : 'recorded'}`,
           payload: {
             test_name: updatedInvestigation.test_name,
             test_type: updatedInvestigation.test_type,
@@ -975,7 +1131,7 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
             orderingClinicianUid: updatedInvestigation.requested_by || null,
             ...(isReSubmit ? {
               reason: 'investigation_result_rerun',
-              supersededByActorUid: userId,
+              supersededByActorUid: actor.uid,
             } : {}),
           },
         };
@@ -988,7 +1144,15 @@ export const addResults = async (id, resultData, userId, tenantId = null, actorR
           strict: true,
         });
       }
-      return { updatedInvestigation, notificationPayload };
+      return {
+        updatedInvestigation: {
+          ...updatedInvestigation,
+          diagnostic_generation_id: diagnosticGeneration.id,
+          diagnostic_classification: diagnosticGeneration.classification,
+          diagnostic_generation_snapshot_sha256: diagnosticGeneration.snapshot_sha256,
+        },
+        notificationPayload,
+      };
     });
     if (!committed) return null;
 

@@ -5,6 +5,8 @@
 // fires critical alerts based on lab_critical_thresholds, and exposes
 // the pathologist sign-off workflow.
 
+import crypto from 'node:crypto';
+
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { parseHL7 } from '../hl7/hl7Parser.js';
@@ -20,7 +22,10 @@ import { emitCriticalLabAlertAcknowledged } from '../clinical/canonicalOperation
 // A CRITICAL lab result, its alert, exact acknowledgement task/SLA, and
 // canonical evidence are one clinical transaction. Only outward notification
 // and realtime fan-out remain post-commit best-effort work.
-import { materializeLabCriticalAlertGeneration } from './labCriticalAlertService.js';
+import {
+  materializeLabCriticalAlertGeneration,
+  supersedeCriticalAlertWithDiagnosticGenerationTx,
+} from './labCriticalAlertService.js';
 import {
   assertConfiguredCriticalAnalytesNumeric,
   evaluateCriticalThreshold,
@@ -37,6 +42,16 @@ import {
   acknowledgeLabCriticalAlertTaskFromTrustedWorkflow,
   LAB_CRITICAL_ALERT_ACK_CONTRACT_VERSION,
 } from '../workflow/taskService.js';
+import {
+  isTaskHumanOwnerRole,
+  resolveCurrentHumanActorTx,
+} from '../workflow/workflowHumanOwnerService.js';
+import { getResultEpisodeReleaseDecision } from '../portal/portalAccessService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  classifySignedLabEpisode as classifyDiagnosticLabEpisode,
+} from '../diagnostics/diagnosticClassification.js';
+import { createLabDiagnosticGenerationTx } from '../diagnostics/diagnosticResultGenerationService.js';
 
 // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
 // lab result entry and pathologist sign-off are patient-facing clinical
@@ -109,12 +124,97 @@ const RESULTABLE_BOOKING_STATUSES = new Set([
 // synonym upstream UIs use). These restart the critical-result safety loop in
 // the sign-off transaction; only transport fan-out remains post-commit.
 const CORRECTIVE_SIGNOFF_DECISIONS = new Set(['corrected', 'amended']);
+const SUPPORTED_SIGNOFF_DECISIONS = new Set(['verified', ...CORRECTIVE_SIGNOFF_DECISIONS]);
+const NORMAL_LAB_FLAGS = new Set(['N']);
+const ABNORMAL_LAB_FLAGS = new Set(['L', 'H', 'A']);
+const CRITICAL_LAB_FLAGS = new Set(['LL', 'HH', 'AA']);
+const SUPPORTED_LAB_FLAGS = new Set([
+  ...NORMAL_LAB_FLAGS,
+  ...ABNORMAL_LAB_FLAGS,
+  ...CRITICAL_LAB_FLAGS,
+]);
 const POSTGRES_INT4_MAX = 2_147_483_647;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SUPPORTED_ORU_MESSAGE_TYPES = new Set(['ORU^R01', 'ORU^R01^ORU_R01']);
 const NUMERIC_LOOKING_ORU_ORDER_ID = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
 const RESERVED_ORU_ORDER_NAMESPACE = /^(?:VHINV|VHBOOK)/i;
 const VH_INVESTIGATION_ORDER_ID = /^VHINV-([1-9]\d*)$/;
+
+function normalizeManualLabFlag(value) {
+  if (value == null || String(value).trim() === '') return null;
+  const flag = String(value).trim().toUpperCase();
+  if (!SUPPORTED_LAB_FLAGS.has(flag)) {
+    throw AppError.badRequest(
+      'abnormal_flag is not in the supported lab source vocabulary',
+      'LAB_RESULT_ABNORMAL_FLAG_UNSUPPORTED',
+    );
+  }
+  return flag;
+}
+
+export function classifySignedLabEpisode(rows) {
+  return classifyDiagnosticLabEpisode(rows);
+}
+
+function resultSnapshotHash(rows) {
+  const snapshot = rows.map((row) => ({
+    id: Number(row.id),
+    test_code: row.test_code ?? null,
+    value_text: row.value_text ?? null,
+    value_numeric: row.value_numeric == null ? null : String(row.value_numeric),
+    unit: row.unit ?? null,
+    abnormal_flag: row.abnormal_flag ?? null,
+    is_critical: row.is_critical === true,
+    status: row.status ?? null,
+    signed_off_at: row.signed_off_at?.toISOString?.() || row.signed_off_at || null,
+  }));
+  return crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+}
+
+function normalizeSignoffResultIds(resultIds) {
+  if (!Array.isArray(resultIds) || resultIds.length === 0) {
+    throw AppError.badRequest('result_ids[] is required');
+  }
+  const normalized = resultIds.map(Number);
+  if (normalized.some((id) => (
+    !Number.isSafeInteger(id) || id <= 0 || id > POSTGRES_INT4_MAX
+  ))) {
+    throw AppError.badRequest('result_ids[] must contain positive integer result ids');
+  }
+  return [...new Set(normalized)].sort((a, b) => a - b);
+}
+
+function deriveSignoffEpisode(rows) {
+  const investigationIds = new Set(
+    rows.filter((row) => row.investigation_id != null).map((row) => Number(row.investigation_id)),
+  );
+  const bookingIds = new Set(
+    rows.filter((row) => row.booking_id != null).map((row) => Number(row.booking_id)),
+  );
+  const allInvestigationLinked = rows.every((row) => row.investigation_id != null);
+  const allBookingFallback = rows.every(
+    (row) => row.investigation_id == null && row.booking_id != null,
+  );
+  if (allInvestigationLinked && investigationIds.size === 1) {
+    const id = [...investigationIds][0];
+    return { type: 'investigation', id, key: `investigation:${id}` };
+  }
+  if (allBookingFallback && bookingIds.size === 1) {
+    const id = [...bookingIds][0];
+    return { type: 'booking', id, key: `booking:${id}` };
+  }
+  if (investigationIds.size === 0 && bookingIds.size === 0) {
+    throw AppError.badRequest(
+      'Lab results must be linked to an investigation order or booking before sign-off',
+      'LAB_RESULT_ORDER_LINK_REQUIRED',
+      { result_ids: rows.map((row) => Number(row.id)) },
+    );
+  }
+  throw AppError.badRequest(
+    'All result_ids in a sign-off must belong to one source episode',
+    'LAB_SIGNOFF_MULTI_EPISODE_BATCH',
+  );
+}
 
 function oruOrderNamespaceRequired() {
   return AppError.badRequest(
@@ -1529,6 +1629,7 @@ export async function recordResultManual({
   // 2026-05-08-inpatient-admission-lab-tech-results-final-without-verification
   // 2026-05-08-inpatient-admission-lab-tech-signoff-no-pathologist-tier-check
   const sanitised = { ...result, status: 'preliminary' };
+  sanitised.abnormal_flag = normalizeManualLabFlag(sanitised.abnormal_flag);
   const numeric = asNumericOrNull(sanitised.value_text);
 
   const requestedInvestigationId = sanitised.investigation_id != null
@@ -1805,7 +1906,7 @@ export async function listPendingSignOff({ tenantId, limit = 100 }) {
 // ("results ready") and the corrected/amended sign-off ("results updated")
 // paths. Callers wrap it best-effort: a notification failure must never
 // abort a sign-off (the result rows are the canonical record).
-async function notifyPatientResultRecipients({
+export async function notifyPatientResultRecipients({
   tenantId, patientUid, type, title, patientBody, guardianBody, data,
 }) {
   const recipients = await prisma.$queryRawUnsafe(
@@ -1851,27 +1952,43 @@ async function notifyPatientResultRecipients({
   }
 }
 
-export async function signOffResults({
-  tenantId, signed_off_by, signed_off_by_role, signed_off_by_name,
-  signed_off_by_reg, result_ids, decision = 'verified', comments,
-  booking_id, patient_uid: assertedPatientUid,
+export async function resolveCurrentLabSigner({
+  tenantId,
+  actorUid,
+  actorRole,
+  actorRoles = [],
+  actorRawRole = null,
 }) {
-  if (!Array.isArray(result_ids) || !result_ids.length) {
-    throw AppError.badRequest('result_ids[] is required');
-  }
+  const tid = requireTenantId(tenantId);
+  return setTenantTx(tid, (tx) => resolveCurrentHumanActorTx({
+    tx,
+    tenantId: tid,
+    actorUid,
+    authenticatedRoles: actorRoles.length ? actorRoles : [actorRole],
+    authenticatedPrimaryRole: actorRole,
+    authenticatedRawRole: actorRawRole || actorRole,
+    rolePredicate: canSignOffLabResults,
+  }));
+}
+
+export async function signOffResults({
+  tenantId, signed_off_by, signed_off_by_role,
+  result_ids, decision = 'verified', comments,
+  booking_id, patient_uid: assertedPatientUid,
+  actorRoles = [], actorRawRole = null,
+  idempotencyKey = null, requestBodySha256 = null,
+  httpIdempotencyClaimId = null, requestId = null,
+}) {
+  const tid = requireTenantId(tenantId);
+  const ids = normalizeSignoffResultIds(result_ids);
   if (!signed_off_by) throw AppError.badRequest('signed_off_by is required');
-  // B-3 — pathologist tier check. The route layer also checks but the
-  // service guards independently in case a future caller bypasses the
-  // route (cron, internal script). Findings:
-  // 2026-05-08-inpatient-admission-lab-tech-signoff-no-pathologist-tier-check.
-  if (!canSignOffLabResults(signed_off_by_role)) {
-    throw AppError.forbidden(
-      `Lab signoff requires pathologist tier (got role=${signed_off_by_role || 'unknown'})`,
-      'PATHOLOGIST_REQUIRED',
+  const normalizedDecision = String(decision || '').trim().toLowerCase();
+  if (!SUPPORTED_SIGNOFF_DECISIONS.has(normalizedDecision)) {
+    throw AppError.badRequest(
+      'decision must be verified, corrected, or amended',
+      'LAB_SIGNOFF_DECISION_UNSUPPORTED',
     );
   }
-
-  const ids = result_ids.map(Number).filter(Boolean).sort((a, b) => a - b);
   const hasBookingAssertion = booking_id !== undefined
     && booking_id !== null
     && String(booking_id).trim() !== '';
@@ -1890,32 +2007,63 @@ export async function signOffResults({
     );
   }
 
-  // Phase 1 — the single-patient signoff record, result stamps, and canonical
-  // timeline/audit pair commit or roll back together.
-  const phaseOne = await setTenantTx(tenantId, async (tx) => {
-    if (CORRECTIVE_SIGNOFF_DECISIONS.has(decision)) {
+  const phaseOne = await setTenantTx(tid, async (tx) => {
+    const actor = await resolveCurrentHumanActorTx({
+      tx,
+      tenantId: tid,
+      actorUid: signed_off_by,
+      authenticatedRoles: actorRoles.length ? actorRoles : [signed_off_by_role],
+      authenticatedPrimaryRole: signed_off_by_role,
+      authenticatedRawRole: actorRawRole || signed_off_by_role,
+      rolePredicate: canSignOffLabResults,
+    });
+    const selected = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid, booking_id, investigation_id, loinc_code,
+              test_code, test_name, value_text, value_numeric, unit,
+              abnormal_flag, is_critical, release_hold, status, signed_off_at,
+              signed_off_by, updated_at
+         FROM lab_results
+        WHERE id = ANY($1::int[])
+          AND tenant_id = $2::uuid
+        ORDER BY id`,
+      ids, tid,
+    );
+    if (selected.length !== ids.length) {
+      throw AppError.badRequest('Some result_ids are not in this tenant');
+    }
+    const episode = deriveSignoffEpisode(selected);
+    await tx.$queryRawUnsafe(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS lock_result',
+      `${tid}:lab-signoff:${episode.key}`,
+    );
+    if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
       for (const resultId of ids) {
         await lockResultsInboxResourceTx({
           tx,
-          tenantId,
+          tenantId: tid,
           resourceType: 'lab_result',
           resourceId: String(resultId),
         });
       }
     }
-    const owned = await tx.$queryRawUnsafe(
+    const sourceColumn = episode.type === 'investigation' ? 'investigation_id' : 'booking_id';
+    const panelRows = await tx.$queryRawUnsafe(
       `SELECT id, patient_uid, booking_id, investigation_id, loinc_code,
               test_code, test_name, value_text, value_numeric, unit,
-              is_critical, release_hold
+              abnormal_flag, is_critical, release_hold, status, signed_off_at,
+              signed_off_by, updated_at
          FROM lab_results
-        WHERE id = ANY($1::int[])
-          AND tenant_id = $2::uuid
+        WHERE tenant_id = $1::uuid
+          AND ${sourceColumn} = $2::int
         ORDER BY id
         FOR UPDATE`,
-      ids, tenantId,
+      tid,
+      episode.id,
     );
+    const selectedIdSet = new Set(ids);
+    const owned = panelRows.filter((row) => selectedIdSet.has(Number(row.id)));
     if (owned.length !== ids.length) {
-      throw AppError.badRequest('Some result_ids are not in this tenant');
+      throw AppError.conflict('Selected result set changed concurrently', 'LAB_SIGNOFF_RESULT_SET_RACE');
     }
     const resultPatientUids = new Set(owned.map((row) => String(row.patient_uid).toLowerCase()));
     if (resultPatientUids.size !== 1) {
@@ -1934,16 +2082,8 @@ export async function signOffResults({
         'LAB_SIGNOFF_PATIENT_MISMATCH',
       );
     }
-    const unlinked = owned.filter((row) => row.investigation_id == null && row.booking_id == null);
-    if (unlinked.length > 0) {
-      throw AppError.badRequest(
-        'Cannot sign off lab results without investigation order or booking linkage',
-        'LAB_RESULT_ORDER_LINK_REQUIRED',
-        { result_ids: unlinked.map((row) => row.id) },
-      );
-    }
     const selectedBookingIds = new Set(
-      owned.map((row) => (row.booking_id == null ? null : Number(row.booking_id))),
+      owned.filter((row) => row.booking_id != null).map((row) => Number(row.booking_id)),
     );
     const derivedBookingId = selectedBookingIds.size === 1
       ? [...selectedBookingIds][0]
@@ -1958,161 +2098,280 @@ export async function signOffResults({
       );
     }
 
+    if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
+      if (owned.some((row) => !row.signed_off_at || !['final', 'corrected', 'verified', 'amended'].includes(String(row.status || '').toLowerCase()))) {
+        throw AppError.conflict(
+          'Corrective sign-off requires an already signed current generation',
+          'LAB_SIGNOFF_CORRECTION_PREDECESSOR_REQUIRED',
+        );
+      }
+      const predecessorRows = await tx.$queryRawUnsafe(
+        `SELECT id, signed_at, decision
+           FROM lab_pathologist_signoffs
+          WHERE tenant_id = $1::uuid
+            AND result_ids = $2::int[]
+            AND decision IN ('verified', 'corrected', 'amended')
+          ORDER BY signed_at DESC, id DESC
+          LIMIT 1
+          FOR SHARE`,
+        tid,
+        ids,
+      );
+      const predecessor = predecessorRows[0];
+      const predecessorAt = predecessor?.signed_at ? new Date(predecessor.signed_at).getTime() : NaN;
+      const changedAfterPredecessor = Number.isFinite(predecessorAt) && owned.some((row) => (
+        row.updated_at && new Date(row.updated_at).getTime() > predecessorAt
+      ));
+      if (!predecessor || !changedAfterPredecessor) {
+        throw AppError.conflict(
+          'Corrective sign-off requires a changed source generation after its predecessor',
+          'LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED',
+        );
+      }
+    } else if (owned.some((row) => row.signed_off_at || String(row.status || '').toLowerCase() !== 'preliminary')) {
+      throw AppError.conflict(
+        'Initial verified sign-off requires unsigned preliminary results',
+        'LAB_SIGNOFF_ILLEGAL_INITIAL_STATE',
+      );
+    }
+
+    const signerRows = await tx.$queryRawUnsafe(
+      `SELECT users.name,
+              (
+                SELECT credential.registration_number
+                  FROM staff_credentials AS credential
+                 WHERE credential.tenant_id = users.tenant_id
+                   AND credential.staff_uid = users.uid
+                   AND credential.status = 'active'
+                   AND credential.verified_at IS NOT NULL
+                   AND credential.registration_number IS NOT NULL
+                   AND (credential.valid_until IS NULL OR credential.valid_until >= CURRENT_DATE)
+                 ORDER BY credential.verified_at DESC, credential.id DESC
+                 LIMIT 1
+              ) AS registration_number
+         FROM users
+        WHERE users.tenant_id = $1::uuid
+          AND users.uid = $2::uuid
+        LIMIT 1`,
+      tid,
+      actor.uid,
+    );
+    const signer = signerRows[0] || {};
+
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO lab_pathologist_signoffs
         (tenant_id, booking_id, patient_uid, result_ids, signed_off_by,
          signed_off_by_name, signed_off_by_reg, decision, comments)
        VALUES ($1::uuid, $2, $3::uuid, $4::int[], $5::uuid, $6, $7, $8, $9)
        RETURNING *`,
-      tenantId,
+      tid,
       derivedBookingId,
       resultPatientUid,
-      ids, String(signed_off_by), signed_off_by_name || null,
-      signed_off_by_reg || null, decision, comments || null,
+      ids, actor.uid, signer.name || null,
+      signer.registration_number || null, normalizedDecision, comments || null,
     );
     const created = rows[0];
 
-    // Stamp signed_off on the result rows.
-    await tx.$executeRawUnsafe(
+    const stamped = await tx.$queryRawUnsafe(
       `UPDATE lab_results
           SET signed_off_at = NOW(),
-              signed_off_by = $1::uuid,
-              status = CASE WHEN $2 = 'verified' THEN 'final' ELSE status END,
-              updated_at = NOW()
-        WHERE id = ANY($3::int[]) AND tenant_id = $4::uuid`,
-      String(signed_off_by), decision, ids, tenantId,
+               signed_off_by = $1::uuid,
+               status = CASE WHEN $2 = 'verified' THEN 'final' ELSE $2 END,
+               updated_at = NOW()
+        WHERE id = ANY($3::int[])
+          AND tenant_id = $4::uuid
+          AND (
+            ($2 = 'verified' AND signed_off_at IS NULL AND LOWER(status) = 'preliminary')
+            OR ($2 IN ('corrected', 'amended') AND signed_off_at IS NOT NULL
+                AND LOWER(status) IN ('final', 'corrected', 'verified', 'amended'))
+          )
+        RETURNING id`,
+      actor.uid, normalizedDecision, ids, tid,
     );
+    if (stamped.length !== ids.length) {
+      throw AppError.conflict('Lab result sign-off state changed concurrently', 'LAB_SIGNOFF_STATE_RACE');
+    }
+
+    const correctiveAssessments = new Map();
+    if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
+      for (const result of owned) {
+        await assertConfiguredCriticalAnalytesNumeric({
+          client: tx,
+          tenantId: tid,
+          results: [result],
+        });
+        const assessment = await evaluateCriticalThreshold({
+          client: tx,
+          tenantId: tid,
+          result,
+        });
+        correctiveAssessments.set(Number(result.id), assessment);
+        await tx.$executeRawUnsafe(
+          `UPDATE lab_results
+              SET is_critical = $3::boolean,
+                  updated_at = NOW()
+            WHERE tenant_id = $1::uuid
+              AND id = $2::integer`,
+          tid,
+          Number(result.id),
+          assessment.breached === true,
+        );
+        result.is_critical = assessment.breached === true;
+      }
+    }
+
+    const signedPanel = await tx.$queryRawUnsafe(
+      `SELECT id, loinc_code, test_code, test_name, value_text, value_numeric,
+              unit, reference_range, reference_range_low, reference_range_high,
+              abnormal_flag, is_critical, status, signed_off_at
+         FROM lab_results
+        WHERE tenant_id = $1::uuid
+          AND ${sourceColumn} = $2::int
+        ORDER BY id`,
+      tid,
+      episode.id,
+    );
+    const classification = classifySignedLabEpisode(signedPanel);
+    const snapshotSha256 = resultSnapshotHash(signedPanel);
+
+    const diagnosticGeneration = await createLabDiagnosticGenerationTx({
+      tx,
+      tenantId: tid,
+      patientUid: resultPatientUid,
+      episode,
+      signoff: created,
+      signerRole: actor.rawRole,
+      panelRows: signedPanel,
+    });
 
     await recordCanonicalLabEvent({
       tx,
-      tenantId,
+      tenantId: tid,
       patientUid: resultPatientUid,
       eventType: 'lab.result_signed_off',
-      eventStatus: decision,
+      eventStatus: normalizedDecision,
       sourceTable: 'lab_pathologist_signoffs',
       resourceType: 'lab_signoff',
       resourceId: created.id,
-      actorUid: String(signed_off_by),
-      actorRole: signed_off_by_role || null,
+      actorUid: actor.uid,
+      actorRole: actor.rawRole,
       occurredAt: created.signed_at || created.created_at || null,
-      summary: `Pathologist sign-off: ${ids.length} lab result${ids.length === 1 ? '' : 's'} ${decision}`,
-      afterState: { decision, result_ids: ids },
+      summary: `Pathologist sign-off: ${ids.length} lab result${ids.length === 1 ? '' : 's'} ${normalizedDecision}`,
+      afterState: {
+        decision: normalizedDecision,
+        result_ids: ids,
+        episode_key: episode.key,
+        classification,
+        result_snapshot_sha256: snapshotSha256,
+      },
       payload: {
         signoff_id: created.id,
         result_ids: ids,
-        decision,
+        decision: normalizedDecision,
         booking_id: derivedBookingId,
+        episode_key: episode.key,
+        classification,
+        result_snapshot_sha256: snapshotSha256,
         comments: comments || null,
       },
     });
 
     const correctiveGenerations = [];
-    if (CORRECTIVE_SIGNOFF_DECISIONS.has(decision)) {
+    if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
       for (const result of owned) {
-        const generation = await createCorrectedCriticalAlertGeneration({
-          tx,
-          tenantId,
-          result,
-          decision,
-          signoffId: created.id,
-          signedOffBy: signed_off_by,
-          orderingClinicianUid: null,
-        });
+        const assessment = correctiveAssessments.get(Number(result.id));
+        const generation = assessment?.breached === true
+          ? await createCorrectedCriticalAlertGeneration({
+            tx,
+            tenantId: tid,
+            result,
+            decision: normalizedDecision,
+            signoffId: created.id,
+            signedOffBy: actor.uid,
+            orderingClinicianUid: null,
+          })
+          : await supersedeCriticalAlertWithDiagnosticGenerationTx({
+            tx,
+            tenantId: tid,
+            resultId: result.id,
+            patientUid: resultPatientUid,
+            signoffId: created.id,
+            diagnosticGenerationId: diagnosticGeneration.id,
+            supersededByActorUid: actor.uid,
+            criticality: assessment,
+          });
         correctiveGenerations.push({ resultId: Number(result.id), ...generation });
       }
     }
 
+    const signoffRow = {
+      ...created,
+      episode_key: episode.key,
+      classification,
+      result_snapshot_sha256: snapshotSha256,
+      diagnostic_generation_id: diagnosticGeneration.id,
+      diagnostic_generation_snapshot_sha256: diagnosticGeneration.snapshot_sha256,
+      receipt: {
+        idempotency_key: idempotencyKey,
+        request_body_sha256: requestBodySha256,
+      },
+    };
+    await finaliseHttpIdempotencyInTx({
+      tx,
+      claimId: httpIdempotencyClaimId,
+      responseData: signoffRow,
+      requestId,
+    });
     return {
-      signoffRow: created,
+      signoffRow,
       resultPatientUid,
       derivedBookingId,
-      correctiveRows: owned,
+      episode,
       correctiveGenerations,
     };
   });
   const {
     signoffRow,
     resultPatientUid,
-    derivedBookingId,
-    correctiveRows,
+    episode,
     correctiveGenerations,
   } = phaseOne;
-  emitLabEvent('result-signed', { tenantId });
+  emitLabEvent('result-signed', { tenantId: tid });
 
-  // Tell the patient (and the guardian, for a dependent minor) that their
-  // verified results are ready to view. Until now nothing notified the
-  // patient on sign-off — only the critical-alert path fires, and that
-  // targets the ordering clinician, so a patient whose results were
-  // finalised was never told they could view them. Best-effort: a
-  // notification failure must never abort the sign-off (the result rows are
-  // the canonical record). Guardian fan-out mirrors the dependent-minor
-  // model from migration 202 (users.guardian_user_id).
-  // Finding 2026-05-21-lab-walk-in-lab-tech-65aded1a.
-  if (decision === 'verified') {
+  if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
+    for (const generation of correctiveGenerations || []) {
+      if (generation.created) emitLabEvent('alert-fired', { tenantId: tid });
+    }
+  }
+
+  const releaseDecision = await getResultEpisodeReleaseDecision({
+    tenantId: tid,
+    patientUid: resultPatientUid,
+    investigationId: episode.type === 'investigation' ? episode.id : null,
+    bookingId: episode.type === 'booking' ? episode.id : null,
+  });
+  if (releaseDecision.outcome === 'visible') {
     try {
-      const count = ids.length;
-      const noun = count === 1 ? 'result' : 'results';
+      const corrected = CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision);
       await notifyPatientResultRecipients({
-        tenantId,
+        tenantId: tid,
         patientUid: resultPatientUid,
-        type: 'lab_result_ready',
-        title: 'Lab results ready',
-        patientBody: `Your lab ${noun} are ready to view (${count}).`,
-        guardianBody: `Lab ${noun} for your dependent are ready to view (${count}).`,
+        type: corrected ? 'lab_result_corrected' : 'lab_result_ready',
+        title: corrected ? 'Lab results updated' : 'Lab results ready',
+        patientBody: corrected
+          ? 'Your lab results have been corrected and are ready to view.'
+          : 'Your lab results are ready to view.',
+        guardianBody: corrected
+          ? 'Lab results for your dependent have been corrected and are ready to view.'
+          : 'Lab results for your dependent are ready to view.',
         data: {
-          booking_id: derivedBookingId,
-          result_ids: ids,
+          episode_type: episode.type,
+          episode_id: episode.id,
           patient_uid: resultPatientUid,
         },
       });
     } catch (e) {
-      logger.warn(`Lab result-ready notification fan-out failed: ${e?.message}`);
-    }
-  }
-
-  // Corrective sign-off, alert generation, exact task/SLA binding, result
-  // stamp, and canonical evidence committed together above. Only outward
-  // notification and realtime fan-out remain best-effort post-commit.
-  if (CORRECTIVE_SIGNOFF_DECISIONS.has(decision)) {
-    const batchRows = correctiveRows || [];
-    for (const generation of correctiveGenerations || []) {
-      if (generation.created) emitLabEvent('alert-fired', { tenantId });
-    }
-
-    // Tell the patient (and guardian) the record changed, under the
-    // portalAccessService release policy (migration 294): a row a clinician
-    // explicitly held from the patient (release_hold) is never announced.
-    // The auto-release delay / early-release timing keeps governing portal
-    // VISIBILITY exactly as it does for the verified path.
-    try {
-      const byPatient = new Map();
-      for (const r of batchRows) {
-        if (r.release_hold === true) continue;
-        const key = String(r.patient_uid);
-        if (!byPatient.has(key)) byPatient.set(key, []);
-        byPatient.get(key).push(r.id);
-      }
-      for (const [notifyPatientUid, notifyIds] of byPatient) {
-        const count = notifyIds.length;
-        const noun = count === 1 ? 'result' : 'results';
-        const verb = count === 1 ? 'has' : 'have';
-        await notifyPatientResultRecipients({
-          tenantId,
-          patientUid: notifyPatientUid,
-          type: 'lab_result_corrected',
-          title: 'Lab results updated',
-          patientBody: `Your lab ${noun} (${count}) ${verb} been corrected and re-issued. Please review the updated ${noun}.`,
-          guardianBody: `Lab ${noun} (${count}) for your dependent ${verb} been corrected and re-issued.`,
-          data: {
-            booking_id: derivedBookingId,
-            result_ids: notifyIds,
-            patient_uid: notifyPatientUid,
-            signoff_decision: decision,
-          },
-        });
-      }
-    } catch (e) {
-      logger.warn(`Corrected-signoff patient re-notify failed (sign-off stands): ${e?.message}`);
+      logger.warn(`Lab result visibility notification failed (sign-off stands): ${e?.message}`);
     }
   }
 
@@ -2123,7 +2382,7 @@ export async function signOffResults({
   // partial sign-off of a multi-analyte panel leaves it in progress. Best-
   // effort: failure must not abort the sign-off.
   // Finding: verified lab orders stay IN_PROGRESS after result.
-  if (decision === 'verified') {
+  if (normalizedDecision === 'verified') {
     try {
       const invRows = await prisma.$queryRawUnsafe(
         `SELECT DISTINCT investigation_id
@@ -2131,7 +2390,7 @@ export async function signOffResults({
           WHERE id = ANY($1::int[])
             AND tenant_id = $2::uuid
             AND investigation_id IS NOT NULL`,
-        ids, tenantId,
+        ids, tid,
       );
       for (const { investigation_id } of invRows) {
         const pending = await prisma.$queryRawUnsafe(
@@ -2141,7 +2400,7 @@ export async function signOffResults({
               AND status IS DISTINCT FROM 'final'
               AND status IS DISTINCT FROM 'corrected'
             LIMIT 1`,
-          investigation_id, tenantId,
+          investigation_id, tid,
         );
         if (pending.length === 0) {
           await prisma.$executeRawUnsafe(
@@ -2152,7 +2411,7 @@ export async function signOffResults({
               WHERE id = $1::int
                 AND tenant_id = $2::uuid
                 AND status NOT IN ('COMPLETED', 'CANCELLED')`,
-            investigation_id, tenantId,
+            investigation_id, tid,
           );
           await prisma.$executeRawUnsafe(
             `WITH linked_order AS (
@@ -2172,7 +2431,7 @@ export async function signOffResults({
                 AND co.tenant_id = $2::uuid
                 AND co.order_type = 'investigation'
                 AND co.status NOT IN ('completed', 'cancelled', 'discontinued')`,
-            investigation_id, tenantId, String(signed_off_by),
+            investigation_id, tid, String(signoffRow.signed_off_by),
           );
         }
       }
@@ -2187,7 +2446,7 @@ export async function signOffResults({
     const { emitSignedResultsOru } = await import('../hl7/hl7OutboundService.js');
     await emitSignedResultsOru({
       resultIds: ids,
-      tenantId,
+      tenantId: tid,
       patientUid: resultPatientUid,
     });
   } catch (feedErr) {
@@ -2341,6 +2600,7 @@ async function acknowledgeAlertTransition(alertId, {
   acknowledged_by_name,
   actorRoles = [],
   actorRole = null,
+  actorRawRole = null,
   breakGlassId = null,
   read_back_method,
   notes,
@@ -2354,8 +2614,8 @@ async function acknowledgeAlertTransition(alertId, {
   ) {
     throw criticalAlertAckForbidden();
   }
-  const normalizedRoles = Array.isArray(actorRoles) ? actorRoles : [actorRoles];
-  const canonicalActorRole = actorRole || normalizedRoles.find(Boolean) || null;
+  const authenticatedRoles = Array.isArray(actorRoles) ? actorRoles : [actorRoles];
+  const authenticatedPrimaryRole = actorRole || authenticatedRoles.find(Boolean) || null;
   const numericExpectedTaskId = expectedTaskId == null ? null : Number(expectedTaskId);
   if (
     numericExpectedTaskId !== null
@@ -2369,6 +2629,19 @@ async function acknowledgeAlertTransition(alertId, {
   }
 
   const result = await setTenantTx(tenantId, async (tx) => {
+    const currentActor = await resolveCurrentHumanActorTx({
+      tx,
+      tenantId,
+      actorUid: acknowledged_by,
+      authenticatedRoles,
+      authenticatedPrimaryRole,
+      authenticatedRawRole: actorRawRole || authenticatedPrimaryRole,
+      rolePredicate: isTaskHumanOwnerRole,
+    });
+    const verifiedActorUid = currentActor.uid;
+    const normalizedRoles = [currentActor.role];
+    const canonicalActorRole = currentActor.role;
+
     // Resolve only the non-PHI resource identity before taking any row lock.
     // Corrected-signoff generation creation locks in the opposite direction
     // (resource advisory lock, then prior alert row), so locking the alert
@@ -2466,7 +2739,7 @@ async function acknowledgeAlertTransition(alertId, {
           throw criticalAlertAckForbidden(alert.patient_uid);
         }
       } else if (!canReplayAcknowledgedCriticalAlert(alert, {
-        actorUid: acknowledged_by,
+        actorUid: verifiedActorUid,
         actorRoles: normalizedRoles,
       })) {
         throw criticalAlertAckForbidden(alert.patient_uid);
@@ -2501,8 +2774,10 @@ async function acknowledgeAlertTransition(alertId, {
             alertId: numericAlertId,
             resultId: alert.result_id,
             patientUid: alert.patient_uid,
-            actorUid: acknowledged_by,
+            actorUid: verifiedActorUid,
             actorRoles: normalizedRoles,
+            actorPrimaryRole: canonicalActorRole,
+            actorRawRole: currentActor.rawRole,
             breakGlassId,
             tx,
           });
@@ -2612,8 +2887,10 @@ async function acknowledgeAlertTransition(alertId, {
         alertId: numericAlertId,
         resultId: alert.result_id,
         patientUid: alert.patient_uid,
-        actorUid: acknowledged_by,
+        actorUid: verifiedActorUid,
         actorRoles: normalizedRoles,
+        actorPrimaryRole: canonicalActorRole,
+        actorRawRole: currentActor.rawRole,
         breakGlassId,
         tx,
       });
@@ -2627,7 +2904,7 @@ async function acknowledgeAlertTransition(alertId, {
     if (!durableAcknowledgedAt || Number.isNaN(Date.parse(durableAcknowledgedAt))) {
       throw new Error('Critical alert task acknowledgement has no durable timestamp');
     }
-    const durableAcknowledgedBy = acknowledged_by;
+    const durableAcknowledgedBy = verifiedActorUid;
     if (!UUID_PATTERN.test(String(durableAcknowledgedBy || ''))) {
       throw criticalAlertAckForbidden(alert.patient_uid);
     }
@@ -2822,6 +3099,7 @@ export async function acknowledgeCriticalAlertForInboxTask(taskId, {
   actorName = null,
   actorRoles = [],
   actorRole = null,
+  actorRawRole = null,
   breakGlassId = null,
   readBackMethod = null,
   notes = null,
@@ -2835,6 +3113,7 @@ export async function acknowledgeCriticalAlertForInboxTask(taskId, {
     acknowledged_by_name: actorName,
     actorRoles,
     actorRole,
+    actorRawRole,
     breakGlassId,
     read_back_method: readBackMethod,
     notes,

@@ -68,6 +68,7 @@ jest.unstable_mockModule('../../services/ai/workflowGraphRunner.js', () => ({
 const __prismaDefaultMock = { $queryRawUnsafe: jest.fn(() => Promise.resolve([])) };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
+  isTenantTransactionClient: () => true,
   prismaReadOnly: __prismaDefaultMock,
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),

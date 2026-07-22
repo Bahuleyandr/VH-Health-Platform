@@ -9,9 +9,11 @@ const FORCED_FAILURE = 'forced clinical-inbox acknowledgement write failure';
 const ctl = { failPattern: null, faultHit: false };
 
 const actualPrismaModule = await import('../lib/prisma.js');
+const actualHumanOwnerModule = await import('../services/workflow/workflowHumanOwnerService.js');
+const proxiedTransactions = new WeakMap();
 
 function acknowledgementFaultProxy(tx) {
-  return new Proxy(tx, {
+  const proxy = new Proxy(tx, {
     get(target, prop, receiver) {
       if (prop === '$queryRawUnsafe') {
         return async (sql, ...params) => {
@@ -26,6 +28,8 @@ function acknowledgementFaultProxy(tx) {
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
+  proxiedTransactions.set(proxy, tx);
+  return proxy;
 }
 
 jest.unstable_mockModule('../lib/prisma.js', () => ({
@@ -35,6 +39,13 @@ jest.unstable_mockModule('../lib/prisma.js', () => ({
     (tx) => fn(acknowledgementFaultProxy(tx)),
     options,
   ),
+}));
+jest.unstable_mockModule('../services/workflow/workflowHumanOwnerService.js', () => ({
+  ...actualHumanOwnerModule,
+  resolveCurrentHumanActorTx: (input = {}) => actualHumanOwnerModule.resolveCurrentHumanActorTx({
+    ...input,
+    tx: proxiedTransactions.get(input.tx) || input.tx,
+  }),
 }));
 
 const prisma = (await import('../lib/prisma.js')).default;
@@ -55,7 +66,7 @@ app.use(express.json());
 app.use((req, _res, next) => {
   req.id = 'clinical-inbox-ack-atomicity';
   req.tenantId = TENANT_ID;
-  req.user = { uid: ACTOR_UID, role: 'DOCTOR', roles: ['DOCTOR'] };
+  req.user = { uid: ACTOR_UID, role: 'DOCTOR', rawRole: 'DOCTOR', roles: ['DOCTOR'] };
   next();
 });
 app.use('/api/v1/clinical-inbox', clinicalInboxRoutes);

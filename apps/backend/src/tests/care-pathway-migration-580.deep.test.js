@@ -9,7 +9,7 @@ const describeIfDb = databaseUrl ? describe : describe.skip;
 const migrationSql = readFileSync(
   new URL('../migrations/580_care_pathway_execution_spine.sql', import.meta.url),
   'utf8',
-);
+).replace(/\r\n/g, '\n');
 const reconciliationStart = migrationSql.indexOf('UPDATE tasks AS task');
 const reconciliationEnd = migrationSql.indexOf(
   'DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1 FROM pg_constraint',

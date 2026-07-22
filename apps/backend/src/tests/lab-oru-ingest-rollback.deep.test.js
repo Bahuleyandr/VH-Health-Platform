@@ -8,6 +8,7 @@ let materializedBeforeFailure = null;
 let failNextCriticalMaterialization = true;
 
 jest.unstable_mockModule('../services/lab/labCriticalAlertService.js', () => ({
+  ...actualCriticalAlertService,
   materializeLabCriticalAlertGeneration: jest.fn(async (args) => {
     const outcome = await actualCriticalAlertService.materializeLabCriticalAlertGeneration(args);
     materializedBeforeFailure = outcome;

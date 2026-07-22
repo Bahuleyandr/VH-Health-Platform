@@ -41,6 +41,7 @@ const prismaMock = {
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
+  isTenantTransactionClient: () => true,
   setTenantTx: async (_tenantId, fn) => fn(prismaMock),
   setTenant: async (_tenantId, fn) => fn(prismaMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
@@ -53,7 +54,9 @@ const recordCanonicalClinicalEventMock = jest.fn(async () => ({
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
   ensureEncounterForAppointment: jest.fn(async () => null),
+  recordClinicalAuditEvent: jest.fn(),
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   readCanonicalPatientTimeline: jest.fn(async () => []),
   transitionEncounter: jest.fn(async () => null),

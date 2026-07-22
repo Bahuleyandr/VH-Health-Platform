@@ -64,7 +64,7 @@ export const addResultsValidator = [
   body('results').notEmpty().withMessage('Results are required'),
   body('interpretation').optional().trim().isLength({ max: 2000 }).withMessage('Interpretation too long'),
   body('technician_notes').optional().trim().isLength({ max: 1000 }).withMessage('Technician notes too long'),
-  body('reviewed_by').optional().isString().withMessage('Reviewed by must be a string')
+  body('reviewed_by').not().exists().withMessage('reviewed_by is server-derived and must not be supplied')
 ];
 
 export const listInvestigationsValidator = [

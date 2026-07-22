@@ -114,6 +114,8 @@ coldChainRoutes.post('/excursions/:id/acknowledge', async (req, res) => {
       id: req.params.id,
       actorUid: req.user?.uid || null,
       actorRoles: getAuthenticatedActorRoles(req.user),
+      actorPrimaryRole: req.user?.role || null,
+      actorRawRole: req.user?.rawRole || null,
     });
     return success(res, { excursion }, 'Cold-chain excursion acknowledged');
   } catch (err) {
@@ -130,6 +132,8 @@ coldChainRoutes.post('/excursions/:id/corrective-action', async (req, res) => {
       dispositionNote: req.body?.disposition_note ?? req.body?.dispositionNote,
       actorUid: req.user?.uid || null,
       actorRoles: getAuthenticatedActorRoles(req.user),
+      actorPrimaryRole: req.user?.role || null,
+      actorRawRole: req.user?.rawRole || null,
     });
     return success(res, { excursion }, 'Cold-chain corrective action recorded');
   } catch (err) {
