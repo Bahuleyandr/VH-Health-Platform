@@ -62,6 +62,8 @@ jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.
   // producer can create the assigned task without a real SLA-rule lookup; this
   // test is about vitals/news2 atomicity, not the SLA instance.
   startWorkflowSla: jest.fn(async () => ({ id: 'sla-mock' })),
+  recordClinicalAuditEvent: jest.fn(),
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
 }));
 
 const prismaModule = await import('../lib/prisma.js');

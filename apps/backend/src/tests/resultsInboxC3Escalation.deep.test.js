@@ -444,6 +444,7 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
       },
       DOCTOR_UID,
       DEFAULT_TENANT_ID,
+      'DOCTOR',
     );
     expect(updated).toBeTruthy();
     expect(updated.id).toBe(investigationId);
@@ -515,6 +516,7 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
       },
       DOCTOR_UID,
       DEFAULT_TENANT_ID,
+      'DOCTOR',
     );
 
     const rerunTasks = await prisma.$queryRawUnsafe(
@@ -572,6 +574,7 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
       },
       DOCTOR_UID,
       DEFAULT_TENANT_ID,
+      'DOCTOR',
     );
 
     const correctedTasks = await prisma.$queryRawUnsafe(
