@@ -1129,7 +1129,7 @@ describeIfDb('pathway projector event delivery (deep)', () => {
   it('rolls back a handler database write before scheduling the original row for retry', async () => {
     const consumerKey = consumerFor('handler_tx_rollback');
     const markerConsumer = consumerFor('handler_tx_marker');
-    const generation = 3;
+    const generation = 2001;
     const eventType = `test.pathway.s1a.rollback_${RUN_TOKEN}`;
     const [event] = await prepareClaimableEvents({
       consumerKey,
