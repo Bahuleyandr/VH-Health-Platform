@@ -80,7 +80,8 @@ Required fields:
 - UUID identity, tenant, pathway instance, and patient
 - closed `resource_type` allowlist:
   `appointment`, `admission`, `e_prescription`, `clinical_order`, `investigation`,
-  `radiology_order`, `referral`, `follow_up_plan`, `clinical_note`,
+  `lab_result`, `radiology_order`, `anatomical_pathology_case`,
+  `diagnostic_result_generation`, `referral`, `follow_up_plan`, `clinical_note`,
   `discharge_summary`, and `discharge_consult`
 - closed `relationship_kind`: `child_action` or `closure_evidence`
 - closed evidence state: `open`, `completed`, `ownership_accepted`, or `superseded`
