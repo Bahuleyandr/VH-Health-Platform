@@ -4,13 +4,16 @@ import {
   CANONICAL_PATHWAY_KEYS,
   CARE_PATHWAY_KEYS,
 } from './pathwayMode.js';
-import { COMMON_PATHWAY_RECONCILIATION_CHECKS } from './pathwayReconciliationChecks.js';
+import { compileDiagnosticsOrderToActionDefinition } from './diagnosticsPathwayDefinition.js';
+import {
+  COMMON_PATHWAY_RECONCILIATION_CHECKS,
+  DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS,
+} from './pathwayReconciliationChecks.js';
 
 const ID_PATTERN = /^[a-z][a-z0-9_]{0,119}$/;
 const HANDLER_VERSION_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.v[1-9][0-9]*$/;
 const SOURCE_PATTERN = /^[a-z][a-z0-9_]{0,119}$/;
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const canonicalKeySet = new Set(CANONICAL_PATHWAY_KEYS);
 const brandedRegistries = new WeakSet();
 
@@ -54,13 +57,6 @@ function exactChecksum(value, label) {
     throw new TypeError(`${label} must be a lowercase SHA-256 checksum`);
   }
   return value;
-}
-
-function exactUuid(value, label) {
-  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
-    throw new TypeError(`${label} must be a UUID`);
-  }
-  return value.toLowerCase();
 }
 
 function nonEmptyText(value, label, max = 240) {
@@ -126,11 +122,10 @@ function normalizeDomainAdapter(value, pathwayKey, knownCheckIds) {
   const descriptor = plainObject(value, `Domain adapter for ${pathwayKey}`);
   const adapterId = canonicalId(descriptor.adapterId, 'Domain adapter id');
   const adapterVersion = handlerVersion(descriptor.adapterVersion, 'Domain adapter version');
-  const governanceId = exactUuid(descriptor.governanceId, 'Domain adapter governanceId');
-  const workflowDefinitionId = positiveInteger(
-    descriptor.workflowDefinitionId,
-    'Domain adapter workflowDefinitionId',
-  );
+  const workflowKey = canonicalId(descriptor.workflowKey, 'Domain adapter workflowKey');
+  if (workflowKey !== pathwayKey) {
+    throw new TypeError(`Domain adapter ${adapterId} workflowKey must match ${pathwayKey}`);
+  }
   const definitionVersion = positiveInteger(
     descriptor.definitionVersion,
     'Domain adapter definitionVersion',
@@ -155,8 +150,7 @@ function normalizeDomainAdapter(value, pathwayKey, knownCheckIds) {
   return Object.freeze({
     adapterId,
     adapterVersion,
-    governanceId,
-    workflowDefinitionId,
+    workflowKey,
     definitionVersion,
     definitionChecksum,
     checks: Object.freeze(checks),
@@ -229,8 +223,7 @@ function normalizeProfile(value, commonChecks, allCheckIds, allRuleSourcePairs) 
   for (const entry of descriptor.domainAdapters) {
     const adapter = normalizeDomainAdapter(entry, pathwayKey, allCheckIds);
     const tuple = [
-      adapter.governanceId,
-      adapter.workflowDefinitionId,
+      adapter.workflowKey,
       adapter.definitionVersion,
       adapter.definitionChecksum,
     ].join(':');
@@ -291,8 +284,7 @@ function profileManifest(profile) {
     domain_adapters: profile.domainAdapters.map((adapter) => ({
       adapter_id: adapter.adapterId,
       adapter_version: adapter.adapterVersion,
-      governance_id: adapter.governanceId,
-      workflow_definition_id: adapter.workflowDefinitionId,
+      workflow_key: adapter.workflowKey,
       definition_version: adapter.definitionVersion,
       definition_checksum: adapter.definitionChecksum,
       checks: adapter.checks.map(checkManifest),
@@ -360,8 +352,7 @@ export function createPathwayReconciliationRegistry({
       const profile = profilesByKey.get(pathwayKey);
       if (!profile) return undefined;
       return profile.domainAdapters.find((adapter) => (
-        adapter.governanceId === String(tuple.governanceId || '').toLowerCase()
-        && adapter.workflowDefinitionId === Number(tuple.workflowDefinitionId)
+        adapter.workflowKey === pathwayKey
         && adapter.definitionVersion === Number(tuple.definitionVersion)
         && adapter.definitionChecksum === tuple.definitionChecksum
       ));
@@ -413,22 +404,36 @@ const EMERGENCY_CLOCK_EXCLUSIONS = Object.freeze([
   ownerEvidenceRef,
 })));
 
+const diagnosticsDefinition = compileDiagnosticsOrderToActionDefinition();
+const DIAGNOSTICS_ADAPTER = Object.freeze({
+  adapterId: 'diagnostics_order_to_action_v1',
+  adapterVersion: 'diagnostics.reconciliation_adapter.v1',
+  workflowKey: CARE_PATHWAY_KEYS.DIAGNOSTICS,
+  definitionVersion: diagnosticsDefinition.version,
+  definitionChecksum: diagnosticsDefinition.checksum,
+  checks: DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS,
+});
+
 const productionProfiles = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
   pathwayKey,
-  profileVersion: 1,
+  profileVersion: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS ? 2 : 1,
   commonCheckIds: COMMON_CHECK_IDS,
-  domainAdapters: [],
+  domainAdapters: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS
+    ? [DIAGNOSTICS_ADAPTER]
+    : [],
   repairDescriptors: [],
   excludedClocks: pathwayKey === CARE_PATHWAY_KEYS.EMERGENCY
     ? EMERGENCY_CLOCK_EXCLUSIONS
     : pathwayKey === CARE_PATHWAY_KEYS.INPATIENT
       ? PORTER_EXCLUSIONS
       : [],
-  blockingReason: NO_VERTICAL_ADAPTER,
+  blockingReason: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS
+    ? null
+    : NO_VERTICAL_ADAPTER,
 }));
 
 export const pathwayReconciliationRegistry = createPathwayReconciliationRegistry({
-  version: 2,
+  version: 3,
   commonChecks: COMMON_PATHWAY_RECONCILIATION_CHECKS,
   profiles: productionProfiles,
 });

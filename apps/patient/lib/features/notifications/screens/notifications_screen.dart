@@ -129,6 +129,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'collector_dispatched':
         context.push('/investigations');
         break;
+      case 'diagnostic_result_ready':
+        context.push('/portal/diagnostic-results');
+        break;
       case 'pharmacy_confirmed':
       case 'pharmacy_dispatched':
       case 'pharmacy_delivered':

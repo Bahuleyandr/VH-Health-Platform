@@ -121,6 +121,8 @@ class DeepLinkService {
       case 'LAB_RESULT_READY':
       case 'RESULTS_READY':
         return '/portal/lab-results';
+      case 'DIAGNOSTIC_RESULT_READY':
+        return '/portal/diagnostic-results';
       case 'PRESCRIPTION':
       case 'PRESCRIPTION_READY':
       case 'DOCUMENT_UPLOADED':

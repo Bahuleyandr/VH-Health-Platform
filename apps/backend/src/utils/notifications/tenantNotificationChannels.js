@@ -16,6 +16,7 @@ const TYPE_TO_PREFERENCE_KEY = new Map([
   ['engagement_campaign', 'engagement_campaign'],
   ['lab_result_ready', 'results_ready'],
   ['investigation_result_ready', 'results_ready'],
+  ['diagnostic_result_ready', 'results_ready'],
   ['result_ready', 'results_ready'],
   ['results_ready', 'results_ready'],
 ]);

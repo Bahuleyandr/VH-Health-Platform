@@ -7,7 +7,9 @@ import {
 } from '../services/pathways/pathwayReconciliationService.js';
 import {
   createPathwayReconciliationRegistry,
+  pathwayReconciliationRegistry,
 } from '../services/pathways/pathwayReconciliationRegistry.js';
+import { compileDiagnosticsOrderToActionDefinition } from '../services/pathways/diagnosticsPathwayDefinition.js';
 import {
   CANONICAL_PATHWAY_KEYS,
   CARE_PATHWAY_KEYS,
@@ -68,8 +70,7 @@ function buildRegistry(tuple, { throwFromCommon = false, version = 1 } = {}) {
       ? [{
           adapterId: 'test_diagnostics_adapter',
           adapterVersion: `test.diagnostics_adapter.v${version}`,
-          governanceId: tuple.governanceId,
-          workflowDefinitionId: tuple.workflowDefinitionId,
+          workflowKey: CARE_PATHWAY_KEYS.DIAGNOSTICS,
           definitionVersion: tuple.definitionVersion,
           definitionChecksum: tuple.definitionChecksum,
           checks: [domainCheck],
@@ -118,7 +119,7 @@ describeIfDb('care pathway reconciliation transaction', () => {
        RETURNING id`,
       [tenantId, CARE_PATHWAY_KEYS.DIAGNOSTICS],
     );
-    const definitionChecksum = 'c'.repeat(64);
+    const definitionChecksum = compileDiagnosticsOrderToActionDefinition().checksum;
     const decidedAt = new Date('2026-07-21T10:00:00.000Z');
     const approval = await client.query(
       `INSERT INTO approvals
@@ -229,6 +230,34 @@ describeIfDb('care pathway reconciliation transaction', () => {
       [tenantId, sweepId],
     );
     expect(rows.rows[0].count).toBe(1);
+  });
+
+  test('matches the production Diagnostics adapter independently of tenant-generated ids', async () => {
+    await setMode(client, tenantId, CARE_PATHWAY_KEYS.DIAGNOSTICS, 'shadow');
+    const observation = await runCarePathwayReconciliationForTenantPathway({
+      tenantId,
+      pathwayKey: CARE_PATHWAY_KEYS.DIAGNOSTICS,
+      registry: pathwayReconciliationRegistry,
+    });
+    expect(observation).toMatchObject({
+      pathway_mode: 'shadow',
+      registry_complete: true,
+      error_count: 0,
+    });
+    const persisted = await client.query(
+      `SELECT governance_count, covered_governance_count,
+              expected_check_count, executed_check_count, error_count
+         FROM care_pathway_reconciliation_checks
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      [tenantId, observation.id],
+    );
+    expect(persisted.rows[0]).toMatchObject({
+      governance_count: 1,
+      covered_governance_count: 1,
+      expected_check_count: 16,
+      executed_check_count: 16,
+      error_count: 0,
+    });
   });
 
   test('active fails closed without running checks or mutating tenant mode', async () => {

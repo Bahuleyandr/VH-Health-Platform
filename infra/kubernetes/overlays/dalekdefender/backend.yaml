@@ -75,6 +75,12 @@ spec:
             # non-bypass role before applying app.current_tenant_id.
             - name: AUTH_TENANT_RLS_TEST_ROLE
               value: vhhealth_app
+            - name: PATHWAY_PROJECTOR_SHADOW_ENABLED
+              value: "true"
+            - name: CARE_PATHWAY_RECONCILIATION_ENABLED
+              value: "true"
+            - name: CARE_PATHWAY_RECONCILIATION_REPAIR_ENABLED
+              value: "false"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

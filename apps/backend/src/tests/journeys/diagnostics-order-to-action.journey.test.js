@@ -13,6 +13,7 @@ import {
   createSharedInvestigationGenerationTx,
 } from '../../services/diagnostics/diagnosticResultGenerationService.js';
 import { runDiagnosticNormalReleaseSweep } from '../../services/diagnostics/diagnosticNormalReleaseSweepService.js';
+import { runStructuredDiagnosticPatientNotificationSweep } from '../../services/diagnostics/diagnosticResultPatientNotificationService.js';
 import {
   createPathwayActivationEvidenceCapabilityForTests,
 } from '../../services/pathways/pathwayExecutorService.js';
@@ -22,7 +23,7 @@ import {
   compileDiagnosticsOrderToActionDefinition,
 } from '../../services/pathways/diagnosticsPathwayDefinition.js';
 import { projectDiagnosticPathwayEvent } from '../../services/pathways/diagnosticPathwayProjector.js';
-import { COMMON_PATHWAY_RECONCILIATION_CHECKS } from '../../services/pathways/pathwayReconciliationChecks.js';
+import { DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS } from '../../services/pathways/pathwayReconciliationChecks.js';
 import {
   releaseResultNow,
   releaseStructuredDiagnosticResultNow,
@@ -526,7 +527,7 @@ d('diagnostic result action pathway', () => {
     const supersededSecondAck = await loadCriticalAcknowledgement(fixture, successor.id);
     expect(supersededSecondAck.task_status).toBe('completed');
     expect(supersededSecondAck.sla_completed_at).toBeTruthy();
-    const acknowledgementCheck = COMMON_PATHWAY_RECONCILIATION_CHECKS.find(
+    const acknowledgementCheck = DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS.find(
       (check) => check.id === 'diagnostic_structured_ack_evidence',
     );
     const reconciled = await setTenantTx(fixture.tenantId, (tx) => acknowledgementCheck.run({
@@ -579,6 +580,70 @@ d('diagnostic result action pathway', () => {
     expect(patientDetail.addenda).toHaveLength(2);
     expect(patientDetail).not.toHaveProperty('classification_basis');
     expect(patientDetail).not.toHaveProperty('structured_report');
+
+    await setTenantTx(fixture.tenantId, (tx) => tx.$executeRawUnsafe(
+      `UPDATE tenants
+          SET settings = jsonb_set(
+                settings,
+                '{care_pathways,diagnostic_result_notifications}',
+                '"enabled"'::jsonb,
+                TRUE
+              )
+        WHERE id = $1::uuid`,
+      fixture.tenantId,
+    ));
+    const concurrentNotificationSweeps = await Promise.all([
+      runStructuredDiagnosticPatientNotificationSweep({ tenantId: fixture.tenantId }),
+      runStructuredDiagnosticPatientNotificationSweep({ tenantId: fixture.tenantId }),
+    ]);
+    expect(concurrentNotificationSweeps).toEqual([
+      expect.objectContaining({
+        pathway_mode: 'active',
+        notifications_enabled: true,
+        errors: 0,
+      }),
+      expect.objectContaining({
+        pathway_mode: 'active',
+        notifications_enabled: true,
+        errors: 0,
+      }),
+    ]);
+    expect(concurrentNotificationSweeps.reduce((sum, row) => sum + row.queued, 0)).toBe(1);
+    await expect(runStructuredDiagnosticPatientNotificationSweep({
+      tenantId: fixture.tenantId,
+    })).resolves.toMatchObject({
+      candidates: 0,
+      queued: 0,
+    });
+    const notificationEvidence = await setTenantTx(
+      fixture.tenantId,
+      (tx) => tx.$queryRawUnsafe(
+        `SELECT receipt.generation_id, receipt.notification_kind,
+                receipt.policy_version, outbox.type, outbox.title,
+                outbox.body, outbox.payload
+           FROM diagnostic_result_patient_notifications AS receipt
+           JOIN notification_outbox AS outbox
+             ON outbox.tenant_id = receipt.tenant_id
+            AND outbox.id = receipt.notification_outbox_id
+          WHERE receipt.tenant_id = $1::uuid
+            AND receipt.generation_id = $2::uuid`,
+        fixture.tenantId,
+        corrected.diagnostic_generation.id,
+      ),
+    );
+    expect(notificationEvidence).toEqual([expect.objectContaining({
+      generation_id: corrected.diagnostic_generation.id,
+      notification_kind: 'result_ready',
+      policy_version: 'structured_diagnostic_result_ready.v1',
+      type: 'diagnostic_result_ready',
+      title: 'New report available',
+      body: 'Open VH Health to securely view your latest report.',
+      payload: {
+        tenant_id: fixture.tenantId,
+        type: 'diagnostic_result_ready',
+        route: '/portal/diagnostic-results',
+      },
+    })]);
   });
 
   it('uses explicit specialist classification in shadow mode without creating acknowledgement work', async () => {
@@ -1045,9 +1110,7 @@ d('diagnostic result action pathway', () => {
       fixture.tenantId,
       generation.id,
     ))).rejects.toThrow(/append-only/i);
-    const diagnosticChecks = COMMON_PATHWAY_RECONCILIATION_CHECKS.filter(
-      (check) => check.id.startsWith('diagnostic_'),
-    );
+    const diagnosticChecks = DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS;
     const reconciled = await setTenantTx(fixture.tenantId, async (tx) => Promise.all(
       diagnosticChecks.map((check) => check.run({
         tx,
@@ -1055,7 +1118,7 @@ d('diagnostic result action pathway', () => {
         pathwayKey: 'diagnostics_order_to_action',
       })),
     ));
-    expect(reconciled).toHaveLength(5);
+    expect(reconciled).toHaveLength(7);
     expect(reconciled.every((row) => row.finding_count === 0)).toBe(true);
   });
 

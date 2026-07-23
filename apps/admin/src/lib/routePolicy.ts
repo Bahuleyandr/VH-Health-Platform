@@ -221,6 +221,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   doctors: { minRank: ADMIN_ONLY },
   departments: { minRank: ADMIN_ONLY },
   "clinical-governance": { minRank: ADMIN_ONLY },
+  "care-pathways": { minRank: ADMIN_ONLY },
   payroll: { minRank: ADMIN_ONLY },
   analytics: { minRank: ADMIN_ONLY },
   operations: { minRank: ADMIN_ONLY },

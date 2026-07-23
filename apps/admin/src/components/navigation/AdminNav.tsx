@@ -167,6 +167,7 @@ const navSections: NavSection[] = [
       { name: "Doctors", href: "/dashboard/doctors" },
       { name: "Departments", href: "/dashboard/departments" },
       { name: "Clinical Governance", href: "/dashboard/clinical-governance" },
+      { name: "Care Pathway Evidence", href: "/dashboard/care-pathways" },
       { name: "Payroll", href: "/dashboard/payroll" },
       { name: "Analytics", href: "/dashboard/analytics" },
       { name: "Report Builder", href: "/dashboard/report-builder" },
