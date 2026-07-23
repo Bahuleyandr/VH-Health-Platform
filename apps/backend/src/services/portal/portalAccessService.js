@@ -969,8 +969,11 @@ export async function resolvePortalPatient({ requesterUid, forPatientUid = null,
     throw AppError.forbidden('No active proxy grant for this patient', 'PORTAL_PROXY_NOT_GRANTED');
   }
 
-  // Consent trail: every proxy read is audited (best-effort, never blocks).
-  recordClinicalAuditEvent({
+  // Wait for the audit attempt before returning PHI so a successful proxy
+  // response cannot outrun its consent trail. Audit persistence remains
+  // non-blocking on failure because the canonical recorder logs and returns
+  // null instead of rejecting the patient read.
+  await recordClinicalAuditEvent({
     patientUid: forPatientUid,
     action: 'portal.proxy_access',
     resourceTable: 'portal_proxy_grants',
@@ -978,7 +981,7 @@ export async function resolvePortalPatient({ requesterUid, forPatientUid = null,
     actorUid: requesterUid,
     metadata: { scope },
     idempotencyKey: `proxy-access-${rows[0].id}-${requesterUid}-${new Date().toISOString().slice(0, 13)}`,
-  }).catch((err) => logger.warn('proxy access audit failed', { error: err.message }));
+  });
 
   return { patientUid: forPatientUid, proxy: true, grantId: rows[0].id };
 }
