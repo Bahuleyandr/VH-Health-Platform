@@ -48,6 +48,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 }));
 
 jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  isPathwayHumanOwnerRole: jest.fn(() => true),
   resolveCurrentHumanActorTx: jest.fn(async ({
     actorUid,
     authenticatedPrimaryRole,
