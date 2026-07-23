@@ -686,6 +686,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       '/portal/bills' => 'Bills',
       '/portal/lab-results' => 'Lab Results',
       '/portal/diagnostic-results' => 'Imaging and Pathology Reports',
+      '/portal/referrals' => 'Referrals',
       '/portal/tpa/claims' => 'Insurance Claims',
       '/portal/messages' => 'Messages',
       _ => 'This feature',

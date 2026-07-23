@@ -14,22 +14,46 @@ import { AppError } from '../../utils/AppError.js';
 // are gateway surfaces where global-handler/Sentry visibility is deliberate.
 
 const acceptReferralMock = jest.fn();
+const acceptClosedLoopReferralMock = jest.fn();
+const createReferralMock = jest.fn();
+const createClosedLoopReferralMock = jest.fn();
 const getIncomingReferralsMock = jest.fn();
 const getPatientReferralsMock = jest.fn();
+const isInternalReferralMock = jest.fn();
+let referralPathwayMode = 'off';
+
+jest.unstable_mockModule('../../services/pathways/pathwayMode.js', () => ({
+  CARE_PATHWAY_KEYS: { REFERRAL: 'referral_request_to_closure' },
+  PATHWAY_MODES: { OFF: 'off', SHADOW: 'shadow', ACTIVE: 'active' },
+  resolvePathwayMode: jest.fn(async () => referralPathwayMode),
+}));
 
 jest.unstable_mockModule('../../services/referral/referralService.js', () => ({
   default: {
-    createReferral: jest.fn(),
+    createReferral: createReferralMock,
     getIncomingReferrals: getIncomingReferralsMock,
     getOutgoingReferrals: jest.fn(),
     searchConsultants: jest.fn(),
     getReferralAudit: jest.fn(),
+    isInternalReferral: isInternalReferralMock,
     markReferralSeen: jest.fn(),
     acceptReferral: acceptReferralMock,
     completeReferral: jest.fn(),
     declineReferral: jest.fn(),
     getPatientReferrals: getPatientReferralsMock,
   },
+}));
+
+jest.unstable_mockModule('../../services/referral/referralClosedLoopService.js', () => ({
+  acceptClosedLoopReferral: acceptClosedLoopReferralMock,
+  closeReferralByOriginator: jest.fn(),
+  createClosedLoopReferral: createClosedLoopReferralMock,
+  declineClosedLoopReferral: jest.fn(),
+  getClosedLoopReferral: jest.fn(),
+  linkReferralAppointment: jest.fn(),
+  markReferralSeenClosedLoop: jest.fn(),
+  recordSignedReferralResponse: jest.fn(),
+  rerouteClosedLoopReferral: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
@@ -60,15 +84,23 @@ app.use((err, _req, res, _next) => {
 });
 
 beforeEach(() => {
+  referralPathwayMode = 'off';
   acceptReferralMock.mockReset();
+  acceptClosedLoopReferralMock.mockReset();
+  createReferralMock.mockReset();
+  createClosedLoopReferralMock.mockReset();
   getIncomingReferralsMock.mockReset();
   getPatientReferralsMock.mockReset();
+  isInternalReferralMock.mockReset().mockResolvedValue(true);
   tailSpy.mockReset();
 });
 
 describe('referral route catches relay AppError code + details', () => {
   test('operational AppError carries code and details over HTTP', async () => {
-    acceptReferralMock.mockRejectedValueOnce(AppError.conflict('msg', 'SOME_CODE', { reason: 'x' }));
+    referralPathwayMode = 'shadow';
+    acceptClosedLoopReferralMock.mockRejectedValueOnce(
+      AppError.conflict('msg', 'SOME_CODE', { reason: 'x' }),
+    );
 
     const response = await request(app).put('/api/v1/referrals/12/accept').send({});
 
@@ -79,6 +111,45 @@ describe('referral route catches relay AppError code + details', () => {
     expect(response.body.details).toEqual({ reason: 'x' });
     expect(response.body.requestId).toBe('test-request-id');
     expect(tailSpy).not.toHaveBeenCalled();
+  });
+
+  test('off mode preserves the legacy accept path without invoking closed-loop enforcement', async () => {
+    acceptReferralMock.mockResolvedValueOnce({ id: 12, status: 'accepted' });
+
+    const response = await request(app).put('/api/v1/referrals/12/accept').send({});
+
+    expect(response.statusCode).toBe(200);
+    expect(acceptReferralMock).toHaveBeenCalledTimes(1);
+    expect(acceptClosedLoopReferralMock).not.toHaveBeenCalled();
+  });
+
+  test('enabled mode keeps external referrals on the legacy accept path', async () => {
+    referralPathwayMode = 'active';
+    isInternalReferralMock.mockResolvedValueOnce(false);
+    acceptReferralMock.mockResolvedValueOnce({ id: 12, status: 'accepted' });
+
+    const response = await request(app).put('/api/v1/referrals/12/accept').send({});
+
+    expect(response.statusCode).toBe(200);
+    expect(isInternalReferralMock).toHaveBeenCalledTimes(1);
+    expect(acceptReferralMock).toHaveBeenCalledTimes(1);
+    expect(acceptClosedLoopReferralMock).not.toHaveBeenCalled();
+  });
+
+  test('enabled mode keeps new external referrals on the legacy creation path', async () => {
+    referralPathwayMode = 'active';
+    createReferralMock.mockResolvedValueOnce({ id: 13, referral_type: 'external' });
+
+    const response = await request(app).post('/api/v1/referrals').send({
+      patient_uid: '22222222-2222-4222-8222-222222222222',
+      referred_to_department: 'External cardiology',
+      referral_type: 'external',
+      reason: 'External specialist review',
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(createReferralMock).toHaveBeenCalledTimes(1);
+    expect(createClosedLoopReferralMock).not.toHaveBeenCalled();
   });
 
   test('operational AppError without details produces no details key', async () => {

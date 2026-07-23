@@ -135,9 +135,15 @@ class _ReferralsScreenState extends State<ReferralsScreen>
     final patientUid = _text(_admission['patient_uid']);
     final department = _departmentCtrl.text.trim();
     final reason = _reasonCtrl.text.trim();
-    if (patientUid.isEmpty || department.isEmpty || reason.isEmpty) {
+    final receiverUid = _text(_selectedConsultant?['uid']);
+    if (patientUid.isEmpty ||
+        department.isEmpty ||
+        reason.isEmpty ||
+        receiverUid.isEmpty) {
       _showSnack(
-        s.lookup('s4.lib.referrals.patient_department_reason_required'),
+        s.lookup(
+          's4.lib.referrals.patient_receiver_department_reason_required',
+        ),
         isError: true,
       );
       return;
@@ -152,9 +158,7 @@ class _ReferralsScreenState extends State<ReferralsScreen>
             : _text(_admission['encounter_id']),
         admissionId: widget.requestAdmissionId,
         department: department,
-        referredToDoctor: _text(_selectedConsultant?['uid']).isEmpty
-            ? null
-            : _text(_selectedConsultant?['uid']),
+        referredToDoctor: receiverUid,
         reason: reason,
         urgency: _urgency,
         clinicalSummary: _summaryCtrl.text.trim().isEmpty
@@ -194,15 +198,325 @@ class _ReferralsScreenState extends State<ReferralsScreen>
       if (action == 'accept') {
         await MedicalApiService.acceptReferral(id);
       } else if (action == 'complete') {
-        await MedicalApiService.completeReferral(id);
+        final response = await _showResponseDialog();
+        if (response == null) return;
+        await MedicalApiService.completeReferral(
+          id,
+          assessment: _text(response['assessment']),
+          recommendations: _text(response['recommendations']),
+          followUpPlan: _text(response['follow_up_plan']).isEmpty
+              ? null
+              : _text(response['follow_up_plan']),
+          patientSummary: _text(response['patient_summary']).isEmpty
+              ? null
+              : _text(response['patient_summary']),
+          patientInstructions: _text(response['patient_instructions']).isEmpty
+              ? null
+              : _text(response['patient_instructions']),
+          releaseToPatient: response['release_to_patient'] == true,
+          continuingOwnership: response['continuing_ownership'] == true,
+        );
       } else if (action == 'decline') {
-        await MedicalApiService.declineReferral(id, reason: 'Declined');
+        final reason = await _showReasonDialog(
+          titleKey: 's4.lib.referrals.decline_referral',
+          labelKey: 's4.lib.referrals.decline_reason',
+        );
+        if (reason == null) return;
+        await MedicalApiService.declineReferral(id, reason: reason);
+      } else if (action == 'close') {
+        final planUpdate = await _showReasonDialog(
+          titleKey: 's4.lib.referrals.acknowledge_response',
+          labelKey: 's4.lib.referrals.plan_update',
+        );
+        if (planUpdate == null) return;
+        await MedicalApiService.acknowledgeReferralResponse(
+          id,
+          disposition: 'plan_updated',
+          planUpdate: planUpdate,
+        );
+      } else if (action == 'reroute') {
+        final reroute = await _showRerouteDialog();
+        if (reroute == null) return;
+        await MedicalApiService.rerouteReferral(
+          id,
+          referredToDoctor: _text(reroute['uid']),
+          department: _text(reroute['department']),
+          reason: _text(reroute['reason']),
+        );
       }
       await _load();
       if (mounted) Navigator.of(context).maybePop();
     } catch (e) {
       _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
     }
+  }
+
+  Future<String?> _showReasonDialog({
+    required String titleKey,
+    required String labelKey,
+  }) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: AppText(titleKey),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 6,
+          decoration: InputDecoration(
+            labelText: AppStrings.of(context).lookup(labelKey),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const AppText('action.cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isNotEmpty) Navigator.of(context).pop(value);
+            },
+            child: const AppText('action.confirm'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  Future<Map<String, dynamic>?> _showResponseDialog() async {
+    final assessment = TextEditingController();
+    final recommendations = TextEditingController();
+    final followUp = TextEditingController();
+    final patientSummary = TextEditingController();
+    final patientInstructions = TextEditingController();
+    var releaseToPatient = false;
+    var continuingOwnership = false;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const AppText('s4.lib.referrals.sign_specialist_response'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: assessment,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.referrals.assessment'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: recommendations,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.referrals.recommendations'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: followUp,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.referrals.follow_up_plan'),
+                    ),
+                  ),
+                  SwitchListTile.adaptive(
+                    value: continuingOwnership,
+                    onChanged: (value) =>
+                        setDialogState(() => continuingOwnership = value),
+                    title: const AppText('s4.lib.referrals.continue_ownership'),
+                  ),
+                  SwitchListTile.adaptive(
+                    value: releaseToPatient,
+                    onChanged: (value) =>
+                        setDialogState(() => releaseToPatient = value),
+                    title: const AppText('s4.lib.referrals.release_to_patient'),
+                  ),
+                  if (releaseToPatient) ...[
+                    TextField(
+                      controller: patientSummary,
+                      minLines: 2,
+                      maxLines: 5,
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.referrals.patient_summary'),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: patientInstructions,
+                      minLines: 2,
+                      maxLines: 5,
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.referrals.patient_instructions'),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const AppText('action.cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (assessment.text.trim().isEmpty ||
+                    recommendations.text.trim().isEmpty ||
+                    (releaseToPatient &&
+                        (patientSummary.text.trim().isEmpty ||
+                            patientInstructions.text.trim().isEmpty))) {
+                  return;
+                }
+                Navigator.of(context).pop({
+                  'assessment': assessment.text.trim(),
+                  'recommendations': recommendations.text.trim(),
+                  'follow_up_plan': followUp.text.trim(),
+                  'patient_summary': patientSummary.text.trim(),
+                  'patient_instructions': patientInstructions.text.trim(),
+                  'release_to_patient': releaseToPatient,
+                  'continuing_ownership': continuingOwnership,
+                });
+              },
+              child: const AppText('s4.lib.referrals.sign_response'),
+            ),
+          ],
+        ),
+      ),
+    );
+    for (final controller in [
+      assessment,
+      recommendations,
+      followUp,
+      patientSummary,
+      patientInstructions,
+    ]) {
+      controller.dispose();
+    }
+    return result;
+  }
+
+  Future<Map<String, dynamic>?> _showRerouteDialog() async {
+    final search = TextEditingController();
+    final department = TextEditingController();
+    final reason = TextEditingController();
+    var candidates = <Map<String, dynamic>>[];
+    Map<String, dynamic>? selected;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const AppText('s4.lib.referrals.reroute_referral'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: department,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.referrals.department_specialty'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: search,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.referrals.consultant_name'),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.search),
+                        onPressed: () async {
+                          final rows =
+                              await MedicalApiService.searchReferralConsultants(
+                                query: search.text,
+                                department: department.text,
+                              );
+                          setDialogState(() => candidates = rows);
+                        },
+                      ),
+                    ),
+                  ),
+                  for (final candidate in candidates) ...[
+                    ListTile(
+                      selected:
+                          _text(selected?['uid']) == _text(candidate['uid']),
+                      leading: Icon(
+                        _text(selected?['uid']) == _text(candidate['uid'])
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
+                      ),
+                      onTap: () => setDialogState(() {
+                        selected = candidate;
+                        department.text = _text(candidate['department']);
+                      }),
+                      title: Text(_text(candidate['name'])),
+                      subtitle: Text(_text(candidate['department'])),
+                    ),
+                  ],
+                  TextField(
+                    controller: reason,
+                    minLines: 2,
+                    maxLines: 5,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.referrals.reroute_reason'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const AppText('action.cancel'),
+            ),
+            FilledButton(
+              onPressed: selected == null || reason.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop({
+                      ...selected!,
+                      'department': department.text.trim(),
+                      'reason': reason.text.trim(),
+                    }),
+              child: const AppText('s4.lib.referrals.reroute'),
+            ),
+          ],
+        ),
+      ),
+    );
+    search.dispose();
+    department.dispose();
+    reason.dispose();
+    return result;
   }
 
   void _showReferralSheet(
@@ -216,7 +530,12 @@ class _ReferralsScreenState extends State<ReferralsScreen>
     final canAccept = isIncoming && status == 'pending';
     final canComplete =
         isIncoming && const {'accepted', 'in_progress'}.contains(status);
-    final canDecline = status == 'pending' && (isIncoming || isOutgoing);
+    final canDecline = status == 'pending' && isIncoming;
+    final canClose =
+        isOutgoing &&
+        status == 'completed' &&
+        _text(referral['closure_status'], 'open') == 'open';
+    final canReroute = isOutgoing && status == 'declined';
 
     showModalBottomSheet<void>(
       context: context,
@@ -317,6 +636,21 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                               ? s.lookup('s4.lib.referrals.decline_request')
                               : s.lookup('s4.lib.referrals.decline'),
                         ),
+                      ),
+                    if (canClose)
+                      FilledButton.icon(
+                        onPressed: () => _transitionReferral(referral, 'close'),
+                        icon: const Icon(Icons.fact_check_outlined),
+                        label: const AppText(
+                          's4.lib.referrals.acknowledge_response',
+                        ),
+                      ),
+                    if (canReroute)
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _transitionReferral(referral, 'reroute'),
+                        icon: const Icon(Icons.alt_route),
+                        label: const AppText('s4.lib.referrals.reroute'),
                       ),
                     OutlinedButton.icon(
                       onPressed: () {

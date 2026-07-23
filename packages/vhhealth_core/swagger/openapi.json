@@ -87631,6 +87631,50 @@
         }
       }
     },
+    "/api/v1/patient/referrals": {
+      "get": {
+        "operationId": "get_api_v1_patient_referrals",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/patient/referrals/{id}": {
+      "get": {
+        "operationId": "get_api_v1_patient_referrals_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/patient/teleconsult/appointments/{appointmentId}/lobby-state": {
       "get": {
         "operationId": "get_api_v1_patient_teleconsult_appointments_by_appointmentId_lobby_state",
@@ -93281,6 +93325,50 @@
         }
       }
     },
+    "/api/v1/portal/referrals": {
+      "get": {
+        "operationId": "get_api_v1_portal_referrals",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/portal/referrals/{id}": {
+      "get": {
+        "operationId": "get_api_v1_portal_referrals_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/portal/teleconsult/appointments/{appointmentId}/lobby-state": {
       "get": {
         "operationId": "get_api_v1_portal_teleconsult_appointments_by_appointmentId_lobby_state",
@@ -96295,9 +96383,63 @@
         ]
       }
     },
+    "/api/v1/referrals/{id}": {
+      "get": {
+        "operationId": "get_api_v1_referrals_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/referrals/{id}/accept": {
       "put": {
         "operationId": "put_api_v1_referrals_by_id_accept",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/referrals/{id}/appointment": {
+      "put": {
+        "operationId": "put_api_v1_referrals_by_id_appointment",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -96352,6 +96494,60 @@
     "/api/v1/referrals/{id}/decline": {
       "put": {
         "operationId": "put_api_v1_referrals_by_id_decline",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/referrals/{id}/originator-ack": {
+      "post": {
+        "operationId": "post_api_v1_referrals_by_id_originator_ack",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/referrals/{id}/reroute": {
+      "post": {
+        "operationId": "post_api_v1_referrals_by_id_reroute",
         "responses": {
           "200": {
             "description": "Successful response",

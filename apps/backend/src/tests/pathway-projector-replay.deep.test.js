@@ -5,6 +5,7 @@ import {
   createPathwayProjectorRegistry,
   pathwayProjectorRegistry,
   pathwayProjectorRegistryV1,
+  pathwayProjectorRegistryV2,
 } from '../services/events/pathwayProjectorRegistry.js';
 import {
   claimDueInboxRows,
@@ -303,7 +304,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
     const result = await runPathwayProjectorShadowTick({
       consumerKey,
       generation: 2,
-      registry: pathwayProjectorRegistry,
+      registry: pathwayProjectorRegistryV2,
       maxBatches: 5,
       materializeLimit: 10,
       claimLimit: 10,
@@ -323,7 +324,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
     expect(await runPathwayProjectorShadowTick({
       consumerKey,
       generation: 2,
-      registry: pathwayProjectorRegistry,
+      registry: pathwayProjectorRegistryV2,
       maxBatches: 5,
       materializeLimit: 10,
       claimLimit: 10,
@@ -340,7 +341,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
 
   it('claims only the row being dispatched while later rows remain untouched', async () => {
     const consumerKey = consumerFor('claim_on_dispatch');
-    const generation = 3;
+    const generation = 5;
     const eventType = `test.pathway.replay.dispatch_${RUN_TOKEN}`;
     await primeGeneration(consumerKey, generation);
     const first = await seedEvent(eventType);

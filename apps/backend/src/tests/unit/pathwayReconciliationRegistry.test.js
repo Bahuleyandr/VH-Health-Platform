@@ -62,14 +62,20 @@ describe('pathwayReconciliationRegistry', () => {
       const profile = pathwayReconciliationRegistry.resolveProfile(pathwayKey);
       expect(profile.pathwayKey).toBe(pathwayKey);
       expect(profile.repairDescriptors).toEqual([]);
-      if (pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+      if ([CARE_PATHWAY_KEYS.DIAGNOSTICS, CARE_PATHWAY_KEYS.REFERRAL].includes(pathwayKey)) {
         expect(profile.blockingReason).toBeNull();
         expect(profile.domainAdapters).toHaveLength(1);
-        expect(profile.domainAdapters[0]).toMatchObject({
-          adapterId: 'diagnostics_order_to_action_v1',
-          workflowKey: CARE_PATHWAY_KEYS.DIAGNOSTICS,
-          definitionVersion: 1,
-        });
+        expect(profile.domainAdapters[0]).toMatchObject(pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS
+          ? {
+            adapterId: 'diagnostics_order_to_action_v1',
+            workflowKey: CARE_PATHWAY_KEYS.DIAGNOSTICS,
+            definitionVersion: 1,
+          }
+          : {
+            adapterId: 'referral_request_to_closure_v1',
+            workflowKey: CARE_PATHWAY_KEYS.REFERRAL,
+            definitionVersion: 1,
+          });
       } else {
         expect(profile).toMatchObject({
           blockingReason: 'vertical_domain_adapter_not_registered',

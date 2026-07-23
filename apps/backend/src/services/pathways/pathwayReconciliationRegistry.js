@@ -5,9 +5,11 @@ import {
   CARE_PATHWAY_KEYS,
 } from './pathwayMode.js';
 import { compileDiagnosticsOrderToActionDefinition } from './diagnosticsPathwayDefinition.js';
+import { compileReferralRequestToClosureDefinition } from './referralPathwayDefinition.js';
 import {
   COMMON_PATHWAY_RECONCILIATION_CHECKS,
   DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS,
+  REFERRAL_PATHWAY_RECONCILIATION_CHECKS,
 } from './pathwayReconciliationChecks.js';
 
 const ID_PATTERN = /^[a-z][a-z0-9_]{0,119}$/;
@@ -414,26 +416,42 @@ const DIAGNOSTICS_ADAPTER = Object.freeze({
   checks: DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS,
 });
 
+const referralDefinition = compileReferralRequestToClosureDefinition();
+const REFERRAL_ADAPTER = Object.freeze({
+  adapterId: 'referral_request_to_closure_v1',
+  adapterVersion: 'referral.reconciliation_adapter.v1',
+  workflowKey: CARE_PATHWAY_KEYS.REFERRAL,
+  definitionVersion: referralDefinition.version,
+  definitionChecksum: referralDefinition.checksum,
+  checks: REFERRAL_PATHWAY_RECONCILIATION_CHECKS,
+});
+
 const productionProfiles = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
   pathwayKey,
-  profileVersion: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS ? 2 : 1,
+  profileVersion: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS
+    ? 2
+    : pathwayKey === CARE_PATHWAY_KEYS.REFERRAL
+      ? 2
+      : 1,
   commonCheckIds: COMMON_CHECK_IDS,
   domainAdapters: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS
     ? [DIAGNOSTICS_ADAPTER]
-    : [],
+    : pathwayKey === CARE_PATHWAY_KEYS.REFERRAL
+      ? [REFERRAL_ADAPTER]
+      : [],
   repairDescriptors: [],
   excludedClocks: pathwayKey === CARE_PATHWAY_KEYS.EMERGENCY
     ? EMERGENCY_CLOCK_EXCLUSIONS
     : pathwayKey === CARE_PATHWAY_KEYS.INPATIENT
       ? PORTER_EXCLUSIONS
       : [],
-  blockingReason: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS
+  blockingReason: [CARE_PATHWAY_KEYS.DIAGNOSTICS, CARE_PATHWAY_KEYS.REFERRAL].includes(pathwayKey)
     ? null
     : NO_VERTICAL_ADAPTER,
 }));
 
 export const pathwayReconciliationRegistry = createPathwayReconciliationRegistry({
-  version: 3,
+  version: 4,
   commonChecks: COMMON_PATHWAY_RECONCILIATION_CHECKS,
   profiles: productionProfiles,
 });

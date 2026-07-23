@@ -8205,7 +8205,7 @@ class AppStrings {
           "Edit and confirm this draft. It is not sent until you press Request referral.",
       's4.lib.referrals.incoming': "Incoming",
       's4.lib.referrals.leave_consultant_unselected_to_notify_the_depart':
-          "Leave consultant unselected to notify the department.",
+          "Choose the named doctor who will receive and acknowledge this referral.",
       's4.lib.referrals.no_referral_audit_rows': "No referral audit rows",
       's4.lib.referrals.open_patient': "Open patient",
       's4.lib.referrals.outgoing': "Outgoing",
@@ -8233,16 +8233,37 @@ class AppStrings {
           "Enter the reason for referral before asking AI to draft a summary",
       's4.lib.referrals.first_seen': "First seen",
       's4.lib.referrals.incoming_action_hint':
-          "Accept and Complete are limited to the referred specialist or matching department doctor.",
+          "Opening records first seen; only Accept, Decline, or Reroute stops the response clock. Completion requires a signed structured response.",
       's4.lib.referrals.investigations': "Investigations",
       's4.lib.referrals.no_incoming_referrals': "No incoming referrals",
       's4.lib.referrals.no_outgoing_referrals': "No outgoing referrals",
       's4.lib.referrals.not_seen_yet': "Not seen yet",
       's4.lib.referrals.outgoing_action_hint':
-          "Outgoing requests can be declined by the requesting or primary doctor while pending.",
+          "The originator owns the request until a named receiver accepts it, then closes the loop after reviewing the signed response.",
       's4.lib.referrals.patient': "Patient",
       's4.lib.referrals.patient_department_reason_required':
           "Patient, department, and reason are required",
+      's4.lib.referrals.patient_receiver_department_reason_required':
+          "Patient, named receiving doctor, department, and reason are required",
+      's4.lib.referrals.sign_specialist_response': "Sign specialist response",
+      's4.lib.referrals.assessment': "Assessment",
+      's4.lib.referrals.recommendations': "Recommendations",
+      's4.lib.referrals.follow_up_plan': "Follow-up plan",
+      's4.lib.referrals.continue_ownership':
+          "I will continue owning this patient's specialist care",
+      's4.lib.referrals.release_to_patient':
+          "Release the patient-safe summary and next steps",
+      's4.lib.referrals.patient_summary': "Patient-safe summary",
+      's4.lib.referrals.patient_instructions': "Patient next steps",
+      's4.lib.referrals.sign_response': "Sign response",
+      's4.lib.referrals.decline_referral': "Decline referral",
+      's4.lib.referrals.decline_reason': "Reason for declining",
+      's4.lib.referrals.acknowledge_response': "Acknowledge response",
+      's4.lib.referrals.plan_update':
+          "How the specialist response was incorporated into the care plan",
+      's4.lib.referrals.reroute_referral': "Reroute referral",
+      's4.lib.referrals.reroute_reason': "Reason for rerouting",
+      's4.lib.referrals.reroute': "Reroute",
       's4.lib.referrals.pending_items': "Pending items",
       's4.lib.referrals.reason': "Reason",
       's4.lib.referrals.referral': "Referral",

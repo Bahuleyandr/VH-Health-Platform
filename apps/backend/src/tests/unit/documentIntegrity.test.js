@@ -36,12 +36,17 @@ describe('signable document registry', () => {
         'discharge_summary',
         'encounter',
         'radiology_report',
+        'referral_response',
       ],
     );
     expect(SIGNABLE_DOCUMENTS.clinical_note.exclude).toContain('is_signed');
     expect(SIGNABLE_DOCUMENTS.encounter.exclude).toContain('status_history');
     expect(SIGNABLE_DOCUMENTS.diagnostic_result_action).toMatchObject({
       table: 'diagnostic_result_actions',
+      idType: 'uuid',
+    });
+    expect(SIGNABLE_DOCUMENTS.referral_response).toMatchObject({
+      table: 'referral_responses',
       idType: 'uuid',
     });
   });

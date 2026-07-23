@@ -29,6 +29,10 @@ const MANUAL_SEED_TABLES = new Set([
   'diagnostic_result_actions',
   'diagnostic_result_release_states',
   'diagnostic_result_patient_notifications',
+  'referrals',
+  'referral_transition_events',
+  'referral_responses',
+  'referral_patient_notifications',
   'clinical_timeline_events',
   'clinical_audit_events',
   'lab_analyzers',
@@ -1936,6 +1940,227 @@ async function seedDiagnosticResultPatientNotificationEvidence() {
   );
 }
 
+function stableSeedStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableSeedStringify).join(',')}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSeedStringify(value[key])}`).join(',')}}`;
+}
+
+async function seedReferralClosedLoopGraph() {
+  const targetTables = [
+    'referrals',
+    'referral_transition_events',
+    'referral_responses',
+    'referral_patient_notifications',
+  ];
+  const existingCounts = [];
+  for (const table of targetTables) existingCounts.push(await tableCount(table));
+  if (existingCounts.every(Boolean)) return;
+
+  const patient = await first(
+    'users',
+    'uid, name',
+    "tenant_id = $1::uuid AND role = 'PATIENT' AND is_active = TRUE",
+    [DEFAULT_TENANT_ID],
+  );
+  const clinicians = await client.query(
+    `SELECT user_record.uid, user_record.name, user_record.role,
+            doctor.department, doctor.specialty
+       FROM users AS user_record
+       JOIN doctors AS doctor ON doctor.user_id = user_record.id
+      WHERE user_record.tenant_id = $1::uuid
+        AND user_record.role = 'DOCTOR'
+        AND user_record.is_active = TRUE
+        AND user_record.status = 'active'
+        AND doctor.is_active = TRUE
+      ORDER BY doctor.id
+      LIMIT 2`,
+    [DEFAULT_TENANT_ID],
+  );
+  const originator = clinicians.rows[0];
+  const receiver = clinicians.rows[1] || clinicians.rows[0];
+  if (!patient?.uid || !originator?.uid || !receiver?.uid) {
+    throw new Error('Referral seed graph requires a patient and active doctor actors.');
+  }
+
+  const requestFingerprint = createHash('sha256')
+    .update('seed-referral-request-to-closure-v1')
+    .digest('hex');
+  const responseFingerprint = createHash('sha256')
+    .update('seed-referral-response-v1')
+    .digest('hex');
+  const referral = (await client.query(
+    `INSERT INTO referrals
+       (referral_number, tenant_id, patient_uid, referring_doctor,
+        referred_to_doctor, referred_to_department, referral_type, reason,
+        urgency, priority, requester_id, performer_id, source, status,
+        first_seen_at, first_seen_by, accepted_at, accepted_by, completed_at,
+        current_owner_uid, closure_status, request_fingerprint,
+        ownership_accepted_at, request_context)
+     VALUES
+       ('REF-SEED-0001', $1::uuid, $2::uuid, $3::uuid,
+        $4::uuid, $5::text, 'internal', 'Seed specialist review',
+        'routine', 'NORMAL', $3::uuid, $4::uuid, 'seed', 'completed',
+        NOW(), $4::uuid, NOW(), $4::uuid, NOW(),
+        $3::uuid, 'open', $6::char(64), NOW(),
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     RETURNING id, referral_number, patient_uid`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      originator.uid,
+      receiver.uid,
+      receiver.department || receiver.specialty || 'General Medicine',
+      requestFingerprint,
+    ],
+  )).rows[0];
+
+  const transitionId = '33333333-4444-4555-8666-777777777777';
+  const timeline = await client.query(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, event_type, event_status, source_table,
+        source_id, source_uid, resource_type, resource_id, occurred_at,
+        visible_to_patient, clinical_summary, payload, tags, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, 'referral.response_signed', 'completed',
+        'referral_transition_events', $3::text, $3::uuid, 'referral',
+        $4::text, NOW(), FALSE, 'Seed signed referral response.',
+        $5::jsonb, ARRAY['referral','seed']::text[], $6::text)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      transitionId,
+      String(referral.id),
+      JSON.stringify({ referral_id: referral.id, seed: true }),
+      `seed-referral-transition:${transitionId}:timeline`,
+    ],
+  );
+  const audit = await client.query(
+    `INSERT INTO clinical_audit_events
+       (tenant_id, patient_uid, action, action_status, actor_uid, actor_role,
+        resource_type, resource_table, resource_id, before_state, after_state,
+        metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, 'referral.response_signed', 'success',
+        $3::uuid, $4::text, 'referral', 'referral_transition_events',
+        $5::text, '{}'::jsonb, $6::jsonb,
+        '{"seed":true}'::jsonb, $7::text, NOW())
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      receiver.uid,
+      receiver.role,
+      transitionId,
+      JSON.stringify({ status: 'completed', current_owner_uid: originator.uid }),
+      `seed-referral-transition:${transitionId}:audit`,
+    ],
+  );
+  await client.query(
+    `INSERT INTO referral_transition_events
+       (id, tenant_id, referral_id, patient_uid, sequence_number, event_type,
+        from_status, to_status, from_owner_uid, to_owner_uid, actor_uid,
+        actor_role, event_payload, canonical_timeline_event_id,
+        canonical_audit_event_id)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid, 1,
+        'referral.response_signed', 'accepted', 'completed', $5::uuid,
+        $6::uuid, $5::uuid, $7::text,
+        '{"seed":true,"response_version":1}'::jsonb, $8::uuid, $9::uuid)`,
+    [
+      transitionId,
+      DEFAULT_TENANT_ID,
+      referral.id,
+      patient.uid,
+      receiver.uid,
+      originator.uid,
+      receiver.role,
+      timeline.rows[0].id,
+      audit.rows[0].id,
+    ],
+  );
+
+  const responseId = '44444444-5555-4666-8777-888888888888';
+  const responseResult = await client.query(
+    `INSERT INTO referral_responses
+       (id, tenant_id, referral_id, patient_uid, version, assessment,
+        recommendations, follow_up_plan, patient_summary, patient_instructions,
+        request_fingerprint, release_to_patient, continuing_ownership,
+        signed_by, signer_role)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid, 1,
+        'Seed specialist assessment.', 'Continue the documented care plan.',
+        'Originating doctor to review at follow-up.',
+        'Your specialist has reviewed this referral.',
+        'Follow the plan discussed with your care team.',
+        $5::char(64), TRUE, FALSE, $6::uuid, $7::text)
+     RETURNING to_jsonb(referral_responses) AS document`,
+    [
+      responseId,
+      DEFAULT_TENANT_ID,
+      referral.id,
+      patient.uid,
+      responseFingerprint,
+      receiver.uid,
+      receiver.role,
+    ],
+  );
+  const contentHash = createHash('sha256')
+    .update(stableSeedStringify(responseResult.rows[0].document), 'utf8')
+    .digest('hex');
+  await client.query(
+    `INSERT INTO clinical_document_signatures
+       (tenant_id, patient_uid, document_type, document_table, document_id,
+        content_hash, signer_uid, signer_role, signer_name,
+        signature_method, signature_statement, metadata)
+     VALUES
+       ($1::uuid, $2::uuid, 'referral_response', 'referral_responses',
+        $3::text, $4::char(64), $5::uuid, $6::text, $7::text,
+        'electronic_attestation',
+        'Seed attestation for closed-loop referral coverage.',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)`,
+    [
+      DEFAULT_TENANT_ID,
+      patient.uid,
+      responseId,
+      contentHash,
+      receiver.uid,
+      receiver.role,
+      receiver.name,
+    ],
+  );
+  const outbox = await client.query(
+    `INSERT INTO notification_outbox
+       (tenant_id, type, recipient_id, title, body, payload, status, sent_at, created_at)
+     VALUES
+       ($1::uuid, 'referral_response_ready', $2::text,
+        'Referral update available',
+        'Open VH Health to securely view your referral update.',
+        $3::jsonb, 'SENT', NOW(), NOW())
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      String(patient.uid),
+      JSON.stringify({
+        tenant_id: DEFAULT_TENANT_ID,
+        type: 'referral_response_ready',
+        route: '/portal/referrals',
+        seed: true,
+      }),
+    ],
+  );
+  await client.query(
+    `INSERT INTO referral_patient_notifications
+       (tenant_id, response_id, patient_uid, notification_kind,
+        notification_outbox_id)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, 'referral_response_ready', $4::integer)`,
+    [DEFAULT_TENANT_ID, responseId, patient.uid, Number(outbox.rows[0].id)],
+  );
+}
+
 async function seedLabIngestCriticalAlertGraph() {
   const targetTables = [
     'lab_results',
@@ -3823,6 +4048,7 @@ try {
   await seedCarePathwayReconciliationEvidence();
   await seedDiagnosticResultEvidence();
   await seedDiagnosticResultPatientNotificationEvidence();
+  await seedReferralClosedLoopGraph();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();

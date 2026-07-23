@@ -729,6 +729,19 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('reap-stale-visits', () => reapStaleScheduledVisits());
   }));
 
+  // A missed linked appointment or an explicitly configured referral expiry
+  // becomes named human work. The sweep does not invent a clinical disposition
+  // or close the referral; it materializes one idempotent owner task for review.
+  registerCron('*/15 * * * *', withJobLock('referral-recovery-sweep', async () => {
+    const { runReferralRecoverySweep } = await import(
+      '../services/referral/referralRecoverySweepService.js'
+    );
+    await runForEachTenant(
+      'referral-recovery-sweep',
+      (tenantId) => runReferralRecoverySweep({ tenantId }),
+    );
+  }));
+
   // 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
   // inspections that have outlived their expires_at as 'expired' so
   // the receptionist UI doesn't keep showing stale shortlists.

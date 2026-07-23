@@ -874,11 +874,13 @@ model appointments {
   patient_flow_checkins                patient_flow_checkins[]
   porter_transport_tasks               porter_transport_tasks[]
   radiotherapy_fraction_schedules      radiotherapy_fraction_schedules[]
+  referrals                            referrals[]
   scheduling_overbook_audit_events     scheduling_overbook_audit_events[]
   teleconsultations                    teleconsultations[]
 
   @@unique([tenant_id, doctor_id, appointment_date, appointment_time], map: "uniq_appointments_active_doctor_slot", where: raw("((doctor_id IS NOT NULL) AND (appointment_time IS NOT NULL) AND (btrim((appointment_time)::text) <> ''::text) AND (lower(btrim((appointment_time)::text)) <> 'walk-in'::text) AND ((status)::text <> ALL ((ARRAY['CANCELLED'::character varying, 'NO_SHOW'::character varying, 'RESCHEDULED'::character varying])::text[])))"))
   @@unique([tenant_id, visit_no], map: "uniq_appointments_tenant_visit_no", where: raw("(visit_no IS NOT NULL)"))
+  @@unique([tenant_id, id], map: "ux_appointments_tenant_id")
   @@index([appointment_date])
   @@index([doctor_id])
   @@index([patient_id])
@@ -6820,6 +6822,7 @@ model notification_outbox {
   diagnostic_result_patient_notifications diagnostic_result_patient_notifications[]
   engagement_campaign_recipients          engagement_campaign_recipients[]
   tenants                                 tenants                                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_outbox_tenant")
+  referral_patient_notifications          referral_patient_notifications[]
   stemi_team_notifications                stemi_team_notifications[]
 
   @@unique([tenant_id, id], map: "ux_notification_outbox_tenant_id")
@@ -8501,42 +8504,64 @@ model radiology_orders {
 }
 
 model referrals {
-  id                                        Int                  @id @default(autoincrement())
-  referral_number                           String               @db.VarChar(50)
-  patient_uid                               String               @db.Uuid
-  encounter_id                              String?              @db.Uuid
-  referring_doctor                          String               @db.Uuid
-  referred_to_doctor                        String?              @db.Uuid
-  referred_to_department                    String
-  referral_type                             String               @default("internal") @db.VarChar(20)
-  reason                                    String
-  urgency                                   String               @default("routine") @db.VarChar(20)
-  clinical_summary                          String?
-  status                                    String               @default("pending") @db.VarChar(20)
-  accepted_by                               String?              @db.Uuid
-  accepted_at                               DateTime?            @db.Timestamptz(6)
-  completed_at                              DateTime?            @db.Timestamptz(6)
-  response_notes                            String?
-  created_at                                DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at                                DateTime             @default(now()) @db.Timestamptz(6)
-  priority                                  String?              @default("ROUTINE") @db.VarChar(50)
-  requester_id                              String?              @db.Uuid
-  performer_id                              String?              @db.Uuid
-  clinical_notes                            String?
-  notes                                     String?
-  tenant_id                                 String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  first_seen_at                             DateTime?            @db.Timestamptz(6)
-  first_seen_by                             String?              @db.Uuid
-  request_context                           Json                 @default("{}")
-  source                                    String?              @default("ward") @db.VarChar(50)
-  physio_assessments                        physio_assessments[]
-  tenants                                   tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referrals_tenant")
-  users_referrals_accepted_byTousers        users?               @relation("referrals_accepted_byTousers", fields: [accepted_by], references: [uid], onUpdate: NoAction)
-  users_referrals_patient_uidTousers        users                @relation("referrals_patient_uidTousers", fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
-  users_referrals_referred_to_doctorTousers users?               @relation("referrals_referred_to_doctorTousers", fields: [referred_to_doctor], references: [uid], onUpdate: NoAction)
-  users_referrals_referring_doctorTousers   users                @relation("referrals_referring_doctorTousers", fields: [referring_doctor], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  id                                                 Int                          @id @default(autoincrement())
+  referral_number                                    String                       @db.VarChar(50)
+  patient_uid                                        String                       @db.Uuid
+  encounter_id                                       String?                      @db.Uuid
+  referring_doctor                                   String                       @db.Uuid
+  referred_to_doctor                                 String?                      @db.Uuid
+  referred_to_department                             String
+  referral_type                                      String                       @default("internal") @db.VarChar(20)
+  reason                                             String
+  urgency                                            String                       @default("routine") @db.VarChar(20)
+  clinical_summary                                   String?
+  status                                             String                       @default("pending") @db.VarChar(20)
+  accepted_by                                        String?                      @db.Uuid
+  accepted_at                                        DateTime?                    @db.Timestamptz(6)
+  completed_at                                       DateTime?                    @db.Timestamptz(6)
+  response_notes                                     String?
+  created_at                                         DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                                         DateTime                     @default(now()) @db.Timestamptz(6)
+  priority                                           String?                      @default("ROUTINE") @db.VarChar(50)
+  requester_id                                       String?                      @db.Uuid
+  performer_id                                       String?                      @db.Uuid
+  clinical_notes                                     String?
+  notes                                              String?
+  tenant_id                                          String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  first_seen_at                                      DateTime?                    @db.Timestamptz(6)
+  first_seen_by                                      String?                      @db.Uuid
+  request_context                                    Json                         @default("{}")
+  source                                             String?                      @default("ward") @db.VarChar(50)
+  current_owner_uid                                  String?                      @db.Uuid
+  closure_status                                     String                       @default("open") @db.VarChar(20)
+  closure_reason                                     String?                      @db.VarChar(80)
+  closed_at                                          DateTime?                    @db.Timestamptz(6)
+  closed_by                                          String?                      @db.Uuid
+  appointment_id                                     Int?
+  expires_at                                         DateTime?                    @db.Timestamptz(6)
+  request_fingerprint                                String?                      @db.Char(64)
+  idempotency_key                                    String?                      @db.VarChar(160)
+  replacement_of_referral_id                         Int?
+  repeat_reason                                      String?
+  ownership_accepted_at                              DateTime?                    @db.Timestamptz(6)
+  physio_assessments                                 physio_assessments[]
+  referral_responses                                 referral_responses[]
+  referral_transition_events                         referral_transition_events[]
+  appointments                                       appointments?                @relation(fields: [tenant_id, appointment_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referrals_appointment")
+  users_referrals_tenant_id_closed_byTousers         users?                       @relation("referrals_tenant_id_closed_byTousers", fields: [tenant_id, closed_by], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referrals_closed_by")
+  users_referrals_tenant_id_current_owner_uidTousers users?                       @relation("referrals_tenant_id_current_owner_uidTousers", fields: [tenant_id, current_owner_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referrals_current_owner")
+  referrals                                          referrals?                   @relation("referralsToreferrals", fields: [tenant_id, replacement_of_referral_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referrals_replacement")
+  other_referrals                                    referrals[]                  @relation("referralsToreferrals")
+  tenants                                            tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referrals_tenant")
+  users_referrals_accepted_byTousers                 users?                       @relation("referrals_accepted_byTousers", fields: [accepted_by], references: [uid], onUpdate: NoAction)
+  users_referrals_patient_uidTousers                 users                        @relation("referrals_patient_uidTousers", fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  users_referrals_referred_to_doctorTousers          users?                       @relation("referrals_referred_to_doctorTousers", fields: [referred_to_doctor], references: [uid], onUpdate: NoAction)
+  users_referrals_referring_doctorTousers            users                        @relation("referrals_referring_doctorTousers", fields: [referring_doctor], references: [uid], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenant_id, referral_number], map: "uniq_referrals_tenant_referral_number")
+  @@unique([tenant_id, request_fingerprint], map: "ux_referrals_active_request_fingerprint", where: raw("((request_fingerprint IS NOT NULL) AND ((closure_status)::text = 'open'::text) AND ((status)::text = ANY ((ARRAY['pending'::character varying, 'accepted'::character varying, 'in_progress'::character varying, 'completed'::character varying])::text[])))"))
+  @@unique([tenant_id, id], map: "ux_referrals_tenant_id")
+  @@unique([tenant_id, idempotency_key], map: "ux_referrals_tenant_idempotency", where: raw("(idempotency_key IS NOT NULL)"))
   @@index([created_at(sort: Desc)], map: "idx_referrals_created_at")
   @@index([patient_uid], map: "idx_referrals_patient_uid")
   @@index([referred_to_doctor], map: "idx_referrals_referred_to_doctor")
@@ -8546,6 +8571,8 @@ model referrals {
   @@index([tenant_id], map: "idx_referrals_tenant_id")
   @@index([tenant_id, first_seen_at(sort: Desc)], map: "idx_referrals_tenant_first_seen", where: raw("(first_seen_at IS NOT NULL)"))
   @@index([tenant_id, status, referred_to_department, created_at(sort: Desc)], map: "idx_referrals_tenant_status_department_created")
+  @@index([tenant_id, appointment_id], map: "idx_referrals_tenant_appointment", where: raw("(appointment_id IS NOT NULL)"))
+  @@index([tenant_id, current_owner_uid, created_at(sort: Desc)], map: "idx_referrals_tenant_owner_open", where: raw("((closure_status)::text = 'open'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11067,6 +11094,13 @@ model users {
   radiology_report_addenda                                                                           radiology_report_addenda[]
   radiotherapy_fraction_schedules                                                                    radiotherapy_fraction_schedules[]
   radiotherapy_plan_refs                                                                             radiotherapy_plan_refs[]
+  referral_patient_notifications                                                                     referral_patient_notifications[]
+  referral_responses_referral_responses_tenant_id_patient_uidTousers                                 referral_responses[]                      @relation("referral_responses_tenant_id_patient_uidTousers")
+  referral_responses_referral_responses_tenant_id_signed_byTousers                                   referral_responses[]                      @relation("referral_responses_tenant_id_signed_byTousers")
+  referral_transition_events_referral_transition_events_tenant_id_actor_uidTousers                   referral_transition_events[]              @relation("referral_transition_events_tenant_id_actor_uidTousers")
+  referral_transition_events_referral_transition_events_tenant_id_patient_uidTousers                 referral_transition_events[]              @relation("referral_transition_events_tenant_id_patient_uidTousers")
+  referrals_referrals_tenant_id_closed_byTousers                                                     referrals[]                               @relation("referrals_tenant_id_closed_byTousers")
+  referrals_referrals_tenant_id_current_owner_uidTousers                                             referrals[]                               @relation("referrals_tenant_id_current_owner_uidTousers")
   referrals_referrals_accepted_byTousers                                                             referrals[]                               @relation("referrals_accepted_byTousers")
   referrals_referrals_patient_uidTousers                                                             referrals[]                               @relation("referrals_patient_uidTousers")
   referrals_referrals_referred_to_doctorTousers                                                      referrals[]                               @relation("referrals_referred_to_doctorTousers")
@@ -15591,6 +15625,7 @@ model clinical_timeline_events {
   radioisotope_administration_records                                                                         radioisotope_administration_records[]
   radiotherapy_fraction_schedules                                                                             radiotherapy_fraction_schedules[]
   radiotherapy_plan_refs                                                                                      radiotherapy_plan_refs[]
+  referral_transition_events                                                                                  referral_transition_events[]
   stemi_activations                                                                                           stemi_activations[]
   stemi_pathway_events                                                                                        stemi_pathway_events[]
   stemi_team_notifications                                                                                    stemi_team_notifications[]
@@ -15654,6 +15689,7 @@ model clinical_audit_events {
   mlc_completeness_reviews                                                                              mlc_completeness_reviews[]
   oncology_registry_exports                                                                             oncology_registry_exports[]
   radiation_safety_evidence                                                                             radiation_safety_evidence[]
+  referral_transition_events                                                                            referral_transition_events[]
   stemi_activations                                                                                     stemi_activations[]
   stemi_pathway_events                                                                                  stemi_pathway_events[]
   stemi_team_notifications                                                                              stemi_team_notifications[]
@@ -24487,6 +24523,94 @@ model diagnostic_result_patient_notifications {
   @@unique([tenant_id, generation_id, notification_kind], map: "ux_diagnostic_patient_notification_generation_kind")
   @@unique([tenant_id, id], map: "ux_diagnostic_patient_notification_tenant_id")
   @@index([tenant_id, patient_uid, created_at(sort: Desc), id(sort: Desc)], map: "idx_diagnostic_patient_notification_patient_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model referral_patient_notifications {
+  id                     BigInt              @id @default(autoincrement())
+  tenant_id              String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  response_id            String              @db.Uuid
+  patient_uid            String              @db.Uuid
+  notification_kind      String              @db.VarChar(40)
+  notification_outbox_id Int
+  created_at             DateTime            @default(now()) @db.Timestamptz(6)
+  notification_outbox    notification_outbox @relation(fields: [tenant_id, notification_outbox_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referral_patient_notifications_outbox")
+  users                  users               @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_referral_patient_notifications_patient")
+  referral_responses     referral_responses  @relation(fields: [tenant_id, response_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_referral_patient_notifications_response")
+
+  @@unique([tenant_id, response_id, notification_kind], map: "ux_referral_patient_notifications_response_kind")
+  @@unique([tenant_id, id], map: "ux_referral_patient_notifications_tenant_id")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc), id(sort: Desc)], map: "idx_referral_patient_notifications_patient_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model referral_responses {
+  id                                                    String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                             String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  referral_id                                           Int
+  patient_uid                                           String                           @db.Uuid
+  version                                               Int                              @default(1)
+  assessment                                            String
+  recommendations                                       String
+  follow_up_plan                                        String?
+  patient_summary                                       String?
+  patient_instructions                                  String?
+  request_fingerprint                                   String                           @db.Char(64)
+  release_to_patient                                    Boolean                          @default(false)
+  continuing_ownership                                  Boolean                          @default(false)
+  signed_by                                             String                           @db.Uuid
+  signer_role                                           String?                          @db.VarChar(80)
+  signed_at                                             DateTime                         @default(now()) @db.Timestamptz(6)
+  created_at                                            DateTime                         @default(now()) @db.Timestamptz(6)
+  referral_patient_notifications                        referral_patient_notifications[]
+  users_referral_responses_tenant_id_patient_uidTousers users                            @relation("referral_responses_tenant_id_patient_uidTousers", fields: [tenant_id, patient_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referral_responses_patient")
+  referrals                                             referrals                        @relation(fields: [tenant_id, referral_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referral_responses_referral")
+  users_referral_responses_tenant_id_signed_byTousers   users                            @relation("referral_responses_tenant_id_signed_byTousers", fields: [tenant_id, signed_by], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referral_responses_signer")
+
+  @@unique([tenant_id, referral_id, request_fingerprint], map: "ux_referral_responses_request")
+  @@unique([tenant_id, id], map: "ux_referral_responses_tenant_id")
+  @@unique([tenant_id, id, patient_uid], map: "ux_referral_responses_tenant_id_patient")
+  @@unique([tenant_id, referral_id, version], map: "ux_referral_responses_version")
+  @@index([tenant_id, patient_uid, signed_at(sort: Desc)], map: "idx_referral_responses_patient_release", where: raw("(release_to_patient = true)"))
+  @@index([tenant_id, referral_id, version(sort: Desc)], map: "idx_referral_responses_referral_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model referral_transition_events {
+  id                                                            String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                     String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  referral_id                                                   Int
+  patient_uid                                                   String                   @db.Uuid
+  encounter_id                                                  String?                  @db.Uuid
+  sequence_number                                               Int
+  event_type                                                    String                   @db.VarChar(60)
+  from_status                                                   String?                  @db.VarChar(40)
+  to_status                                                     String                   @db.VarChar(40)
+  from_owner_uid                                                String?                  @db.Uuid
+  to_owner_uid                                                  String?                  @db.Uuid
+  reason                                                        String?
+  occurred_at                                                   DateTime                 @default(now()) @db.Timestamptz(6)
+  actor_uid                                                     String?                  @db.Uuid
+  actor_role                                                    String?                  @db.VarChar(80)
+  event_payload                                                 Json                     @default("{}")
+  canonical_timeline_event_id                                   String                   @db.Uuid
+  canonical_audit_event_id                                      String                   @db.Uuid
+  created_at                                                    DateTime                 @default(now()) @db.Timestamptz(6)
+  users_referral_transition_events_tenant_id_actor_uidTousers   users?                   @relation("referral_transition_events_tenant_id_actor_uidTousers", fields: [tenant_id, actor_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referral_transition_events_actor")
+  clinical_audit_events                                         clinical_audit_events    @relation(fields: [tenant_id, canonical_audit_event_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referral_transition_events_audit")
+  users_referral_transition_events_tenant_id_patient_uidTousers users                    @relation("referral_transition_events_tenant_id_patient_uidTousers", fields: [tenant_id, patient_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referral_transition_events_patient")
+  referrals                                                     referrals                @relation(fields: [tenant_id, referral_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referral_transition_events_referral")
+  clinical_timeline_events                                      clinical_timeline_events @relation(fields: [tenant_id, canonical_timeline_event_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referral_transition_events_timeline")
+
+  @@unique([tenant_id, referral_id, sequence_number], map: "ux_referral_transition_events_sequence")
+  @@unique([tenant_id, id], map: "ux_referral_transition_events_tenant_id")
+  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_referral_transition_events_patient_time")
+  @@index([tenant_id, referral_id, occurred_at, sequence_number], map: "idx_referral_transition_events_referral_time")
 }
 
 enum transplant_organ_type {

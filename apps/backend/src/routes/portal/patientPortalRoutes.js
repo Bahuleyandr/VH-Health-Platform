@@ -15,6 +15,10 @@ import { getHealthRecordsByPhone } from '../../controllers/record/patientRecordC
 import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
 import * as portalAccess from '../../services/portal/portalAccessService.js';
+import {
+  getPatientReferral,
+  listPatientReferrals,
+} from '../../services/portal/patientReferralService.js';
 import { getPatientWhatsNext } from '../../services/carePlan/carePlanService.js';
 import {
   getPatientTeleconsultLobbyStateForAppointment,
@@ -541,6 +545,22 @@ router.get('/diagnostic-results/:id', requirePatient, wrap(async (req) =>
   portal.getMyStructuredDiagnosticResult({
     tenantId: tenantOf(req),
     patient_uid: await effectivePatientUid(req),
+    id: req.params.id,
+  }),
+));
+
+router.get('/referrals', requirePatient, wrap(async (req) =>
+  listPatientReferrals({
+    tenantId: tenantOf(req),
+    patientUid: await effectivePatientUid(req),
+    limit: req.query.limit,
+  }),
+));
+
+router.get('/referrals/:id', requirePatient, wrap(async (req) =>
+  getPatientReferral({
+    tenantId: tenantOf(req),
+    patientUid: await effectivePatientUid(req),
     id: req.params.id,
   }),
 ));

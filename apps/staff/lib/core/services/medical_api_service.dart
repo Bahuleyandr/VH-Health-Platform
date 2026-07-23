@@ -842,10 +842,22 @@ class MedicalApiService {
 
   static Future<Map<String, dynamic>> completeReferral(
     int referralId, {
-    String? responseNotes,
+    required String assessment,
+    required String recommendations,
+    String? followUpPlan,
+    String? patientSummary,
+    String? patientInstructions,
+    bool releaseToPatient = false,
+    bool continuingOwnership = false,
   }) async {
     return _put('/referrals/$referralId/complete', {
-      'response_notes': ?responseNotes,
+      'assessment': assessment,
+      'recommendations': recommendations,
+      'follow_up_plan': ?followUpPlan,
+      'patient_summary': ?patientSummary,
+      'patient_instructions': ?patientInstructions,
+      'release_to_patient': releaseToPatient,
+      'continuing_ownership': continuingOwnership,
     });
   }
 
@@ -856,6 +868,32 @@ class MedicalApiService {
     return _put('/referrals/$referralId/decline', {
       'reason': reason ?? 'Not appropriate for this service',
       'response_notes': ?reason,
+    });
+  }
+
+  static Future<Map<String, dynamic>> rerouteReferral(
+    int referralId, {
+    required String referredToDoctor,
+    required String department,
+    required String reason,
+  }) async {
+    return _post('/referrals/$referralId/reroute', {
+      'referred_to_doctor': referredToDoctor,
+      'referred_to_department': department,
+      'reason': reason,
+    });
+  }
+
+  static Future<Map<String, dynamic>> acknowledgeReferralResponse(
+    int referralId, {
+    required String disposition,
+    required String planUpdate,
+    List<Map<String, dynamic>> recoveryAttempts = const [],
+  }) async {
+    return _post('/referrals/$referralId/originator-ack', {
+      'disposition': disposition,
+      'plan_update': planUpdate,
+      'recovery_attempts': recoveryAttempts,
     });
   }
 

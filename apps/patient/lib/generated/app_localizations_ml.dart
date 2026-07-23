@@ -3868,4 +3868,37 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get teleconsultEndCall => 'കാൾ അവസാനിപ്പിക്കുക';
+
+  @override
+  String get referralsTitle => 'Referrals';
+
+  @override
+  String get referralsLoadFailed =>
+      'We could not load your referral updates. Please try again.';
+
+  @override
+  String get referralsEmptyTitle => 'No referral updates yet';
+
+  @override
+  String get referralsEmptySubtitle =>
+      'Signed specialist updates that your care team releases will appear here.';
+
+  @override
+  String get referralsSpecialist => 'Specialist referral';
+
+  @override
+  String get referralsSummary => 'Specialist summary';
+
+  @override
+  String get referralsNextSteps => 'What to do next';
+
+  @override
+  String get referralsFollowUp => 'Follow-up plan';
+
+  @override
+  String get referralsAppointment => 'Appointment';
+
+  @override
+  String get referralsAppointmentLinked =>
+      'A follow-up appointment is linked to this referral.';
 }

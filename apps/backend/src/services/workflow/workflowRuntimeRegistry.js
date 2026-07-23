@@ -1,5 +1,6 @@
 import { WORKFLOW_STEP_KINDS } from './workflowDefinitionContract.js';
 import { DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS } from '../pathways/diagnosticsPathwayHandlers.js';
+import { REFERRAL_PATHWAY_RUNTIME_HANDLERS } from '../pathways/referralPathwayHandlers.js';
 
 const HANDLER_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.v[1-9][0-9]*$/;
 const DECISION_CODE_PATTERN = /^[a-z][a-z0-9_]{0,79}$/;
@@ -311,7 +312,7 @@ export function isRegisteredWorkflowSystemActor(actor, { registry = null } = {})
 // Retained for checksum/replay compatibility with the S1b-b no-op runtime.
 export const workflowRuntimeRegistryV1 = createWorkflowRuntimeRegistry({ version: 1 });
 
-export const workflowRuntimeRegistry = createWorkflowRuntimeRegistry({
+export const workflowRuntimeRegistryV2 = createWorkflowRuntimeRegistry({
   version: 2,
   conditions: [
     ['diagnostics.route_generation.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.routeGeneration],
@@ -322,6 +323,26 @@ export const workflowRuntimeRegistry = createWorkflowRuntimeRegistry({
     ['diagnostics.finalize.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.finalize],
   ],
   systemActors: ['diagnostics.pathway_projector.v1'],
+});
+
+export const workflowRuntimeRegistry = createWorkflowRuntimeRegistry({
+  version: 3,
+  conditions: [
+    ['diagnostics.route_generation.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.routeGeneration],
+    ['diagnostics.normal_closure.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.normalClosure],
+    ['diagnostics.doctor_action.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.doctorAction],
+    ['referral.receiver_acceptance.v1', REFERRAL_PATHWAY_RUNTIME_HANDLERS.receiverAcceptance],
+    ['referral.signed_response.v1', REFERRAL_PATHWAY_RUNTIME_HANDLERS.signedResponse],
+    ['referral.originator_closure.v1', REFERRAL_PATHWAY_RUNTIME_HANDLERS.originatorClosure],
+  ],
+  actions: [
+    ['diagnostics.finalize.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.finalize],
+    ['referral.finalize.v1', REFERRAL_PATHWAY_RUNTIME_HANDLERS.finalize],
+  ],
+  systemActors: [
+    'diagnostics.pathway_projector.v1',
+    'referral.pathway_projector.v1',
+  ],
 });
 
 export default workflowRuntimeRegistry;
