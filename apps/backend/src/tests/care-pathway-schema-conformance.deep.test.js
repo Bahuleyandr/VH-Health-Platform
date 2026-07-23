@@ -1899,6 +1899,7 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
       'degraded-excursion',
       false,
     ],
+    ['referral', 'referral_response', 'referrals', 'degraded-referral', false],
     ['mortuary', 'mortuary_unclaimed_body', 'death_record', null, true],
   ])(
     'normalizes a recognized old %s no-policy write without fabricating a clock',
@@ -2108,6 +2109,18 @@ describeIfDb('care pathway execution-spine schema conformance (PostgreSQL)', () 
       [tenantId, patientUid],
       '23514',
       'not a recognized compatibility contract',
+    );
+    await expectStatementFailure(
+      client,
+      `INSERT INTO tasks
+         (tenant_id, task_kind, title, patient_uid,
+          related_resource_type, related_resource_id, metadata)
+       VALUES ($1::uuid, 'review', 'Mismatched referral resource', $2::uuid,
+               'referral', 'wrong-resource',
+               jsonb_build_object('sla_key', 'referral_response'))`,
+      [tenantId, patientUid],
+      '23514',
+      'chk_tasks_referral_response_resource',
     );
     await expectStatementFailure(
       client,

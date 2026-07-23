@@ -98,30 +98,62 @@ CREATE INDEX IF NOT EXISTS idx_referrals_tenant_appointment
 -- assertion without weakening their resource-type/resource-id equality checks.
 DO $$
 DECLARE
+  function_signatures REGPROCEDURE[] := ARRAY[
+    'tasks_sync_workflow_sla_compat()'::regprocedure,
+    'care_pathway_assert_task_sla_source_binding(uuid,integer)'::regprocedure,
+    'care_pathway_assert_actionable_task_owner(uuid,integer)'::regprocedure
+  ];
+  expected_match_counts INTEGER[] := ARRAY[3, 1, 1];
+  function_index INTEGER;
   function_signature REGPROCEDURE;
   function_definition TEXT;
-  prior_rule TEXT := $rule$'cold_chain_excursion_ack'$rule$;
-  extended_rules TEXT := $rules$'cold_chain_excursion_ack', 'referral_response'$rules$;
+  match_count INTEGER;
+  rule_pair_pattern TEXT :=
+    $pattern$'critical_result_ack',[[:space:]]*'cold_chain_excursion_ack'$pattern$;
+  extended_rule_pair TEXT :=
+    $rules$'critical_result_ack', 'cold_chain_excursion_ack', 'referral_response'$rules$;
 BEGIN
-  FOREACH function_signature IN ARRAY ARRAY[
-    'tasks_sync_workflow_sla_compat()'::regprocedure,
-    'care_pathway_assert_task_sla_source_binding(uuid,integer)'::regprocedure
-  ]
+  FOR function_index IN 1..array_length(function_signatures, 1)
   LOOP
+    function_signature := function_signatures[function_index];
     SELECT pg_get_functiondef(function_signature)
       INTO function_definition;
     IF POSITION('referral_response' IN function_definition) = 0 THEN
-      IF POSITION(prior_rule IN function_definition) = 0 THEN
+      SELECT COUNT(*)::integer
+        INTO match_count
+        FROM regexp_matches(function_definition, rule_pair_pattern, 'g');
+      IF match_count IS DISTINCT FROM expected_match_counts[function_index] THEN
         RAISE EXCEPTION
-          'Cannot extend task/SLA contract in %: expected acknowledgement rule anchor is absent',
-          function_signature;
+          'Cannot extend task/SLA contract in %: expected % acknowledgement rule anchors, found %',
+          function_signature,
+          expected_match_counts[function_index],
+          match_count;
       END IF;
-      function_definition := REPLACE(function_definition, prior_rule, extended_rules);
+      function_definition := regexp_replace(
+        function_definition,
+        rule_pair_pattern,
+        extended_rule_pair,
+        'g'
+      );
       EXECUTE function_definition;
     END IF;
   END LOOP;
 END
 $$;
+
+ALTER TABLE tasks
+  ADD CONSTRAINT chk_tasks_referral_response_resource
+  CHECK (
+    COALESCE(
+      NULLIF(BTRIM(metadata->>'requested_sla_key'), ''),
+      NULLIF(BTRIM(metadata->>'sla_key'), '')
+    ) IS DISTINCT FROM 'referral_response'
+    OR related_resource_type IS NOT DISTINCT FROM 'referrals'
+  )
+  NOT VALID;
+
+ALTER TABLE tasks
+  VALIDATE CONSTRAINT chk_tasks_referral_response_resource;
 
 CREATE TABLE referral_transition_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
