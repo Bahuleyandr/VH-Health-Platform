@@ -55,6 +55,7 @@ jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  isPathwayHumanOwnerRole: () => true,
   isTaskHumanOwnerRole: () => true,
   resolveCurrentHumanActorTx: async ({
     actorUid,

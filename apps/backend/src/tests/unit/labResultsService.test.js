@@ -72,6 +72,7 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/workflow/workflowHumanOwnerService.js', () => ({
+  isPathwayHumanOwnerRole: () => true,
   isTaskHumanOwnerRole: () => true,
   resolveCurrentHumanActorTx: resolveCurrentHumanActorTxMock,
 }));
