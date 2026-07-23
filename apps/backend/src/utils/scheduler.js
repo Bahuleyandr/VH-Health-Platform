@@ -625,6 +625,21 @@ if (process.env.NODE_ENV !== 'test') {
     logger.info('diagnostic-normal-release-sweep complete', result);
   }));
 
+  // Queue a single generic, PHI-free result-ready intent for each current
+  // structured Radiology/AP generation only after the portal visibility rule
+  // passes. This remains inert unless both the Diagnostics pathway is active
+  // and the tenant explicitly enables diagnostic_result_notifications.
+  registerCron('*/2 * * * *', withJobLock('diagnostic-result-patient-notification', async () => {
+    const { runStructuredDiagnosticPatientNotificationSweep } = await import(
+      '../services/diagnostics/diagnosticResultPatientNotificationService.js'
+    );
+    const result = await runForEachTenant(
+      'diagnostic-result-patient-notification',
+      (tenantId) => runStructuredDiagnosticPatientNotificationSweep({ tenantId }),
+    );
+    logger.info('diagnostic-result-patient-notification complete', result);
+  }));
+
   // Every 5 minutes — reclaim expired S1a inbox leases. This is separately
   // locked from the shadow tick and remains inert under the default-off flag.
   registerCron('*/5 * * * *', withJobLock('pathway-projector-stale-lease-reaper', async () => {

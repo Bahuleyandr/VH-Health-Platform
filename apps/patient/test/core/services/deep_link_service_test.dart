@@ -94,6 +94,7 @@ void main() {
         'collector_dispatched': '/investigations',
         'lab_result_ready': '/portal/lab-results',
         'results_ready': '/portal/lab-results',
+        'diagnostic_result_ready': '/portal/diagnostic-results',
         'prescription_ready': '/health',
         'document_uploaded': '/health',
         'bill_ready': '/portal/bills',

@@ -5,7 +5,10 @@ import {
   isPathwayReconciliationRegistry,
   pathwayReconciliationRegistry,
 } from '../../services/pathways/pathwayReconciliationRegistry.js';
-import { CANONICAL_PATHWAY_KEYS } from '../../services/pathways/pathwayMode.js';
+import {
+  CANONICAL_PATHWAY_KEYS,
+  CARE_PATHWAY_KEYS,
+} from '../../services/pathways/pathwayMode.js';
 
 const CHECKSUM = 'a'.repeat(64);
 
@@ -57,12 +60,22 @@ describe('pathwayReconciliationRegistry', () => {
     expect(pathwayReconciliationRegistry.checksum).toMatch(/^[0-9a-f]{64}$/);
     for (const pathwayKey of CANONICAL_PATHWAY_KEYS) {
       const profile = pathwayReconciliationRegistry.resolveProfile(pathwayKey);
-      expect(profile).toMatchObject({
-        pathwayKey,
-        blockingReason: 'vertical_domain_adapter_not_registered',
-        domainAdapters: [],
-        repairDescriptors: [],
-      });
+      expect(profile.pathwayKey).toBe(pathwayKey);
+      expect(profile.repairDescriptors).toEqual([]);
+      if (pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+        expect(profile.blockingReason).toBeNull();
+        expect(profile.domainAdapters).toHaveLength(1);
+        expect(profile.domainAdapters[0]).toMatchObject({
+          adapterId: 'diagnostics_order_to_action_v1',
+          workflowKey: CARE_PATHWAY_KEYS.DIAGNOSTICS,
+          definitionVersion: 1,
+        });
+      } else {
+        expect(profile).toMatchObject({
+          blockingReason: 'vertical_domain_adapter_not_registered',
+          domainAdapters: [],
+        });
+      }
     }
   });
 
@@ -136,8 +149,7 @@ describe('pathwayReconciliationRegistry', () => {
         domainAdapters: [{
           adapterId: 'diagnostics_v1',
           adapterVersion: 'test.diagnostics.v1',
-          governanceId: '10000000-0000-4000-8000-000000000001',
-          workflowDefinitionId: 1,
+          workflowKey: CANONICAL_PATHWAY_KEYS[0],
           definitionVersion: 1,
           definitionChecksum: CHECKSUM,
           checks: [{
@@ -152,14 +164,10 @@ describe('pathwayReconciliationRegistry', () => {
       profiles: adapterProfiles,
     }));
     expect(registry.matchDomainAdapter(CANONICAL_PATHWAY_KEYS[0], {
-      governanceId: '10000000-0000-4000-8000-000000000001',
-      workflowDefinitionId: 1,
       definitionVersion: 1,
       definitionChecksum: CHECKSUM,
     })).toMatchObject({ adapterId: 'diagnostics_v1' });
     expect(registry.matchDomainAdapter(CANONICAL_PATHWAY_KEYS[0], {
-      governanceId: '10000000-0000-4000-8000-000000000001',
-      workflowDefinitionId: 1,
       definitionVersion: 2,
       definitionChecksum: CHECKSUM,
     })).toBeUndefined();

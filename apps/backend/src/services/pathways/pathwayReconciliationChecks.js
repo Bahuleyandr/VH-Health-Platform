@@ -798,6 +798,150 @@ async function diagnosticStructuredAcknowledgementEvidence({ tx, tenantId, pathw
   ));
 }
 
+async function diagnosticSourceProjectionEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+    return result('DIAGNOSTIC_SOURCE_PROJECTION_DRIFT', 0);
+  }
+  return result('DIAGNOSTIC_SOURCE_PROJECTION_DRIFT', await count(
+    tx,
+    `WITH source_rows AS (
+       SELECT order_row.tenant_id,
+              order_row.patient_uid,
+              'radiology_report'::text AS source_kind,
+              'radiology_order:' || order_row.id::text AS episode_key,
+              1::bigint AS source_version,
+              order_row.result_classification AS classification,
+              order_row.report_signed_off_by AS signer_uid,
+              order_row.report_signed_off_at AS signed_at,
+              order_row.id::bigint AS base_id,
+              NULL::bigint AS addendum_id
+         FROM radiology_orders AS order_row
+        WHERE order_row.tenant_id = $1::uuid
+          AND order_row.report_signed_off_at IS NOT NULL
+       UNION ALL
+       SELECT order_row.tenant_id,
+              order_row.patient_uid,
+              'radiology_report'::text,
+              'radiology_order:' || order_row.id::text,
+              addendum.generation_version,
+              addendum.result_classification,
+              addendum.signed_by,
+              addendum.signed_at,
+              order_row.id::bigint,
+              addendum.id
+         FROM radiology_report_addenda AS addendum
+         JOIN radiology_orders AS order_row
+           ON order_row.tenant_id = addendum.tenant_id
+          AND order_row.id = addendum.radiology_order_id
+        WHERE addendum.tenant_id = $1::uuid
+       UNION ALL
+       SELECT report.tenant_id,
+              ap_case.patient_uid,
+              'anatomical_pathology_report'::text,
+              'ap_report:' || report.id::text,
+              1::bigint,
+              report.result_classification,
+              report.signed_by,
+              report.signed_at,
+              report.id,
+              NULL::bigint
+         FROM ap_reports AS report
+         JOIN ap_cases AS ap_case
+           ON ap_case.tenant_id = report.tenant_id
+          AND ap_case.id = report.ap_case_id
+        WHERE report.tenant_id = $1::uuid
+          AND report.signed_at IS NOT NULL
+       UNION ALL
+       SELECT report.tenant_id,
+              ap_case.patient_uid,
+              'anatomical_pathology_report'::text,
+              'ap_report:' || report.id::text,
+              addendum.generation_version,
+              addendum.result_classification,
+              addendum.addendum_by,
+              addendum.addendum_at,
+              report.id,
+              addendum.id
+         FROM ap_report_addenda AS addendum
+         JOIN ap_reports AS report
+           ON report.tenant_id = addendum.tenant_id
+          AND report.id = addendum.ap_report_id
+         JOIN ap_cases AS ap_case
+           ON ap_case.tenant_id = report.tenant_id
+          AND ap_case.id = report.ap_case_id
+        WHERE addendum.tenant_id = $1::uuid
+     ), source_drift AS (
+       SELECT source.*
+         FROM source_rows AS source
+         LEFT JOIN diagnostic_result_generations AS generation
+           ON generation.tenant_id = source.tenant_id
+          AND generation.source_kind = source.source_kind
+          AND generation.source_episode_key = source.episode_key
+          AND generation.source_version = source.source_version
+          AND generation.patient_uid = source.patient_uid
+          AND generation.classification = source.classification
+          AND generation.signer_uid = source.signer_uid
+          AND generation.signed_at = source.signed_at
+          AND (
+            (source.source_kind = 'radiology_report'
+             AND generation.radiology_order_id = source.base_id
+             AND generation.radiology_addendum_id IS NOT DISTINCT FROM source.addendum_id)
+            OR
+            (source.source_kind = 'anatomical_pathology_report'
+             AND generation.ap_report_id = source.base_id
+             AND generation.ap_addendum_id IS NOT DISTINCT FROM source.addendum_id)
+          )
+        WHERE source.classification IS NULL
+           OR source.source_version IS NULL
+           OR source.signer_uid IS NULL
+           OR source.signed_at IS NULL
+           OR generation.id IS NULL
+     ), chain_drift AS (
+       SELECT generation.id
+         FROM diagnostic_result_generations AS generation
+         LEFT JOIN diagnostic_result_generations AS predecessor
+           ON predecessor.tenant_id = generation.tenant_id
+          AND predecessor.id = generation.predecessor_generation_id
+        WHERE generation.tenant_id = $1::uuid
+          AND generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
+          AND (
+            (generation.source_version = 1 AND generation.predecessor_generation_id IS NOT NULL)
+            OR
+            (generation.source_version > 1 AND (
+              predecessor.id IS NULL
+              OR predecessor.source_kind IS DISTINCT FROM generation.source_kind
+              OR predecessor.source_episode_key IS DISTINCT FROM generation.source_episode_key
+              OR predecessor.source_version IS DISTINCT FROM generation.source_version - 1
+            ))
+          )
+     )
+     SELECT (
+       (SELECT COUNT(*) FROM source_drift)
+       + (SELECT COUNT(*) FROM chain_drift)
+     )::integer AS finding_count`,
+    tenantId,
+  ));
+}
+
+async function diagnosticReleaseEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.DIAGNOSTICS) {
+    return result('DIAGNOSTIC_RELEASE_EVIDENCE_DRIFT', 0);
+  }
+  return result('DIAGNOSTIC_RELEASE_EVIDENCE_DRIFT', await count(
+    tx,
+    `SELECT COUNT(*)::integer AS finding_count
+       FROM diagnostic_result_generations AS generation
+       LEFT JOIN diagnostic_result_release_states AS release_state
+         ON release_state.tenant_id = generation.tenant_id
+        AND release_state.generation_id = generation.id
+        AND release_state.patient_uid = generation.patient_uid
+      WHERE generation.tenant_id = $1::uuid
+        AND generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
+        AND release_state.generation_id IS NULL`,
+    tenantId,
+  ));
+}
+
 export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'runtime_pins', handlerVersion: 'care_pathway.runtime_pins.v1', run: runtimePins }),
   Object.freeze({ id: 'transition_sequence', handlerVersion: 'care_pathway.transition_sequence.v1', run: transitionSequence }),
@@ -808,11 +952,16 @@ export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'handoff_completion', handlerVersion: 'care_pathway.handoff_completion.v1', run: handoffCompletion }),
   Object.freeze({ id: 'projector_generation', handlerVersion: 'care_pathway.projector_generation.v1', run: projectorCoverage }),
   Object.freeze({ id: 'delivery_debt', handlerVersion: 'care_pathway.delivery_debt.v1', run: deliveryDebt }),
+]);
+
+export const DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'diagnostic_generation_evidence', handlerVersion: 'care_pathway.diagnostic_generation_evidence.v1', run: diagnosticGenerationEvidence }),
   Object.freeze({ id: 'diagnostic_projection_evidence', handlerVersion: 'care_pathway.diagnostic_projection_evidence.v1', run: diagnosticProjectionEvidence }),
   Object.freeze({ id: 'diagnostic_action_evidence', handlerVersion: 'care_pathway.diagnostic_action_evidence.v1', run: diagnosticActionEvidence }),
   Object.freeze({ id: 'diagnostic_obligation_evidence', handlerVersion: 'care_pathway.diagnostic_obligation_evidence.v1', run: diagnosticObligationEvidence }),
   Object.freeze({ id: 'diagnostic_structured_ack_evidence', handlerVersion: 'care_pathway.diagnostic_structured_ack_evidence.v3', run: diagnosticStructuredAcknowledgementEvidence }),
+  Object.freeze({ id: 'diagnostic_source_projection', handlerVersion: 'care_pathway.diagnostic_source_projection.v1', run: diagnosticSourceProjectionEvidence }),
+  Object.freeze({ id: 'diagnostic_release_evidence', handlerVersion: 'care_pathway.diagnostic_release_evidence.v1', run: diagnosticReleaseEvidence }),
 ]);
 
 export default COMMON_PATHWAY_RECONCILIATION_CHECKS;

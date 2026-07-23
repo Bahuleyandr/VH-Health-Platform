@@ -28,6 +28,7 @@ const MANUAL_SEED_TABLES = new Set([
   'diagnostic_result_generation_items',
   'diagnostic_result_actions',
   'diagnostic_result_release_states',
+  'diagnostic_result_patient_notifications',
   'clinical_timeline_events',
   'clinical_audit_events',
   'lab_analyzers',
@@ -1889,6 +1890,49 @@ async function seedDiagnosticResultEvidence() {
       actionAudit.rows[0].id,
       signedAt,
     ],
+  );
+}
+
+async function seedDiagnosticResultPatientNotificationEvidence() {
+  if (await tableCount('diagnostic_result_patient_notifications')) return;
+  const generation = await first(
+    'diagnostic_result_generations',
+    'id, patient_uid',
+    `tenant_id = $1::uuid
+     AND source_kind IN ('radiology_report', 'anatomical_pathology_report')`,
+    [DEFAULT_TENANT_ID],
+  );
+  if (!generation?.id || !generation.patient_uid) {
+    throw new Error('Diagnostic notification seed evidence requires a structured generation.');
+  }
+  const outbox = await client.query(
+    `INSERT INTO notification_outbox
+       (tenant_id, type, recipient_id, title, body, payload, status, sent_at, created_at)
+     VALUES
+       ($1::uuid, 'diagnostic_result_ready', $2::text,
+        'New report available',
+        'Open VH Health to securely view your latest report.',
+        $3::jsonb, 'SENT', NOW(), NOW())
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      String(generation.patient_uid),
+      JSON.stringify({
+        tenant_id: DEFAULT_TENANT_ID,
+        type: 'diagnostic_result_ready',
+        route: '/portal/diagnostic-results',
+        seed: true,
+      }),
+    ],
+  );
+  await client.query(
+    `INSERT INTO diagnostic_result_patient_notifications
+       (tenant_id, generation_id, patient_uid, notification_kind,
+        policy_version, notification_outbox_id)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, 'result_ready',
+        'structured_diagnostic_result_ready.v1', $4::integer)`,
+    [DEFAULT_TENANT_ID, generation.id, generation.patient_uid, Number(outbox.rows[0].id)],
   );
 }
 
@@ -3778,6 +3822,7 @@ try {
   await seedLabIngestCriticalAlertGraph();
   await seedCarePathwayReconciliationEvidence();
   await seedDiagnosticResultEvidence();
+  await seedDiagnosticResultPatientNotificationEvidence();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();

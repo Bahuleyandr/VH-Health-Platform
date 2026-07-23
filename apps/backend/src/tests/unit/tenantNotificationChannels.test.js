@@ -14,6 +14,7 @@ describe('tenant notification channel preferences', () => {
   it('maps result-ready aliases to the results_ready setting key', () => {
     expect(notificationPreferenceKeyForType('lab_result_ready')).toBe('results_ready');
     expect(notificationPreferenceKeyForType('investigation_result_ready')).toBe('results_ready');
+    expect(notificationPreferenceKeyForType('diagnostic_result_ready')).toBe('results_ready');
     expect(notificationPreferenceKeyForType('results_ready')).toBe('results_ready');
   });
 
