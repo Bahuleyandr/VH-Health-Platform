@@ -72,4 +72,19 @@ describe('portal proxy consent-trail ordering', () => {
       grantId: 17,
     });
   });
+
+  it('still permits an authorized proxy read when the recorder reports audit degradation', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 18, scope: ['results'] }]);
+    recordClinicalAuditEventMock.mockResolvedValueOnce(null);
+
+    await expect(resolvePortalPatient({
+      requesterUid: '11111111-1111-4111-8111-111111111111',
+      forPatientUid: '22222222-2222-4222-8222-222222222222',
+      scope: 'results',
+    })).resolves.toEqual({
+      patientUid: '22222222-2222-4222-8222-222222222222',
+      proxy: true,
+      grantId: 18,
+    });
+  });
 });
