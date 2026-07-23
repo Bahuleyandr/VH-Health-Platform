@@ -66,6 +66,8 @@
     "care-pathways:reconciliation-evidence": "node scripts/care-pathway-reconciliation-evidence.mjs",
     "care-pathways:backfill-structured-diagnostic-release-states": "node scripts/backfill-structured-diagnostic-release-states.mjs",
     "care-pathways:register-diagnostics-definition": "node scripts/register-diagnostics-pathway-definition.mjs",
+    "care-pathways:register-referral-definition": "node scripts/register-referral-pathway-definition.mjs",
+    "care-pathways:backfill-referral-receiver-tasks": "node scripts/backfill-referral-receiver-tasks.mjs",
     "care-pathways:set-shadow-mode": "node scripts/set-care-pathway-shadow-mode.mjs",
     "lab:audit-ingest-582-584-readiness": "node scripts/audit-lab-oru-replay-readiness.mjs",
     "generate-admin-token": "node src/scripts/development/generateAdminToken.js",

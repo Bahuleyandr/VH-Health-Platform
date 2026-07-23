@@ -54,6 +54,7 @@ import 'package:vhhealth/features/portal/screens/discharge_summaries_screen.dart
 import 'package:vhhealth/features/portal/screens/lab_orders_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
 import 'package:vhhealth/features/portal/screens/structured_diagnostic_results_screen.dart';
+import 'package:vhhealth/features/portal/screens/patient_referrals_screen.dart';
 import 'package:vhhealth/features/portal/screens/messages_screen.dart';
 import 'package:vhhealth/features/portal/screens/message_thread_screen.dart';
 import 'package:vhhealth/features/portal/screens/tpa_claims_screen.dart';
@@ -453,6 +454,10 @@ class AppRouter {
             initialResult: args?.initialResult,
           );
         },
+      ),
+      GoRoute(
+        path: '/portal/referrals',
+        builder: (context, state) => const PatientReferralsScreen(),
       ),
       GoRoute(
         path: '/portal/lab-orders',

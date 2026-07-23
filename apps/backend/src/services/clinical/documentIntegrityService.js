@@ -59,6 +59,11 @@ export const SIGNABLE_DOCUMENTS = Object.freeze({
     idType: 'uuid',
     exclude: [],
   },
+  referral_response: {
+    table: 'referral_responses',
+    idType: 'uuid',
+    exclude: [],
+  },
 });
 
 /**

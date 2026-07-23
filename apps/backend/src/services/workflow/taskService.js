@@ -519,7 +519,11 @@ async function assertTaskSlaSourceBinding({
   let valid = false;
   if (sla && workflowStepId) {
     valid = sourceTable === 'workflow_steps' && sourceId === workflowStepId;
-  } else if (sla && ['critical_result_ack', 'cold_chain_excursion_ack'].includes(sla.rule_code)) {
+  } else if (
+    sla
+    && ['critical_result_ack', 'cold_chain_excursion_ack', 'referral_response']
+      .includes(sla.rule_code)
+  ) {
     valid = taskRow.sla_completion_semantics === 'acknowledgement'
       && Boolean(taskResourceType && taskResourceId)
       && sourceTable === taskResourceType

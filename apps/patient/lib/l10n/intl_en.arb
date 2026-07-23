@@ -4280,5 +4280,45 @@
   "teleconsultEndCall": "End call",
   "@teleconsultEndCall": {
     "description": "Patient app UI string. Button to leave the teleconsult."
+  },
+  "referralsTitle": "Referrals",
+  "@referralsTitle": {
+    "description": "Patient portal referral updates screen title."
+  },
+  "referralsLoadFailed": "We could not load your referral updates. Please try again.",
+  "@referralsLoadFailed": {
+    "description": "Patient portal referral load error."
+  },
+  "referralsEmptyTitle": "No referral updates yet",
+  "@referralsEmptyTitle": {
+    "description": "Patient portal empty referral title."
+  },
+  "referralsEmptySubtitle": "Signed specialist updates that your care team releases will appear here.",
+  "@referralsEmptySubtitle": {
+    "description": "Patient portal empty referral explanation."
+  },
+  "referralsSpecialist": "Specialist referral",
+  "@referralsSpecialist": {
+    "description": "Fallback specialist referral label."
+  },
+  "referralsSummary": "Specialist summary",
+  "@referralsSummary": {
+    "description": "Patient-safe specialist summary heading."
+  },
+  "referralsNextSteps": "What to do next",
+  "@referralsNextSteps": {
+    "description": "Patient referral next steps heading."
+  },
+  "referralsFollowUp": "Follow-up plan",
+  "@referralsFollowUp": {
+    "description": "Patient referral follow-up heading."
+  },
+  "referralsAppointment": "Appointment",
+  "@referralsAppointment": {
+    "description": "Patient referral appointment heading."
+  },
+  "referralsAppointmentLinked": "A follow-up appointment is linked to this referral.",
+  "@referralsAppointmentLinked": {
+    "description": "Patient referral linked appointment message."
   }
 }

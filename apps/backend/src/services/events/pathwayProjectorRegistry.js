@@ -6,6 +6,10 @@ import {
   DIAGNOSTIC_PATHWAY_EVENT_TYPES,
   diagnosticPathwayProjectorHandler,
 } from '../pathways/diagnosticPathwayProjector.js';
+import {
+  REFERRAL_PATHWAY_EVENT_TYPES,
+  referralPathwayProjectorHandler,
+} from '../pathways/referralPathwayProjector.js';
 
 export {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
@@ -24,6 +28,11 @@ export const PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES = Object.freeze([
 export const PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES = Object.freeze([
   ...PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES,
   ...DIAGNOSTIC_PATHWAY_EVENT_TYPES,
+]);
+
+export const PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES = Object.freeze([
+  ...PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES,
+  ...REFERRAL_PATHWAY_EVENT_TYPES,
 ]);
 
 const EVENT_TYPE_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/;
@@ -54,7 +63,9 @@ function requireGenerationMembership(generation, handlers) {
     ? PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES
     : generation === 2
       ? PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES
-      : null;
+      : generation === 3
+        ? PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES
+        : null;
   if (!canonicalMembership) return;
   const exact = handlers.size === canonicalMembership.length
     && canonicalMembership.every((eventType) => handlers.has(eventType));
@@ -74,7 +85,7 @@ function requireGenerationMembership(generation, handlers) {
  */
 function buildPathwayProjectorRegistry({ generation, entries }, { allowCanonical = false } = {}) {
   const normalizedGeneration = requireGeneration(generation);
-  if ([1, 2].includes(normalizedGeneration) && !allowCanonical) {
+  if ([1, 2, 3].includes(normalizedGeneration) && !allowCanonical) {
     throw new TypeError(
       `Pathway projector generation ${normalizedGeneration} is reserved for its canonical registry`,
     );
@@ -156,10 +167,27 @@ const generationTwoEntries = [
     Object.freeze([eventType, diagnosticPathwayProjectorHandler])),
 ];
 
+export const pathwayProjectorRegistryV2 = buildPathwayProjectorRegistry(
+  {
+    generation: 2,
+    entries: generationTwoEntries,
+  },
+  { allowCanonical: true },
+);
+
+const generationThreeEntries = [
+  ...PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, createShadowObserver(eventType, 3)])),
+  ...DIAGNOSTIC_PATHWAY_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, diagnosticPathwayProjectorHandler])),
+  ...REFERRAL_PATHWAY_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, referralPathwayProjectorHandler])),
+];
+
 export const pathwayProjectorRegistry = buildPathwayProjectorRegistry(
   {
     generation: PATHWAY_PROJECTOR_GENERATION,
-    entries: generationTwoEntries,
+    entries: generationThreeEntries,
   },
   { allowCanonical: true },
 );

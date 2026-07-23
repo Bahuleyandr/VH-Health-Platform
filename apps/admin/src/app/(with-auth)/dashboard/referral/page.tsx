@@ -1,446 +1,189 @@
-// src/app/(with-auth)/dashboard/referral/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
-import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 
-type Referral = {
+import { fetchAdminAPI } from "@/lib/api";
+
+type ReferralAuditRow = {
   id: number;
+  referral_number: string;
   patient_uid: string;
-  from_department?: string;
-  to_department: string;
-  reason: string;
+  patient_name?: string | null;
+  referred_to_department: string;
+  referred_to_doctor_name?: string | null;
+  referring_doctor_name?: string | null;
+  current_owner_uid?: string | null;
+  current_owner_name?: string | null;
+  urgency: string;
   status: string;
-  priority?: string;
-  doctor_notes?: string;
-  decline_reason?: string;
-  referred_at: string;
-  updated_at?: string;
+  closure_status?: string | null;
+  closure_reason?: string | null;
+  requested_at: string;
+  first_seen_at?: string | null;
+  minutes_to_first_seen?: number | null;
+  accepted_at?: string | null;
+  completed_at?: string | null;
+  appointment_id?: number | null;
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
-  ACCEPTED: "bg-blue-100 text-blue-800",
-  COMPLETED: "bg-green-100 text-green-800",
-  DECLINED: "bg-red-100 text-red-800",
-  CANCELLED: "bg-gray-100 text-gray-600",
-};
+function rowsFromEnvelope(value: unknown): ReferralAuditRow[] {
+  if (Array.isArray(value)) return value as ReferralAuditRow[];
+  if (!value || typeof value !== "object") return [];
+  const data = (value as { data?: unknown }).data;
+  return Array.isArray(data) ? (data as ReferralAuditRow[]) : [];
+}
 
-function StatusBadge({ status }: { status: string }) {
+function dateTime(value?: string | null) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? "—"
+    : parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function label(value?: string | null) {
+  return (value || "unknown")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function badgeClass(value?: string | null) {
+  const normalized = (value || "").toLowerCase();
+  if (["closed", "completed", "accepted"].includes(normalized)) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  }
+  if (["declined", "expired", "cancelled"].includes(normalized)) {
+    return "border-red-200 bg-red-50 text-red-800";
+  }
+  if (["pending", "open", "in_progress"].includes(normalized)) {
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+  return "border-border bg-muted text-muted-foreground";
+}
+
+function Badge({ value }: { value?: string | null }) {
   return (
-    <span
-      className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[status?.toUpperCase()] ?? "bg-gray-100 text-gray-600"}`}
-    >
-      {status}
+    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${badgeClass(value)}`}>
+      {label(value)}
     </span>
   );
 }
 
-function fmtDate(d?: string | null) {
-  if (!d) return "—";
-  try {
-    return new Date(d).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return d;
-  }
-}
-
-type ReferralTableProps = {
-  referrals: Referral[];
-  onAccept?: (id: number) => void;
-  onComplete?: (id: number) => void;
-  onDecline?: (id: number) => void;
-  acting: number | null;
-};
-
-function ReferralTable({
-  referrals,
-  onAccept,
-  onComplete,
-  onDecline,
-  acting,
-}: ReferralTableProps) {
-  if (referrals.length === 0)
-    return (
-      <div className="text-center py-12 text-muted-foreground">
-        No referrals
-      </div>
-    );
-  return (
-    <div className="overflow-x-auto border border-border rounded-lg">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border text-left bg-muted/50">
-            <th className="py-2 px-3">ID</th>
-            <th className="py-2 px-3">To Dept</th>
-            <th className="py-2 px-3">Reason</th>
-            <th className="py-2 px-3">Status</th>
-            <th className="py-2 px-3">Date</th>
-            <th className="py-2 px-3">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {referrals.map((r) => (
-            <tr key={r.id} className="border-b border-border hover:bg-muted/40">
-              <td className="py-2 px-3 font-mono text-xs">{r.id}</td>
-              <td className="py-2 px-3 font-medium">{r.to_department}</td>
-              <td className="py-2 px-3 max-w-xs truncate text-xs text-muted-foreground">
-                {r.reason}
-              </td>
-              <td className="py-2 px-3">
-                <StatusBadge status={r.status} />
-              </td>
-              <td className="py-2 px-3">{fmtDate(r.referred_at)}</td>
-              <td className="py-2 px-3 flex gap-1">
-                {onAccept && r.status === "PENDING" && (
-                  <button
-                    onClick={() => onAccept(r.id)}
-                    disabled={acting === r.id}
-                    className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded hover:bg-blue-100 disabled:opacity-50"
-                  >
-                    Accept
-                  </button>
-                )}
-                {onComplete && r.status === "ACCEPTED" && (
-                  <button
-                    onClick={() => onComplete(r.id)}
-                    disabled={acting === r.id}
-                    className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100 disabled:opacity-50"
-                  >
-                    Complete
-                  </button>
-                )}
-                {onDecline && r.status === "PENDING" && (
-                  <button
-                    onClick={() => onDecline(r.id)}
-                    disabled={acting === r.id}
-                    className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded hover:bg-red-100 disabled:opacity-50"
-                  >
-                    Decline
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function IncomingTab() {
-  const [referrals, setReferrals] = useState<Referral[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [acting, setActing] = useState<number | null>(null);
-  const [declining, setDeclining] = useState<{
-    id: number;
-    reason: string;
-  } | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: Referral[] }>(
-        "/referrals/incoming",
-      );
-      const data = (r as Record<string, unknown>).data ?? r;
-      setReferrals(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Failed to load incoming referrals",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const accept = async (id: number) => {
-    setActing(id);
-    try {
-      await putJSON(`/api/v1/referrals/${id}/accept`, {});
-      load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setActing(null);
-    }
-  };
-
-  const complete = async (id: number) => {
-    setActing(id);
-    try {
-      await putJSON(`/api/v1/referrals/${id}/complete`, {});
-      load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setActing(null);
-    }
-  };
-
-  const decline = async () => {
-    if (!declining) return;
-    setActing(declining.id);
-    try {
-      await putJSON(`/api/v1/referrals/${declining.id}/decline`, {
-        reason: declining.reason,
-      });
-      setDeclining(null);
-      load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setActing(null);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-semibold">Incoming Referrals</h2>
-        <button onClick={load} className="text-sm text-primary hover:underline">
-          ↻ Refresh
-        </button>
-      </div>
-      {loading && (
-        <div className="text-center py-8 text-muted-foreground">Loading...</div>
-      )}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-      {!loading && (
-        <ReferralTable
-          referrals={referrals}
-          onAccept={accept}
-          onComplete={complete}
-          onDecline={(id) => setDeclining({ id, reason: "" })}
-          acting={acting}
-        />
-      )}
-      {declining && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-xl max-w-md w-full p-6 space-y-3">
-            <div className="flex justify-between">
-              <h3 className="font-bold">Decline Referral #{declining.id}</h3>
-              <button
-                onClick={() => setDeclining(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-            <textarea
-              rows={3}
-              placeholder="Reason for declining *"
-              value={declining.reason}
-              onChange={(e) =>
-                setDeclining({ ...declining, reason: e.target.value })
-              }
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => setDeclining(null)}
-                className="flex-1 py-2 border rounded-lg text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={decline}
-                className="flex-1 py-2 bg-red-600 text-white rounded-lg text-sm"
-              >
-                Decline
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OutgoingTab() {
-  const [referrals, setReferrals] = useState<Referral[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: Referral[] }>(
-        "/referrals/outgoing",
-      );
-      const data = (r as Record<string, unknown>).data ?? r;
-      setReferrals(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Failed to load outgoing referrals",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-semibold">Outgoing Referrals</h2>
-        <button onClick={load} className="text-sm text-primary hover:underline">
-          ↻ Refresh
-        </button>
-      </div>
-      {loading && (
-        <div className="text-center py-8 text-muted-foreground">Loading...</div>
-      )}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-      {!loading && <ReferralTable referrals={referrals} acting={null} />}
-    </div>
-  );
-}
-
-function NewReferralTab() {
-  const [form, setForm] = useState({
-    patient_uid: "",
-    to_department: "",
-    reason: "",
-    priority: "NORMAL",
-    doctor_notes: "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [success, setSuccess] = useState(false);
-
-  const submit = async () => {
-    if (!form.patient_uid || !form.to_department || !form.reason) {
-      alert("Patient UID, department, and reason are required");
-      return;
-    }
-    setSaving(true);
-    setSuccess(false);
-    try {
-      await postJSON("/api/v1/referrals", form);
-      setSuccess(true);
-      setForm({
-        patient_uid: "",
-        to_department: "",
-        reason: "",
-        priority: "NORMAL",
-        doctor_notes: "",
-      });
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to create referral");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="max-w-md space-y-3">
-      <h2 className="text-lg font-semibold">New Referral</h2>
-      {success && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-green-700 text-sm">
-          Referral created.
-        </div>
-      )}
-      <input
-        placeholder="Patient UID *"
-        value={form.patient_uid}
-        onChange={(e) => setForm({ ...form, patient_uid: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
-      />
-      <input
-        placeholder="To department *"
-        value={form.to_department}
-        onChange={(e) => setForm({ ...form, to_department: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
-      />
-      <textarea
-        rows={2}
-        placeholder="Reason *"
-        value={form.reason}
-        onChange={(e) => setForm({ ...form, reason: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm resize-none"
-      />
-      <select
-        value={form.priority}
-        onChange={(e) => setForm({ ...form, priority: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
-      >
-        {["NORMAL", "HIGH", "URGENT"].map((p) => (
-          <option key={p} value={p}>
-            {p}
-          </option>
-        ))}
-      </select>
-      <textarea
-        rows={2}
-        placeholder="Doctor notes (optional)"
-        value={form.doctor_notes}
-        onChange={(e) => setForm({ ...form, doctor_notes: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm resize-none"
-      />
-      <button
-        onClick={submit}
-        disabled={saving}
-        className="w-full py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50"
-      >
-        {saving ? "Creating..." : "Create Referral"}
-      </button>
-    </div>
-  );
-}
-
-function ReferralContent() {
-  const [tab, setTab] = useState<"incoming" | "outgoing" | "new">("incoming");
-  return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold mb-6">Referrals</h1>
-      <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6">
-        {[
-          { key: "incoming" as const, label: "📥 Incoming" },
-          { key: "outgoing" as const, label: "📤 Outgoing" },
-          { key: "new" as const, label: "+ New Referral" },
-        ].map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {tab === "incoming" && <IncomingTab />}
-      {tab === "outgoing" && <OutgoingTab />}
-      {tab === "new" && <NewReferralTab />}
-    </div>
-  );
-}
-
 export default function ReferralPage() {
+  const audit = useQuery({
+    queryKey: ["referral-closed-loop-audit"],
+    queryFn: async () => rowsFromEnvelope(
+      await fetchAdminAPI<unknown>("/referrals/audit?limit=200"),
+    ),
+  });
+  const rows = audit.data ?? [];
+  const openCount = rows.filter((row) => row.closure_status !== "closed").length;
+  const awaitingReceiver = rows.filter((row) => row.status === "pending").length;
+  const awaitingOriginator = rows.filter(
+    (row) => row.status === "completed" && row.closure_status !== "closed",
+  ).length;
+
   return (
-    <Suspense fallback={<div className="p-6">Loading referrals...</div>}>
-      <ReferralContent />
-    </Suspense>
+    <div className="space-y-6 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">Referral closed-loop oversight</h1>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            Read-only operational evidence from request through named receiver acceptance,
+            signed specialist response, and originator closure.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => audit.refetch()}
+          disabled={audit.isFetching}
+          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${audit.isFetching ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Metric label="Open loops" value={openCount} />
+        <Metric label="Awaiting receiver" value={awaitingReceiver} />
+        <Metric label="Awaiting originator" value={awaitingOriginator} />
+      </div>
+
+      {audit.isError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {audit.error instanceof Error ? audit.error.message : "Could not load referral evidence."}
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1180px] text-left text-sm">
+            <thead className="border-b border-border bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-4 py-3">Referral</th>
+                <th className="px-4 py-3">Patient</th>
+                <th className="px-4 py-3">Service</th>
+                <th className="px-4 py-3">Current owner</th>
+                <th className="px-4 py-3">Work</th>
+                <th className="px-4 py-3">Closure</th>
+                <th className="px-4 py-3">Requested</th>
+                <th className="px-4 py-3">First seen</th>
+                <th className="px-4 py-3">Appointment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {audit.isLoading ? (
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">Loading referral evidence…</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">No referral evidence found.</td></tr>
+              ) : rows.map((row) => (
+                <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.referral_number}</div>
+                    <div className="text-xs text-muted-foreground">#{row.id} · {label(row.urgency)}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div>{row.patient_name || "Patient"}</div>
+                    <div className="max-w-52 truncate font-mono text-xs text-muted-foreground">{row.patient_uid}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div>{row.referred_to_department}</div>
+                    <div className="text-xs text-muted-foreground">{row.referred_to_doctor_name || "Named receiver pending"}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div>{row.current_owner_name || "Unresolved"}</div>
+                    <div className="text-xs text-muted-foreground">From {row.referring_doctor_name || "originator"}</div>
+                  </td>
+                  <td className="px-4 py-3"><Badge value={row.status} /></td>
+                  <td className="px-4 py-3">
+                    <Badge value={row.closure_status || "open"} />
+                    {row.closure_reason && <div className="mt-1 text-xs text-muted-foreground">{label(row.closure_reason)}</div>}
+                  </td>
+                  <td className="px-4 py-3">{dateTime(row.requested_at)}</td>
+                  <td className="px-4 py-3">
+                    <div>{dateTime(row.first_seen_at)}</div>
+                    {row.minutes_to_first_seen != null && (
+                      <div className="text-xs text-muted-foreground">{row.minutes_to_first_seen} min</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">{row.appointment_id ? `#${row.appointment_id}` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label: metricLabel, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="text-sm text-muted-foreground">{metricLabel}</div>
+      <div className="mt-1 text-3xl font-semibold">{value}</div>
+    </div>
   );
 }

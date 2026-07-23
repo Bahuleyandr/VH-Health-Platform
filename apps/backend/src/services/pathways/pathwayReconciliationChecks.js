@@ -942,6 +942,297 @@ async function diagnosticReleaseEvidence({ tx, tenantId, pathwayKey }) {
   ));
 }
 
+async function referralTransitionEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.REFERRAL) {
+    return result('REFERRAL_TRANSITION_EVIDENCE_DRIFT', 0);
+  }
+  return result('REFERRAL_TRANSITION_EVIDENCE_DRIFT', await count(
+    tx,
+    `WITH sequenced AS (
+       SELECT event.referral_id,
+              event.sequence_number,
+              LAG(event.sequence_number) OVER (
+                PARTITION BY event.referral_id ORDER BY event.sequence_number
+              ) AS prior_sequence
+         FROM referral_transition_events AS event
+        WHERE event.tenant_id = $1::uuid
+     )
+     SELECT (
+       (SELECT COUNT(*) FROM sequenced
+         WHERE (prior_sequence IS NULL AND sequence_number <> 1)
+            OR (prior_sequence IS NOT NULL AND sequence_number <> prior_sequence + 1))
+       +
+       (SELECT COUNT(*)
+          FROM referral_transition_events AS event
+          LEFT JOIN clinical_timeline_events AS timeline
+            ON timeline.id = event.canonical_timeline_event_id
+          LEFT JOIN clinical_audit_events AS audit
+            ON audit.id = event.canonical_audit_event_id
+         WHERE event.tenant_id = $1::uuid
+           AND (timeline.id IS NULL OR audit.id IS NULL))
+       +
+       (SELECT COUNT(*)
+          FROM referrals AS referral
+         WHERE referral.tenant_id = $1::uuid
+           AND referral.request_fingerprint IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM referral_transition_events AS requested
+              WHERE requested.tenant_id = referral.tenant_id
+                AND requested.referral_id = referral.id
+                AND requested.event_type = 'referral.requested'
+           ))
+     )::integer AS finding_count`,
+    tenantId,
+  ));
+}
+
+async function referralReceiverObligation({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.REFERRAL) {
+    return result('REFERRAL_RECEIVER_OBLIGATION_DRIFT', 0);
+  }
+  return result('REFERRAL_RECEIVER_OBLIGATION_DRIFT', await count(
+    tx,
+    `WITH tenant_mode AS (
+       SELECT LOWER(COALESCE(
+                settings #>> '{care_pathways,referral_request_to_closure}',
+                'off'
+              )) AS mode
+         FROM tenants WHERE id = $1::uuid
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM referrals AS referral
+       CROSS JOIN tenant_mode
+       LEFT JOIN workflow_sla_instances AS sla
+         ON sla.tenant_id = referral.tenant_id
+        AND sla.rule_code = 'referral_response'
+        AND sla.source_table = 'referrals'
+        AND sla.source_id = referral.id::text
+       LEFT JOIN LATERAL (
+         SELECT candidate.*
+           FROM tasks AS candidate
+          WHERE candidate.tenant_id = referral.tenant_id
+            AND candidate.related_resource_type = 'referrals'
+            AND candidate.related_resource_id = referral.id::text
+            AND candidate.workflow_sla_instance_id = sla.id
+          ORDER BY candidate.id DESC LIMIT 1
+       ) AS task ON TRUE
+      WHERE referral.tenant_id = $1::uuid
+        AND tenant_mode.mode = 'active'
+        AND referral.request_fingerprint IS NOT NULL
+        AND referral.referral_type = 'internal'
+        AND (
+          referral.referred_to_doctor IS NULL
+          OR sla.id IS NULL
+          OR task.id IS NULL
+          OR task.sla_completion_semantics <> 'acknowledgement'
+          OR task.assigned_to_uid IS DISTINCT FROM referral.referred_to_doctor
+          OR task.assigned_to_role IS NOT NULL
+          OR (
+            referral.status = 'pending'
+            AND (sla.completed_at IS NOT NULL OR task.status NOT IN ('open', 'overdue', 'blocked'))
+          )
+          OR (
+            referral.status IN ('accepted', 'in_progress', 'completed')
+            AND (
+              referral.accepted_by IS NULL
+              OR referral.ownership_accepted_at IS NULL
+              OR sla.completed_at IS NULL
+              OR task.status <> 'completed'
+            )
+          )
+        )`,
+    tenantId,
+  ));
+}
+
+async function referralResponseClosureEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.REFERRAL) {
+    return result('REFERRAL_RESPONSE_CLOSURE_DRIFT', 0);
+  }
+  return result('REFERRAL_RESPONSE_CLOSURE_DRIFT', await count(
+    tx,
+    `WITH tenant_mode AS (
+       SELECT LOWER(COALESCE(
+                settings #>> '{care_pathways,referral_request_to_closure}',
+                'off'
+              )) AS mode
+         FROM tenants WHERE id = $1::uuid
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM referrals AS referral
+       CROSS JOIN tenant_mode
+       LEFT JOIN LATERAL (
+         SELECT response.*
+           FROM referral_responses AS response
+          WHERE response.tenant_id = referral.tenant_id
+            AND response.referral_id = referral.id
+          ORDER BY response.version DESC LIMIT 1
+       ) AS response ON TRUE
+       LEFT JOIN clinical_document_signatures AS signature
+         ON signature.tenant_id = response.tenant_id
+        AND signature.document_type = 'referral_response'
+        AND signature.document_id = response.id::text
+       LEFT JOIN LATERAL (
+         SELECT task.*
+           FROM tasks AS task
+          WHERE task.tenant_id = referral.tenant_id
+            AND task.related_resource_type = 'referral_specialist_response'
+            AND task.related_resource_id = referral.id::text
+          ORDER BY task.id DESC LIMIT 1
+       ) AS response_task ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT task.*
+           FROM tasks AS task
+          WHERE task.tenant_id = referral.tenant_id
+            AND task.related_resource_type = 'referral_originator_closure'
+            AND task.related_resource_id = referral.id::text
+          ORDER BY task.id DESC LIMIT 1
+       ) AS originator_task ON TRUE
+      WHERE referral.tenant_id = $1::uuid
+        AND referral.request_fingerprint IS NOT NULL
+        AND (
+          (referral.status = 'completed' AND (response.id IS NULL OR signature.id IS NULL))
+          OR
+          (referral.closure_status = 'closed' AND (
+            response.id IS NULL
+            OR signature.id IS NULL
+            OR referral.closed_at IS NULL
+            OR referral.closed_by IS NULL
+            OR referral.closure_reason IS NULL
+          ))
+          OR
+          (response.continuing_ownership = TRUE AND referral.closure_status <> 'closed')
+          OR
+          (
+            tenant_mode.mode = 'active'
+            AND referral.referral_type = 'internal'
+            AND (
+              (
+                referral.status IN ('accepted', 'in_progress')
+                AND (
+                  response_task.id IS NULL
+                  OR response_task.status NOT IN ('open', 'in_progress', 'blocked', 'overdue')
+                  OR response_task.assigned_to_uid IS DISTINCT FROM referral.accepted_by
+                  OR response_task.assigned_to_role IS NOT NULL
+                )
+              )
+              OR
+              (
+                referral.status = 'completed'
+                AND response.id IS NOT NULL
+                AND (
+                  response_task.id IS NULL
+                  OR response_task.status <> 'completed'
+                )
+              )
+              OR
+              (
+                referral.status = 'completed'
+                AND referral.closure_status = 'open'
+                AND (
+                  originator_task.id IS NULL
+                  OR originator_task.status NOT IN ('open', 'in_progress', 'blocked', 'overdue')
+                  OR originator_task.assigned_to_uid IS DISTINCT FROM referral.referring_doctor
+                  OR originator_task.assigned_to_role IS NOT NULL
+                )
+              )
+              OR
+              (
+                referral.status = 'declined'
+                AND (
+                  originator_task.id IS NULL
+                  OR originator_task.status NOT IN ('open', 'in_progress', 'blocked', 'overdue')
+                  OR originator_task.assigned_to_uid IS DISTINCT FROM referral.referring_doctor
+                  OR originator_task.assigned_to_role IS NOT NULL
+                )
+              )
+            )
+          )
+        )`,
+    tenantId,
+  ));
+}
+
+async function referralRecoveryObligation({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.REFERRAL) {
+    return result('REFERRAL_RECOVERY_OBLIGATION_DRIFT', 0);
+  }
+  return result('REFERRAL_RECOVERY_OBLIGATION_DRIFT', await count(
+    tx,
+    `WITH tenant_mode AS (
+       SELECT LOWER(COALESCE(
+                settings #>> '{care_pathways,referral_request_to_closure}',
+                'off'
+              )) AS mode
+         FROM tenants WHERE id = $1::uuid
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM referrals AS referral
+       CROSS JOIN tenant_mode
+       LEFT JOIN appointments AS appointment
+         ON appointment.tenant_id = referral.tenant_id
+        AND appointment.id = referral.appointment_id
+      WHERE referral.tenant_id = $1::uuid
+        AND tenant_mode.mode = 'active'
+        AND referral.request_fingerprint IS NOT NULL
+        AND referral.closure_status = 'open'
+        AND (
+          (referral.expires_at IS NOT NULL AND referral.expires_at <= NOW())
+          OR UPPER(COALESCE(appointment.status, '')) IN ('MISSED', 'NO_SHOW')
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM tasks AS task
+           WHERE task.tenant_id = referral.tenant_id
+             AND task.related_resource_type = 'referral_recovery'
+             AND task.related_resource_id = referral.id::text
+             AND task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+        )`,
+    tenantId,
+  ));
+}
+
+async function referralProjectionEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.REFERRAL) {
+    return result('REFERRAL_PROJECTION_EVIDENCE_DRIFT', 0);
+  }
+  return result('REFERRAL_PROJECTION_EVIDENCE_DRIFT', await count(
+    tx,
+    `WITH tenant_mode AS (
+       SELECT LOWER(COALESCE(
+                settings #>> '{care_pathways,referral_request_to_closure}',
+                'off'
+              )) AS mode
+         FROM tenants WHERE id = $1::uuid
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM referrals AS referral
+       CROSS JOIN tenant_mode
+      WHERE referral.tenant_id = $1::uuid
+        AND referral.request_fingerprint IS NOT NULL
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM event_outbox AS event
+             WHERE event.tenant_id = referral.tenant_id
+               AND event.aggregate_type = 'referral'
+               AND event.aggregate_id = referral.id::text
+               AND event.event_type = 'referral.requested'
+          )
+          OR (
+            tenant_mode.mode = 'active'
+            AND NOT EXISTS (
+              SELECT 1 FROM care_pathway_instances AS pathway
+               WHERE pathway.tenant_id = referral.tenant_id
+                 AND pathway.pathway_key = 'referral_request_to_closure'
+                 AND pathway.source_episode_type = 'referral'
+                 AND pathway.source_episode_id = referral.id::text
+            )
+          )
+        )`,
+    tenantId,
+  ));
+}
+
 export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'runtime_pins', handlerVersion: 'care_pathway.runtime_pins.v1', run: runtimePins }),
   Object.freeze({ id: 'transition_sequence', handlerVersion: 'care_pathway.transition_sequence.v1', run: transitionSequence }),
@@ -962,6 +1253,14 @@ export const DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'diagnostic_structured_ack_evidence', handlerVersion: 'care_pathway.diagnostic_structured_ack_evidence.v3', run: diagnosticStructuredAcknowledgementEvidence }),
   Object.freeze({ id: 'diagnostic_source_projection', handlerVersion: 'care_pathway.diagnostic_source_projection.v1', run: diagnosticSourceProjectionEvidence }),
   Object.freeze({ id: 'diagnostic_release_evidence', handlerVersion: 'care_pathway.diagnostic_release_evidence.v1', run: diagnosticReleaseEvidence }),
+]);
+
+export const REFERRAL_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
+  Object.freeze({ id: 'referral_transition_evidence', handlerVersion: 'care_pathway.referral_transition_evidence.v1', run: referralTransitionEvidence }),
+  Object.freeze({ id: 'referral_receiver_obligation', handlerVersion: 'care_pathway.referral_receiver_obligation.v1', run: referralReceiverObligation }),
+  Object.freeze({ id: 'referral_response_closure', handlerVersion: 'care_pathway.referral_response_closure.v1', run: referralResponseClosureEvidence }),
+  Object.freeze({ id: 'referral_recovery_obligation', handlerVersion: 'care_pathway.referral_recovery_obligation.v1', run: referralRecoveryObligation }),
+  Object.freeze({ id: 'referral_projection_evidence', handlerVersion: 'care_pathway.referral_projection_evidence.v1', run: referralProjectionEvidence }),
 ]);
 
 export default COMMON_PATHWAY_RECONCILIATION_CHECKS;

@@ -108,15 +108,24 @@ describe('workflow JSON safety budget', () => {
 describe('workflow runtime registry', () => {
   it('keeps the production registry code-reviewed, immutable and identity-verifiable', () => {
     expect(isWorkflowRuntimeRegistry(workflowRuntimeRegistry)).toBe(true);
-    expect(workflowRuntimeRegistry.version).toBe(2);
+    expect(workflowRuntimeRegistry.version).toBe(3);
     expect(workflowRuntimeRegistry.conditionHandlerIds).toEqual([
       'diagnostics.route_generation.v1',
       'diagnostics.normal_closure.v1',
       'diagnostics.doctor_action.v1',
+      'referral.receiver_acceptance.v1',
+      'referral.signed_response.v1',
+      'referral.originator_closure.v1',
     ]);
-    expect(workflowRuntimeRegistry.actionHandlerIds).toEqual(['diagnostics.finalize.v1']);
+    expect(workflowRuntimeRegistry.actionHandlerIds).toEqual([
+      'diagnostics.finalize.v1',
+      'referral.finalize.v1',
+    ]);
     expect(workflowRuntimeRegistry.childFanoutHandlerIds).toEqual([]);
-    expect(workflowRuntimeRegistry.systemActorKeys).toEqual(['diagnostics.pathway_projector.v1']);
+    expect(workflowRuntimeRegistry.systemActorKeys).toEqual([
+      'diagnostics.pathway_projector.v1',
+      'referral.pathway_projector.v1',
+    ]);
     expect(Object.isFrozen(workflowRuntimeRegistry)).toBe(true);
     expect(isWorkflowRuntimeRegistry({ version: 1 })).toBe(false);
   });
@@ -274,7 +283,7 @@ describe('workflow definition compiler', () => {
     expect(compiled).toMatchObject({
       workflow_key: 'synthetic_pathway',
       version: 3,
-      registry_version: 2,
+      registry_version: 3,
     });
     expect(compiled.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(checksumCompiledWorkflowDefinition(compiled)).toBe(compiled.checksum);

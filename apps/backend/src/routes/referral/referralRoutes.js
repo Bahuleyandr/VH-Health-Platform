@@ -2,14 +2,36 @@
 // Referral Management Routes (JWT required)
 
 import { Router } from 'express';
-import { validationResult } from 'express-validator';
+import { body, validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
+import {
+  CARE_PATHWAY_KEYS,
+  PATHWAY_MODES,
+  resolvePathwayMode,
+} from '../../services/pathways/pathwayMode.js';
 import referralService from '../../services/referral/referralService.js';
+import {
+  acceptClosedLoopReferral,
+  closeReferralByOriginator,
+  createClosedLoopReferral,
+  declineClosedLoopReferral,
+  getClosedLoopReferral,
+  linkReferralAppointment,
+  markReferralSeenClosedLoop,
+  recordSignedReferralResponse,
+  rerouteClosedLoopReferral,
+} from '../../services/referral/referralClosedLoopService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isDoctor, isAdmin, isClinical } from '../../utils/roleHelpers.js';
-import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
+import {
+  optionalString,
+  requiredEnum,
+  requiredUUID,
+  requiredString,
+  paramId,
+} from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -18,6 +40,75 @@ const validate = (req, res, next) => {
 };
 
 const router = Router();
+
+router.use(async (req, _res, next) => {
+  req.referralPathwayMode = await resolvePathwayMode(
+    req.tenantId || req.user?.tenant_id,
+    CARE_PATHWAY_KEYS.REFERRAL,
+  );
+  next();
+});
+
+function closedLoopEnabled(req) {
+  return req.referralPathwayMode !== PATHWAY_MODES.OFF;
+}
+
+function closedLoopMutationEnabled(req) {
+  return closedLoopEnabled(req) && req.referralIsInternal !== false;
+}
+
+async function bindReferralMutationPath(req, _res, next) {
+  if (!closedLoopEnabled(req)) {
+    req.referralIsInternal = false;
+    return next();
+  }
+  try {
+    req.referralIsInternal = await referralService.isInternalReferral(
+      req.params.id,
+      req.tenantId || req.user?.tenant_id,
+    );
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+function requireClosedLoopMode(req, res) {
+  if (closedLoopMutationEnabled(req)) return true;
+  error(res, 'The internal referral closed-loop workflow is not enabled for this referral', 409, {
+    topLevel: { code: 'REFERRAL_PATHWAY_NOT_ENABLED' },
+  });
+  return false;
+}
+
+const signedResponseValidators = [
+  body('assessment').if((_value, { req }) => closedLoopMutationEnabled(req))
+    .isString().withMessage('assessment must be a string')
+    .trim().notEmpty().withMessage('assessment is required')
+    .isLength({ max: 12000 }).withMessage('assessment must be at most 12000 characters'),
+  body('recommendations').if((_value, { req }) => closedLoopMutationEnabled(req))
+    .isString().withMessage('recommendations must be a string')
+    .trim().notEmpty().withMessage('recommendations are required')
+    .isLength({ max: 12000 }).withMessage('recommendations must be at most 12000 characters'),
+  optionalString('follow_up_plan', 12000),
+  optionalString('patient_summary', 8000),
+  optionalString('patient_instructions', 8000),
+  optionalString('signature_statement', 2000),
+  body('release_to_patient').optional().isBoolean().withMessage('release_to_patient must be a boolean'),
+  body('continuing_ownership').optional().isBoolean().withMessage('continuing_ownership must be a boolean'),
+];
+
+const originatorClosureValidators = [
+  requiredEnum('disposition', [
+    'plan_updated',
+    'no_further_action',
+    'patient_declined',
+    'lost_to_follow_up',
+  ]),
+  requiredString('plan_update', 12000),
+  body('recovery_attempts').optional().isArray({ max: 100 })
+    .withMessage('recovery_attempts must be an array'),
+];
 
 function canManageReferrals(role) {
   return role === 'SUPER_ADMIN' || isDoctor(role) || isAdmin(role);
@@ -42,6 +133,24 @@ function canViewReferrals(role) {
 
 function isReferralAdmin(role) {
   return role === 'SUPER_ADMIN' || isAdmin(role);
+}
+
+function actorContext(req) {
+  const role = req.user?.role || null;
+  const rawRole = req.user?.rawRole || role;
+  const supplied = Array.isArray(req.user?.roles)
+    ? req.user.roles
+    : (req.user?.roles ? [req.user.roles] : []);
+  return {
+    tenantId: req.tenantId || req.user?.tenant_id,
+    actorUid: req.user?.uid || null,
+    actorName: req.user?.name || null,
+    actorRole: role,
+    actorRawRole: rawRole,
+    actorRoles: [...new Set([role, rawRole, ...supplied].filter(Boolean))],
+    overrideReason: req.body?.override_reason || null,
+    idempotencyKey: req.get('Idempotency-Key') || null,
+  };
 }
 
 /**
@@ -88,7 +197,17 @@ router.post('/', rejectMobileClinicalWrite, requiredUUID('patient_uid'), require
       },
     };
 
-    const referral = await referralService.createReferral(referralData);
+    const useClosedLoop = closedLoopEnabled(req)
+      && String(req.body.referral_type || 'internal').trim().toLowerCase() === 'internal';
+    const referral = useClosedLoop
+      ? await createClosedLoopReferral({
+        ...referralData,
+        idempotency_key: req.get('Idempotency-Key') || null,
+        replacement_of_referral_id: req.body.replacement_of_referral_id,
+        repeat_reason: req.body.repeat_reason,
+        expires_at: req.body.expires_at,
+      }, actorContext(req))
+      : await referralService.createReferral(referralData);
 
     return success(res, referral, 'Referral created successfully', 201);
   } catch (err) {
@@ -232,20 +351,37 @@ router.get('/audit', async (req, res, next) => {
   }
 });
 
+router.get('/:id', paramId(), validate, async (req, res, next) => {
+  try {
+    if (!canViewReferrals(req.user?.role)) {
+      return error(res, 'Only clinical staff can view referrals', 403);
+    }
+    const referral = await getClosedLoopReferral(req.params.id, actorContext(req));
+    return success(res, referral, 'Referral retrieved');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral error');
+    logger.error('Failed to get referral:', { error: err.message });
+    next(err);
+  }
+});
+
 /**
  * PUT /referrals/:id/seen
  * Marks the first time the referred consultant opened the referral.
  */
-router.put('/:id/seen', rejectMobileClinicalWrite, paramId(), validate, async (req, res, next) => {
+router.put('/:id/seen', rejectMobileClinicalWrite, paramId(), validate, bindReferralMutationPath, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can mark referrals as seen', 403);
     }
 
-    const referral = await referralService.markReferralSeen(req.params.id, req.user?.uid, {
-      actorRole: req.user?.role,
-      tenantId: req.tenantId || req.user?.tenant_id,
-    });
+    const referral = closedLoopMutationEnabled(req)
+      ? await markReferralSeenClosedLoop(req.params.id, actorContext(req))
+      : await referralService.markReferralSeen(
+        req.params.id,
+        req.user?.uid,
+        { actorRole: req.user?.role },
+      );
 
     return success(res, referral, 'Referral marked as seen');
   } catch (err) {
@@ -261,16 +397,19 @@ router.put('/:id/seen', rejectMobileClinicalWrite, paramId(), validate, async (r
  * PUT /referrals/:id/accept
  * Accept a referral — DOCTOR
  */
-router.put('/:id/accept', rejectMobileClinicalWrite, paramId(), validate, async (req, res, next) => {
+router.put('/:id/accept', rejectMobileClinicalWrite, paramId(), validate, bindReferralMutationPath, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can accept referrals', 403);
     }
 
-    const referral = await referralService.acceptReferral(req.params.id, req.user?.uid, {
-      actorRole: req.user?.role,
-      tenantId: req.tenantId || req.user?.tenant_id,
-    });
+    const referral = closedLoopMutationEnabled(req)
+      ? await acceptClosedLoopReferral(req.params.id, actorContext(req))
+      : await referralService.acceptReferral(
+        req.params.id,
+        req.user?.uid,
+        { actorRole: req.user?.role },
+      );
 
     return success(res, referral, 'Referral accepted successfully');
   } catch (err) {
@@ -286,21 +425,40 @@ router.put('/:id/accept', rejectMobileClinicalWrite, paramId(), validate, async 
  * PUT /referrals/:id/complete
  * Complete a referral — DOCTOR
  */
-router.put('/:id/complete', rejectMobileClinicalWrite, paramId(), validate, async (req, res, next) => {
+router.put(
+  '/:id/complete',
+  rejectMobileClinicalWrite,
+  paramId(),
+  validate,
+  bindReferralMutationPath,
+  ...signedResponseValidators,
+  validate,
+  async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can complete referrals', 403);
     }
 
-    const referral = await referralService.completeReferral(
-      req.params.id,
-      req.body.response_notes,
-      {
-        actorUid: req.user?.uid,
-        actorRole: req.user?.role,
-        tenantId: req.tenantId || req.user?.tenant_id,
-      }
-    );
+    const referral = closedLoopMutationEnabled(req)
+      ? await recordSignedReferralResponse(
+        req.params.id,
+        {
+          assessment: req.body.assessment,
+          recommendations: req.body.recommendations,
+          follow_up_plan: req.body.follow_up_plan,
+          patient_summary: req.body.patient_summary,
+          patient_instructions: req.body.patient_instructions,
+          release_to_patient: req.body.release_to_patient,
+          continuing_ownership: req.body.continuing_ownership,
+          signature_statement: req.body.signature_statement,
+        },
+        actorContext(req),
+      )
+      : await referralService.completeReferral(
+        req.params.id,
+        req.body.response_notes ?? req.body.recommendations ?? null,
+        { actorUid: req.user?.uid, actorRole: req.user?.role },
+      );
 
     return success(res, referral, 'Referral completed successfully');
   } catch (err) {
@@ -310,27 +468,30 @@ router.put('/:id/complete', rejectMobileClinicalWrite, paramId(), validate, asyn
     logger.error('Failed to complete referral:', { error: err.message });
     next(err);
   }
-});
+  },
+);
 
 /**
  * PUT /referrals/:id/decline
  * Decline a referral — DOCTOR
  */
-router.put('/:id/decline', rejectMobileClinicalWrite, paramId(), requiredString('reason', 500), validate, async (req, res, next) => {
+router.put('/:id/decline', rejectMobileClinicalWrite, paramId(), requiredString('reason', 500), validate, bindReferralMutationPath, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can decline referrals', 403);
     }
 
-    const referral = await referralService.declineReferral(
-      req.params.id,
-      req.body.response_notes || req.body.reason,
-      {
-        actorUid: req.user?.uid,
-        actorRole: req.user?.role,
-        tenantId: req.tenantId || req.user?.tenant_id,
-      }
-    );
+    const referral = closedLoopMutationEnabled(req)
+      ? await declineClosedLoopReferral(
+        req.params.id,
+        { reason: req.body.response_notes || req.body.reason },
+        actorContext(req),
+      )
+      : await referralService.declineReferral(
+        req.params.id,
+        req.body.response_notes || req.body.reason,
+        { actorUid: req.user?.uid, actorRole: req.user?.role },
+      );
 
     return success(res, referral, 'Referral declined');
   } catch (err) {
@@ -338,6 +499,55 @@ router.put('/:id/decline', rejectMobileClinicalWrite, paramId(), requiredString(
       return relayAppError(res, err, 'Referral error');
     }
     logger.error('Failed to decline referral:', { error: err.message });
+    next(err);
+  }
+});
+
+router.post('/:id/reroute', rejectMobileClinicalWrite, paramId(), requiredUUID('referred_to_doctor'), requiredString('reason', 2000), validate, bindReferralMutationPath, async (req, res, next) => {
+  try {
+    if (!canManageReferrals(req.user?.role)) return error(res, 'Only doctors can reroute referrals', 403);
+    if (!requireClosedLoopMode(req, res)) return undefined;
+    const referral = await rerouteClosedLoopReferral(req.params.id, {
+      referred_to_doctor: req.body.referred_to_doctor,
+      referred_to_department: req.body.referred_to_department || req.body.to_department,
+      reason: req.body.reason,
+    }, actorContext(req));
+    return success(res, referral, 'Referral rerouted');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral error');
+    logger.error('Failed to reroute referral:', { error: err.message });
+    next(err);
+  }
+});
+
+router.post('/:id/originator-ack', rejectMobileClinicalWrite, paramId(), ...originatorClosureValidators, validate, bindReferralMutationPath, async (req, res, next) => {
+  try {
+    if (!canManageReferrals(req.user?.role)) return error(res, 'Only doctors can close referrals', 403);
+    if (!requireClosedLoopMode(req, res)) return undefined;
+    const referral = await closeReferralByOriginator(req.params.id, {
+      disposition: req.body.disposition,
+      plan_update: req.body.plan_update,
+      recovery_attempts: req.body.recovery_attempts,
+    }, actorContext(req));
+    return success(res, referral, 'Referral closed');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral error');
+    logger.error('Failed to close referral:', { error: err.message });
+    next(err);
+  }
+});
+
+router.put('/:id/appointment', rejectMobileClinicalWrite, paramId(), body('appointment_id').isInt({ min: 1 }).withMessage('appointment_id must be a positive integer').toInt(), validate, bindReferralMutationPath, async (req, res, next) => {
+  try {
+    if (!canManageReferrals(req.user?.role)) return error(res, 'Only doctors can link referral appointments', 403);
+    if (!requireClosedLoopMode(req, res)) return undefined;
+    const referral = await linkReferralAppointment(req.params.id, {
+      appointment_id: req.body.appointment_id,
+    }, actorContext(req));
+    return success(res, referral, 'Referral appointment linked');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral error');
+    logger.error('Failed to link referral appointment:', { error: err.message });
     next(err);
   }
 });

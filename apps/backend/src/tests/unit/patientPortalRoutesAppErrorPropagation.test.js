@@ -61,6 +61,10 @@ jest.unstable_mockModule('../../services/portal/portalAccessService.js', () => (
   listProxyGrants: jest.fn(async () => []),
   revokeProxyGrant: jest.fn(async () => ({})),
 }));
+jest.unstable_mockModule('../../services/portal/patientReferralService.js', () => ({
+  getPatientReferral: jest.fn(async () => ({})),
+  listPatientReferrals: jest.fn(async () => []),
+}));
 jest.unstable_mockModule('../../services/carePlan/carePlanService.js', () => ({
   getPatientWhatsNext: jest.fn(async () => ({})),
 }));

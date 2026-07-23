@@ -33,6 +33,7 @@ class DeepLinkService {
     '/portal/lab-orders',
     '/portal/lab-results',
     '/portal/diagnostic-results',
+    '/portal/referrals',
     '/portal/tpa/claims',
     '/portal/messages',
     '/portal/maternity/timeline',
@@ -123,6 +124,9 @@ class DeepLinkService {
         return '/portal/lab-results';
       case 'DIAGNOSTIC_RESULT_READY':
         return '/portal/diagnostic-results';
+      case 'REFERRAL_RESPONSE_READY':
+      case 'REFERRAL_UPDATE':
+        return '/portal/referrals';
       case 'PRESCRIPTION':
       case 'PRESCRIPTION_READY':
       case 'DOCUMENT_UPLOADED':

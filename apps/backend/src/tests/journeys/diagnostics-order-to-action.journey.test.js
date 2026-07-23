@@ -252,7 +252,7 @@ async function projectGeneration(fixture, generation) {
     return projectDiagnosticPathwayEvent({
       tx,
       consumerKey: 'care_pathway_projector',
-      generation: 2,
+      generation: 3,
       tenantId: fixture.tenantId,
       event: events[0],
       registry: workflowRuntimeRegistry,

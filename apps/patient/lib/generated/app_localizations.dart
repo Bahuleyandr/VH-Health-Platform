@@ -7141,6 +7141,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'End call'**
   String get teleconsultEndCall;
+
+  /// Patient portal referral updates screen title.
+  ///
+  /// In en, this message translates to:
+  /// **'Referrals'**
+  String get referralsTitle;
+
+  /// Patient portal referral load error.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not load your referral updates. Please try again.'**
+  String get referralsLoadFailed;
+
+  /// Patient portal empty referral title.
+  ///
+  /// In en, this message translates to:
+  /// **'No referral updates yet'**
+  String get referralsEmptyTitle;
+
+  /// Patient portal empty referral explanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed specialist updates that your care team releases will appear here.'**
+  String get referralsEmptySubtitle;
+
+  /// Fallback specialist referral label.
+  ///
+  /// In en, this message translates to:
+  /// **'Specialist referral'**
+  String get referralsSpecialist;
+
+  /// Patient-safe specialist summary heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Specialist summary'**
+  String get referralsSummary;
+
+  /// Patient referral next steps heading.
+  ///
+  /// In en, this message translates to:
+  /// **'What to do next'**
+  String get referralsNextSteps;
+
+  /// Patient referral follow-up heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow-up plan'**
+  String get referralsFollowUp;
+
+  /// Patient referral appointment heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Appointment'**
+  String get referralsAppointment;
+
+  /// Patient referral linked appointment message.
+  ///
+  /// In en, this message translates to:
+  /// **'A follow-up appointment is linked to this referral.'**
+  String get referralsAppointmentLinked;
 }
 
 class _AppLocalizationsDelegate

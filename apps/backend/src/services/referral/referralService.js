@@ -87,6 +87,14 @@ const REFERRAL_STATE_SELECT = {
   requester_id: true,
   performer_id: true,
   source: true,
+  current_owner_uid: true,
+  closure_status: true,
+  closure_reason: true,
+  closed_at: true,
+  closed_by: true,
+  appointment_id: true,
+  expires_at: true,
+  ownership_accepted_at: true,
   created_at: true,
 };
 
@@ -100,6 +108,27 @@ const REFERRAL_LIST_SELECT = {
 };
 
 class ReferralService {
+
+  async isInternalReferral(id, tenantId) {
+    const referralId = Number.parseInt(id, 10);
+    if (!Number.isSafeInteger(referralId) || referralId <= 0) {
+      throw AppError.badRequest('Invalid referral ID');
+    }
+    const tid = normalizeTenantId(tenantId);
+    return setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT referral_type
+           FROM referrals
+          WHERE tenant_id = $1::uuid
+            AND id = $2::integer
+          LIMIT 1`,
+        tid,
+        referralId,
+      );
+      if (!rows[0]) throw AppError.notFound('Referral not found');
+      return String(rows[0].referral_type || 'internal').trim().toLowerCase() === 'internal';
+    });
+  }
 
   /**
    * Generate a unique referral number: REF-YYYYMM-XXXX
@@ -517,7 +546,9 @@ class ReferralService {
               referral_type, reason, urgency, clinical_summary, status,
               accepted_by, accepted_at, completed_at, response_notes,
               requester_id, performer_id, first_seen_at, first_seen_by,
-              source, created_at
+              source, current_owner_uid, closure_status, closure_reason,
+              closed_at, closed_by, appointment_id, expires_at,
+              ownership_accepted_at, created_at
          FROM referrals ${whereClause}
         ORDER BY
           CASE urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
@@ -1002,6 +1033,11 @@ class ReferralService {
               requester.name AS requester_name,
               r.urgency,
               r.status,
+              r.closure_status,
+              r.closure_reason,
+              r.current_owner_uid,
+              owner.name AS current_owner_name,
+              r.appointment_id,
               r.reason,
               r.created_at AS requested_at,
               r.first_seen_at,
@@ -1019,6 +1055,7 @@ class ReferralService {
          LEFT JOIN users referrer ON referrer.uid = r.referring_doctor
          LEFT JOIN users requester ON requester.uid = r.requester_id
          LEFT JOIN users seen_by ON seen_by.uid = r.first_seen_by
+         LEFT JOIN users owner ON owner.uid = r.current_owner_uid
         ${whereClause}
         ORDER BY r.created_at DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
