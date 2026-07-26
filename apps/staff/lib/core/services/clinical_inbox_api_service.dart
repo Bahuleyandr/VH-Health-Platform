@@ -1,3 +1,5 @@
+import 'package:vhhealth_core/services/idempotency_key.dart';
+
 import 'api_client.dart';
 
 class ClinicalInboxResult {
@@ -22,6 +24,14 @@ abstract class ClinicalInboxApi {
     DiagnosticActionCommand command,
   ) {
     throw UnimplementedError('Diagnostic actions are not implemented');
+  }
+
+  Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
+    PostDischargeCrossSignCommand command,
+  ) {
+    throw UnimplementedError(
+      'Post-discharge pending-result cross-sign is not implemented',
+    );
   }
 
   Future<DiagnosticActionReceipt> reopenDiagnosticResult({
@@ -103,6 +113,29 @@ class ClinicalInboxApiService extends ClinicalInboxApi {
   }
 
   @override
+  Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
+    PostDischargeCrossSignCommand command,
+  ) async {
+    final resp = await ApiClient.post(
+      '/emr/${command.admissionId}/pending-result-handoffs/'
+      '${command.handoffId}/cross-sign',
+      idempotencyKey: command.idempotencyKey,
+      body: command.toJson(),
+    );
+    if (!resp.isSuccess) {
+      throw PostDischargeCrossSignException(
+        message: resp.failureMessage(
+          'Could not cross-sign the post-discharge result',
+        ),
+        statusCode: resp.statusCode,
+        code: resp.code,
+      );
+    }
+    final resolution = _mapValue(resp.dataAsMap()['resolution']);
+    return PostDischargeCrossSignReceipt.fromJson(resolution);
+  }
+
+  @override
   Future<DiagnosticActionReceipt> reopenDiagnosticResult({
     required String generationId,
     required String reason,
@@ -154,6 +187,117 @@ class DiagnosticActionCommand {
         'resource_id': downstreamResourceId?.trim(),
       },
   };
+}
+
+class PostDischargeCrossSignCommand {
+  final int admissionId;
+  final String handoffId;
+  final String generationId;
+  final String diagnosticActionId;
+  final String generationSnapshotSha256;
+  final String actionTaskId;
+  final String idempotencyKey;
+
+  PostDischargeCrossSignCommand({
+    required this.admissionId,
+    required this.handoffId,
+    required this.generationId,
+    required this.diagnosticActionId,
+    required this.generationSnapshotSha256,
+    required this.actionTaskId,
+    String? idempotencyKey,
+  }) : idempotencyKey = idempotencyKey ?? IdempotencyKey.generate();
+
+  Map<String, dynamic> toJson() => {
+    'generation_id': generationId,
+    'diagnostic_action_id': diagnosticActionId,
+    'generation_snapshot_sha256': generationSnapshotSha256,
+    'attested': true,
+  };
+}
+
+class PostDischargeCrossSignReceipt {
+  final String id;
+  final int admissionId;
+  final String handoffId;
+  final String generationId;
+  final String diagnosticActionId;
+  final String pathwayInstanceId;
+  final String ownerActionId;
+  final String actionTaskId;
+  final String trackingTaskId;
+  final String signatureId;
+  final String resolutionActionId;
+  final String handoffState;
+  final String currentHandoffState;
+  final String generationSnapshotSha256;
+  final String requestSha256;
+  final String canonicalTimelineEventId;
+  final String canonicalAuditEventId;
+  final bool replayed;
+
+  const PostDischargeCrossSignReceipt({
+    required this.id,
+    required this.admissionId,
+    required this.handoffId,
+    required this.generationId,
+    required this.diagnosticActionId,
+    required this.pathwayInstanceId,
+    required this.ownerActionId,
+    required this.actionTaskId,
+    required this.trackingTaskId,
+    required this.signatureId,
+    required this.resolutionActionId,
+    required this.handoffState,
+    required this.currentHandoffState,
+    required this.generationSnapshotSha256,
+    required this.requestSha256,
+    required this.canonicalTimelineEventId,
+    required this.canonicalAuditEventId,
+    required this.replayed,
+  });
+
+  factory PostDischargeCrossSignReceipt.fromJson(Map<String, dynamic> json) {
+    return PostDischargeCrossSignReceipt(
+      id: _text(json['id']),
+      admissionId: _intValue(json['admission_id']) ?? 0,
+      handoffId: _text(json['handoff_id']),
+      generationId: _text(json['generation_id']),
+      diagnosticActionId: _text(json['diagnostic_action_id']),
+      pathwayInstanceId: _text(json['pathway_instance_id']),
+      ownerActionId: _text(json['owner_action_id']),
+      actionTaskId: _text(json['action_task_id']),
+      trackingTaskId: _text(json['tracking_task_id']),
+      signatureId: _text(json['signature_id']),
+      resolutionActionId: _text(json['resolution_action_id']),
+      handoffState: _text(json['handoff_state']),
+      currentHandoffState: _text(json['current_handoff_state']),
+      generationSnapshotSha256: _text(
+        json['generation_snapshot_sha256'],
+      ).toLowerCase(),
+      requestSha256: _text(json['request_sha256']).toLowerCase(),
+      canonicalTimelineEventId: _text(json['canonical_timeline_event_id']),
+      canonicalAuditEventId: _text(json['canonical_audit_event_id']),
+      replayed: json['replayed'] == true,
+    );
+  }
+}
+
+class PostDischargeCrossSignException implements Exception {
+  final String message;
+  final int statusCode;
+  final String? code;
+
+  const PostDischargeCrossSignException({
+    required this.message,
+    required this.statusCode,
+    required this.code,
+  });
+
+  bool get requiresRefresh => statusCode == 409;
+
+  @override
+  String toString() => message;
 }
 
 class DiagnosticActionReceipt {
@@ -210,6 +354,7 @@ class ClinicalInboxEscalation {
 
 class ClinicalInboxTask {
   final String id;
+  final String taskKind;
   final String title;
   final String description;
   final String patientUid;
@@ -231,6 +376,16 @@ class ClinicalInboxTask {
   final int? diagnosticSourceVersion;
   final String diagnosticPredecessorGenerationId;
   final bool diagnosticIsCorrection;
+  final int? pendingResultAdmissionId;
+  final String pendingResultHandoffId;
+  final String pendingResultOwnerActionId;
+  final String pendingResultHandoffState;
+  final String pendingResultResolutionActionId;
+  final String diagnosticAuthoritativeActionId;
+  final String diagnosticAuthoritativeActionKind;
+  final String diagnosticAuthoritativeDisposition;
+  final DateTime? diagnosticAuthoritativeActionOccurredAt;
+  final bool canCrossSignPendingResult;
   final DateTime? dueAt;
   final DateTime? slaBreachedAt;
   final DateTime? createdAt;
@@ -238,6 +393,7 @@ class ClinicalInboxTask {
 
   const ClinicalInboxTask({
     required this.id,
+    this.taskKind = '',
     required this.title,
     required this.description,
     required this.patientUid,
@@ -259,6 +415,16 @@ class ClinicalInboxTask {
     this.diagnosticSourceVersion,
     this.diagnosticPredecessorGenerationId = '',
     this.diagnosticIsCorrection = false,
+    this.pendingResultAdmissionId,
+    this.pendingResultHandoffId = '',
+    this.pendingResultOwnerActionId = '',
+    this.pendingResultHandoffState = '',
+    this.pendingResultResolutionActionId = '',
+    this.diagnosticAuthoritativeActionId = '',
+    this.diagnosticAuthoritativeActionKind = '',
+    this.diagnosticAuthoritativeDisposition = '',
+    this.diagnosticAuthoritativeActionOccurredAt,
+    this.canCrossSignPendingResult = false,
     required this.dueAt,
     required this.slaBreachedAt,
     required this.createdAt,
@@ -269,6 +435,7 @@ class ClinicalInboxTask {
     final metadata = _mapValue(json['metadata']);
     return ClinicalInboxTask(
       id: _text(json['id']),
+      taskKind: _text(json['task_kind']).toLowerCase(),
       title: _text(json['title']).isEmpty
           ? 'Critical result review'
           : _text(json['title']),
@@ -300,6 +467,28 @@ class ClinicalInboxTask {
         json['diagnostic_predecessor_generation_id'],
       ),
       diagnosticIsCorrection: json['diagnostic_is_correction'] == true,
+      pendingResultAdmissionId: _intValue(json['pending_result_admission_id']),
+      pendingResultHandoffId: _text(json['pending_result_handoff_id']),
+      pendingResultOwnerActionId: _text(json['pending_result_owner_action_id']),
+      pendingResultHandoffState: _text(
+        json['pending_result_handoff_state'],
+      ).toLowerCase(),
+      pendingResultResolutionActionId: _text(
+        json['pending_result_resolution_action_id'],
+      ),
+      diagnosticAuthoritativeActionId: _text(
+        json['diagnostic_authoritative_action_id'],
+      ),
+      diagnosticAuthoritativeActionKind: _text(
+        json['diagnostic_authoritative_action_kind'],
+      ).toLowerCase(),
+      diagnosticAuthoritativeDisposition: _text(
+        json['diagnostic_authoritative_disposition'],
+      ).toLowerCase(),
+      diagnosticAuthoritativeActionOccurredAt: _parseDate(
+        json['diagnostic_authoritative_action_occurred_at'],
+      ),
+      canCrossSignPendingResult: json['can_cross_sign'] == true,
       dueAt: _parseDate(json['due_at']),
       slaBreachedAt: _parseDate(json['sla_breached_at']),
       createdAt: _parseDate(json['created_at']),
@@ -320,11 +509,43 @@ class ClinicalInboxTask {
       diagnosticGenerationId.isNotEmpty &&
       diagnosticGenerationSnapshotSha256.isNotEmpty;
 
-  bool get needsClinicalAction => needsAcknowledgement || needsDoctorAction;
+  bool get isPostDischargePendingResultReview =>
+      relatedResourceType == 'discharge_pending_result_action' &&
+      pendingResultAdmissionId != null &&
+      pendingResultHandoffId.isNotEmpty &&
+      diagnosticGenerationId.isNotEmpty &&
+      diagnosticGenerationSnapshotSha256.isNotEmpty &&
+      diagnosticAuthoritativeActionId.isNotEmpty;
+
+  bool get needsPostDischargeCrossSign =>
+      isPostDischargePendingResultReview &&
+      canCrossSignPendingResult &&
+      isActionableStatus &&
+      pendingResultHandoffState == 'result_available' &&
+      pendingResultResolutionActionId.isEmpty &&
+      diagnosticAuthoritativeActionKind == 'doctor_disposition';
+
+  bool get needsClinicalAction =>
+      needsAcknowledgement || needsDoctorAction || needsPostDischargeCrossSign;
 
   bool get isRoleOwned => assignedToUid.isEmpty && assignedToRole.isNotEmpty;
 
   bool get hasNamedPathwayOwner => pathwayOwnerUid.isNotEmpty;
+
+  bool get isOpInpatientTransferReview =>
+      taskKind == 'op_to_inpatient_transfer_review' &&
+      relatedResourceType == 'care_handoff_instance' &&
+      relatedResourceId.isNotEmpty;
+
+  int? get sourceAppointmentId {
+    final raw = metadata['source_appointment_id'];
+    if (raw is int) return raw > 0 ? raw : null;
+    final parsed = int.tryParse(raw?.toString() ?? '');
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
+  String get sourcePathwayInstanceId =>
+      _text(metadata['care_pathway_instance_id']);
 
   bool isOverdue(DateTime now) {
     if (!needsClinicalAction) return false;
@@ -376,6 +597,7 @@ class ClinicalInboxTask {
   }) {
     return ClinicalInboxTask(
       id: id,
+      taskKind: taskKind,
       title: title,
       description: description,
       patientUid: patientUid,
@@ -397,6 +619,17 @@ class ClinicalInboxTask {
       diagnosticSourceVersion: diagnosticSourceVersion,
       diagnosticPredecessorGenerationId: diagnosticPredecessorGenerationId,
       diagnosticIsCorrection: diagnosticIsCorrection,
+      pendingResultAdmissionId: pendingResultAdmissionId,
+      pendingResultHandoffId: pendingResultHandoffId,
+      pendingResultOwnerActionId: pendingResultOwnerActionId,
+      pendingResultHandoffState: pendingResultHandoffState,
+      pendingResultResolutionActionId: pendingResultResolutionActionId,
+      diagnosticAuthoritativeActionId: diagnosticAuthoritativeActionId,
+      diagnosticAuthoritativeActionKind: diagnosticAuthoritativeActionKind,
+      diagnosticAuthoritativeDisposition: diagnosticAuthoritativeDisposition,
+      diagnosticAuthoritativeActionOccurredAt:
+          diagnosticAuthoritativeActionOccurredAt,
+      canCrossSignPendingResult: canCrossSignPendingResult,
       dueAt: dueAt ?? this.dueAt,
       slaBreachedAt: slaBreachedAt ?? this.slaBreachedAt,
       createdAt: createdAt,

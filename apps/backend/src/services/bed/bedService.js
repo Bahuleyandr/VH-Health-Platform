@@ -10,6 +10,7 @@ import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 import { normalizeRole as normalizePlatformRole } from '../../utils/roles.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { ensureAdmissionPatientEncounterTx } from '../emr/admissionService.js';
 import bedManagementService from './bedManagementService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -615,24 +616,77 @@ class BedService {
   }
 
   async updateBed(id, data, options = {}) {
-    const tenantId = tenantOf(options);
-    const { ward_id, bed_number, status, patient_id, patient_name, notes } = data;
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE beds SET
-         ward_id = COALESCE($1, ward_id),
-         bed_number = COALESCE($2, bed_number),
-         status = COALESCE($3, status),
-         patient_id = $4,
-         patient_name = $5,
-         notes = COALESCE($6, notes),
-         updated_at = NOW()
-       WHERE id = $7
-         AND ($8::uuid IS NULL OR tenant_id = $8::uuid)
-       RETURNING ${BED_RETURNING}`,
-      ward_id ?? null, bed_number ?? null, status ?? null,
-      patient_id ?? null, patient_name ?? null, notes ?? null, parseInt(id), tenantId,
-    );
-    return rows[0];
+    const tenantId = requireTenantId(tenantOf(options));
+    const bedId = parseInt(id, 10);
+    const { ward_id, bed_number, status, notes } = data;
+    if (!Number.isSafeInteger(bedId) || bedId <= 0) {
+      throw AppError.badRequest('Bed ID must be a positive integer', 'BED_ID_INVALID');
+    }
+    if (
+      status === 'occupied'
+      || ['patient_id', 'patient_uid', 'patient_name', 'admission_id']
+        .some((field) => Object.hasOwn(data, field))
+    ) {
+      throw AppError.badRequest(
+        'Generic bed updates cannot assign a patient or admission',
+        'BED_OCCUPANCY_REQUIRES_ADMISSION',
+      );
+    }
+
+    return setTenantTx(tenantId, async (tx) => {
+      const currentRows = await tx.$queryRawUnsafe(
+        `SELECT id, status, patient_id, patient_uid, patient_name, admission_id
+           FROM beds
+          WHERE id = $1
+            AND tenant_id = $2::uuid
+          FOR UPDATE`,
+        bedId,
+        tenantId,
+      );
+      const current = currentRows[0];
+      if (!current) return null;
+      if (
+        status
+        && status !== current.status
+        && (
+          current.status === 'occupied'
+          || current.patient_id != null
+          || current.patient_uid != null
+          || current.patient_name != null
+          || current.admission_id != null
+        )
+      ) {
+        throw AppError.conflict(
+          'Occupied bed status can change only through admission discharge or transfer',
+          'BED_OCCUPIED_TRANSITION_REQUIRES_ADMISSION',
+        );
+      }
+      if (status === 'available' && current.status === 'cleaning') {
+        throw AppError.conflict(
+          'Cleaning beds must be released through the bed-ready workflow',
+          'BED_READY_WORKFLOW_REQUIRED',
+        );
+      }
+
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE beds SET
+           ward_id = COALESCE($1, ward_id),
+           bed_number = COALESCE($2, bed_number),
+           status = COALESCE($3, status),
+           notes = COALESCE($4, notes),
+           updated_at = NOW()
+         WHERE id = $5
+           AND tenant_id = $6::uuid
+         RETURNING ${BED_RETURNING}`,
+        ward_id ?? null,
+        bed_number ?? null,
+        status ?? null,
+        notes ?? null,
+        bedId,
+        tenantId,
+      );
+      return rows[0] || null;
+    });
   }
 
   async deleteBed(id, options = {}) {
@@ -756,13 +810,10 @@ class BedService {
     return bed;
   }
 
-  // Dedicated notes-update path. The full PUT /beds/:id handler nulls
-  // patient_id/patient_name when those fields aren't echoed back in the
-  // body — fine for admin tooling that always sends the whole row, but
-  // not for the staff app's bed-detail sheet which sends only `{ notes }`.
-  // Keeping this isolated guarantees a notes save can't silently
-  // discharge the patient. Returns the updated bed (with the same join
-  // shape getBedsByWard uses) or null when the id doesn't exist.
+  // Dedicated notes-update path for patient-linked authorization, audit,
+  // and realtime-event behavior. Generic PUT updates cannot mutate patient
+  // or admission links. Returns the updated bed (with the same join shape
+  // getBedsByWard uses) or null when the id doesn't exist.
   async updateBedNotes(id, notes, options = {}) {
     const tenantId = requireTenantId(tenantOf(options));
     const bedId = parseInt(id, 10);
@@ -967,6 +1018,13 @@ class BedService {
           status: true, admission_type: true, bed_id: true, bed_number: true,
         },
       });
+      const canonicalEncounter = await ensureAdmissionPatientEncounterTx({
+        tx,
+        tenantId: resolvedTenantId,
+        admission,
+        actorUid: options.actorUid,
+      });
+      admission.encounter_id = canonicalEncounter.encounter.id;
 
       // (c) Occupy the bed with full back-links (no half-populated row).
       const rows = await tx.$queryRawUnsafe(

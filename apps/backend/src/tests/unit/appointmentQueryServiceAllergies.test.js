@@ -288,3 +288,115 @@ describe('appointmentQueryService department flattening', () => {
     }));
   });
 });
+
+describe('appointmentQueryService admission-source lineage', () => {
+  it('adds only the exact accepted OP transfer tuple to the advised worklist', async () => {
+    const patientUid = 'ba000000-0000-4000-8000-00000000b015';
+    const pathwayId = 'ca000000-0000-4000-8000-00000000c015';
+    const handoffId = 'da000000-0000-4000-8000-00000000d015';
+    const recipientUid = 'ea000000-0000-4000-8000-00000000e015';
+    countMock.mockResolvedValueOnce(1);
+    findManyMock.mockResolvedValueOnce([{
+      id: 501,
+      appointment_date: new Date('2026-07-24T09:00:00.000Z'),
+      appointment_time: '09:00',
+      status: 'SCHEDULED',
+      reason: 'Advised admission',
+      patient_id: 15,
+      doctor_id: 25,
+      department: 'General Medicine',
+      advised_for_admission_at: new Date('2026-07-23T09:00:00.000Z'),
+      advised_for_admission_by: recipientUid,
+      advised_for_admission_note: 'Admit',
+      users_appointments_patient_idTousers: {
+        id: 15,
+        uid: patientUid,
+        name: 'Admission Source Patient',
+        phone: '+919000000015',
+        guardian_phone: null,
+        email: null,
+        allergies: null,
+      },
+      users_appointments_doctor_idTousers: {
+        id: 25,
+        name: 'Dr Sender',
+        doctors: [{ specialty: 'Medicine', department: 'General Medicine' }],
+      },
+    }]);
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        appointment_id: 501,
+        source_pathway_instance_id: pathwayId,
+        source_handoff_id: handoffId,
+        accepted_recipient_uid: recipientUid,
+        exact_match_count: 1,
+      }]);
+
+    const result = await appointmentQueryService.getAppointments(
+      { advised_for_admission: 'true' },
+      {},
+      'ADMIN',
+      null,
+      '00000000-0000-4000-8000-000000000001',
+    );
+
+    expect(result.appointments[0].admission_source).toEqual({
+      appointment_id: 501,
+      source_pathway_instance_id: pathwayId,
+      source_handoff_id: handoffId,
+      accepted_recipient_uid: recipientUid,
+    });
+    const sql = queryUnsafeMock.mock.calls[3][0];
+    expect(sql).toContain("handoff.status = 'accepted'");
+    expect(sql).toContain('handoff.accepted_by_uid = handoff.intended_recipient_uid');
+    expect(sql).toContain('appointment.tenant_id = $1::uuid');
+  });
+
+  it('fails closed when more than one accepted tuple matches an advice', async () => {
+    countMock.mockResolvedValueOnce(1);
+    findManyMock.mockResolvedValueOnce([{
+      id: 502,
+      appointment_date: new Date('2026-07-24T09:00:00.000Z'),
+      appointment_time: '09:00',
+      status: 'SCHEDULED',
+      patient_id: 16,
+      doctor_id: 26,
+      advised_for_admission_at: new Date(),
+      users_appointments_patient_idTousers: {
+        id: 16,
+        uid: 'ba000000-0000-4000-8000-00000000b016',
+        name: 'Ambiguous Patient',
+        phone: '+919000000016',
+        guardian_phone: null,
+        email: null,
+        allergies: null,
+      },
+      users_appointments_doctor_idTousers: null,
+    }]);
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        appointment_id: 502,
+        source_pathway_instance_id: 'ca000000-0000-4000-8000-00000000c016',
+        source_handoff_id: 'da000000-0000-4000-8000-00000000d016',
+        accepted_recipient_uid: 'ea000000-0000-4000-8000-00000000e016',
+        exact_match_count: 2,
+      }]);
+
+    await expect(appointmentQueryService.getAppointments(
+      { advised_for_admission: true },
+      {},
+      'ADMIN',
+      null,
+      '00000000-0000-4000-8000-000000000001',
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'OP_INPATIENT_ADMISSION_SOURCE_AMBIGUOUS',
+    });
+  });
+});

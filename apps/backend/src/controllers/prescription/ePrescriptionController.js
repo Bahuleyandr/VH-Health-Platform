@@ -16,6 +16,7 @@ import {
 } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { maybePropagateAncSupplements } from '../../services/maternity/maternityService.js';
 import { createPrescriptionReminders } from '../../services/patient/medicationReminderService.js';
+import { createFollowUp } from '../../services/carePlan/carePlanService.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import {
@@ -26,6 +27,7 @@ import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { requireTenantId } from '../../services/tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
+import { publishOpChildResourceLinkedTx } from '../../services/appointment/opChildResourceEventService.js';
 import {
   assertPrivilegeForGate,
   isGateEnabled,
@@ -1001,6 +1003,7 @@ export const createPrescription = async (req, res) => {
     // forged value is never persisted as fact. Guarded: a failure keeps the
     // original array for both safety and persistence.
     const rxTenantId = req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null;
+    const prescriptionTenantId = requireTenantId(rxTenantId);
     try {
       medications = await enrichMedicationsWithComposition(rxTenantId, medications);
     } catch (enrichErr) {
@@ -1030,8 +1033,17 @@ export const createPrescription = async (req, res) => {
     // Validate appointment if provided
     if (appointmentId) {
       const apptCheck = await prisma.$queryRawUnsafe(
-        'SELECT id FROM appointments WHERE id=$1',
-        appointmentId
+        `SELECT id
+           FROM appointments
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid
+            AND patient_id = $3::int
+            AND doctor_id = $4::int
+          LIMIT 1`,
+        appointmentId,
+        prescriptionTenantId,
+        patientId,
+        doctorId,
       );
       if (apptCheck.length === 0) {
         return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
@@ -1041,11 +1053,13 @@ export const createPrescription = async (req, res) => {
           `SELECT id, prescription_number, status, lifecycle_status, signed_at, locked_at
              FROM e_prescriptions
             WHERE appointment_id = $1::int
+              AND tenant_id = $2::uuid
               AND COALESCE(visit_type, 'outpatient') = 'outpatient'
               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'canceled')
             ORDER BY created_at DESC
             LIMIT 1`,
-          appointmentId
+          appointmentId,
+          prescriptionTenantId,
         );
         if (existingForVisit.length > 0) {
           return error(
@@ -1089,8 +1103,32 @@ export const createPrescription = async (req, res) => {
     // up notification) silently degraded. Finding:
     //   2026-05-10-surgical-day-care-discharge-prescription-create-500.
     const [patientRow, doctorRow] = await Promise.all([
-      prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', patientId),
-      prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', doctorId)
+      prisma.$queryRawUnsafe(
+        `SELECT id, uid, name, phone, gender, birthday, weight_kg
+           FROM users
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid
+            AND role = 'PATIENT'
+          LIMIT 1`,
+        patientId,
+        prescriptionTenantId,
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT u.id, u.uid, u.name, u.phone,
+                d.specialty AS specialization,
+                NULL::text AS qualification
+           FROM users AS u
+           LEFT JOIN doctors AS d
+             ON d.user_id = u.id
+            AND d.tenant_id = u.tenant_id
+          WHERE u.id = $1::int
+            AND u.tenant_id = $2::uuid
+            AND u.role = 'DOCTOR'
+            AND u.is_active = TRUE
+          LIMIT 1`,
+        doctorId,
+        prescriptionTenantId,
+      ),
     ]);
     if (!patientRow?.length) {
       return error(res, `Patient ${patientId} not found`, HTTP_STATUS.NOT_FOUND);
@@ -1098,8 +1136,10 @@ export const createPrescription = async (req, res) => {
     if (!doctorRow?.length) {
       return error(res, `Doctor ${doctorId} not found`, HTTP_STATUS.NOT_FOUND);
     }
-    const patientUid = patientRow[0].uid ?? null;
-    const doctorUid = doctorRow[0].uid ?? null;
+    const patient = patientRow[0];
+    const doctor = doctorRow[0];
+    const patientUid = patient.uid ?? null;
+    const doctorUid = doctor.uid ?? null;
 
     await assertControlledSubstancePrivilege({
       medications,
@@ -1126,8 +1166,15 @@ export const createPrescription = async (req, res) => {
     // the IPD/OPD mix-up that routes an IV order to the wrong bed.
     if (admissionId) {
       const admCheck = await prisma.$queryRawUnsafe(
-        'SELECT id, patient_uid FROM admissions WHERE id=$1',
-        admissionId
+        `SELECT id, patient_uid
+           FROM admissions
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid
+            AND patient_uid = $3::uuid
+          LIMIT 1`,
+        admissionId,
+        prescriptionTenantId,
+        patientUid,
       );
       if (admCheck.length === 0) {
         return error(res, 'Admission not found', HTTP_STATUS.NOT_FOUND);
@@ -1144,8 +1191,89 @@ export const createPrescription = async (req, res) => {
     // Insert prescription.
     // The table has `clinical_notes` (not `notes`); patient_uid + doctor_uid
     // are populated explicitly so downstream uid-based lookups work.
-    const prescriptionTenantId = requireTenantId(rxTenantId);
     const { prescription, encounter } = await setTenantTx(prescriptionTenantId, async (tx) => {
+      // Revalidate and lock the exact identities inside the write transaction.
+      // The pre-flight reads above produce friendly 404s, while these locks
+      // prevent a concurrent tenant/role/identity change from being persisted
+      // between validation and the prescription/follow-up writes.
+      const lockedPatient = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM users AS prescription_patient_identity
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int
+            AND uid = $3::uuid
+            AND role = 'PATIENT'
+          LIMIT 1
+          FOR SHARE`,
+        prescriptionTenantId,
+        patientId,
+        patientUid,
+      );
+      const lockedDoctor = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM users AS prescription_doctor_identity
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int
+            AND uid = $3::uuid
+            AND role = 'DOCTOR'
+            AND is_active = TRUE
+          LIMIT 1
+          FOR SHARE`,
+        prescriptionTenantId,
+        doctorId,
+        doctorUid,
+      );
+      if (!lockedPatient[0] || !lockedDoctor[0]) {
+        throw AppError.conflict(
+          'Prescription identity context changed; retry the request',
+          'PRESCRIPTION_IDENTITY_CONTEXT_CHANGED',
+        );
+      }
+
+      if (appointmentId) {
+        const lockedAppointment = await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM appointments AS prescription_source_appointment
+            WHERE tenant_id = $1::uuid
+              AND id = $2::int
+              AND patient_id = $3::int
+              AND doctor_id = $4::int
+            LIMIT 1
+            FOR SHARE`,
+          prescriptionTenantId,
+          appointmentId,
+          patientId,
+          doctorId,
+        );
+        if (!lockedAppointment[0]) {
+          throw AppError.conflict(
+            'Prescription appointment context changed; retry the request',
+            'PRESCRIPTION_APPOINTMENT_CONTEXT_CHANGED',
+          );
+        }
+      }
+
+      if (admissionId) {
+        const lockedAdmission = await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM admissions AS prescription_source_admission
+            WHERE tenant_id = $1::uuid
+              AND id = $2::int
+              AND patient_uid = $3::uuid
+            LIMIT 1
+            FOR SHARE`,
+          prescriptionTenantId,
+          admissionId,
+          patientUid,
+        );
+        if (!lockedAdmission[0]) {
+          throw AppError.conflict(
+            'Prescription admission context changed; retry the request',
+            'PRESCRIPTION_ADMISSION_CONTEXT_CHANGED',
+          );
+        }
+      }
+
       const insertResult = await tx.$queryRawUnsafe(
         `INSERT INTO e_prescriptions
           (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
@@ -1233,6 +1361,47 @@ export const createPrescription = async (req, res) => {
         },
       }, { db: tx, strict: true });
 
+      if (appointmentId) {
+        await publishOpChildResourceLinkedTx(tx, {
+          tenantId: prescriptionTenantId,
+          appointmentId,
+          patientUid,
+          resourceType: 'e_prescription',
+          resourceId: saved.id,
+          source: 'prescriptions.create',
+        });
+      }
+
+      if (follow_up_date && /^\d{4}-\d{2}-\d{2}$/.test(String(follow_up_date))) {
+        const followUp = await createFollowUp({
+          tenantId: prescriptionTenantId,
+          patientUid,
+          originKind: 'consultation',
+          originResourceType: appointmentId ? 'appointment' : 'e_prescription',
+          originResourceId: String(appointmentId || saved.id),
+          encounterId: linkedEncounter?.id || null,
+          doctorUid,
+          dueAt: String(follow_up_date),
+          reason: follow_up_notes
+            || `Follow-up for prescription ${saved.prescription_number}`,
+          metadata: {
+            prescription_id: Number(saved.id),
+            prescription_number: saved.prescription_number,
+            due_precision: 'date',
+            appointment_slot_required: true,
+          },
+          createdBy: req.user?.uid || doctorUid,
+          bookAppointment: false,
+          tx,
+        });
+        if (!followUp?.id) {
+          throw AppError.internal(
+            'Prescription follow-up work was not recorded',
+            'PRESCRIPTION_FOLLOW_UP_REQUIRED',
+          );
+        }
+      }
+
       if (!safety.safe && override) {
         await tx.$queryRawUnsafe(
           `INSERT INTO prescription_safety_overrides
@@ -1282,22 +1451,6 @@ export const createPrescription = async (req, res) => {
       prescriptionId: prescription.id,
     });
 
-    // Fetch patient and doctor info for PDF
-    const [patientRes, doctorRes] = await Promise.all([
-      prisma.$queryRawUnsafe(
-        'SELECT id, name, phone, gender, birthday, weight_kg FROM users WHERE id=$1',
-        patientId
-      ),
-      prisma.$queryRawUnsafe(
-        `SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
-                FROM users u LEFT JOIN doctors d ON d.user_id = u.id
-                WHERE u.id=$1`,
-        doctorId
-      )
-    ]);
-    const patient = patientRes[0] || {};
-    const doctor = doctorRes[0] || {};
-
     // Generate PDF
     try {
       const pdfBuffer = await generatePrescriptionPDF(prescription, patient, doctor);
@@ -1323,85 +1476,6 @@ export const createPrescription = async (req, res) => {
       data: { type: 'prescription', prescriptionId: String(prescription.id) },
       type: 'prescription'
     }).catch(err => logger.error('Prescription notification failed:', err));
-
-    // Phase 1.5 — best-effort follow-up appointment auto-booking. The
-    // doctor's Rx form has a `follow_up_date` field that was previously
-    // captured only as a printed instruction on the prescription PDF.
-    // The receptionist had to remember to manually book the follow-up
-    // — and frequently didn't, so the 28-week ANC return / 14-day
-    // post-op review / chronic-care visit never materialised. Finding:
-    //   2026-05-09-walk-in-opd-patient-follow-up-appt-not-booked.
-    //
-    // Idempotency: skip if an appointment for the same
-    // (patient_id, doctor_id, appointment_date) already exists in a
-    // non-terminal state. The matcher uses DATE() to ignore time
-    // components — patients typically don't care which slot of the
-    // recommended day they get, only that one is reserved.
-    if (follow_up_date && /^\d{4}-\d{2}-\d{2}$/.test(String(follow_up_date))) {
-      try {
-        const existing = await prisma.$queryRawUnsafe(
-          `SELECT id FROM appointments
-            WHERE patient_id = $1::int
-              AND doctor_id  = $2::int
-              AND DATE(appointment_date) = $3::date
-              AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
-            LIMIT 1`,
-          patientId,
-          doctorId,
-          follow_up_date
-        );
-        let followUpApptId = existing[0]?.id ?? null;
-        if (!followUpApptId) {
-          const created = await prisma.$queryRawUnsafe(
-            `INSERT INTO appointments
-               (patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
-                status, visit_type, parent_appointment_id, created_by, updated_at)
-             VALUES ($1::int, $2::int, $3::date, $4, $5, $6, $7,
-                     'SCHEDULED', 'FOLLOW_UP', $8, $9::uuid, NOW())
-             RETURNING id`,
-            patientId,
-            doctorId,
-            follow_up_date,
-            // appointment_time is VARCHAR(10) NOT NULL. The Rx didn't
-            // capture a slot time — the receptionist will assign one
-            // when the day comes. Use the 'Follow-up' literal as a
-            // placeholder that the appointment dashboard recognises.
-            'Follow-up',
-            patient.phone || '',
-            `Follow-up for prescription ${prescription.prescription_number}`,
-            follow_up_notes || null,
-            appointmentId || null,
-            req.user?.uid || null
-          );
-          followUpApptId = created[0]?.id ?? null;
-        }
-        // Link the prescription back to the follow-up appointment when
-        // the prescription itself wasn't tied to a source visit (the
-        // discharge-desk path: discharge meds prescribed with no current
-        // appointment, but a follow-up scheduled). With the link, the
-        // patient app can render "your follow-up is on X — here are the
-        // meds to take until then" as a single card. Without it, the two
-        // cards appear unrelated. Don't overwrite a real source-visit
-        // appointment_id (walk-in OPD case). Finding:
-        //   2026-05-09-inpatient-admission-patient-discharge-rx-unlinked-to-followup
-        if (followUpApptId && !appointmentId) {
-          await prisma.$executeRawUnsafe(
-            `UPDATE e_prescriptions
-                SET appointment_id = $1::int, updated_at = NOW()
-              WHERE id = $2::int AND appointment_id IS NULL`,
-            followUpApptId,
-            prescription.id
-          );
-          prescription.appointment_id = followUpApptId;
-        }
-      } catch (followUpErr) {
-        // Non-blocking — the prescription is already saved.
-        logger.warn('Follow-up appointment auto-booking failed:', {
-          prescription_id: prescription.id,
-          err: followUpErr?.message
-        });
-      }
-    }
 
     // Phase 1.5 — best-effort ANC supplement propagation. Iron / folic
     // acid / calcium / vitamin D / B-complex prescribed for a patient

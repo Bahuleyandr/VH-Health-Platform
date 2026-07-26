@@ -1,6 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/models/care_pathway_work_models.dart';
+import 'package:vhhealth_staff/core/services/care_pathway_api_service.dart';
 import 'package:vhhealth_staff/features/appointments/models/staff_appointment.dart';
 import 'package:vhhealth_staff/features/opd/op_doctor_workspace_route.dart';
+import 'package:vhhealth_staff/features/opd/screens/op_doctor_workspace_screen.dart';
 
 void main() {
   group('opDoctorWorkspaceRoute', () {
@@ -82,5 +86,182 @@ void main() {
       expect(uri.queryParameters['doctor_id'], '1004');
       expect(uri.queryParameters['department'], 'ENT');
     });
+  });
+
+  group('OP active-path completion and recipient guards', () {
+    test('known OFF and SHADOW modes tolerate read preflight failure', () {
+      for (final mode in ['off', 'shadow']) {
+        expect(
+          opPathwayPreflightAllowsLegacyCompletion(
+            lastKnownWork: _pathwayWork(mode),
+            error: Exception('temporary read failure'),
+          ),
+          isTrue,
+        );
+      }
+    });
+
+    test('ACTIVE mode never bypasses the pathway preflight', () {
+      expect(
+        opPathwayPreflightAllowsLegacyCompletion(
+          lastKnownWork: _pathwayWork('active'),
+          error: const CarePathwayApiException(
+            message: 'Unavailable',
+            statusCode: 404,
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'distinguishable missing pathway-work surface uses legacy transition',
+      () {
+        expect(
+          opPathwayPreflightAllowsLegacyCompletion(
+            lastKnownWork: null,
+            error: const CarePathwayApiException(
+              message: 'Cannot GET pathway work',
+              statusCode: 404,
+            ),
+          ),
+          isTrue,
+        );
+        expect(
+          opPathwayPreflightAllowsLegacyCompletion(
+            lastKnownWork: null,
+            error: const CarePathwayApiException(
+              message: 'Appointment not found',
+              statusCode: 404,
+              code: 'APPOINTMENT_NOT_FOUND',
+            ),
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test('recipient options include only active admission physicians', () {
+      final options = opInpatientTransferRecipientOptions([
+        {
+          'uid': 'doctor-1',
+          'name': 'Dr One',
+          'role': 'DOCTOR',
+          'is_active': true,
+        },
+        {
+          'uid': 'nurse-1',
+          'name': 'Nurse One',
+          'role': 'NURSE',
+          'is_active': true,
+        },
+        {
+          'uid': 'doctor-2',
+          'name': 'Dr Two',
+          'role': 'CONSULTANT',
+          'is_active': false,
+        },
+      ]);
+
+      expect(options.map((row) => row['uid']), ['doctor-1']);
+    });
+  });
+
+  group('prior-admission pending-result review card', () {
+    testWidgets('shows exact doctor disposition and owner-only review action', (
+      tester,
+    ) async {
+      var reviewCalls = 0;
+      final item = _pendingResult(canCrossSign: true);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: OpPriorAdmissionPendingResultCard(
+              item: item,
+              busy: false,
+              actionEnabled: true,
+              onReview: () => reviewCalls += 1,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.textContaining('ABNORMAL'), findsOneWidget);
+      expect(
+        find.textContaining('22222222-2222-4222-8222-222222222222'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('referred'), findsOneWidget);
+      await tester.tap(find.text('Review discharge result'));
+      expect(reviewCalls, 1);
+    });
+
+    testWidgets('keeps resolved result read-only with no action button', (
+      tester,
+    ) async {
+      final item = _pendingResult(canCrossSign: false, resolved: true);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: OpPriorAdmissionPendingResultCard(
+              item: item,
+              busy: false,
+              actionEnabled: true,
+              onReview: () => fail('read-only result invoked review'),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Resolved — no action available'), findsOneWidget);
+      expect(find.byType(FilledButton), findsNothing);
+    });
+  });
+}
+
+AppointmentPathwayWork _pathwayWork(String mode) {
+  return AppointmentPathwayWork(
+    mode: mode,
+    visitCompletion: const CarePathwayGate(allowed: true, blockers: []),
+    pathwayClosure: const CarePathwayGate(allowed: true, blockers: []),
+    items: const [],
+    priorAdmissionPendingResults: const [],
+  );
+}
+
+OpFollowUpPendingResult _pendingResult({
+  required bool canCrossSign,
+  bool resolved = false,
+}) {
+  return OpFollowUpPendingResult.fromJson({
+    'admission_id': 44,
+    'handoff_id': '11111111-1111-4111-8111-111111111111',
+    'source_type': 'lab_result',
+    'patient_safe_label': 'Complete blood count',
+    'result_status': resolved ? 'reviewed' : 'available',
+    'handoff_state': resolved ? 'resolved' : 'result_available',
+    'requires_action': !resolved,
+    'can_cross_sign': canCrossSign,
+    'named_owner': {
+      'uid': 'doctor-9',
+      'display_name': 'Dr Nikhil Rao',
+      'role': 'DOCTOR',
+    },
+    'generation_id': '22222222-2222-4222-8222-222222222222',
+    'generation_snapshot_sha256':
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    'diagnostic_classification': 'abnormal',
+    'diagnostic_action_id': '33333333-3333-4333-8333-333333333333',
+    'diagnostic_action_kind': 'doctor_disposition',
+    'diagnostic_disposition': 'referred',
+    'diagnostic_action_occurred_at': '2026-07-23T12:00:00Z',
+    if (resolved)
+      'resolution_action_id': '44444444-4444-4444-8444-444444444444',
+    'tracking_task': {'id': 91, 'status': resolved ? 'completed' : 'open'},
+    'action_task': {'id': 92, 'status': resolved ? 'completed' : 'open'},
+    'task': {'id': 92, 'status': resolved ? 'completed' : 'open'},
+    'route': 'investigations',
   });
 }

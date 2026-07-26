@@ -2,7 +2,7 @@ import { AppError } from '../../utils/AppError.js';
 import { supersedePriorDiagnosticGenerationTx } from '../diagnostics/diagnosticGenerationSupersessionService.js';
 import {
   createRegisteredWorkflowSystemActor,
-  workflowRuntimeRegistry,
+  workflowRuntimeRegistryV2,
 } from '../workflow/workflowRuntimeRegistry.js';
 import {
   executePathwayCommand,
@@ -115,7 +115,6 @@ export async function projectDiagnosticPathwayEvent({
   generation,
   tenantId,
   event,
-  registry,
   activationEvidenceCapability = null,
 } = {}) {
   const pathwayMode = await resolvePathwayModeTx({
@@ -154,7 +153,7 @@ export async function projectDiagnosticPathwayEvent({
     );
   }
 
-  const runtimeRegistry = registry ?? workflowRuntimeRegistry;
+  const runtimeRegistry = workflowRuntimeRegistryV2;
   const compiled = compileDiagnosticsOrderToActionDefinition({ registry: runtimeRegistry });
   const workflowDefinitionId = await loadApprovedDefinitionIdTx(
     tx,
@@ -267,10 +266,7 @@ export async function projectDiagnosticPathwayEvent({
 }
 
 export async function diagnosticPathwayProjectorHandler(context) {
-  return projectDiagnosticPathwayEvent({
-    ...context,
-    registry: context.registry,
-  });
+  return projectDiagnosticPathwayEvent(context);
 }
 
 export default diagnosticPathwayProjectorHandler;

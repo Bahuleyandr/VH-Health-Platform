@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 const mockPrisma = { $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() };
+const resolveInpatientPathwayModeTxMock = jest.fn(async () => 'off');
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
@@ -8,9 +9,21 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
   pickTenantClient: () => mockPrisma,
+  isTenantTransactionClient: (value) => value === mockPrisma,
+  circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+}));
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: jest.fn(async () => ({
+    timeline: { id: 'timeline-event' },
+    audit: { id: 'audit-event' },
+  })),
+}));
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  publishInpatientSourceEventTx: jest.fn(async () => null),
+  resolveInpatientPathwayModeTx: resolveInpatientPathwayModeTxMock,
 }));
 
 const {
@@ -33,6 +46,7 @@ describe('discharge createDraft — patient snapshot fields', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resolveInpatientPathwayModeTxMock.mockResolvedValue('off');
     mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
     // pickTemplate -> templates SELECT
     mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([
@@ -107,6 +121,47 @@ describe('discharge createDraft — patient snapshot fields', () => {
     expect(insertCall[4]).toBeNull();
     expect(insertCall[5]).toBeNull();
   });
+
+  it.each([
+    ['off', 0],
+    ['shadow', 5],
+    ['active', 5],
+  ])(
+    'materializes inpatient closure sections according to %s rollout mode',
+    async (mode, expectedCount) => {
+      mockPrisma.$queryRawUnsafe.mockReset();
+      mockPrisma.$executeRawUnsafe.mockReset();
+      mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
+      resolveInpatientPathwayModeTxMock.mockResolvedValueOnce(mode);
+      mockPrisma.$queryRawUnsafe
+        .mockResolvedValueOnce([{ id: 1, sections: [] }])
+        .mockResolvedValueOnce([{ id: 99 }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 99, patient_uid: patientUid }])
+        .mockResolvedValueOnce([]);
+
+      await createDraft({
+        tenantId,
+        admission_id: 42,
+        patient_uid: patientUid,
+        template_code: 'GM-DEFAULT',
+      });
+
+      const closureInserts = mockPrisma.$executeRawUnsafe.mock.calls.filter(
+        (call) => /INSERT INTO discharge_summary_sections/i.test(call[0]),
+      );
+      expect(closureInserts).toHaveLength(expectedCount);
+      if (expectedCount > 0) {
+        expect(closureInserts.map((call) => call[2])).toEqual([
+          'patient_guardian_instructions',
+          'escalation_contact',
+          'required_equipment_home_care',
+          'discharge_destination',
+          'transport_plan',
+        ]);
+      }
+    },
+  );
 });
 
 describe('discharge summary audit trail', () => {
@@ -116,6 +171,7 @@ describe('discharge summary audit trail', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resolveInpatientPathwayModeTxMock.mockResolvedValue('off');
     mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
   });
 
@@ -154,7 +210,7 @@ describe('discharge summary audit trail', () => {
 
   it('audits ready-for-signoff transitions', async () => {
     mockPrisma.$queryRawUnsafe
-      // assertSignable pre-flight: ownership probe + gate sections
+      .mockResolvedValueOnce([{ id: tenantId }]) // tenant mode lock
       .mockResolvedValueOnce([{ id: 99 }])
       .mockResolvedValueOnce([
         { section_key: 'diagnosis', body: 'Acute gastroenteritis, resolved' },
@@ -175,7 +231,7 @@ describe('discharge summary audit trail', () => {
 
   it('audits consultant signing', async () => {
     mockPrisma.$queryRawUnsafe
-      // assertSignable pre-flight: ownership probe + gate sections
+      .mockResolvedValueOnce([{ id: tenantId }]) // tenant mode lock
       .mockResolvedValueOnce([{ id: 99 }])
       .mockResolvedValueOnce([
         { section_key: 'diagnosis', body: 'Acute coronary syndrome' },
@@ -188,9 +244,6 @@ describe('discharge summary audit trail', () => {
         patient_uid: patientUid,
         signed_at: new Date('2026-05-15T10:00:00.000Z'),
       }])
-      // canonical timeline + audit event INSERTs (now emitted inside the sign tx)
-      .mockResolvedValueOnce([{ id: 'timeline-sign-99' }])
-      .mockResolvedValueOnce([{ id: 'audit-sign-99' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 99, patient_uid: patientUid }])
       .mockResolvedValueOnce([]);
@@ -222,9 +275,6 @@ describe('discharge summary audit trail', () => {
         patient_uid: patientUid,
         primary_diagnosis: 'ACS',
       }])
-      // canonical timeline + audit event INSERTs (now emitted inside the deliver tx)
-      .mockResolvedValueOnce([{ id: 'timeline-deliver-99' }])
-      .mockResolvedValueOnce([{ id: 'audit-deliver-99' }])
       .mockResolvedValueOnce([{ id: 99, patient_uid: patientUid }])
       .mockResolvedValueOnce([]);
 
@@ -270,15 +320,28 @@ describe('discharge sign-completeness gate', () => {
     { section_key: 'condition_at_discharge', body: 'Comfortable, eye shield in place.' },
     { section_key: 'discharge_medications', body: 'Moxifloxacin 0.5% eye drops QID x 1 week' },
     { section_key: 'follow_up', body: 'POD-1 review tomorrow at 9am.' },
+    {
+      section_key: 'patient_guardian_instructions',
+      body: 'Guardian reviewed the written medication and wound-care instructions.',
+    },
+    {
+      section_key: 'escalation_contact',
+      body: 'Call the ward desk or attend the emergency department for red flags.',
+    },
+    { section_key: 'required_equipment_home_care', body: 'None required.' },
+    { section_key: 'discharge_destination', body: 'Home with family.' },
+    { section_key: 'transport_plan', body: 'Family vehicle with seated escort.' },
   ];
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resolveInpatientPathwayModeTxMock.mockResolvedValue('off');
     mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
   });
 
   it('rejects sign() when a required clinical section is blank', async () => {
     mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: tenantId }])
       .mockResolvedValueOnce([{ id: 10 }])           // ownership probe
       .mockResolvedValueOnce(blankRequiredSections); // gate sections
 
@@ -298,6 +361,7 @@ describe('discharge sign-completeness gate', () => {
 
   it('reports the blank required sections in the error details', async () => {
     mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: tenantId }])
       .mockResolvedValueOnce([{ id: 10 }])
       .mockResolvedValueOnce(blankRequiredSections);
 
@@ -327,6 +391,7 @@ describe('discharge sign-completeness gate', () => {
       { section_key: 'discharge_medications', body: '[PLACEHOLDER — clinician to confirm takeaway medications]' },
     ];
     mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: tenantId }])
       .mockResolvedValueOnce([{ id: 10 }])
       .mockResolvedValueOnce(placeholderMeds);
 
@@ -340,15 +405,15 @@ describe('discharge sign-completeness gate', () => {
   });
 
   it('allows sign() when every required section has real content', async () => {
+    resolveInpatientPathwayModeTxMock.mockResolvedValueOnce('active');
     mockPrisma.$queryRawUnsafe
-      .mockResolvedValueOnce([{ id: 11 }])        // ownership probe
+      .mockResolvedValueOnce([{ id: tenantId }]) // tenant mode lock
+      .mockResolvedValueOnce([{ id: 11, admission_id: 30 }]) // ownership probe
       .mockResolvedValueOnce(completeSections)    // gate sections
       .mockResolvedValueOnce([{                   // UPDATE ... RETURNING
         id: 11, admission_id: 30, patient_uid: patientUid,
         signed_at: new Date('2026-05-22T09:00:00.000Z'),
       }])
-      .mockResolvedValueOnce([{ id: 'timeline-sign-11' }]) // canonical timeline INSERT (in-tx)
-      .mockResolvedValueOnce([{ id: 'audit-sign-11' }])    // canonical audit INSERT (in-tx)
       .mockResolvedValueOnce([])                  // materialise meds: sections
       .mockResolvedValueOnce([{ id: 11, patient_uid: patientUid }]) // getOne header
       .mockResolvedValueOnce([]);                 // getOne sections
@@ -357,6 +422,13 @@ describe('discharge sign-completeness gate', () => {
       tenantId, id: 11, signed_by: staffUid, signed_by_name: 'Dr Eye', signed_by_reg: 'TNMC-9',
     });
     expect(result).toBeTruthy();
+    const [tenantLockSql, summaryLockSql, sectionLockSql] =
+      mockPrisma.$queryRawUnsafe.mock.calls.slice(0, 3).map((call) => call[0]);
+    expect(tenantLockSql).toMatch(/FROM tenants[\s\S]*FOR SHARE/i);
+    expect(summaryLockSql).toMatch(/FROM discharge_summaries[\s\S]*FOR UPDATE/i);
+    expect(sectionLockSql).toMatch(
+      /FROM discharge_summary_sections[\s\S]*FOR UPDATE/i,
+    );
     const updateCall = mockPrisma.$queryRawUnsafe.mock.calls.find(
       (c) => /UPDATE discharge_summaries\s+SET status = 'signed'/i.test(c[0]),
     );
@@ -372,14 +444,13 @@ describe('discharge sign-completeness gate', () => {
       { section_key: 'family_history', body: '   ' },
     ];
     mockPrisma.$queryRawUnsafe
-      .mockResolvedValueOnce([{ id: 12 }])
+      .mockResolvedValueOnce([{ id: tenantId }])
+      .mockResolvedValueOnce([{ id: 12, admission_id: 31 }])
       .mockResolvedValueOnce(sectionsWithBlankOptional)
       .mockResolvedValueOnce([{
         id: 12, admission_id: 31, patient_uid: patientUid,
         signed_at: new Date('2026-05-22T10:00:00.000Z'),
       }])
-      .mockResolvedValueOnce([{ id: 'timeline-sign-12' }]) // canonical timeline INSERT (in-tx)
-      .mockResolvedValueOnce([{ id: 'audit-sign-12' }])    // canonical audit INSERT (in-tx)
       .mockResolvedValueOnce([])                  // materialise meds: sections
       .mockResolvedValueOnce([{ id: 12, patient_uid: patientUid }])
       .mockResolvedValueOnce([]);
@@ -389,8 +460,54 @@ describe('discharge sign-completeness gate', () => {
     ).resolves.toBeTruthy();
   });
 
+  it('blocks an admission-linked summary when a typed closure section is missing', async () => {
+    resolveInpatientPathwayModeTxMock.mockResolvedValueOnce('active');
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: tenantId }])
+      .mockResolvedValueOnce([{ id: 13, admission_id: 32 }])
+      .mockResolvedValueOnce(
+        completeSections.filter((section) => section.section_key !== 'transport_plan'),
+      );
+
+    await expect(
+      sign({ tenantId, id: 13, signed_by: staffUid, signed_by_name: 'Dr Eye' }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DISCHARGE_SUMMARY_INCOMPLETE',
+      details: { missing_sections: ['transport_plan'] },
+    });
+  });
+
+  it.each(['off', 'shadow'])(
+    'does not apply active inpatient closure sections in %s mode',
+    async (mode) => {
+      resolveInpatientPathwayModeTxMock.mockResolvedValueOnce(mode);
+      mockPrisma.$queryRawUnsafe
+        .mockResolvedValueOnce([{ id: tenantId }])
+        .mockResolvedValueOnce([{ id: 14, admission_id: 33, status: 'draft' }])
+        .mockResolvedValueOnce([
+          { section_key: 'diagnosis', body: 'Acute gastroenteritis, resolved' },
+          { section_key: 'discharge_medications', body: 'ORS sachets as needed' },
+        ])
+        .mockResolvedValueOnce([{
+          id: 14,
+          admission_id: 33,
+          patient_uid: patientUid,
+        }])
+        .mockResolvedValueOnce([{ id: 14, patient_uid: patientUid }])
+        .mockResolvedValueOnce([]);
+
+      await expect(markReadyForSignoff({
+        tenantId,
+        id: 14,
+        marked_by: staffUid,
+      })).resolves.toBeTruthy();
+    },
+  );
+
   it('blocks markReadyForSignoff() on incomplete required sections', async () => {
     mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: tenantId }])
       .mockResolvedValueOnce([{ id: 10 }])
       .mockResolvedValueOnce(blankRequiredSections);
 

@@ -55,6 +55,7 @@ router.post('/orders', requiredUUID('patient_uid'), requiredString('modality', 5
     const orderData = {
       patient_uid: req.body.patient_uid,
       encounter_id: req.body.encounter_id,
+      admission_id: req.body.admission_id ?? req.body.admissionId,
       modality: req.body.modality,
       body_part: req.body.body_part,
       clinical_indication: req.body.clinical_indication,

@@ -32,6 +32,7 @@ import {
   recordMedicationSafetyReviews,
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { publishOpChildResourceLinkedFromEncounterTx } from '../appointment/opChildResourceEventService.js';
 import { enrichMedicationsWithComposition } from '../pharmacy/compositionIdentityService.js';
 import { recordBrandSubstitutionAudit } from '../pharmacy/compositionSubstitutionAudit.js';
 import { isContentStudioEnabled } from './orderSetContentStudioSettingsService.js';
@@ -755,6 +756,14 @@ export async function createOrder(data) {
       safety: cdsResult,
       override: overrideApplied ? { reason: cdsOverrideReason } : null,
     });
+    await publishOpChildResourceLinkedFromEncounterTx(tx, {
+      tenantId: requireTenantId(tenantId),
+      encounterId: row.encounter_id,
+      patientUid: row.patient_uid,
+      resourceType: 'clinical_order',
+      resourceId: row.id,
+      source: 'clinical_orders.create',
+    });
     return row;
   });
 
@@ -901,6 +910,14 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
           }
           : null,
         override: prepared[i].override,
+      });
+      await publishOpChildResourceLinkedFromEncounterTx(tx, {
+        tenantId: requireTenantId(tenantId),
+        encounterId: row.encounter_id,
+        patientUid: row.patient_uid,
+        resourceType: 'clinical_order',
+        resourceId: row.id,
+        source: 'clinical_orders.bulk_create',
       });
       rows.push(row);
     }
@@ -1099,6 +1116,29 @@ async function materializeInvestigationForClinicalOrder(order) {
     return null;
   }
 
+  let admissionId = null;
+  if (order.encounter_id && order.tenant_id) {
+    const admissionRows = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND encounter_id = $3::uuid
+        ORDER BY id
+        LIMIT 2`,
+      order.tenant_id,
+      order.patient_uid,
+      order.encounter_id,
+    );
+    if (admissionRows.length > 1) {
+      throw AppError.conflict(
+        'Clinical order encounter resolves to more than one admission',
+        'CLINICAL_ORDER_ADMISSION_AMBIGUOUS',
+      );
+    }
+    admissionId = admissionRows[0]?.id ?? null;
+  }
+
   const payload = {
     patient_id: patient.id,
     orderedBy: order.ordered_by,
@@ -1111,6 +1151,7 @@ async function materializeInvestigationForClinicalOrder(order) {
     collection_deadline_at: details.collection_deadline_at ?? null,
     fasting_required: details.fasting_required ?? null,
     fasting_instructions: firstText(details.fasting_instructions),
+    admission_id: admissionId,
     tenantId: order.tenant_id,
   };
 

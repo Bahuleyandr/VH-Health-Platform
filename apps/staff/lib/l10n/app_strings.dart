@@ -3660,6 +3660,33 @@ class AppStrings {
       'clinical_inbox.action.recorded': 'Diagnostic action recorded',
       'clinical_inbox.action.failed_prefix':
           'Could not record diagnostic action:',
+      'clinical_inbox.cross_sign.review': 'Review discharge result',
+      'clinical_inbox.cross_sign.title': 'Cross-sign post-discharge result',
+      'clinical_inbox.cross_sign.generation_id': 'Exact generation ID',
+      'clinical_inbox.cross_sign.generation_hash': 'Exact generation SHA-256',
+      'clinical_inbox.cross_sign.authoritative_action':
+          'Authoritative diagnostic action ID',
+      'clinical_inbox.cross_sign.action_kind': 'Authoritative action kind',
+      'clinical_inbox.cross_sign.prior_disposition':
+          'Authoritative doctor disposition',
+      'clinical_inbox.cross_sign.action_recorded_at': 'Action recorded at',
+      'clinical_inbox.cross_sign.attestation':
+          'I attest that I reviewed this exact signed generation and the authoritative diagnostic disposition shown above.',
+      'clinical_inbox.cross_sign.submit': 'Cross-sign review',
+      'clinical_inbox.cross_sign.recording': 'Signing...',
+      'clinical_inbox.cross_sign.recorded': 'Result review cross-signed',
+      'clinical_inbox.cross_sign.binding_refreshed':
+          'The result changed while you were reviewing it. Review the refreshed evidence and attest again.',
+      'clinical_inbox.cross_sign.no_longer_actionable':
+          'This result no longer requires your action. The latest server state has been loaded.',
+      'clinical_inbox.cross_sign.failed':
+          'Could not cross-sign result: {reason}',
+      'clinical_inbox.cross_sign.read_only': 'Resolved — no action available',
+      'clinical_inbox.cross_sign.requires_connection':
+          'A connection is required to cross-sign this result.',
+      'clinical_inbox.cross_sign.open_result': 'Open authoritative result',
+      'clinical_inbox.cross_sign.owner_only':
+          'Read-only — assigned named physician action',
       'clinical_inbox.field_required': 'This field is required',
       'clinical_inbox.reopen': 'Reopen for doctor review',
       'clinical_inbox.reopen_title': 'Reopen normal result',
@@ -3670,6 +3697,19 @@ class AppStrings {
       'clinical_inbox.task_detail': 'Task detail',
       'clinical_inbox.tier_history': 'Tier history',
       'clinical_inbox.no_tier_history': 'No escalation tiers yet',
+      'clinical_inbox.transfer_accept_requires_connection':
+          'A connection is required to accept an inpatient transfer.',
+      'clinical_inbox.transfer_binding_unavailable':
+          'This transfer task is missing its exact appointment or handoff binding.',
+      'clinical_inbox.transfer_accepted_title': 'Transfer accepted',
+      'clinical_inbox.transfer_admission_source_explanation':
+          'Use this accepted source tuple together when creating the canonical admission.',
+      'clinical_inbox.transfer_source_appointment': 'Source appointment',
+      'clinical_inbox.transfer_source_pathway': 'Source pathway',
+      'clinical_inbox.transfer_source_handoff': 'Source handoff',
+      'clinical_inbox.transfer_accepted_recipient': 'Accepted recipient',
+      'clinical_inbox.accepting_transfer': 'Accepting transfer...',
+      'clinical_inbox.accept_inpatient_transfer': 'Accept inpatient transfer',
       'clinical_inbox.tier_line': 'Tier {tier}: {action}',
       'clinical_inbox.group.overdue': 'Overdue',
       'clinical_inbox.group.critical': 'Critical',
@@ -6720,17 +6760,72 @@ class AppStrings {
       's4.lib.discharge_hub.finish': "Finish",
       's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
           "Finishing this also requires discharge drugs dispensed.",
+      's4.lib.discharge_hub.blocking_reasons': "Blocking reasons",
+      's4.lib.discharge_hub.review_findings': "Review findings",
+      's4.lib.discharge_hub.exact_lineage_confirmed': "Exact source confirmed",
+      's4.lib.discharge_hub.exact_lineage_not_confirmed':
+          "Exact source not confirmed",
+      's4.lib.discharge_hub.handoff_accepted': "Handoff complete",
+      's4.lib.discharge_hub.handoff_incomplete': "Handoff incomplete",
       's4.lib.discharge_hub.hospital_team': "Hospital team",
+      's4.lib.discharge_hub.included_in_signed_summary':
+          "Included in signed summary",
+      's4.lib.discharge_hub.named_physician_not_recorded':
+          "Named physician not recorded",
       's4.lib.discharge_hub.no_safety_flags': "No safety flags",
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.discharge_hub.work_item': "work item",
       's4.lib.discharge_hub.generate_ai_package': "Generate AI package",
       's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
           "No safety flags are attached to this summary.",
+      's4.lib.discharge_hub.no_pending_result_handoffs':
+          "No pending result handoffs are recorded.",
       's4.lib.discharge_hub.no_summary_draft': "No discharge summary draft yet",
       's4.lib.discharge_hub.not_initiated': "Not initiated",
+      's4.lib.discharge_hub.not_in_signed_summary':
+          "Not included in signed summary",
       's4.lib.discharge_hub.open_summary_editor': "Open summary editor",
       's4.lib.discharge_hub.pending_item': "Pending item",
+      's4.lib.discharge_hub.pending_result': "Pending result",
+      's4.lib.discharge_hub.pending_result_blocks_discharge':
+          "Blocks discharge",
+      's4.lib.discharge_hub.pending_result_handed_off': "Handoff recorded",
+      's4.lib.discharge_hub.pending_result_handoffs': "Pending result handoffs",
+      's4.lib.discharge_hub.pending_result_handoffs_explanation':
+          "Review the exact result, current state, signed-summary disclosure, and named physician ownership.",
+      's4.lib.discharge_hub.pathway_actions_require_connection':
+          "A connection is required for discharge pathway actions.",
+      's4.lib.discharge_hub.named_owner_handoff_recorded':
+          "Named-owner handoff recorded.",
+      's4.lib.discharge_hub.pending_result_bound_to_summary':
+          "Pending result included in the signed summary.",
+      's4.lib.discharge_hub.follow_up_exception_title':
+          "Audited follow-up exception",
+      's4.lib.discharge_hub.follow_up_exception_reason':
+          "Clinical reason for the follow-up exception",
+      's4.lib.discharge_hub.follow_up_exception_reason_required':
+          "Enter the clinical reason for this exception.",
+      's4.lib.discharge_hub.record_follow_up_exception':
+          "Record follow-up exception",
+      's4.lib.discharge_hub.follow_up_exception_recorded':
+          "Audited follow-up exception recorded.",
+      's4.dynamic.discharge_hub.follow_up_exception_reason':
+          "Follow-up exception recorded: {reason}",
+      's4.lib.discharge_hub.pending_result_action_explanation':
+          "The current primary physician is resolved and authorized by the server.",
+      's4.lib.discharge_hub.exact_reference_required':
+          "Exact result reference required",
+      's4.lib.discharge_hub.record_named_owner_handoff':
+          "Record named-owner handoff",
+      's4.lib.discharge_hub.signed_summary_required': "Signed summary required",
+      's4.lib.discharge_hub.include_in_signed_summary':
+          "Include in signed summary",
+      's4.lib.discharge_hub.pathway_mode_off_explanation':
+          "Pathway automation is off. This section is informational and legacy discharge behavior is unchanged.",
+      's4.lib.discharge_hub.pathway_mode_shadow_explanation':
+          "Shadow review only. Findings shown here do not block discharge or start automated work.",
+      's4.lib.discharge_hub.pending_result_would_block_in_active_mode':
+          "Would block in active mode",
       's4.lib.discharge_hub.ready_for_final_discharge':
           "Ready for final discharge",
       's4.lib.discharge_hub.role_work_items': "Role work items",
@@ -6740,6 +6835,7 @@ class AppStrings {
       's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
           "This discharge summary still needs doctor sign-off.",
       's4.lib.discharge_hub.view_signed_summary': "View signed summary",
+      's4.dynamic.discharge_hub.named_physician': "Named physician: {owner}",
       's4.lib.discharge_hub_list.blocked': "Blocked",
       's4.lib.discharge_hub_list.doctor_sign_pending': "Doctor sign pending",
       's4.lib.discharge_hub_list.no_active_discharge_work':
@@ -6779,6 +6875,9 @@ class AppStrings {
       's4.lib.discharge_summary.unknown_item': "Unknown",
       's4.lib.discharge_summary.test_fallback': "Test",
       's4.lib.discharge_summary.pending_result': "Pending",
+      's4.lib.discharge_summary.pending_result_review': "Pending result review",
+      's4.lib.discharge_summary.pending_result_review_explanation':
+          "Confirm every pending result is disclosed and has an accepted named owner before signing.",
       's4.lib.discharge_summary.procedure_fallback': "Procedure",
       's4.lib.discharge_summary.ai_generated_review_required':
           "AI-generated draft - doctor review required",
@@ -6873,6 +6972,10 @@ class AppStrings {
           "Front-office summary only",
       's4.lib.front_office_workbench.ip_admission_created':
           "IP admission created",
+      's4.lib.front_office_workbench.accepted_transfer_doctor_must_match':
+          "The admitting doctor must be the physician who accepted this inpatient transfer.",
+      's4.dynamic.front_office_workbench.accepted_transfer_source':
+          "Accepted OP-to-inpatient transfer. Select the accepting physician ({uid}) as admitting doctor.",
       's4.lib.front_office_workbench.needs_bed_deposit_consent':
           "Needs bed, deposit, consent",
       's4.lib.front_office_workbench.no_active_admissions':
@@ -7442,6 +7545,81 @@ class AppStrings {
       's4.lib.op_doctor_workspace.complete': "Complete",
       's4.lib.op_doctor_workspace.complete_consultation':
           "Complete consultation",
+      's4.lib.op_doctor_workspace.completion_blocked_by_pathway_work':
+          "Complete or transfer the blocking visit work before closing this consultation.",
+      's4.lib.op_doctor_workspace.completion_requires_connection':
+          "A connection is required to re-check visit work and complete this consultation.",
+      's4.lib.op_doctor_workspace.pathway_actions_require_connection':
+          "A connection is required for active pathway actions.",
+      's4.lib.op_doctor_workspace.closure_evidence_recorded':
+          "Visit closure evidence recorded.",
+      's4.lib.op_doctor_workspace.no_active_inpatient_recipients':
+          "No active inpatient physician recipients are available.",
+      's4.lib.op_doctor_workspace.active_pathway_actions':
+          "Active pathway actions",
+      's4.lib.op_doctor_workspace.active_pathway_actions_explanation':
+          "Only the current pathway owner or exact accepted clinician can record these actions.",
+      's4.lib.op_doctor_workspace.record_closure_evidence':
+          "Record closure evidence",
+      's4.lib.op_doctor_workspace.revise_closure_evidence':
+          "Revise closure evidence",
+      's4.lib.op_doctor_workspace.request_inpatient_transfer':
+          "Request inpatient transfer",
+      's4.dynamic.op_doctor_workspace.transfer_requested':
+          "Inpatient transfer request sent ({handoffId}).",
+      's4.dynamic.op_doctor_workspace.closure_evidence_summary':
+          "Closure basis: {basis} · revision {revision}",
+      's4.lib.op_doctor_workspace.transfer_current_owner_explanation':
+          "The sender must be the current OP pathway owner. The recipient must explicitly accept in Clinical Inbox.",
+      's4.lib.op_doctor_workspace.inpatient_recipient':
+          "Receiving inpatient physician",
+      's4.lib.op_doctor_workspace.inpatient_recipient_required':
+          "Select the receiving inpatient physician.",
+      's4.lib.op_doctor_workspace.transfer_reason': "Transfer reason",
+      's4.lib.op_doctor_workspace.transfer_reason_required':
+          "Enter the clinical reason for inpatient transfer.",
+      's4.lib.op_doctor_workspace.send_transfer_request':
+          "Send transfer request",
+      's4.lib.op_doctor_workspace.closure_evidence_title':
+          "Visit closure evidence",
+      's4.lib.op_doctor_workspace.closure_current_owner_explanation':
+          "Record patient-safe closure evidence as the current pathway owner or exact accepted clinician.",
+      's4.lib.op_doctor_workspace.closure_basis': "Closure basis",
+      's4.lib.op_doctor_workspace.closure_basis_completed':
+          "All required work completed",
+      's4.lib.op_doctor_workspace.closure_basis_named_owner':
+          "Named ownership accepted",
+      's4.lib.op_doctor_workspace.closure_basis_transfer': "Accepted transfer",
+      's4.lib.op_doctor_workspace.accepted_handoff_id': "Accepted handoff ID",
+      's4.lib.op_doctor_workspace.accepted_handoff_helper':
+          "Use the exact accepted handoff recorded for this pathway.",
+      's4.lib.op_doctor_workspace.accepted_handoff_required':
+          "Enter the exact accepted handoff ID.",
+      's4.lib.op_doctor_workspace.follow_up_required': "Follow-up is required",
+      's4.lib.op_doctor_workspace.follow_up_link_explanation':
+          "Required follow-up must link to an open or scheduled plan from this appointment.",
+      's4.lib.op_doctor_workspace.follow_up_plan_link': "Follow-up plan link",
+      's4.lib.op_doctor_workspace.no_follow_up_plan_available':
+          "No eligible follow-up plan is projected for this visit.",
+      's4.dynamic.op_doctor_workspace.follow_up_plan': "Follow-up plan #{id}",
+      's4.lib.op_doctor_workspace.follow_up_plan_required':
+          "Select an eligible follow-up plan.",
+      's4.lib.op_doctor_workspace.patient_safe_next_steps':
+          "Patient-safe next steps",
+      's4.lib.op_doctor_workspace.add_next_step': "Add next step",
+      's4.dynamic.op_doctor_workspace.next_step': "Next step {number}",
+      's4.lib.op_doctor_workspace.remove_next_step': "Remove next step",
+      's4.lib.op_doctor_workspace.next_step_label': "Patient-safe step",
+      's4.lib.op_doctor_workspace.next_step_label_required':
+          "Enter the patient-safe next step.",
+      's4.lib.op_doctor_workspace.patient_safe_explanation':
+          "Patient-safe explanation",
+      's4.lib.op_doctor_workspace.patient_action': "Patient action",
+      's4.lib.op_doctor_workspace.due_date_optional': "Due date (optional)",
+      's4.lib.op_doctor_workspace.due_date_format': "YYYY-MM-DD",
+      's4.lib.op_doctor_workspace.due_date_invalid':
+          "Use a valid date in YYYY-MM-DD format.",
+      's4.lib.op_doctor_workspace.next_step_status': "Step status",
       's4.lib.op_doctor_workspace.consultation_actions': "Consultation actions",
       's4.lib.op_doctor_workspace.consultation_cockpit': "Consultation cockpit",
       's4.lib.op_doctor_workspace.consultation_marked_complete':
@@ -7490,8 +7668,14 @@ class AppStrings {
           "Main complaint or visit reason",
       's4.lib.op_doctor_workspace.medication_nursing_investigation_orders':
           "Medication, nursing, or investigation orders",
+      's4.lib.op_doctor_workspace.blocking_pathway_work': "Blocking",
+      's4.lib.op_doctor_workspace.named_owner_not_recorded':
+          "Named owner not recorded",
+      's4.lib.op_doctor_workspace.nonblocking_pathway_work': "Non-blocking",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
           "No clinical timeline entries yet",
+      's4.lib.op_doctor_workspace.no_unresolved_pathway_work':
+          "No unresolved child work is recorded for this visit.",
       's4.lib.op_doctor_workspace.note_saved': "Note saved",
       's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports':
           "Notes, drug chart, orders, vitals and reports",
@@ -7513,6 +7697,16 @@ class AppStrings {
       's4.lib.op_doctor_workspace.plan': "Plan",
       's4.lib.op_doctor_workspace.plan_hint':
           "Medicines, investigations, advice, follow-up",
+      's4.lib.op_doctor_workspace.pathway_work_explanation':
+          "Visit completion does not close the pathway. Blocking work needs completion or accepted named ownership.",
+      's4.lib.op_doctor_workspace.pathway_mode_off_explanation':
+          "Pathway automation is off. This panel is informational and visit completion keeps its legacy behavior.",
+      's4.lib.op_doctor_workspace.pathway_mode_shadow_explanation':
+          "Shadow review only. Findings shown here do not block completion or start automated work.",
+      's4.lib.op_doctor_workspace.would_block_in_active_mode':
+          "Would block in active mode",
+      's4.lib.op_doctor_workspace.pathway_work_unavailable':
+          "Visit work could not be refreshed. Completion will re-check it online.",
       's4.lib.op_doctor_workspace.prescription': "Prescription",
       's4.lib.op_doctor_workspace.prescription_entered_for_visit':
           "Prescription entered for this OP visit",
@@ -7536,6 +7730,8 @@ class AppStrings {
       's4.lib.op_doctor_workspace.signed_and_locked': "Signed and locked",
       's4.lib.op_doctor_workspace.status': "Status",
       's4.lib.op_doctor_workspace.timeline_ready': "Timeline ready",
+      's4.lib.op_doctor_workspace.unresolved_pathway_work':
+          "Unresolved visit work",
       's4.lib.op_doctor_workspace.visit_complete': "Visit complete",
       's4.lib.op_doctor_workspace.visit_not_today':
           "This OP visit is not dated today; create a new appointment for fresh documentation.",
@@ -7556,6 +7752,7 @@ class AppStrings {
       's4.dynamic.op_doctor_workspace.summary_cc': "CC: {text}",
       's4.dynamic.op_doctor_workspace.summary_dx': "Dx: {text}",
       's4.dynamic.op_doctor_workspace.summary_plan': "Plan: {text}",
+      's4.dynamic.op_doctor_workspace.named_owner': "Owner: {owner}",
       's4.dynamic.op_doctor_workspace.visit_closed_status':
           "This OP visit is {status}; create a new appointment for fresh documentation.",
       's4.dynamic.op_doctor_workspace.workspace_title':
@@ -7653,6 +7850,16 @@ class AppStrings {
           "Open tasks and referrals",
       's4.lib.patient_command_board.no_open_tasks': "No open tasks.",
       's4.lib.patient_command_board.task': "Task",
+      's4.lib.patient_command_board.blocking_pathway_task': "Blocking task",
+      's4.lib.patient_command_board.named_owner_not_recorded':
+          "Named owner not recorded",
+      's4.lib.patient_command_board.nonblocking_pathway_task':
+          "Non-blocking task",
+      's4.dynamic.patient_command_board.task_owner': "Owner: {owner}",
+      's4.dynamic.patient_command_board.task_relationship':
+          "Relationship: {relationship}",
+      's4.dynamic.patient_command_board.task_blocking_state':
+          "Blocking state: {state}",
       's4.lib.patient_command_board.patient': "Patient",
       's4.lib.patient_command_board.clinical_details_hidden':
           "Clinical details hidden for this role",
@@ -9494,6 +9701,52 @@ class AppStrings {
       'clinical_inbox.sla.due_now': 'अभी देय',
       'clinical_inbox.sla.due_minutes': '{minutes} मिनट',
       'clinical_inbox.sla.due_hours': '{hours}घं {minutes}मि',
+      // REVIEW: hi AI first-pass S4 OP-to-IP transfer copy.
+      'clinical_inbox.transfer_accept_requires_connection':
+          'इनपेशेंट स्थानांतरण स्वीकार करने के लिए कनेक्शन आवश्यक है।',
+      'clinical_inbox.transfer_binding_unavailable':
+          'इस स्थानांतरण कार्य में सटीक अपॉइंटमेंट या हैंडऑफ लिंक नहीं है।',
+      'clinical_inbox.transfer_accepted_title': 'स्थानांतरण स्वीकार किया गया',
+      'clinical_inbox.transfer_admission_source_explanation':
+          'मानक भर्ती बनाते समय इन स्वीकृत स्रोत विवरणों का एक साथ उपयोग करें।',
+      'clinical_inbox.transfer_source_appointment': 'स्रोत अपॉइंटमेंट',
+      'clinical_inbox.transfer_source_pathway': 'स्रोत पाथवे',
+      'clinical_inbox.transfer_source_handoff': 'स्रोत हैंडऑफ',
+      'clinical_inbox.transfer_accepted_recipient': 'स्वीकृत प्राप्तकर्ता',
+      'clinical_inbox.accepting_transfer':
+          'स्थानांतरण स्वीकार किया जा रहा है...',
+      'clinical_inbox.accept_inpatient_transfer':
+          'इनपेशेंट स्थानांतरण स्वीकार करें',
+      'clinical_inbox.cross_sign.review': 'डिस्चार्ज परिणाम की समीक्षा करें',
+      'clinical_inbox.cross_sign.title':
+          'डिस्चार्ज के बाद के परिणाम पर सह-हस्ताक्षर',
+      'clinical_inbox.cross_sign.generation_id': 'सटीक जनरेशन ID',
+      'clinical_inbox.cross_sign.generation_hash': 'सटीक जनरेशन SHA-256',
+      'clinical_inbox.cross_sign.authoritative_action':
+          'प्रामाणिक डायग्नोस्टिक कार्रवाई ID',
+      'clinical_inbox.cross_sign.action_kind': 'प्रामाणिक कार्रवाई का प्रकार',
+      'clinical_inbox.cross_sign.prior_disposition': 'प्रामाणिक डॉक्टर निर्णय',
+      'clinical_inbox.cross_sign.action_recorded_at':
+          'कार्रवाई दर्ज होने का समय',
+      'clinical_inbox.cross_sign.attestation':
+          'मैं प्रमाणित करता/करती हूँ कि मैंने ऊपर दिखाए गए इसी हस्ताक्षरित जनरेशन और प्रामाणिक डायग्नोस्टिक निर्णय की समीक्षा की है।',
+      'clinical_inbox.cross_sign.submit': 'समीक्षा पर सह-हस्ताक्षर करें',
+      'clinical_inbox.cross_sign.recording': 'हस्ताक्षर हो रहा है...',
+      'clinical_inbox.cross_sign.recorded':
+          'परिणाम समीक्षा पर सह-हस्ताक्षर किया गया',
+      'clinical_inbox.cross_sign.binding_refreshed':
+          'आपकी समीक्षा के दौरान परिणाम बदल गया। ताज़ा प्रमाण की समीक्षा करके फिर प्रमाणित करें।',
+      'clinical_inbox.cross_sign.no_longer_actionable':
+          'इस परिणाम पर अब आपकी कार्रवाई आवश्यक नहीं है। नवीनतम सर्वर स्थिति लोड हो गई है।',
+      'clinical_inbox.cross_sign.failed':
+          'परिणाम पर सह-हस्ताक्षर नहीं हो सका: {reason}',
+      'clinical_inbox.cross_sign.read_only':
+          'समाधान हो गया — कोई कार्रवाई उपलब्ध नहीं',
+      'clinical_inbox.cross_sign.requires_connection':
+          'इस परिणाम पर सह-हस्ताक्षर करने के लिए कनेक्शन आवश्यक है।',
+      'clinical_inbox.cross_sign.open_result': 'प्रामाणिक परिणाम खोलें',
+      'clinical_inbox.cross_sign.owner_only':
+          'केवल पढ़ने के लिए — नामित चिकित्सक की कार्रवाई',
       // REVIEW: hi drug chart batch — clinical wording
       'drug_chart.title': 'ड्रग चार्ट',
       'drug_chart.stop_title': 'दवा बंद करें',
@@ -12477,18 +12730,74 @@ class AppStrings {
       's4.lib.discharge_hub.finish': "खत्म करना",
       's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
           "इसे ख़त्म करने के लिए डिस्चार्ज दवाओं के वितरण की भी आवश्यकता होती है।",
+      's4.lib.discharge_hub.blocking_reasons': "अवरोध के कारण",
+      's4.lib.discharge_hub.review_findings': "समीक्षा निष्कर्ष",
+      's4.lib.discharge_hub.exact_lineage_confirmed':
+          "सटीक स्रोत की पुष्टि हुई",
+      's4.lib.discharge_hub.exact_lineage_not_confirmed':
+          "सटीक स्रोत की पुष्टि नहीं हुई",
+      's4.lib.discharge_hub.handoff_accepted': "हैंडओवर पूरा है",
+      's4.lib.discharge_hub.handoff_incomplete': "हैंडओवर अधूरा है",
       's4.lib.discharge_hub.hospital_team': "अस्पताल टीम",
+      's4.lib.discharge_hub.included_in_signed_summary':
+          "हस्ताक्षरित सारांश में शामिल",
+      's4.lib.discharge_hub.named_physician_not_recorded':
+          "नामित चिकित्सक दर्ज नहीं है",
       's4.lib.discharge_hub.no_safety_flags': "कोई सुरक्षा ध्वज नहीं",
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.discharge_hub.work_item': "कार्य आइटम",
       's4.lib.discharge_hub.generate_ai_package': "एआई पैकेज जेनरेट करें",
       's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
           "इस सारांश के साथ कोई सुरक्षा ध्वज संलग्न नहीं हैं।",
+      's4.lib.discharge_hub.no_pending_result_handoffs':
+          "कोई लंबित परिणाम हैंडओवर दर्ज नहीं है।",
       's4.lib.discharge_hub.no_summary_draft':
           "अभी कोई डिस्चार्ज सारांश ड्राफ्ट नहीं",
       's4.lib.discharge_hub.not_initiated': "शुरू नहीं हुआ",
+      's4.lib.discharge_hub.not_in_signed_summary':
+          "हस्ताक्षरित सारांश में शामिल नहीं",
       's4.lib.discharge_hub.open_summary_editor': "सारांश संपादक खोलें",
       's4.lib.discharge_hub.pending_item': "लंबित आइटम",
+      's4.lib.discharge_hub.pending_result': "लंबित परिणाम",
+      's4.lib.discharge_hub.pending_result_blocks_discharge':
+          "डिस्चार्ज अवरुद्ध करता है",
+      's4.lib.discharge_hub.pending_result_handed_off': "हैंडओवर दर्ज है",
+      's4.lib.discharge_hub.pending_result_handoffs': "लंबित परिणाम हैंडओवर",
+      's4.lib.discharge_hub.pending_result_handoffs_explanation':
+          "सटीक परिणाम, वर्तमान स्थिति, हस्ताक्षरित सारांश में उल्लेख और नामित चिकित्सक की जिम्मेदारी की समीक्षा करें।",
+      // REVIEW: hi AI first-pass S4 active discharge action copy.
+      's4.lib.discharge_hub.pathway_actions_require_connection':
+          "डिस्चार्ज पाथवे कार्रवाइयों के लिए कनेक्शन आवश्यक है।",
+      's4.lib.discharge_hub.named_owner_handoff_recorded':
+          "नामित जिम्मेदार चिकित्सक का हैंडऑफ दर्ज किया गया।",
+      's4.lib.discharge_hub.pending_result_bound_to_summary':
+          "लंबित परिणाम हस्ताक्षरित सारांश में शामिल किया गया।",
+      's4.lib.discharge_hub.follow_up_exception_title':
+          "ऑडिट किया गया फॉलो-अप अपवाद",
+      's4.lib.discharge_hub.follow_up_exception_reason':
+          "फॉलो-अप अपवाद का क्लिनिकल कारण",
+      's4.lib.discharge_hub.follow_up_exception_reason_required':
+          "इस अपवाद का क्लिनिकल कारण दर्ज करें।",
+      's4.lib.discharge_hub.record_follow_up_exception':
+          "फॉलो-अप अपवाद दर्ज करें",
+      's4.lib.discharge_hub.follow_up_exception_recorded':
+          "ऑडिट किया गया फॉलो-अप अपवाद दर्ज किया गया।",
+      's4.lib.discharge_hub.pending_result_action_explanation':
+          "सर्वर वर्तमान प्राथमिक चिकित्सक निर्धारित करता है और उसे अधिकृत करता है।",
+      's4.lib.discharge_hub.exact_reference_required':
+          "सटीक परिणाम संदर्भ आवश्यक है",
+      's4.lib.discharge_hub.record_named_owner_handoff':
+          "नामित जिम्मेदार चिकित्सक का हैंडऑफ दर्ज करें",
+      's4.lib.discharge_hub.signed_summary_required':
+          "हस्ताक्षरित सारांश आवश्यक है",
+      's4.lib.discharge_hub.include_in_signed_summary':
+          "हस्ताक्षरित सारांश में शामिल करें",
+      's4.lib.discharge_hub.pathway_mode_off_explanation':
+          "पाथवे ऑटोमेशन बंद है। यह अनुभाग केवल जानकारी के लिए है और डिस्चार्ज का मौजूदा व्यवहार अपरिवर्तित है।",
+      's4.lib.discharge_hub.pathway_mode_shadow_explanation':
+          "केवल शैडो समीक्षा। यहां दिखाए निष्कर्ष डिस्चार्ज को नहीं रोकते और स्वचालित कार्य शुरू नहीं करते।",
+      's4.lib.discharge_hub.pending_result_would_block_in_active_mode':
+          "सक्रिय मोड में अवरुद्ध करेगा",
       's4.lib.discharge_hub.ready_for_final_discharge':
           "अंतिम डिस्चार्ज के लिए तैयार",
       's4.lib.discharge_hub.role_work_items': "भूमिका कार्य आइटम",
@@ -12498,6 +12807,7 @@ class AppStrings {
       's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
           "इस डिस्चार्ज सारांश को अभी भी डॉक्टर के हस्ताक्षर की आवश्यकता है।",
       's4.lib.discharge_hub.view_signed_summary': "हस्ताक्षरित सारांश देखें",
+      's4.dynamic.discharge_hub.named_physician': "नामित चिकित्सक: {owner}",
       's4.lib.discharge_hub_list.blocked': "अवरुद्ध",
       's4.lib.discharge_hub_list.doctor_sign_pending': "डॉक्टर हस्ताक्षर लंबित",
       's4.lib.discharge_hub_list.no_active_discharge_work':
@@ -12537,6 +12847,9 @@ class AppStrings {
       's4.lib.discharge_summary.unknown_item': "अज्ञात",
       's4.lib.discharge_summary.test_fallback': "जाँच",
       's4.lib.discharge_summary.pending_result': "लंबित",
+      's4.lib.discharge_summary.pending_result_review': "लंबित परिणाम समीक्षा",
+      's4.lib.discharge_summary.pending_result_review_explanation':
+          "हस्ताक्षर से पहले पुष्टि करें कि हर लंबित परिणाम का उल्लेख है और उसका स्वीकृत नामित स्वामी है।",
       's4.lib.discharge_summary.procedure_fallback': "प्रक्रिया",
       's4.lib.discharge_summary.ai_generated_review_required':
           "AI-जनरेटेड मसौदा - डॉक्टर समीक्षा आवश्यक",
@@ -12634,6 +12947,10 @@ class AppStrings {
           "केवल फ्रंट-ऑफिस सारांश",
       's4.lib.front_office_workbench.ip_admission_created':
           "आईपी भर्ती बनाई गई",
+      's4.lib.front_office_workbench.accepted_transfer_doctor_must_match':
+          "The admitting doctor must be the physician who accepted this inpatient transfer.",
+      's4.dynamic.front_office_workbench.accepted_transfer_source':
+          "Accepted OP-to-inpatient transfer. Select the accepting physician ({uid}) as admitting doctor.",
       's4.lib.front_office_workbench.needs_bed_deposit_consent':
           "बेड, जमा, सहमति आवश्यक",
       's4.lib.front_office_workbench.no_active_admissions':
@@ -13208,6 +13525,84 @@ class AppStrings {
       's4.lib.op_doctor_workspace.clinical_timeline': "क्लिनिकल टाइमलाइन",
       's4.lib.op_doctor_workspace.complete': "पूरा करें",
       's4.lib.op_doctor_workspace.complete_consultation': "कंसल्टेशन पूरा करें",
+      's4.lib.op_doctor_workspace.completion_blocked_by_pathway_work':
+          "कंसल्टेशन बंद करने से पहले अवरोधक विजिट कार्य पूरा करें या स्थानांतरित करें।",
+      's4.lib.op_doctor_workspace.completion_requires_connection':
+          "विजिट कार्य दोबारा जांचने और कंसल्टेशन पूरा करने के लिए कनेक्शन आवश्यक है।",
+      's4.lib.op_doctor_workspace.pathway_actions_require_connection':
+          "A connection is required for active pathway actions.",
+      's4.lib.op_doctor_workspace.closure_evidence_recorded':
+          "Visit closure evidence recorded.",
+      's4.lib.op_doctor_workspace.no_active_inpatient_recipients':
+          "No active inpatient physician recipients are available.",
+      's4.lib.op_doctor_workspace.active_pathway_actions':
+          "Active pathway actions",
+      's4.lib.op_doctor_workspace.active_pathway_actions_explanation':
+          "Only the current pathway owner or exact accepted clinician can record these actions.",
+      's4.lib.op_doctor_workspace.record_closure_evidence':
+          "Record closure evidence",
+      's4.lib.op_doctor_workspace.revise_closure_evidence':
+          "Revise closure evidence",
+      's4.lib.op_doctor_workspace.request_inpatient_transfer':
+          "Request inpatient transfer",
+      's4.dynamic.op_doctor_workspace.transfer_requested':
+          "Inpatient transfer request sent ({handoffId}).",
+      's4.dynamic.op_doctor_workspace.closure_evidence_summary':
+          "Closure basis: {basis} · revision {revision}",
+      's4.dynamic.discharge_hub.follow_up_exception_reason':
+          "Follow-up exception recorded: {reason}",
+      's4.dynamic.op_doctor_workspace.follow_up_plan': "Follow-up plan #{id}",
+      's4.dynamic.op_doctor_workspace.next_step': "Next step {number}",
+      // REVIEW: hi AI first-pass S4 active OP pathway action copy.
+      's4.lib.op_doctor_workspace.transfer_current_owner_explanation':
+          "प्रेषक वर्तमान OP पाथवे स्वामी होना चाहिए। प्राप्तकर्ता को क्लिनिकल इनबॉक्स में स्पष्ट रूप से स्वीकार करना होगा।",
+      's4.lib.op_doctor_workspace.inpatient_recipient':
+          "प्राप्तकर्ता इनपेशेंट चिकित्सक",
+      's4.lib.op_doctor_workspace.inpatient_recipient_required':
+          "प्राप्तकर्ता इनपेशेंट चिकित्सक चुनें।",
+      's4.lib.op_doctor_workspace.transfer_reason': "स्थानांतरण का कारण",
+      's4.lib.op_doctor_workspace.transfer_reason_required':
+          "इनपेशेंट स्थानांतरण का क्लिनिकल कारण दर्ज करें।",
+      's4.lib.op_doctor_workspace.send_transfer_request':
+          "स्थानांतरण अनुरोध भेजें",
+      's4.lib.op_doctor_workspace.closure_evidence_title':
+          "विज़िट समापन साक्ष्य",
+      's4.lib.op_doctor_workspace.closure_current_owner_explanation':
+          "वर्तमान पाथवे स्वामी या सटीक स्वीकृत चिकित्सक के रूप में रोगी-सुरक्षित समापन साक्ष्य दर्ज करें।",
+      's4.lib.op_doctor_workspace.closure_basis': "समापन आधार",
+      's4.lib.op_doctor_workspace.closure_basis_completed':
+          "सभी आवश्यक कार्य पूरे हुए",
+      's4.lib.op_doctor_workspace.closure_basis_named_owner':
+          "नामित जिम्मेदारी स्वीकार की गई",
+      's4.lib.op_doctor_workspace.closure_basis_transfer': "स्वीकृत स्थानांतरण",
+      's4.lib.op_doctor_workspace.accepted_handoff_id': "स्वीकृत हैंडऑफ ID",
+      's4.lib.op_doctor_workspace.accepted_handoff_helper':
+          "इस पाथवे के लिए दर्ज सटीक स्वीकृत हैंडऑफ का उपयोग करें।",
+      's4.lib.op_doctor_workspace.accepted_handoff_required':
+          "सटीक स्वीकृत हैंडऑफ ID दर्ज करें।",
+      's4.lib.op_doctor_workspace.follow_up_required': "फॉलो-अप आवश्यक है",
+      's4.lib.op_doctor_workspace.follow_up_link_explanation':
+          "आवश्यक फॉलो-अप इस अपॉइंटमेंट की खुली या निर्धारित योजना से जुड़ा होना चाहिए।",
+      's4.lib.op_doctor_workspace.follow_up_plan_link': "फॉलो-अप योजना लिंक",
+      's4.lib.op_doctor_workspace.no_follow_up_plan_available':
+          "इस विज़िट के लिए कोई योग्य फॉलो-अप योजना उपलब्ध नहीं है।",
+      's4.lib.op_doctor_workspace.follow_up_plan_required':
+          "योग्य फॉलो-अप योजना चुनें।",
+      's4.lib.op_doctor_workspace.patient_safe_next_steps':
+          "रोगी-सुरक्षित अगले कदम",
+      's4.lib.op_doctor_workspace.add_next_step': "अगला कदम जोड़ें",
+      's4.lib.op_doctor_workspace.remove_next_step': "अगला कदम हटाएँ",
+      's4.lib.op_doctor_workspace.next_step_label': "रोगी-सुरक्षित कदम",
+      's4.lib.op_doctor_workspace.next_step_label_required':
+          "रोगी-सुरक्षित अगला कदम दर्ज करें।",
+      's4.lib.op_doctor_workspace.patient_safe_explanation':
+          "रोगी-सुरक्षित स्पष्टीकरण",
+      's4.lib.op_doctor_workspace.patient_action': "रोगी की कार्रवाई",
+      's4.lib.op_doctor_workspace.due_date_optional': "देय तिथि (वैकल्पिक)",
+      's4.lib.op_doctor_workspace.due_date_format': "YYYY-MM-DD",
+      's4.lib.op_doctor_workspace.due_date_invalid':
+          "YYYY-MM-DD प्रारूप में मान्य तिथि दर्ज करें।",
+      's4.lib.op_doctor_workspace.next_step_status': "कदम की स्थिति",
       's4.lib.op_doctor_workspace.consultation_actions':
           "कंसल्टेशन कार्रवाइयाँ",
       's4.lib.op_doctor_workspace.consultation_cockpit': "कंसल्टेशन कॉकपिट",
@@ -13256,8 +13651,14 @@ class AppStrings {
           "मुख्य शिकायत या विजिट का कारण",
       's4.lib.op_doctor_workspace.medication_nursing_investigation_orders':
           "दवा, नर्सिंग या जांच ऑर्डर",
+      's4.lib.op_doctor_workspace.blocking_pathway_work': "अवरोधक",
+      's4.lib.op_doctor_workspace.named_owner_not_recorded':
+          "नामित स्वामी दर्ज नहीं है",
+      's4.lib.op_doctor_workspace.nonblocking_pathway_work': "गैर-अवरोधक",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
           "अभी तक कोई क्लिनिकल टाइमलाइन प्रविष्टि नहीं",
+      's4.lib.op_doctor_workspace.no_unresolved_pathway_work':
+          "इस विजिट के लिए कोई अनसुलझा बाल कार्य दर्ज नहीं है।",
       's4.lib.op_doctor_workspace.note_saved': "नोट सहेजा गया",
       's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports':
           "नोट्स, ड्रग चार्ट, ऑर्डर, वाइटल्स और रिपोर्ट",
@@ -13278,6 +13679,16 @@ class AppStrings {
       's4.lib.op_doctor_workspace.patient': "मरीज",
       's4.lib.op_doctor_workspace.plan': "योजना",
       's4.lib.op_doctor_workspace.plan_hint': "दवाएँ, जांचें, सलाह, फॉलो-अप",
+      's4.lib.op_doctor_workspace.pathway_work_explanation':
+          "विजिट पूरी होने से पाथवे बंद नहीं होता। अवरोधक कार्य पूरा होना या नामित स्वामी द्वारा स्वीकार होना चाहिए।",
+      's4.lib.op_doctor_workspace.pathway_mode_off_explanation':
+          "पाथवे ऑटोमेशन बंद है। यह पैनल केवल जानकारी के लिए है और विजिट पूर्ण करने का मौजूदा व्यवहार अपरिवर्तित है।",
+      's4.lib.op_doctor_workspace.pathway_mode_shadow_explanation':
+          "केवल शैडो समीक्षा। यहां दिखाए निष्कर्ष पूर्णता को नहीं रोकते और स्वचालित कार्य शुरू नहीं करते।",
+      's4.lib.op_doctor_workspace.would_block_in_active_mode':
+          "सक्रिय मोड में अवरुद्ध करेगा",
+      's4.lib.op_doctor_workspace.pathway_work_unavailable':
+          "विजिट कार्य रीफ्रेश नहीं हो सका। पूर्ण करने पर इसे ऑनलाइन दोबारा जांचा जाएगा।",
       's4.lib.op_doctor_workspace.prescription': "प्रिस्क्रिप्शन",
       's4.lib.op_doctor_workspace.prescription_entered_for_visit':
           "इस OP विजिट के लिए प्रिस्क्रिप्शन दर्ज किया गया",
@@ -13302,6 +13713,8 @@ class AppStrings {
       's4.lib.op_doctor_workspace.signed_and_locked': "हस्ताक्षरित और लॉक",
       's4.lib.op_doctor_workspace.status': "स्थिति",
       's4.lib.op_doctor_workspace.timeline_ready': "टाइमलाइन तैयार",
+      's4.lib.op_doctor_workspace.unresolved_pathway_work':
+          "अनसुलझा विजिट कार्य",
       's4.lib.op_doctor_workspace.visit_complete': "विजिट पूर्ण",
       's4.lib.op_doctor_workspace.visit_not_today':
           "यह OP विजिट आज की तारीख में नहीं है; नए दस्तावेज़ीकरण के लिए नया अपॉइंटमेंट बनाएं।",
@@ -13322,6 +13735,7 @@ class AppStrings {
       's4.dynamic.op_doctor_workspace.summary_cc': "CC: {text}",
       's4.dynamic.op_doctor_workspace.summary_dx': "Dx: {text}",
       's4.dynamic.op_doctor_workspace.summary_plan': "योजना: {text}",
+      's4.dynamic.op_doctor_workspace.named_owner': "स्वामी: {owner}",
       's4.dynamic.op_doctor_workspace.visit_closed_status':
           "यह OP विजिट {status} है; नए दस्तावेज़ीकरण के लिए नया अपॉइंटमेंट बनाएं।",
       's4.dynamic.op_doctor_workspace.workspace_title':
@@ -13418,6 +13832,16 @@ class AppStrings {
           "खुले कार्य और रेफरल",
       's4.lib.patient_command_board.no_open_tasks': "कोई खुला कार्य नहीं।",
       's4.lib.patient_command_board.task': "कार्य",
+      's4.lib.patient_command_board.blocking_pathway_task': "अवरोधक कार्य",
+      's4.lib.patient_command_board.named_owner_not_recorded':
+          "नामित स्वामी दर्ज नहीं है",
+      's4.lib.patient_command_board.nonblocking_pathway_task':
+          "गैर-अवरोधक कार्य",
+      's4.dynamic.patient_command_board.task_owner': "स्वामी: {owner}",
+      's4.dynamic.patient_command_board.task_relationship':
+          "संबंध: {relationship}",
+      's4.dynamic.patient_command_board.task_blocking_state':
+          "अवरोध स्थिति: {state}",
       's4.lib.patient_command_board.patient': "रोगी",
       's4.lib.patient_command_board.clinical_details_hidden':
           "इस भूमिका के लिए क्लिनिकल विवरण छिपाए गए हैं",
@@ -15261,6 +15685,52 @@ class AppStrings {
       'clinical_inbox.sla.due_now': 'இப்போது நிலுவை',
       'clinical_inbox.sla.due_minutes': '{minutes} நிமி',
       'clinical_inbox.sla.due_hours': '{hours}ம {minutes}நி',
+      // REVIEW: ta AI first-pass S4 OP-to-IP transfer copy.
+      'clinical_inbox.transfer_accept_requires_connection':
+          'உள்நோயாளர் மாற்றத்தை ஏற்க இணைய இணைப்பு தேவை.',
+      'clinical_inbox.transfer_binding_unavailable':
+          'இந்த மாற்றப் பணியில் சரியான அப்பாயிண்ட்மெண்ட் அல்லது ஒப்படைப்பு இணைப்பு இல்லை.',
+      'clinical_inbox.transfer_accepted_title': 'மாற்றம் ஏற்கப்பட்டது',
+      'clinical_inbox.transfer_admission_source_explanation':
+          'முறையான சேர்க்கையை உருவாக்கும்போது இந்த ஏற்கப்பட்ட மூல விவரங்களை ஒன்றாகப் பயன்படுத்தவும்.',
+      'clinical_inbox.transfer_source_appointment': 'மூல அப்பாயிண்ட்மெண்ட்',
+      'clinical_inbox.transfer_source_pathway': 'மூல பாதை',
+      'clinical_inbox.transfer_source_handoff': 'மூல ஒப்படைப்பு',
+      'clinical_inbox.transfer_accepted_recipient': 'ஏற்றுக்கொண்ட பெறுநர்',
+      'clinical_inbox.accepting_transfer': 'மாற்றம் ஏற்கப்படுகிறது...',
+      'clinical_inbox.accept_inpatient_transfer':
+          'உள்நோயாளர் மாற்றத்தை ஏற்கவும்',
+      'clinical_inbox.cross_sign.review': 'டிஸ்சார்ஜ் முடிவை மதிப்பாய்வு செய்',
+      'clinical_inbox.cross_sign.title':
+          'டிஸ்சார்ஜுக்குப் பிந்தைய முடிவில் இணைக் கையொப்பம்',
+      'clinical_inbox.cross_sign.generation_id': 'சரியான தலைமுறை ID',
+      'clinical_inbox.cross_sign.generation_hash': 'சரியான தலைமுறை SHA-256',
+      'clinical_inbox.cross_sign.authoritative_action':
+          'அதிகாரப்பூர்வ நோயறிதல் நடவடிக்கை ID',
+      'clinical_inbox.cross_sign.action_kind': 'அதிகாரப்பூர்வ நடவடிக்கை வகை',
+      'clinical_inbox.cross_sign.prior_disposition':
+          'அதிகாரப்பூர்வ மருத்துவர் முடிவு',
+      'clinical_inbox.cross_sign.action_recorded_at':
+          'நடவடிக்கை பதிவு செய்யப்பட்ட நேரம்',
+      'clinical_inbox.cross_sign.attestation':
+          'மேலே காட்டப்பட்டுள்ள இதே கையொப்பமிட்ட தலைமுறையையும் அதிகாரப்பூர்வ நோயறிதல் முடிவையும் நான் மதிப்பாய்வு செய்தேன் என உறுதிப்படுத்துகிறேன்.',
+      'clinical_inbox.cross_sign.submit': 'மதிப்பாய்வில் இணைக் கையொப்பமிடு',
+      'clinical_inbox.cross_sign.recording': 'கையொப்பமிடுகிறது...',
+      'clinical_inbox.cross_sign.recorded':
+          'முடிவு மதிப்பாய்வில் இணைக் கையொப்பமிடப்பட்டது',
+      'clinical_inbox.cross_sign.binding_refreshed':
+          'நீங்கள் மதிப்பாய்வு செய்தபோது முடிவு மாறியது. புதுப்பிக்கப்பட்ட ஆதாரத்தை மதிப்பாய்வு செய்து மீண்டும் உறுதிப்படுத்தவும்.',
+      'clinical_inbox.cross_sign.no_longer_actionable':
+          'இந்த முடிவுக்கு இனி உங்கள் நடவடிக்கை தேவையில்லை. சமீபத்திய சேவையக நிலை ஏற்றப்பட்டது.',
+      'clinical_inbox.cross_sign.failed':
+          'முடிவில் இணைக் கையொப்பமிட முடியவில்லை: {reason}',
+      'clinical_inbox.cross_sign.read_only':
+          'தீர்க்கப்பட்டது — நடவடிக்கை இல்லை',
+      'clinical_inbox.cross_sign.requires_connection':
+          'இந்த முடிவில் இணைக் கையொப்பமிட இணைய இணைப்பு தேவை.',
+      'clinical_inbox.cross_sign.open_result': 'அதிகாரப்பூர்வ முடிவைத் திற',
+      'clinical_inbox.cross_sign.owner_only':
+          'பார்வைக்கு மட்டும் — நியமிக்கப்பட்ட மருத்துவர் நடவடிக்கை',
       // REVIEW: ta AI first-pass drug chart batch — clinical wording
       'drug_chart.title': 'மருந்து அட்டவணை',
       'drug_chart.stop_title': 'மருந்தை நிறுத்து',
@@ -18803,19 +19273,77 @@ class AppStrings {
       's4.lib.discharge_hub.finish': "முடிக்கவும்",
       's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
           "இதை முடிப்பதற்கும் டிஸ்சார்ஜ் மருந்துகளை விநியோகிக்க வேண்டும்.",
+      's4.lib.discharge_hub.blocking_reasons': "தடுக்கும் காரணங்கள்",
+      's4.lib.discharge_hub.review_findings': "மதிப்பாய்வு கண்டறிதல்கள்",
+      's4.lib.discharge_hub.exact_lineage_confirmed':
+          "சரியான மூலம் உறுதிசெய்யப்பட்டது",
+      's4.lib.discharge_hub.exact_lineage_not_confirmed':
+          "சரியான மூலம் உறுதிசெய்யப்படவில்லை",
+      's4.lib.discharge_hub.handoff_accepted': "ஒப்படைப்பு முடிந்தது",
+      's4.lib.discharge_hub.handoff_incomplete': "ஒப்படைப்பு முழுமையில்லை",
       's4.lib.discharge_hub.hospital_team': "மருத்துவமனை குழு",
+      's4.lib.discharge_hub.included_in_signed_summary':
+          "கையொப்பமிட்ட சுருக்கத்தில் சேர்க்கப்பட்டது",
+      's4.lib.discharge_hub.named_physician_not_recorded':
+          "பெயரிடப்பட்ட மருத்துவர் பதிவு செய்யப்படவில்லை",
       's4.lib.discharge_hub.no_safety_flags': "பாதுகாப்புக் கொடிகள் இல்லை",
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.discharge_hub.work_item': "வேலை உருப்படி",
       's4.lib.discharge_hub.generate_ai_package': "AI தொகுப்பை உருவாக்கவும்",
       's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
           "இந்தச் சுருக்கத்தில் பாதுகாப்புக் கொடிகள் எதுவும் இணைக்கப்படவில்லை.",
+      's4.lib.discharge_hub.no_pending_result_handoffs':
+          "நிலுவை முடிவு ஒப்படைப்புகள் எதுவும் பதிவு செய்யப்படவில்லை.",
       's4.lib.discharge_hub.no_summary_draft':
           "இன்னும் டிஸ்சார்ஜ் சுருக்க வரைவு இல்லை",
       's4.lib.discharge_hub.not_initiated': "தொடங்கப்படவில்லை",
+      's4.lib.discharge_hub.not_in_signed_summary':
+          "கையொப்பமிட்ட சுருக்கத்தில் சேர்க்கப்படவில்லை",
       's4.lib.discharge_hub.open_summary_editor':
           "சுருக்கத் திருத்தியைத் திறக்கவும்",
       's4.lib.discharge_hub.pending_item': "நிலுவையிலுள்ள உருப்படி",
+      's4.lib.discharge_hub.pending_result': "நிலுவை முடிவு",
+      's4.lib.discharge_hub.pending_result_blocks_discharge':
+          "டிஸ்சார்ஜைத் தடுக்கிறது",
+      's4.lib.discharge_hub.pending_result_handed_off':
+          "ஒப்படைப்பு பதிவு செய்யப்பட்டது",
+      's4.lib.discharge_hub.pending_result_handoffs':
+          "நிலுவை முடிவு ஒப்படைப்புகள்",
+      's4.lib.discharge_hub.pending_result_handoffs_explanation':
+          "சரியான முடிவு, தற்போதைய நிலை, கையொப்பமிட்ட சுருக்கத்தில் வெளிப்படுத்தல் மற்றும் பெயரிடப்பட்ட மருத்துவர் பொறுப்பைச் சரிபார்க்கவும்.",
+      // REVIEW: ta AI first-pass S4 active discharge action copy.
+      's4.lib.discharge_hub.pathway_actions_require_connection':
+          "டிஸ்சார்ஜ் பாதை நடவடிக்கைகளுக்கு இணைய இணைப்பு தேவை.",
+      's4.lib.discharge_hub.named_owner_handoff_recorded':
+          "பெயரிடப்பட்ட பொறுப்பாளர் ஒப்படைப்பு பதிவு செய்யப்பட்டது.",
+      's4.lib.discharge_hub.pending_result_bound_to_summary':
+          "நிலுவை முடிவு கையொப்பமிட்ட சுருக்கத்தில் சேர்க்கப்பட்டது.",
+      's4.lib.discharge_hub.follow_up_exception_title':
+          "தணிக்கை செய்யப்பட்ட பின்தொடர்வு விதிவிலக்கு",
+      's4.lib.discharge_hub.follow_up_exception_reason':
+          "பின்தொடர்வு விதிவிலக்கிற்கான மருத்துவ காரணம்",
+      's4.lib.discharge_hub.follow_up_exception_reason_required':
+          "இந்த விதிவிலக்கிற்கான மருத்துவ காரணத்தை உள்ளிடவும்.",
+      's4.lib.discharge_hub.record_follow_up_exception':
+          "பின்தொடர்வு விதிவிலக்கைப் பதிவு செய்யவும்",
+      's4.lib.discharge_hub.follow_up_exception_recorded':
+          "தணிக்கை செய்யப்பட்ட பின்தொடர்வு விதிவிலக்கு பதிவு செய்யப்பட்டது.",
+      's4.lib.discharge_hub.pending_result_action_explanation':
+          "தற்போதைய முதன்மை மருத்துவரை சேவையகம் கண்டறிந்து அங்கீகரிக்கிறது.",
+      's4.lib.discharge_hub.exact_reference_required':
+          "சரியான முடிவு குறிப்பு தேவை",
+      's4.lib.discharge_hub.record_named_owner_handoff':
+          "பெயரிடப்பட்ட பொறுப்பாளர் ஒப்படைப்பைப் பதிவு செய்யவும்",
+      's4.lib.discharge_hub.signed_summary_required':
+          "கையொப்பமிட்ட சுருக்கம் தேவை",
+      's4.lib.discharge_hub.include_in_signed_summary':
+          "கையொப்பமிட்ட சுருக்கத்தில் சேர்க்கவும்",
+      's4.lib.discharge_hub.pathway_mode_off_explanation':
+          "பாதை தானியக்கம் முடக்கப்பட்டுள்ளது. இந்தப் பகுதி தகவலுக்காக மட்டுமே; முந்தைய டிஸ்சார்ஜ் நடைமுறை மாறாது.",
+      's4.lib.discharge_hub.pathway_mode_shadow_explanation':
+          "நிழல் மதிப்பாய்வு மட்டும். இங்கே காட்டப்படும் கண்டறிதல்கள் டிஸ்சார்ஜைத் தடுக்காது அல்லது தானியக்கப் பணியைத் தொடங்காது.",
+      's4.lib.discharge_hub.pending_result_would_block_in_active_mode':
+          "செயலில் உள்ள முறையில் தடுக்கும்",
       's4.lib.discharge_hub.ready_for_final_discharge':
           "இறுதி டிஸ்சார்ஜுக்கு தயாராக உள்ளது",
       's4.lib.discharge_hub.role_work_items': "பங்கு வேலை உருப்படிகள்",
@@ -18826,6 +19354,8 @@ class AppStrings {
           "இந்த வெளியேற்றச் சுருக்கத்திற்கு இன்னும் மருத்துவர் கையொப்பமிட வேண்டும்.",
       's4.lib.discharge_hub.view_signed_summary':
           "கையொப்பமிடப்பட்ட சுருக்கத்தைப் பார்க்கவும்",
+      's4.dynamic.discharge_hub.named_physician':
+          "பெயரிடப்பட்ட மருத்துவர்: {owner}",
       's4.lib.discharge_hub_list.blocked': "தடுக்கப்பட்டது",
       's4.lib.discharge_hub_list.doctor_sign_pending':
           "மருத்துவர் கையொப்பம் நிலுவையில் உள்ளது",
@@ -18869,6 +19399,10 @@ class AppStrings {
       's4.lib.discharge_summary.unknown_item': "தெரியவில்லை",
       's4.lib.discharge_summary.test_fallback': "பரிசோதனை",
       's4.lib.discharge_summary.pending_result': "நிலுவை",
+      's4.lib.discharge_summary.pending_result_review':
+          "நிலுவை முடிவு மதிப்பாய்வு",
+      's4.lib.discharge_summary.pending_result_review_explanation':
+          "கையொப்பமிடும் முன் ஒவ்வொரு நிலுவை முடிவும் வெளிப்படுத்தப்பட்டு, ஏற்கப்பட்ட பெயரிடப்பட்ட உரிமையாளர் இருப்பதை உறுதிசெய்யவும்.",
       's4.lib.discharge_summary.procedure_fallback': "செயல்முறை",
       's4.lib.discharge_summary.ai_generated_review_required':
           "AI உருவாக்கிய வரைவு - மருத்துவர் மதிப்பாய்வு தேவை",
@@ -18968,6 +19502,10 @@ class AppStrings {
           "முன் அலுவலக சுருக்கம் மட்டும்",
       's4.lib.front_office_workbench.ip_admission_created':
           "IP சேர்க்கை உருவாக்கப்பட்டது",
+      's4.lib.front_office_workbench.accepted_transfer_doctor_must_match':
+          "The admitting doctor must be the physician who accepted this inpatient transfer.",
+      's4.dynamic.front_office_workbench.accepted_transfer_source':
+          "Accepted OP-to-inpatient transfer. Select the accepting physician ({uid}) as admitting doctor.",
       's4.lib.front_office_workbench.needs_bed_deposit_consent':
           "படுக்கை, வைப்பு, ஒப்புதல் தேவை",
       's4.lib.front_office_workbench.no_active_admissions':
@@ -19568,6 +20106,87 @@ class AppStrings {
       's4.lib.op_doctor_workspace.complete': "முடிக்கவும்",
       's4.lib.op_doctor_workspace.complete_consultation':
           "கன்சல்டேஷனை முடிக்கவும்",
+      's4.lib.op_doctor_workspace.completion_blocked_by_pathway_work':
+          "இந்த ஆலோசனையை மூடும் முன் தடுக்கும் வருகைப் பணியை முடிக்கவும் அல்லது மாற்றவும்.",
+      's4.lib.op_doctor_workspace.completion_requires_connection':
+          "வருகைப் பணியை மீண்டும் சரிபார்த்து ஆலோசனையை முடிக்க இணைய இணைப்பு தேவை.",
+      's4.lib.op_doctor_workspace.pathway_actions_require_connection':
+          "A connection is required for active pathway actions.",
+      's4.lib.op_doctor_workspace.closure_evidence_recorded':
+          "Visit closure evidence recorded.",
+      's4.lib.op_doctor_workspace.no_active_inpatient_recipients':
+          "No active inpatient physician recipients are available.",
+      's4.lib.op_doctor_workspace.active_pathway_actions':
+          "Active pathway actions",
+      's4.lib.op_doctor_workspace.active_pathway_actions_explanation':
+          "Only the current pathway owner or exact accepted clinician can record these actions.",
+      's4.lib.op_doctor_workspace.record_closure_evidence':
+          "Record closure evidence",
+      's4.lib.op_doctor_workspace.revise_closure_evidence':
+          "Revise closure evidence",
+      's4.lib.op_doctor_workspace.request_inpatient_transfer':
+          "Request inpatient transfer",
+      's4.dynamic.op_doctor_workspace.transfer_requested':
+          "Inpatient transfer request sent ({handoffId}).",
+      's4.dynamic.op_doctor_workspace.closure_evidence_summary':
+          "Closure basis: {basis} · revision {revision}",
+      's4.dynamic.discharge_hub.follow_up_exception_reason':
+          "Follow-up exception recorded: {reason}",
+      's4.dynamic.op_doctor_workspace.follow_up_plan': "Follow-up plan #{id}",
+      's4.dynamic.op_doctor_workspace.next_step': "Next step {number}",
+      // REVIEW: ta AI first-pass S4 active OP pathway action copy.
+      's4.lib.op_doctor_workspace.transfer_current_owner_explanation':
+          "அனுப்புநர் தற்போதைய OP பாதை உரிமையாளராக இருக்க வேண்டும். பெறுநர் மருத்துவ இன்பாக்ஸில் வெளிப்படையாக ஏற்க வேண்டும்.",
+      's4.lib.op_doctor_workspace.inpatient_recipient':
+          "பெறும் உள்நோயாளர் மருத்துவர்",
+      's4.lib.op_doctor_workspace.inpatient_recipient_required':
+          "பெறும் உள்நோயாளர் மருத்துவரைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.op_doctor_workspace.transfer_reason': "மாற்றத்திற்கான காரணம்",
+      's4.lib.op_doctor_workspace.transfer_reason_required':
+          "உள்நோயாளர் மாற்றத்திற்கான மருத்துவ காரணத்தை உள்ளிடவும்.",
+      's4.lib.op_doctor_workspace.send_transfer_request':
+          "மாற்றக் கோரிக்கையை அனுப்பவும்",
+      's4.lib.op_doctor_workspace.closure_evidence_title':
+          "வருகை முடிப்பு சான்று",
+      's4.lib.op_doctor_workspace.closure_current_owner_explanation':
+          "தற்போதைய பாதை உரிமையாளர் அல்லது சரியாக ஏற்கப்பட்ட மருத்துவராக நோயாளர்-பாதுகாப்பான முடிப்பு சான்றைப் பதிவு செய்யவும்.",
+      's4.lib.op_doctor_workspace.closure_basis': "முடிப்பிற்கான அடிப்படை",
+      's4.lib.op_doctor_workspace.closure_basis_completed':
+          "தேவையான அனைத்து பணிகளும் முடிந்தன",
+      's4.lib.op_doctor_workspace.closure_basis_named_owner':
+          "பெயரிடப்பட்ட பொறுப்பு ஏற்கப்பட்டது",
+      's4.lib.op_doctor_workspace.closure_basis_transfer': "ஏற்கப்பட்ட மாற்றம்",
+      's4.lib.op_doctor_workspace.accepted_handoff_id':
+          "ஏற்கப்பட்ட ஒப்படைப்பு ID",
+      's4.lib.op_doctor_workspace.accepted_handoff_helper':
+          "இந்த பாதைக்காகப் பதிவு செய்யப்பட்ட சரியான ஏற்கப்பட்ட ஒப்படைப்பைப் பயன்படுத்தவும்.",
+      's4.lib.op_doctor_workspace.accepted_handoff_required':
+          "சரியான ஏற்கப்பட்ட ஒப்படைப்பு ID-ஐ உள்ளிடவும்.",
+      's4.lib.op_doctor_workspace.follow_up_required': "பின்தொடர்வு தேவை",
+      's4.lib.op_doctor_workspace.follow_up_link_explanation':
+          "தேவையான பின்தொடர்வு இந்த அப்பாயிண்ட்மெண்டில் உள்ள திறந்த அல்லது திட்டமிடப்பட்ட திட்டத்துடன் இணைக்கப்பட வேண்டும்.",
+      's4.lib.op_doctor_workspace.follow_up_plan_link':
+          "பின்தொடர்வு திட்ட இணைப்பு",
+      's4.lib.op_doctor_workspace.no_follow_up_plan_available':
+          "இந்த வருகைக்கு தகுதியான பின்தொடர்வு திட்டம் எதுவும் இல்லை.",
+      's4.lib.op_doctor_workspace.follow_up_plan_required':
+          "தகுதியான பின்தொடர்வு திட்டத்தைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.op_doctor_workspace.patient_safe_next_steps':
+          "நோயாளர்-பாதுகாப்பான அடுத்த படிகள்",
+      's4.lib.op_doctor_workspace.add_next_step': "அடுத்த படியைச் சேர்க்கவும்",
+      's4.lib.op_doctor_workspace.remove_next_step': "அடுத்த படியை நீக்கவும்",
+      's4.lib.op_doctor_workspace.next_step_label': "நோயாளர்-பாதுகாப்பான படி",
+      's4.lib.op_doctor_workspace.next_step_label_required':
+          "நோயாளர்-பாதுகாப்பான அடுத்த படியை உள்ளிடவும்.",
+      's4.lib.op_doctor_workspace.patient_safe_explanation':
+          "நோயாளர்-பாதுகாப்பான விளக்கம்",
+      's4.lib.op_doctor_workspace.patient_action': "நோயாளர் நடவடிக்கை",
+      's4.lib.op_doctor_workspace.due_date_optional':
+          "முடிக்க வேண்டிய தேதி (விருப்பம்)",
+      's4.lib.op_doctor_workspace.due_date_format': "YYYY-MM-DD",
+      's4.lib.op_doctor_workspace.due_date_invalid':
+          "YYYY-MM-DD வடிவத்தில் சரியான தேதியை உள்ளிடவும்.",
+      's4.lib.op_doctor_workspace.next_step_status': "படியின் நிலை",
       's4.lib.op_doctor_workspace.consultation_actions':
           "கன்சல்டேஷன் நடவடிக்கைகள்",
       's4.lib.op_doctor_workspace.consultation_cockpit': "கன்சல்டேஷன் காக்பிட்",
@@ -19617,8 +20236,14 @@ class AppStrings {
           "முக்கிய புகார் அல்லது வருகை காரணம்",
       's4.lib.op_doctor_workspace.medication_nursing_investigation_orders':
           "மருந்து, நர்சிங் அல்லது ஆய்வு ஆர்டர்கள்",
+      's4.lib.op_doctor_workspace.blocking_pathway_work': "தடுக்கும்",
+      's4.lib.op_doctor_workspace.named_owner_not_recorded':
+          "பெயரிடப்பட்ட உரிமையாளர் பதிவு செய்யப்படவில்லை",
+      's4.lib.op_doctor_workspace.nonblocking_pathway_work': "தடுக்காத",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
           "இன்னும் மருத்துவ காலவரிசை உள்ளீடுகள் இல்லை",
+      's4.lib.op_doctor_workspace.no_unresolved_pathway_work':
+          "இந்த வருகைக்கு தீர்க்கப்படாத துணைப் பணி எதுவும் பதிவு செய்யப்படவில்லை.",
       's4.lib.op_doctor_workspace.note_saved': "குறிப்பு சேமிக்கப்பட்டது",
       's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports':
           "குறிப்புகள், மருந்து சார்ட், ஆர்டர்கள், வைட்டல்கள் மற்றும் அறிக்கைகள்",
@@ -19642,6 +20267,16 @@ class AppStrings {
       's4.lib.op_doctor_workspace.plan': "திட்டம்",
       's4.lib.op_doctor_workspace.plan_hint':
           "மருந்துகள், ஆய்வுகள், ஆலோசனை, பின்தொடர்பு",
+      's4.lib.op_doctor_workspace.pathway_work_explanation':
+          "வருகையை முடிப்பது பாதையை மூடாது. தடுக்கும் பணி முடிக்கப்பட வேண்டும் அல்லது பெயரிடப்பட்ட உரிமையாளர் ஏற்றுக்கொள்ள வேண்டும்.",
+      's4.lib.op_doctor_workspace.pathway_mode_off_explanation':
+          "பாதை தானியக்கம் முடக்கப்பட்டுள்ளது. இந்தப் பலகம் தகவலுக்காக மட்டுமே; வருகை நிறைவு செய்யும் முந்தைய நடைமுறை மாறாது.",
+      's4.lib.op_doctor_workspace.pathway_mode_shadow_explanation':
+          "நிழல் மதிப்பாய்வு மட்டும். இங்கே காட்டப்படும் கண்டறிதல்கள் நிறைவைத் தடுக்காது அல்லது தானியக்கப் பணியைத் தொடங்காது.",
+      's4.lib.op_doctor_workspace.would_block_in_active_mode':
+          "செயலில் உள்ள முறையில் தடுக்கும்",
+      's4.lib.op_doctor_workspace.pathway_work_unavailable':
+          "வருகைப் பணியைப் புதுப்பிக்க முடியவில்லை. முடிக்கும்போது அது இணையத்தில் மீண்டும் சரிபார்க்கப்படும்.",
       's4.lib.op_doctor_workspace.prescription': "பிரிஸ்கிரிப்ஷன்",
       's4.lib.op_doctor_workspace.prescription_entered_for_visit':
           "இந்த OP வருகைக்கு பிரிஸ்கிரிப்ஷன் உள்ளிடப்பட்டது",
@@ -19667,6 +20302,8 @@ class AppStrings {
           "கையொப்பமிடப்பட்டு பூட்டப்பட்டது",
       's4.lib.op_doctor_workspace.status': "நிலை",
       's4.lib.op_doctor_workspace.timeline_ready': "காலவரிசை தயார்",
+      's4.lib.op_doctor_workspace.unresolved_pathway_work':
+          "தீர்க்கப்படாத வருகைப் பணி",
       's4.lib.op_doctor_workspace.visit_complete': "வருகை முடிந்தது",
       's4.lib.op_doctor_workspace.visit_not_today':
           "இந்த OP வருகை இன்றைய தேதியில் இல்லை; புதிய ஆவணங்களுக்கு புதிய அப்பாயிண்ட்மெண்ட் உருவாக்கவும்.",
@@ -19687,6 +20324,7 @@ class AppStrings {
       's4.dynamic.op_doctor_workspace.summary_cc': "CC: {text}",
       's4.dynamic.op_doctor_workspace.summary_dx': "Dx: {text}",
       's4.dynamic.op_doctor_workspace.summary_plan': "திட்டம்: {text}",
+      's4.dynamic.op_doctor_workspace.named_owner': "உரிமையாளர்: {owner}",
       's4.dynamic.op_doctor_workspace.visit_closed_status':
           "இந்த OP வருகை {status}; புதிய ஆவணங்களுக்கு புதிய அப்பாயிண்ட்மெண்ட் உருவாக்கவும்.",
       's4.dynamic.op_doctor_workspace.workspace_title':
@@ -19792,6 +20430,15 @@ class AppStrings {
           "திறந்த பணிகள் மற்றும் பரிந்துரைகள்",
       's4.lib.patient_command_board.no_open_tasks': "திறந்த பணிகள் இல்லை.",
       's4.lib.patient_command_board.task': "பணி",
+      's4.lib.patient_command_board.blocking_pathway_task': "தடுக்கும் பணி",
+      's4.lib.patient_command_board.named_owner_not_recorded':
+          "பெயரிடப்பட்ட உரிமையாளர் பதிவு செய்யப்படவில்லை",
+      's4.lib.patient_command_board.nonblocking_pathway_task': "தடுக்காத பணி",
+      's4.dynamic.patient_command_board.task_owner': "உரிமையாளர்: {owner}",
+      's4.dynamic.patient_command_board.task_relationship':
+          "உறவு: {relationship}",
+      's4.dynamic.patient_command_board.task_blocking_state':
+          "தடுப்பு நிலை: {state}",
       's4.lib.patient_command_board.patient': "நோயாளி",
       's4.lib.patient_command_board.clinical_details_hidden':
           "இந்தப் பங்கிற்கு மருத்துவ விவரங்கள் மறைக்கப்பட்டுள்ளன",
@@ -21705,6 +22352,49 @@ class AppStrings {
       'clinical_inbox.sla.due_now': 'ఇప్పుడే గడువు',
       'clinical_inbox.sla.due_minutes': '{minutes} నిమి',
       'clinical_inbox.sla.due_hours': '{hours}గం {minutes}ని',
+      // REVIEW: te AI first-pass S4 OP-to-IP transfer copy.
+      'clinical_inbox.transfer_accept_requires_connection':
+          'ఇన్‌పేషెంట్ బదిలీని అంగీకరించడానికి కనెక్షన్ అవసరం.',
+      'clinical_inbox.transfer_binding_unavailable':
+          'ఈ బదిలీ పనిలో ఖచ్చితమైన అపాయింట్‌మెంట్ లేదా హ్యాండాఫ్ లింక్ లేదు.',
+      'clinical_inbox.transfer_accepted_title': 'బదిలీ అంగీకరించబడింది',
+      'clinical_inbox.transfer_admission_source_explanation':
+          'ప్రామాణిక అడ్మిషన్‌ను సృష్టించేటప్పుడు ఈ అంగీకరించిన మూల వివరాలను కలిపి ఉపయోగించండి.',
+      'clinical_inbox.transfer_source_appointment': 'మూల అపాయింట్‌మెంట్',
+      'clinical_inbox.transfer_source_pathway': 'మూల పాత్‌వే',
+      'clinical_inbox.transfer_source_handoff': 'మూల హ్యాండాఫ్',
+      'clinical_inbox.transfer_accepted_recipient': 'అంగీకరించిన గ్రహీత',
+      'clinical_inbox.accepting_transfer': 'బదిలీని అంగీకరిస్తోంది...',
+      'clinical_inbox.accept_inpatient_transfer':
+          'ఇన్‌పేషెంట్ బదిలీని అంగీకరించండి',
+      'clinical_inbox.cross_sign.review': 'డిశ్చార్జ్ ఫలితాన్ని సమీక్షించండి',
+      'clinical_inbox.cross_sign.title': 'డిశ్చార్జ్ అనంతర ఫలితంపై సహ సంతకం',
+      'clinical_inbox.cross_sign.generation_id': 'ఖచ్చితమైన జనరేషన్ ID',
+      'clinical_inbox.cross_sign.generation_hash': 'ఖచ్చితమైన జనరేషన్ SHA-256',
+      'clinical_inbox.cross_sign.authoritative_action':
+          'అధికారిక డయాగ్నస్టిక్ చర్య ID',
+      'clinical_inbox.cross_sign.action_kind': 'అధికారిక చర్య రకం',
+      'clinical_inbox.cross_sign.prior_disposition':
+          'అధికారిక వైద్యుని నిర్ణయం',
+      'clinical_inbox.cross_sign.action_recorded_at': 'చర్య నమోదు చేసిన సమయం',
+      'clinical_inbox.cross_sign.attestation':
+          'పైన చూపిన ఇదే సంతకం చేసిన జనరేషన్‌ను మరియు అధికారిక డయాగ్నస్టిక్ నిర్ణయాన్ని నేను సమీక్షించానని ధృవీకరిస్తున్నాను.',
+      'clinical_inbox.cross_sign.submit': 'సమీక్షపై సహ సంతకం చేయండి',
+      'clinical_inbox.cross_sign.recording': 'సంతకం చేస్తోంది...',
+      'clinical_inbox.cross_sign.recorded': 'ఫలిత సమీక్షపై సహ సంతకం చేయబడింది',
+      'clinical_inbox.cross_sign.binding_refreshed':
+          'మీరు సమీక్షిస్తున్నప్పుడు ఫలితం మారింది. తాజా ఆధారాన్ని సమీక్షించి మళ్లీ ధృవీకరించండి.',
+      'clinical_inbox.cross_sign.no_longer_actionable':
+          'ఈ ఫలితంపై ఇక మీ చర్య అవసరం లేదు. తాజా సర్వర్ స్థితి లోడ్ అయింది.',
+      'clinical_inbox.cross_sign.failed':
+          'ఫలితంపై సహ సంతకం చేయలేకపోయాం: {reason}',
+      'clinical_inbox.cross_sign.read_only':
+          'పరిష్కరించబడింది — చర్య అందుబాటులో లేదు',
+      'clinical_inbox.cross_sign.requires_connection':
+          'ఈ ఫలితంపై సహ సంతకం చేయడానికి కనెక్షన్ అవసరం.',
+      'clinical_inbox.cross_sign.open_result': 'అధికారిక ఫలితాన్ని తెరవండి',
+      'clinical_inbox.cross_sign.owner_only':
+          'చదవడానికి మాత్రమే — నియమిత వైద్యుని చర్య',
       // REVIEW: te AI first-pass drug chart batch — clinical wording
       'drug_chart.title': 'డ్రగ్ చార్ట్',
       'drug_chart.stop_title': 'మందు ఆపండి',
@@ -25191,18 +25881,76 @@ class AppStrings {
       's4.lib.discharge_hub.finish': "ముగించు",
       's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
           "దీన్ని పూర్తి చేయడానికి కూడా డిశ్చార్జి మందులు పంపిణీ చేయాలి.",
+      's4.lib.discharge_hub.blocking_reasons': "నిరోధించే కారణాలు",
+      's4.lib.discharge_hub.review_findings': "సమీక్ష అంశాలు",
+      's4.lib.discharge_hub.exact_lineage_confirmed':
+          "ఖచ్చితమైన మూలం నిర్ధారించబడింది",
+      's4.lib.discharge_hub.exact_lineage_not_confirmed':
+          "ఖచ్చితమైన మూలం నిర్ధారించబడలేదు",
+      's4.lib.discharge_hub.handoff_accepted': "అప్పగింత పూర్తయింది",
+      's4.lib.discharge_hub.handoff_incomplete': "అప్పగింత అసంపూర్ణం",
       's4.lib.discharge_hub.hospital_team': "ఆసుపత్రి బృందం",
+      's4.lib.discharge_hub.included_in_signed_summary':
+          "సంతకం చేసిన సారాంశంలో చేర్చబడింది",
+      's4.lib.discharge_hub.named_physician_not_recorded':
+          "పేరు గల వైద్యుడు నమోదు కాలేదు",
       's4.lib.discharge_hub.no_safety_flags': "భద్రతా జెండాలు లేవు",
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.discharge_hub.work_item': "పని అంశం",
       's4.lib.discharge_hub.generate_ai_package': "AI ప్యాకేజీని రూపొందించండి",
       's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
           "ఈ సారాంశానికి ఎటువంటి భద్రతా జెండాలు జోడించబడలేదు.",
+      's4.lib.discharge_hub.no_pending_result_handoffs':
+          "పెండింగ్ ఫలితాల అప్పగింతలు నమోదు కాలేదు.",
       's4.lib.discharge_hub.no_summary_draft':
           "ఇంకా డిశ్చార్జ్ సారాంశ డ్రాఫ్ట్ లేదు",
       's4.lib.discharge_hub.not_initiated': "ప్రారంభించబడలేదు",
+      's4.lib.discharge_hub.not_in_signed_summary':
+          "సంతకం చేసిన సారాంశంలో చేర్చబడలేదు",
       's4.lib.discharge_hub.open_summary_editor': "సారాంశ ఎడిటర్‌ను తెరవండి",
       's4.lib.discharge_hub.pending_item': "పెండింగ్ అంశం",
+      's4.lib.discharge_hub.pending_result': "పెండింగ్ ఫలితం",
+      's4.lib.discharge_hub.pending_result_blocks_discharge':
+          "డిశ్చార్జ్‌ను నిరోధిస్తుంది",
+      's4.lib.discharge_hub.pending_result_handed_off':
+          "అప్పగింత నమోదు చేయబడింది",
+      's4.lib.discharge_hub.pending_result_handoffs':
+          "పెండింగ్ ఫలితాల అప్పగింతలు",
+      's4.lib.discharge_hub.pending_result_handoffs_explanation':
+          "ఖచ్చితమైన ఫలితం, ప్రస్తుత స్థితి, సంతకం చేసిన సారాంశంలో వెల్లడింపు మరియు పేరు గల వైద్యుడి బాధ్యతను సమీక్షించండి.",
+      // REVIEW: te AI first-pass S4 active discharge action copy.
+      's4.lib.discharge_hub.pathway_actions_require_connection':
+          "డిశ్చార్జ్ పాత్‌వే చర్యలకు కనెక్షన్ అవసరం.",
+      's4.lib.discharge_hub.named_owner_handoff_recorded':
+          "పేర్కొన్న బాధ్యతగల వైద్యుడి హ్యాండాఫ్ నమోదు చేయబడింది.",
+      's4.lib.discharge_hub.pending_result_bound_to_summary':
+          "పెండింగ్ ఫలితం సంతకం చేసిన సారాంశంలో చేర్చబడింది.",
+      's4.lib.discharge_hub.follow_up_exception_title':
+          "ఆడిట్ చేసిన ఫాలో-అప్ మినహాయింపు",
+      's4.lib.discharge_hub.follow_up_exception_reason':
+          "ఫాలో-అప్ మినహాయింపుకు క్లినికల్ కారణం",
+      's4.lib.discharge_hub.follow_up_exception_reason_required':
+          "ఈ మినహాయింపుకు క్లినికల్ కారణాన్ని నమోదు చేయండి.",
+      's4.lib.discharge_hub.record_follow_up_exception':
+          "ఫాలో-అప్ మినహాయింపును నమోదు చేయండి",
+      's4.lib.discharge_hub.follow_up_exception_recorded':
+          "ఆడిట్ చేసిన ఫాలో-అప్ మినహాయింపు నమోదు చేయబడింది.",
+      's4.lib.discharge_hub.pending_result_action_explanation':
+          "ప్రస్తుత ప్రాథమిక వైద్యుడిని సర్వర్ గుర్తించి అనుమతిస్తుంది.",
+      's4.lib.discharge_hub.exact_reference_required':
+          "ఖచ్చితమైన ఫలిత సూచన అవసరం",
+      's4.lib.discharge_hub.record_named_owner_handoff':
+          "పేర్కొన్న బాధ్యతగల వైద్యుడి హ్యాండాఫ్‌ను నమోదు చేయండి",
+      's4.lib.discharge_hub.signed_summary_required':
+          "సంతకం చేసిన సారాంశం అవసరం",
+      's4.lib.discharge_hub.include_in_signed_summary':
+          "సంతకం చేసిన సారాంశంలో చేర్చండి",
+      's4.lib.discharge_hub.pathway_mode_off_explanation':
+          "పాత్‌వే ఆటోమేషన్ ఆఫ్‌లో ఉంది. ఈ విభాగం సమాచారం కోసం మాత్రమే; పాత డిశ్చార్జ్ విధానం మారదు.",
+      's4.lib.discharge_hub.pathway_mode_shadow_explanation':
+          "షాడో సమీక్ష మాత్రమే. ఇక్కడ చూపిన అంశాలు డిశ్చార్జ్‌ను నిరోధించవు లేదా ఆటోమేటెడ్ పనిని ప్రారంభించవు.",
+      's4.lib.discharge_hub.pending_result_would_block_in_active_mode':
+          "యాక్టివ్ మోడ్‌లో నిరోధిస్తుంది",
       's4.lib.discharge_hub.ready_for_final_discharge':
           "తుది డిశ్చార్జ్‌కు సిద్ధం",
       's4.lib.discharge_hub.role_work_items': "పాత్ర పని అంశాలు",
@@ -25213,6 +25961,7 @@ class AppStrings {
           "ఈ ఉత్సర్గ సారాంశానికి ఇప్పటికీ డాక్టర్ సైన్-ఆఫ్ అవసరం.",
       's4.lib.discharge_hub.view_signed_summary':
           "సంతకం చేసిన సారాంశాన్ని చూడండి",
+      's4.dynamic.discharge_hub.named_physician': "పేరు గల వైద్యుడు: {owner}",
       's4.lib.discharge_hub_list.blocked': "బ్లాక్ చేయబడింది",
       's4.lib.discharge_hub_list.doctor_sign_pending':
           "డాక్టర్ సంతకం పెండింగ్‌లో ఉంది",
@@ -25255,6 +26004,9 @@ class AppStrings {
       's4.lib.discharge_summary.unknown_item': "తెలియదు",
       's4.lib.discharge_summary.test_fallback': "పరీక్ష",
       's4.lib.discharge_summary.pending_result': "పెండింగ్",
+      's4.lib.discharge_summary.pending_result_review': "పెండింగ్ ఫలిత సమీక్ష",
+      's4.lib.discharge_summary.pending_result_review_explanation':
+          "సంతకం చేసే ముందు ప్రతి పెండింగ్ ఫలితం వెల్లడించబడిందని మరియు అంగీకరించిన పేరు గల యజమాని ఉన్నారని నిర్ధారించండి.",
       's4.lib.discharge_summary.procedure_fallback': "ప్రక్రియ",
       's4.lib.discharge_summary.ai_generated_review_required':
           "AI రూపొందించిన డ్రాఫ్ట్ - డాక్టర్ సమీక్ష అవసరం",
@@ -25352,6 +26104,10 @@ class AppStrings {
           "ఫ్రంట్-ఆఫీస్ సారాంశం మాత్రమే",
       's4.lib.front_office_workbench.ip_admission_created':
           "IP అడ్మిషన్ సృష్టించబడింది",
+      's4.lib.front_office_workbench.accepted_transfer_doctor_must_match':
+          "The admitting doctor must be the physician who accepted this inpatient transfer.",
+      's4.dynamic.front_office_workbench.accepted_transfer_source':
+          "Accepted OP-to-inpatient transfer. Select the accepting physician ({uid}) as admitting doctor.",
       's4.lib.front_office_workbench.needs_bed_deposit_consent':
           "బెడ్, డిపాజిట్, సమ్మతి అవసరం",
       's4.lib.front_office_workbench.no_active_admissions':
@@ -25943,6 +26699,86 @@ class AppStrings {
       's4.lib.op_doctor_workspace.complete': "పూర్తి చేయండి",
       's4.lib.op_doctor_workspace.complete_consultation':
           "కన్సల్టేషన్ పూర్తి చేయండి",
+      's4.lib.op_doctor_workspace.completion_blocked_by_pathway_work':
+          "ఈ కన్సల్టేషన్‌ను మూసే ముందు నిరోధించే సందర్శన పనిని పూర్తి చేయండి లేదా బదిలీ చేయండి.",
+      's4.lib.op_doctor_workspace.completion_requires_connection':
+          "సందర్శన పనిని మళ్లీ తనిఖీ చేసి కన్సల్టేషన్ పూర్తి చేయడానికి కనెక్షన్ అవసరం.",
+      's4.lib.op_doctor_workspace.pathway_actions_require_connection':
+          "A connection is required for active pathway actions.",
+      's4.lib.op_doctor_workspace.closure_evidence_recorded':
+          "Visit closure evidence recorded.",
+      's4.lib.op_doctor_workspace.no_active_inpatient_recipients':
+          "No active inpatient physician recipients are available.",
+      's4.lib.op_doctor_workspace.active_pathway_actions':
+          "Active pathway actions",
+      's4.lib.op_doctor_workspace.active_pathway_actions_explanation':
+          "Only the current pathway owner or exact accepted clinician can record these actions.",
+      's4.lib.op_doctor_workspace.record_closure_evidence':
+          "Record closure evidence",
+      's4.lib.op_doctor_workspace.revise_closure_evidence':
+          "Revise closure evidence",
+      's4.lib.op_doctor_workspace.request_inpatient_transfer':
+          "Request inpatient transfer",
+      's4.dynamic.op_doctor_workspace.transfer_requested':
+          "Inpatient transfer request sent ({handoffId}).",
+      's4.dynamic.op_doctor_workspace.closure_evidence_summary':
+          "Closure basis: {basis} · revision {revision}",
+      's4.dynamic.discharge_hub.follow_up_exception_reason':
+          "Follow-up exception recorded: {reason}",
+      's4.dynamic.op_doctor_workspace.follow_up_plan': "Follow-up plan #{id}",
+      's4.dynamic.op_doctor_workspace.next_step': "Next step {number}",
+      // REVIEW: te AI first-pass S4 active OP pathway action copy.
+      's4.lib.op_doctor_workspace.transfer_current_owner_explanation':
+          "పంపేవారు ప్రస్తుత OP పాత్‌వే యజమాని అయి ఉండాలి. గ్రహీత క్లినికల్ ఇన్‌బాక్స్‌లో స్పష్టంగా అంగీకరించాలి.",
+      's4.lib.op_doctor_workspace.inpatient_recipient':
+          "స్వీకరించే ఇన్‌పేషెంట్ వైద్యుడు",
+      's4.lib.op_doctor_workspace.inpatient_recipient_required':
+          "స్వీకరించే ఇన్‌పేషెంట్ వైద్యుడిని ఎంచుకోండి.",
+      's4.lib.op_doctor_workspace.transfer_reason': "బదిలీ కారణం",
+      's4.lib.op_doctor_workspace.transfer_reason_required':
+          "ఇన్‌పేషెంట్ బదిలీకి క్లినికల్ కారణాన్ని నమోదు చేయండి.",
+      's4.lib.op_doctor_workspace.send_transfer_request':
+          "బదిలీ అభ్యర్థనను పంపండి",
+      's4.lib.op_doctor_workspace.closure_evidence_title':
+          "విజిట్ ముగింపు సాక్ష్యం",
+      's4.lib.op_doctor_workspace.closure_current_owner_explanation':
+          "ప్రస్తుత పాత్‌వే యజమాని లేదా ఖచ్చితంగా అంగీకరించిన వైద్యుడిగా రోగి-సురక్షిత ముగింపు సాక్ష్యాన్ని నమోదు చేయండి.",
+      's4.lib.op_doctor_workspace.closure_basis': "ముగింపు ఆధారం",
+      's4.lib.op_doctor_workspace.closure_basis_completed':
+          "అవసరమైన అన్ని పనులు పూర్తయ్యాయి",
+      's4.lib.op_doctor_workspace.closure_basis_named_owner':
+          "పేర్కొన్న బాధ్యత అంగీకరించబడింది",
+      's4.lib.op_doctor_workspace.closure_basis_transfer': "అంగీకరించిన బదిలీ",
+      's4.lib.op_doctor_workspace.accepted_handoff_id':
+          "అంగీకరించిన హ్యాండాఫ్ ID",
+      's4.lib.op_doctor_workspace.accepted_handoff_helper':
+          "ఈ పాత్‌వే కోసం నమోదు చేసిన ఖచ్చితమైన అంగీకరించిన హ్యాండాఫ్‌ను ఉపయోగించండి.",
+      's4.lib.op_doctor_workspace.accepted_handoff_required':
+          "ఖచ్చితమైన అంగీకరించిన హ్యాండాఫ్ IDని నమోదు చేయండి.",
+      's4.lib.op_doctor_workspace.follow_up_required': "ఫాలో-అప్ అవసరం",
+      's4.lib.op_doctor_workspace.follow_up_link_explanation':
+          "అవసరమైన ఫాలో-అప్ ఈ అపాయింట్‌మెంట్‌లోని ఓపెన్ లేదా షెడ్యూల్ చేసిన ప్రణాళికకు లింక్ అయి ఉండాలి.",
+      's4.lib.op_doctor_workspace.follow_up_plan_link':
+          "ఫాలో-అప్ ప్రణాళిక లింక్",
+      's4.lib.op_doctor_workspace.no_follow_up_plan_available':
+          "ఈ విజిట్‌కు అర్హమైన ఫాలో-అప్ ప్రణాళిక ఏదీ లేదు.",
+      's4.lib.op_doctor_workspace.follow_up_plan_required':
+          "అర్హమైన ఫాలో-అప్ ప్రణాళికను ఎంచుకోండి.",
+      's4.lib.op_doctor_workspace.patient_safe_next_steps':
+          "రోగి-సురక్షిత తదుపరి దశలు",
+      's4.lib.op_doctor_workspace.add_next_step': "తదుపరి దశను జోడించండి",
+      's4.lib.op_doctor_workspace.remove_next_step': "తదుపరి దశను తొలగించండి",
+      's4.lib.op_doctor_workspace.next_step_label': "రోగి-సురక్షిత దశ",
+      's4.lib.op_doctor_workspace.next_step_label_required':
+          "రోగి-సురక్షిత తదుపరి దశను నమోదు చేయండి.",
+      's4.lib.op_doctor_workspace.patient_safe_explanation':
+          "రోగి-సురక్షిత వివరణ",
+      's4.lib.op_doctor_workspace.patient_action': "రోగి చర్య",
+      's4.lib.op_doctor_workspace.due_date_optional': "గడువు తేదీ (ఐచ్ఛికం)",
+      's4.lib.op_doctor_workspace.due_date_format': "YYYY-MM-DD",
+      's4.lib.op_doctor_workspace.due_date_invalid':
+          "YYYY-MM-DD ఆకృతిలో సరైన తేదీని నమోదు చేయండి.",
+      's4.lib.op_doctor_workspace.next_step_status': "దశ స్థితి",
       's4.lib.op_doctor_workspace.consultation_actions': "కన్సల్టేషన్ చర్యలు",
       's4.lib.op_doctor_workspace.consultation_cockpit':
           "కన్సల్టేషన్ కాక్‌పిట్",
@@ -25992,8 +26828,14 @@ class AppStrings {
           "ప్రధాన ఫిర్యాదు లేదా సందర్శన కారణం",
       's4.lib.op_doctor_workspace.medication_nursing_investigation_orders':
           "మందు, నర్సింగ్ లేదా పరిశోధన ఆర్డర్లు",
+      's4.lib.op_doctor_workspace.blocking_pathway_work': "నిరోధించే",
+      's4.lib.op_doctor_workspace.named_owner_not_recorded':
+          "పేరు గల యజమాని నమోదు కాలేదు",
+      's4.lib.op_doctor_workspace.nonblocking_pathway_work': "నిరోధించని",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
           "ఇంకా క్లినికల్ టైమ్‌లైన్ ఎంట్రీలు లేవు",
+      's4.lib.op_doctor_workspace.no_unresolved_pathway_work':
+          "ఈ సందర్శనకు పరిష్కరించని ఉపపని నమోదు కాలేదు.",
       's4.lib.op_doctor_workspace.note_saved': "నోట్ సేవ్ చేయబడింది",
       's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports':
           "నోట్లు, డ్రగ్ చార్ట్, ఆర్డర్లు, వైటల్స్ మరియు రిపోర్టులు",
@@ -26015,6 +26857,16 @@ class AppStrings {
       's4.lib.op_doctor_workspace.plan': "ప్రణాళిక",
       's4.lib.op_doctor_workspace.plan_hint':
           "మందులు, పరిశోధనలు, సలహా, ఫాలో-అప్",
+      's4.lib.op_doctor_workspace.pathway_work_explanation':
+          "సందర్శన పూర్తి చేయడం పాత్‌వేను మూసివేయదు. నిరోధించే పని పూర్తవ్వాలి లేదా పేరు గల యజమాని అంగీకరించాలి.",
+      's4.lib.op_doctor_workspace.pathway_mode_off_explanation':
+          "పాత్‌వే ఆటోమేషన్ ఆఫ్‌లో ఉంది. ఈ ప్యానెల్ సమాచారం కోసం మాత్రమే; సందర్శన పూర్తి చేసే పాత విధానం మారదు.",
+      's4.lib.op_doctor_workspace.pathway_mode_shadow_explanation':
+          "షాడో సమీక్ష మాత్రమే. ఇక్కడ చూపిన అంశాలు పూర్తి చేయడాన్ని నిరోధించవు లేదా ఆటోమేటెడ్ పనిని ప్రారంభించవు.",
+      's4.lib.op_doctor_workspace.would_block_in_active_mode':
+          "యాక్టివ్ మోడ్‌లో నిరోధిస్తుంది",
+      's4.lib.op_doctor_workspace.pathway_work_unavailable':
+          "సందర్శన పనిని రిఫ్రెష్ చేయలేకపోయాం. పూర్తి చేసే సమయంలో అది ఆన్లైన్‌లో మళ్లీ తనిఖీ చేయబడుతుంది.",
       's4.lib.op_doctor_workspace.prescription': "ప్రిస్క్రిప్షన్",
       's4.lib.op_doctor_workspace.prescription_entered_for_visit':
           "ఈ OP సందర్శనకు ప్రిస్క్రిప్షన్ నమోదు చేయబడింది",
@@ -26040,6 +26892,8 @@ class AppStrings {
           "సంతకం చేసి లాక్ చేయబడింది",
       's4.lib.op_doctor_workspace.status': "స్థితి",
       's4.lib.op_doctor_workspace.timeline_ready': "టైమ్‌లైన్ సిద్ధంగా ఉంది",
+      's4.lib.op_doctor_workspace.unresolved_pathway_work':
+          "పరిష్కరించని సందర్శన పని",
       's4.lib.op_doctor_workspace.visit_complete': "సందర్శన పూర్తయింది",
       's4.lib.op_doctor_workspace.visit_not_today':
           "ఈ OP సందర్శన ఈరోజు తేదీకి సంబంధించినది కాదు; కొత్త డాక్యుమెంటేషన్ కోసం కొత్త అపాయింట్‌మెంట్ సృష్టించండి.",
@@ -26060,6 +26914,7 @@ class AppStrings {
       's4.dynamic.op_doctor_workspace.summary_cc': "CC: {text}",
       's4.dynamic.op_doctor_workspace.summary_dx': "Dx: {text}",
       's4.dynamic.op_doctor_workspace.summary_plan': "ప్రణాళిక: {text}",
+      's4.dynamic.op_doctor_workspace.named_owner': "యజమాని: {owner}",
       's4.dynamic.op_doctor_workspace.visit_closed_status':
           "ఈ OP సందర్శన {status}; కొత్త డాక్యుమెంటేషన్ కోసం కొత్త అపాయింట్‌మెంట్ సృష్టించండి.",
       's4.dynamic.op_doctor_workspace.workspace_title':
@@ -26163,6 +27018,15 @@ class AppStrings {
           "తెరిచిన పనులు మరియు రిఫరల్స్",
       's4.lib.patient_command_board.no_open_tasks': "తెరిచిన పనులు లేవు.",
       's4.lib.patient_command_board.task': "పని",
+      's4.lib.patient_command_board.blocking_pathway_task': "నిరోధించే పని",
+      's4.lib.patient_command_board.named_owner_not_recorded':
+          "పేరు గల యజమాని నమోదు కాలేదు",
+      's4.lib.patient_command_board.nonblocking_pathway_task': "నిరోధించని పని",
+      's4.dynamic.patient_command_board.task_owner': "యజమాని: {owner}",
+      's4.dynamic.patient_command_board.task_relationship':
+          "సంబంధం: {relationship}",
+      's4.dynamic.patient_command_board.task_blocking_state':
+          "నిరోధించే స్థితి: {state}",
       's4.lib.patient_command_board.patient': "రోగి",
       's4.lib.patient_command_board.clinical_details_hidden':
           "ఈ పాత్రకు క్లినికల్ వివరాలు దాచబడ్డాయి",

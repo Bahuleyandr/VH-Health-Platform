@@ -11,11 +11,21 @@ import { jest } from '@jest/globals';
 const queryUnsafeMock = jest.fn();
 const transactionMock = jest.fn(async (cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
 const setTenantTxMock = jest.fn(async (tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
+const recordAppointmentCreatedEvidenceTxMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryUnsafeMock, $transaction: transactionMock },
+  circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
+  isTenantTransactionClient: () => true,
   setTenantTx: setTenantTxMock,
 }));
+
+jest.unstable_mockModule(
+  '../../services/appointment/appointmentLifecycleService.js',
+  () => ({
+    recordAppointmentCreatedEvidenceTx: recordAppointmentCreatedEvidenceTxMock,
+  }),
+);
 
 const {
   appendReviewLog,
@@ -24,6 +34,7 @@ const {
   createFollowUp,
   createGoal,
   getCarePlan,
+  getPatientWhatsNext,
   listActivities,
   listCarePlans,
   listFollowUps,
@@ -46,6 +57,8 @@ beforeEach(() => {
   transactionMock.mockClear();
   setTenantTxMock.mockReset();
   setTenantTxMock.mockImplementation(async (tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
+  recordAppointmentCreatedEvidenceTxMock.mockReset();
+  recordAppointmentCreatedEvidenceTxMock.mockResolvedValue({ recorded: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -161,6 +174,45 @@ describe('listCarePlans + getCarePlan', () => {
     await expect(getCarePlan({ tenantId: TENANT, id: 999 }))
       .rejects.toMatchObject({ statusCode: 404 });
   });
+});
+
+describe('getPatientWhatsNext', () => {
+  it('preserves live legacy cards and does not project closure snapshots', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, description: 'Visible goal' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 2, reason: 'Visible follow-up' }]);
+
+    const result = await getPatientWhatsNext({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+    });
+
+    expect(result.goals).toHaveLength(1);
+    expect(result.follow_ups).toHaveLength(1);
+    expect(result.next_steps).toEqual([]);
+    expect(result.count).toBe(2);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['COMPLETED', 'CANCELLED'])(
+    'suppresses immutable closure next steps after the appointment is %s',
+    async (appointmentStatus) => {
+      queryUnsafeMock.mockResolvedValueOnce([]);
+      queryUnsafeMock.mockResolvedValueOnce([]);
+
+      const result = await getPatientWhatsNext({
+        tenantId: TENANT,
+        patientUid: PATIENT,
+      });
+
+      expect(appointmentStatus).toMatch(/COMPLETED|CANCELLED/);
+      expect(result.next_steps).toEqual([]);
+      expect(result.count).toBe(0);
+      expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+      expect(queryUnsafeMock.mock.calls.some(
+        ([sql]) => /op_visit_closure_evidence/i.test(sql),
+      )).toBe(false);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

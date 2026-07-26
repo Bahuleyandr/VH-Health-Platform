@@ -720,13 +720,12 @@ if (process.env.NODE_ENV !== 'test') {
     await expiryRadarSweep();
   }));
 
-  // 🪦 Every 15 minutes — A8 visit-status reaper. Flip SCHEDULED
-  // appointments whose slot is more than 60 min past to MISSED, with
-  // a system-attributed appointment_status_history row. Doesn't touch
-  // admin_override=true rows. Default grace is 60 min; tune via the
-  // service entrypoint.
+  // 🪦 Every 15 minutes — A8 visit-status reaper. The service performs one
+  // cross-tenant super-admin sweep: OFF/SHADOW retain legacy MISSED
+  // bookkeeping, while ACTIVE appointments are left for the governed
+  // lifecycle and surfaced through pathway reconciliation.
   registerCron('*/15 * * * *', withJobLock('reap-stale-visits', async () => {
-    await runForEachTenant('reap-stale-visits', () => reapStaleScheduledVisits());
+    await reapStaleScheduledVisits();
   }));
 
   // A missed linked appointment or an explicitly configured referral expiry

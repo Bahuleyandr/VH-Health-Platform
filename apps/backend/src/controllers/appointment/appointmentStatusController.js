@@ -6,7 +6,7 @@ import appointmentValidationService from '../../services/appointment/appointment
 import * as pointService from '../../services/gamification/pointService.js';
 import { getWaitingQueueForDoctor } from '../../services/appointment/waitTimeService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
 import { emitAppointmentEvent, emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -81,7 +81,13 @@ export const updateAppointmentStatus = async (req, res) => {
       statusValidation.status,
       notes,
       req.user?.name,
-      tenantId
+      tenantId,
+      {
+        actorUid: req.user?.uid || null,
+        actorId: req.user?.id || null,
+        actorRole: req.user?.role || null,
+        source: 'status_update',
+      },
     );
     attachAppointmentPhiContext(req, {
       ...updatedAppointment,
@@ -148,6 +154,6 @@ export const updateAppointmentStatus = async (req, res) => {
     }, 'Appointment status updated successfully');
   } catch (err) {
     logger.error('Error updating appointment status:', err);
-    error(res, 'Failed to update appointment status', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to update appointment status');
   }
 };

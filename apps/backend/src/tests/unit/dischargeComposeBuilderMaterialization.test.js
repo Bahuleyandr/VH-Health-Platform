@@ -8,9 +8,15 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
   pickTenantClient: () => mockPrisma,
+  isTenantTransactionClient: (value) => value === mockPrisma,
+  circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+}));
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  publishInpatientSourceEventTx: jest.fn(async () => null),
+  resolveInpatientPathwayModeTx: jest.fn(async () => 'off'),
 }));
 
 const {
@@ -353,6 +359,7 @@ describe('migration-159 discharge builder compose materialization', () => {
 
   it('blocks sign-off while the persisted cath section is still pending', async () => {
     mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: TENANT_ID }])
       .mockResolvedValueOnce([{ id: 70 }])
       .mockResolvedValueOnce([{
         section_key: 'cath_lab_procedures',

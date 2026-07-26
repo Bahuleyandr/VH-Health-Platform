@@ -276,6 +276,7 @@ router.post('/medical/investigations', requireStaffMedical, upload.single('file'
         createdBy: req.user?.uid || null,
         actorRole: req.user?.role || null,
         tenantId,
+        admission_id: req.body?.admission_id ?? req.body?.admissionId ?? null,
         result_summary: req.body?.result ? String(req.body.result) : null,
         results: req.body?.result ? { result: String(req.body.result) } : null,
         notes: req.body?.notes ? String(req.body.notes) : null,

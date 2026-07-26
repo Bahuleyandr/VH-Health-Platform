@@ -18,6 +18,7 @@ const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(TX));
 const startWorkflowSlaMock = jest.fn();
 const createTaskMock = jest.fn();
 const createApprovalMock = jest.fn();
+const completeRegisteredConditionMock = jest.fn();
 const completeEvidenceMock = jest.fn();
 const appendEventMock = jest.fn();
 const appendBatchMock = jest.fn(async (input) => {
@@ -46,6 +47,7 @@ const loadDefinitionMock = jest.fn();
 const lockRuntimeMock = jest.fn();
 const preflightSlaRulesMock = jest.fn();
 const resolveModeMock = jest.fn();
+const resolveRuntimeRegistryVersionMock = jest.fn();
 const transitionRunMock = jest.fn();
 const transitionStepMock = jest.fn();
 const activateInstanceMock = jest.fn();
@@ -65,6 +67,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 }));
 
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
+  completePathwayTaskFromRegisteredCondition: completeRegisteredConditionMock,
   completePathwayTaskFromRegisteredEvidence: completeEvidenceMock,
   createTask: createTaskMock,
   createApproval: createApprovalMock,
@@ -92,6 +95,7 @@ jest.unstable_mockModule('../../services/pathways/pathwayRuntimePersistence.js',
   lockPathwayRuntimeTx: lockRuntimeMock,
   preflightPathwaySlaRulesTx: preflightSlaRulesMock,
   resolvePathwayModeTx: resolveModeMock,
+  resolvePathwayRuntimeRegistryVersionTx: resolveRuntimeRegistryVersionMock,
   transitionPathwayRunCasTx: transitionRunMock,
   transitionPathwayStepCasTx: transitionStepMock,
 }));
@@ -104,6 +108,7 @@ const {
   createWorkflowRuntimeRegistry,
 } = await import('../../services/workflow/workflowRuntimeRegistry.js');
 const {
+  completePathwayTaskAndExecuteFromRegisteredCondition,
   completePathwayTaskAndExecuteFromRegisteredEvidence,
   createPathwayActivationEvidenceCapabilityForTests,
   executePathwayCommand,
@@ -356,25 +361,43 @@ function completedDomainEvidence(provenance) {
   };
 }
 
-const REPLAY_BRANCHES = Object.freeze(['start', 'command', 'registered_evidence']);
+const REPLAY_BRANCHES = Object.freeze([
+  'start',
+  'command',
+  'registered_evidence',
+  'registered_condition',
+]);
 
 function replayEventsForBranch(branch, snapshot, provenance) {
   const metadata = {
     pathway_runtime: { mode: 'shadow', result_snapshot: snapshot },
   };
-  if (branch !== 'registered_evidence') return [{ metadata }];
+  if (!['registered_evidence', 'registered_condition'].includes(branch)) {
+    return [{ metadata }];
+  }
+  const registeredCondition = branch === 'registered_condition';
   return [{
     metadata,
     transition_scope: 'task',
-    transition_key: 'domain_evidence_task_completed',
+    transition_key: registeredCondition
+      ? 'registered_condition_task_completed'
+      : 'domain_evidence_task_completed',
     workflow_step_id: 100,
     event_payload: {
       task_id: 701,
-      workflow_sla_instance_id: '99999999-9999-4999-8999-999999999999',
+      ...(registeredCondition ? {} : {
+        workflow_sla_instance_id: '99999999-9999-4999-8999-999999999999',
+      }),
       evidence: {
         kind: 'pathway_registered_condition',
         handler_id: 'synthetic.condition.v1',
         decision: 'satisfied',
+        resource_type: registeredCondition
+          ? 'op_visit_closure_evidence'
+          : 'workflow_steps',
+        resource_id: registeredCondition
+          ? '88888888-8888-4888-8888-888888888888'
+          : '100',
         provenance,
       },
     },
@@ -385,7 +408,10 @@ function replayEventsForBranch(branch, snapshot, provenance) {
     workflow_step_id: 100,
     event_payload: {
       decision: 'task_completed',
-      evidence: { domain_evidence_satisfied: true, task_id: 701 },
+      evidence: {
+        ...(registeredCondition ? {} : { domain_evidence_satisfied: true }),
+        task_id: 701,
+      },
     },
   }];
 }
@@ -409,7 +435,11 @@ async function invokeOwnedReplay({
         sla_completion_semantics: 'none',
       },
     }],
-  }, registry, { status: branch === 'registered_evidence' ? 'running' : 'started' });
+  }, registry, {
+    status: ['registered_evidence', 'registered_condition'].includes(branch)
+      ? 'running'
+      : 'started',
+  });
   runtime.instance.owning_clinician_uid = currentOwnerUid;
   const actor = actorKind === 'system'
     ? createRegisteredWorkflowSystemActor({
@@ -471,6 +501,22 @@ async function invokeOwnedReplay({
       idempotencyKey: 'owned_replay_command_1',
     }));
   }
+  if (branch === 'registered_condition') {
+    return completePathwayTaskAndExecuteFromRegisteredCondition({
+      ...command({
+        registry,
+        actor,
+        idempotencyKey: 'owned_replay_condition_1',
+      }),
+      taskId: 701,
+      workflowRunId: 77,
+      workflowStepId: 100,
+      conditionHandler: 'synthetic.condition.v1',
+      evidenceResourceType: 'op_visit_closure_evidence',
+      evidenceResourceId: '88888888-8888-4888-8888-888888888888',
+      evidence: { verified: true },
+    });
+  }
   return completePathwayTaskAndExecuteFromRegisteredEvidence({
     ...command({
       registry,
@@ -512,6 +558,7 @@ it.each(REPLAY_BRANCHES)(
     expect(resolveModeMock).not.toHaveBeenCalled();
     expect(lockRuntimeMock).not.toHaveBeenCalled();
     expect(completeEvidenceMock).not.toHaveBeenCalled();
+    expect(completeRegisteredConditionMock).not.toHaveBeenCalled();
     expect(createTaskMock).not.toHaveBeenCalled();
   },
 );
@@ -528,6 +575,7 @@ it.each(REPLAY_BRANCHES)(
     expect(resolveModeMock).not.toHaveBeenCalled();
     expect(lockRuntimeMock).not.toHaveBeenCalled();
     expect(completeEvidenceMock).not.toHaveBeenCalled();
+    expect(completeRegisteredConditionMock).not.toHaveBeenCalled();
   },
 );
 
@@ -539,6 +587,7 @@ it.each(REPLAY_BRANCHES)(
     expect(resolveModeMock).not.toHaveBeenCalled();
     expect(lockRuntimeMock).not.toHaveBeenCalled();
     expect(completeEvidenceMock).not.toHaveBeenCalled();
+    expect(completeRegisteredConditionMock).not.toHaveBeenCalled();
     expect(createTaskMock).not.toHaveBeenCalled();
   },
 );
@@ -554,6 +603,7 @@ it.each(REPLAY_BRANCHES)(
     expect(resolveModeMock).not.toHaveBeenCalled();
     expect(lockRuntimeMock).not.toHaveBeenCalled();
     expect(completeEvidenceMock).not.toHaveBeenCalled();
+    expect(completeRegisteredConditionMock).not.toHaveBeenCalled();
     expect(createTaskMock).not.toHaveBeenCalled();
   },
 );
@@ -689,6 +739,183 @@ it('completes registered evidence and executes it through one branded transactio
   expect(Buffer.byteLength(JSON.stringify(canonicalTaskEvent.eventPayload), 'utf8'))
     .toBeLessThanOrEqual(65536);
   expect(setTenantTxMock).not.toHaveBeenCalled();
+});
+
+it('completes a current no-SLA task only through registered condition evidence', async () => {
+  const registry = registryFor({
+    condition: {
+      stepKinds: ['task'],
+      decisionCodes: ['blocked', 'satisfied'],
+      evaluate: async () => ({
+        decision: 'satisfied',
+        evidence: { closure_evidence_valid: true },
+      }),
+    },
+  });
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_registered_condition',
+    steps: [{
+      step_key: 'recover',
+      step_kind: 'task',
+      assigned_role: 'DOCTOR',
+      condition_handler: 'synthetic.condition.v1',
+      work_semantics: {
+        task_kind: 'follow_up',
+        priority: 'normal',
+        sla_completion_semantics: 'none',
+      },
+    }],
+  }, registry, { status: 'running' });
+  runtime.tasks = [{
+    id: 701,
+    tenant_id: TENANT,
+    workflow_run_id: 77,
+    workflow_step_id: 100,
+    status: 'completed',
+    workflow_sla_instance_id: null,
+    sla_completion_semantics: 'none',
+  }];
+  installRuntimeMocks();
+  resolveModeMock.mockResolvedValue('active');
+  const completionEvidence = {
+    kind: 'pathway_registered_condition',
+    handler_id: 'synthetic.condition.v1',
+    decision: 'satisfied',
+    resource_type: 'op_visit_closure_evidence',
+    resource_id: '88888888-8888-4888-8888-888888888888',
+    payload: { closure_evidence_valid: true },
+    provenance: { actor_kind: 'user', actor_uid: ACTOR_UID },
+  };
+  completeRegisteredConditionMock.mockResolvedValue({
+    task: { id: 701, status: 'completed' },
+    previousTaskStatus: 'open',
+    mutated: true,
+    evidence: completionEvidence,
+  });
+
+  await completePathwayTaskAndExecuteFromRegisteredCondition({
+    ...command({
+      registry,
+      activationEvidenceCapability: createPathwayActivationEvidenceCapabilityForTests(),
+    }),
+    taskId: 701,
+    workflowRunId: 77,
+    workflowStepId: 100,
+    conditionHandler: 'synthetic.condition.v1',
+    evidenceResourceType: 'op_visit_closure_evidence',
+    evidenceResourceId: '88888888-8888-4888-8888-888888888888',
+    evidence: completionEvidence.payload,
+  });
+
+  expect(completeRegisteredConditionMock).toHaveBeenCalledWith(expect.objectContaining({
+    tenantId: TENANT,
+    id: 701,
+    pathwayInstanceId: INSTANCE_ID,
+    workflowRunId: 77,
+    workflowStepId: 100,
+    evidenceResourceType: 'op_visit_closure_evidence',
+    evidenceResourceId: '88888888-8888-4888-8888-888888888888',
+    tx: TX,
+  }));
+  const authority = completeRegisteredConditionMock.mock.calls[0][0].executorAuthority;
+  expect(isPathwayExecutorCapability(authority)).toBe(true);
+  const canonicalTaskEvent = appendEventMock.mock.calls
+    .map(([event]) => event)
+    .find((event) => event.transitionKey === 'registered_condition_task_completed');
+  expect(canonicalTaskEvent).toMatchObject({
+    workflowSlaInstanceId: null,
+    eventPayload: {
+      task_id: 701,
+      evidence: {
+        resource_type: 'op_visit_closure_evidence',
+        resource_id: '88888888-8888-4888-8888-888888888888',
+      },
+    },
+  });
+  expect(canonicalTaskEvent.eventPayload).not.toHaveProperty('workflow_sla_instance_id');
+  expect(closeInstanceMock).toHaveBeenCalledTimes(1);
+});
+
+it('rolls back registered-condition task completion when the governed condition stays blocked', async () => {
+  const registry = registryFor({
+    condition: {
+      stepKinds: ['task'],
+      decisionCodes: ['blocked', 'satisfied'],
+      evaluate: async () => ({
+        decision: 'blocked',
+        evidence: { closure_evidence_valid: false },
+      }),
+    },
+  });
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_registered_condition_blocked',
+    steps: [{
+      step_key: 'recover',
+      step_kind: 'task',
+      assigned_role: 'DOCTOR',
+      condition_handler: 'synthetic.condition.v1',
+      work_semantics: {
+        task_kind: 'follow_up',
+        priority: 'normal',
+        sla_completion_semantics: 'none',
+      },
+    }],
+  }, registry, { status: 'running' });
+  runtime.tasks = [{
+    id: 701,
+    tenant_id: TENANT,
+    workflow_run_id: 77,
+    workflow_step_id: 100,
+    status: 'completed',
+    workflow_sla_instance_id: null,
+    sla_completion_semantics: 'none',
+  }];
+  installRuntimeMocks();
+  resolveModeMock.mockResolvedValue('active');
+  completeRegisteredConditionMock.mockResolvedValue({
+    task: { id: 701, status: 'completed' },
+    previousTaskStatus: 'open',
+    mutated: true,
+    evidence: {
+      kind: 'pathway_registered_condition',
+      handler_id: 'synthetic.condition.v1',
+      decision: 'satisfied',
+      resource_type: 'op_visit_closure_evidence',
+      resource_id: '88888888-8888-4888-8888-888888888888',
+      payload: { closure_evidence_valid: true },
+      provenance: { actor_kind: 'user', actor_uid: ACTOR_UID },
+    },
+  });
+
+  await expect(completePathwayTaskAndExecuteFromRegisteredCondition({
+    ...command({
+      registry,
+      activationEvidenceCapability: createPathwayActivationEvidenceCapabilityForTests(),
+      tx: null,
+    }),
+    taskId: 701,
+    workflowRunId: 77,
+    workflowStepId: 100,
+    conditionHandler: 'synthetic.condition.v1',
+    evidenceResourceType: 'op_visit_closure_evidence',
+    evidenceResourceId: '88888888-8888-4888-8888-888888888888',
+    evidence: { closure_evidence_valid: true },
+  })).rejects.toMatchObject({
+    code: 'PATHWAY_REGISTERED_CONDITION_POSTCONDITION_FAILED',
+  });
+
+  expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+  expect(completeRegisteredConditionMock).toHaveBeenCalledWith(expect.objectContaining({ tx: TX }));
+  expect(appendBatchMock).toHaveBeenCalledWith(expect.objectContaining({ tx: TX }));
+  expect(appendEventMock).toHaveBeenCalledWith(expect.objectContaining({
+    tx: TX,
+    transitionKey: 'registered_condition_task_completed',
+  }));
+  expect(appendEventMock).toHaveBeenCalledWith(expect.objectContaining({
+    tx: TX,
+    transitionKey: 'step_blocked',
+  }));
+  expect(closeInstanceMock).not.toHaveBeenCalled();
 });
 
 it('keeps a combined user command bound to its pre-mutation normalized envelope', async () => {
@@ -1896,6 +2123,128 @@ it('rejects a system actor sealed by a different registry and an unbranded suppl
     registry: registryA,
     tx: { $queryRawUnsafe: jest.fn() },
   }))).rejects.toMatchObject({ code: 'PATHWAY_RUNTIME_TX_REQUIRED' });
+});
+
+it('resolves an omitted command registry from the persisted creation-event pin', async () => {
+  const registry = registryFor();
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_persisted_registry_command',
+    steps: [{
+      step_key: 'review',
+      step_kind: 'task',
+      assigned_role: 'DOCTOR',
+      work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
+    }],
+  }, registry);
+  installRuntimeMocks();
+  resolveRuntimeRegistryVersionMock.mockResolvedValue(registry.version);
+
+  await expect(executePathwayCommand(command({
+    registry: undefined,
+  }))).resolves.toMatchObject({ replayed: false, mode: 'shadow' });
+  expect(resolveRuntimeRegistryVersionMock).toHaveBeenCalledWith({
+    tx: TX,
+    tenantId: TENANT,
+    pathwayInstanceId: INSTANCE_ID,
+  });
+  expect(lockRuntimeMock).toHaveBeenCalledTimes(1);
+});
+
+it('resolves an omitted registered-evidence registry from the persisted creation-event pin', async () => {
+  const registry = registryFor({
+    condition: {
+      stepKinds: ['task'],
+      decisionCodes: ['blocked', 'satisfied'],
+      evaluate: async () => ({ decision: 'satisfied', evidence: { verified: true } }),
+    },
+  });
+  installCompletedDomainEvidenceRuntime(registry, 'synthetic_persisted_registry_evidence');
+  resolveRuntimeRegistryVersionMock.mockResolvedValue(registry.version);
+  completeEvidenceMock.mockResolvedValue(
+    completedDomainEvidence({ actor_kind: 'user', actor_uid: ACTOR_UID }),
+  );
+
+  await expect(completePathwayTaskAndExecuteFromRegisteredEvidence({
+    ...command({
+      registry: undefined,
+      activationEvidenceCapability: createPathwayActivationEvidenceCapabilityForTests(),
+    }),
+    taskId: 701,
+    workflowRunId: 77,
+    workflowStepId: 100,
+    conditionHandler: 'synthetic.condition.v1',
+    evidence: { verified: true },
+  })).resolves.toMatchObject({ replayed: false, mode: 'active' });
+  expect(resolveRuntimeRegistryVersionMock).toHaveBeenCalledWith({
+    tx: TX,
+    tenantId: TENANT,
+    pathwayInstanceId: INSTANCE_ID,
+  });
+  expect(completeEvidenceMock).toHaveBeenCalledTimes(1);
+});
+
+it('fails closed when an omitted command registry has an unknown persisted version', async () => {
+  resolveRuntimeRegistryVersionMock.mockResolvedValue(999_999);
+
+  await expect(executePathwayCommand(command({
+    registry: undefined,
+  }))).rejects.toMatchObject({
+    code: 'PATHWAY_RUNTIME_REGISTRY_PIN_UNKNOWN',
+  });
+  expect(findReplayMock).not.toHaveBeenCalled();
+  expect(lockRuntimeMock).not.toHaveBeenCalled();
+});
+
+it('resolves an omitted start registry from the governed definition checksum', async () => {
+  const registry = registryFor();
+  const definition = makeDefinition({
+    workflow_key: 'synthetic_registry_resolved_start',
+    steps: [{
+      step_key: 'review',
+      step_kind: 'task',
+      assigned_role: 'NURSING_STAFF',
+      work_semantics: { task_kind: 'review', priority: 'normal', sla_completion_semantics: 'none' },
+    }],
+  }, registry);
+  loadDefinitionMock.mockResolvedValue(definition);
+  insertRuntimeMock.mockResolvedValue({
+    instance: {
+      id: INSTANCE_ID,
+      patient_uid: PATIENT,
+      workflow_run_id: 77,
+      pathway_key: definition.workflow_key,
+      clinical_status: 'planned',
+    },
+    run: { id: 77, status: 'started' },
+    steps: [],
+  });
+  appendEventMock.mockResolvedValue({
+    event: { id: 'registry-resolved-start-event' },
+    replayed: false,
+  });
+
+  await expect(startCarePathwayInstance({
+    tenantId: TENANT,
+    workflowDefinitionId: definition.id,
+    patientUid: PATIENT,
+    pathwayKey: definition.workflow_key,
+    sourceEpisodeType: 'patient',
+    sourceEpisodeId: PATIENT,
+    triggerKind: 'manual',
+    idempotencyKey: 'registry_resolved_start_1',
+    actor: userActor(),
+    tx: TX,
+  })).resolves.toMatchObject({ replayed: false, mode: 'shadow' });
+  expect(loadDefinitionMock).toHaveBeenCalledTimes(2);
+  expect(appendEventMock).toHaveBeenCalledWith(expect.objectContaining({
+    registry,
+    metadata: expect.objectContaining({
+      pathway_runtime: expect.objectContaining({
+        registry_version: registry.version,
+        definition_checksum: definition.definition_checksum,
+      }),
+    }),
+  }));
 });
 
 it('rejects user-selected command lineage while permitting sealed system lineage', async () => {

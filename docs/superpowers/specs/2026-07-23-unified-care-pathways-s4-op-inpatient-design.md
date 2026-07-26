@@ -116,13 +116,32 @@ Migration 595 adds:
 
 - a versioned `inpatient_primary_physician_assignments` domain record;
 - `discharge_pending_result_handoffs`, one durable item per admission and typed pending-result source;
+- append-only `discharge_pending_result_owner_actions`, one current leaf per
+  result generation while retaining every predecessor owner action;
 - append-only `post_discharge_contact_events` for manually or policy-triggered contact attempts/outcomes, with no default due time.
 
 The initial primary physician is the explicitly valid same-tenant attending physician, falling back to the explicitly valid admitting physician only when no attending physician was recorded. Once a named physician is supplied, invalidity fails closed; it never silently degrades to a role queue.
 
-Responsibility changes require an accepted, audited covering-clinician handoff. A pending-result handoff snapshots the exact source type/id, patient-safe label, current status, named physician, signed-summary inclusion evidence, linked task, notification-intent receipt, and resolution/generation evidence. The row is mutable operational truth; every transition also produces append-only pathway/canonical evidence.
+Responsibility changes require an accepted, audited covering-clinician handoff. A pending-result handoff snapshots the exact source type/id, patient-safe label, current status, named physician, signed-summary inclusion evidence, linked task, and resolution/generation evidence. If a separately registered notification policy emits an intent, the handoff also snapshots that receipt. S4 registers no default notification policy: without one it invents no recipient, cadence, or receipt. The row is mutable operational truth; every transition also produces append-only pathway/canonical evidence.
+
+Generic covering-clinician transfer from a live `wait` stage is governed by an
+exact allowlist: Diagnostics and Inpatient only. `task` and `approval` remain
+eligible human-ownership stages for every pathway. Referral and OP `wait`
+stages cannot use this generic path because their receiver/current-owner and
+appointment-doctor contracts remain authoritative.
+
+For Inpatient, request, exact-recipient acceptance, and accepted-handoff
+application to the admission attending are supported only while the pathway
+and admission are live. Applying the accepted handoff appends the next
+primary-physician assignment; it does not rewrite its predecessor.
 
 The pending-result collector is tenant-scoped and typed across investigation/laboratory, radiology, and Anatomical Pathology sources. It never treats patient/time proximity as lineage. Sources that cannot prove admission membership become reconciliation findings and cannot satisfy the active-mode handoff gate.
+
+The first result generation fills the handoff's immutable resolution anchor and
+appends its named-owner action. A corrected direct-successor generation does
+not rewrite that anchor: it terminates the superseded action task and appends a
+new owner action/task for the corrected current leaf. Replays return the same
+action, and an older or unrelated generation can never become current.
 
 ## 5. OP pathway
 
@@ -139,11 +158,15 @@ Generation 4 consumes transactional OP events:
 - `appointment.no_show`
 - `appointment.rescheduled`
 - `appointment.admission_advised`
-- `appointment.surgery_advised`
 - `appointment.follow_up_recorded`
 - `appointment.closure_evidence_recorded`
+- `appointment.child_resource_linked`
 
 The event identifies the resource. Registered handlers reload durable domain evidence and never trust a signal payload for clinical decisions.
+
+Surgery advice remains deferred to S5. Generation 4 does not reserve an
+`appointment.surgery_advised` event until an authoritative transactional
+surgery-advice domain and producer exist.
 
 ### 5.2 Definition
 
@@ -192,6 +215,7 @@ Generation 4 consumes transactional inpatient events:
 
 - `admission.created`
 - `admission.readmission_linked`
+- `admission.diagnostic_resource_linked`
 - `bed.assigned`
 - `bed.transferred`
 - `discharge.workflow_opened`
@@ -199,10 +223,16 @@ Generation 4 consumes transactional inpatient events:
 - `discharge.drugs_dispensed`
 - `clinical_document.discharge_summary.signed`
 - `discharge.pending_result_handoff_recorded`
+- `discharge.pending_result_available`
+- `discharge.pending_result_resolved`
 - `discharge.completed`
 - `post_discharge.contact_recorded`
 
-Existing canonical event names are mirrored to `event_outbox` in the same domain transaction.
+The established canonical timeline/audit event remains `discharge_summary.signed`.
+The distinct pathway/outbox source event is
+`clinical_document.discharge_summary.signed`. Both are written in the same
+domain transaction; the pathway vocabulary does not rename the canonical
+clinical event.
 
 ### 6.2 Definition
 
@@ -235,6 +265,34 @@ In active mode:
 - when a result becomes available, a linked action is created for the discharge owner without replacing the diagnostic ordering-owner obligation;
 - unresolved items resurface in the staff follow-up view and only safe status/next-step text reaches the patient.
 
+The named discharge physician may cross-sign the exact current different-owner
+doctor disposition from either Clinical Inbox or the prior-admission pending
+result card when the server returns `can_cross_sign: true`. Both surfaces show
+the exact generation, snapshot hash, classification, and authoritative prior
+doctor disposition; refresh that binding before submission; require explicit
+attestation; and reuse one idempotency key while retrying the same binding.
+Normal auto-close, same-owner settlement, resolved work, non-owner work, and
+stale bindings remain read-only. A corrected generation re-arms a new exact
+binding and therefore requires a new attestation and idempotency key.
+A same-generation `doctor_reopened` action likewise appends a successor
+owner-action and a new parent/child task pair; it never rewrites the completed
+predecessor or its historical cross-sign receipt.
+
+Final discharge rechecks ownership while holding the admission lock. The
+inpatient pathway owner, current primary-physician assignment, and admission
+attending must be the same physician. Assignment version 2 or later must also
+prove the exact accepted covering handoff from the superseded assignment;
+otherwise active readiness reports `INPATIENT_OWNER_ASSIGNMENT_DIVERGED`.
+
+S4 does not define a new post-discharge transfer policy for outstanding result
+ownership. Once an admission is terminal, a new generic transfer request or
+acceptance fails with
+`INPATIENT_POST_DISCHARGE_OWNER_TRANSFER_UNSUPPORTED` while any handoff remains
+`pending` or `result_available`. Exact successful request and acceptance
+replays remain idempotent. Historical owner actions remain immutable, and the
+future governed post-discharge transfer/convergence policy is explicitly
+deferred.
+
 Off mode preserves current behavior. Shadow mode computes the active result and records reconciliation discrepancies without changing discharge.
 
 ### 6.5 Other readiness corrections
@@ -243,10 +301,32 @@ Active mode additionally requires:
 
 - a completed formal medication reconciliation and take-home list;
 - a follow-up plan tied to this admission and scheduled appointment, or an audited explicit exception;
+- nonblank, clinician-signed typed sections for patient or guardian
+  instructions, the escalation contact/service, required equipment or home
+  care (including an explicit none-required record), discharge destination,
+  and transport plan;
 - readiness-query failures to fail closed;
 - one consistent signed-summary identity for edit, sign, readiness, patient view, and PDF, implemented through a transactional adapter while legacy and structured stores coexist.
 
-LAMA, death, legal exceptions, and break-glass behavior are not silently changed; any future change requires explicit clinical/governance approval.
+Migration 595 adds those five typed sections to templates and unsigned drafts
+only for tenants already in `shadow` or `active`; `off` is untouched. New
+drafts follow the same structural rule so shadow can report readiness before
+activation. Signed and delivered summaries are never rewritten. The missing,
+blank, or placeholder sections block sign-off and readiness only in `active`;
+shadow remains observational. Active readiness evaluates the persisted section
+identities so a legacy signed summary cannot silently bypass the contract.
+
+`discharge_type=transfer` means an external-facility discharge, not the
+existing internal ward/bed transfer endpoint. In `active` it returns
+`EXTERNAL_TRANSFER_BRANCH_DEFERRED` until governed accepting-facility,
+recipient-owner, transport, exception, and terminal-outcome evidence exists.
+Off and shadow retain existing terminal behavior.
+
+LAMA and death bypass ordinary planned-discharge readiness but remain open and
+reconciliation-visible; they do not silently satisfy normal pathway closure or
+post-discharge contact completion. Legal exceptions and break-glass behavior
+are not silently changed; any future change requires explicit
+clinical/governance approval.
 
 ## 7. Registries, reconciliation, and registration
 
@@ -281,7 +361,7 @@ Registration scripts are dry-run by default and require `--apply --acknowledge-o
 
 ### Patient
 
-- “What’s Next” receives only allowlisted next-step objects: safe label/explanation, optional due date supplied by an approved domain record, status, patient action, responsible clinician display name/role, safe contact, and route token.
+- “What’s Next” continues to expose live goals and follow-up plans. Immutable OP closure next-step snapshots stay staff-side and the `next_steps` array remains empty until every exposed step type has an exact live domain source reference and a current-actionability/satisfaction rule; completed, cancelled, or otherwise satisfied source work must never remain as a patient action.
 - Signed discharge summaries may expose a patient-safe pending-result section.
 - Raw task labels, internal blocker text, ownership-transfer evidence, staff comments, preliminary/unverified results, ward/IP notes, and workflow internals never cross the portal boundary.
 - Existing signed/appointment-bound OP note visibility remains unchanged.
@@ -302,7 +382,15 @@ Required focused proof:
 - quick-admit cannot bypass canonical admission validation;
 - discharge blocks on an unowned or undisclosed pending Lab/Radiology/AP item and permits a fully handed-off pending item;
 - result availability creates a linked owner action without mutating the original diagnostic obligation;
+- Diagnostics and Inpatient accept exact-recipient generic coverage from live
+  wait stages, while Referral and OP wait stages reject that bypass;
+- active discharge rejects pathway-owner, admission-attending, primary-assignment,
+  or accepted-handoff divergence under the final admission lock;
+- terminal admissions with live pending-result ownership reject new generic
+  transfer requests and acceptances while preserving exact successful replays;
 - formal medication reconciliation and admission-scoped follow-up/exception are enforced only in active mode;
+- each missing signed instruction, escalation, equipment/home-care,
+  destination, or transport record independently blocks active discharge;
 - patient serializers ignore injected internal fields and expose pending results only from signed artifacts;
 - one OP journey, one admission-to-recovery journey, and one OP-to-IP handoff/lineage journey pass.
 
@@ -319,3 +407,25 @@ Generic executor atomicity, CAS, tenancy, replay, and concurrency remain covered
 - no OBGyn-specific pathway definition;
 - no universal patient workflow graph;
 - no silent LAMA/death/exception policy change.
+- no task-backed named child-ownership acceptance writer. The typed reference
+  substrate only accepts an exact task with `status = 'completed'` and a
+  non-null completion timestamp; S4 projectors write open/completed child
+  references, while the typed accepted-transfer closure remains the only
+  implemented direct ownership path.
+- no terminal-admission owner-transfer policy. After terminal discharge with
+  live `pending` or `result_available` handoffs, new generic transfer requests
+  and acceptances fail closed while exact successful replays remain safe,
+  until clinical/governance owners sign a terminal transfer/convergence
+  contract.
+- no S4 implementation claim for OP teleconsult-failure recovery, emergency
+  escalation, follow-up-overdue/lost recovery, chronic-care transfer, or
+  surgery-advice branches. They remain required by the parent program and are
+  staged behind explicit clinical owner and governance decisions; S4 invents
+  no event, routing, timing, escalation, or transfer policy for them.
+- no active S4 decision branch for ICU escalation or step-down, surgery or
+  theatre transfer, external-facility transfer, TPA/insurance delay, or
+  deterioration escalation. Existing domain workflows remain authoritative
+  and any observed evidence stays reconciliation-visible. Each branch remains
+  fail-closed/deferred until its clinical owner signs the exact entry
+  criteria, accepting service/recipient, task ownership, transfer evidence,
+  timing rules (if any), exception path, and terminal outcome contract.

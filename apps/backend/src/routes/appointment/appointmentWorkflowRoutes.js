@@ -4,9 +4,12 @@ import { validationResult } from 'express-validator';
 import {
   ADMIN_ROUTE_ROLES,
   APPOINTMENT_STAFF_ROUTE_ROLES,
+  CLINICAL_STAFF_ROUTE_ROLES,
+  PATHWAY_NAMED_CLINICIAN_ROLES,
 } from '../../config/routeRolePolicy.js';
 import * as adminController from '../../controllers/appointment/appointmentAdminController.js';
 import * as docController from '../../controllers/appointment/appointmentDocumentController.js';
+import * as pathwayController from '../../controllers/appointment/appointmentPathwayController.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
@@ -111,6 +114,40 @@ router.post('/:id/no-show', paramId(), validate, guardAppointmentWrite, workflow
 router.post('/:id/reschedule', paramId(), validate, guardAppointmentWrite, workflowController.rescheduleAppointment);
 router.post('/:id/complete', rejectMobileClinicalWrite, paramId(), validate, guardAppointmentWrite, workflowController.completeAppointment);
 router.post('/:id/cancel', paramId(), validate, guardAppointmentWrite, workflowController.cancelAppointment);
+router.get(
+  '/:id/pathway-work',
+  paramId(),
+  validate,
+  requireRole(...APPOINTMENT_STAFF_ROUTE_ROLES),
+  guardAppointmentView,
+  pathwayController.getPathwayWork,
+);
+router.post(
+  '/:id/closure-evidence',
+  rejectMobileClinicalWrite,
+  paramId(),
+  validate,
+  requireRole(...CLINICAL_STAFF_ROUTE_ROLES),
+  guardAppointmentWrite,
+  pathwayController.recordClosureEvidence,
+);
+router.post(
+  '/:id/inpatient-transfer-requests',
+  rejectMobileClinicalWrite,
+  paramId(),
+  validate,
+  requireRole(...PATHWAY_NAMED_CLINICIAN_ROLES),
+  guardAppointmentWrite,
+  pathwayController.requestInpatientTransfer,
+);
+router.post(
+  '/:id/inpatient-transfer-requests/:handoffId/accept',
+  rejectMobileClinicalWrite,
+  paramId(),
+  validate,
+  requireRole(...PATHWAY_NAMED_CLINICIAN_ROLES),
+  pathwayController.acceptInpatientTransfer,
+);
 // OPD→IPD bridge: doctor flips this on a visit; admission counter sees it.
 router.post('/:id/advise-admission', rejectMobileClinicalWrite, paramId(), validate, guardAppointmentWrite, workflowController.adviseForAdmission);
 router.get('/:id/history', guardAppointmentView, workflowController.getAppointmentHistory);

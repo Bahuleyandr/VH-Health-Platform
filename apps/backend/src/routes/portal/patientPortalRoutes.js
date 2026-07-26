@@ -167,8 +167,8 @@ router.get('/records', requirePatient, useAuthenticatedPatientPhone, getHealthRe
 
 router.get('/prescriptions', requirePatient, getMyPrescriptions);
 
-// Patient-facing care-plan projection: read-only "what's next" cards from
-// patient-visible active goals plus open/scheduled follow-up plans.
+// Patient-facing care-plan projection: established patient-visible goals and
+// follow-ups plus active-mode S4 next_steps rebuilt through a closed allowlist.
 router.get('/care-plans/whats-next', requirePatient, wrap(async (req) =>
   getPatientWhatsNext({
     tenantId: tenantOf(req),

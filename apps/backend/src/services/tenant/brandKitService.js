@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { getSignedFileUrl } from '../../utils/r2Storage.js';
 import { getTenantById, updateTenant } from './tenantService.js';
+import { mergeGenericTenantSettings } from './tenantSettingsMutationPolicy.js';
 import {
   assertBrandAssetMetadata,
   normalizeBrandKit,
@@ -104,10 +105,7 @@ export async function updateTenantBrandKit(tenantId, patch = {}) {
   const normalized = normalizeBrandKit(merged);
   await validateAssetRefs(tenantId, normalized);
   const updated = await updateTenant(tenantId, {
-    settings: {
-      ...settings,
-      branding: normalized,
-    },
+    settings: mergeGenericTenantSettings(settings, { branding: normalized }),
   });
   return getTenantBrandKit(tenantId, { tenant: updated });
 }

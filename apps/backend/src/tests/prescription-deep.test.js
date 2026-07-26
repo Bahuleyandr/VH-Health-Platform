@@ -57,6 +57,12 @@ async function cleanupFixtures(patientId, doctorId) {
 
   if (resolvedPatientId || resolvedDoctorId) {
     await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM follow_up_plans WHERE patient_uid = $1::uuid`,
+        PATIENT_UID
+      )
+      .catch(() => {});
+    await prisma
       .$executeRawUnsafe(`DELETE FROM medication_reminders WHERE patient_uid = $1::uuid`, PATIENT_UID)
       .catch(() => {});
     await prisma
@@ -375,14 +381,7 @@ describe('E-prescriptions — deep integration', () => {
     expect(res.body).toMatchObject({ success: false, error: 'Forbidden' });
   });
 
-  // Finding: 2026-05-09-inpatient-admission-patient-discharge-rx-unlinked-to-followup
-  // When the doctor enters a follow_up_date on a prescription that has
-  // no source-visit appointment_id (the discharge-desk path is the
-  // canonical case), the auto-booked follow-up appointment must be
-  // linked back to the prescription so the patient app can render
-  // "your follow-up is on X — here are the meds to take until then"
-  // as a single card.
-  it('back-links the auto-booked follow-up appointment to a discharge-style prescription', async () => {
+  it('records durable follow-up work without inventing an appointment slot', async () => {
     const res = await doctorAs(doctorId)
       .post('/api/v1/prescriptions/create')
       .send({
@@ -405,19 +404,37 @@ describe('E-prescriptions — deep integration', () => {
 
     const linked = await prisma.$queryRawUnsafe(
       `SELECT ep.appointment_id,
-              a.visit_type,
-              a.appointment_date::text AS appointment_date,
-              a.status
-         FROM e_prescriptions ep
-         LEFT JOIN appointments a ON a.id = ep.appointment_id
+              follow_up.origin_resource_type,
+              follow_up.origin_resource_id,
+              follow_up.due_at::date::text AS due_date,
+              follow_up.appointment_id AS follow_up_appointment_id,
+              follow_up.appointment_status,
+              follow_up.status,
+              follow_up.metadata
+         FROM e_prescriptions AS ep
+         JOIN follow_up_plans AS follow_up
+           ON follow_up.tenant_id = ep.tenant_id
+          AND follow_up.patient_uid = ep.patient_uid
+          AND follow_up.origin_resource_type = 'e_prescription'
+          AND follow_up.origin_resource_id = ep.id::text
         WHERE ep.id = $1`,
       prescriptionId
     );
     expect(linked).toHaveLength(1);
-    expect(linked[0].appointment_id).not.toBeNull();
-    expect(linked[0].visit_type).toBe('FOLLOW_UP');
-    expect(linked[0].appointment_date).toBe('2026-05-20');
-    expect(['SCHEDULED', 'CONFIRMED', 'BOOKED']).toContain(linked[0].status);
+    expect(linked[0]).toMatchObject({
+      appointment_id: null,
+      origin_resource_type: 'e_prescription',
+      origin_resource_id: String(prescriptionId),
+      due_date: '2026-05-20',
+      follow_up_appointment_id: null,
+      appointment_status: 'pending',
+      status: 'open',
+      metadata: expect.objectContaining({
+        prescription_id: prescriptionId,
+        due_precision: 'date',
+        appointment_slot_required: true,
+      }),
+    });
   });
 
   it('lets pharmacy map a generic pediatric prescription to an explicit syrup catalog selection', async () => {

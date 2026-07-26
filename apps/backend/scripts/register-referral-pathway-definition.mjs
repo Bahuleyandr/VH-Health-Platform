@@ -65,11 +65,18 @@ async function main() {
   }
   const connectionString = databaseUrl();
   process.env.DATABASE_URL ||= connectionString;
-  const {
+  const [{
     REFERRAL_REQUEST_TO_CLOSURE_DEFINITION,
     compileReferralRequestToClosureDefinition,
-  } = await import('../src/services/pathways/referralPathwayDefinition.js');
-  const compiled = compileReferralRequestToClosureDefinition();
+  }, {
+    workflowRuntimeRegistryV3,
+  }] = await Promise.all([
+    import('../src/services/pathways/referralPathwayDefinition.js'),
+    import('../src/services/workflow/workflowRuntimeRegistry.js'),
+  ]);
+  const compiled = compileReferralRequestToClosureDefinition({
+    registry: workflowRuntimeRegistryV3,
+  });
   const client = new Client({ connectionString });
   await client.connect();
   try {

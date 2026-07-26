@@ -2909,6 +2909,327 @@
           }
         }
       },
+      "AppointmentPathwayConfiguration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "projection_pending",
+          "completeness_checked",
+          "completeness_proven",
+          "exact_source_count",
+          "child_event_count",
+          "valid_child_event_count",
+          "missing_source_event_count",
+          "pending_child_projection_count",
+          "invalid_child_event_count",
+          "child_state_mismatch_count",
+          "unsupported_historical_source_types",
+          "pathway_instance_id",
+          "pathway_clinical_status"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "shadow",
+              "active"
+            ]
+          },
+          "projection_pending": {
+            "type": "boolean"
+          },
+          "completeness_checked": {
+            "type": "boolean"
+          },
+          "completeness_proven": {
+            "type": "boolean"
+          },
+          "exact_source_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "child_event_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "valid_child_event_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_source_event_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pending_child_projection_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "invalid_child_event_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "child_state_mismatch_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unsupported_historical_source_types": {
+            "type": "array",
+            "maxItems": 0,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "pathway_instance_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "pathway_clinical_status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "active",
+              "on_hold",
+              "completed",
+              "cancelled",
+              "transferred",
+              "entered_in_error"
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentPathwayWork": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "projection_pending",
+          "configuration",
+          "visit_completion",
+          "pathway_closure",
+          "items",
+          "prior_admission_pending_results",
+          "closure_evidence"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "shadow",
+              "active"
+            ]
+          },
+          "projection_pending": {
+            "type": "boolean"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/AppointmentPathwayConfiguration"
+          },
+          "visit_completion": {
+            "$ref": "#/components/schemas/AppointmentPathwayWorkGate"
+          },
+          "pathway_closure": {
+            "$ref": "#/components/schemas/AppointmentPathwayWorkGate"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentPathwayWorkItem"
+            }
+          },
+          "prior_admission_pending_results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpFollowUpPendingResult"
+            }
+          },
+          "closure_evidence": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OpVisitClosureEvidence"
+              }
+            ]
+          }
+        }
+      },
+      "AppointmentPathwayWorkBlocker": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "resource_type": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 160
+          },
+          "resource_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 200
+          }
+        }
+      },
+      "AppointmentPathwayWorkGate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "allowed",
+          "blockers"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentPathwayWorkBlocker"
+            }
+          }
+        }
+      },
+      "AppointmentPathwayWorkItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resource_type",
+          "id",
+          "relationship_kind",
+          "evidence_state",
+          "blocking",
+          "owner_uid",
+          "owner_name",
+          "owner_role",
+          "task_id",
+          "handoff_id",
+          "route"
+        ],
+        "properties": {
+          "resource_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "relationship_kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "evidence_state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "owner_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "owner_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "owner_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "handoff_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "route": {
+            "type": "string",
+            "enum": [
+              "appointments",
+              "admissions",
+              "prescriptions",
+              "clinical_orders",
+              "investigations",
+              "radiology",
+              "anatomical_pathology",
+              "diagnostic_results",
+              "referrals",
+              "follow_up",
+              "clinical_notes",
+              "discharge_hub"
+            ],
+            "nullable": true
+          },
+          "configuration_issue": {
+            "type": "string",
+            "enum": [
+              "missing_source_event",
+              "child_projection_pending",
+              "invalid_source_event",
+              "source_state_mismatch"
+            ],
+            "nullable": true
+          },
+          "source_evidence_state": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 80
+          }
+        }
+      },
+      "AppointmentPathwayWorkResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AppointmentPathwayWork"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
       "AppointmentResponse": {
         "type": "object",
         "required": [
@@ -12894,6 +13215,42 @@
               },
               "follow_up_booked": {
                 "type": "boolean"
+              },
+              "structured_summary_signed": {
+                "type": "boolean"
+              },
+              "patient_guardian_instructions_recorded": {
+                "type": "boolean"
+              },
+              "escalation_contact_recorded": {
+                "type": "boolean"
+              },
+              "equipment_home_care_plan_recorded": {
+                "type": "boolean"
+              },
+              "discharge_destination_recorded": {
+                "type": "boolean"
+              },
+              "transport_plan_recorded": {
+                "type": "boolean"
+              },
+              "external_transfer_governance_ready": {
+                "type": "boolean"
+              },
+              "inpatient_owner_assignment_converged": {
+                "type": "boolean"
+              },
+              "formal_medication_reconciliation_completed": {
+                "type": "boolean"
+              },
+              "admission_follow_up_or_exception": {
+                "type": "boolean"
+              },
+              "pending_result_projection_ready": {
+                "type": "boolean"
+              },
+              "pending_result_handoffs_complete": {
+                "type": "boolean"
               }
             }
           },
@@ -12918,7 +13275,19 @@
                     "UNPAID_INVOICE",
                     "PENDING_RESULTS",
                     "PENDING_RADIOLOGY",
-                    "FOLLOWUP_NOT_BOOKED"
+                    "FOLLOWUP_NOT_BOOKED",
+                    "STRUCTURED_SUMMARY_NOT_SIGNED",
+                    "PATIENT_GUARDIAN_INSTRUCTIONS_REQUIRED",
+                    "ESCALATION_CONTACT_REQUIRED",
+                    "EQUIPMENT_HOME_CARE_PLAN_REQUIRED",
+                    "DISCHARGE_DESTINATION_REQUIRED",
+                    "TRANSPORT_PLAN_REQUIRED",
+                    "EXTERNAL_TRANSFER_BRANCH_DEFERRED",
+                    "INPATIENT_OWNER_ASSIGNMENT_DIVERGED",
+                    "FORMAL_DISCHARGE_MEDICATION_RECONCILIATION_REQUIRED",
+                    "ADMISSION_FOLLOW_UP_OR_EXCEPTION_REQUIRED",
+                    "PENDING_RESULT_PROJECTION_NOT_READY",
+                    "PENDING_RESULT_HANDOFF_INCOMPLETE"
                   ]
                 },
                 "message": {
@@ -14021,12 +14390,17 @@
         "type": "object",
         "additionalProperties": true,
         "required": [
-          "attending_doctor"
+          "doctor_uid"
         ],
         "properties": {
-          "attending_doctor": {
+          "doctor_uid": {
             "type": "string",
             "format": "uuid"
+          },
+          "accepted_handoff_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           }
         }
       },
@@ -17108,6 +17482,1479 @@
           "updated_by": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "InpatientAdmissionFollowUpEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "appointment_id",
+          "status",
+          "appointment_status",
+          "booked_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "appointment_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "scheduled"
+            ]
+          },
+          "appointment_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "booked_status": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "InpatientAuditedFollowUpExceptionEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "timeline_event_id",
+          "audit_event_id",
+          "reason"
+        ],
+        "properties": {
+          "timeline_event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "audit_event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "InpatientDischargeBlocker": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "message"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "STRUCTURED_SUMMARY_NOT_SIGNED",
+              "PATIENT_GUARDIAN_INSTRUCTIONS_REQUIRED",
+              "ESCALATION_CONTACT_REQUIRED",
+              "EQUIPMENT_HOME_CARE_PLAN_REQUIRED",
+              "DISCHARGE_DESTINATION_REQUIRED",
+              "TRANSPORT_PLAN_REQUIRED",
+              "INPATIENT_OWNER_ASSIGNMENT_DIVERGED",
+              "FORMAL_DISCHARGE_MEDICATION_RECONCILIATION_REQUIRED",
+              "ADMISSION_FOLLOW_UP_OR_EXCEPTION_REQUIRED",
+              "PENDING_RESULT_PROJECTION_NOT_READY",
+              "PENDING_RESULT_HANDOFF_INCOMPLETE"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InpatientPendingResultItem"
+            }
+          }
+        }
+      },
+      "InpatientDischargeClosureSectionEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "discharge_summary_id",
+          "section_id",
+          "section_key"
+        ],
+        "properties": {
+          "discharge_summary_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "section_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "section_key": {
+            "type": "string",
+            "enum": [
+              "patient_guardian_instructions",
+              "escalation_contact",
+              "required_equipment_home_care",
+              "discharge_destination",
+              "transport_plan"
+            ]
+          }
+        }
+      },
+      "InpatientDischargeEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "structured_signed_summary",
+          "patient_guardian_instructions",
+          "escalation_contact",
+          "required_equipment_home_care",
+          "discharge_destination",
+          "transport_plan",
+          "formal_discharge_medication_reconciliation",
+          "admission_scoped_follow_up",
+          "audited_follow_up_exception",
+          "pending_results"
+        ],
+        "properties": {
+          "structured_signed_summary": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientSignedSummaryEvidence"
+              }
+            ]
+          },
+          "patient_guardian_instructions": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientDischargeClosureSectionEvidence"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "section_key": {
+                    "type": "string",
+                    "enum": [
+                      "patient_guardian_instructions"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "escalation_contact": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientDischargeClosureSectionEvidence"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "section_key": {
+                    "type": "string",
+                    "enum": [
+                      "escalation_contact"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "required_equipment_home_care": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientDischargeClosureSectionEvidence"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "section_key": {
+                    "type": "string",
+                    "enum": [
+                      "required_equipment_home_care"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "discharge_destination": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientDischargeClosureSectionEvidence"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "section_key": {
+                    "type": "string",
+                    "enum": [
+                      "discharge_destination"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "transport_plan": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientDischargeClosureSectionEvidence"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "section_key": {
+                    "type": "string",
+                    "enum": [
+                      "transport_plan"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "formal_discharge_medication_reconciliation": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientMedicationReconciliationEvidence"
+              }
+            ]
+          },
+          "admission_scoped_follow_up": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientAdmissionFollowUpEvidence"
+              }
+            ]
+          },
+          "audited_follow_up_exception": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientAuditedFollowUpExceptionEvidence"
+              }
+            ]
+          },
+          "pending_results": {
+            "$ref": "#/components/schemas/InpatientPendingResultsProjection"
+          }
+        }
+      },
+      "InpatientFollowUpException": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "admission_id",
+          "reason",
+          "canonical_timeline_event_id",
+          "canonical_audit_event_id"
+        ],
+        "properties": {
+          "admission_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "canonical_timeline_event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canonical_audit_event_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InpatientFollowUpExceptionMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InpatientFollowUpExceptionMutationResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "InpatientFollowUpExceptionMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "exception"
+        ],
+        "properties": {
+          "exception": {
+            "$ref": "#/components/schemas/InpatientFollowUpException"
+          }
+        }
+      },
+      "InpatientFollowUpExceptionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "idempotency_key"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "InpatientMedicationReconciliationEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "completed_by",
+          "completed_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed"
+            ]
+          },
+          "completed_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InpatientPendingResultActionTask": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "task_kind",
+          "title",
+          "description",
+          "status",
+          "assigned_to_uid",
+          "related_resource_type",
+          "related_resource_id",
+          "parent_task_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task_kind": {
+            "type": "string",
+            "enum": [
+              "review"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 8000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_progress",
+              "blocked",
+              "overdue",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "assigned_to_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "related_resource_type": {
+            "type": "string",
+            "enum": [
+              "discharge_pending_result_action"
+            ]
+          },
+          "related_resource_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "parent_task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InpatientPendingResultAvailableRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generation_id"
+        ],
+        "properties": {
+          "generation_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InpatientPendingResultAvailableResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InpatientPendingResultAvailableResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "InpatientPendingResultAvailableResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "handoff",
+          "action_task",
+          "owner_action",
+          "ordering_owner_obligation_preserved"
+        ],
+        "properties": {
+          "handoff": {
+            "$ref": "#/components/schemas/InpatientPendingResultHandoff"
+          },
+          "action_task": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientPendingResultActionTask"
+              }
+            ]
+          },
+          "owner_action": {
+            "$ref": "#/components/schemas/InpatientPendingResultOwnerAction"
+          },
+          "ordering_owner_obligation_preserved": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        }
+      },
+      "InpatientPendingResultCrossSignReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "admission_id",
+          "handoff_id",
+          "generation_id",
+          "diagnostic_action_id",
+          "pathway_instance_id",
+          "owner_action_id",
+          "action_task_id",
+          "tracking_task_id",
+          "signature_id",
+          "resolution_action_id",
+          "handoff_state",
+          "current_handoff_state",
+          "generation_snapshot_sha256",
+          "request_sha256",
+          "canonical_timeline_event_id",
+          "canonical_audit_event_id",
+          "replayed"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admission_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "handoff_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "diagnostic_action_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pathway_instance_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "owner_action_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action_task_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tracking_task_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "signature_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resolution_action_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "handoff_state": {
+            "type": "string",
+            "enum": [
+              "resolved"
+            ]
+          },
+          "current_handoff_state": {
+            "type": "string",
+            "enum": [
+              "result_available",
+              "resolved"
+            ]
+          },
+          "generation_snapshot_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "request_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "canonical_timeline_event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canonical_audit_event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "InpatientPendingResultCrossSignRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generation_id",
+          "diagnostic_action_id",
+          "generation_snapshot_sha256",
+          "attested"
+        ],
+        "properties": {
+          "generation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "diagnostic_action_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation_snapshot_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "attested": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        }
+      },
+      "InpatientPendingResultCrossSignResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InpatientPendingResultCrossSignResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "InpatientPendingResultCrossSignResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resolution"
+        ],
+        "properties": {
+          "resolution": {
+            "$ref": "#/components/schemas/InpatientPendingResultCrossSignReceipt"
+          }
+        }
+      },
+      "InpatientPendingResultHandoff": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "admission_id",
+          "resource_reference_id",
+          "source_type",
+          "source_id",
+          "patient_safe_label",
+          "result_status",
+          "primary_physician_assignment_id",
+          "named_physician_uid",
+          "task_id",
+          "handoff_state",
+          "discharge_summary_id",
+          "summary_included_at",
+          "resolution_generation_id",
+          "resolution_action_id",
+          "resolved_at",
+          "resolved_by_uid",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admission_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "resource_reference_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "investigation",
+              "lab_result",
+              "radiology_order",
+              "anatomical_pathology_case",
+              "diagnostic_result_generation"
+            ]
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "patient_safe_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "result_status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "primary_physician_assignment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "named_physician_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "task_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "handoff_state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "result_available",
+              "resolved"
+            ]
+          },
+          "discharge_summary_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "summary_included_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolution_generation_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "resolution_action_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolved_by_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InpatientPendingResultHandoffMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InpatientPendingResultHandoffMutationResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "InpatientPendingResultHandoffMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "handoff"
+        ],
+        "properties": {
+          "handoff": {
+            "$ref": "#/components/schemas/InpatientPendingResultHandoff"
+          }
+        }
+      },
+      "InpatientPendingResultHandoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_type",
+          "source_id",
+          "resource_reference_id"
+        ],
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "investigation",
+              "lab_result",
+              "radiology_order",
+              "anatomical_pathology_case",
+              "diagnostic_result_generation"
+            ]
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "resource_reference_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_safe_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "InpatientPendingResultHandoffView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state",
+          "task_id",
+          "named_physician_uid",
+          "named_physician_name",
+          "summary_id",
+          "summary_included_at",
+          "resolution_generation_id",
+          "resolution_action_id",
+          "resolved_at",
+          "resolved_by_uid"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "result_available",
+              "resolved"
+            ]
+          },
+          "task_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "named_physician_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "named_physician_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "summary_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "summary_included_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolution_generation_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "resolution_action_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolved_by_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "InpatientPendingResultItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resource_reference_id",
+          "source_type",
+          "source_id",
+          "patient_safe_label",
+          "current_status",
+          "exact_lineage",
+          "evidence_state",
+          "primary_physician",
+          "named_owner",
+          "handoff",
+          "handoff_complete_warning",
+          "handoff_complete",
+          "summary_included",
+          "blocking",
+          "blocker_codes"
+        ],
+        "properties": {
+          "resource_reference_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "investigation",
+              "lab_result",
+              "radiology_order",
+              "anatomical_pathology_case",
+              "diagnostic_result_generation"
+            ]
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "patient_safe_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "current_status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "exact_lineage": {
+            "type": "boolean"
+          },
+          "evidence_state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "completed",
+              "ownership_accepted"
+            ],
+            "nullable": true
+          },
+          "primary_physician": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientPendingResultPrimaryPhysician"
+              }
+            ]
+          },
+          "named_owner": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientPendingResultOwner"
+              }
+            ]
+          },
+          "handoff": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientPendingResultHandoffView"
+              }
+            ]
+          },
+          "handoff_complete_warning": {
+            "type": "boolean"
+          },
+          "handoff_complete": {
+            "type": "boolean"
+          },
+          "summary_included": {
+            "type": "boolean"
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "blocker_codes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PENDING_RESULT_SOURCE_UNRESOLVED",
+                "PENDING_RESULT_REFERENCE_MISSING",
+                "DIAGNOSTIC_SAFETY_ACTION_REQUIRED",
+                "PRIMARY_PHYSICIAN_ASSIGNMENT_MISSING",
+                "PENDING_RESULT_HANDOFF_MISSING",
+                "PENDING_RESULT_ASSIGNMENT_STALE",
+                "PENDING_RESULT_NAMED_OWNER_INVALID",
+                "PENDING_RESULT_SUMMARY_INCLUSION_MISSING"
+              ]
+            }
+          }
+        }
+      },
+      "InpatientPendingResultOwner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "uid",
+          "display_name",
+          "role"
+        ],
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "InpatientPendingResultOwnerAction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "handoff_id",
+          "generation_id",
+          "predecessor_generation_id",
+          "predecessor_owner_action_id",
+          "predecessor_resolution_action_id",
+          "rearm_source_action_id",
+          "task_id",
+          "owner_uid",
+          "recorded_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "handoff_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "predecessor_generation_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "predecessor_owner_action_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "predecessor_resolution_action_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "rearm_source_action_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "task_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "owner_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InpatientPendingResultPrimaryPhysician": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assignment_id",
+          "uid",
+          "display_name",
+          "role"
+        ],
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "InpatientPendingResultReconciliationDebt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "source_type",
+          "source_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "PENDING_RESULT_REFERENCE_MISSING",
+              "PENDING_RESULT_SOURCE_UNRESOLVED"
+            ]
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "investigation",
+              "lab_result",
+              "radiology_order",
+              "anatomical_pathology_case",
+              "diagnostic_result_generation"
+            ]
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        }
+      },
+      "InpatientPendingResultSummaryInclusionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "discharge_summary_id"
+        ],
+        "properties": {
+          "discharge_summary_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "InpatientPendingResultWork": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "pending_results",
+          "evidence",
+          "active_blockers"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "shadow",
+              "active"
+            ]
+          },
+          "primary_physician_assignment": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientPrimaryPhysicianAssignment"
+              }
+            ]
+          },
+          "pending_results": {
+            "$ref": "#/components/schemas/InpatientPendingResultsProjection"
+          },
+          "evidence": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InpatientDischargeEvidence"
+              }
+            ]
+          },
+          "active_blockers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InpatientDischargeBlocker"
+            }
+          }
+        }
+      },
+      "InpatientPendingResultWorkResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InpatientPendingResultWork"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "InpatientPendingResultsProjection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projection_ready",
+          "pathway_instance_id",
+          "references_found",
+          "references_expected",
+          "missing_reference_count",
+          "unresolved_reference_count",
+          "reconciliation_debt",
+          "items"
+        ],
+        "properties": {
+          "projection_ready": {
+            "type": "boolean"
+          },
+          "pathway_instance_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "references_found": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "references_expected": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_reference_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unresolved_reference_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reconciliation_debt": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InpatientPendingResultReconciliationDebt"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InpatientPendingResultItem"
+            }
+          }
+        }
+      },
+      "InpatientPrimaryPhysicianAssignment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "assignment_version",
+          "physician_uid",
+          "assignment_source",
+          "accepted_handoff_id",
+          "supersedes_assignment_id",
+          "assigned_by_uid",
+          "assigned_at",
+          "physician_name",
+          "physician_role"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignment_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "physician_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignment_source": {
+            "type": "string",
+            "enum": [
+              "attending_physician",
+              "admitting_physician",
+              "accepted_covering_handoff"
+            ]
+          },
+          "accepted_handoff_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "supersedes_assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "assigned_by_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "physician_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "physician_role": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "InpatientSignedSummaryEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "signed_by",
+          "signed_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "signed",
+              "delivered"
+            ]
+          },
+          "signed_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "signed_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -20665,6 +22512,805 @@
           },
           "shift": {
             "type": "string"
+          }
+        }
+      },
+      "OpFollowUpPendingResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "admission_id",
+          "handoff_id",
+          "source_type",
+          "patient_safe_label",
+          "result_status",
+          "handoff_state",
+          "requires_action",
+          "can_cross_sign",
+          "named_owner",
+          "generation_id",
+          "generation_snapshot_sha256",
+          "diagnostic_classification",
+          "diagnostic_action_id",
+          "diagnostic_action_kind",
+          "diagnostic_disposition",
+          "diagnostic_action_occurred_at",
+          "resolution_action_id",
+          "resolved_at",
+          "resolved_by_uid",
+          "tracking_task",
+          "action_task",
+          "task",
+          "route"
+        ],
+        "properties": {
+          "admission_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "handoff_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "investigation",
+              "lab_result",
+              "radiology_order",
+              "anatomical_pathology_case",
+              "diagnostic_result_generation"
+            ]
+          },
+          "patient_safe_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "result_status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "handoff_state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "result_available",
+              "resolved"
+            ]
+          },
+          "requires_action": {
+            "type": "boolean"
+          },
+          "can_cross_sign": {
+            "type": "boolean"
+          },
+          "named_owner": {
+            "$ref": "#/components/schemas/OpFollowUpPendingResultOwner"
+          },
+          "generation_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "generation_snapshot_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          },
+          "diagnostic_classification": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "abnormal",
+              "normal",
+              "indeterminate"
+            ],
+            "nullable": true
+          },
+          "diagnostic_action_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "diagnostic_action_kind": {
+            "type": "string",
+            "enum": [
+              "doctor_disposition"
+            ],
+            "nullable": true
+          },
+          "diagnostic_disposition": {
+            "type": "string",
+            "enum": [
+              "treated",
+              "repeated",
+              "referred",
+              "no_action"
+            ],
+            "nullable": true
+          },
+          "diagnostic_action_occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolution_action_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolved_by_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tracking_task": {
+            "$ref": "#/components/schemas/OpFollowUpPendingResultTask"
+          },
+          "action_task": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OpFollowUpPendingResultTask"
+              }
+            ]
+          },
+          "task": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OpFollowUpPendingResultTask"
+              }
+            ]
+          },
+          "route": {
+            "type": "string",
+            "enum": [
+              "appointments",
+              "admissions",
+              "prescriptions",
+              "clinical_orders",
+              "investigations",
+              "radiology",
+              "anatomical_pathology",
+              "diagnostic_results",
+              "referrals",
+              "follow_up",
+              "clinical_notes",
+              "discharge_hub"
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "OpFollowUpPendingResultOwner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "uid",
+          "display_name",
+          "role"
+        ],
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        }
+      },
+      "OpFollowUpPendingResultTask": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        }
+      },
+      "OpInpatientTransferAcceptRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "maxProperties": 0
+      },
+      "OpInpatientTransferAdmissionSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "appointment_id",
+          "source_pathway_instance_id",
+          "source_handoff_id",
+          "accepted_recipient_uid"
+        ],
+        "properties": {
+          "appointment_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "source_pathway_instance_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_handoff_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accepted_recipient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "OpInpatientTransferHandoff": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "requested_at",
+          "accepted_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "accepted"
+            ]
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "OpInpatientTransferRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intended_recipient_uid",
+          "reason"
+        ],
+        "properties": {
+          "intended_recipient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+          }
+        }
+      },
+      "OpInpatientTransferResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OpInpatientTransferResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "OpInpatientTransferResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "handoff",
+          "task",
+          "transition",
+          "admission_source",
+          "replayed"
+        ],
+        "properties": {
+          "handoff": {
+            "$ref": "#/components/schemas/OpInpatientTransferHandoff"
+          },
+          "task": {
+            "$ref": "#/components/schemas/OpInpatientTransferTask"
+          },
+          "transition": {
+            "$ref": "#/components/schemas/OpInpatientTransferTransition"
+          },
+          "admission_source": {
+            "$ref": "#/components/schemas/OpInpatientTransferAdmissionSource"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OpInpatientTransferTask": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "task_kind",
+          "priority",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task_kind": {
+            "type": "string",
+            "enum": [
+              "op_to_inpatient_transfer_review"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "normal"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "completed"
+            ]
+          }
+        }
+      },
+      "OpInpatientTransferTransition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "transition_key",
+          "occurred_at"
+        ],
+        "properties": {
+          "transition_key": {
+            "type": "string",
+            "enum": [
+              "op_to_inpatient_transfer_requested",
+              "op_to_inpatient_transfer_accepted"
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "OpVisitClosureEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "revision",
+          "clinician_uid",
+          "follow_up_required",
+          "follow_up_plan_id",
+          "patient_next_steps",
+          "closure_basis",
+          "accepted_handoff_id",
+          "source_status_history_id",
+          "occurred_at",
+          "recorded_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "clinician_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "follow_up_required": {
+            "type": "boolean"
+          },
+          "follow_up_plan_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "patient_next_steps": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/OpVisitPatientSafeNextStep"
+            }
+          },
+          "closure_basis": {
+            "type": "string",
+            "enum": [
+              "all_required_work_completed",
+              "named_ownership_accepted",
+              "accepted_transfer"
+            ]
+          },
+          "accepted_handoff_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "source_status_history_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OpVisitClosureEvidenceMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OpVisitClosureEvidenceMutationResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "OpVisitClosureEvidenceMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "replayed",
+          "closure_evidence"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "shadow",
+              "active"
+            ]
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "closure_evidence": {
+            "$ref": "#/components/schemas/OpVisitClosureEvidence"
+          }
+        }
+      },
+      "OpVisitClosureEvidenceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "follow_up_required",
+          "patient_safe_next_steps",
+          "closure_basis"
+        ],
+        "properties": {
+          "follow_up_required": {
+            "type": "boolean"
+          },
+          "follow_up_plan_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "patient_safe_next_steps": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/OpVisitPatientNextStepRequest"
+            }
+          },
+          "closure_basis": {
+            "type": "string",
+            "enum": [
+              "all_required_work_completed",
+              "named_ownership_accepted",
+              "accepted_transfer"
+            ]
+          },
+          "accepted_handoff_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 220
+          }
+        },
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "follow_up_plan_id"
+                ],
+                "properties": {
+                  "follow_up_required": {
+                    "enum": [
+                      true
+                    ]
+                  },
+                  "follow_up_plan_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "follow_up_required": {
+                    "enum": [
+                      false
+                    ]
+                  },
+                  "follow_up_plan_id": {
+                    "not": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "accepted_handoff_id"
+                ],
+                "properties": {
+                  "closure_basis": {
+                    "enum": [
+                      "accepted_transfer"
+                    ]
+                  },
+                  "accepted_handoff_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "closure_basis": {
+                    "enum": [
+                      "all_required_work_completed",
+                      "named_ownership_accepted"
+                    ]
+                  },
+                  "accepted_handoff_id": {
+                    "not": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "OpVisitPatientNextStepRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "explanation": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1200
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "open",
+              "scheduled",
+              "pending",
+              "in_progress",
+              "ready",
+              "completed",
+              "cancelled",
+              "on_hold",
+              "overdue"
+            ],
+            "nullable": true
+          },
+          "patient_action": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
+          "route_token": {
+            "type": "string",
+            "enum": [
+              "home",
+              "health",
+              "appointments",
+              "book_appointment",
+              "investigations",
+              "lab_results",
+              "diagnostic_results",
+              "referrals",
+              "discharge_summaries",
+              "messages"
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "OpVisitPatientSafeNextStep": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "explanation",
+          "due_date",
+          "status",
+          "patient_action",
+          "route_token",
+          "responsible_clinician_display_name",
+          "responsible_clinician_role",
+          "safe_contact"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "explanation": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1200
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "open",
+              "scheduled",
+              "pending",
+              "in_progress",
+              "ready",
+              "completed",
+              "cancelled",
+              "on_hold",
+              "overdue"
+            ]
+          },
+          "patient_action": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
+          "route_token": {
+            "type": "string",
+            "enum": [
+              "home",
+              "health",
+              "appointments",
+              "book_appointment",
+              "investigations",
+              "lab_results",
+              "diagnostic_results",
+              "referrals",
+              "discharge_summaries",
+              "messages"
+            ],
+            "nullable": true
+          },
+          "responsible_clinician_display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "responsible_clinician_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "safe_contact": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 320
           }
         }
       },
@@ -24517,6 +27163,851 @@
             "additionalProperties": true
           }
         }
+      },
+      "PortalDischargePendingResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "status",
+          "responsible_clinician_display_name",
+          "responsible_clinician_role"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "ready",
+              "completed"
+            ]
+          },
+          "responsible_clinician_display_name": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 160
+          },
+          "responsible_clinician_role": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "Doctor",
+              "Nurse",
+              "Pharmacist",
+              "Physiotherapist",
+              "Dietitian"
+            ]
+          }
+        }
+      },
+      "PortalDischargeSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "admission_id",
+          "patient_uid",
+          "patient_name_snapshot",
+          "age_years_snapshot",
+          "sex_snapshot",
+          "hospital_number",
+          "admitted_at",
+          "discharged_at",
+          "ward_at_discharge",
+          "primary_diagnosis",
+          "secondary_diagnoses",
+          "icd10_codes",
+          "procedures_performed",
+          "status",
+          "signed_by_name",
+          "signed_by_reg",
+          "signed_at",
+          "delivered_at",
+          "delivery_method",
+          "summary_language",
+          "created_at",
+          "updated_at",
+          "sections",
+          "pending_results"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name_snapshot": {
+            "type": "string",
+            "nullable": true
+          },
+          "age_years_snapshot": {
+            "type": "integer",
+            "nullable": true
+          },
+          "sex_snapshot": {
+            "type": "string",
+            "nullable": true
+          },
+          "hospital_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "admitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discharged_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "ward_at_discharge": {
+            "type": "string",
+            "nullable": true
+          },
+          "primary_diagnosis": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondary_diagnoses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "icd10_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "procedures_performed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "signed",
+              "delivered"
+            ]
+          },
+          "signed_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "signed_by_reg": {
+            "type": "string",
+            "nullable": true
+          },
+          "signed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivery_method": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "printed",
+              "email",
+              "whatsapp",
+              "abdm",
+              "sms"
+            ]
+          },
+          "summary_language": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PortalDischargeSummarySection"
+            }
+          },
+          "pending_results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PortalDischargePendingResult"
+            }
+          }
+        }
+      },
+      "PortalDischargeSummaryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PortalDischargeSummary"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "PortalDischargeSummarySection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "section_key",
+          "section_title",
+          "display_order",
+          "body",
+          "body_translations"
+        ],
+        "properties": {
+          "section_key": {
+            "type": "string"
+          },
+          "section_title": {
+            "type": "string"
+          },
+          "display_order": {
+            "type": "integer"
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "body_translations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PortalWhatsNext": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "goals",
+          "follow_ups",
+          "next_steps",
+          "count"
+        ],
+        "properties": {
+          "goals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PortalWhatsNextGoal"
+            }
+          },
+          "follow_ups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PortalWhatsNextFollowUp"
+            }
+          },
+          "next_steps": {
+            "type": "array",
+            "description": "Reserved for next steps backed by an exact live domain source. Immutable OP closure snapshots are not exposed.",
+            "maxItems": 0,
+            "items": {
+              "$ref": "#/components/schemas/PortalWhatsNextStep"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PortalWhatsNextFollowUp": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "care_plan_id",
+          "care_plan_name",
+          "origin_kind",
+          "due_at",
+          "appointment_id",
+          "appointment_status",
+          "reason",
+          "status",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "care_plan_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "care_plan_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "origin_kind": {
+            "type": "string"
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_status": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "scheduled",
+              "overdue"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PortalWhatsNextGoal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "care_plan_id",
+          "care_plan_name",
+          "plan_kind",
+          "goal_kind",
+          "description",
+          "measurement_label",
+          "measurement_unit",
+          "target_value",
+          "current_value",
+          "target_due_date",
+          "priority",
+          "status",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "care_plan_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "care_plan_name": {
+            "type": "string"
+          },
+          "plan_kind": {
+            "type": "string"
+          },
+          "goal_kind": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "measurement_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "measurement_unit": {
+            "type": "string",
+            "nullable": true
+          },
+          "target_value": {
+            "type": "string",
+            "nullable": true
+          },
+          "current_value": {
+            "type": "string",
+            "nullable": true
+          },
+          "target_due_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "critical"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "in_progress",
+              "on_hold"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PortalWhatsNextResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PortalWhatsNext"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "PortalWhatsNextStep": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "explanation",
+          "due_date",
+          "status",
+          "patient_action",
+          "responsible_clinician_display_name",
+          "responsible_clinician_role",
+          "safe_contact",
+          "route_token"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "explanation": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1200
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "planned",
+              "open",
+              "scheduled",
+              "pending",
+              "in_progress",
+              "ready",
+              "completed",
+              "cancelled",
+              "on_hold",
+              "overdue"
+            ]
+          },
+          "patient_action": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
+          "responsible_clinician_display_name": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 160
+          },
+          "responsible_clinician_role": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "Doctor",
+              "Nurse",
+              "Pharmacist",
+              "Physiotherapist",
+              "Dietitian"
+            ]
+          },
+          "safe_contact": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 240
+          },
+          "route_token": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "home",
+              "health",
+              "appointments",
+              "investigations",
+              "lab_results",
+              "diagnostic_results",
+              "referrals",
+              "discharge_summaries",
+              "messages"
+            ]
+          }
+        }
+      },
+      "PostDischargeContact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "admission_id",
+          "event_kind",
+          "contact_source",
+          "contact_channel",
+          "outcome_code",
+          "patient_safe_summary",
+          "policy_rule_code",
+          "occurred_at",
+          "recorded_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admission_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "event_kind": {
+            "type": "string",
+            "enum": [
+              "attempt",
+              "outcome"
+            ]
+          },
+          "contact_source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "registered_policy"
+            ]
+          },
+          "contact_channel": {
+            "type": "string",
+            "enum": [
+              "phone",
+              "sms",
+              "email",
+              "patient_portal",
+              "in_person",
+              "video",
+              "other"
+            ]
+          },
+          "outcome_code": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 80
+          },
+          "patient_safe_summary": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
+          "policy_rule_code": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PostDischargeContactList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contacts",
+          "count"
+        ],
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PostDischargeContact"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PostDischargeContactListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PostDischargeContactList"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "PostDischargeContactMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PostDischargeContactMutationResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "PostDischargeContactMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contact"
+        ],
+        "properties": {
+          "contact": {
+            "$ref": "#/components/schemas/PostDischargeContact"
+          }
+        }
+      },
+      "PostDischargeContactRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_kind",
+          "contact_source",
+          "contact_channel",
+          "idempotency_key"
+        ],
+        "properties": {
+          "event_kind": {
+            "type": "string",
+            "enum": [
+              "attempt",
+              "outcome"
+            ]
+          },
+          "contact_source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "registered_policy"
+            ]
+          },
+          "contact_channel": {
+            "type": "string",
+            "enum": [
+              "phone",
+              "sms",
+              "email",
+              "patient_portal",
+              "in_person",
+              "video",
+              "other"
+            ]
+          },
+          "outcome_code": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 80
+          },
+          "patient_safe_summary": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
+          "policy_rule_code": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "event_kind": {
+                    "enum": [
+                      "attempt"
+                    ]
+                  },
+                  "outcome_code": {
+                    "not": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "outcome_code"
+                ],
+                "properties": {
+                  "event_kind": {
+                    "enum": [
+                      "outcome"
+                    ]
+                  },
+                  "outcome_code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "contact_source": {
+                    "enum": [
+                      "manual"
+                    ]
+                  },
+                  "policy_rule_code": {
+                    "not": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "policy_rule_code"
+                ],
+                "properties": {
+                  "contact_source": {
+                    "enum": [
+                      "registered_policy"
+                    ]
+                  },
+                  "policy_rule_code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  }
+                }
+              }
+            ]
+          }
+        ]
       },
       "ProposeRevisionRequest": {
         "type": "object",
@@ -49169,6 +52660,46 @@
         ]
       }
     },
+    "/api/v1/admissions/{id}/follow-up-exception": {
+      "post": {
+        "operationId": "post_api_v1_admissions_by_id_follow_up_exception",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientFollowUpExceptionMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record an audited inpatient follow-up exception",
+        "description": "Records an explicit reason when the admission has no booked follow-up and returns only the canonical staff-safe evidence identifiers.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientFollowUpExceptionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admissions/{id}/longitudinal-risk": {
       "get": {
         "operationId": "get_api_v1_admissions_by_id_longitudinal_risk",
@@ -49363,6 +52894,302 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/EmrNextReviewRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admissions/{id}/pending-result-handoffs": {
+      "post": {
+        "operationId": "post_api_v1_admissions_by_id_pending_result_handoffs",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultHandoffMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record a named-owner handoff for a pending result",
+        "description": "Creates an exact-lineage handoff to the current primary physician. An idempotent replay also returns 201 with the same strict staff-safe handoff view.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientPendingResultHandoffRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admissions/{id}/pending-result-handoffs/{handoffId}/cross-sign": {
+      "post": {
+        "operationId": "post_api_v1_admissions_by_id_pending_result_handoffs_by_handoffId_cross_sign",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultCrossSignResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Cross-sign an available pending result as its named discharge owner",
+        "description": "Requires the live named discharge physician to attest the exact latest signed generation and its ordering-owner doctor disposition. The signed append-only receipt atomically resolves the handoff and its current parent and child tasks. Exact replay is safe after later rearm.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientPendingResultCrossSignRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admissions/{id}/pending-result-handoffs/{handoffId}/result-available": {
+      "post": {
+        "operationId": "post_api_v1_admissions_by_id_pending_result_handoffs_by_handoffId_result_available",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultAvailableResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Mark an exact pending result as available",
+        "description": "Marks the handed-off result generation available and returns the strict handoff plus a newly created review task. A repeated call returns 200 with action_task null when that open task already exists.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientPendingResultAvailableRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admissions/{id}/pending-result-handoffs/{handoffId}/summary-inclusion": {
+      "put": {
+        "operationId": "put_api_v1_admissions_by_id_pending_result_handoffs_by_handoffId_summary_inclusion",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultHandoffMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record pending-result inclusion in a signed summary",
+        "description": "Links the exact pending-result handoff to the signed structured discharge summary and returns the strict staff-safe handoff view.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientPendingResultSummaryInclusionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admissions/{id}/pending-results": {
+      "get": {
+        "operationId": "get_api_v1_admissions_by_id_pending_results",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultWorkResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read inpatient pending-result and discharge evidence",
+        "description": "Returns exact admission-scoped pending-result lineage, named ownership, signed-summary inclusion, and active discharge blockers without result content.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admissions/{id}/post-discharge-contacts": {
+      "get": {
+        "operationId": "get_api_v1_admissions_by_id_post_discharge_contacts",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostDischargeContactListResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List post-discharge contact evidence",
+        "description": "Returns the admission-scoped, patient-safe contact timeline without recorder, idempotency, audit, or arbitrary metadata fields.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_admissions_by_id_post_discharge_contacts",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostDischargeContactMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record patient-safe post-discharge contact evidence",
+        "description": "Records an admission-scoped contact attempt or outcome. An idempotent replay also returns 201 with the same patient-safe contact view.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostDischargeContactRequest"
               }
             }
           }
@@ -50869,6 +54696,46 @@
         }
       }
     },
+    "/api/v1/appointments/{id}/closure-evidence": {
+      "post": {
+        "operationId": "post_api_v1_appointments_by_id_closure_evidence",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpVisitClosureEvidenceMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record patient-safe OP visit closure evidence",
+        "description": "Records the clinician disposition and patient-safe next steps. A new record returns 201; an idempotent replay returns the same typed payload with 200.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpVisitClosureEvidenceRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/appointments/{id}/complete": {
       "post": {
         "operationId": "post_api_v1_appointments_by_id_complete",
@@ -50950,6 +54817,117 @@
         ]
       }
     },
+    "/api/v1/appointments/{id}/inpatient-transfer-requests": {
+      "post": {
+        "operationId": "post_api_v1_appointments_by_id_inpatient_transfer_requests",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpInpatientTransferResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Request an OP-to-inpatient named-recipient transfer",
+        "description": "Creates one exact-lineage handoff and review task. A new request returns 201; an idempotent replay returns the same strict staff-safe payload with 200.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpInpatientTransferRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/appointments/{id}/inpatient-transfer-requests/{handoffId}/accept": {
+      "post": {
+        "operationId": "post_api_v1_appointments_by_id_inpatient_transfer_requests_by_handoffId_accept",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpInpatientTransferResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Accept an OP-to-inpatient named-recipient transfer",
+        "description": "Accepts the exact handoff as its intended recipient and returns the strict admission-source tuple. A new acceptance and an idempotent replay both return 200.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpInpatientTransferAcceptRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/appointments/{id}/no-show": {
       "post": {
         "operationId": "post_api_v1_appointments_by_id_no_show",
@@ -50972,6 +54950,36 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/appointments/{id}/pathway-work": {
+      "get": {
+        "operationId": "get_api_v1_appointments_by_id_pathway_work",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppointmentPathwayWorkResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read appointment pathway work and closure readiness",
+        "description": "Returns the staff-safe OP work projection, named ownership, completion gates, and any recorded patient-safe closure evidence.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         ]
@@ -75128,6 +79136,46 @@
         ]
       }
     },
+    "/api/v1/emr/{id}/follow-up-exception": {
+      "post": {
+        "operationId": "post_api_v1_emr_by_id_follow_up_exception",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientFollowUpExceptionMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record an audited inpatient follow-up exception",
+        "description": "Records an explicit reason when the admission has no booked follow-up and returns only the canonical staff-safe evidence identifiers.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientFollowUpExceptionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/emr/{id}/longitudinal-risk": {
       "get": {
         "operationId": "get_api_v1_emr_by_id_longitudinal_risk",
@@ -75322,6 +79370,302 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/EmrNextReviewRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/emr/{id}/pending-result-handoffs": {
+      "post": {
+        "operationId": "post_api_v1_emr_by_id_pending_result_handoffs",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultHandoffMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record a named-owner handoff for a pending result",
+        "description": "Creates an exact-lineage handoff to the current primary physician. An idempotent replay also returns 201 with the same strict staff-safe handoff view.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientPendingResultHandoffRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/emr/{id}/pending-result-handoffs/{handoffId}/cross-sign": {
+      "post": {
+        "operationId": "post_api_v1_emr_by_id_pending_result_handoffs_by_handoffId_cross_sign",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultCrossSignResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Cross-sign an available pending result as its named discharge owner",
+        "description": "Requires the live named discharge physician to attest the exact latest signed generation and its ordering-owner doctor disposition. The signed append-only receipt atomically resolves the handoff and its current parent and child tasks. Exact replay is safe after later rearm.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientPendingResultCrossSignRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/emr/{id}/pending-result-handoffs/{handoffId}/result-available": {
+      "post": {
+        "operationId": "post_api_v1_emr_by_id_pending_result_handoffs_by_handoffId_result_available",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultAvailableResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Mark an exact pending result as available",
+        "description": "Marks the handed-off result generation available and returns the strict handoff plus a newly created review task. A repeated call returns 200 with action_task null when that open task already exists.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientPendingResultAvailableRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/emr/{id}/pending-result-handoffs/{handoffId}/summary-inclusion": {
+      "put": {
+        "operationId": "put_api_v1_emr_by_id_pending_result_handoffs_by_handoffId_summary_inclusion",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultHandoffMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record pending-result inclusion in a signed summary",
+        "description": "Links the exact pending-result handoff to the signed structured discharge summary and returns the strict staff-safe handoff view.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InpatientPendingResultSummaryInclusionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/emr/{id}/pending-results": {
+      "get": {
+        "operationId": "get_api_v1_emr_by_id_pending_results",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InpatientPendingResultWorkResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read inpatient pending-result and discharge evidence",
+        "description": "Returns exact admission-scoped pending-result lineage, named ownership, signed-summary inclusion, and active discharge blockers without result content.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/emr/{id}/post-discharge-contacts": {
+      "get": {
+        "operationId": "get_api_v1_emr_by_id_post_discharge_contacts",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostDischargeContactListResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List post-discharge contact evidence",
+        "description": "Returns the admission-scoped, patient-safe contact timeline without recorder, idempotency, audit, or arbitrary metadata fields.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_emr_by_id_post_discharge_contacts",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostDischargeContactMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record patient-safe post-discharge contact evidence",
+        "description": "Records an admission-scoped contact attempt or outcome. An idempotent replay also returns 201 with the same patient-safe contact view.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostDischargeContactRequest"
               }
             }
           }
@@ -86705,16 +91049,31 @@
         "operationId": "get_api_v1_patient_care_plans_whats_next",
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "The authenticated patient’s safe live goals and follow-up plans.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PortalWhatsNextResponse"
                 }
               }
             }
           }
-        }
+        },
+        "summary": "Get the patient-safe What’s Next projection",
+        "description": "Returns live patient-visible goals and follow-up plans. The reserved next_steps array remains empty until each step type has an exact live-domain source and satisfaction rule. Raw workflow tasks, immutable closure snapshots, blocker text, staff comments, ward notes, and ownership evidence are never returned.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ]
       }
     },
     "/api/v1/patient/chatbot/conversations": {
@@ -86955,23 +91314,27 @@
         "operationId": "get_api_v1_patient_discharge_summaries_admission_by_admissionId",
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "A signed or delivered patient-owned discharge summary.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PortalDischargeSummaryResponse"
                 }
               }
             }
           }
         },
+        "summary": "Get one signed patient discharge summary",
+        "description": "Returns only a signed or delivered discharge summary owned by the authenticated patient. Structured pending results contain only the patient-safe label, safe status, and backend-resolved responsible clinician identity.",
         "parameters": [
           {
             "name": "admissionId",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
             }
           }
         ]
@@ -86982,23 +91345,27 @@
         "operationId": "get_api_v1_patient_discharge_summaries_by_id",
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "A signed or delivered patient-owned discharge summary.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PortalDischargeSummaryResponse"
                 }
               }
             }
           }
         },
+        "summary": "Get one signed patient discharge summary",
+        "description": "Returns only a signed or delivered discharge summary owned by the authenticated patient. Structured pending results contain only the patient-safe label, safe status, and backend-resolved responsible clinician identity.",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
             }
           }
         ]
@@ -92446,16 +96813,31 @@
         "operationId": "get_api_v1_portal_care_plans_whats_next",
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "The authenticated patient’s safe live goals and follow-up plans.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PortalWhatsNextResponse"
                 }
               }
             }
           }
-        }
+        },
+        "summary": "Get the patient-safe What’s Next projection",
+        "description": "Returns live patient-visible goals and follow-up plans. The reserved next_steps array remains empty until each step type has an exact live-domain source and satisfaction rule. Raw workflow tasks, immutable closure snapshots, blocker text, staff comments, ward notes, and ownership evidence are never returned.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ]
       }
     },
     "/api/v1/portal/clinical-notes": {
@@ -92649,23 +97031,27 @@
         "operationId": "get_api_v1_portal_discharge_summaries_admission_by_admissionId",
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "A signed or delivered patient-owned discharge summary.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PortalDischargeSummaryResponse"
                 }
               }
             }
           }
         },
+        "summary": "Get one signed patient discharge summary",
+        "description": "Returns only a signed or delivered discharge summary owned by the authenticated patient. Structured pending results contain only the patient-safe label, safe status, and backend-resolved responsible clinician identity.",
         "parameters": [
           {
             "name": "admissionId",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
             }
           }
         ]
@@ -92676,23 +97062,27 @@
         "operationId": "get_api_v1_portal_discharge_summaries_by_id",
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "A signed or delivered patient-owned discharge summary.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PortalDischargeSummaryResponse"
                 }
               }
             }
           }
         },
+        "summary": "Get one signed patient discharge summary",
+        "description": "Returns only a signed or delivered discharge summary owned by the authenticated patient. Structured pending results contain only the patient-safe label, safe status, and backend-resolved responsible clinician identity.",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
             }
           }
         ]

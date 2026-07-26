@@ -24,6 +24,12 @@ const listBedsMock = jest.fn();
 const createWardMock = jest.fn();
 const admitPatientMock = jest.fn();
 
+jest.unstable_mockModule('../../services/emr/admissionService.js', () => ({
+  default: {
+    assignBedToAdmission: admitPatientMock,
+  },
+}));
+
 jest.unstable_mockModule('../../services/bed/bedService.js', () => ({
   default: {
     listWards: jest.fn(async () => ({ wards: [], scope: 'tenant' })),
@@ -36,7 +42,6 @@ jest.unstable_mockModule('../../services/bed/bedService.js', () => ({
     createBed: jest.fn(async () => ({})),
     updateBed: jest.fn(async () => null),
     deleteBed: jest.fn(async () => null),
-    admitPatient: admitPatientMock,
     dischargePatient: jest.fn(async () => null),
     updateBedNotes: jest.fn(async () => null),
   },
@@ -117,7 +122,7 @@ describe('bed controller catch blocks surface AppError code + details', () => {
 
     const response = await request(app)
       .post('/api/v1/beds/12/admit')
-      .send({ patient_uid: '22222222-2222-4222-8222-222222222222' });
+      .send({ admission_id: 73 });
 
     expect(response.statusCode).toBe(403);
     expect(response.body.code).toBe('BED_ICU_TIER_FORBIDDEN');

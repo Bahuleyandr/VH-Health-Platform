@@ -398,6 +398,16 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
     final adviceId = admissionAdvice == null
         ? null
         : frontOfficeAdmissionAdviceIdFrom(admissionAdvice);
+    final acceptedAdmissionSource = admissionAdvice == null
+        ? null
+        : frontOfficeAcceptedAdmissionSourceFrom(admissionAdvice);
+    final sourceAppointmentId = _intFrom(
+      acceptedAdmissionSource?['appointment_id'],
+    );
+    final effectiveAdviceId = sourceAppointmentId ?? adviceId;
+    final acceptedRecipientUid = _text(
+      acceptedAdmissionSource?['accepted_recipient_uid'],
+    );
     final adviceNote = _admissionAdviceNote(admissionAdvice);
     final chiefComplaintCtrl = TextEditingController(text: adviceNote);
     final diagnosisCtrl = TextEditingController();
@@ -429,6 +439,16 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                 setDialogState(
                   () => dialogError = s.lookup(
                     's4.lib.front_office_workbench.select_admitting_doctor',
+                  ),
+                );
+                return;
+              }
+              if (acceptedRecipientUid.isNotEmpty &&
+                  doctorUid.toLowerCase() !=
+                      acceptedRecipientUid.toLowerCase()) {
+                setDialogState(
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.accepted_transfer_doctor_must_match',
                   ),
                 );
                 return;
@@ -472,7 +492,14 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                     'patient_phone': _text(patient['phone']),
                   if (_text(patient['name']).isNotEmpty)
                     'patient_name': _text(patient['name']),
-                  'admission_advice_id': ?adviceId,
+                  'admission_advice_id': ?effectiveAdviceId,
+                  'appointment_id': ?sourceAppointmentId,
+                  if (acceptedAdmissionSource != null)
+                    'source_pathway_instance_id':
+                        acceptedAdmissionSource['source_pathway_instance_id'],
+                  if (acceptedAdmissionSource != null)
+                    'source_handoff_id':
+                        acceptedAdmissionSource['source_handoff_id'],
                   'admitting_doctor': doctorUid,
                   'chief_complaint': chiefComplaint,
                   if (diagnosisCtrl.text.trim().isNotEmpty)
@@ -524,6 +551,16 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                         _InlineAlert(
                           message: _admissionAdviceSummary(s, admissionAdvice),
                           color: AppTheme.primaryTeal,
+                        ),
+                      ],
+                      if (acceptedAdmissionSource != null) ...[
+                        const SizedBox(height: 8),
+                        _InlineAlert(
+                          message: s.format(
+                            's4.dynamic.front_office_workbench.accepted_transfer_source',
+                            {'uid': acceptedRecipientUid},
+                          ),
+                          color: AppTheme.primaryBlue,
                         ),
                       ],
                       const SizedBox(height: 12),

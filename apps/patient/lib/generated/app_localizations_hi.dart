@@ -944,6 +944,17 @@ class AppLocalizationsHi extends AppLocalizations {
       'डिस्चार्ज सारांश PDF नहीं खुल सका।';
 
   @override
+  String get dischargeSummaryPendingResultsTitle =>
+      'डिस्चार्ज के समय लंबित परिणाम';
+
+  @override
+  String get dischargeSummaryPendingResultsSubtitle =>
+      'यह हस्ताक्षरित सारांश जारी होने के समय ये परिणाम लंबित थे। नामित चिकित्सक फॉलो-अप के लिए जिम्मेदार हैं।';
+
+  @override
+  String get dischargeSummaryPendingResultClinician => 'जिम्मेदार चिकित्सक';
+
+  @override
   String get dischargeSummariesOfficialHint =>
       'आपके अस्पताल प्रवास के आधिकारिक हस्ताक्षरित सारांश अलग से प्राप्त किए जाते हैं।';
 
@@ -1965,7 +1976,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextSubtitle =>
-      'आपकी देखभाल टीम ने आपके लिए जो लक्ष्य और फॉलो-अप चिह्नित किए हैं।';
+      'आपकी देखभाल टीम द्वारा आपके लिए साझा की गई जानकारी और अगले कदम।';
 
   @override
   String get yourHealthWhatsNextGoals => 'लक्ष्य';
@@ -1990,6 +2001,51 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextDue => 'देय';
+
+  @override
+  String get yourHealthWhatsNextActions => 'अगले कदम';
+
+  @override
+  String get yourHealthWhatsNextStatus => 'स्थिति';
+
+  @override
+  String get yourHealthWhatsNextResponsibleClinician => 'जिम्मेदार चिकित्सक';
+
+  @override
+  String get yourHealthWhatsNextContact => 'संपर्क';
+
+  @override
+  String get yourHealthWhatsNextPatientAction => 'आपको क्या करना है';
+
+  @override
+  String get yourHealthWhatsNextStatusPlanned => 'नियोजित';
+
+  @override
+  String get yourHealthWhatsNextStatusOpen => 'खुला';
+
+  @override
+  String get yourHealthWhatsNextStatusScheduled => 'निर्धारित';
+
+  @override
+  String get yourHealthWhatsNextStatusPending => 'लंबित';
+
+  @override
+  String get yourHealthWhatsNextStatusInProgress => 'प्रगति पर';
+
+  @override
+  String get yourHealthWhatsNextStatusReady => 'तैयार';
+
+  @override
+  String get yourHealthWhatsNextStatusCompleted => 'पूरा';
+
+  @override
+  String get yourHealthWhatsNextStatusCancelled => 'रद्द';
+
+  @override
+  String get yourHealthWhatsNextStatusOnHold => 'स्थगित';
+
+  @override
+  String get yourHealthWhatsNextStatusOverdue => 'विलंबित';
 
   @override
   String get ancTimelineTitle => 'ANC टाइमलाइन';

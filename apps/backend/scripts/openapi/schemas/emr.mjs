@@ -45,6 +45,18 @@ const READINESS_BLOCKER_TYPE = [
   'INVALID_STATE_TRANSITION', 'NOT_MARKED_FOR_DISCHARGE', 'SUMMARY_NOT_SIGNED',
   'DRUGS_NOT_DISPENSED', 'DISCHARGE_CONSULTS_PENDING', 'NO_INVOICE', 'UNPAID_INVOICE',
   'PENDING_RESULTS', 'PENDING_RADIOLOGY', 'FOLLOWUP_NOT_BOOKED',
+  'STRUCTURED_SUMMARY_NOT_SIGNED',
+  'PATIENT_GUARDIAN_INSTRUCTIONS_REQUIRED',
+  'ESCALATION_CONTACT_REQUIRED',
+  'EQUIPMENT_HOME_CARE_PLAN_REQUIRED',
+  'DISCHARGE_DESTINATION_REQUIRED',
+  'TRANSPORT_PLAN_REQUIRED',
+  'EXTERNAL_TRANSFER_BRANCH_DEFERRED',
+  'INPATIENT_OWNER_ASSIGNMENT_DIVERGED',
+  'FORMAL_DISCHARGE_MEDICATION_RECONCILIATION_REQUIRED',
+  'ADMISSION_FOLLOW_UP_OR_EXCEPTION_REQUIRED',
+  'PENDING_RESULT_PROJECTION_NOT_READY',
+  'PENDING_RESULT_HANDOFF_INCOMPLETE',
 ];
 // AI safety_flags severity
 const AI_SAFETY_SEVERITY = ['low', 'medium', 'high', 'critical'];
@@ -343,7 +355,8 @@ export const schemas = {
 
   // ---- DischargeReadiness -----------------------------------------------
   // The rules readiness object (inside discharge-hub + discharge-readiness rules
-  // portion). LOOSE on blocker extras; checklist is a fixed 11-bool map.
+  // portion). LOOSE on blocker extras; checklist exposes the typed legacy and
+  // active-pathway readiness gates.
   DischargeReadiness: {
     type: 'object',
     additionalProperties: true,
@@ -372,6 +385,18 @@ export const schemas = {
           investigations_resolved: { type: 'boolean' },
           radiology_resolved: { type: 'boolean' },
           follow_up_booked: { type: 'boolean' },
+          structured_summary_signed: { type: 'boolean' },
+          patient_guardian_instructions_recorded: { type: 'boolean' },
+          escalation_contact_recorded: { type: 'boolean' },
+          equipment_home_care_plan_recorded: { type: 'boolean' },
+          discharge_destination_recorded: { type: 'boolean' },
+          transport_plan_recorded: { type: 'boolean' },
+          external_transfer_governance_ready: { type: 'boolean' },
+          inpatient_owner_assignment_converged: { type: 'boolean' },
+          formal_medication_reconciliation_completed: { type: 'boolean' },
+          admission_follow_up_or_exception: { type: 'boolean' },
+          pending_result_projection_ready: { type: 'boolean' },
+          pending_result_handoffs_complete: { type: 'boolean' },
         },
       },
       blockers: {
@@ -1344,8 +1369,15 @@ export const schemas = {
     properties: { bed_id: { type: 'integer' } },
   },
   EmrAttendingDoctorRequest: {
-    type: 'object', additionalProperties: true, required: ['attending_doctor'],
-    properties: { attending_doctor: { type: 'string', format: 'uuid' } },
+    type: 'object', additionalProperties: true, required: ['doctor_uid'],
+    properties: {
+      doctor_uid: { type: 'string', format: 'uuid' },
+      accepted_handoff_id: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+      },
+    },
   },
   EmrCodeStatusRequest: {
     type: 'object', additionalProperties: true, required: ['code_status'],

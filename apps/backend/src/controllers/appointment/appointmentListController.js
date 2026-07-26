@@ -6,7 +6,7 @@ import appointmentQueryService from '../../services/appointment/appointmentQuery
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { parseListQuery } from '../../utils/listQuery.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 export const listAppointments = async (req, res) => {
   try {
@@ -63,7 +63,7 @@ export const listAppointments = async (req, res) => {
     }, 'Appointments retrieved successfully');
   } catch (err) {
     logger.error('Error listing appointments:', err);
-    error(res, 'Failed to retrieve appointments', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to retrieve appointments');
   }
 };
 

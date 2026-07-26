@@ -15,6 +15,8 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
+import { publishOpChildResourceLinkedTx } from '../appointment/opChildResourceEventService.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -37,6 +39,7 @@ const INVESTIGATION_SELECT = {
   phone: true,
   patient_id: true,
   patient_uid: true,
+  admission_id: true,
   appointment_id: true,
   test_name: true,
   test_type: true,
@@ -56,7 +59,7 @@ const INVESTIGATION_SELECT = {
 
 export const createInvestigationOrder = async (orderData) => {
   const {
-    patient_id, appointment_id, doctor_uid, test_name, test_code, type,
+    patient_id, appointment_id, admission_id, admissionId, doctor_uid, test_name, test_code, type,
     priority = 'NORMAL', notes, orderedBy, actorRole = null,
     collection_location, collection_deadline_at,
     fasting_required, fasting_instructions,
@@ -222,6 +225,7 @@ export const createInvestigationOrder = async (orderData) => {
     ? String(fasting_instructions).trim()
     : (!effectiveFastingRequired && needsSampleCollection ? 'No fasting required unless the care team tells you otherwise.' : null);
   const effectiveTenantId = requireTenantId(patient.tenant_id || tenantId);
+  const inpatientAdmissionId = admission_id ?? admissionId ?? null;
 
   // Soft duplicate-order guard — warn, never block. OB investigation
   // order sets are gestational-age-specific (18w anomaly scan, 24w GDM
@@ -279,6 +283,7 @@ export const createInvestigationOrder = async (orderData) => {
         patient_id: parseInt(patient_id),
         patient_uid: patient.uid,
         tenant_id: effectiveTenantId,
+        admission_id: inpatientAdmissionId == null ? null : Number(inpatientAdmissionId),
         appointment_id: appointmentIdNum,
         test_name,
         test_code: resolvedTestCode,
@@ -297,7 +302,7 @@ export const createInvestigationOrder = async (orderData) => {
       select: { ...INVESTIGATION_SELECT, tenant_id: true },
     });
 
-    await recordRequiredInvestigationEvent({
+    const canonical = await recordRequiredInvestigationEvent({
       tenantId: created.tenant_id,
       patientUid: created.patient_uid,
       eventType: 'investigation.ordered',
@@ -320,6 +325,29 @@ export const createInvestigationOrder = async (orderData) => {
       },
       afterState: created,
     }, tx);
+    if (created.admission_id != null) {
+      await publishInpatientDiagnosticResourceLinkedTx({
+        tx,
+        tenantId: effectiveTenantId,
+        admissionId: created.admission_id,
+        patientUid: created.patient_uid,
+        resourceType: 'investigation',
+        resourceId: created.id,
+        canonicalTimelineEventId: canonical.timeline.id,
+        canonicalAuditEventId: canonical.audit.id,
+        occurredAt: created.requested_at,
+      });
+    }
+    if (created.appointment_id != null) {
+      await publishOpChildResourceLinkedTx(tx, {
+        tenantId: effectiveTenantId,
+        appointmentId: created.appointment_id,
+        patientUid: created.patient_uid,
+        resourceType: 'investigation',
+        resourceId: created.id,
+        source: 'investigations.create',
+      });
+    }
     return created;
   });
 
@@ -354,6 +382,8 @@ export const createLegacyInvestigation = async ({
   createdBy,
   actorRole = null,
   tenantId = null,
+  admissionId = null,
+  admission_id = null,
   result_summary = null,
   results = null,
   notes = null,
@@ -403,6 +433,7 @@ export const createLegacyInvestigation = async ({
         patient_id: patientId,
         patient_uid: patientUid,
         tenant_id: effectiveTenantId,
+        admission_id: admission_id ?? admissionId ?? null,
         test_name,
         file_key: file_key ?? null,
         status: completed ? 'COMPLETED' : 'REQUESTED',
@@ -420,6 +451,7 @@ export const createLegacyInvestigation = async ({
         patient_id: true,
         patient_uid: true,
         tenant_id: true,
+        admission_id: true,
         test_name: true,
         file_key: true,
         status: true,
@@ -432,7 +464,7 @@ export const createLegacyInvestigation = async ({
       },
     });
     const eventType = completed ? 'investigation.result_ready' : 'investigation.ordered';
-    await recordRequiredInvestigationEvent({
+    const canonical = await recordRequiredInvestigationEvent({
       tenantId: created.tenant_id,
       patientUid: created.patient_uid,
       eventType,
@@ -452,6 +484,19 @@ export const createLegacyInvestigation = async ({
       },
       afterState: created,
     }, tx);
+    if (created.admission_id != null) {
+      await publishInpatientDiagnosticResourceLinkedTx({
+        tx,
+        tenantId: effectiveTenantId,
+        admissionId: created.admission_id,
+        patientUid: created.patient_uid,
+        resourceType: 'investigation',
+        resourceId: created.id,
+        canonicalTimelineEventId: canonical.timeline.id,
+        canonicalAuditEventId: canonical.audit.id,
+        occurredAt: created.requested_at,
+      });
+    }
     return created;
   });
 

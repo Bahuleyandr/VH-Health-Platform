@@ -960,6 +960,18 @@ class AppLocalizationsMl extends AppLocalizations {
       'ഡിസ്ചാർജ് സംഗ്രഹ PDF തുറക്കാൻ കഴിഞ്ഞില്ല.';
 
   @override
+  String get dischargeSummaryPendingResultsTitle =>
+      'ഡിസ്ചാർജ് സമയത്ത് കാത്തിരുന്ന ഫലങ്ങൾ';
+
+  @override
+  String get dischargeSummaryPendingResultsSubtitle =>
+      'ഈ ഒപ്പിട്ട സംഗ്രഹം നൽകിയപ്പോൾ ഈ ഫലങ്ങൾ കാത്തിരിക്കുകയായിരുന്നു. പേരിട്ട ഡോക്ടർ തുടർപരിശോധനയ്ക്ക് ഉത്തരവാദിയാണ്.';
+
+  @override
+  String get dischargeSummaryPendingResultClinician =>
+      'ഉത്തരവാദിത്തമുള്ള ഡോക്ടർ';
+
+  @override
   String get dischargeSummariesOfficialHint =>
       'നിങ്ങളുടെ ആശുപത്രി താമസത്തിന്റെ ഔദ്യോഗിക ഒപ്പിട്ട സംഗ്രഹങ്ങൾ വേർതിരിച്ച് ലഭ്യമാക്കുന്നു.';
 
@@ -2000,7 +2012,7 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextSubtitle =>
-      'നിങ്ങളുടെ കെയർ ടീം നിങ്ങൾക്കായി അടയാളപ്പെടുത്തിയ ലക്ഷ്യങ്ങളും ഫോളോ-അപ്പുകളും.';
+      'നിങ്ങളുടെ പരിചരണ സംഘം നിങ്ങളുമായി പങ്കുവെച്ച വിവരങ്ങളും അടുത്ത ഘട്ടങ്ങളും.';
 
   @override
   String get yourHealthWhatsNextGoals => 'ലക്ഷ്യങ്ങൾ';
@@ -2026,6 +2038,52 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextDue => 'അവസാന തീയതി';
+
+  @override
+  String get yourHealthWhatsNextActions => 'അടുത്ത ഘട്ടങ്ങൾ';
+
+  @override
+  String get yourHealthWhatsNextStatus => 'നില';
+
+  @override
+  String get yourHealthWhatsNextResponsibleClinician =>
+      'ഉത്തരവാദിത്തമുള്ള ഡോക്ടർ';
+
+  @override
+  String get yourHealthWhatsNextContact => 'ബന്ധപ്പെടുക';
+
+  @override
+  String get yourHealthWhatsNextPatientAction => 'നിങ്ങൾ ചെയ്യേണ്ടത്';
+
+  @override
+  String get yourHealthWhatsNextStatusPlanned => 'ആസൂത്രണം ചെയ്തത്';
+
+  @override
+  String get yourHealthWhatsNextStatusOpen => 'തുറന്നിരിക്കുന്നു';
+
+  @override
+  String get yourHealthWhatsNextStatusScheduled => 'നിശ്ചയിച്ചത്';
+
+  @override
+  String get yourHealthWhatsNextStatusPending => 'കാത്തിരിക്കുന്നു';
+
+  @override
+  String get yourHealthWhatsNextStatusInProgress => 'പുരോഗതിയിൽ';
+
+  @override
+  String get yourHealthWhatsNextStatusReady => 'തയ്യാറാണ്';
+
+  @override
+  String get yourHealthWhatsNextStatusCompleted => 'പൂർത്തിയായി';
+
+  @override
+  String get yourHealthWhatsNextStatusCancelled => 'റദ്ദാക്കി';
+
+  @override
+  String get yourHealthWhatsNextStatusOnHold => 'താൽക്കാലികമായി നിർത്തി';
+
+  @override
+  String get yourHealthWhatsNextStatusOverdue => 'വൈകിയിരിക്കുന്നു';
 
   @override
   String get ancTimelineTitle => 'ANC ടൈംലൈൻ';

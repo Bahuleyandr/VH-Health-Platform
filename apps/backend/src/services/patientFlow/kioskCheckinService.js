@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { ensureAppointmentQueueForAppointment } from '../appointment/appointmentQueueService.js';
+import { recordAppointmentCheckinEvidenceTx } from '../appointment/appointmentLifecycleService.js';
 import { findRegistrationDuplicateCandidates } from '../patient/patientDedupeService.js';
 import { AppError } from '../../utils/AppError.js';
 import { emitAppointmentEvent, emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
@@ -629,6 +630,7 @@ async function recordCheckin(db, {
 async function performCheckin({
   tenantId,
   actorUid,
+  actorRole = null,
   patientUid = null,
   body = {},
   channel,
@@ -739,6 +741,14 @@ async function performCheckin({
         same_day_duplicate_count: sameDayDuplicateCount,
       },
     });
+    await recordAppointmentCheckinEvidenceTx(tx, {
+      tenantId,
+      appointment,
+      checkin,
+      actorUid,
+      actorRole,
+      source: channel,
+    });
     return checkinResponse({ appointment, checkin, queue: queueInfo });
   });
 
@@ -759,10 +769,17 @@ async function performCheckin({
   return result;
 }
 
-export async function patientKioskCheckin({ tenantId, patientUid, body, actorUid }) {
+export async function patientKioskCheckin({
+  tenantId,
+  patientUid,
+  body,
+  actorUid,
+  actorRole = 'PATIENT',
+}) {
   return performCheckin({
     tenantId,
     actorUid,
+    actorRole,
     patientUid,
     body,
     channel: 'kiosk_self',
@@ -771,10 +788,16 @@ export async function patientKioskCheckin({ tenantId, patientUid, body, actorUid
   });
 }
 
-export async function supervisedKioskCheckin({ tenantId, body, actorUid }) {
+export async function supervisedKioskCheckin({
+  tenantId,
+  body,
+  actorUid,
+  actorRole = null,
+}) {
   return performCheckin({
     tenantId,
     actorUid,
+    actorRole,
     patientUid: null,
     body,
     channel: 'kiosk_supervised',

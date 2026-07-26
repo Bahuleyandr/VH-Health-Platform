@@ -44,6 +44,9 @@ jest.unstable_mockModule('../../services/maternity/maternityService.js', () => (
 jest.unstable_mockModule('../../services/patient/medicationReminderService.js', () => ({
   createPrescriptionReminders: jest.fn(async () => []),
 }));
+jest.unstable_mockModule('../../services/carePlan/carePlanService.js', () => ({
+  createFollowUp: jest.fn(async () => ({ id: 1 })),
+}));
 jest.unstable_mockModule('../../utils/notifications/notificationDispatcher.js', () => ({
   dispatch: jest.fn(async () => {}),
 }));

@@ -380,6 +380,10 @@ class _DischargeSummaryDetail extends StatelessWidget {
                 : l10n.dischargeSummaryOpenPdf,
           ),
         ),
+        if (summary.canShowPendingResults) ...[
+          const SizedBox(height: 18),
+          _PendingResultsCard(results: summary.pendingResults),
+        ],
         const SizedBox(height: 18),
         Text(
           l10n.dischargeSummarySectionsTitle,
@@ -402,6 +406,115 @@ class _DischargeSummaryDetail extends StatelessWidget {
               body: section.bodyForLanguage(languageCode),
             ),
           ),
+      ],
+    );
+  }
+}
+
+class _PendingResultsCard extends StatelessWidget {
+  const _PendingResultsCard({required this.results});
+
+  final List<DischargePendingResult> results;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.science_outlined, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    l10n.dischargeSummaryPendingResultsTitle,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              l10n.dischargeSummaryPendingResultsSubtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            for (var index = 0; index < results.length; index++) ...[
+              if (index > 0) const Divider(height: 18),
+              _PendingResultRow(result: results[index]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingResultRow extends StatelessWidget {
+  const _PendingResultRow({required this.result});
+
+  final DischargePendingResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final clinician = [
+      if ((result.responsibleClinicianDisplayName ?? '').isNotEmpty)
+        result.responsibleClinicianDisplayName!,
+      if ((result.responsibleClinicianRole ?? '').isNotEmpty)
+        result.responsibleClinicianRole!,
+    ].join(' - ');
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.hourglass_top_outlined,
+          size: 18,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                result.label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (result.status.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  '${l10n.yourHealthWhatsNextStatus}: '
+                  '${_pendingResultStatusLabel(l10n, result.status)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              if (clinician.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  '${l10n.dischargeSummaryPendingResultClinician}: $clinician',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -546,4 +659,17 @@ String _titleize(String raw) {
       .where((part) => part.isNotEmpty)
       .map((part) => part[0].toUpperCase() + part.substring(1).toLowerCase())
       .join(' ');
+}
+
+String _pendingResultStatusLabel(AppLocalizations l10n, String raw) {
+  switch (raw.trim().toLowerCase()) {
+    case 'pending':
+      return l10n.yourHealthWhatsNextStatusPending;
+    case 'ready':
+      return l10n.yourHealthWhatsNextStatusReady;
+    case 'completed':
+      return l10n.yourHealthWhatsNextStatusCompleted;
+    default:
+      return raw.replaceAll('_', ' ');
+  }
 }

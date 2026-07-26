@@ -136,6 +136,31 @@ class ClinicalInboxProvider extends ChangeNotifier {
     }
   }
 
+  Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
+    PostDischargeCrossSignCommand command,
+  ) async {
+    if (_mutatingIds.contains(command.actionTaskId)) {
+      throw StateError('This task is already being updated');
+    }
+    _mutatingIds.add(command.actionTaskId);
+    notifyListeners();
+    try {
+      final receipt = await _api.crossSignPendingResult(command);
+      await refresh();
+      _lastError = null;
+      return receipt;
+    } catch (e) {
+      _lastError = e.toString();
+      if (e is PostDischargeCrossSignException && e.requiresRefresh) {
+        await refresh();
+      }
+      rethrow;
+    } finally {
+      _mutatingIds.remove(command.actionTaskId);
+      notifyListeners();
+    }
+  }
+
   Future<DiagnosticActionReceipt> reopenDiagnosticResult({
     required String generationId,
     required String reason,

@@ -656,6 +656,40 @@ export async function getCarePathwayInstanceTx({ tx, tenantId, id } = {}) {
   return { ...instance, run: runRows[0], steps, tasks, approvals, handoffs };
 }
 
+export async function resolvePathwayRuntimeRegistryVersionTx({
+  tx,
+  tenantId,
+  pathwayInstanceId,
+} = {}) {
+  const db = requireTx(tx);
+  const rows = await db.$queryRawUnsafe(
+    `SELECT creation.metadata
+       FROM care_pathway_transition_events AS creation
+      WHERE creation.tenant_id = $1::uuid
+        AND creation.pathway_instance_id = $2::uuid
+        AND creation.transition_scope = 'pathway'
+        AND creation.transition_key = 'pathway_instance_created'
+        AND creation.sequence_number = 1
+      LIMIT 2`,
+    tenantId,
+    pathwayInstanceId,
+  );
+  const metadata = parseJsonObject(rows[0]?.metadata);
+  const runtimeMetadata = parseJsonObject(metadata.pathway_runtime);
+  const registryVersion = runtimeMetadata.registry_version;
+  if (
+    rows.length !== 1
+    || !Number.isInteger(registryVersion)
+    || registryVersion <= 0
+  ) {
+    noRowConflict(
+      'Care pathway runtime registry pin is missing or invalid',
+      'PATHWAY_RUNTIME_REGISTRY_PIN_MISSING',
+    );
+  }
+  return registryVersion;
+}
+
 export async function assertPathwayReplayDefinitionPinTx({
   tx,
   tenantId,
@@ -1241,6 +1275,7 @@ export default {
   loadGovernedPathwayDefinitionTx,
   insertPathwayRuntimeTx,
   getCarePathwayInstanceTx,
+  resolvePathwayRuntimeRegistryVersionTx,
   assertPathwayReplayDefinitionPinTx,
   lockPathwayRuntimeTx,
   transitionPathwayRunCasTx,

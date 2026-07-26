@@ -657,7 +657,9 @@ pathway.
 
 **Required branches:** cancellation/reschedule · no-show · teleconsult failure · emergency escalation ·
 admission advised · surgery advised · diagnostics pending · referral pending · follow-up overdue/lost ·
-chronic-care transfer.
+chronic-care transfer. S4 defers the surgery-advice implementation to S5 and must not claim a Gen4
+event until its authoritative transactional domain exists; that staged implementation choice does not
+remove surgery advice from the authoritative program requirements.
 
 **Closure rule:** appointment completion closes the **visit**, not necessarily the pathway. The OP
 pathway closes only when required child actions are complete **or** each open action's ownership has

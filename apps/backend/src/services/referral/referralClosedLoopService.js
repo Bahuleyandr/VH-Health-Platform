@@ -13,6 +13,7 @@ import { publishEvent } from '../events/eventOutboxService.js';
 import { CARE_PATHWAY_KEYS, PATHWAY_MODES } from '../pathways/pathwayMode.js';
 import { resolvePathwayModeTx } from '../pathways/pathwayRuntimePersistence.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { publishOpChildResourceLinkedFromEncounterTx } from '../appointment/opChildResourceEventService.js';
 import {
   acknowledgeTask,
   createTask,
@@ -748,6 +749,14 @@ export async function createClosedLoopReferral(input = {}, context = {}) {
       toOwnerUid: referringDoctor,
       actor,
       payload: { referred_to_doctor: receiverUid, referred_to_department: department },
+    });
+    await publishOpChildResourceLinkedFromEncounterTx(tx, {
+      tenantId,
+      encounterId: referral.encounter_id,
+      patientUid: referral.patient_uid,
+      resourceType: 'referral',
+      resourceId: referral.id,
+      source: 'referrals.closed_loop_create',
     });
     if (referralType === INTERNAL_TYPE) {
       const sla = await startWorkflowSla({

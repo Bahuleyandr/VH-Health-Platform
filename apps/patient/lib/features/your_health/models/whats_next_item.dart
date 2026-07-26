@@ -1,8 +1,16 @@
 class WhatsNextBundle {
-  const WhatsNextBundle({required this.goals, required this.followUps});
+  const WhatsNextBundle({
+    required this.goals,
+    required this.followUps,
+    this.nextSteps = const [],
+  });
 
   factory WhatsNextBundle.fromJson(Map<String, dynamic> json) {
     return WhatsNextBundle(
+      nextSteps: _asList(json['next_steps'])
+          .map(WhatsNextStep.fromJson)
+          .where((step) => step.label.isNotEmpty)
+          .toList(growable: false),
       goals: _asList(
         json['goals'],
       ).map(WhatsNextGoal.fromJson).toList(growable: false),
@@ -12,10 +20,53 @@ class WhatsNextBundle {
     );
   }
 
+  final List<WhatsNextStep> nextSteps;
   final List<WhatsNextGoal> goals;
   final List<WhatsNextFollowUp> followUps;
 
-  bool get isEmpty => goals.isEmpty && followUps.isEmpty;
+  bool get isEmpty => nextSteps.isEmpty && goals.isEmpty && followUps.isEmpty;
+}
+
+class WhatsNextStep {
+  const WhatsNextStep({
+    required this.label,
+    this.explanation,
+    this.dueDate,
+    this.status,
+    this.patientAction,
+    this.responsibleClinicianDisplayName,
+    this.responsibleClinicianRole,
+    this.safeContact,
+    this.routeToken,
+  });
+
+  factory WhatsNextStep.fromJson(Map<String, dynamic> json) {
+    return WhatsNextStep(
+      label: _asString(json['label']),
+      explanation: _nullableString(json['explanation']),
+      dueDate: _asDate(json['due_date']),
+      status: _nullableString(json['status']),
+      patientAction: _nullableString(json['patient_action']),
+      responsibleClinicianDisplayName: _nullableString(
+        json['responsible_clinician_display_name'],
+      ),
+      responsibleClinicianRole: _nullableString(
+        json['responsible_clinician_role'],
+      ),
+      safeContact: _nullableString(json['safe_contact']),
+      routeToken: _nullableString(json['route_token']),
+    );
+  }
+
+  final String label;
+  final String? explanation;
+  final DateTime? dueDate;
+  final String? status;
+  final String? patientAction;
+  final String? responsibleClinicianDisplayName;
+  final String? responsibleClinicianRole;
+  final String? safeContact;
+  final String? routeToken;
 }
 
 class WhatsNextGoal {

@@ -9,6 +9,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/models/care_pathway_work_models.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -76,9 +77,20 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       final result = await MedicalApiService.getDischargeSummary(
         widget.admissionId,
       );
+      final pathwayMetadata = <String, dynamic>{
+        for (final key in [
+          'pathway_mode',
+          'pending_results',
+          'pending_result_handoffs',
+        ])
+          if (result[key] != null) key: result[key],
+      };
       final wrapper = result['discharge_summary'];
       if (wrapper is Map) {
         final item = Map<String, dynamic>.from(wrapper);
+        for (final entry in pathwayMetadata.entries) {
+          item.putIfAbsent(entry.key, () => entry.value);
+        }
         final content = item['content'];
         if (content is Map) {
           final summary = Map<String, dynamic>.from(content);
@@ -91,6 +103,8 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                 item['is_signed'] == true || summary['is_signed'] == true;
           });
         }
+      } else if (pathwayMetadata.isNotEmpty) {
+        setState(() => _summaryEnvelope = pathwayMetadata);
       }
     } catch (e) {
       if (!mounted) return;
@@ -119,7 +133,6 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       _populateControllers(summary);
       setState(() {
         _summary = summary;
-        _summaryEnvelope = null;
         _isSigned = false;
       });
     } catch (e) {
@@ -800,6 +813,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
             ),
           ],
 
+          if (_pendingResultHandoffs.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildPendingResultReview(theme),
+          ],
+
           // Procedures (read-only)
           if (_summary?['procedures_performed'] != null &&
               (_summary!['procedures_performed'] as List).isNotEmpty) ...[
@@ -835,6 +853,184 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         ],
       ),
     );
+  }
+
+  List<DischargePendingResultHandoff> get _pendingResultHandoffs {
+    final summary = _summary ?? const <String, dynamic>{};
+    final envelope = _summaryEnvelope ?? const <String, dynamic>{};
+    var raw =
+        summary['pending_result_handoffs'] ??
+        summary['pending_results'] ??
+        envelope['pending_result_handoffs'] ??
+        envelope['pending_results'];
+    if (raw is Map) {
+      raw = raw['items'] ?? raw['pending_result_handoffs'];
+    }
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => DischargePendingResultHandoff.fromJson(
+            Map<String, dynamic>.from(item),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Widget _buildPendingResultReview(ThemeData theme) {
+    final s = AppStrings.of(context);
+    final mode = _pendingResultPathwayMode;
+    final explanationKey = switch (mode) {
+      'off' => 's4.lib.discharge_hub.pathway_mode_off_explanation',
+      'shadow' => 's4.lib.discharge_hub.pathway_mode_shadow_explanation',
+      _ => 's4.lib.discharge_summary.pending_result_review_explanation',
+    };
+    return Card(
+      key: const Key('discharge-summary-pending-results'),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              s.lookup('s4.lib.discharge_summary.pending_result_review'),
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(s.lookup(explanationKey)),
+            const SizedBox(height: 10),
+            ..._pendingResultHandoffs.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _buildPendingResultRow(theme, item),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPendingResultRow(
+    ThemeData theme,
+    DischargePendingResultHandoff item,
+  ) {
+    final s = AppStrings.of(context);
+    final mode = _pendingResultPathwayMode;
+    final enforcesBlocking = item.blocking && mode != 'off' && mode != 'shadow';
+    final label = item.safeLabel.isEmpty
+        ? s.lookup('s4.lib.discharge_hub.pending_result')
+        : item.safeLabel;
+    final owner = [
+      item.ownerName,
+      item.ownerRole,
+      item.ownerRoute,
+    ].whereType<String>().where((part) => part.isNotEmpty).join(' · ');
+    final blockerDetails = item.blockerCodes
+        .map((code) => code.trim())
+        .where((part) => part.isNotEmpty)
+        .toSet()
+        .toList();
+
+    return Container(
+      key: Key('summary-pending-result-${item.sourceType}-${item.sourceId}'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color:
+            (enforcesBlocking
+                    ? AppTheme.errorOnSurface
+                    : AppTheme.warningOnSurface)
+                .withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color:
+              (enforcesBlocking
+                      ? AppTheme.errorOnSurface
+                      : AppTheme.warningOnSurface)
+                  .withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                enforcesBlocking
+                    ? Icons.report_outlined
+                    : Icons.science_outlined,
+                size: 20,
+                color: enforcesBlocking
+                    ? AppTheme.errorOnSurface
+                    : AppTheme.warningOnSurface,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      [
+                        item.sourceType.replaceAll('_', ' '),
+                        item.currentStatus.replaceAll('_', ' '),
+                      ].where((part) => part.isNotEmpty).join(' · '),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            owner.isEmpty
+                ? s.lookup('s4.lib.discharge_hub.named_physician_not_recorded')
+                : s.format('s4.dynamic.discharge_hub.named_physician', {
+                    'owner': owner,
+                  }),
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          Text(
+            item.summaryIncluded
+                ? s.lookup('s4.lib.discharge_hub.included_in_signed_summary')
+                : s.lookup('s4.lib.discharge_hub.not_in_signed_summary'),
+          ),
+          Text(
+            item.handoffComplete
+                ? s.lookup('s4.lib.discharge_hub.handoff_accepted')
+                : s.lookup('s4.lib.discharge_hub.handoff_incomplete'),
+          ),
+          if (blockerDetails.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              s.lookup(
+                mode == 'off' || mode == 'shadow'
+                    ? 's4.lib.discharge_hub.review_findings'
+                    : 's4.lib.discharge_hub.blocking_reasons',
+              ),
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            ...blockerDetails.map((reason) => Text('• $reason')),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String get _pendingResultPathwayMode {
+    final summary = _summary ?? const <String, dynamic>{};
+    final envelope = _summaryEnvelope ?? const <String, dynamic>{};
+    return (summary['pathway_mode'] ?? envelope['pathway_mode'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
   }
 
   Widget _buildAiBanner(ThemeData theme) {

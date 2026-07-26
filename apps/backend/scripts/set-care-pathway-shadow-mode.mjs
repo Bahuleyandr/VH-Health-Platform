@@ -4,7 +4,13 @@ import process from 'node:process';
 
 import { Client } from 'pg';
 
+import {
+  planInpatientDischargeSectionProvisioning,
+  provisionInpatientDischargeSectionsTx,
+} from './lib/provision-inpatient-discharge-sections.mjs';
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const INPATIENT_PATHWAY_KEY = 'inpatient_admission_to_recovery';
 const CANONICAL_PATHWAY_KEYS = new Set([
   'diagnostics_order_to_action',
   'referral_request_to_closure',
@@ -93,6 +99,11 @@ async function main() {
     );
     if (!tenant.rows[0]) throw new Error('Tenant was not found');
     const previousMode = tenant.rows[0].previous_mode;
+    const provisionInpatientDischargeSections =
+      pathwayKey === INPATIENT_PATHWAY_KEY && mode === 'shadow';
+    const dischargeSectionPlan = provisionInpatientDischargeSections && !apply
+      ? await planInpatientDischargeSectionProvisioning(client, { tenantId })
+      : null;
     if (!apply) {
       await client.query('ROLLBACK');
       process.stdout.write(`${JSON.stringify({
@@ -103,6 +114,7 @@ async function main() {
         requested_mode: mode,
         actor_uid: actorUid,
         reason,
+        inpatient_discharge_section_provisioning: dischargeSectionPlan,
       }, null, 2)}\n`);
       return;
     }
@@ -125,6 +137,9 @@ async function main() {
         WHERE id = $1::uuid`,
       [tenantId, pathwayKey, mode],
     );
+    const dischargeSectionProvisioning = provisionInpatientDischargeSections
+      ? await provisionInpatientDischargeSectionsTx(client, { tenantId })
+      : null;
     await client.query(
       `INSERT INTO audit_logs
          (tenant_id, uid, role, actor_uid, action, resource, resource_id, metadata)
@@ -135,9 +150,19 @@ async function main() {
             'previous_mode', $5::text,
             'new_mode', $6::text,
             'reason', $7::text,
-            'source', 'set-care-pathway-shadow-mode.mjs'
+            'source', 'set-care-pathway-shadow-mode.mjs',
+            'inpatient_discharge_section_provisioning', $8::jsonb
           ))`,
-      [tenantId, actorUid, actor.rows[0].role, pathwayKey, previousMode, mode, reason],
+      [
+        tenantId,
+        actorUid,
+        actor.rows[0].role,
+        pathwayKey,
+        previousMode,
+        mode,
+        reason,
+        JSON.stringify(dischargeSectionProvisioning),
+      ],
     );
     await client.query('COMMIT');
     process.stdout.write(`${JSON.stringify({
@@ -148,6 +173,8 @@ async function main() {
       current_mode: mode,
       actor_uid: actorUid,
       reason,
+      inpatient_discharge_section_provisioning:
+        dischargeSectionProvisioning,
     }, null, 2)}\n`);
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

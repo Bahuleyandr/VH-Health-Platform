@@ -66,6 +66,20 @@ const CRITICAL_RESULT_RULE_CODE = 'critical_result_ack';
 // the helper delivers any event when webhooks are enabled.
 const UNACKED_EVENT = 'CRITICAL_RESULT_UNACKED';
 
+const S4_PROTECTED_TASK_KINDS = new Set([
+  'pathway_owner_transfer_review',
+  'op_to_inpatient_transfer_review',
+]);
+const S4_PROTECTED_RESOURCE_TYPES = new Set([
+  'discharge_pending_result_handoff',
+  'discharge_pending_result_action',
+]);
+
+function isS4ProtectedTask(taskRow) {
+  return S4_PROTECTED_TASK_KINDS.has(String(taskRow?.task_kind || ''))
+    || S4_PROTECTED_RESOURCE_TYPES.has(String(taskRow?.related_resource_type || ''));
+}
+
 // Role-family fallback so a tier is NEVER a silent no-op. A notify tier resolves
 // to its primary concrete role (DUTY→DUTY_DOCTOR, LEADERSHIP→CMO); if NO active
 // user holds that exact role in the tenant, we widen to the role's clinical
@@ -259,6 +273,10 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
   const tier = payload.tier ?? null;
   const action = ruleRow.action_kind;
   const nowIso = now.toISOString();
+
+  if (action === 'escalate_priority' && isS4ProtectedTask(taskRow)) {
+    throw new Error('Protected S4 tasks cannot be reprioritized by the generic escalation engine');
+  }
 
   // Build the escalations[] entry + the new metadata object (read-modify-write).
   const prevMeta = taskRow.metadata && typeof taskRow.metadata === 'object' ? taskRow.metadata : {};

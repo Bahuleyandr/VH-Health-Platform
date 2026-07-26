@@ -1017,6 +1017,9 @@
   "dischargeSummaryOpenPdf": "PDF తెరవండి",
   "dischargeSummaryOpeningPdf": "PDF తెరుస్తోంది…",
   "dischargeSummaryPdfOpenFailed": "డిశ్చార్జ్ సారాంశ PDF తెరవలేకపోయింది.",
+  "dischargeSummaryPendingResultsTitle": "డిశ్చార్జ్ సమయంలో పెండింగ్‌లో ఉన్న ఫలితాలు",
+  "dischargeSummaryPendingResultsSubtitle": "ఈ సంతకం చేసిన సారాంశం జారీ చేసినప్పుడు ఈ ఫలితాలు పెండింగ్‌లో ఉన్నాయి. పేరుతో పేర్కొన్న వైద్యుడు ఫాలో-అప్‌కు బాధ్యత వహిస్తారు.",
+  "dischargeSummaryPendingResultClinician": "బాధ్యత వహించే వైద్యుడు",
   "dischargeSummariesOfficialHint": "మీ ఆసుపత్రి నివాసానికి సంబంధించిన అధికారిక సంతకం చేసిన సారాంశాలు వేరుగా పొందబడతాయి.",
   "labResultsTitle": "ల్యాబ్ ఫలితాలు",
   "labResultsEmptyTitle": "ఇంకా ల్యాబ్ ఫలితాలు లేవు",
@@ -1950,7 +1953,7 @@
   "@yourHealthWhatsNextTitle": {
     "description": "Heading for the care-plan next steps section in Your Health"
   },
-  "yourHealthWhatsNextSubtitle": "మీ కేర్ టీమ్ మీ కోసం గుర్తించిన లక్ష్యాలు మరియు ఫాలో-అప్స్.",
+  "yourHealthWhatsNextSubtitle": "మీ సంరక్షణ బృందం మీతో పంచుకున్న సమాచారం మరియు తదుపరి దశలు.",
   "@yourHealthWhatsNextSubtitle": {
     "description": "Subtitle for the care-plan next steps section"
   },
@@ -1986,6 +1989,21 @@
   "@yourHealthWhatsNextDue": {
     "description": "Label before a care-plan due date"
   },
+  "yourHealthWhatsNextActions": "తదుపరి దశలు",
+  "yourHealthWhatsNextStatus": "స్థితి",
+  "yourHealthWhatsNextResponsibleClinician": "బాధ్యత వహించే వైద్యుడు",
+  "yourHealthWhatsNextContact": "సంప్రదింపు",
+  "yourHealthWhatsNextPatientAction": "మీరు చేయాల్సింది",
+  "yourHealthWhatsNextStatusPlanned": "ప్రణాళిక చేయబడింది",
+  "yourHealthWhatsNextStatusOpen": "తెరిచి ఉంది",
+  "yourHealthWhatsNextStatusScheduled": "షెడ్యూల్ చేయబడింది",
+  "yourHealthWhatsNextStatusPending": "పెండింగ్‌లో ఉంది",
+  "yourHealthWhatsNextStatusInProgress": "కొనసాగుతోంది",
+  "yourHealthWhatsNextStatusReady": "సిద్ధంగా ఉంది",
+  "yourHealthWhatsNextStatusCompleted": "పూర్తయింది",
+  "yourHealthWhatsNextStatusCancelled": "రద్దు చేయబడింది",
+  "yourHealthWhatsNextStatusOnHold": "తాత్కాలికంగా నిలిపివేయబడింది",
+  "yourHealthWhatsNextStatusOverdue": "ఆలస్యమైంది",
   "ancTimelineTitle": "ANC టైమ్‌లైన్",
   "ancLoadFailed": "ANC టైమ్‌లైన్ లోడ్ కాలేదు",
   "ancNoActivePregnancyTitle": "సక్రియ గర్భధారణ రికార్డులో లేదు",

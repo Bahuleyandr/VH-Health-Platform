@@ -1,5 +1,5 @@
 import { compileWorkflowDefinition } from '../workflow/workflowDefinitionCompiler.js';
-import { workflowRuntimeRegistry } from '../workflow/workflowRuntimeRegistry.js';
+import { workflowRuntimeRegistryV3 } from '../workflow/workflowRuntimeRegistry.js';
 import { CARE_PATHWAY_KEYS } from './pathwayMode.js';
 
 export const REFERRAL_REQUEST_TO_CLOSURE_DEFINITION = Object.freeze({
@@ -47,7 +47,7 @@ export const REFERRAL_REQUEST_TO_CLOSURE_DEFINITION = Object.freeze({
 });
 
 export function compileReferralRequestToClosureDefinition({
-  registry = workflowRuntimeRegistry,
+  registry = workflowRuntimeRegistryV3,
 } = {}) {
   return compileWorkflowDefinition(REFERRAL_REQUEST_TO_CLOSURE_DEFINITION, { registry });
 }

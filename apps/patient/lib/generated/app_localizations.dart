@@ -1862,6 +1862,24 @@ abstract class AppLocalizations {
   /// **'Could not open the discharge summary PDF.'**
   String get dischargeSummaryPdfOpenFailed;
 
+  /// No description provided for @dischargeSummaryPendingResultsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Results pending at discharge'**
+  String get dischargeSummaryPendingResultsTitle;
+
+  /// No description provided for @dischargeSummaryPendingResultsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'These results were pending when this signed summary was issued. The named clinician remains responsible for follow-up.'**
+  String get dischargeSummaryPendingResultsSubtitle;
+
+  /// No description provided for @dischargeSummaryPendingResultClinician.
+  ///
+  /// In en, this message translates to:
+  /// **'Responsible clinician'**
+  String get dischargeSummaryPendingResultClinician;
+
   /// No description provided for @dischargeSummariesOfficialHint.
   ///
   /// In en, this message translates to:
@@ -3803,7 +3821,7 @@ abstract class AppLocalizations {
   /// Subtitle for the care-plan next steps section
   ///
   /// In en, this message translates to:
-  /// **'Goals and follow-ups your care team marked for you.'**
+  /// **'Information and next steps your care team shared with you.'**
   String get yourHealthWhatsNextSubtitle;
 
   /// Heading for active care-plan goals
@@ -3853,6 +3871,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Due'**
   String get yourHealthWhatsNextDue;
+
+  /// Heading for patient-safe next-step actions
+  ///
+  /// In en, this message translates to:
+  /// **'Next steps'**
+  String get yourHealthWhatsNextActions;
+
+  /// Label before a patient-safe next-step status
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get yourHealthWhatsNextStatus;
+
+  /// Label before the responsible clinician display name and role
+  ///
+  /// In en, this message translates to:
+  /// **'Responsible clinician'**
+  String get yourHealthWhatsNextResponsibleClinician;
+
+  /// Label before approved patient-safe contact guidance
+  ///
+  /// In en, this message translates to:
+  /// **'Contact'**
+  String get yourHealthWhatsNextContact;
+
+  /// Label before the action the patient can take
+  ///
+  /// In en, this message translates to:
+  /// **'What you can do'**
+  String get yourHealthWhatsNextPatientAction;
+
+  /// No description provided for @yourHealthWhatsNextStatusPlanned.
+  ///
+  /// In en, this message translates to:
+  /// **'Planned'**
+  String get yourHealthWhatsNextStatusPlanned;
+
+  /// No description provided for @yourHealthWhatsNextStatusOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get yourHealthWhatsNextStatusOpen;
+
+  /// No description provided for @yourHealthWhatsNextStatusScheduled.
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduled'**
+  String get yourHealthWhatsNextStatusScheduled;
+
+  /// No description provided for @yourHealthWhatsNextStatusPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get yourHealthWhatsNextStatusPending;
+
+  /// No description provided for @yourHealthWhatsNextStatusInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'In progress'**
+  String get yourHealthWhatsNextStatusInProgress;
+
+  /// No description provided for @yourHealthWhatsNextStatusReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready'**
+  String get yourHealthWhatsNextStatusReady;
+
+  /// No description provided for @yourHealthWhatsNextStatusCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get yourHealthWhatsNextStatusCompleted;
+
+  /// No description provided for @yourHealthWhatsNextStatusCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get yourHealthWhatsNextStatusCancelled;
+
+  /// No description provided for @yourHealthWhatsNextStatusOnHold.
+  ///
+  /// In en, this message translates to:
+  /// **'On hold'**
+  String get yourHealthWhatsNextStatusOnHold;
+
+  /// No description provided for @yourHealthWhatsNextStatusOverdue.
+  ///
+  /// In en, this message translates to:
+  /// **'Overdue'**
+  String get yourHealthWhatsNextStatusOverdue;
 
   /// Screen title for antenatal-care timeline
   ///

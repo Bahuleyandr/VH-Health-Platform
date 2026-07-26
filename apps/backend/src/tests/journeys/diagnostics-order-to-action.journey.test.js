@@ -33,7 +33,7 @@ import {
   getMyStructuredDiagnosticResult,
   listMyStructuredDiagnosticResults,
 } from '../../services/portal/patientPortalService.js';
-import { workflowRuntimeRegistry } from '../../services/workflow/workflowRuntimeRegistry.js';
+import { workflowRuntimeRegistryV2 } from '../../services/workflow/workflowRuntimeRegistry.js';
 import { getInvestigationById } from '../../services/investigation/investigationService.js';
 import { acknowledgeTask } from '../../services/workflow/taskService.js';
 
@@ -255,7 +255,7 @@ async function projectGeneration(fixture, generation) {
       generation: 3,
       tenantId: fixture.tenantId,
       event: events[0],
-      registry: workflowRuntimeRegistry,
+      registry: workflowRuntimeRegistryV2,
       activationEvidenceCapability: activationCapability,
     });
   });

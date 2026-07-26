@@ -11,6 +11,7 @@ import {
   recordCanonicalClinicalEvent,
   startWorkflowSla,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import { publishOpChildResourceLinkedFromEncounterTx } from '../appointment/opChildResourceEventService.js';
 
 const VALID_REFERRAL_TYPES = ['internal', 'external'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
@@ -471,6 +472,14 @@ class ReferralService {
         },
         afterState: created,
       }, { db: tx });
+      await publishOpChildResourceLinkedFromEncounterTx(tx, {
+        tenantId,
+        encounterId: created.encounter_id,
+        patientUid: created.patient_uid,
+        resourceType: 'referral',
+        resourceId: created.id,
+        source: 'referrals.create',
+      });
       await startWorkflowSla({
         tenantId,
         ruleCode: 'referral_response',

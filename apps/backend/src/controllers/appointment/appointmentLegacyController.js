@@ -1,10 +1,17 @@
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import {
+  CARE_PATHWAY_KEYS,
+  DEFAULT_PATHWAY_MODE,
+  PATHWAY_MODES,
+  normalizePathwayMode,
+} from '../../services/pathways/pathwayMode.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { AppError } from '../../utils/AppError.js';
 import { combineDateAndTime } from '../../utils/appointment/dateTimeUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -17,17 +24,43 @@ export const createLegacyAppointment = async (req, res) => {
     const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
     const { doctor_name, date, time, department } = req.body;
 
-    // appointments.updated_at is NOT NULL with no DEFAULT — the legacy
-    // INSERT above used to omit it and Postgres rejected the row with a
-    // generic 500. Explicitly set updated_at = NOW() so the discharge
-    // follow-up booking path stops failing with "Database error". Finding:
-    // 2026-05-09-inpatient-admission-discharge-followup-api-500.
-    const result = await prisma.$queryRawUnsafe(
-      'INSERT INTO appointments (phone, doctor_name, appointment_date, appointment_time, tenant_id, updated_at) VALUES ($1, $2, $3, $4, $5::uuid, NOW()) RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, appointment_time, status, created_at, tenant_id',
-      phone, doctor_name, date, time, tenantId
-    );
+    const appointment = await setTenantTx(tenantId, async (tx) => {
+      // Hold the tenant row while deciding and writing so an activation update
+      // cannot race an identity-less legacy appointment into ACTIVE mode.
+      const modeRows = await tx.$queryRawUnsafe(
+        `SELECT settings -> 'care_pathways' ->> $2::text AS pathway_mode
+           FROM tenants
+          WHERE id = $1::uuid
+          LIMIT 1
+          FOR SHARE`,
+        tenantId,
+        CARE_PATHWAY_KEYS.OP,
+      );
+      if (!modeRows[0]) {
+        throw AppError.notFound('Tenant not found', 'TENANT_NOT_FOUND');
+      }
+      const mode = normalizePathwayMode(modeRows[0].pathway_mode)
+        || DEFAULT_PATHWAY_MODE;
+      if (mode === PATHWAY_MODES.ACTIVE) {
+        throw AppError.conflict(
+          'Legacy appointment booking requires linked patient and doctor identities',
+          'APPOINTMENT_IDENTITIES_REQUIRED',
+        );
+      }
 
-    const appointment = result[0];
+      // appointments.updated_at is NOT NULL with no DEFAULT — the legacy
+      // INSERT used to omit it and Postgres rejected the row with a generic
+      // 500. OFF/SHADOW compatibility retains this identity-less shape.
+      const result = await tx.$queryRawUnsafe(
+        'INSERT INTO appointments (phone, doctor_name, appointment_date, appointment_time, tenant_id, updated_at) VALUES ($1, $2, $3, $4, $5::uuid, NOW()) RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, appointment_time, status, created_at, tenant_id',
+        phone,
+        doctor_name,
+        date,
+        time,
+        tenantId,
+      );
+      return result[0];
+    });
     const scheduledAt = combineDateAndTime(appointment.appointment_date, appointment.appointment_time);
 
     success(res, {
@@ -38,8 +71,11 @@ export const createLegacyAppointment = async (req, res) => {
       booked_by: req.user?.name
     }, RESPONSE_MESSAGES.APPOINTMENT_BOOKED);
   } catch (err) {
+    if (err?.statusCode) {
+      return relayAppError(res, err, 'Legacy appointment creation failed');
+    }
     logger.error('Legacy appointment creation error:', err);
-    error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
+    return error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
   }
 };
 

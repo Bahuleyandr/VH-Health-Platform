@@ -1017,6 +1017,9 @@
   "dischargeSummaryOpenPdf": "PDF തുറക്കുക",
   "dischargeSummaryOpeningPdf": "PDF തുറക്കുന്നു…",
   "dischargeSummaryPdfOpenFailed": "ഡിസ്ചാർജ് സംഗ്രഹ PDF തുറക്കാൻ കഴിഞ്ഞില്ല.",
+  "dischargeSummaryPendingResultsTitle": "ഡിസ്ചാർജ് സമയത്ത് കാത്തിരുന്ന ഫലങ്ങൾ",
+  "dischargeSummaryPendingResultsSubtitle": "ഈ ഒപ്പിട്ട സംഗ്രഹം നൽകിയപ്പോൾ ഈ ഫലങ്ങൾ കാത്തിരിക്കുകയായിരുന്നു. പേരിട്ട ഡോക്ടർ തുടർപരിശോധനയ്ക്ക് ഉത്തരവാദിയാണ്.",
+  "dischargeSummaryPendingResultClinician": "ഉത്തരവാദിത്തമുള്ള ഡോക്ടർ",
   "dischargeSummariesOfficialHint": "നിങ്ങളുടെ ആശുപത്രി താമസത്തിന്റെ ഔദ്യോഗിക ഒപ്പിട്ട സംഗ്രഹങ്ങൾ വേർതിരിച്ച് ലഭ്യമാക്കുന്നു.",
   "labResultsTitle": "ലാബ് ഫലങ്ങൾ",
   "labResultsEmptyTitle": "ഇനിയും ലാബ് ഫലങ്ങളില്ല",
@@ -1950,7 +1953,7 @@
   "@yourHealthWhatsNextTitle": {
     "description": "Heading for the care-plan next steps section in Your Health"
   },
-  "yourHealthWhatsNextSubtitle": "നിങ്ങളുടെ കെയർ ടീം നിങ്ങൾക്കായി അടയാളപ്പെടുത്തിയ ലക്ഷ്യങ്ങളും ഫോളോ-അപ്പുകളും.",
+  "yourHealthWhatsNextSubtitle": "നിങ്ങളുടെ പരിചരണ സംഘം നിങ്ങളുമായി പങ്കുവെച്ച വിവരങ്ങളും അടുത്ത ഘട്ടങ്ങളും.",
   "@yourHealthWhatsNextSubtitle": {
     "description": "Subtitle for the care-plan next steps section"
   },
@@ -1986,6 +1989,21 @@
   "@yourHealthWhatsNextDue": {
     "description": "Label before a care-plan due date"
   },
+  "yourHealthWhatsNextActions": "അടുത്ത ഘട്ടങ്ങൾ",
+  "yourHealthWhatsNextStatus": "നില",
+  "yourHealthWhatsNextResponsibleClinician": "ഉത്തരവാദിത്തമുള്ള ഡോക്ടർ",
+  "yourHealthWhatsNextContact": "ബന്ധപ്പെടുക",
+  "yourHealthWhatsNextPatientAction": "നിങ്ങൾ ചെയ്യേണ്ടത്",
+  "yourHealthWhatsNextStatusPlanned": "ആസൂത്രണം ചെയ്തത്",
+  "yourHealthWhatsNextStatusOpen": "തുറന്നിരിക്കുന്നു",
+  "yourHealthWhatsNextStatusScheduled": "നിശ്ചയിച്ചത്",
+  "yourHealthWhatsNextStatusPending": "കാത്തിരിക്കുന്നു",
+  "yourHealthWhatsNextStatusInProgress": "പുരോഗതിയിൽ",
+  "yourHealthWhatsNextStatusReady": "തയ്യാറാണ്",
+  "yourHealthWhatsNextStatusCompleted": "പൂർത്തിയായി",
+  "yourHealthWhatsNextStatusCancelled": "റദ്ദാക്കി",
+  "yourHealthWhatsNextStatusOnHold": "താൽക്കാലികമായി നിർത്തി",
+  "yourHealthWhatsNextStatusOverdue": "വൈകിയിരിക്കുന്നു",
   "ancTimelineTitle": "ANC ടൈംലൈൻ",
   "ancLoadFailed": "ANC ടൈംലൈൻ ലോഡ് ചെയ്യാനായില്ല",
   "ancNoActivePregnancyTitle": "സജീവ ഗർഭധാരണ രേഖയില്ല",

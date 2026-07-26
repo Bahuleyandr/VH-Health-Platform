@@ -5,6 +5,7 @@ import { AppError } from '../../utils/AppError.js';
 import { startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
+  completePathwayTaskFromRegisteredCondition,
   completePathwayTaskFromRegisteredEvidence,
   createApproval,
   createTask,
@@ -22,6 +23,8 @@ import {
 import {
   isRegisteredWorkflowSystemActor,
   isWorkflowRuntimeRegistry,
+  listWorkflowRuntimeRegistryVersions,
+  resolveWorkflowRuntimeRegistryVersion,
   workflowRuntimeRegistry,
 } from '../workflow/workflowRuntimeRegistry.js';
 import {
@@ -40,6 +43,7 @@ import {
   lockPathwayRuntimeTx,
   preflightPathwaySlaRulesTx,
   resolvePathwayModeTx,
+  resolvePathwayRuntimeRegistryVersionTx,
   transitionPathwayRunCasTx,
   transitionPathwayStepCasTx,
 } from './pathwayRuntimePersistence.js';
@@ -619,6 +623,59 @@ function compilePinnedDefinition(definition, registry) {
     );
   }
   return compiled;
+}
+
+function resolveRegistryForDefinitionPin(definition) {
+  const expectedChecksum = String(definition?.definition_checksum || '').trim().toLowerCase();
+  if (!expectedChecksum) {
+    throw AppError.conflict(
+      'Pathway definition runtime registry pin cannot be resolved',
+      'PATHWAY_RUNTIME_REGISTRY_PIN_MISSING',
+    );
+  }
+  const matches = [];
+  for (const version of listWorkflowRuntimeRegistryVersions()) {
+    const registry = resolveWorkflowRuntimeRegistryVersion(version);
+    try {
+      const compiled = compileWorkflowDefinition({
+        workflow_key: definition.workflow_key,
+        version: Number(definition.version),
+        steps: parseStoredJson(definition.steps, 'Pathway definition steps', []),
+        triggers: parseStoredJson(definition.triggers, 'Pathway definition triggers', []),
+        defaults: parseStoredJson(definition.defaults, 'Pathway definition defaults', {}),
+      }, { registry });
+      if (compiled.checksum === expectedChecksum) matches.push(registry);
+    } catch {
+      // A registry that cannot compile the definition is not its persisted pin.
+    }
+  }
+  if (matches.length !== 1) {
+    throw AppError.conflict(
+      matches.length === 0
+        ? 'Pathway definition runtime registry pin is not registered'
+        : 'Pathway definition runtime registry pin is ambiguous',
+      matches.length === 0
+        ? 'PATHWAY_RUNTIME_REGISTRY_PIN_UNKNOWN'
+        : 'PATHWAY_RUNTIME_REGISTRY_PIN_AMBIGUOUS',
+    );
+  }
+  return matches[0];
+}
+
+async function resolvePersistedRegistryTx(tx, tenantId, pathwayInstanceId) {
+  const version = await resolvePathwayRuntimeRegistryVersionTx({
+    tx,
+    tenantId,
+    pathwayInstanceId,
+  });
+  try {
+    return resolveWorkflowRuntimeRegistryVersion(version);
+  } catch {
+    throw AppError.conflict(
+      'Care pathway runtime registry pin is not registered',
+      'PATHWAY_RUNTIME_REGISTRY_PIN_UNKNOWN',
+    );
+  }
 }
 
 function actorUid(actor) {
@@ -2236,6 +2293,25 @@ async function applyCurrentStagePlan(ctx, initialPlan) {
 }
 
 export async function startCarePathwayInstance(input = {}) {
+  if (input.registry === null || input.registry === undefined) {
+    const tenantId = requireUuid(requireTenantId(input.tenantId), 'tenant_id');
+    const workflowDefinitionId = requirePositiveInteger(
+      input.workflowDefinitionId,
+      'workflow_definition_id',
+    );
+    return inTenantTx(tenantId, input.tx ?? null, async (tx) => {
+      const definition = await loadGovernedPathwayDefinitionTx({
+        tx,
+        tenantId,
+        workflowDefinitionId,
+      });
+      return startCarePathwayInstance({
+        ...input,
+        tx,
+        registry: resolveRegistryForDefinitionPin(definition),
+      });
+    });
+  }
   const registry = normalizeRegistry(input.registry ?? workflowRuntimeRegistry);
   const normalized = normalizeStartInput(input, registry);
 
@@ -2462,9 +2538,26 @@ function canonicalDomainEvidenceReference(evidence) {
 async function executePathwayCommandInternal(
   input = {},
   commandOperation = null,
-  domainEvidenceCompletion = null,
+  registeredCompletion = null,
   normalizedCommand = null,
 ) {
+  if (
+    normalizedCommand === null
+    && (input.registry === null || input.registry === undefined)
+  ) {
+    const tenantId = requireUuid(requireTenantId(input.tenantId), 'tenant_id');
+    const pathwayInstanceId = requireUuid(
+      input.pathwayInstanceId,
+      'pathway_instance_id',
+    );
+    return inTenantTx(tenantId, input.tx ?? null, async (tx) => (
+      executePathwayCommandInternal({
+        ...input,
+        tx,
+        registry: await resolvePersistedRegistryTx(tx, tenantId, pathwayInstanceId),
+      }, commandOperation, registeredCompletion, null)
+    ));
+  }
   const registry = normalizeRegistry(input.registry ?? workflowRuntimeRegistry);
   const normalized = normalizedCommand ?? normalizeCommandInput(input, registry);
   return inTenantTx(normalized.tenantId, normalized.tx, async (tx) => {
@@ -2566,41 +2659,62 @@ async function executePathwayCommandInternal(
       startedChildCount: 0,
       childWorkflowStepBudget: createChildWorkflowStepBudget(),
     };
-    if (domainEvidenceCompletion) {
+    if (registeredCompletion) {
       const evidenceStep = runtime.steps.find(
         (step) => Number(step.id) === commandOperation.workflow_step_id,
       );
+      const domainEvidenceCompletion = commandOperation.kind
+        === 'complete_registered_domain_evidence';
       if (
         !evidenceStep
-        || Number(domainEvidenceCompletion.task?.id) !== commandOperation.task_id
-        || String(domainEvidenceCompletion.sla?.id || '') === ''
+        || Number(registeredCompletion.task?.id) !== commandOperation.task_id
+        || (
+          domainEvidenceCompletion
+          && String(registeredCompletion.sla?.id || '') === ''
+        )
+        || (
+          !domainEvidenceCompletion
+          && registeredCompletion.sla
+        )
       ) {
         throw AppError.conflict(
-          'Registered domain evidence completion does not match its pathway command',
-          'PATHWAY_DOMAIN_EVIDENCE_POSTCONDITION_FAILED',
+          'Registered condition completion does not match its pathway command',
+          domainEvidenceCompletion
+            ? 'PATHWAY_DOMAIN_EVIDENCE_POSTCONDITION_FAILED'
+            : 'PATHWAY_REGISTERED_CONDITION_POSTCONDITION_FAILED',
         );
       }
       await recorder.append({
         transitionScope: 'task',
-        transitionKey: 'domain_evidence_task_completed',
+        transitionKey: domainEvidenceCompletion
+          ? 'domain_evidence_task_completed'
+          : 'registered_condition_task_completed',
         stageKey: evidenceStep.step_key,
         workflowStepId: evidenceStep.id,
         previousState: {
-          task_status: domainEvidenceCompletion.previousTaskStatus,
-          sla_status: domainEvidenceCompletion.previousSlaStatus,
+          task_status: registeredCompletion.previousTaskStatus,
+          ...(domainEvidenceCompletion
+            ? { sla_status: registeredCompletion.previousSlaStatus }
+            : {}),
         },
         newState: {
-          task_status: domainEvidenceCompletion.task.status,
-          sla_status: domainEvidenceCompletion.sla.status,
+          task_status: registeredCompletion.task.status,
+          ...(domainEvidenceCompletion
+            ? { sla_status: registeredCompletion.sla.status }
+            : {}),
         },
         sourceResourceType: 'tasks',
-        sourceResourceId: String(domainEvidenceCompletion.task.id),
-        workflowSlaInstanceId: domainEvidenceCompletion.sla.id,
+        sourceResourceId: String(registeredCompletion.task.id),
+        workflowSlaInstanceId: domainEvidenceCompletion
+          ? registeredCompletion.sla.id
+          : null,
         eventPayload: {
-          task_id: domainEvidenceCompletion.task.id,
-          workflow_sla_instance_id: domainEvidenceCompletion.sla.id,
-          mutated: domainEvidenceCompletion.mutated === true,
-          evidence: canonicalDomainEvidenceReference(domainEvidenceCompletion.evidence),
+          task_id: registeredCompletion.task.id,
+          ...(domainEvidenceCompletion
+            ? { workflow_sla_instance_id: registeredCompletion.sla.id }
+            : {}),
+          mutated: registeredCompletion.mutated === true,
+          evidence: canonicalDomainEvidenceReference(registeredCompletion.evidence),
         },
       });
     }
@@ -2639,6 +2753,35 @@ function normalizeDomainEvidenceCommandOperation(input) {
       'condition_handler',
       120,
       HANDLER_ID_RE,
+    ),
+    evidence_fingerprint: fingerprint(evidence),
+    evidence,
+  });
+}
+
+function normalizeRegisteredConditionCommandOperation(input) {
+  const evidence = normalizeJsonObject(input.evidence, 'evidence');
+  return Object.freeze({
+    kind: 'complete_registered_condition',
+    task_id: requirePositiveInteger(input.taskId, 'task_id'),
+    workflow_run_id: requirePositiveInteger(input.workflowRunId, 'workflow_run_id'),
+    workflow_step_id: requirePositiveInteger(input.workflowStepId, 'workflow_step_id'),
+    condition_handler: requireText(
+      input.conditionHandler,
+      'condition_handler',
+      120,
+      HANDLER_ID_RE,
+    ),
+    evidence_resource_type: requireText(
+      input.evidenceResourceType,
+      'evidence_resource_type',
+      80,
+      SOURCE_TYPE_RE,
+    ),
+    evidence_resource_id: requireText(
+      input.evidenceResourceId,
+      'evidence_resource_id',
+      220,
     ),
     evidence_fingerprint: fingerprint(evidence),
     evidence,
@@ -2715,7 +2858,70 @@ function assertDomainEvidenceExecutionPostcondition(execution, commandOperation)
   }
 }
 
+function assertRegisteredConditionExecutionPostcondition(execution, commandOperation) {
+  const step = execution.instance?.steps?.find(
+    (candidate) => Number(candidate.id) === commandOperation.workflow_step_id,
+  );
+  if (!step || step.step_kind !== 'task') {
+    throw AppError.conflict(
+      'Registered condition did not target a task pathway step',
+      'PATHWAY_REGISTERED_CONDITION_POSTCONDITION_FAILED',
+    );
+  }
+  const events = Array.isArray(execution.events) ? execution.events : [];
+  const taskCompletionEvent = events.find((event) => {
+    if (
+      event.transition_scope !== 'task'
+      || event.transition_key !== 'registered_condition_task_completed'
+      || Number(event.workflow_step_id) !== commandOperation.workflow_step_id
+    ) return false;
+    const payload = parseStoredJson(event.event_payload, 'Pathway transition payload', {});
+    return (
+      Number(payload.task_id) === commandOperation.task_id
+      && !payload.workflow_sla_instance_id
+      && payload.evidence?.kind === 'pathway_registered_condition'
+      && payload.evidence?.handler_id === commandOperation.condition_handler
+      && payload.evidence?.decision === 'satisfied'
+      && payload.evidence?.resource_type === commandOperation.evidence_resource_type
+      && String(payload.evidence?.resource_id || '') === commandOperation.evidence_resource_id
+      && payload.evidence?.provenance
+      && typeof payload.evidence.provenance === 'object'
+    );
+  });
+  const completedEvent = events.find((event) => {
+    if (
+      event.transition_key !== 'step_completed'
+      || Number(event.workflow_step_id) !== commandOperation.workflow_step_id
+    ) return false;
+    const payload = parseStoredJson(event.event_payload, 'Pathway transition payload', {});
+    return (
+      payload.decision === 'task_completed'
+      && Number(payload.evidence?.task_id) === commandOperation.task_id
+    );
+  });
+  if (!taskCompletionEvent || !completedEvent) {
+    throw AppError.conflict(
+      'Registered condition did not complete its governed task step',
+      'PATHWAY_REGISTERED_CONDITION_POSTCONDITION_FAILED',
+    );
+  }
+}
+
 export async function completePathwayTaskAndExecuteFromRegisteredEvidence(input = {}) {
+  if (input.registry === null || input.registry === undefined) {
+    const tenantId = requireUuid(requireTenantId(input.tenantId), 'tenant_id');
+    const pathwayInstanceId = requireUuid(
+      input.pathwayInstanceId,
+      'pathway_instance_id',
+    );
+    return inTenantTx(tenantId, input.tx ?? null, async (tx) => (
+      completePathwayTaskAndExecuteFromRegisteredEvidence({
+        ...input,
+        tx,
+        registry: await resolvePersistedRegistryTx(tx, tenantId, pathwayInstanceId),
+      })
+    ));
+  }
   const registry = normalizeRegistry(input.registry ?? workflowRuntimeRegistry);
   const normalized = normalizeCommandInput(input, registry);
   const commandOperation = normalizeDomainEvidenceCommandOperation(input);
@@ -2832,6 +3038,139 @@ export async function completePathwayTaskAndExecuteFromRegisteredEvidence(input 
   });
 }
 
+export async function completePathwayTaskAndExecuteFromRegisteredCondition(input = {}) {
+  if (input.registry === null || input.registry === undefined) {
+    const tenantId = requireUuid(requireTenantId(input.tenantId), 'tenant_id');
+    const pathwayInstanceId = requireUuid(
+      input.pathwayInstanceId,
+      'pathway_instance_id',
+    );
+    return inTenantTx(tenantId, input.tx ?? null, async (tx) => (
+      completePathwayTaskAndExecuteFromRegisteredCondition({
+        ...input,
+        tx,
+        registry: await resolvePersistedRegistryTx(tx, tenantId, pathwayInstanceId),
+      })
+    ));
+  }
+  const registry = normalizeRegistry(input.registry ?? workflowRuntimeRegistry);
+  const normalized = normalizeCommandInput(input, registry);
+  const commandOperation = normalizeRegisteredConditionCommandOperation(input);
+  return inTenantTx(normalized.tenantId, normalized.tx, async (tx) => {
+    const effectiveActor = await resolveCurrentPathwayActorTx(
+      tx,
+      normalized.tenantId,
+      normalized.actor,
+    );
+    const commandEnvelope = Object.freeze({ ...normalized, actor: effectiveActor, tx });
+    const commandFingerprint = pathwayCommandFingerprint(
+      commandEnvelope,
+      registry,
+      commandOperation,
+    );
+    const replay = await findPathwayTransitionReplayTx({
+      tx,
+      tenantId: commandEnvelope.tenantId,
+      pathwayInstanceId: commandEnvelope.pathwayInstanceId,
+      idempotencyKey: commandEnvelope.idempotencyKey,
+      commandFingerprint,
+      lockInstance: true,
+    });
+    if (replay.replayed) {
+      await assertCurrentInstanceOwnerTx(
+        tx,
+        commandEnvelope.tenantId,
+        replay.pathwayInstance,
+        commandEnvelope.actor,
+      );
+      await assertPathwayReplayDefinitionPinTx({
+        tx,
+        tenantId: commandEnvelope.tenantId,
+        pathwayInstanceId: commandEnvelope.pathwayInstanceId,
+        events: replay.events,
+      });
+      const prior = replayResult(replay.events);
+      const execution = {
+        instance: prior.resultSnapshot,
+        events: replay.events,
+        replayed: true,
+        mode: prior.mode,
+      };
+      assertRegisteredConditionExecutionPostcondition(execution, commandOperation);
+      return execution;
+    }
+    const runtimeMode = assertModeAvailable(
+      await resolvePathwayModeTx({
+        tx,
+        tenantId: commandEnvelope.tenantId,
+        pathwayKey: replay.pathwayInstance.pathway_key,
+      }),
+      commandEnvelope.activationEvidenceCapability,
+    );
+    const runtime = await lockPathwayRuntimeTx({
+      tx,
+      tenantId: commandEnvelope.tenantId,
+      pathwayInstanceId: commandEnvelope.pathwayInstanceId,
+    });
+    if (!['approved', 'retired'].includes(runtime.definition.governance_status)) {
+      throw AppError.conflict(
+        'Pathway definition governance is no longer valid',
+        'PATHWAY_DEFINITION_NOT_APPROVED',
+      );
+    }
+    const compiled = compilePinnedDefinition(runtime.definition, registry);
+    assertRuntimeGraph(runtime, compiled);
+    await assertCommandOwnership(
+      tx,
+      commandEnvelope.tenantId,
+      runtime,
+      compiled,
+      commandEnvelope.actor,
+    );
+    const targetTask = runtime.tasks.find(
+      (task) => Number(task.id) === commandOperation.task_id,
+    );
+    if (
+      !targetTask
+      || Number(runtime.run.id) !== commandOperation.workflow_run_id
+      || Number(targetTask.workflow_run_id) !== commandOperation.workflow_run_id
+      || Number(targetTask.workflow_step_id) !== commandOperation.workflow_step_id
+    ) {
+      throw AppError.conflict(
+        'Registered condition does not match the pinned pathway runtime',
+        'PATHWAY_TASK_CONTEXT_MISMATCH',
+      );
+    }
+    void runtimeMode;
+    const completion = await completePathwayTaskFromRegisteredCondition({
+      tenantId: commandEnvelope.tenantId,
+      id: commandOperation.task_id,
+      pathwayInstanceId: commandEnvelope.pathwayInstanceId,
+      workflowRunId: commandOperation.workflow_run_id,
+      workflowStepId: commandOperation.workflow_step_id,
+      conditionHandler: commandOperation.condition_handler,
+      evidenceResourceType: commandOperation.evidence_resource_type,
+      evidenceResourceId: commandOperation.evidence_resource_id,
+      evidence: commandOperation.evidence,
+      actor: commandEnvelope.actor,
+      signal: commandEnvelope.signal,
+      executorAuthority: mintPathwayExecutorCapability(),
+      tx,
+    });
+    if (!completion?.task || completion.sla) {
+      throw AppError.conflict(
+        'Registered condition completion did not return its sealed no-SLA task state',
+        'PATHWAY_REGISTERED_CONDITION_POSTCONDITION_FAILED',
+      );
+    }
+    const execution = await executePathwayCommandInternal({
+      registry,
+    }, commandOperation, completion, commandEnvelope);
+    assertRegisteredConditionExecutionPostcondition(execution, commandOperation);
+    return execution;
+  });
+}
+
 export async function getCarePathwayInstance({ tenantId, id } = {}) {
   const tid = requireUuid(requireTenantId(tenantId), 'tenant_id');
   const instanceId = requireUuid(id, 'pathway_instance_id');
@@ -2845,6 +3184,7 @@ export async function getCarePathwayInstance({ tenantId, id } = {}) {
 export default {
   startCarePathwayInstance,
   executePathwayCommand,
+  completePathwayTaskAndExecuteFromRegisteredCondition,
   completePathwayTaskAndExecuteFromRegisteredEvidence,
   getCarePathwayInstance,
 };

@@ -308,6 +308,39 @@ void main() {
       expect(patient['hospital_number'], 'VH-25');
       expect(patient['name'], 'Ravi Kumar');
     });
+
+    test(
+      'preserves one exact accepted transfer source for canonical admit',
+      () {
+        final source = frontOfficeAcceptedAdmissionSourceFrom({
+          'appointment_id': 411,
+          'admission_source': {
+            'appointment_id': 411,
+            'source_pathway_instance_id':
+                '11111111-1111-4111-8111-111111111111',
+            'source_handoff_id': '22222222-2222-4222-8222-222222222222',
+            'accepted_recipient_uid': '33333333-3333-4333-8333-333333333333',
+          },
+        });
+
+        expect(source, isNotNull);
+        expect(source!['appointment_id'], 411);
+        expect(
+          source['source_handoff_id'],
+          '22222222-2222-4222-8222-222222222222',
+        );
+        expect(
+          frontOfficeAcceptedAdmissionSourceFrom({
+            'admission_source': {
+              'appointment_id': 411,
+              'source_pathway_instance_id':
+                  '11111111-1111-4111-8111-111111111111',
+            },
+          }),
+          isNull,
+        );
+      },
+    );
   });
 
   group('frontOfficeFilterDoctors', () {

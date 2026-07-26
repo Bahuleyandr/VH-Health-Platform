@@ -6,7 +6,7 @@ import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { adminDoctorService } from '../../services/doctor/adminDoctorService.js';
 import { parseListQuery } from '../../utils/listQuery.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 export const adminDoctorController = {
   // Test endpoint
@@ -126,7 +126,7 @@ export const adminDoctorController = {
       success(res, result, `Bulk ${operation} operation completed successfully`);
     } catch (err) {
       logger.error('Error performing bulk operations:', err);
-      error(res, 'Failed to perform bulk operation');
+      return relayAppError(res, err, 'Failed to perform bulk operation');
     }
   },
 
@@ -228,7 +228,7 @@ export const adminDoctorController = {
         return error(res, 'Doctor not found', 404);
       }
 
-      error(res, 'Failed to update doctor availability');
+      return relayAppError(res, err, 'Failed to update doctor availability');
     }
   },
 
@@ -257,7 +257,7 @@ export const adminDoctorController = {
         return error(res, 'Cannot delete doctor with future appointments. Provide transfer_patients_to doctor ID or cancel appointments first', 400);
       }
 
-      error(res, 'Failed to delete doctor account');
+      return relayAppError(res, err, 'Failed to delete doctor account');
     }
   },
 

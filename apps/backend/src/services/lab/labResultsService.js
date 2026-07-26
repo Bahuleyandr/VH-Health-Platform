@@ -38,6 +38,7 @@ import {
 import { lockResultsInboxResourceTx } from '../results/resultsInboxResourceLock.js';
 import { emitLabEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import {
   acknowledgeLabCriticalAlertTaskFromTrustedWorkflow,
   LAB_CRITICAL_ALERT_ACK_CONTRACT_VERSION,
@@ -347,10 +348,11 @@ async function lockAndValidateOrderedResultSource({
       : Number(booking.investigation_id);
     if (bookingInvestigationId == null) {
       if (!allowMissingInvestigation) throw labResultSourceMismatch();
-      return {
-        bookingId: Number(booking.id),
-        investigationId: null,
-        orderedTestCode: null,
+        return {
+          bookingId: Number(booking.id),
+          investigationId: null,
+          admissionId: null,
+          orderedTestCode: null,
         patientUid: String(patient.uid),
         patientName: patient.name ?? null,
       };
@@ -362,7 +364,7 @@ async function lockAndValidateOrderedResultSource({
     const investigationRows = await tx.$queryRawUnsafe(
       `SELECT investigation.id, investigation.patient_id,
               investigation.patient_uid, investigation.status,
-              investigation.test_code
+              investigation.test_code, investigation.admission_id
          FROM investigations AS investigation
         WHERE investigation.id = $1::int
           AND investigation.tenant_id = $2::uuid
@@ -388,6 +390,9 @@ async function lockAndValidateOrderedResultSource({
       bookingId: Number(booking.id),
       investigationId: Number(investigation.id),
       orderedTestCode: investigation.test_code ?? null,
+      admissionId: investigation.admission_id == null
+        ? null
+        : Number(investigation.admission_id),
       patientUid: String(patient.uid),
       patientName: patient.name ?? null,
     };
@@ -398,6 +403,7 @@ async function lockAndValidateOrderedResultSource({
              investigation.patient_uid AS investigation_patient_uid,
              investigation.status AS investigation_status,
              investigation.test_code AS investigation_test_code,
+             investigation.admission_id AS investigation_admission_id,
              patient.name AS patient_name
        FROM investigations AS investigation
        JOIN users AS patient
@@ -430,6 +436,9 @@ async function lockAndValidateOrderedResultSource({
     bookingId: null,
     investigationId: Number(source.investigation_id),
     orderedTestCode: source.investigation_test_code ?? null,
+    admissionId: source.investigation_admission_id == null
+      ? null
+      : Number(source.investigation_admission_id),
     patientUid: String(patientUid),
     patientName: source.patient_name ?? null,
   };
@@ -498,6 +507,7 @@ async function lockAndResolveOruResultSource({
   return {
     bookingId: null,
     investigationId: null,
+    admissionId: null,
     orderedTestCode: null,
     patientUid: String(patient.uid),
     patientName: patient.name ?? null,
@@ -945,7 +955,7 @@ export async function ingestOruMessage(message, {
       }
       if (claim.status === 'completed') {
         const replayResults = await tx.$queryRawUnsafe(
-          `SELECT id, tenant_id, booking_id, investigation_id, patient_uid,
+          `SELECT id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
                   patient_name, hl7_message_id, hl7_segment_index,
                   oru_ingest_message_id::text AS oru_ingest_message_id,
                   loinc_code, test_code, test_name,
@@ -1064,7 +1074,7 @@ export async function ingestOruMessage(message, {
     }
     const prelockedResultIdSet = new Set(prelockedResultIds);
     const existingRows = await tx.$queryRawUnsafe(
-      `SELECT id, tenant_id, booking_id, investigation_id, patient_uid,
+      `SELECT id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
               patient_name, hl7_message_id, hl7_segment_index,
               oru_ingest_message_id::text AS oru_ingest_message_id,
               loinc_code, test_code, test_name,
@@ -1133,12 +1143,13 @@ export async function ingestOruMessage(message, {
             `UPDATE lab_results
                 SET analyzer_id = $3::int,
                     oru_ingest_message_id = $4::bigint,
+                    admission_id = COALESCE(admission_id, $5::integer),
                     updated_at = NOW()
               WHERE tenant_id = $1::uuid
                 AND id = $2::int
                 AND oru_ingest_message_id IS NULL
                 AND (analyzer_id IS NULL OR analyzer_id = $3::int)
-              RETURNING id, tenant_id, booking_id, investigation_id, patient_uid,
+              RETURNING id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
                         patient_name, hl7_message_id, hl7_segment_index,
                         oru_ingest_message_id, loinc_code, test_code, test_name,
                         value_text, value_numeric, unit, reference_range,
@@ -1149,6 +1160,7 @@ export async function ingestOruMessage(message, {
             Number(persisted.id),
             Number(analyzer.id),
             claim.id,
+            resultSource.admissionId,
           );
           persisted = adoptedRows[0];
           if (!persisted) throw oruReplayConflict();
@@ -1157,20 +1169,20 @@ export async function ingestOruMessage(message, {
       } else {
         const insertedRows = await tx.$queryRawUnsafe(
           `INSERT INTO lab_results
-            (tenant_id, booking_id, investigation_id, patient_uid, patient_name,
+            (tenant_id, booking_id, investigation_id, admission_id, patient_uid, patient_name,
              hl7_message_id, hl7_segment_index, oru_ingest_message_id,
              loinc_code, test_code, test_name, value_text, value_numeric, unit,
              reference_range, abnormal_flag, status, performed_by_lab,
              performed_at, raw_obx, analyzer_id)
-           VALUES ($1::uuid, $2::int, $3::int, $4::uuid, $5, $6, $7::int,
-                   $8::bigint, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                   $18, NULL, $19, $20::int)
+           VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::uuid, $6, $7, $8::int,
+                   $9::bigint, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                   $19, NULL, $20, $21::int)
            ON CONFLICT (tenant_id, performed_by_lab, hl7_message_id, hl7_segment_index)
              WHERE performed_by_lab IS NOT NULL
                AND hl7_message_id IS NOT NULL
                AND hl7_segment_index IS NOT NULL
            DO NOTHING
-           RETURNING id, tenant_id, booking_id, investigation_id, patient_uid,
+           RETURNING id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
                      patient_name, hl7_message_id, hl7_segment_index,
                      oru_ingest_message_id, loinc_code, test_code, test_name,
                      value_text, value_numeric, unit, reference_range,
@@ -1180,6 +1192,7 @@ export async function ingestOruMessage(message, {
           tenantId,
           resultSource.bookingId,
           resultSource.investigationId,
+          resultSource.admissionId,
           resultSource.patientUid,
           resultSource.patientName,
           messageControlId,
@@ -1202,7 +1215,7 @@ export async function ingestOruMessage(message, {
         if (!persisted) throw oruReplayConflict();
       }
 
-      await recordCanonicalLabEvent({
+      const canonical = await recordCanonicalLabEvent({
         tx,
         tenantId,
         patientUid: persisted.patient_uid,
@@ -1230,6 +1243,19 @@ export async function ingestOruMessage(message, {
           sender_binding_identity: bindingIdentity,
         },
       });
+      if (persisted.admission_id != null) {
+        await publishInpatientDiagnosticResourceLinkedTx({
+          tx,
+          tenantId,
+          admissionId: persisted.admission_id,
+          patientUid: persisted.patient_uid,
+          resourceType: 'lab_result',
+          resourceId: persisted.id,
+          canonicalTimelineEventId: canonical.timeline.id,
+          canonicalAuditEventId: canonical.audit.id,
+          occurredAt: persisted.performed_at || persisted.received_at || persisted.created_at,
+        });
+      }
       persistedResults.push(persisted);
     }
 
@@ -1320,7 +1346,7 @@ export async function ingestOruMessage(message, {
     }
 
     const completedResults = await tx.$queryRawUnsafe(
-      `SELECT id, tenant_id, booking_id, investigation_id, patient_uid,
+      `SELECT id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
               patient_name, hl7_message_id, hl7_segment_index,
               oru_ingest_message_id::text AS oru_ingest_message_id,
               loinc_code, test_code, test_name,
@@ -1602,7 +1628,7 @@ export async function recordResultManual({
   requestId = null,
 }) {
   const fields = [
-    'booking_id', 'investigation_id', 'patient_uid', 'patient_name', 'loinc_code',
+    'booking_id', 'investigation_id', 'admission_id', 'patient_uid', 'patient_name', 'loinc_code',
     'test_code', 'test_name', 'value_text', 'unit', 'reference_range',
     'reference_range_low', 'reference_range_high',
     'abnormal_flag', 'status', 'comments',
@@ -1696,6 +1722,7 @@ export async function recordResultManual({
       investigationId: requestedInvestigationId,
     });
     sanitised.investigation_id = source.investigationId;
+    sanitised.admission_id = source.admissionId;
     sanitised.patient_name = source.patientName;
 
     await assertConfiguredCriticalAnalytesNumeric({
@@ -1746,15 +1773,15 @@ export async function recordResultManual({
     );
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO lab_results
-        (booking_id, investigation_id, patient_uid, patient_name, loinc_code, test_code,
+        (booking_id, investigation_id, admission_id, patient_uid, patient_name, loinc_code, test_code,
          test_name, value_text, unit, reference_range,
          reference_range_low, reference_range_high,
          abnormal_flag, status, comments, value_numeric, performed_by_lab,
          tenant_id, ingest_command_id)
-       VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
-               $11::numeric, $12::numeric,
-                $13, $14, $15, $16::numeric, $17, $18::uuid, $19::bigint)
-       RETURNING id, tenant_id, booking_id, investigation_id, patient_uid,
+       VALUES ($1, $2, $3::int, $4::uuid, $5, $6, $7, $8, $9, $10, $11,
+               $12::numeric, $13::numeric,
+                $14, $15, $16, $17::numeric, $18, $19::uuid, $20::bigint)
+       RETURNING id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
                  patient_name, loinc_code, test_code, test_name, value_text,
                  value_numeric, unit, reference_range, reference_range_low,
                  reference_range_high, abnormal_flag, status, is_critical,
@@ -1797,7 +1824,7 @@ export async function recordResultManual({
     });
 
     const refreshedRows = await tx.$queryRawUnsafe(
-      `SELECT id, tenant_id, booking_id, investigation_id, patient_uid,
+      `SELECT id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
               patient_name, loinc_code, test_code, test_name, value_text,
               value_numeric, unit, reference_range, reference_range_low,
               reference_range_high, abnormal_flag, status, is_critical,
@@ -1813,7 +1840,7 @@ export async function recordResultManual({
     const finalResult = refreshedRows[0];
     if (!finalResult) throw new Error('Manual lab result disappeared during recording');
 
-    await recordCanonicalLabEvent({
+    const canonical = await recordCanonicalLabEvent({
       tx,
       tenantId,
       patientUid: inserted.patient_uid,
@@ -1839,6 +1866,19 @@ export async function recordResultManual({
         criticality: materialized.criticality,
       },
     });
+    if (finalResult.admission_id != null) {
+      await publishInpatientDiagnosticResourceLinkedTx({
+        tx,
+        tenantId,
+        admissionId: finalResult.admission_id,
+        patientUid: finalResult.patient_uid,
+        resourceType: 'lab_result',
+        resourceId: finalResult.id,
+        canonicalTimelineEventId: canonical.timeline.id,
+        canonicalAuditEventId: canonical.audit.id,
+        occurredAt: finalResult.performed_at || finalResult.received_at || finalResult.created_at,
+      });
+    }
 
     const alerts = materialized.alert && finalResult.is_critical === true
       ? [materialized.alert]
@@ -2221,7 +2261,7 @@ export async function signOffResults({
     }
 
     const signedPanel = await tx.$queryRawUnsafe(
-      `SELECT id, loinc_code, test_code, test_name, value_text, value_numeric,
+      `SELECT id, admission_id, loinc_code, test_code, test_name, value_text, value_numeric,
               unit, reference_range, reference_range_low, reference_range_high,
               abnormal_flag, is_critical, status, signed_off_at
          FROM lab_results

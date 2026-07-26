@@ -4,6 +4,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "postinstall": "node ../../scripts/patch-minimatch-compat.mjs",
     "predev": "npm run generate:types",
     "dev": "next dev --turbopack -p 3001",
     "dev:qa": "next dev --turbopack -p 3201",
@@ -104,7 +105,8 @@
   },
   "overrides": {
     "sharp": "$sharp",
-    "postcss": "8.5.15",
+    "postcss": "8.5.18",
+    "minimatch": "10.2.5",
     "glob": "^10.5.0",
     "rimraf": "^5.0.10",
     "import-in-the-middle": "3.0.1",

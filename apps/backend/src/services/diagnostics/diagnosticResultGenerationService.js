@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { isTenantTransactionClient } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  linkPendingResultOwnerActionsForGenerationTx,
+  publishInpatientDiagnosticResourceLinkedTx,
+} from '../emr/inpatientPathwayDomainService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
@@ -25,6 +29,28 @@ function requireTx(tx) {
 function boundedText(value, max, fallback = null) {
   const text = value == null ? '' : String(value).trim();
   return text ? text.slice(0, max) : fallback;
+}
+
+function exactAdmissionIdFromRows(rows, label) {
+  const identities = new Set(
+    rows.map((row) => (row.admission_id == null ? 'none' : String(row.admission_id))),
+  );
+  if (identities.size !== 1) {
+    throw AppError.conflict(
+      `${label} rows do not share one exact admission lineage`,
+      'DIAGNOSTIC_ADMISSION_LINEAGE_MISMATCH',
+    );
+  }
+  const value = rows[0]?.admission_id;
+  if (value == null) return null;
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw AppError.conflict(
+      `${label} admission lineage is invalid`,
+      'DIAGNOSTIC_ADMISSION_LINEAGE_MISMATCH',
+    );
+  }
+  return id;
 }
 
 function labItemSnapshot(row) {
@@ -151,10 +177,15 @@ function aggregateClassifications(items) {
 
 async function resolveLabEpisodeOwner(tx, tenantId, episode) {
   if (episode.type !== 'investigation') {
-    return { orderingOwnerUid: null, ownerSource: 'unnamed_role_queue' };
+    return {
+      orderingOwnerUid: null,
+      ownerSource: 'unnamed_role_queue',
+      admissionId: null,
+    };
   }
   const rows = await tx.$queryRawUnsafe(
     `SELECT investigation.requested_by,
+            investigation.admission_id,
             owner.uid AS owner_uid
        FROM investigations AS investigation
        LEFT JOIN users AS owner
@@ -181,8 +212,90 @@ async function resolveLabEpisodeOwner(tx, tenantId, episode) {
     );
   }
   return source.requested_by
-    ? { orderingOwnerUid: source.requested_by, ownerSource: 'named_orderer' }
-    : { orderingOwnerUid: null, ownerSource: 'unnamed_role_queue' };
+    ? {
+        orderingOwnerUid: source.requested_by,
+        ownerSource: 'named_orderer',
+        admissionId: source.admission_id == null ? null : Number(source.admission_id),
+      }
+    : {
+        orderingOwnerUid: null,
+        ownerSource: 'unnamed_role_queue',
+        admissionId: source.admission_id == null ? null : Number(source.admission_id),
+      };
+}
+
+async function loadExactSignedLabPanelTx({
+  tx,
+  tenantId,
+  patientUid,
+  episode,
+  signoffId,
+}) {
+  const sourceColumn = episode.type === 'investigation' ? 'investigation_id' : 'booking_id';
+  const episodeId = Number(episode.id);
+  if (!Number.isSafeInteger(episodeId) || episodeId <= 0) {
+    throw AppError.badRequest('Diagnostic source episode is invalid', 'DIAGNOSTIC_EPISODE_INVALID');
+  }
+  const signoffRows = await tx.$queryRawUnsafe(
+    `SELECT *
+       FROM lab_pathologist_signoffs
+      WHERE tenant_id = $1::uuid
+        AND id = $2::integer
+        AND patient_uid = $3::uuid
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    signoffId,
+    patientUid,
+  );
+  const sourceSignoff = signoffRows[0];
+  const resultIds = Array.isArray(sourceSignoff?.result_ids)
+    ? sourceSignoff.result_ids.map(Number)
+    : [];
+  if (
+    !sourceSignoff
+    || resultIds.length === 0
+    || resultIds.some((id) => !Number.isSafeInteger(id) || id <= 0)
+    || !sourceSignoff.signed_off_by
+    || !sourceSignoff.signed_at
+  ) {
+    throw AppError.conflict(
+      'Diagnostic source sign-off does not preserve an exact signed panel',
+      'DIAGNOSTIC_SIGNOFF_INVALID',
+    );
+  }
+  const sourceRows = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid, admission_id, investigation_id, booking_id,
+            loinc_code, test_code, test_name, value_text, value_numeric,
+            unit, reference_range, reference_range_low, reference_range_high,
+            abnormal_flag, is_critical, status, signed_off_at, signed_off_by
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND id = ANY($2::integer[])
+        AND patient_uid = $3::uuid
+        AND signed_off_by = $4::uuid
+        AND signed_off_at IS NOT NULL
+        AND ${sourceColumn} = $5::integer
+      ORDER BY id
+      FOR SHARE`,
+    tenantId,
+    resultIds,
+    patientUid,
+    sourceSignoff.signed_off_by,
+    episodeId,
+  );
+  const loadedIds = sourceRows.map((row) => Number(row.id));
+  const expectedIds = [...new Set(resultIds)].sort((left, right) => left - right);
+  if (
+    loadedIds.length !== expectedIds.length
+    || loadedIds.some((id, index) => id !== expectedIds[index])
+  ) {
+    throw AppError.conflict(
+      'Signed lab panel rows do not match the exact tenant, patient, episode, and sign-off',
+      'DIAGNOSTIC_SOURCE_IDENTITY_MISMATCH',
+    );
+  }
+  return { signoff: sourceSignoff, panelRows: sourceRows };
 }
 
 async function loadExistingGeneration(tx, tenantId, sourceKind, episodeKey, sourceVersion) {
@@ -231,9 +344,30 @@ export async function createLabDiagnosticGenerationTx({
   if (!Array.isArray(panelRows) || panelRows.length === 0) {
     throw AppError.conflict('Diagnostic generation cannot be empty', 'DIAGNOSTIC_GENERATION_EMPTY');
   }
-  const items = normalizeLabItems(panelRows, signoffId);
+  const exactSource = await loadExactSignedLabPanelTx({
+    tx: db,
+    tenantId: tid,
+    patientUid,
+    episode,
+    signoffId,
+  });
+  const sourceSignoff = exactSource.signoff;
+  const sourcePanelRows = exactSource.panelRows;
+  const suppliedIds = panelRows.map((row) => Number(row?.id)).sort((left, right) => left - right);
+  const exactIds = sourcePanelRows.map((row) => Number(row.id));
+  if (
+    suppliedIds.length !== exactIds.length
+    || suppliedIds.some((id, index) => id !== exactIds[index])
+  ) {
+    throw AppError.conflict(
+      'Caller-supplied lab panel does not match the exact signed source rows',
+      'DIAGNOSTIC_SOURCE_IDENTITY_MISMATCH',
+    );
+  }
+  const items = normalizeLabItems(sourcePanelRows, signoffId);
+  const admissionId = exactAdmissionIdFromRows(sourcePanelRows, 'Signed lab result');
   const snapshotSha256 = aggregateItemHashes(items.map((item) => item.item_snapshot_sha256));
-  const classification = classifySignedLabEpisode(panelRows);
+  const classification = classifySignedLabEpisode(sourcePanelRows);
   const sourceKind = 'lab_panel';
   const sourceEpisodeKey = String(episode.key);
   const existing = await loadExistingGeneration(
@@ -248,16 +382,33 @@ export async function createLabDiagnosticGenerationTx({
       String(existing.snapshot_sha256) !== snapshotSha256
       || Number(existing.item_count) !== items.length
       || existing.classification !== classification
+      || (existing.admission_id == null ? null : Number(existing.admission_id)) !== admissionId
     ) {
       throw AppError.conflict(
         'Diagnostic generation identity was reused with different content',
         'DIAGNOSTIC_GENERATION_CORRUPTION',
       );
     }
+    if (admissionId != null) {
+      await linkPendingResultOwnerActionsForGenerationTx({
+        tx: db,
+        tenantId: tid,
+        generationId: existing.id,
+      });
+    }
     return Object.freeze({ ...existing, replayed: true });
   }
 
   const owner = await resolveLabEpisodeOwner(db, tid, episode);
+  if (
+    episode.type === 'investigation'
+    && owner.admissionId !== admissionId
+  ) {
+    throw AppError.conflict(
+      'Signed lab results do not preserve their investigation admission lineage',
+      'DIAGNOSTIC_ADMISSION_LINEAGE_MISMATCH',
+    );
+  }
   const predecessors = await db.$queryRawUnsafe(
     `SELECT id, source_version, signed_at
        FROM diagnostic_result_generations
@@ -293,9 +444,9 @@ export async function createLabDiagnosticGenerationTx({
     sourceId: generationId,
     resourceType: 'diagnostic_result_generation',
     resourceId: generationId,
-    actorUid: signoff.signed_off_by,
+    actorUid: sourceSignoff.signed_off_by,
     actorRole: signerRole,
-    occurredAt: signoff.signed_at,
+    occurredAt: sourceSignoff.signed_at,
     visibleToPatient: false,
     summary: predecessor
       ? 'Signed diagnostic result generation corrected'
@@ -334,7 +485,7 @@ export async function createLabDiagnosticGenerationTx({
   };
   const inserted = await db.$queryRawUnsafe(
     `INSERT INTO diagnostic_result_generations
-       (id, tenant_id, patient_uid, source_kind, source_table,
+       (id, tenant_id, patient_uid, admission_id, source_kind, source_table,
         source_episode_type, source_episode_key, source_version,
         lab_signoff_id, investigation_id, ordering_owner_uid, owner_source,
         signer_uid, signer_role, signed_at, classification,
@@ -342,19 +493,20 @@ export async function createLabDiagnosticGenerationTx({
         predecessor_generation_id, canonical_timeline_event_id,
         canonical_audit_event_id)
      VALUES
-       ($1::uuid, $2::uuid, $3::uuid, $4::text, 'lab_pathologist_signoffs',
-         $5::text, $6::text, $7::bigint,
-         $7::integer, $8::integer, $9::uuid, $10::text,
-         $11::uuid, $12::text,
+       ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::text, 'lab_pathologist_signoffs',
+         $6::text, $7::text, $8::bigint,
+         $8::integer, $9::integer, $10::uuid, $11::text,
+         $12::uuid, $13::text,
          (SELECT signed_at
             FROM lab_pathologist_signoffs
-           WHERE tenant_id = $2::uuid AND id = $7::integer),
-         $13::text, $14::jsonb, $15::text, $16::integer,
-         $17::uuid, $18::uuid, $19::uuid)
+           WHERE tenant_id = $2::uuid AND id = $8::integer),
+         $14::text, $15::jsonb, $16::text, $17::integer,
+         $18::uuid, $19::uuid, $20::uuid)
      RETURNING *`,
     generationId,
     tid,
     patientUid,
+    admissionId,
     sourceKind,
     episode.type,
     sourceEpisodeKey,
@@ -362,7 +514,7 @@ export async function createLabDiagnosticGenerationTx({
     episode.type === 'investigation' ? Number(episode.id) : null,
     owner.orderingOwnerUid,
     owner.ownerSource,
-    signoff.signed_off_by,
+    sourceSignoff.signed_off_by,
     signerRole,
     classification,
     JSON.stringify(classificationBasis),
@@ -425,6 +577,24 @@ export async function createLabDiagnosticGenerationTx({
       'DIAGNOSTIC_EVENT_REQUIRED',
     );
   }
+  if (admissionId != null) {
+    await publishInpatientDiagnosticResourceLinkedTx({
+      tx: db,
+      tenantId: tid,
+      admissionId,
+      patientUid,
+      resourceType: 'diagnostic_result_generation',
+      resourceId: generationId,
+      canonicalTimelineEventId: canonical.timeline.id,
+      canonicalAuditEventId: canonical.audit.id,
+      occurredAt: sourceSignoff.signed_at,
+    });
+    await linkPendingResultOwnerActionsForGenerationTx({
+      tx: db,
+      tenantId: tid,
+      generationId,
+    });
+  }
 
   return Object.freeze({
     ...inserted[0],
@@ -443,17 +613,53 @@ export async function createSharedInvestigationGenerationTx({
   const db = requireTx(tx);
   const tid = requireTenantId(tenantId);
   const investigationId = Number(investigation?.id);
-  const sourceVersion = Number(investigation?.result_version);
   if (!Number.isSafeInteger(investigationId) || investigationId <= 0) {
     throw AppError.badRequest('Investigation source is invalid', 'DIAGNOSTIC_SOURCE_INVALID');
   }
+  const sourceRows = await db.$queryRawUnsafe(
+    `SELECT *
+       FROM investigations
+      WHERE tenant_id = $1::uuid
+        AND id = $2::integer
+      LIMIT 1
+      FOR SHARE`,
+    tid,
+    investigationId,
+  );
+  const sourceInvestigation = sourceRows[0];
+  if (!sourceInvestigation) {
+    throw AppError.conflict(
+      'Diagnostic source investigation is unavailable',
+      'DIAGNOSTIC_SOURCE_UNAVAILABLE',
+    );
+  }
+  if (
+    investigation.patient_uid
+    && String(investigation.patient_uid).toLowerCase()
+      !== String(sourceInvestigation.patient_uid).toLowerCase()
+  ) {
+    throw AppError.conflict(
+      'Caller-supplied investigation does not match the exact source patient',
+      'DIAGNOSTIC_SOURCE_IDENTITY_MISMATCH',
+    );
+  }
+  const admissionId = sourceInvestigation.admission_id == null
+    ? null
+    : Number(sourceInvestigation.admission_id);
+  if (admissionId != null && (!Number.isSafeInteger(admissionId) || admissionId <= 0)) {
+    throw AppError.conflict(
+      'Investigation admission lineage is invalid',
+      'DIAGNOSTIC_ADMISSION_LINEAGE_MISMATCH',
+    );
+  }
+  const sourceVersion = Number(sourceInvestigation.result_version);
   if (!Number.isSafeInteger(sourceVersion) || sourceVersion <= 0) {
     throw AppError.conflict(
       'Investigation result version is invalid',
       'DIAGNOSTIC_GENERATION_VERSION_INVALID',
     );
   }
-  const sourceType = String(investigation.test_type || '').trim().toUpperCase();
+  const sourceType = String(sourceInvestigation.test_type || '').trim().toUpperCase();
   if (UNSUPPORTED_SHARED_TYPES.has(sourceType)) {
     throw AppError.conflict(
       'This investigation type requires its structured radiology/AP generation adapter',
@@ -475,14 +681,18 @@ export async function createSharedInvestigationGenerationTx({
       'DIAGNOSTIC_SOURCE_ADAPTER_CONFLICT',
     );
   }
-  if (!investigation.patient_uid || !investigation.verified_by || !investigation.verified_at) {
+  if (
+    !sourceInvestigation.patient_uid
+    || !sourceInvestigation.verified_by
+    || !sourceInvestigation.verified_at
+  ) {
     throw AppError.conflict(
       'Shared investigation generation requires patient and source-verification evidence',
       'DIAGNOSTIC_SOURCE_VERIFICATION_REQUIRED',
     );
   }
 
-  const items = normalizeSharedItems(investigation);
+  const items = normalizeSharedItems(sourceInvestigation);
   const classification = aggregateClassifications(items);
   const snapshotSha256 = aggregateItemHashes(items.map((item) => item.item_snapshot_sha256));
   const sourceKind = 'shared_investigation';
@@ -499,16 +709,24 @@ export async function createSharedInvestigationGenerationTx({
       String(existing.snapshot_sha256) !== snapshotSha256
       || Number(existing.item_count) !== items.length
       || existing.classification !== classification
+      || (existing.admission_id == null ? null : Number(existing.admission_id)) !== admissionId
     ) {
       throw AppError.conflict(
         'Diagnostic generation identity was reused with different content',
         'DIAGNOSTIC_GENERATION_CORRUPTION',
       );
     }
+    if (admissionId != null) {
+      await linkPendingResultOwnerActionsForGenerationTx({
+        tx: db,
+        tenantId: tid,
+        generationId: existing.id,
+      });
+    }
     return Object.freeze({ ...existing, replayed: true });
   }
 
-  const ownerRows = investigation.requested_by
+  const ownerRows = sourceInvestigation.requested_by
     ? await db.$queryRawUnsafe(
       `SELECT uid
          FROM users
@@ -516,16 +734,16 @@ export async function createSharedInvestigationGenerationTx({
           AND uid = $2::uuid
         LIMIT 1`,
       tid,
-      investigation.requested_by,
+      sourceInvestigation.requested_by,
     )
     : [];
-  if (investigation.requested_by && !ownerRows[0]?.uid) {
+  if (sourceInvestigation.requested_by && !ownerRows[0]?.uid) {
     throw AppError.conflict(
       'Named diagnostic owner is outside the source tenant',
       'DIAGNOSTIC_NAMED_OWNER_INVALID',
     );
   }
-  const orderingOwnerUid = investigation.requested_by || null;
+  const orderingOwnerUid = sourceInvestigation.requested_by || null;
   const ownerSource = orderingOwnerUid ? 'named_orderer' : 'unnamed_role_queue';
   const predecessors = await db.$queryRawUnsafe(
     `SELECT id, source_version
@@ -554,7 +772,7 @@ export async function createSharedInvestigationGenerationTx({
     : 'diagnostic.result.generation_signed';
   const canonical = await recordCanonicalClinicalEvent({
     tenantId: tid,
-    patientUid: investigation.patient_uid,
+    patientUid: sourceInvestigation.patient_uid,
     eventType,
     eventSubtype: 'diagnostic_result_generation',
     eventStatus: classification,
@@ -562,9 +780,9 @@ export async function createSharedInvestigationGenerationTx({
     sourceId: generationId,
     resourceType: 'diagnostic_result_generation',
     resourceId: generationId,
-    actorUid: investigation.verified_by,
+    actorUid: sourceInvestigation.verified_by,
     actorRole: signerRole,
-    occurredAt: investigation.verified_at,
+    occurredAt: sourceInvestigation.verified_at,
     visibleToPatient: false,
     summary: predecessor
       ? 'Signed shared investigation generation corrected'
@@ -604,7 +822,7 @@ export async function createSharedInvestigationGenerationTx({
   };
   const inserted = await db.$queryRawUnsafe(
     `INSERT INTO diagnostic_result_generations
-       (id, tenant_id, patient_uid, source_kind, source_table,
+       (id, tenant_id, patient_uid, admission_id, source_kind, source_table,
         source_episode_type, source_episode_key, source_version,
         lab_signoff_id, investigation_id, ordering_owner_uid, owner_source,
         signer_uid, signer_role, signed_at, classification,
@@ -612,25 +830,26 @@ export async function createSharedInvestigationGenerationTx({
         predecessor_generation_id, canonical_timeline_event_id,
         canonical_audit_event_id)
      VALUES
-       ($1::uuid, $2::uuid, $3::uuid, $4::text, 'investigations',
-        'investigation', $5::text, $6::bigint,
-        NULL, $7::integer, $8::uuid, $9::text,
-        $10::uuid, $11::text, $12::timestamptz, $13::text,
-        $14::jsonb, $15::text, $16::integer,
-        $17::uuid, $18::uuid, $19::uuid)
+       ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::text, 'investigations',
+        'investigation', $6::text, $7::bigint,
+        NULL, $8::integer, $9::uuid, $10::text,
+        $11::uuid, $12::text, $13::timestamptz, $14::text,
+        $15::jsonb, $16::text, $17::integer,
+        $18::uuid, $19::uuid, $20::uuid)
      RETURNING *`,
     generationId,
     tid,
-    investigation.patient_uid,
+    sourceInvestigation.patient_uid,
+    admissionId,
     sourceKind,
     sourceEpisodeKey,
     sourceVersion,
     investigationId,
     orderingOwnerUid,
     ownerSource,
-    investigation.verified_by,
+    sourceInvestigation.verified_by,
     signerRole,
-    investigation.verified_at,
+    sourceInvestigation.verified_at,
     classification,
     JSON.stringify(classificationBasis),
     snapshotSha256,
@@ -650,7 +869,7 @@ export async function createSharedInvestigationGenerationTx({
           $6::text, $7::integer, $8::text, $9::text, $10::jsonb,
           $11::text, $12::boolean, $13::text, $14::text)`,
       tid,
-      investigation.patient_uid,
+      sourceInvestigation.patient_uid,
       generationId,
       item.source_table,
       item.source_row_id,
@@ -669,7 +888,7 @@ export async function createSharedInvestigationGenerationTx({
     eventType,
     aggregateType: 'diagnostic_result_generation',
     aggregateId: generationId,
-    patientUid: investigation.patient_uid,
+    patientUid: sourceInvestigation.patient_uid,
     tenantId: tid,
     tx: db,
     payload: {
@@ -689,6 +908,24 @@ export async function createSharedInvestigationGenerationTx({
       'Diagnostic generation event could not be published',
       'DIAGNOSTIC_EVENT_REQUIRED',
     );
+  }
+  if (admissionId != null) {
+    await publishInpatientDiagnosticResourceLinkedTx({
+      tx: db,
+      tenantId: tid,
+      admissionId,
+      patientUid: sourceInvestigation.patient_uid,
+      resourceType: 'diagnostic_result_generation',
+      resourceId: generationId,
+      canonicalTimelineEventId: canonical.timeline.id,
+      canonicalAuditEventId: canonical.audit.id,
+      occurredAt: sourceInvestigation.verified_at,
+    });
+    await linkPendingResultOwnerActionsForGenerationTx({
+      tx: db,
+      tenantId: tid,
+      generationId,
+    });
   }
   return Object.freeze({ ...inserted[0], items, event_id: event.id, replayed: false });
 }

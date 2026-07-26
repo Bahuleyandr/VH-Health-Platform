@@ -6,6 +6,9 @@ import {
   releaseDelayHours,
   releaseVisibilitySql,
 } from '../portal/portalAccessService.js';
+import {
+  DEFAULT_APPOINTMENT_REAPER_GRACE_MINUTES,
+} from '../appointment/appointmentReaperPolicy.js';
 import { CARE_PATHWAY_KEYS } from './pathwayMode.js';
 
 function result(code, count) {
@@ -1233,6 +1236,791 @@ async function referralProjectionEvidence({ tx, tenantId, pathwayKey }) {
   ));
 }
 
+async function opSourceProjectionEvidence({ tx, tenantId, pathwayKey, capturedAt }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.OP) {
+    return result('OP_SOURCE_PROJECTION_DRIFT', 0);
+  }
+  return result('OP_SOURCE_PROJECTION_DRIFT', await count(
+    tx,
+    `WITH created_sources AS (
+       SELECT DISTINCT event.aggregate_id, event.patient_uid
+         FROM event_outbox AS event
+        WHERE event.tenant_id = $1::uuid
+          AND event.event_type = 'appointment.created'
+          AND event.aggregate_type = 'appointment'
+          AND event.created_at <= $2::timestamptz
+          AND event.aggregate_id ~ '^[1-9][0-9]*$'
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM created_sources AS source
+      WHERE NOT EXISTS (
+        SELECT 1
+          FROM care_pathway_instances AS pathway
+         WHERE pathway.tenant_id = $1::uuid
+           AND pathway.pathway_key = 'op_contact_to_recovery'
+           AND pathway.source_episode_type = 'appointment'
+           AND pathway.source_episode_id = source.aggregate_id
+           AND pathway.patient_uid = source.patient_uid
+           AND EXISTS (
+             SELECT 1
+               FROM care_pathway_resource_references AS reference
+              WHERE reference.tenant_id = pathway.tenant_id
+                AND reference.pathway_instance_id = pathway.id
+                AND reference.patient_uid = pathway.patient_uid
+                AND reference.resource_type = 'appointment'
+                AND reference.resource_id = source.aggregate_id
+                AND reference.relationship_kind = 'closure_evidence'
+                AND reference.evidence_state <> 'superseded'
+           )
+      )`,
+    tenantId,
+    capturedAt,
+  ));
+}
+
+async function opLiveAppointmentSourceCoverage({
+  tx,
+  tenantId,
+  pathwayKey,
+  capturedAt,
+}) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.OP) {
+    return result('OP_LIVE_APPOINTMENT_SOURCE_COVERAGE_DRIFT', 0);
+  }
+  return result('OP_LIVE_APPOINTMENT_SOURCE_COVERAGE_DRIFT', await count(
+    tx,
+    `SELECT COUNT(*)::integer AS finding_count
+       FROM appointments AS appointment
+       LEFT JOIN users AS patient
+         ON patient.tenant_id = appointment.tenant_id
+        AND patient.id = appointment.patient_id
+      WHERE appointment.tenant_id = $1::uuid
+        AND appointment.created_at <= $2::timestamptz
+        AND UPPER(BTRIM(COALESCE(appointment.status, ''))) NOT IN (
+          'COMPLETED',
+          'CANCELLED',
+          'CANCELED',
+          'NO_SHOW',
+          'MISSED',
+          'RESCHEDULED'
+        )
+        AND (
+          patient.uid IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+              FROM event_outbox AS event
+             WHERE event.tenant_id = appointment.tenant_id
+               AND event.aggregate_type = 'appointment'
+               AND event.aggregate_id = appointment.id::text
+               AND event.event_type = 'appointment.created'
+               AND event.patient_uid = patient.uid
+               AND event.payload ->> 'tenant_id' = appointment.tenant_id::text
+               AND event.payload ->> 'appointment_id' = appointment.id::text
+               AND event.payload ->> 'patient_uid' = patient.uid::text
+               AND event.created_at <= $2::timestamptz
+          )
+        )`,
+    tenantId,
+    capturedAt,
+  ));
+}
+
+async function opStaleScheduledReaperDebt({
+  tx,
+  tenantId,
+  pathwayKey,
+  capturedAt,
+}) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.OP) {
+    return result('OP_STALE_SCHEDULED_REAPER_DEBT', 0);
+  }
+  return result('OP_STALE_SCHEDULED_REAPER_DEBT', await count(
+    tx,
+    `SELECT COUNT(DISTINCT appointment.id)::integer AS finding_count
+       FROM appointments AS appointment
+       JOIN users AS patient
+         ON patient.tenant_id = appointment.tenant_id
+        AND patient.id = appointment.patient_id
+       JOIN care_pathway_instances AS pathway
+         ON pathway.tenant_id = appointment.tenant_id
+        AND pathway.patient_uid = patient.uid
+        AND pathway.pathway_key = 'op_contact_to_recovery'
+        AND pathway.source_episode_type = 'appointment'
+        AND pathway.source_episode_id = appointment.id::text
+        AND pathway.clinical_status IN ('planned', 'active', 'on_hold')
+      WHERE appointment.tenant_id = $1::uuid
+        AND appointment.status = 'SCHEDULED'
+        AND appointment.admin_override = false
+        AND (
+          appointment.appointment_date::timestamp
+          + COALESCE(
+              NULLIF(appointment.appointment_time, '')::interval,
+              INTERVAL '0 minutes'
+            )
+        ) < (
+          $2::timestamptz
+          - ($3 || ' minutes')::interval
+        )`,
+    tenantId,
+    capturedAt,
+    String(DEFAULT_APPOINTMENT_REAPER_GRACE_MINUTES),
+  ));
+}
+
+async function opChildReferenceCompleteness({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.OP) {
+    return result('OP_CHILD_REFERENCE_DRIFT', 0);
+  }
+  return result('OP_CHILD_REFERENCE_DRIFT', await count(
+    tx,
+    `WITH RECURSIVE known_sources AS (
+       SELECT prescription.tenant_id,
+              prescription.appointment_id,
+              prescription.patient_uid,
+              'e_prescription'::text AS resource_type,
+              prescription.id::text AS resource_id
+         FROM e_prescriptions AS prescription
+        WHERE prescription.tenant_id = $1::uuid
+          AND prescription.appointment_id IS NOT NULL
+          AND prescription.patient_uid IS NOT NULL
+       UNION ALL
+       SELECT clinical_order.tenant_id,
+              encounter.appointment_id,
+              clinical_order.patient_uid,
+              'clinical_order',
+              clinical_order.id::text
+         FROM clinical_orders AS clinical_order
+         JOIN patient_encounters AS encounter
+           ON encounter.tenant_id = clinical_order.tenant_id
+          AND encounter.id = clinical_order.encounter_id
+          AND encounter.patient_uid = clinical_order.patient_uid
+        WHERE clinical_order.tenant_id = $1::uuid
+          AND encounter.appointment_id IS NOT NULL
+       UNION ALL
+       SELECT investigation.tenant_id,
+              investigation.appointment_id,
+              investigation.patient_uid,
+              'investigation',
+              investigation.id::text
+         FROM investigations AS investigation
+        WHERE investigation.tenant_id = $1::uuid
+          AND investigation.appointment_id IS NOT NULL
+          AND investigation.patient_uid IS NOT NULL
+       UNION ALL
+       SELECT referral.tenant_id,
+              referral.appointment_id,
+              referral.patient_uid,
+              'referral',
+              referral.id::text
+         FROM referrals AS referral
+        WHERE referral.tenant_id = $1::uuid
+          AND referral.appointment_id IS NOT NULL
+       UNION ALL
+       SELECT plan.tenant_id,
+              plan.origin_resource_id::integer,
+              plan.patient_uid,
+              'follow_up_plan',
+              plan.id::text
+         FROM follow_up_plans AS plan
+        WHERE plan.tenant_id = $1::uuid
+          AND plan.origin_kind = 'appointment'
+          AND plan.origin_resource_type = 'appointment'
+          AND plan.origin_resource_id ~ '^[1-9][0-9]*$'
+     ),
+     current_reference_ancestry AS (
+       SELECT reference.tenant_id,
+              reference.pathway_instance_id,
+              reference.patient_uid,
+              reference.resource_type,
+              reference.resource_id,
+              reference.id AS current_reference_id,
+              reference.id AS ancestor_reference_id,
+              reference.superseded_reference_id,
+              reference.source_outbox_event_id AS ancestor_source_outbox_event_id,
+              ARRAY[reference.id]::uuid[] AS visited_reference_ids,
+              1::integer AS ancestry_depth
+          FROM care_pathway_resource_references AS reference
+         WHERE reference.tenant_id = $1::uuid
+           AND reference.relationship_kind = 'child_action'
+           AND reference.evidence_state <> 'superseded'
+           AND NOT EXISTS (
+            SELECT 1
+              FROM care_pathway_resource_references AS successor
+             WHERE successor.tenant_id = reference.tenant_id
+               AND successor.superseded_reference_id = reference.id
+          )
+       UNION ALL
+       SELECT ancestry.tenant_id,
+              ancestry.pathway_instance_id,
+              ancestry.patient_uid,
+              ancestry.resource_type,
+              ancestry.resource_id,
+              ancestry.current_reference_id,
+              predecessor.id,
+              predecessor.superseded_reference_id,
+              predecessor.source_outbox_event_id,
+              ancestry.visited_reference_ids || predecessor.id,
+              ancestry.ancestry_depth + 1
+         FROM current_reference_ancestry AS ancestry
+         JOIN care_pathway_resource_references AS predecessor
+           ON predecessor.tenant_id = ancestry.tenant_id
+          AND predecessor.id = ancestry.superseded_reference_id
+          AND predecessor.pathway_instance_id = ancestry.pathway_instance_id
+          AND predecessor.patient_uid = ancestry.patient_uid
+          AND predecessor.resource_type = ancestry.resource_type
+          AND predecessor.resource_id = ancestry.resource_id
+          AND predecessor.relationship_kind = 'child_action'
+        WHERE ancestry.ancestry_depth < 64
+          AND predecessor.id <> ALL(ancestry.visited_reference_ids)
+     ),
+     source_without_link_event AS (
+       SELECT CONCAT(
+                'source:',
+                source.resource_type,
+                ':',
+                source.resource_id
+              ) AS finding_id
+       FROM known_sources AS source
+      WHERE NOT EXISTS (
+        SELECT 1
+          FROM event_outbox AS event
+         WHERE event.tenant_id = source.tenant_id
+           AND event.event_type = 'appointment.child_resource_linked'
+           AND event.aggregate_type = 'appointment'
+           AND event.aggregate_id = source.appointment_id::text
+           AND event.patient_uid = source.patient_uid
+           AND event.payload ->> 'tenant_id' = source.tenant_id::text
+           AND event.payload ->> 'appointment_id' = source.appointment_id::text
+           AND event.payload ->> 'patient_uid' = source.patient_uid::text
+           AND event.payload ->> 'resource_type' = source.resource_type
+           AND event.payload ->> 'resource_id' = source.resource_id
+      )
+     ),
+     link_event_without_source_or_reference AS (
+       SELECT CONCAT('event:', event.id::text) AS finding_id
+         FROM event_outbox AS event
+        WHERE event.tenant_id = $1::uuid
+          AND event.event_type = 'appointment.child_resource_linked'
+          AND (
+            event.aggregate_type <> 'appointment'
+            OR event.aggregate_id !~ '^[1-9][0-9]*$'
+            OR event.payload ->> 'tenant_id' IS DISTINCT FROM event.tenant_id::text
+            OR event.payload ->> 'appointment_id' IS DISTINCT FROM event.aggregate_id
+            OR event.payload ->> 'patient_uid' IS DISTINCT FROM event.patient_uid::text
+            OR NOT EXISTS (
+              SELECT 1
+                FROM known_sources AS source
+               WHERE source.tenant_id = event.tenant_id
+                 AND source.appointment_id::text = event.aggregate_id
+                 AND source.patient_uid = event.patient_uid
+                 AND source.resource_type = event.payload ->> 'resource_type'
+                 AND source.resource_id = event.payload ->> 'resource_id'
+            )
+            OR NOT EXISTS (
+              SELECT 1
+                FROM care_pathway_instances AS pathway
+                JOIN current_reference_ancestry AS reference
+                  ON reference.tenant_id = pathway.tenant_id
+                 AND reference.pathway_instance_id = pathway.id
+                 AND reference.patient_uid = pathway.patient_uid
+                 AND reference.resource_type = event.payload ->> 'resource_type'
+                 AND reference.resource_id = event.payload ->> 'resource_id'
+                 AND reference.ancestor_source_outbox_event_id = event.id
+               WHERE pathway.tenant_id = event.tenant_id
+                 AND pathway.pathway_key = 'op_contact_to_recovery'
+                 AND pathway.source_episode_type = 'appointment'
+                 AND pathway.source_episode_id = event.aggregate_id
+                 AND pathway.patient_uid = event.patient_uid
+            )
+          )
+     ),
+     findings AS (
+       SELECT finding_id FROM source_without_link_event
+       UNION ALL
+       SELECT finding_id FROM link_event_without_source_or_reference
+     )
+     SELECT COUNT(*)::integer AS finding_count FROM findings`,
+    tenantId,
+  ));
+}
+
+async function opClosureAndOwnershipEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.OP) {
+    return result('OP_CLOSURE_OWNERSHIP_DRIFT', 0);
+  }
+  return result('OP_CLOSURE_OWNERSHIP_DRIFT', await count(
+    tx,
+    `WITH findings AS (
+       SELECT pathway.id::text AS finding_id
+         FROM care_pathway_instances AS pathway
+        WHERE pathway.tenant_id = $1::uuid
+          AND pathway.pathway_key = 'op_contact_to_recovery'
+          AND pathway.source_episode_type = 'appointment'
+          AND pathway.clinical_status = 'completed'
+          AND (
+            NOT EXISTS (
+              SELECT 1
+                FROM op_visit_closure_evidence AS closure
+               WHERE closure.tenant_id = pathway.tenant_id
+                 AND closure.appointment_id::text = pathway.source_episode_id
+                 AND closure.patient_uid = pathway.patient_uid
+            )
+            OR EXISTS (
+              SELECT 1
+                FROM care_pathway_resource_references AS reference
+               WHERE reference.tenant_id = pathway.tenant_id
+                 AND reference.pathway_instance_id = pathway.id
+                 AND reference.patient_uid = pathway.patient_uid
+                 AND reference.evidence_state = 'open'
+                 AND NOT EXISTS (
+                   SELECT 1
+                     FROM care_pathway_resource_references AS successor
+                    WHERE successor.tenant_id = reference.tenant_id
+                      AND successor.superseded_reference_id = reference.id
+                 )
+            )
+          )
+       UNION ALL
+       SELECT reference.id::text
+         FROM care_pathway_resource_references AS reference
+         JOIN care_pathway_instances AS pathway
+           ON pathway.tenant_id = reference.tenant_id
+          AND pathway.id = reference.pathway_instance_id
+          AND pathway.patient_uid = reference.patient_uid
+        WHERE reference.tenant_id = $1::uuid
+          AND pathway.pathway_key = 'op_contact_to_recovery'
+          AND reference.evidence_state = 'ownership_accepted'
+          AND (
+            (
+              reference.task_id IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1
+                  FROM tasks AS task
+                 WHERE task.tenant_id = reference.tenant_id
+                   AND task.id = reference.task_id
+                   AND task.workflow_run_id = pathway.workflow_run_id
+                   AND task.patient_uid = pathway.patient_uid
+                   AND task.assigned_to_uid = reference.accepted_owner_uid
+              )
+            )
+            OR (
+              reference.handoff_id IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1
+                  FROM care_handoff_instances AS handoff
+                 WHERE handoff.tenant_id = reference.tenant_id
+                   AND handoff.id = reference.handoff_id
+                   AND handoff.patient_uid = pathway.patient_uid
+                   AND handoff.status = 'accepted'
+                   AND handoff.accepted_at IS NOT NULL
+                   AND handoff.accepted_by_uid = reference.accepted_owner_uid
+              )
+            )
+          )
+     )
+     SELECT COUNT(*)::integer AS finding_count FROM findings`,
+    tenantId,
+  ));
+}
+
+async function opToInpatientHandoffEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.OP) {
+    return result('OP_TO_INPATIENT_HANDOFF_DRIFT', 0);
+  }
+  return result('OP_TO_INPATIENT_HANDOFF_DRIFT', await count(
+    tx,
+    `SELECT COUNT(*)::integer AS finding_count
+       FROM admissions AS admission
+       LEFT JOIN care_pathway_instances AS source_pathway
+         ON source_pathway.tenant_id = admission.tenant_id
+        AND source_pathway.id = admission.source_pathway_instance_id
+        AND source_pathway.patient_uid = admission.patient_uid
+       LEFT JOIN care_handoff_instances AS handoff
+         ON handoff.tenant_id = admission.tenant_id
+        AND handoff.id = admission.source_handoff_id
+        AND handoff.patient_uid = admission.patient_uid
+      WHERE admission.tenant_id = $1::uuid
+        AND admission.source_appointment_id IS NOT NULL
+        AND (
+          source_pathway.pathway_key IS DISTINCT FROM 'op_contact_to_recovery'
+          OR source_pathway.source_episode_type IS DISTINCT FROM 'appointment'
+          OR source_pathway.source_episode_id IS DISTINCT FROM
+               admission.source_appointment_id::text
+          OR handoff.handoff_type IS DISTINCT FROM 'op_to_inpatient_transfer'
+          OR handoff.sending_pathway_instance_id IS DISTINCT FROM source_pathway.id
+          OR handoff.source_resource_type IS DISTINCT FROM 'appointment'
+          OR handoff.source_resource_id IS DISTINCT FROM
+               admission.source_appointment_id::text
+          OR handoff.status IS DISTINCT FROM 'accepted'
+          OR handoff.accepted_at IS NULL
+          OR handoff.accepted_by_uid IS NULL
+        )`,
+    tenantId,
+  ));
+}
+
+async function inpatientSourceProjectionEvidence({ tx, tenantId, pathwayKey, capturedAt }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.INPATIENT) {
+    return result('INPATIENT_SOURCE_PROJECTION_DRIFT', 0);
+  }
+  return result('INPATIENT_SOURCE_PROJECTION_DRIFT', await count(
+    tx,
+    `WITH created_sources AS (
+       SELECT DISTINCT event.aggregate_id, event.patient_uid
+         FROM event_outbox AS event
+        WHERE event.tenant_id = $1::uuid
+          AND event.event_type = 'admission.created'
+          AND event.aggregate_type = 'admission'
+          AND event.created_at <= $2::timestamptz
+          AND event.aggregate_id ~ '^[1-9][0-9]*$'
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM created_sources AS source
+      WHERE NOT EXISTS (
+        SELECT 1
+          FROM care_pathway_instances AS pathway
+         WHERE pathway.tenant_id = $1::uuid
+           AND pathway.pathway_key = 'inpatient_admission_to_recovery'
+           AND pathway.source_episode_type = 'admission'
+           AND pathway.source_episode_id = source.aggregate_id
+           AND pathway.patient_uid = source.patient_uid
+           AND EXISTS (
+             SELECT 1
+               FROM care_pathway_resource_references AS reference
+              WHERE reference.tenant_id = pathway.tenant_id
+                AND reference.pathway_instance_id = pathway.id
+                AND reference.patient_uid = pathway.patient_uid
+                AND reference.resource_type = 'admission'
+                AND reference.resource_id = source.aggregate_id
+                AND reference.relationship_kind = 'closure_evidence'
+                AND reference.evidence_state <> 'superseded'
+           )
+      )`,
+    tenantId,
+    capturedAt,
+  ));
+}
+
+async function inpatientDiagnosticReferenceCompleteness({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.INPATIENT) {
+    return result('INPATIENT_DIAGNOSTIC_REFERENCE_DRIFT', 0);
+  }
+  return result('INPATIENT_DIAGNOSTIC_REFERENCE_DRIFT', await count(
+    tx,
+    `WITH RECURSIVE known_sources AS (
+       SELECT source.tenant_id,
+              source.admission_id,
+              source.patient_uid,
+              'investigation'::text AS resource_type,
+              source.id::text AS resource_id
+         FROM investigations AS source
+        WHERE source.tenant_id = $1::uuid
+          AND source.admission_id IS NOT NULL
+       UNION ALL
+       SELECT source.tenant_id,
+              source.admission_id,
+              source.patient_uid,
+              'lab_result'::text,
+              source.id::text
+         FROM lab_results AS source
+        WHERE source.tenant_id = $1::uuid
+          AND source.admission_id IS NOT NULL
+       UNION ALL
+       SELECT source.tenant_id,
+              source.admission_id,
+              source.patient_uid,
+              'radiology_order'::text,
+              source.id::text
+         FROM radiology_orders AS source
+        WHERE source.tenant_id = $1::uuid
+          AND source.admission_id IS NOT NULL
+       UNION ALL
+       SELECT source.tenant_id,
+              source.admission_id,
+              source.patient_uid,
+              'anatomical_pathology_case'::text,
+              source.id::text
+         FROM ap_cases AS source
+        WHERE source.tenant_id = $1::uuid
+          AND source.admission_id IS NOT NULL
+       UNION ALL
+       SELECT source.tenant_id,
+              source.admission_id,
+              source.patient_uid,
+              'diagnostic_result_generation'::text,
+              source.id::text
+         FROM diagnostic_result_generations AS source
+        WHERE source.tenant_id = $1::uuid
+          AND source.admission_id IS NOT NULL
+     ),
+     current_reference_ancestry AS (
+       SELECT reference.tenant_id,
+              reference.pathway_instance_id,
+              reference.patient_uid,
+              reference.resource_type,
+              reference.resource_id,
+              reference.id AS current_reference_id,
+              reference.id AS ancestor_reference_id,
+              reference.superseded_reference_id,
+              reference.source_outbox_event_id AS ancestor_source_outbox_event_id,
+              ARRAY[reference.id]::uuid[] AS visited_reference_ids,
+              1::integer AS ancestry_depth
+          FROM care_pathway_resource_references AS reference
+         WHERE reference.tenant_id = $1::uuid
+           AND reference.relationship_kind = 'child_action'
+           AND reference.evidence_state <> 'superseded'
+           AND NOT EXISTS (
+            SELECT 1
+              FROM care_pathway_resource_references AS successor
+             WHERE successor.tenant_id = reference.tenant_id
+               AND successor.superseded_reference_id = reference.id
+          )
+       UNION ALL
+       SELECT ancestry.tenant_id,
+              ancestry.pathway_instance_id,
+              ancestry.patient_uid,
+              ancestry.resource_type,
+              ancestry.resource_id,
+              ancestry.current_reference_id,
+              predecessor.id,
+              predecessor.superseded_reference_id,
+              predecessor.source_outbox_event_id,
+              ancestry.visited_reference_ids || predecessor.id,
+              ancestry.ancestry_depth + 1
+         FROM current_reference_ancestry AS ancestry
+         JOIN care_pathway_resource_references AS predecessor
+           ON predecessor.tenant_id = ancestry.tenant_id
+          AND predecessor.id = ancestry.superseded_reference_id
+          AND predecessor.pathway_instance_id = ancestry.pathway_instance_id
+          AND predecessor.patient_uid = ancestry.patient_uid
+          AND predecessor.resource_type = ancestry.resource_type
+          AND predecessor.resource_id = ancestry.resource_id
+          AND predecessor.relationship_kind = 'child_action'
+        WHERE ancestry.ancestry_depth < 64
+          AND predecessor.id <> ALL(ancestry.visited_reference_ids)
+     ),
+     source_without_link_event AS (
+       SELECT CONCAT(
+                'source:',
+                source.resource_type,
+                ':',
+                source.resource_id
+              ) AS finding_id
+         FROM known_sources AS source
+        WHERE NOT EXISTS (
+          SELECT 1
+            FROM event_outbox AS event
+           WHERE event.tenant_id = source.tenant_id
+             AND event.event_type = 'admission.diagnostic_resource_linked'
+             AND event.aggregate_type = 'admission'
+             AND event.aggregate_id = source.admission_id::text
+             AND event.patient_uid = source.patient_uid
+             AND event.payload ->> 'admission_id' = source.admission_id::text
+             AND event.payload ->> 'patient_uid' = source.patient_uid::text
+             AND event.payload ->> 'resource_type' = source.resource_type
+             AND event.payload ->> 'resource_id' = source.resource_id
+             AND event.payload ->> 'admission_lineage_version' = '1'
+             AND NULLIF(event.payload ->> 'occurred_at', '') IS NOT NULL
+        )
+     ),
+     link_event_without_source_or_reference AS (
+       SELECT CONCAT('event:', event.id::text) AS finding_id
+         FROM event_outbox AS event
+        WHERE event.tenant_id = $1::uuid
+          AND event.event_type = 'admission.diagnostic_resource_linked'
+          AND (
+            event.aggregate_type <> 'admission'
+            OR event.aggregate_id !~ '^[1-9][0-9]*$'
+            OR event.payload ->> 'admission_id' IS DISTINCT FROM event.aggregate_id
+            OR event.payload ->> 'patient_uid' IS DISTINCT FROM event.patient_uid::text
+            OR event.payload ->> 'admission_lineage_version' IS DISTINCT FROM '1'
+            OR NULLIF(event.payload ->> 'occurred_at', '') IS NULL
+            OR NOT EXISTS (
+              SELECT 1
+                FROM known_sources AS source
+               WHERE source.tenant_id = event.tenant_id
+                 AND source.admission_id::text = event.aggregate_id
+                 AND source.patient_uid = event.patient_uid
+                 AND source.resource_type = event.payload ->> 'resource_type'
+                 AND source.resource_id = event.payload ->> 'resource_id'
+            )
+            OR NOT EXISTS (
+              SELECT 1
+                FROM care_pathway_instances AS pathway
+                JOIN current_reference_ancestry AS reference
+                  ON reference.tenant_id = pathway.tenant_id
+                 AND reference.pathway_instance_id = pathway.id
+                 AND reference.patient_uid = pathway.patient_uid
+                 AND reference.resource_type = event.payload ->> 'resource_type'
+                 AND reference.resource_id = event.payload ->> 'resource_id'
+                 AND reference.ancestor_source_outbox_event_id = event.id
+               WHERE pathway.tenant_id = event.tenant_id
+                 AND pathway.pathway_key = 'inpatient_admission_to_recovery'
+                 AND pathway.source_episode_type = 'admission'
+                 AND pathway.source_episode_id = event.aggregate_id
+                 AND pathway.patient_uid = event.patient_uid
+            )
+          )
+     ),
+     findings AS (
+       SELECT finding_id FROM source_without_link_event
+       UNION ALL
+       SELECT finding_id FROM link_event_without_source_or_reference
+     )
+     SELECT COUNT(*)::integer AS finding_count FROM findings`,
+    tenantId,
+  ));
+}
+
+async function inpatientDischargeEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.INPATIENT) {
+    return result('INPATIENT_DISCHARGE_EVIDENCE_DRIFT', 0);
+  }
+  return result('INPATIENT_DISCHARGE_EVIDENCE_DRIFT', await count(
+    tx,
+    `SELECT COUNT(DISTINCT admission.id)::integer AS finding_count
+       FROM admissions AS admission
+      WHERE admission.tenant_id = $1::uuid
+        AND admission.discharged_at IS NOT NULL
+        AND (
+          NOT EXISTS (
+            SELECT 1
+              FROM discharge_summaries AS summary
+             WHERE summary.tenant_id = admission.tenant_id
+               AND summary.admission_id = admission.id
+               AND summary.patient_uid = admission.patient_uid
+               AND summary.status IN ('signed', 'delivered')
+               AND summary.signed_by IS NOT NULL
+               AND summary.signed_at IS NOT NULL
+          )
+          OR NOT EXISTS (
+            SELECT 1
+              FROM medication_reconciliations AS reconciliation
+             WHERE reconciliation.tenant_id = admission.tenant_id
+               AND reconciliation.admission_id = admission.id
+               AND reconciliation.patient_uid = admission.patient_uid
+               AND reconciliation.rec_type = 'discharge'
+               AND reconciliation.status = 'completed'
+               AND reconciliation.completed_by IS NOT NULL
+               AND reconciliation.completed_at IS NOT NULL
+               AND jsonb_typeof(
+                     reconciliation.metadata -> 'take_home_list'
+                   ) = 'array'
+          )
+          OR (
+            NOT EXISTS (
+              SELECT 1
+                FROM follow_up_plans AS plan
+                JOIN appointments AS appointment
+                  ON appointment.tenant_id = plan.tenant_id
+                 AND appointment.id = plan.appointment_id
+                JOIN users AS appointment_patient
+                  ON appointment_patient.tenant_id = appointment.tenant_id
+                 AND appointment_patient.id = appointment.patient_id
+                 AND appointment_patient.uid = plan.patient_uid
+               WHERE plan.tenant_id = admission.tenant_id
+                 AND plan.patient_uid = admission.patient_uid
+                 AND plan.origin_kind = 'admission'
+                 AND plan.origin_resource_type = 'admission'
+                 AND plan.origin_resource_id = admission.id::text
+                 AND plan.status IN ('open', 'scheduled')
+                 AND UPPER(COALESCE(appointment.status, '')) NOT IN
+                     ('CANCELLED', 'CANCELED', 'NO_SHOW')
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM clinical_timeline_events AS timeline
+                JOIN clinical_audit_events AS audit
+                  ON audit.tenant_id = timeline.tenant_id
+                 AND audit.patient_uid = timeline.patient_uid
+                 AND audit.action = 'discharge.follow_up_exception_recorded'
+                 AND audit.resource_type = 'admission'
+                 AND audit.resource_id = admission.id::text
+                 AND NULLIF(audit.metadata ->> 'reason', '') IS NOT NULL
+               WHERE timeline.tenant_id = admission.tenant_id
+                 AND timeline.patient_uid = admission.patient_uid
+                 AND timeline.encounter_id IS NOT DISTINCT FROM admission.encounter_id
+                 AND timeline.event_type =
+                     'discharge.follow_up_exception_recorded'
+                 AND timeline.resource_type = 'admission'
+                 AND timeline.resource_id = admission.id::text
+                 AND NULLIF(timeline.payload ->> 'reason', '') IS NOT NULL
+            )
+          )
+          OR EXISTS (
+            SELECT 1
+              FROM discharge_pending_result_handoffs AS handoff
+              LEFT JOIN inpatient_primary_physician_assignments AS assignment
+                ON assignment.tenant_id = handoff.tenant_id
+               AND assignment.id = handoff.primary_physician_assignment_id
+               AND assignment.admission_id = handoff.admission_id
+               AND assignment.patient_uid = handoff.patient_uid
+              LEFT JOIN discharge_summaries AS summary
+                ON summary.tenant_id = handoff.tenant_id
+               AND summary.id = handoff.discharge_summary_id
+               AND summary.admission_id = handoff.admission_id
+               AND summary.patient_uid = handoff.patient_uid
+              LEFT JOIN tasks AS task
+                ON task.tenant_id = handoff.tenant_id
+               AND task.id = handoff.task_id
+             WHERE handoff.tenant_id = admission.tenant_id
+               AND handoff.admission_id = admission.id
+               AND handoff.patient_uid = admission.patient_uid
+               AND handoff.handoff_state <> 'superseded'
+               AND (
+                 assignment.id IS NULL
+                 OR handoff.named_physician_uid IS DISTINCT FROM
+                      assignment.physician_uid
+                 OR summary.id IS NULL
+                 OR summary.status NOT IN ('signed', 'delivered')
+                 OR handoff.summary_included_at IS NULL
+                 OR handoff.summary_inclusion_timeline_event_id IS NULL
+                 OR task.id IS NULL
+                 OR task.assigned_to_uid IS DISTINCT FROM
+                      handoff.named_physician_uid
+               )
+          )
+        )`,
+    tenantId,
+  ));
+}
+
+async function inpatientContinuityEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.INPATIENT) {
+    return result('INPATIENT_CONTINUITY_EVIDENCE_DRIFT', 0);
+  }
+  return result('INPATIENT_CONTINUITY_EVIDENCE_DRIFT', await count(
+    tx,
+    `WITH findings AS (
+       SELECT pathway.id::text AS finding_id
+         FROM care_pathway_instances AS pathway
+        WHERE pathway.tenant_id = $1::uuid
+          AND pathway.pathway_key = 'inpatient_admission_to_recovery'
+          AND pathway.source_episode_type = 'admission'
+          AND pathway.clinical_status = 'completed'
+          AND NOT EXISTS (
+            SELECT 1
+              FROM post_discharge_contact_events AS contact
+             WHERE contact.tenant_id = pathway.tenant_id
+               AND contact.admission_id::text = pathway.source_episode_id
+               AND contact.patient_uid = pathway.patient_uid
+          )
+       UNION ALL
+       SELECT admission.id::text
+         FROM admissions AS admission
+         LEFT JOIN admissions AS prior
+           ON prior.tenant_id = admission.tenant_id
+          AND prior.id = admission.prior_admission_id
+          AND prior.patient_uid = admission.patient_uid
+        WHERE admission.tenant_id = $1::uuid
+          AND admission.prior_admission_id IS NOT NULL
+          AND prior.id IS NULL
+     )
+     SELECT COUNT(*)::integer AS finding_count FROM findings`,
+    tenantId,
+  ));
+}
+
 export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'runtime_pins', handlerVersion: 'care_pathway.runtime_pins.v1', run: runtimePins }),
   Object.freeze({ id: 'transition_sequence', handlerVersion: 'care_pathway.transition_sequence.v1', run: transitionSequence }),
@@ -1261,6 +2049,22 @@ export const REFERRAL_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'referral_response_closure', handlerVersion: 'care_pathway.referral_response_closure.v1', run: referralResponseClosureEvidence }),
   Object.freeze({ id: 'referral_recovery_obligation', handlerVersion: 'care_pathway.referral_recovery_obligation.v1', run: referralRecoveryObligation }),
   Object.freeze({ id: 'referral_projection_evidence', handlerVersion: 'care_pathway.referral_projection_evidence.v1', run: referralProjectionEvidence }),
+]);
+
+export const OP_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
+  Object.freeze({ id: 'op_live_appointment_source_coverage', handlerVersion: 'care_pathway.op_live_appointment_source_coverage.v1', run: opLiveAppointmentSourceCoverage }),
+  Object.freeze({ id: 'op_source_projection', handlerVersion: 'care_pathway.op_source_projection.v1', run: opSourceProjectionEvidence }),
+  Object.freeze({ id: 'op_stale_scheduled_reaper_debt', handlerVersion: 'care_pathway.op_stale_scheduled_reaper_debt.v1', run: opStaleScheduledReaperDebt }),
+  Object.freeze({ id: 'op_child_reference_completeness', handlerVersion: 'care_pathway.op_child_reference_completeness.v1', run: opChildReferenceCompleteness }),
+  Object.freeze({ id: 'op_closure_ownership_evidence', handlerVersion: 'care_pathway.op_closure_ownership_evidence.v1', run: opClosureAndOwnershipEvidence }),
+  Object.freeze({ id: 'op_to_inpatient_handoff_evidence', handlerVersion: 'care_pathway.op_to_inpatient_handoff_evidence.v1', run: opToInpatientHandoffEvidence }),
+]);
+
+export const INPATIENT_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
+  Object.freeze({ id: 'inpatient_source_projection', handlerVersion: 'care_pathway.inpatient_source_projection.v1', run: inpatientSourceProjectionEvidence }),
+  Object.freeze({ id: 'inpatient_diagnostic_reference_completeness', handlerVersion: 'care_pathway.inpatient_diagnostic_reference_completeness.v1', run: inpatientDiagnosticReferenceCompleteness }),
+  Object.freeze({ id: 'inpatient_discharge_evidence', handlerVersion: 'care_pathway.inpatient_discharge_evidence.v1', run: inpatientDischargeEvidence }),
+  Object.freeze({ id: 'inpatient_continuity_evidence', handlerVersion: 'care_pathway.inpatient_continuity_evidence.v1', run: inpatientContinuityEvidence }),
 ]);
 
 export default COMMON_PATHWAY_RECONCILIATION_CHECKS;

@@ -65,11 +65,18 @@ async function main() {
   }
   const connectionString = databaseUrl();
   process.env.DATABASE_URL ||= connectionString;
-  const {
+  const [{
     DIAGNOSTICS_ORDER_TO_ACTION_DEFINITION,
     compileDiagnosticsOrderToActionDefinition,
-  } = await import('../src/services/pathways/diagnosticsPathwayDefinition.js');
-  const compiled = compileDiagnosticsOrderToActionDefinition();
+  }, {
+    workflowRuntimeRegistryV2,
+  }] = await Promise.all([
+    import('../src/services/pathways/diagnosticsPathwayDefinition.js'),
+    import('../src/services/workflow/workflowRuntimeRegistry.js'),
+  ]);
+  const compiled = compileDiagnosticsOrderToActionDefinition({
+    registry: workflowRuntimeRegistryV2,
+  });
   const client = new Client({ connectionString });
   await client.connect();
   try {

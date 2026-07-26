@@ -3,9 +3,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isTenantTransactionClient, setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { canonicalizeRequestRole } from '../../utils/roles.js';
+import {
+  assertInpatientPendingResultOwnerTransferAllowedTx,
+} from '../emr/inpatientPendingResultOwnerTransferGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
-  createTask,
+  createCoveringTransferReviewTaskTx,
   settleCoveringTransferReviewTaskTx,
 } from '../workflow/taskService.js';
 import {
@@ -21,6 +24,7 @@ import {
   appendPathwayTransitionEventTx,
   findPathwayTransitionReplayTx,
 } from './pathwayTransitionEventService.js';
+import { isPathwayOwnerTransferStepSupported } from './pathwayOwnershipStagePolicy.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY_RE = /^[A-Za-z0-9_.:-]+$/;
@@ -197,13 +201,17 @@ function currentStep(runtime) {
 
 function requireLiveOwnershipStep(runtime) {
   const step = currentStep(runtime);
+  const stepSupportsOwnerTransfer = isPathwayOwnerTransferStepSupported({
+    pathwayKey: runtime.instance.pathway_key,
+    stepKind: step?.step_kind,
+  });
   if (
     !['planned', 'active', 'on_hold'].includes(runtime.instance.clinical_status)
     || runtime.instance.closed_at
     || !['started', 'running', 'blocked'].includes(runtime.run.status)
     || !step
     || !['pending', 'in_progress', 'blocked'].includes(step.status)
-    || !['task', 'approval'].includes(step.step_kind)
+    || !stepSupportsOwnerTransfer
   ) {
     throw AppError.conflict(
       'Care pathway has no live human ownership stage',
@@ -696,6 +704,12 @@ export async function requestCarePathwayOwnerTransfer({
       });
     }
 
+    await assertInpatientPendingResultOwnerTransferAllowedTx({
+      tx: db,
+      tenantId: tid,
+      pathwayInstance: runtime.instance,
+      outcome: 'requested',
+    });
     if (!isEligiblePathwayOwnerUserRow(currentActor.usersByUid.get(targetUid))) {
       throw AppError.forbidden('Covering clinician is not eligible for pathway ownership');
     }
@@ -717,24 +731,15 @@ export async function requestCarePathwayOwnerTransfer({
       );
     }
     const handoffId = randomUUID();
-    const task = await createTask({
+    const task = await createCoveringTransferReviewTaskTx({
       tenantId: tid,
-      taskKind: 'pathway_owner_transfer_review',
-      title: 'Review covering clinician transfer request',
-      description: 'Accept or decline the explicit covering clinician handoff.',
+      handoffId,
+      pathwayInstanceId: instanceId,
       patientUid: runtime.instance.patient_uid,
-      relatedResourceType: 'care_handoff_instance',
-      relatedResourceId: handoffId,
-      priority: 'normal',
-      assignedToUid: targetUid,
-      createdBy: currentActor.uid,
-      slaCompletionSemantics: 'none',
-      metadata: {
-        task_contract: TRANSFER_TASK_CONTRACT,
-        care_pathway_instance_id: instanceId,
-        canonical_encounter_id: runtime.instance.encounter_id || null,
-        request_fingerprint: commandFingerprint,
-      },
+      encounterId: runtime.instance.encounter_id || null,
+      recipientUid: targetUid,
+      senderUid: currentActor.uid,
+      requestFingerprint: commandFingerprint,
       tx: db,
     });
     const handoffRows = await db.$queryRawUnsafe(
@@ -970,6 +975,12 @@ async function transitionTransfer({
       });
     }
 
+    await assertInpatientPendingResultOwnerTransferAllowedTx({
+      tx: db,
+      tenantId: tid,
+      pathwayInstance: runtime.instance,
+      outcome,
+    });
     const step = assertTransferBinding(runtime, handoff, {
       requireCurrentStep: outcome === 'accepted',
     });
@@ -996,6 +1007,8 @@ async function transitionTransfer({
       || reviewTask.related_resource_type !== 'care_handoff_instance'
       || String(reviewTask.related_resource_id || '').toLowerCase() !== id
       || reviewTask.metadata?.task_contract !== TRANSFER_TASK_CONTRACT
+      || String(reviewTask.metadata?.canonical_encounter_id || '').toLowerCase()
+        !== String(runtime.instance.encounter_id || '').toLowerCase()
       || String(reviewTask.metadata?.request_fingerprint || '') !== String(handoff.request_fingerprint)
     ) {
       throw AppError.conflict(

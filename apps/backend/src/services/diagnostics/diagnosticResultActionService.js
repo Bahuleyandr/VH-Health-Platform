@@ -14,6 +14,10 @@ import { projectDiagnosticPathwayEvent } from '../pathways/diagnosticPathwayProj
 import { CARE_PATHWAY_KEYS, PATHWAY_MODES } from '../pathways/pathwayMode.js';
 import { resolvePathwayModeTx } from '../pathways/pathwayRuntimePersistence.js';
 import { getDiagnosticGenerationReleaseDecisionTx } from '../portal/portalAccessService.js';
+import {
+  rearmPendingResultOwnerActionsForDiagnosticReopenTx,
+  settlePendingResultOwnerActionsForDiagnosticActionTx,
+} from '../emr/inpatientPathwayDomainService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
   isPathwayNamedClinicalOwnerRole,
@@ -21,7 +25,7 @@ import {
 } from '../workflow/workflowHumanOwnerService.js';
 import {
   createRegisteredWorkflowSystemActor,
-  workflowRuntimeRegistry,
+  workflowRuntimeRegistryV2,
 } from '../workflow/workflowRuntimeRegistry.js';
 import { sha256ClinicalJson } from './diagnosticClassification.js';
 import { hasValidDiagnosticCriticalAcknowledgementReceipt } from './diagnosticCriticalAcknowledgementEvidence.js';
@@ -375,6 +379,11 @@ export async function recordDoctorDiagnosticDisposition(input = {}, context = {}
           'DIAGNOSTIC_ACTION_IDEMPOTENCY_CONFLICT',
         );
       }
+      await settlePendingResultOwnerActionsForDiagnosticActionTx({
+        tx,
+        tenantId,
+        diagnosticActionId: existing.id,
+      });
       return actionReceipt(existing, { replayed: true });
     }
 
@@ -517,7 +526,7 @@ export async function recordDoctorDiagnosticDisposition(input = {}, context = {}
         payload: { diagnostic_action_id: actionId, diagnostic_generation_id: generationId },
       },
       actor: effectiveActor,
-      registry: workflowRuntimeRegistry,
+      registry: workflowRuntimeRegistryV2,
       activationEvidenceCapability: input.activationEvidenceCapability,
       tx,
     });
@@ -542,6 +551,11 @@ export async function recordDoctorDiagnosticDisposition(input = {}, context = {}
         'DIAGNOSTIC_ACTION_EVENT_REQUIRED',
       );
     }
+    await settlePendingResultOwnerActionsForDiagnosticActionTx({
+      tx,
+      tenantId,
+      diagnosticActionId: actionId,
+    });
     return actionReceipt(inserted[0], {
       replayed: false,
       execution: {
@@ -605,7 +619,14 @@ export async function closeNormalDiagnosticGenerationIfEligible(input = {}) {
       tenantId,
       generationId,
     );
-    if (existing[0]) return actionReceipt(existing[0], { replayed: true });
+    if (existing[0]) {
+      await settlePendingResultOwnerActionsForDiagnosticActionTx({
+        tx,
+        tenantId,
+        diagnosticActionId: existing[0].id,
+      });
+      return actionReceipt(existing[0], { replayed: true });
+    }
 
     const mode = await resolvePathwayModeTx({
       tx,
@@ -725,7 +746,7 @@ export async function closeNormalDiagnosticGenerationIfEligible(input = {}) {
       );
     }
     const actor = createRegisteredWorkflowSystemActor({
-      registry: workflowRuntimeRegistry,
+      registry: workflowRuntimeRegistryV2,
       systemKey: 'diagnostics.pathway_projector.v1',
       sourceEventId: event.id,
       causationId: `diagnostic_result_action:${actionId}`,
@@ -744,9 +765,14 @@ export async function closeNormalDiagnosticGenerationIfEligible(input = {}) {
         payload: { diagnostic_action_id: actionId, diagnostic_generation_id: generationId },
       },
       actor,
-      registry: workflowRuntimeRegistry,
+      registry: workflowRuntimeRegistryV2,
       activationEvidenceCapability: input.activationEvidenceCapability,
       tx,
+    });
+    await settlePendingResultOwnerActionsForDiagnosticActionTx({
+      tx,
+      tenantId,
+      diagnosticActionId: actionId,
     });
     return actionReceipt(inserted[0], {
       replayed: false,
@@ -828,6 +854,12 @@ export async function reopenNormalDiagnosticGeneration(input = {}, context = {})
           'DIAGNOSTIC_ACTION_IDEMPOTENCY_CONFLICT',
         );
       }
+      await rearmPendingResultOwnerActionsForDiagnosticReopenTx({
+        tx,
+        tenantId,
+        generationId,
+        doctorReopenedActionId: existing.id,
+      });
       return actionReceipt(existing, { replayed: true });
     }
     await requireActiveModeTx(tx, tenantId, input.activationEvidenceCapability);
@@ -923,8 +955,14 @@ export async function reopenNormalDiagnosticGeneration(input = {}, context = {})
       generation: 2,
       tenantId,
       event: Object.freeze({ ...event, payload }),
-      registry: workflowRuntimeRegistry,
+      registry: workflowRuntimeRegistryV2,
       activationEvidenceCapability: input.activationEvidenceCapability,
+    });
+    await rearmPendingResultOwnerActionsForDiagnosticReopenTx({
+      tx,
+      tenantId,
+      generationId,
+      doctorReopenedActionId: actionId,
     });
     return actionReceipt(inserted[0], {
       replayed: false,

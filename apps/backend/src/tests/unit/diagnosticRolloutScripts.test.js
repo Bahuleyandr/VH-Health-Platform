@@ -48,6 +48,18 @@ describe('Diagnostics rollout scripts', () => {
     expect(shadowMode).toContain("SELECT set_config('app.current_tenant_id'");
     expect(shadowMode).toContain("'CARE_PATHWAY_MODE_CHANGED'");
     expect(shadowMode).toContain('INSERT INTO audit_logs');
+    expect(shadowMode).toContain(
+      "pathwayKey === INPATIENT_PATHWAY_KEY && mode === 'shadow'",
+    );
+    expect(shadowMode).toContain(
+      'planInpatientDischargeSectionProvisioning(client, { tenantId })',
+    );
+    expect(shadowMode).toContain(
+      'provisionInpatientDischargeSectionsTx(client, { tenantId })',
+    );
+    expect(shadowMode).toContain(
+      "'inpatient_discharge_section_provisioning', $8::jsonb",
+    );
     expect(shadowMode).not.toMatch(/ALLOWED_MODES[^\n]+active/);
   });
 });

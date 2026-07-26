@@ -1,5 +1,7 @@
 import { WORKFLOW_STEP_KINDS } from './workflowDefinitionContract.js';
 import { DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS } from '../pathways/diagnosticsPathwayHandlers.js';
+import { INPATIENT_PATHWAY_RUNTIME_HANDLERS } from '../pathways/inpatientPathwayHandlers.js';
+import { OP_PATHWAY_RUNTIME_HANDLERS } from '../pathways/opPathwayHandlers.js';
 import { REFERRAL_PATHWAY_RUNTIME_HANDLERS } from '../pathways/referralPathwayHandlers.js';
 
 const HANDLER_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.v[1-9][0-9]*$/;
@@ -272,6 +274,24 @@ export function isWorkflowRuntimeRegistry(value) {
   );
 }
 
+export function resolveWorkflowRuntimeRegistryVersion(version) {
+  const normalizedVersion = requirePositiveInteger(
+    version,
+    'Workflow runtime registry version',
+  );
+  const registry = registriesByVersion.get(normalizedVersion);
+  if (!registry) {
+    throw new TypeError(
+      `Workflow runtime registry version ${normalizedVersion} is not registered`,
+    );
+  }
+  return registry;
+}
+
+export function listWorkflowRuntimeRegistryVersions() {
+  return Object.freeze([...registriesByVersion.keys()].sort((left, right) => left - right));
+}
+
 export function createRegisteredWorkflowSystemActor({
   registry = workflowRuntimeRegistry,
   systemKey,
@@ -325,7 +345,7 @@ export const workflowRuntimeRegistryV2 = createWorkflowRuntimeRegistry({
   systemActors: ['diagnostics.pathway_projector.v1'],
 });
 
-export const workflowRuntimeRegistry = createWorkflowRuntimeRegistry({
+export const workflowRuntimeRegistryV3 = createWorkflowRuntimeRegistry({
   version: 3,
   conditions: [
     ['diagnostics.route_generation.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.routeGeneration],
@@ -344,5 +364,43 @@ export const workflowRuntimeRegistry = createWorkflowRuntimeRegistry({
     'referral.pathway_projector.v1',
   ],
 });
+
+export const workflowRuntimeRegistryV4 = createWorkflowRuntimeRegistry({
+  version: 4,
+  conditions: [
+    ['diagnostics.route_generation.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.routeGeneration],
+    ['diagnostics.normal_closure.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.normalClosure],
+    ['diagnostics.doctor_action.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.doctorAction],
+    ['referral.receiver_acceptance.v1', REFERRAL_PATHWAY_RUNTIME_HANDLERS.receiverAcceptance],
+    ['referral.signed_response.v1', REFERRAL_PATHWAY_RUNTIME_HANDLERS.signedResponse],
+    ['referral.originator_closure.v1', REFERRAL_PATHWAY_RUNTIME_HANDLERS.originatorClosure],
+    ['op.contact_owner.v1', OP_PATHWAY_RUNTIME_HANDLERS.contactOwner],
+    ['op.arrival_or_recovery.v1', OP_PATHWAY_RUNTIME_HANDLERS.arrivalOrRecovery],
+    ['op.visit_completion.v1', OP_PATHWAY_RUNTIME_HANDLERS.visitCompletion],
+    ['op.recovery_action.v1', OP_PATHWAY_RUNTIME_HANDLERS.recoveryAction],
+    ['op.closure_evidence.v1', OP_PATHWAY_RUNTIME_HANDLERS.closureEvidence],
+    ['op.child_work_closure.v1', OP_PATHWAY_RUNTIME_HANDLERS.childWorkClosure],
+    ['inpatient.accepted_admission.v1', INPATIENT_PATHWAY_RUNTIME_HANDLERS.acceptedAdmission],
+    ['inpatient.discharge_planning.v1', INPATIENT_PATHWAY_RUNTIME_HANDLERS.dischargePlanning],
+    ['inpatient.readiness_work.v1', INPATIENT_PATHWAY_RUNTIME_HANDLERS.readinessWork],
+    ['inpatient.discharge_evidence.v1', INPATIENT_PATHWAY_RUNTIME_HANDLERS.dischargeEvidence],
+    ['inpatient.discharge_completion.v1', INPATIENT_PATHWAY_RUNTIME_HANDLERS.dischargeCompletion],
+    ['inpatient.post_discharge_contact.v1', INPATIENT_PATHWAY_RUNTIME_HANDLERS.postDischargeContact],
+  ],
+  actions: [
+    ['diagnostics.finalize.v1', DIAGNOSTIC_PATHWAY_RUNTIME_HANDLERS.finalize],
+    ['referral.finalize.v1', REFERRAL_PATHWAY_RUNTIME_HANDLERS.finalize],
+    ['op.finalize.v1', OP_PATHWAY_RUNTIME_HANDLERS.finalize],
+    ['inpatient.finalize.v1', INPATIENT_PATHWAY_RUNTIME_HANDLERS.finalize],
+  ],
+  systemActors: [
+    'diagnostics.pathway_projector.v1',
+    'referral.pathway_projector.v1',
+    'op.pathway_projector.v1',
+    'inpatient.pathway_projector.v1',
+  ],
+});
+
+export const workflowRuntimeRegistry = workflowRuntimeRegistryV4;
 
 export default workflowRuntimeRegistry;

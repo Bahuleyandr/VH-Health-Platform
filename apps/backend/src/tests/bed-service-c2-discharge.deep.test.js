@@ -34,7 +34,7 @@ async function cleanup() {
     PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`,
+    `DELETE FROM patient_encounters WHERE patient_uid = $1::uuid`,
     PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -116,12 +116,32 @@ describe('C-2 bedService admit/discharge — no bypass (deep)', () => {
 
     // Admission row exists and is active, linked to the bed.
     const adm = await prisma.$queryRawUnsafe(
-      `SELECT id, status, bed_id, bed_number FROM admissions
+      `SELECT id, tenant_id, patient_uid, encounter_id, status, bed_id, bed_number
+         FROM admissions
         WHERE patient_uid = $1::uuid AND status = 'admitted'`,
       PATIENT_UID,
     );
     expect(adm).toHaveLength(1);
     expect(Number(adm[0].bed_id)).toBe(Number(bedId));
+    const encounters = await prisma.$queryRawUnsafe(
+      `SELECT id, tenant_id, patient_uid, encounter_type, status, admission_id,
+              admission_encounter_id, created_by
+         FROM patient_encounters
+        WHERE tenant_id = $1::uuid
+          AND admission_id = $2::integer`,
+      TENANT_ID,
+      Number(adm[0].id),
+    );
+    expect(encounters).toEqual([expect.objectContaining({
+      id: adm[0].encounter_id,
+      tenant_id: TENANT_ID,
+      patient_uid: PATIENT_UID,
+      encounter_type: 'ip',
+      status: 'active',
+      admission_id: Number(adm[0].id),
+      admission_encounter_id: adm[0].encounter_id,
+      created_by: DISCHARGER_UID,
+    })]);
 
     // bed_transfers admission audit row.
     const xfer = await prisma.$queryRawUnsafe(

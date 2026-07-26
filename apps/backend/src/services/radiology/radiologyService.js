@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -35,7 +36,7 @@ const PRIORITY_ALIASES = {
   normal: 'routine', low: 'routine',
 };
 
-const RAD_RETURNING = `id, patient_uid, encounter_id, modality, body_part, clinical_indication,
+const RAD_RETURNING = `id, patient_uid, encounter_id, admission_id, modality, body_part, clinical_indication,
     priority, status, ordered_by, radiologist, report, report_completed_at,
     report_signed_off_at, report_signed_off_by, acquired_at, acquired_by,
     acquired_by_name, tech_uid, tech_name, tech_license_number,
@@ -387,7 +388,7 @@ async function emitRadiologyCanonicalEvent(db, order, eventType, {
 }) {
   const eventAt = occurredAt || order.updated_at || order.created_at || new Date().toISOString();
   const encounterId = await resolveCanonicalEncounterUuid(db, order);
-  await recordCanonicalClinicalEvent({
+  return recordCanonicalClinicalEvent({
     tenantId: order.tenant_id,
     patientUid: order.patient_uid,
     encounterId,
@@ -587,6 +588,7 @@ class RadiologyService {
     const tenantId = tenantOr(context.tenantId || data.tenantId || data.tenant_id);
     const patient_uid = data.patient_uid;
     const encounter_id = data.encounter_id;
+    const explicitAdmissionId = positiveIntOrNull(data.admission_id ?? data.admissionId);
     const body_part = data.body_part;
     const clinical_indication = data.clinical_indication ?? data.clinical_notes ?? null;
     const ordered_by = data.ordered_by ?? data.doctor_id ?? null;
@@ -615,17 +617,39 @@ class RadiologyService {
 
     const resolvedEncounterId = await resolveEncounterIdForRadiology(encounter_id, patient_uid);
     const order = await setTenantTx(tenantId, async (tx) => {
+      const admissionCandidate = explicitAdmissionId || resolvedEncounterId;
+      const admissionRows = admissionCandidate
+        ? await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM admissions
+            WHERE tenant_id = $1::uuid
+              AND id = $2::integer
+              AND patient_uid = $3::uuid
+            LIMIT 1
+            FOR SHARE`,
+          tenantId,
+          admissionCandidate,
+          patient_uid,
+        )
+        : [];
+      if (explicitAdmissionId && !admissionRows[0]) {
+        throw AppError.conflict(
+          'Radiology admission does not belong to this tenant and patient',
+          'RADIOLOGY_ADMISSION_MISMATCH',
+        );
+      }
+      const admissionId = admissionRows[0]?.id ?? null;
       const result = await tx.$queryRawUnsafe(
         `INSERT INTO radiology_orders
-          (patient_uid, encounter_id, modality, body_part, clinical_indication,
+          (patient_uid, encounter_id, admission_id, modality, body_part, clinical_indication,
            priority, status, ordered_by, notes, tenant_id, created_at, updated_at)
-         VALUES ($1::uuid, $2::int, $3, $4, $5, $6, 'ordered', $7::uuid, $8, $9::uuid, NOW(), NOW())
+         VALUES ($1::uuid, $2::int, $3::int, $4, $5, $6, $7, 'ordered', $8::uuid, $9, $10::uuid, NOW(), NOW())
          RETURNING ${RAD_RETURNING}`,
-        patient_uid, resolvedEncounterId, modality, body_part, clinical_indication,
+        patient_uid, resolvedEncounterId, admissionId, modality, body_part, clinical_indication,
         priority, ordered_by, notes || null, tenantId,
       );
       const row = result[0];
-      await emitRadiologyCanonicalEvent(tx, row, 'radiology.order_created', {
+      const canonical = await emitRadiologyCanonicalEvent(tx, row, 'radiology.order_created', {
         actorUid: ordered_by,
         actorRole: context.actorRole || data.actorRole || null,
         summary: `Radiology ${modality} order created for ${body_part}`,
@@ -633,6 +657,19 @@ class RadiologyService {
         afterStatus: 'ordered',
         occurredAt: row.created_at,
       });
+      if (row.admission_id != null) {
+        await publishInpatientDiagnosticResourceLinkedTx({
+          tx,
+          tenantId,
+          admissionId: row.admission_id,
+          patientUid: row.patient_uid,
+          resourceType: 'radiology_order',
+          resourceId: row.id,
+          canonicalTimelineEventId: canonical.timeline.id,
+          canonicalAuditEventId: canonical.audit.id,
+          occurredAt: row.created_at,
+        });
+      }
       return row;
     });
 

@@ -15,6 +15,9 @@
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { publishOpChildResourceLinkedTx } from '../appointment/opChildResourceEventService.js';
+import { recordAppointmentCreatedEvidenceTx } from '../appointment/appointmentLifecycleService.js';
+import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -174,26 +177,34 @@ async function reserveFollowUpAppointment({
   reason = null,
   createdBy = null,
 }) {
-  const [patientRows, doctorRows] = await Promise.all([
-    db.$queryRawUnsafe(
+  const patientRows = await db.$queryRawUnsafe(
       `SELECT id, phone, name
          FROM users
-        WHERE uid = $1::uuid AND role = 'PATIENT'
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
         LIMIT 1`,
+      tenantId,
       patientUid,
-    ),
-    db.$queryRawUnsafe(
+    );
+  const doctorRows = await db.$queryRawUnsafe(
       `SELECT u.id, u.name, COALESCE(dept.name, d.department) AS department
          FROM users u
-         LEFT JOIN doctors d ON d.user_id = u.id AND d.is_active = true
-         LEFT JOIN departments dept ON dept.id = d.department_id
-        WHERE u.uid = $1::uuid
+         LEFT JOIN doctors d
+           ON d.user_id = u.id
+          AND d.tenant_id = u.tenant_id
+          AND d.is_active = true
+         LEFT JOIN departments dept
+           ON dept.id = d.department_id
+          AND dept.tenant_id = u.tenant_id
+        WHERE u.tenant_id = $1::uuid
+          AND u.uid = $2::uuid
           AND u.role = 'DOCTOR'
           AND u.is_active = true
         LIMIT 1`,
+      tenantId,
       doctorUid,
-    ),
-  ]);
+    );
 
   const patient = patientRows[0];
   if (!patient) throw AppError.badRequest('Cannot book follow-up appointment: patient_uid is not a PATIENT user');
@@ -201,13 +212,15 @@ async function reserveFollowUpAppointment({
   if (!doctor) throw AppError.badRequest('Cannot book follow-up appointment: doctor_uid is not an active DOCTOR');
 
   const conflicts = await db.$queryRawUnsafe(
-    `SELECT id
+      `SELECT id
        FROM appointments
-      WHERE doctor_id = $1::int
-        AND DATE(appointment_date) = ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
-        AND appointment_time = to_char($2::timestamptz AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')
+      WHERE tenant_id = $1::uuid
+        AND doctor_id = $2::int
+        AND DATE(appointment_date) = ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+        AND appointment_time = to_char($3::timestamptz AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')
         AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
       LIMIT 1`,
+    tenantId,
     Number(doctor.id),
     dueAt,
   );
@@ -230,7 +243,7 @@ async function reserveFollowUpAppointment({
         to_char($6::timestamptz AT TIME ZONE 'Asia/Kolkata', 'HH24:MI'),
         $7, $8, 'SCHEDULED',
         $9, 'FOLLOW_UP', $10::uuid, $11::uuid, NOW(), NOW())
-     RETURNING id`,
+     RETURNING id, uid, status, tenant_id, created_at`,
     patient.phone || '',
     Number(patient.id),
     patient.name || null,
@@ -807,6 +820,7 @@ export async function createFollowUp({
   metadata = null,
   createdBy = null,
   bookAppointment = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const cleanUid = maybeUuid(patientUid, 'patient_uid', { required: true });
@@ -815,6 +829,11 @@ export async function createFollowUp({
   const cleanDueAt = normalizeTimestamp(dueAt, 'due_at');
   const cleanMetadata = normalizeJsonObject(metadata, 'metadata');
   const cleanReason = safeText(reason);
+  const cleanOriginResourceType = safeText(originResourceType, 60)?.toLowerCase() || null;
+  const cleanOriginResourceId = safeText(originResourceId, 120);
+  const originAppointmentId = cleanOriginResourceType === 'appointment'
+    ? normalizeId(cleanOriginResourceId, 'origin_resource_id')
+    : null;
   const wantsAppointment = shouldBookFollowUpAppointment({
     originKind: cleanOriginKind,
     dueAt: cleanDueAt,
@@ -847,8 +866,8 @@ export async function createFollowUp({
        RETURNING ${FOLLOWUP_RETURNING}`,
       tid, cleanUid,
       cleanOriginKind,
-      safeText(originResourceType, 60),
-      safeText(originResourceId, 120),
+      cleanOriginResourceType,
+      cleanOriginResourceId,
       encounterId ? normalizeId(encounterId, 'encounter_id') : null,
       cleanDoctorUid,
       facilityId ? normalizeId(facilityId, 'facility_id') : null,
@@ -862,14 +881,55 @@ export async function createFollowUp({
       JSON.stringify(rowMetadata),
       maybeUuid(createdBy, 'created_by'),
     );
-    return rows[0];
+    const followUp = rows[0];
+    if (!followUp?.id) {
+      throw AppError.internal(
+        'Follow-up plan was not recorded',
+        'FOLLOW_UP_PLAN_REQUIRED',
+      );
+    }
+    if (originAppointmentId) {
+      const child = await publishOpChildResourceLinkedTx(db, {
+        tenantId: tid,
+        appointmentId: originAppointmentId,
+        patientUid: cleanUid,
+        resourceType: 'follow_up_plan',
+        resourceId: followUp.id,
+        source: 'carePlan.createFollowUp',
+      });
+      const followUpEvent = await publishEvent({
+        eventType: 'appointment.follow_up_recorded',
+        aggregateType: 'appointment',
+        aggregateId: String(originAppointmentId),
+        patientUid: cleanUid,
+        payload: {
+          appointment_id: originAppointmentId,
+          appointment_uid: child.linked.appointment_uid,
+          patient_uid: cleanUid,
+          tenant_id: tid,
+          follow_up_plan_id: Number(followUp.id),
+          source: 'carePlan.createFollowUp',
+        },
+        tx: db,
+        tenantId: tid,
+      });
+      if (!followUpEvent) {
+        throw AppError.internal(
+          'Appointment follow-up event was not recorded',
+          'APPOINTMENT_FOLLOW_UP_OUTBOX_REQUIRED',
+        );
+      }
+    }
+    return followUp;
   };
 
   try {
-    if (!wantsAppointment) return insertFollowUp(prisma);
-    return setTenantTx(tid, async (tx) => {
+    const createInTransaction = async (db) => {
+      if (!wantsAppointment) {
+        return insertFollowUp(db);
+      }
       const appointment = await reserveFollowUpAppointment({
-        db: tx,
+        db,
         tenantId: tid,
         patientUid: cleanUid,
         doctorUid: cleanDoctorUid,
@@ -877,8 +937,27 @@ export async function createFollowUp({
         reason: cleanReason,
         createdBy: maybeUuid(createdBy, 'created_by'),
       });
-      return insertFollowUp(tx, appointment);
-    });
+      await recordAppointmentCreatedEvidenceTx(db, {
+        tenantId: tid,
+        appointment: {
+          ...appointment,
+          patient_uid: cleanUid,
+        },
+        actorUid: maybeUuid(createdBy, 'created_by'),
+        source: 'carePlan.createFollowUp',
+      });
+      return insertFollowUp(db, appointment);
+    };
+    if (tx !== null) {
+      if (typeof tx?.$queryRawUnsafe !== 'function') {
+        throw AppError.internal(
+          'Follow-up transaction client is invalid',
+          'FOLLOW_UP_TX_REQUIRED',
+        );
+      }
+      return createInTransaction(tx);
+    }
+    return setTenantTx(tid, createInTransaction);
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -1096,13 +1175,26 @@ export async function getPatientWhatsNext({
         safeLimit,
       ),
     ]);
+    // Closure evidence is an immutable point-in-time snapshot, not a live
+    // patient action source. Follow-up plans above remain visible only while
+    // their domain state is actionable; snapshots stay staff-side until each
+    // next-step type has an exact live source reference and satisfaction rule.
+    const nextSteps = [];
     return {
       goals: goalRows,
       follow_ups: followUpRows,
-      count: goalRows.length + followUpRows.length,
+      next_steps: nextSteps,
+      count: goalRows.length + followUpRows.length + nextSteps.length,
     };
   } catch (err) {
-    if (isMissingSchemaError(err)) return { goals: [], follow_ups: [], count: 0 };
+    if (isMissingSchemaError(err)) {
+      return {
+        goals: [],
+        follow_ups: [],
+        next_steps: [],
+        count: 0,
+      };
+    }
     throw err;
   }
 }

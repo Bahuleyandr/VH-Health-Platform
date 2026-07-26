@@ -107,7 +107,6 @@ export const createAppointment = async (req, res) => {
       department: req.body.department || null,
       visit_type: req.body.visit_type || null,
       tenant_id: tenantId,
-      created_by: req.user?.uid || null,
     };
 
     // Validate the booking request
@@ -166,7 +165,11 @@ export const createAppointment = async (req, res) => {
     }
 
     // Create the appointment (uses transaction with row-level locking to prevent double-booking)
-    const appointment = await appointmentService.createAppointment(appointmentData);
+    const appointment = await appointmentService.createAppointment(appointmentData, {
+      actorUid: req.user?.uid || null,
+      actorId: req.user?.id || null,
+      actorRole: req.user?.role || null,
+    });
     const hydratedAppointment =
       (await appointmentQueryService.getAppointmentById(appointment.id, tenantId)) || appointment;
     const patientUid = validation.patient.uid ?? resolvedPatient?.uid ?? null;
@@ -268,13 +271,52 @@ export const updateAppointment = async (req, res) => {
       return error(res, validation.errors.join(', '), HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Update the appointment
-    const updatedAppointment = await appointmentService.updateAppointment(
-      id,
-      updateData,
-      tenantId,
-      req.user?.uid || null,
+    const scheduleChanging = (
+      updateData.appointment_date !== undefined
+      || updateData.appointment_time !== undefined
     );
+    let updatedAppointment;
+    if (scheduleChanging) {
+      const currentDate = appointment.appointment_date instanceof Date
+        ? appointment.appointment_date.toISOString().slice(0, 10)
+        : String(appointment.appointment_date || '').slice(0, 10);
+      const rescheduled = await appointmentService.rescheduleAppointmentInPlace(
+        id,
+        {
+          appointment_date: updateData.appointment_date ?? currentDate,
+          appointment_time: updateData.appointment_time ?? appointment.appointment_time,
+          notes: updateData.notes,
+        },
+        {
+          tenantId,
+          actorUid: req.user?.uid || null,
+          actorId: req.user?.id || null,
+          actorRole: req.user?.role || null,
+        },
+      );
+      updatedAppointment = rescheduled.appointment;
+      if (updateData.reason !== undefined || updateData.visit_type !== undefined) {
+        updatedAppointment = {
+          ...updatedAppointment,
+          ...(await appointmentService.updateAppointment(
+            id,
+            {
+              reason: updateData.reason,
+              visit_type: updateData.visit_type,
+            },
+            tenantId,
+            req.user?.uid || null,
+          )),
+        };
+      }
+    } else {
+      updatedAppointment = await appointmentService.updateAppointment(
+        id,
+        updateData,
+        tenantId,
+        req.user?.uid || null,
+      );
+    }
 
     // Late clinical addendum on a COMPLETED appointment — record the
     // who/what/when separately so audit can distinguish a "real" update
@@ -330,7 +372,7 @@ export const updateAppointment = async (req, res) => {
     }, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_UPDATED);
   } catch (err) {
     logger.error('Error updating appointment:', err);
-    error(res, 'Failed to update appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to update appointment');
   }
 };
 
@@ -341,7 +383,10 @@ function conflictDetailsFromError(err) {
   if (String(code) === '23505') {
     return { statusCode: HTTP_STATUS.CONFLICT, details: { code: 'APPOINTMENT_SLOT_CONFLICT' } };
   }
-  if (err?.statusCode === HTTP_STATUS.CONFLICT) {
+  if (
+    err?.statusCode === HTTP_STATUS.CONFLICT
+    && (err.conflictingId != null || err.conflictingTime != null || !err.code)
+  ) {
     return {
       statusCode: HTTP_STATUS.CONFLICT,
       details: {
@@ -453,7 +498,14 @@ export const deleteAppointment = async (req, res) => {
     // Cancel the appointment
     const cancelledAppointment = await appointmentService.cancelAppointment(
       id,
-      req.user?.name || 'User'
+      req.user?.name || 'User',
+      {
+        tenantId,
+        actorUid: req.user?.uid || null,
+        actorId: req.user?.id || null,
+        actorRole: req.user?.role || null,
+        source: 'delete_cancel',
+      },
     );
     await logAudit(req, 'FRONT_OFFICE_APPOINTMENT_CANCELLED', {
       appointment_id: Number(id),
@@ -474,6 +526,6 @@ export const deleteAppointment = async (req, res) => {
     }, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_CANCELLED);
   } catch (err) {
     logger.error('Error cancelling appointment:', err);
-    error(res, 'Failed to cancel appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to cancel appointment');
   }
 };

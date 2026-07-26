@@ -46,9 +46,11 @@ const {
   acknowledgeLabCriticalAlertTaskFromTrustedWorkflow,
   acknowledgeTask,
   claimInboxTask,
+  completePathwayTaskFromRegisteredCondition,
   completePathwayTaskFromRegisteredEvidence,
   completeTaskFromDomainEvidence,
   createApproval,
+  createCoveringTransferReviewTaskTx,
   createTask,
   createWorkflowDefinition,
   getTask,
@@ -423,6 +425,57 @@ describe('createTask', () => {
       executorAuthority: PATHWAY_TEST_CAPABILITY,
     })).rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO tasks/i.test(sql))).toBe(false);
+  });
+});
+
+describe('createCoveringTransferReviewTaskTx', () => {
+  const HANDOFF_ID = '44444444-4444-4444-8444-444444444444';
+  const PATHWAY_INSTANCE_ID = '55555555-5555-4555-8555-555555555555';
+  const PATIENT_UID = '66666666-6666-4666-8666-666666666666';
+  const INPATIENT_ENCOUNTER_ID = '77777777-7777-4777-8777-777777777777';
+  const RECIPIENT_UID = '88888888-8888-4888-8888-888888888888';
+  const REQUEST_FINGERPRINT = 'a'.repeat(64);
+
+  it('preserves an inpatient UUID encounter in exact transfer-task metadata', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 41, status: 'open' }]);
+
+    await expect(createCoveringTransferReviewTaskTx({
+      tenantId: TENANT,
+      handoffId: HANDOFF_ID,
+      pathwayInstanceId: PATHWAY_INSTANCE_ID,
+      patientUid: PATIENT_UID,
+      encounterId: INPATIENT_ENCOUNTER_ID,
+      recipientUid: RECIPIENT_UID,
+      senderUid: USER,
+      requestFingerprint: REQUEST_FINGERPRINT,
+      tx: __prismaDefaultMock,
+    })).resolves.toMatchObject({ id: 41, status: 'open' });
+
+    const [sql, ...params] = queryUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/INSERT INTO tasks/);
+    expect(params[8]).toBeNull();
+    expect(JSON.parse(params[20])).toMatchObject({
+      task_contract: 'covering_clinician_transfer_review_v1',
+      care_pathway_instance_id: PATHWAY_INSTANCE_ID,
+      canonical_encounter_id: INPATIENT_ENCOUNTER_ID,
+      request_fingerprint: REQUEST_FINGERPRINT,
+    });
+  });
+
+  it('fails closed on a non-UUID canonical encounter before task creation', async () => {
+    await expect(createCoveringTransferReviewTaskTx({
+      tenantId: TENANT,
+      handoffId: HANDOFF_ID,
+      pathwayInstanceId: PATHWAY_INSTANCE_ID,
+      patientUid: PATIENT_UID,
+      encounterId: 17,
+      recipientUid: RECIPIENT_UID,
+      senderUid: USER,
+      requestFingerprint: REQUEST_FINGERPRINT,
+      tx: __prismaDefaultMock,
+    })).rejects.toThrow('encounter_id must be a UUID');
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
 });
 
@@ -1674,6 +1727,7 @@ describe('listInboxTasks', () => {
     // ordering
     expect(sql).toMatch(/CASE inbox\.priority WHEN 'critical' THEN 0/);
     expect(sql).toMatch(/due_at/);
+    expect(queryUnsafeMock.mock.calls[0][5]).toBe(true);
   });
 
   it('works with only an assignee and no roles', async () => {
@@ -1688,6 +1742,36 @@ describe('listInboxTasks', () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "tasks" does not exist'));
     const result = await listInboxTasks({ tenantId: TENANT, assigneeUid: USER, roles: ['DOCTOR'] });
     expect(result).toEqual({ tasks: [], count: 0 });
+  });
+
+  it('fails closed for cross-sign projection after the live actor role leaves physician policy', async () => {
+    resolveCurrentHumanActorTxMock.mockResolvedValueOnce({
+      uid: USER,
+      role: 'NURSING_STAFF',
+      queueRole: 'NURSING_STAFF',
+      rawRole: 'NURSING_STAFF',
+    });
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      can_cross_sign: false,
+    }]);
+
+    const result = await listInboxTasks({
+      tenantId: TENANT,
+      assigneeUid: USER,
+      roles: ['NURSING_STAFF'],
+      primaryRole: 'NURSING_STAFF',
+    });
+
+    expect(result.tasks[0].can_cross_sign).toBe(false);
+    const [sql, tenantId, actorUid, queueRole, limit, physicianEligible] =
+      queryUnsafeMock.mock.calls[0];
+    expect(sql).toContain('AND $5::boolean');
+    expect(tenantId).toBe(TENANT);
+    expect(actorUid).toBe(USER);
+    expect(queueRole).toBe('NURSING_STAFF');
+    expect(limit).toBeGreaterThan(0);
+    expect(physicianEligible).toBe(false);
   });
 });
 
@@ -1815,7 +1899,7 @@ describe('transitionTask', () => {
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
   });
 
-  it.each(['acknowledgement', 'domain_evidence'])(
+  it.each(['acknowledgement', 'domain_evidence', 'none'])(
     'rejects a generic transition of a pathway-bound %s task before any mutation',
     async (slaCompletionSemantics) => {
       queryUnsafeMock
@@ -1824,7 +1908,9 @@ describe('transitionTask', () => {
           status: 'open',
           workflow_run_id: 7,
           workflow_step_id: 91,
-          workflow_sla_instance_id: DEFAULT_SLA_ID,
+          workflow_sla_instance_id: slaCompletionSemantics === 'none'
+            ? null
+            : DEFAULT_SLA_ID,
           sla_completion_semantics: slaCompletionSemantics,
           metadata: {},
         }])
@@ -2533,6 +2619,213 @@ describe('completePathwayTaskFromRegisteredEvidence', () => {
     expect(txQuery.mock.calls[2][0]).toMatch(/completed_at IS NULL/);
     expect(txQuery).toHaveBeenCalledTimes(4);
     expect(txQuery.mock.calls.some(([sql]) => /INSERT INTO task_comments/i.test(sql))).toBe(false);
+  });
+});
+
+describe('completePathwayTaskFromRegisteredCondition', () => {
+  const PATHWAY_INSTANCE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const CLOSURE_EVIDENCE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const HANDLER_ID = 'op.recovery_action.v1';
+  const USER_ACTOR = Object.freeze({
+    kind: 'user',
+    uid: USER,
+    roles: Object.freeze(['DOCTOR']),
+    primaryRole: 'DOCTOR',
+    authorizationMode: 'assigned_clinician',
+  });
+  const SIGNAL = Object.freeze({
+    kind: 'appointment_closure_evidence_recorded',
+    payload: Object.freeze({ appointment_id: 41 }),
+    source_resource_type: 'event_outbox',
+    source_resource_id: '301',
+    occurred_at: '2026-07-24T08:00:00.000Z',
+  });
+  const task = (overrides = {}) => ({
+    id: 94,
+    status: 'in_progress',
+    workflow_run_id: 7,
+    workflow_step_id: 91,
+    workflow_sla_instance_id: null,
+    sla_completion_semantics: 'none',
+    related_resource_type: 'care_pathway_instance',
+    related_resource_id: PATHWAY_INSTANCE_ID,
+    metadata: { stage_key: 'recover_unattended_visit' },
+    ...overrides,
+  });
+  const runtime = (taskState = task(), overrides = {}) => ({
+    instance: { id: PATHWAY_INSTANCE_ID, workflow_run_id: 7 },
+    run: {
+      id: 7,
+      current_step_key: 'recover_unattended_visit',
+      ...overrides.run,
+    },
+    steps: [{
+      id: 91,
+      workflow_run_id: 7,
+      step_key: 'recover_unattended_visit',
+      step_kind: 'task',
+    }],
+    tasks: [taskState],
+    definition: {
+      steps: [{
+        step_key: 'recover_unattended_visit',
+        step_kind: 'task',
+        condition_handler: HANDLER_ID,
+        work_semantics: { sla_completion_semantics: 'none' },
+      }],
+    },
+  });
+  const complete = ({ tx, ...overrides } = {}) => (
+    completePathwayTaskFromRegisteredCondition({
+      tenantId: TENANT,
+      pathwayInstanceId: PATHWAY_INSTANCE_ID,
+      id: 94,
+      workflowRunId: 7,
+      workflowStepId: 91,
+      conditionHandler: HANDLER_ID,
+      evidenceResourceType: 'op_visit_closure_evidence',
+      evidenceResourceId: CLOSURE_EVIDENCE_ID,
+      evidence: { appointment_id: 41, closure_evidence_id: CLOSURE_EVIDENCE_ID },
+      actor: USER_ACTOR,
+      signal: SIGNAL,
+      executorAuthority: PATHWAY_TEST_CAPABILITY,
+      tx,
+      ...overrides,
+    })
+  );
+
+  it('rejects unsealed callers before reading pathway state', async () => {
+    const txQuery = jest.fn();
+    await expect(complete({
+      executorAuthority: { kind: 'test_pathway_executor_capability' },
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_EXECUTOR_REQUIRED' });
+    expect(txQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a linked-SLA task before mutation', async () => {
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(runtime(task({
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+    })));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: PATHWAY_INSTANCE_ID }]);
+    await expect(complete({
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'REGISTERED_CONDITION_COMPLETION_NOT_ALLOWED' });
+    expect(txQuery.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it('rejects a task that is no longer the workflow run current step', async () => {
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(runtime(task(), {
+      run: { current_step_key: 'await_closure_evidence' },
+    }));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: PATHWAY_INSTANCE_ID }]);
+    await expect(complete({
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: 'PATHWAY_TASK_CONTEXT_MISMATCH' });
+    expect(txQuery.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it.each([
+    ['task', { id: 95 }, null, 'PATHWAY_TASK_CONTEXT_MISMATCH'],
+    ['run', { workflowRunId: 8 }, null, 'PATHWAY_TASK_CONTEXT_MISMATCH'],
+    ['step', { workflowStepId: 92 }, null, 'PATHWAY_TASK_CONTEXT_MISMATCH'],
+    [
+      'pinned handler',
+      {},
+      'op.stale_recovery_action.v1',
+      'PATHWAY_HANDLER_CONTRACT_INVALID',
+    ],
+  ])('rejects a stale or wrong %s binding before mutation', async (
+    _binding,
+    overrides,
+    pinnedHandler,
+    expectedCode,
+  ) => {
+    const currentRuntime = runtime(task());
+    if (pinnedHandler) {
+      currentRuntime.definition.steps[0].condition_handler = pinnedHandler;
+    }
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(currentRuntime);
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: PATHWAY_INSTANCE_ID }]);
+
+    await expect(complete({
+      ...overrides,
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({ code: expectedCode });
+
+    expect(txQuery.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+  });
+
+  it.each([
+    ['handler', {
+      conditionHandler: 'op.unregistered_recovery_action.v1',
+    }],
+    ['resource type', {
+      evidenceResourceType: 'workflow_steps',
+    }],
+    ['resource id', {
+      evidenceResourceId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    }],
+    ['payload resource id', {
+      evidence: {
+        appointment_id: 41,
+        closure_evidence_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    }],
+  ])('rejects a wrong registered-condition evidence %s before reading or mutation', async (
+    _binding,
+    overrides,
+  ) => {
+    const txQuery = jest.fn();
+
+    await expect(complete({
+      ...overrides,
+      tx: { __tenantTransaction: true, $queryRawUnsafe: txQuery },
+    })).rejects.toMatchObject({
+      code: 'PATHWAY_REGISTERED_CONDITION_EVIDENCE_INVALID',
+    });
+
+    expect(txQuery).not.toHaveBeenCalled();
+    expect(lockPathwayRuntimeTxMock).not.toHaveBeenCalled();
+  });
+
+  it('completes current SLA-none work with canonical registered-condition evidence', async () => {
+    const completedTask = task({ status: 'completed' });
+    lockPathwayRuntimeTxMock.mockResolvedValueOnce(runtime(task()));
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: PATHWAY_INSTANCE_ID }])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce([completedTask])
+      .mockResolvedValueOnce([{ id: 17, body_kind: 'state_change' }]);
+    const tx = { __tenantTransaction: true, $queryRawUnsafe: txQuery };
+
+    const result = await complete({ tx });
+
+    expect(result).toMatchObject({
+      task: completedTask,
+      evidence: {
+        kind: 'pathway_registered_condition',
+        handler_id: HANDLER_ID,
+        decision: 'satisfied',
+        resource_type: 'op_visit_closure_evidence',
+        resource_id: CLOSURE_EVIDENCE_ID,
+        payload: {
+          appointment_id: 41,
+          closure_evidence_id: CLOSURE_EVIDENCE_ID,
+        },
+      },
+      previousTaskStatus: 'in_progress',
+      mutated: true,
+    });
+    expect(result).not.toHaveProperty('sla');
+    expect(txQuery.mock.calls[2][0]).toMatch(/UPDATE tasks SET/);
+    expect(txQuery.mock.calls[3][0]).toMatch(/INSERT INTO task_comments/);
+    expect(JSON.parse(txQuery.mock.calls[3][6])).toEqual(expect.objectContaining({
+      completion_via: 'registered_condition',
+    }));
   });
 });
 
