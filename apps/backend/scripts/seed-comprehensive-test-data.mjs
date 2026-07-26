@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { seedCurrentBedStructure } from './seed-current-bed-structure.mjs';
 import { compileWorkflowDefinition } from '../src/services/workflow/workflowDefinitionCompiler.js';
@@ -24,6 +24,14 @@ const MANUAL_SEED_TABLES = new Set([
   'care_pathway_transition_events',
   'care_handoff_instances',
   'care_pathway_reconciliation_checks',
+  // S4 OP/inpatient evidence tables require one coherent pathway, admission,
+  // named-owner, task, generation, outbox, timeline, and audit graph.
+  'care_pathway_resource_references',
+  'op_visit_closure_evidence',
+  'inpatient_primary_physician_assignments',
+  'discharge_pending_result_handoffs',
+  'discharge_pending_result_owner_actions',
+  'post_discharge_contact_events',
   'diagnostic_result_generations',
   'diagnostic_result_generation_items',
   'diagnostic_result_actions',
@@ -1623,6 +1631,892 @@ async function seedCarePathwayWorkflowGraph() {
             updated_at = NOW()
       WHERE tenant_id = $3::uuid AND id = $4::uuid`,
     [approver.uid, evidenceAt, DEFAULT_TENANT_ID, governanceId],
+  );
+}
+
+async function seedOpInpatientEvidenceGraph() {
+  const evidenceTables = [
+    'care_pathway_resource_references',
+    'op_visit_closure_evidence',
+    'inpatient_primary_physician_assignments',
+    'discharge_pending_result_handoffs',
+    'discharge_pending_result_owner_actions',
+    'post_discharge_contact_events'
+  ];
+  const existingCounts = [];
+  for (const table of evidenceTables) existingCounts.push(await tableCount(table));
+  if (existingCounts.every(Boolean)) return;
+
+  const contextResult = await client.query(
+    `SELECT admission.id AS admission_id,
+            admission.patient_uid,
+            COALESCE(
+              admission.attending_doctor,
+              admission.admitting_doctor
+            ) AS physician_uid,
+            patient.id AS patient_id,
+            patient.phone
+       FROM admissions AS admission
+       JOIN users AS patient
+         ON patient.tenant_id = admission.tenant_id
+        AND patient.uid = admission.patient_uid
+      WHERE admission.tenant_id = $1::uuid
+        AND COALESCE(
+              admission.attending_doctor,
+              admission.admitting_doctor
+            ) IS NOT NULL
+      ORDER BY admission.id
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID]
+  );
+  const context = contextResult.rows[0];
+  const approver = await first(
+    'users',
+    'uid',
+    `tenant_id = $1::uuid
+     AND role IN ('ADMIN', 'SUPER_ADMIN')
+     AND is_active = TRUE
+     AND status = 'active'`,
+    [DEFAULT_TENANT_ID]
+  );
+  if (!context?.admission_id || !context.patient_uid || !context.physician_uid || !approver?.uid) {
+    throw new Error(
+      'S4 OP/inpatient evidence seed requires an admission, its named physician, patient, and admin approver.'
+    );
+  }
+
+  const appointmentResult = await client.query(
+    `SELECT appointment.id,
+            history.id AS status_history_id
+       FROM appointments AS appointment
+       JOIN users AS patient
+         ON patient.tenant_id = appointment.tenant_id
+        AND patient.id = appointment.patient_id
+       LEFT JOIN LATERAL (
+         SELECT status_history.id
+           FROM appointment_status_history AS status_history
+          WHERE status_history.tenant_id = appointment.tenant_id
+            AND status_history.appointment_id = appointment.id
+          ORDER BY status_history.id
+          LIMIT 1
+       ) AS history ON TRUE
+      WHERE appointment.tenant_id = $1::uuid
+        AND patient.uid = $2::uuid
+      ORDER BY appointment.id
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID, context.patient_uid]
+  );
+  const appointment = appointmentResult.rows[0];
+  if (!appointment?.id || !appointment.status_history_id) {
+    throw new Error(
+      'S4 OP closure evidence seed requires an appointment with status history for the admitted patient.'
+    );
+  }
+
+  const workflowKey = 'inpatient_admission_to_recovery';
+  const stepKey = 'pending_result_review';
+  const rawDefinition = {
+    workflow_key: workflowKey,
+    version: 1,
+    steps: [
+      {
+        step_key: stepKey,
+        step_kind: 'task',
+        display_name: 'Review pending discharge result',
+        assigned_role: 'DOCTOR',
+        metadata: { seed: true, source: 'seed-comprehensive-test-data' },
+        work_semantics: {
+          task_kind: 'follow_up',
+          priority: 'normal',
+          title: 'Review pending discharge result',
+          description: 'Synthetic local test-only S4 coverage.',
+          sla_completion_semantics: 'none'
+        }
+      }
+    ],
+    triggers: [],
+    defaults: {}
+  };
+  const compiledDefinition = compileWorkflowDefinition(rawDefinition);
+  const evidenceAt = new Date('2026-05-04T09:00:00.000Z');
+  const definition = await client.query(
+    `INSERT INTO workflow_definitions
+       (tenant_id, workflow_key, version, display_name, description, category,
+        steps, triggers, defaults, is_active, created_by)
+     VALUES
+       ($1::uuid, $2::text, 1, 'Seed inpatient pathway coverage',
+        'Synthetic local test-only S4 evidence coverage.', 'test_fixture',
+        $3::jsonb, $4::jsonb, $5::jsonb, FALSE, $6::uuid)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      workflowKey,
+      JSON.stringify(compiledDefinition.steps),
+      JSON.stringify(compiledDefinition.triggers),
+      JSON.stringify(compiledDefinition.defaults),
+      context.physician_uid
+    ]
+  );
+  const definitionId = Number(definition.rows[0].id);
+  const approval = await client.query(
+    `INSERT INTO approvals
+       (tenant_id, approval_kind, subject_resource_type, subject_resource_id,
+        required_approvers, required_role, status, approved_by, created_by,
+        decided_by, decided_at, metadata)
+     VALUES
+       ($1::uuid, 'care_pathway_definition_governance',
+        'care_pathway_definition', $2::text, 1, 'ADMIN', 'approved',
+        $3::jsonb, $4::uuid, $4::uuid, $5::timestamptz,
+        jsonb_build_object(
+          'care_pathway_definition_governance',
+          jsonb_build_object('definition_checksum', $6::text),
+          'seed', TRUE
+        ))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      String(definitionId),
+      JSON.stringify([{ uid: approver.uid, at: evidenceAt.toISOString() }]),
+      approver.uid,
+      evidenceAt,
+      compiledDefinition.checksum
+    ]
+  );
+  const governance = await client.query(
+    `INSERT INTO care_pathway_definition_governance
+       (tenant_id, workflow_definition_id, clinical_owner_uid,
+        operational_owner_uid, governance_status, approval_id, approved_by,
+        approved_at, patient_visibility_policy_ref, definition_checksum,
+        platform_gates, metadata)
+     VALUES
+       ($1::uuid, $2::integer, $3::uuid, $3::uuid, 'approved', $4::integer,
+        $5::uuid, $6::timestamptz, 'staff_after_signoff', $7::char(64),
+        '[]'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      definitionId,
+      context.physician_uid,
+      Number(approval.rows[0].id),
+      approver.uid,
+      evidenceAt,
+      compiledDefinition.checksum
+    ]
+  );
+  const governanceId = governance.rows[0].id;
+  await client.query(
+    `UPDATE workflow_definitions
+        SET is_active = TRUE, updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND id = $2::integer`,
+    [DEFAULT_TENANT_ID, definitionId]
+  );
+  const run = await client.query(
+    `INSERT INTO workflow_runs
+       (tenant_id, workflow_definition_id, workflow_key, workflow_version,
+        trigger_kind, trigger_payload, status, context, initiated_by, metadata,
+        pathway_governance_id, pathway_definition_checksum)
+     VALUES
+       ($1::uuid, $2::integer, $3::text, 1, 'manual',
+        '{"seed":true}'::jsonb, 'started',
+        '{"seed":true,"pathway_mode":"test_only_off"}'::jsonb, $4::uuid,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        $5::uuid, $6::char(64))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      definitionId,
+      workflowKey,
+      context.physician_uid,
+      governanceId,
+      compiledDefinition.checksum
+    ]
+  );
+  const runId = Number(run.rows[0].id);
+  const step = await client.query(
+    `INSERT INTO workflow_steps
+       (tenant_id, workflow_run_id, step_key, display_name, step_kind,
+        status, ordering, assigned_to, assigned_role, metadata)
+     VALUES
+       ($1::uuid, $2::integer, $3::text, 'Review pending discharge result',
+        'task', 'in_progress', 0, $4::uuid, 'DOCTOR',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, runId, stepKey, context.physician_uid]
+  );
+  const stepId = Number(step.rows[0].id);
+  const pathway = await client.query(
+    `INSERT INTO care_pathway_instances
+       (tenant_id, workflow_run_id, patient_uid, pathway_key, pathway_version,
+        source_episode_type, source_episode_id, owning_clinician_uid,
+        accountable_role, clinical_status, patient_visibility_status,
+        idempotency_key, created_by, updated_by, metadata,
+        workflow_definition_id, definition_governance_id, definition_checksum)
+     VALUES
+       ($1::uuid, $2::integer, $3::uuid, $4::text, 1,
+        'admission', $5::text, $6::uuid, 'DOCTOR', 'active', 'hidden',
+        $7::text, $6::uuid, $6::uuid,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        $8::integer, $9::uuid, $10::char(64))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      runId,
+      context.patient_uid,
+      workflowKey,
+      String(context.admission_id),
+      context.physician_uid,
+      'seed-s4-inpatient-pathway-v1',
+      definitionId,
+      governanceId,
+      compiledDefinition.checksum
+    ]
+  );
+  const pathwayId = pathway.rows[0].id;
+  const creationEventId = randomUUID();
+  const creationFingerprint = compiledDefinition.checksum;
+  const creationPreviousState = {};
+  const creationNewState = { clinical_status: 'active', run_status: 'started' };
+  const creationPayload = {
+    event_id: creationEventId,
+    tenant_id: DEFAULT_TENANT_ID,
+    pathway_instance_id: pathwayId,
+    patient_uid: context.patient_uid,
+    encounter_id: null,
+    workflow_run_id: runId,
+    workflow_step_id: null,
+    sequence_number: 1,
+    transition_scope: 'pathway',
+    transition_key: 'pathway_instance_created',
+    stage_key: null,
+    source_resource_type: 'admission',
+    source_resource_id: String(context.admission_id),
+    workflow_sla_instance_id: null,
+    actor_uid: null,
+    system_actor_key: 'seed-comprehensive-test-data.s4',
+    actor_role: null,
+    occurred_at: evidenceAt.toISOString(),
+    idempotency_key: 'seed-s4-inpatient-pathway-v1',
+    command_fingerprint: creationFingerprint,
+    effect_ordinal: 0,
+    workflow_definition_id: definitionId,
+    governance_id: governanceId,
+    definition_checksum: compiledDefinition.checksum
+  };
+  const creationMetadata = {
+    seed: true,
+    pathway_runtime: { definition_checksum: compiledDefinition.checksum },
+    command_fingerprint: creationFingerprint,
+    effect_ordinal: 0,
+    provenance: { kind: 'system', system_key: 'seed-comprehensive-test-data.s4' }
+  };
+  const creationTimeline = await client.query(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, event_type, event_status, source_table,
+        source_id, source_uid, resource_type, resource_id, occurred_at,
+        visible_to_patient, clinical_summary, payload, tags, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, 'care_pathway.transition', 'pathway',
+        'care_pathway_transition_events', $3::text, $3::uuid,
+        'care_pathway_transition_event', $3::text, $4::timestamptz, FALSE,
+        'Synthetic S4 care-pathway transition for local test coverage.', $5::jsonb,
+        ARRAY['care_pathway', $6::text, 'pathway', 'seed']::text[],
+        'care_pathway_transition_events:' || $3::text || ':timeline')
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      context.patient_uid,
+      creationEventId,
+      evidenceAt,
+      JSON.stringify(creationPayload),
+      workflowKey
+    ]
+  );
+  const creationAudit = await client.query(
+    `INSERT INTO clinical_audit_events
+       (tenant_id, patient_uid, action, action_status, resource_type,
+        resource_table, resource_id, before_state, after_state, metadata,
+        idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, 'care_pathway.transition', 'success',
+        'care_pathway_transition_event', 'care_pathway_transition_events',
+        $3::text, $4::jsonb, $5::jsonb, $6::jsonb,
+        'care_pathway_transition_events:' || $3::text || ':audit',
+        $7::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      context.patient_uid,
+      creationEventId,
+      JSON.stringify(creationPreviousState),
+      JSON.stringify(creationNewState),
+      JSON.stringify(creationMetadata),
+      evidenceAt
+    ]
+  );
+  await client.query(
+    `INSERT INTO care_pathway_transition_events
+       (id, tenant_id, pathway_instance_id, patient_uid, workflow_run_id,
+        sequence_number, transition_scope, transition_key, previous_state,
+        new_state, source_resource_type, source_resource_id, system_actor_key,
+        occurred_at, idempotency_key, command_fingerprint, effect_ordinal,
+        canonical_timeline_event_id, canonical_audit_event_id, event_payload,
+        metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::integer, 1, 'pathway',
+        'pathway_instance_created', $6::jsonb, $7::jsonb, 'admission',
+        $8::text, 'seed-comprehensive-test-data.s4', $9::timestamptz,
+        $10::text, $11::char(64), 0, $12::uuid, $13::uuid, $14::jsonb,
+        $15::jsonb)`,
+    [
+      creationEventId,
+      DEFAULT_TENANT_ID,
+      pathwayId,
+      context.patient_uid,
+      runId,
+      JSON.stringify(creationPreviousState),
+      JSON.stringify(creationNewState),
+      String(context.admission_id),
+      evidenceAt,
+      'seed-s4-inpatient-pathway-v1',
+      creationFingerprint,
+      creationTimeline.rows[0].id,
+      creationAudit.rows[0].id,
+      JSON.stringify(creationPayload),
+      JSON.stringify(creationMetadata)
+    ]
+  );
+
+  const investigation = await client.query(
+    `INSERT INTO investigations
+       (tenant_id, phone, patient_id, patient_uid, test_name, status, priority,
+        requested_by, admission_id, result_version, requested_at, updated_at)
+     VALUES
+       ($1::uuid, $2::text, $3::integer, $4::uuid,
+        'Seed S4 pending discharge result', 'COMPLETED', 'NORMAL',
+        $5::uuid, $6::integer, 1, $7::timestamptz, $7::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      context.phone,
+      context.patient_id,
+      context.patient_uid,
+      context.physician_uid,
+      context.admission_id,
+      evidenceAt
+    ]
+  );
+  const investigationId = Number(investigation.rows[0].id);
+  const resourceReference = await client.query(
+    `INSERT INTO care_pathway_resource_references
+       (tenant_id, pathway_instance_id, patient_uid, resource_type,
+        relationship_kind, evidence_state, resource_id, actor_system_key,
+        occurred_at, idempotency_key, metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, 'investigation',
+        'child_action', 'open', $4::text,
+        'seed-comprehensive-test-data.s4', $5::timestamptz,
+        'seed-s4-pending-resource-v1',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, pathwayId, context.patient_uid, String(investigationId), evidenceAt]
+  );
+
+  const assignmentId = randomUUID();
+  const assignmentTimelineId = randomUUID();
+  const assignmentAuditId = randomUUID();
+  await client.query(
+    `INSERT INTO clinical_timeline_events
+       (id, tenant_id, patient_uid, event_type, event_status,
+        source_table, source_id, resource_type, resource_id,
+        occurred_at, visible_to_patient, clinical_summary, payload, tags,
+        idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'admission.primary_physician.assigned', 'assigned',
+        'inpatient_primary_physician_assignments', $4::text,
+        'inpatient_primary_physician_assignments', $4::text,
+        $5::timestamptz, FALSE, 'Seed primary physician assignment',
+        '{}'::jsonb, ARRAY['inpatient', 'primary_physician', 'seed']::text[],
+        'seed-s4-primary-assignment-timeline-v1')`,
+    [assignmentTimelineId, DEFAULT_TENANT_ID, context.patient_uid, assignmentId, evidenceAt]
+  );
+  await client.query(
+    `INSERT INTO clinical_audit_events
+       (id, tenant_id, patient_uid, action, action_status,
+        resource_type, resource_table, resource_id,
+        before_state, after_state, metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'admission.primary_physician.assigned', 'success',
+        'inpatient_primary_physician_assignments',
+        'inpatient_primary_physician_assignments', $4::text,
+        '{}'::jsonb, '{}'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        'seed-s4-primary-assignment-audit-v1', $5::timestamptz)`,
+    [assignmentAuditId, DEFAULT_TENANT_ID, context.patient_uid, assignmentId, evidenceAt]
+  );
+  await client.query(
+    `INSERT INTO inpatient_primary_physician_assignments
+       (id, tenant_id, admission_id, patient_uid, assignment_version,
+        physician_uid, assignment_source, assigned_by_uid, assigned_at,
+        canonical_timeline_event_id, canonical_audit_event_id, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid, 1,
+        $5::uuid, 'attending_physician', $5::uuid, $6::timestamptz,
+        $7::uuid, $8::uuid, 'seed-s4-primary-assignment-v1')`,
+    [
+      assignmentId,
+      DEFAULT_TENANT_ID,
+      context.admission_id,
+      context.patient_uid,
+      context.physician_uid,
+      evidenceAt,
+      assignmentTimelineId,
+      assignmentAuditId
+    ]
+  );
+
+  const generationId = randomUUID();
+  const generationTimelineId = randomUUID();
+  const generationAuditId = randomUUID();
+  const itemHash = createHash('sha256')
+    .update(`seed-s4-pending-item:${generationId}`, 'utf8')
+    .digest('hex');
+  const aggregateHash = createHash('sha256').update(itemHash, 'utf8').digest('hex');
+  await client.query(
+    `INSERT INTO clinical_timeline_events
+       (id, tenant_id, patient_uid, event_type, event_status,
+        source_table, source_id, occurred_at, visible_to_patient,
+        clinical_summary, payload, tags, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'diagnostic_result.generation_signed', 'signed',
+        'diagnostic_result_generations', $4::text,
+        $5::timestamptz, FALSE, 'Seed diagnostic result generation signed',
+        '{}'::jsonb, ARRAY['diagnostic_result', 'seed']::text[],
+        'seed-s4-generation-timeline-v1')`,
+    [generationTimelineId, DEFAULT_TENANT_ID, context.patient_uid, generationId, evidenceAt]
+  );
+  await client.query(
+    `INSERT INTO clinical_audit_events
+       (id, tenant_id, patient_uid, action, action_status,
+        resource_type, resource_table, resource_id,
+        before_state, after_state, metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'diagnostic_result.generation_signed', 'success',
+        'diagnostic_result_generation', 'diagnostic_result_generations',
+        $4::text, '{}'::jsonb, '{}'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        'seed-s4-generation-audit-v1', $5::timestamptz)`,
+    [generationAuditId, DEFAULT_TENANT_ID, context.patient_uid, generationId, evidenceAt]
+  );
+  await client.query(
+    `INSERT INTO diagnostic_result_generations
+       (id, tenant_id, patient_uid, admission_id,
+        source_kind, source_table, source_episode_type, source_episode_key,
+        source_version, investigation_id, ordering_owner_uid, owner_source,
+        signer_uid, signer_role, signed_at, classification,
+        classification_basis, snapshot_sha256, item_count,
+        canonical_timeline_event_id, canonical_audit_event_id)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::integer,
+        'shared_investigation', 'investigations', 's4_seed_pending_result',
+        $5::text, 1, $6::integer, $7::uuid, 'named_orderer',
+        $7::uuid, 'DOCTOR', $8::timestamptz, 'normal',
+        '{"seed":true}'::jsonb, $9::char(64), 1, $10::uuid, $11::uuid)`,
+    [
+      generationId,
+      DEFAULT_TENANT_ID,
+      context.patient_uid,
+      context.admission_id,
+      `seed-s4-pending-generation:${context.admission_id}:${investigationId}`,
+      investigationId,
+      context.physician_uid,
+      evidenceAt,
+      aggregateHash,
+      generationTimelineId,
+      generationAuditId
+    ]
+  );
+  await client.query(
+    `INSERT INTO diagnostic_result_generation_items
+       (tenant_id, patient_uid, generation_id, source_table,
+        source_row_id, source_version, source_ordinal, item_code,
+        item_name, value_snapshot, normalized_flag, source_critical,
+        classification, item_snapshot_sha256)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, 'investigations',
+        $4::text, '1', 1, 'S4-SEED-PENDING',
+        'Seed pending-result probe', '{"value":"available"}'::jsonb,
+        'normal', FALSE, 'normal', $5::char(64))`,
+    [DEFAULT_TENANT_ID, context.patient_uid, generationId, String(investigationId), itemHash]
+  );
+  const diagnosticConstraints = [
+    'fk_diagnostic_generation_investigation',
+    'fk_diagnostic_generation_timeline',
+    'fk_diagnostic_generation_audit',
+    'fk_diagnostic_generation_item_generation',
+    'trg_validate_diagnostic_generation_predecessor',
+    'trg_validate_diagnostic_generation_complete',
+    'trg_validate_diagnostic_generation_items_complete'
+  ].join(', ');
+  await client.query(`SET CONSTRAINTS ${diagnosticConstraints} IMMEDIATE`);
+  await client.query(`SET CONSTRAINTS ${diagnosticConstraints} DEFERRED`);
+
+  const pendingHandoffId = randomUUID();
+  const trackingTask = await client.query(
+    `INSERT INTO tasks
+       (tenant_id, workflow_run_id, workflow_step_id, task_kind, title,
+        description, patient_uid, related_resource_type, related_resource_id,
+        priority, status, assigned_to_uid, assigned_to_role, created_by,
+        sla_completion_semantics, metadata)
+     VALUES
+       ($1::uuid, $2::integer, $3::integer, 'follow_up',
+        'Review seed pending discharge result',
+        'Synthetic local test-only S4 tracking task.', $4::uuid,
+        'discharge_pending_result_handoff', $5::text, 'normal', 'open',
+        $6::uuid, NULL, $6::uuid, 'none',
+        jsonb_build_object(
+          'admission_id', $7::integer,
+          'source_type', 'investigation',
+          'source_id', $8::text,
+          'task_contract', 'discharge_pending_result_tracking_v1',
+          'correlation_contract', 'pending_result_tracking_v1',
+          'predecessor_tracking_task_id', NULL,
+          'rearm_reason', NULL,
+          'seed', TRUE
+        ))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      runId,
+      stepId,
+      context.patient_uid,
+      pendingHandoffId,
+      context.physician_uid,
+      context.admission_id,
+      String(investigationId)
+    ]
+  );
+  const trackingTaskId = Number(trackingTask.rows[0].id);
+  await client.query(
+    `INSERT INTO discharge_pending_result_handoffs
+       (id, tenant_id, admission_id, patient_uid, resource_reference_id,
+        source_type, source_id, patient_safe_label, result_status,
+        primary_physician_assignment_id, named_physician_uid, task_id,
+        resolution_generation_id, handoff_state, created_by_uid,
+        idempotency_key, metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid, $5::uuid,
+        'investigation', $6::text, 'Pending diagnostic result',
+        'available', $7::uuid, $8::uuid, $9::integer,
+        $10::uuid, 'result_available', $8::uuid,
+        'seed-s4-pending-handoff-v1',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)`,
+    [
+      pendingHandoffId,
+      DEFAULT_TENANT_ID,
+      context.admission_id,
+      context.patient_uid,
+      resourceReference.rows[0].id,
+      String(investigationId),
+      assignmentId,
+      context.physician_uid,
+      trackingTaskId,
+      generationId
+    ]
+  );
+
+  const actionTask = await client.query(
+    `INSERT INTO tasks
+       (tenant_id, workflow_run_id, parent_task_id, task_kind, title,
+        description, patient_uid, related_resource_type, related_resource_id,
+        priority, status, assigned_to_uid, assigned_to_role, created_by,
+        sla_completion_semantics, metadata)
+     VALUES
+       ($1::uuid, $2::integer, $3::integer, 'review',
+        'Review seed available discharge result',
+        'Synthetic local test-only S4 owner action.', $4::uuid,
+        'discharge_pending_result_action', $5::text, 'normal', 'open',
+        $6::uuid, NULL, $6::uuid, 'none',
+        jsonb_build_object(
+          'task_contract', 'discharge_pending_result_action_v1',
+          'handoff_id', $7::text,
+          'generation_id', $8::text,
+          'predecessor_generation_id', NULL,
+          'predecessor_owner_action_id', NULL,
+          'predecessor_resolution_action_id', NULL,
+          'rearm_source_action_id', NULL,
+          'seed', TRUE
+        ))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      runId,
+      trackingTaskId,
+      context.patient_uid,
+      `${pendingHandoffId}:${generationId}`,
+      context.physician_uid,
+      pendingHandoffId,
+      generationId
+    ]
+  );
+  const actionTaskId = Number(actionTask.rows[0].id);
+  const ownerActionId = randomUUID();
+  const ownerTimelineId = randomUUID();
+  const ownerAuditId = randomUUID();
+  await client.query(
+    `INSERT INTO clinical_timeline_events
+       (id, tenant_id, patient_uid, event_type, event_status,
+        source_table, source_id, resource_type, resource_id,
+        occurred_at, visible_to_patient, clinical_summary, payload, tags,
+        idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'discharge.pending_result_available', 'result_available',
+        'discharge_pending_result_handoffs', $4::text,
+        'diagnostic_result_generation', $5::text,
+        $6::timestamptz, FALSE, 'Seed pending result available',
+        jsonb_build_object(
+          'admission_id', $7::integer,
+          'handoff_id', $4::text,
+          'generation_id', $5::text,
+          'predecessor_generation_id', NULL,
+          'predecessor_owner_action_id', NULL,
+          'predecessor_resolution_action_id', NULL,
+          'rearm_source_action_id', NULL,
+          'action_task_id', $8::integer,
+          'tracking_task_id', $9::integer
+        ),
+        ARRAY['pending_result', 'seed']::text[],
+        'seed-s4-owner-action-timeline-v1')`,
+    [
+      ownerTimelineId,
+      DEFAULT_TENANT_ID,
+      context.patient_uid,
+      pendingHandoffId,
+      generationId,
+      evidenceAt,
+      context.admission_id,
+      actionTaskId,
+      trackingTaskId
+    ]
+  );
+  await client.query(
+    `INSERT INTO clinical_audit_events
+       (id, tenant_id, patient_uid, action, action_status,
+        resource_type, resource_table, resource_id,
+        before_state, after_state, metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'discharge.pending_result_available', 'success',
+        'diagnostic_result_generation', 'discharge_pending_result_handoffs',
+        $4::text, '{}'::jsonb, '{}'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        'seed-s4-owner-action-audit-v1', $5::timestamptz)`,
+    [ownerAuditId, DEFAULT_TENANT_ID, context.patient_uid, generationId, evidenceAt]
+  );
+  const outbox = await client.query(
+    `INSERT INTO event_outbox
+       (tenant_id, event_type, aggregate_type, aggregate_id,
+        patient_uid, payload)
+     VALUES
+       ($1::uuid, 'discharge.pending_result_available',
+        'discharge_pending_result_handoff', $2::text, $3::uuid,
+        jsonb_build_object(
+          'admission_id', $4::integer,
+          'handoff_id', $2::text,
+          'generation_id', $5::text,
+          'predecessor_generation_id', NULL,
+          'predecessor_owner_action_id', NULL,
+          'predecessor_resolution_action_id', NULL,
+          'rearm_source_action_id', NULL,
+          'action_task_id', $6::integer,
+          'tracking_task_id', $7::integer,
+          'canonical_timeline_event_id', $8::text,
+          'canonical_audit_event_id', $9::text
+        ))
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      pendingHandoffId,
+      context.patient_uid,
+      context.admission_id,
+      generationId,
+      actionTaskId,
+      trackingTaskId,
+      ownerTimelineId,
+      ownerAuditId
+    ]
+  );
+  await client.query(
+    `INSERT INTO discharge_pending_result_owner_actions
+       (id, tenant_id, handoff_id, admission_id, patient_uid, generation_id,
+        task_id, owner_uid, source_outbox_event_id,
+        canonical_timeline_event_id, canonical_audit_event_id,
+        idempotency_key, metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::uuid, $6::uuid,
+        $7::integer, $8::uuid, $9::bigint, $10::uuid, $11::uuid,
+        'seed-s4-pending-owner-action-v1',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)`,
+    [
+      ownerActionId,
+      DEFAULT_TENANT_ID,
+      pendingHandoffId,
+      context.admission_id,
+      context.patient_uid,
+      generationId,
+      actionTaskId,
+      context.physician_uid,
+      outbox.rows[0].id,
+      ownerTimelineId,
+      ownerAuditId
+    ]
+  );
+  await client.query(
+    `SET CONSTRAINTS
+       trg_discharge_pending_result_owner_actions_validate,
+       trg_discharge_pending_result_handoffs_validate
+     IMMEDIATE`
+  );
+  await client.query(
+    `SET CONSTRAINTS
+       trg_discharge_pending_result_owner_actions_validate,
+       trg_discharge_pending_result_handoffs_validate
+     DEFERRED`
+  );
+
+  const closureId = randomUUID();
+  const closureTimelineId = randomUUID();
+  const closureAuditId = randomUUID();
+  await client.query(
+    `INSERT INTO clinical_timeline_events
+       (id, tenant_id, patient_uid, event_type, event_status,
+        source_table, source_id, occurred_at, visible_to_patient,
+        clinical_summary, payload, tags, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'appointment.closure_evidence_recorded', 'completed',
+        'op_visit_closure_evidence', $4::text,
+        $5::timestamptz, FALSE, 'Seed OP closure evidence recorded',
+        '{}'::jsonb, ARRAY['op_closure', 'seed']::text[],
+        'seed-s4-op-closure-timeline-v1')`,
+    [closureTimelineId, DEFAULT_TENANT_ID, context.patient_uid, closureId, evidenceAt]
+  );
+  await client.query(
+    `INSERT INTO clinical_audit_events
+       (id, tenant_id, patient_uid, action, action_status,
+        resource_type, resource_table, resource_id,
+        before_state, after_state, metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'appointment.closure_evidence_recorded', 'success',
+        'op_visit_closure_evidence', 'op_visit_closure_evidence', $4::text,
+        '{}'::jsonb, '{}'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        'seed-s4-op-closure-audit-v1', $5::timestamptz)`,
+    [closureAuditId, DEFAULT_TENANT_ID, context.patient_uid, closureId, evidenceAt]
+  );
+  await client.query(
+    `INSERT INTO op_visit_closure_evidence
+       (id, tenant_id, appointment_id, patient_uid, evidence_revision,
+        clinician_uid, follow_up_required, patient_safe_next_steps,
+        closure_basis, source_status_history_id,
+        canonical_timeline_event_id, canonical_audit_event_id,
+        occurred_at, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid, 1,
+        $5::uuid, FALSE,
+        '[{"kind":"self_care","label":"Continue the care plan"}]'::jsonb,
+        'all_required_work_completed', $6::bigint,
+        $7::uuid, $8::uuid, $9::timestamptz,
+        'seed-s4-op-closure-v1')`,
+    [
+      closureId,
+      DEFAULT_TENANT_ID,
+      appointment.id,
+      context.patient_uid,
+      context.physician_uid,
+      appointment.status_history_id,
+      closureTimelineId,
+      closureAuditId,
+      evidenceAt
+    ]
+  );
+
+  const contactId = randomUUID();
+  const contactTimelineId = randomUUID();
+  const contactAuditId = randomUUID();
+  await client.query(
+    `INSERT INTO clinical_timeline_events
+       (id, tenant_id, patient_uid, event_type, event_status,
+        source_table, source_id, occurred_at, visible_to_patient,
+        clinical_summary, payload, tags, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'post_discharge.contact_recorded', 'attempt',
+        'post_discharge_contact_events', $4::text,
+        $5::timestamptz, FALSE, 'Seed post-discharge contact attempt',
+        '{}'::jsonb, ARRAY['post_discharge', 'seed']::text[],
+        'seed-s4-post-discharge-contact-timeline-v1')`,
+    [contactTimelineId, DEFAULT_TENANT_ID, context.patient_uid, contactId, evidenceAt]
+  );
+  await client.query(
+    `INSERT INTO clinical_audit_events
+       (id, tenant_id, patient_uid, action, action_status,
+        resource_type, resource_table, resource_id,
+        before_state, after_state, metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'post_discharge.contact_recorded', 'success',
+        'post_discharge_contact_event', 'post_discharge_contact_events',
+        $4::text, '{}'::jsonb, '{}'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        'seed-s4-post-discharge-contact-audit-v1', $5::timestamptz)`,
+    [contactAuditId, DEFAULT_TENANT_ID, context.patient_uid, contactId, evidenceAt]
+  );
+  await client.query(
+    `INSERT INTO post_discharge_contact_events
+       (id, tenant_id, admission_id, patient_uid, event_kind,
+        contact_source, contact_channel, recorded_by_uid,
+        canonical_timeline_event_id, canonical_audit_event_id,
+        occurred_at, idempotency_key, metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid, 'attempt',
+        'manual', 'phone', $5::uuid, $6::uuid, $7::uuid,
+        $8::timestamptz, 'seed-s4-post-discharge-contact-v1',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)`,
+    [
+      contactId,
+      DEFAULT_TENANT_ID,
+      context.admission_id,
+      context.patient_uid,
+      context.physician_uid,
+      contactTimelineId,
+      contactAuditId,
+      evidenceAt
+    ]
+  );
+
+  await client.query(
+    `UPDATE workflow_definitions
+        SET is_active = FALSE, updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND id = $2::integer`,
+    [DEFAULT_TENANT_ID, definitionId]
+  );
+  await client.query(
+    `UPDATE care_pathway_definition_governance
+        SET governance_status = 'retired',
+            retired_by = $1::uuid,
+            retired_at = $2::timestamptz,
+            retirement_reason = 'Synthetic test-only S4 pathway remains disabled.',
+            effective_until = $2::timestamptz,
+            updated_at = NOW()
+      WHERE tenant_id = $3::uuid AND id = $4::uuid`,
+    [approver.uid, evidenceAt, DEFAULT_TENANT_ID, governanceId]
   );
 }
 
@@ -4044,6 +4938,7 @@ try {
   await seedIdentityProviderTables();
   await seedColdChainTables();
   await seedCarePathwayWorkflowGraph();
+  await seedOpInpatientEvidenceGraph();
   await seedLabIngestCriticalAlertGraph();
   await seedCarePathwayReconciliationEvidence();
   await seedDiagnosticResultEvidence();
