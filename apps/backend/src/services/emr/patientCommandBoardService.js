@@ -628,7 +628,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
       : [],
   ]);
 
-  const pathwayTasks = admissionIds.length && tenantId
+  const pathwayTasks = !shouldMinimizePayload(role) && admissionIds.length && tenantId
     ? await prisma.$queryRawUnsafe(
       `SELECT task.id, task.task_kind, task.title, task.status, task.priority,
               task.assigned_to_uid, task.assigned_to_role,

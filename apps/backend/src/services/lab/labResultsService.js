@@ -2266,9 +2266,11 @@ export async function signOffResults({
               abnormal_flag, is_critical, status, signed_off_at
          FROM lab_results
         WHERE tenant_id = $1::uuid
-          AND ${sourceColumn} = $2::int
+          AND id = ANY($2::int[])
+          AND ${sourceColumn} = $3::int
         ORDER BY id`,
       tid,
+      ids,
       episode.id,
     );
     const classification = classifySignedLabEpisode(signedPanel);
