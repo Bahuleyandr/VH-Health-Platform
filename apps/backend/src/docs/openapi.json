@@ -2668,6 +2668,36 @@
           }
         }
       },
+      "AppointmentHardDeleteRetiredResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success",
+          "message",
+          "code"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "APPOINTMENT_HARD_DELETE_RETIRED"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "AppointmentHistoryEntry": {
         "type": "object",
         "additionalProperties": false,
@@ -3923,76 +3953,6 @@
           }
         }
       },
-      "BulkDeleteRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": [
-          "appointment_ids",
-          "reason"
-        ],
-        "description": "DELETE /api/v1/appointments/admin/bulk-delete (body). reason is mandatory (audit trail).",
-        "properties": {
-          "appointment_ids": {
-            "type": "array",
-            "items": {
-              "type": "integer"
-            }
-          },
-          "reason": {
-            "type": "string"
-          }
-        }
-      },
-      "BulkDeleteResponse": {
-        "type": "object",
-        "required": [
-          "success",
-          "data"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "example": true
-          },
-          "message": {
-            "type": "string"
-          },
-          "data": {
-            "$ref": "#/components/schemas/BulkDeleteResult"
-          }
-        }
-      },
-      "BulkDeleteResult": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": [
-          "deletedCount",
-          "deletedIds",
-          "archived"
-        ],
-        "properties": {
-          "deletedCount": {
-            "type": "integer"
-          },
-          "deletedIds": {
-            "type": "array",
-            "items": {
-              "type": "integer"
-            }
-          },
-          "reason": {
-            "type": "string",
-            "nullable": true
-          },
-          "deletedBy": {
-            "type": "string",
-            "nullable": true
-          },
-          "archived": {
-            "type": "boolean"
-          }
-        }
-      },
       "BulkRevisionJob": {
         "type": "object",
         "additionalProperties": false,
@@ -4212,10 +4172,12 @@
           "appointment_ids",
           "status"
         ],
-        "description": "POST /api/v1/appointments/admin/bulk-update-status. status must be one of completed|cancelled|no_show.",
+        "description": "POST /api/v1/appointments/admin/bulk-update-status. Exactly one appointment may be cancelled or marked no-show; clinician-owned completion returns 409.",
         "properties": {
           "appointment_ids": {
             "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
             "items": {
               "type": "integer"
             }
@@ -4223,7 +4185,6 @@
           "status": {
             "type": "string",
             "enum": [
-              "completed",
               "cancelled",
               "no_show"
             ]
@@ -4285,33 +4246,12 @@
       },
       "BulkUpdatedAppointment": {
         "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "status"
-        ],
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "patient_id": {
-            "type": "integer",
-            "nullable": true
-          },
-          "doctor_id": {
-            "type": "integer",
-            "nullable": true
-          },
-          "appointment_date": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
+        "additionalProperties": true,
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Appointment"
           }
-        }
+        ]
       },
       "CancelAppointmentRequest": {
         "type": "object",
@@ -23616,76 +23556,12 @@
       },
       "OverrideBookedAppointment": {
         "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "status"
-        ],
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "patient_id": {
-            "type": "integer",
-            "nullable": true
-          },
-          "doctor_id": {
-            "type": "integer",
-            "nullable": true
-          },
-          "appointment_date": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "reason": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          },
-          "notes": {
-            "type": "string",
-            "nullable": true
-          },
-          "admin_override": {
-            "type": "boolean",
-            "nullable": true
-          },
-          "override_reason": {
-            "type": "string",
-            "nullable": true
-          },
-          "visit_type": {
-            "type": "string",
-            "nullable": true,
-            "enum": [
-              "NEW",
-              "FOLLOW_UP",
-              "EMERGENCY",
-              "TELE",
-              "LAB_ONLY",
-              "PAEDIATRIC_OPD"
-            ]
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "created_by": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+        "additionalProperties": true,
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Appointment"
           }
-        }
+        ]
       },
       "OwnAdvanceItem": {
         "type": "object",
@@ -53679,23 +53555,13 @@
       "delete": {
         "operationId": "delete_api_v1_appointments_admin_bulk_delete",
         "responses": {
-          "200": {
-            "description": "Successful response",
+          "410": {
+            "description": "Appointment hard deletion is retired.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BulkDeleteResponse"
+                  "$ref": "#/components/schemas/AppointmentHardDeleteRetiredResponse"
                 }
-              }
-            }
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkDeleteRequest"
               }
             }
           }

@@ -455,19 +455,19 @@ describe('Appointment admin-query correctness (status casing + doctor join) — 
     expect(controlAppears).toBe(false);
   });
 
-  // ── 6. BULK-UPDATE-STATUS (write) ────────────────────────────────────────
-  // Client sends lowercase 'completed'; the DB row must end up canonical
-  // UPPERCASE 'COMPLETED'. Current broken code writes 'completed'.
-  it('POST /bulk-update-status → stores canonical UPPERCASE status', async () => {
+  // ── 6. ADMIN STATUS UPDATE (write) ────────────────────────────────────────
+  // Clinician-owned completion is intentionally unavailable here, but the
+  // supported single-appointment cancellation still canonicalises casing.
+  it('POST /bulk-update-status → stores supported status in canonical UPPERCASE', async () => {
     const res = await admin.post('/api/v1/appointments/admin/bulk-update-status').send({
       appointment_ids: [bulkApptId],
-      status: 'completed',
+      status: 'cancelled',
       reason: 'AdminCorrectness bulk update',
     });
     expect([200, 201]).toContain(res.statusCode);
     const row = await prisma.$queryRawUnsafe(
       `SELECT status FROM appointments WHERE id = $1`, bulkApptId);
-    expect(row[0].status).toBe('COMPLETED');
+    expect(row[0].status).toBe('CANCELLED');
   });
 
   // ── 7. RESOLVE-CONFLICT (write) ──────────────────────────────────────────

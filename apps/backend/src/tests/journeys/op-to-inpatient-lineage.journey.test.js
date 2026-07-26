@@ -1,7 +1,6 @@
 import { jest } from '@jest/globals';
 
 import {
-  cleanupJourney,
   DEFAULT_TENANT,
   describeJourney,
   hospitalDateOffset,
@@ -215,129 +214,6 @@ async function projectLatestOpEvent(appointmentId, eventType) {
   });
 }
 
-async function cleanupLineageExtras() {
-  const schema = await prisma.$queryRawUnsafe(
-    `SELECT
-       to_regclass('public.op_visit_closure_evidence') IS NOT NULL AS op_ready,
-       to_regclass('public.inpatient_primary_physician_assignments') IS NOT NULL
-         AS inpatient_ready`,
-  ).catch(() => [{ op_ready: false, inpatient_ready: false }]);
-  if (schema[0]?.op_ready !== true) return;
-  await setTenantTx(DEFAULT_TENANT, async tx => {
-    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
-    const pathways = await tx.$queryRawUnsafe(
-      `SELECT id, workflow_run_id
-         FROM care_pathway_instances
-        WHERE tenant_id = $1::uuid
-          AND patient_uid = $2::uuid`,
-      DEFAULT_TENANT,
-      PATIENT_UID,
-    );
-    const pathwayIds = pathways.map(row => row.id);
-    const workflowRunIds = pathways
-      .map(row => Number(row.workflow_run_id))
-      .filter(Number.isInteger);
-
-    await tx.$executeRawUnsafe(
-      `DELETE FROM op_visit_closure_evidence
-        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
-      DEFAULT_TENANT,
-      PATIENT_UID,
-    ).catch(() => {});
-    if (schema[0]?.inpatient_ready === true) {
-      await tx.$executeRawUnsafe(
-        `DELETE FROM inpatient_primary_physician_assignments
-          WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
-        DEFAULT_TENANT,
-        PATIENT_UID,
-      );
-    }
-    if (pathwayIds.length > 0) {
-      await tx.$executeRawUnsafe(
-        `DELETE FROM care_handoff_instances
-          WHERE tenant_id = $1::uuid
-            AND (
-              sending_pathway_instance_id = ANY($2::uuid[])
-              OR receiving_pathway_instance_id = ANY($2::uuid[])
-            )`,
-        DEFAULT_TENANT,
-        pathwayIds,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM care_pathway_resource_references
-          WHERE tenant_id = $1::uuid
-            AND pathway_instance_id = ANY($2::uuid[])`,
-        DEFAULT_TENANT,
-        pathwayIds,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM care_pathway_transition_events
-          WHERE tenant_id = $1::uuid
-            AND pathway_instance_id = ANY($2::uuid[])`,
-        DEFAULT_TENANT,
-        pathwayIds,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM care_pathway_instances
-          WHERE tenant_id = $1::uuid
-            AND id = ANY($2::uuid[])`,
-        DEFAULT_TENANT,
-        pathwayIds,
-      );
-    }
-    await tx.$executeRawUnsafe(
-      `DELETE FROM tasks
-        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
-      DEFAULT_TENANT,
-      PATIENT_UID,
-    ).catch(() => {});
-    if (workflowRunIds.length > 0) {
-      await tx.$executeRawUnsafe(
-        `DELETE FROM approvals
-          WHERE tenant_id = $1::uuid
-            AND workflow_run_id = ANY($2::integer[])`,
-        DEFAULT_TENANT,
-        workflowRunIds,
-      );
-      await tx.$executeRawUnsafe(
-        `UPDATE workflow_runs
-            SET current_step_key = NULL
-          WHERE tenant_id = $1::uuid
-            AND id = ANY($2::integer[])`,
-        DEFAULT_TENANT,
-        workflowRunIds,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM workflow_runs
-          WHERE tenant_id = $1::uuid
-            AND id = ANY($2::integer[])`,
-        DEFAULT_TENANT,
-        workflowRunIds,
-      );
-    }
-    const eventIds = await tx.$queryRawUnsafe(
-      `SELECT id
-         FROM event_outbox
-        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
-      DEFAULT_TENANT,
-      PATIENT_UID,
-    );
-    if (eventIds.length > 0) {
-      const ids = eventIds.map(row => Number(row.id));
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pathway_projector_inbox WHERE event_id = ANY($1::bigint[])`,
-        ids,
-      ).catch(() => {});
-      await tx.$executeRawUnsafe(
-        `DELETE FROM event_outbox
-          WHERE tenant_id = $1::uuid AND id = ANY($2::bigint[])`,
-        DEFAULT_TENANT,
-        ids,
-      ).catch(() => {});
-    }
-  }).catch(() => {});
-}
-
 describeJourney('Journey: OP-to-inpatient exact lineage', () => {
   let admin;
   let sender;
@@ -354,16 +230,6 @@ describeJourney('Journey: OP-to-inpatient exact lineage', () => {
   let settingsBefore;
 
   beforeAll(async () => {
-    await cleanupLineageExtras();
-    await cleanupJourney({
-      patientUids: [PATIENT_UID],
-      staffUids: [ADMIN_UID, SENDER_UID, RECIPIENT_UID],
-      phones: [PATIENT_PHONE, ADMIN_PHONE, SENDER_PHONE, RECIPIENT_PHONE],
-      departments: [DEPARTMENT],
-      wardNames: [WARD_NAME],
-      bedNumbers: [BED_NUMBER],
-    });
-
     const adminRow = await seedUser({
       uid: ADMIN_UID,
       phone: ADMIN_PHONE,
@@ -416,18 +282,14 @@ describeJourney('Journey: OP-to-inpatient exact lineage', () => {
   });
 
   afterAll(async () => {
+    // The exact lineage graph is intentionally immutable, including in tests.
+    // The isolated CI/scratch database owns fixture reclamation; this suite
+    // only restores the tenant control-plane setting it changed.
     try {
-      await cleanupLineageExtras();
-      await cleanupJourney({
-        patientUids: [PATIENT_UID],
-        staffUids: [ADMIN_UID, SENDER_UID, RECIPIENT_UID],
-        phones: [PATIENT_PHONE, ADMIN_PHONE, SENDER_PHONE, RECIPIENT_PHONE],
-        departments: [DEPARTMENT],
-        wardNames: [WARD_NAME],
-        bedNumbers: [BED_NUMBER],
-      });
+      if (settingsBefore !== undefined) {
+        await restoreTenantSettings(settingsBefore);
+      }
     } finally {
-      if (settingsBefore !== undefined) await restoreTenantSettings(settingsBefore);
       await prisma.$disconnect().catch(() => {});
     }
   });

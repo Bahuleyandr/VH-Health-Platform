@@ -705,7 +705,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       expect(audits[0].metadata).toMatchObject({
         patient_uid: uid,
         cleared_appointment_ids: [adviceAppointmentId],
-        via: 'explicit_appointment_id',
+        via: 'explicit_source_appointment',
       });
 
       await cleanup();

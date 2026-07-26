@@ -22,11 +22,14 @@ export function assertData(schemaName, data) {
   }
 }
 
-/** Validate a full supertest res.body against the operation's 200 response schema. */
-export function assertResponse(method, path, body) {
+/** Validate a full supertest res.body against the operation's response schema. */
+export function assertResponse(method, path, body, status = 200) {
   const op = spec.paths?.[path]?.[method.toLowerCase()];
-  const ref = op?.responses?.['200']?.content?.['application/json']?.schema?.$ref;
-  if (!ref) throw new Error(`assertResponse: no 200 json schema for ${method} ${path}`);
+  const responseStatus = String(status);
+  const ref = op?.responses?.[responseStatus]?.content?.['application/json']?.schema?.$ref;
+  if (!ref) {
+    throw new Error(`assertResponse: no ${responseStatus} json schema for ${method} ${path}`);
+  }
   const name = ref.replace('#/components/schemas/', '');
   const validate = ajv.getSchema(`openapi.json#/components/schemas/${name}`);
   if (!validate(body)) {
