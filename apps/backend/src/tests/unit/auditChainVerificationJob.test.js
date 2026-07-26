@@ -21,6 +21,7 @@ const queryRawUnsafeMock = jest.fn();
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 
 jest.unstable_mockModule('../../services/clinical/documentIntegrityService.js', () => ({
+  signDocumentTx: jest.fn(),
   verifyAuditChain: verifyAuditChainMock,
 }));
 jest.unstable_mockModule('../../utils/securityWebhook.js', () => ({
