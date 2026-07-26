@@ -108,6 +108,21 @@ async function markTimeOutComplete(scheduleId) {
     tenantId: TENANT_ID,
     otScheduleId: scheduleId,
     patientUid: PATIENT_UID,
+    phase: 'sign_in',
+    performedBy: ANESTHETIST_UID,
+    items: [
+      { item: 'identity', confirmed: true },
+      { item: 'procedure_and_site', confirmed: true },
+      { item: 'consent', confirmed: true },
+      { item: 'allergies_and_anesthesia_risk', confirmed: true },
+      { item: 'readiness', confirmed: true },
+    ],
+    allItemsConfirmed: true,
+  });
+  await surgicalDocs.upsertSafetyChecklistPhase({
+    tenantId: TENANT_ID,
+    otScheduleId: scheduleId,
+    patientUid: PATIENT_UID,
     phase: 'time_out',
     performedBy: SURGEON_UID,
     allItemsConfirmed: true,
@@ -312,6 +327,15 @@ describe('Fix #4 — WHO sign-out + consent gates', () => {
 describe('Fix #5 — anaesthesia totals are atomic (match SUM under concurrent entries)', () => {
   it('case-record totals equal SUM() over chart entries after concurrent inserts', async () => {
     const s = await schedule({ ot_room: 'CS-OT-9', scheduled_time: '08:00' });
+    await surgicalDocs.upsertSafetyChecklistPhase({
+      tenantId: TENANT_ID,
+      otScheduleId: s.id,
+      patientUid: PATIENT_UID,
+      phase: 'sign_in',
+      performedBy: ANESTHETIST_UID,
+      items: [{ item: 'identity_and_anesthesia_readiness', confirmed: true }],
+      allItemsConfirmed: true,
+    });
     // Fire many chart entries concurrently. Each commits its own atomic
     // insert + deterministic recompute; the rollup must equal the SUM().
     const entries = Array.from({ length: 12 }, (_, i) => ({

@@ -24,6 +24,7 @@ import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { assertPrivilegeForGate, isGateEnabled } from '../staff/credentialingService.js';
+import { assertWhoSignInComplete } from './surgicalSafetyGateService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -937,6 +938,14 @@ export async function upsertAnesthesiaRecord({
 
   try {
     return await setTenantTx(tid, async (tx) => {
+    if (cleanStatus === 'finalized') {
+      await assertWhoSignInComplete({
+        db: tx,
+        tenantId: tid,
+        otScheduleId: scheduleId,
+        message: 'WHO sign-in must be completed before finalizing the anaesthesia record',
+      });
+    }
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO anesthesia_records
          (tenant_id, ot_schedule_id, patient_uid,
@@ -1060,6 +1069,12 @@ export async function finalizeAnesthesiaRecord({
     enabled: isGateEnabled('ANESTHESIA_REQUIRE_FINALIZE_PRIVILEGE'),
   });
   return setTenantTx(tid, async (tx) => {
+    await assertWhoSignInComplete({
+      db: tx,
+      tenantId: tid,
+      otScheduleId: scheduleId,
+      message: 'WHO sign-in must be completed before finalizing the anaesthesia record',
+    });
     const rows = await tx.$queryRawUnsafe(
       `UPDATE anesthesia_records
        SET status = 'finalized',
@@ -1371,6 +1386,7 @@ export async function upsertSafetyChecklistPhase({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const scheduleId = normalizeId(otScheduleId, 'ot_schedule_id');
+  if (patientUid != null) maybeUuid(patientUid, 'patient_uid');
   await ensureScheduleVisible(tid, scheduleId);
   const cleanPhase = normalizeEnum(phase, SAFETY_PHASES, 'phase', { required: true });
   const itemsArr = normalizeJsonArray(items, 'items');
@@ -1380,6 +1396,39 @@ export async function upsertSafetyChecklistPhase({
     ? 'complete'
     : (overrideReason ? 'incomplete_with_override' : 'in_progress');
   const cleanStatus = normalizeEnum(status, SAFETY_STATUSES, 'status') || inferredStatus;
+  const performerUid = maybeUuid(performedBy, 'performed_by');
+  const overrideAuthorizerUid = maybeUuid(overrideAuthorizedBy, 'override_authorized_by');
+  const everyItemConfirmed = itemsArr.every(
+    item => item && typeof item === 'object' && !Array.isArray(item) && item.confirmed === true,
+  );
+
+  if (cleanPhase === 'sign_in') {
+    if (
+      cleanStatus === 'incomplete_with_override'
+      || safeText(overrideReason)
+      || overrideAuthorizerUid
+    ) {
+      throw AppError.badRequest(
+        'WHO sign-in cannot be bypassed until a separately approved emergency policy is configured',
+        'WHO_SIGNIN_OVERRIDE_NOT_APPROVED',
+      );
+    }
+    if (
+      cleanStatus === 'complete'
+      && (
+        !performerUid
+        || !allConfirmed
+        || itemsArr.length === 0
+        || !everyItemConfirmed
+        || outstandingArr.length > 0
+      )
+    ) {
+      throw AppError.badRequest(
+        'Completed WHO sign-in requires an authenticated performer, confirmed checklist items, and no outstanding items',
+        'WHO_SIGNIN_EVIDENCE_INCOMPLETE',
+      );
+    }
+  }
 
   // WHO time-out is the wrong-site safety gate. A time-out whose read-aloud
   // checklist documents a side mismatch (scheduled vs marked) must NOT save as
@@ -1388,7 +1437,7 @@ export async function upsertSafetyChecklistPhase({
   // Finding 2026-05-22-surgical-day-care-ot-staff-e410248f.
   if (cleanPhase === 'time_out' && cleanStatus === 'complete') {
     const mismatch = detectSiteSideMismatch(metadata);
-    const overridden = Boolean(safeText(overrideReason)) && Boolean(overrideAuthorizedBy);
+    const overridden = Boolean(safeText(overrideReason)) && Boolean(overrideAuthorizerUid);
     if (mismatch && !overridden) {
       throw AppError.badRequest(
         `WHO time-out documents a surgical-site mismatch (scheduled ${mismatch.scheduled}, marked ${mismatch.marked}); `
@@ -1399,19 +1448,30 @@ export async function upsertSafetyChecklistPhase({
     }
   }
 
-  const overridden = Boolean(safeText(overrideReason)) && Boolean(overrideAuthorizedBy);
+  const overridden = Boolean(safeText(overrideReason)) && Boolean(overrideAuthorizerUid);
   try {
     return await setTenantTx(tid, async (tx) => {
+      if (cleanPhase === 'time_out' && cleanStatus === 'complete') {
+        await assertWhoSignInComplete({
+          db: tx,
+          tenantId: tid,
+          otScheduleId: scheduleId,
+          message: 'WHO sign-in must be completed before the WHO time-out',
+        });
+      }
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO surgical_safety_checklists
-           (tenant_id, ot_schedule_id, patient_uid,
+         (tenant_id, ot_schedule_id, patient_uid,
             phase, performed_by, performed_at,
             items, all_items_confirmed, outstanding_items,
             status, override_reason, override_authorized_by, notes, metadata)
-         VALUES ($1::uuid, $2, $3::uuid,
-           $4, $5::uuid, COALESCE($6::timestamptz, NOW()),
-           $7::jsonb, $8, $9::jsonb,
-           $10, $11, $12::uuid, $13, $14::jsonb)
+         VALUES ($1::uuid, $2,
+           (SELECT patient_uid
+              FROM ot_schedules
+             WHERE tenant_id = $1::uuid AND id = $2),
+           $3, $4::uuid, COALESCE($5::timestamptz, NOW()),
+           $6::jsonb, $7, $8::jsonb,
+           $9, $10, $11::uuid, $12, $13::jsonb)
          ON CONFLICT (tenant_id, ot_schedule_id, phase) DO UPDATE SET
            patient_uid = EXCLUDED.patient_uid,
            performed_by = EXCLUDED.performed_by,
@@ -1426,16 +1486,15 @@ export async function upsertSafetyChecklistPhase({
            metadata = EXCLUDED.metadata,
            updated_at = NOW()
          RETURNING ${SAFETY_RETURNING}`,
-        tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
-        cleanPhase,
-        maybeUuid(performedBy, 'performed_by'),
+        tid, scheduleId, cleanPhase,
+        performerUid,
         normalizeTimestamp(performedAt, 'performed_at'),
         JSON.stringify(itemsArr),
         allConfirmed,
         JSON.stringify(outstandingArr),
         cleanStatus,
         safeText(overrideReason),
-        maybeUuid(overrideAuthorizedBy, 'override_authorized_by'),
+        overrideAuthorizerUid,
         safeText(notes),
         JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
       );

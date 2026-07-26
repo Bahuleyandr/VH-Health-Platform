@@ -7,6 +7,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { assertWhoSignInComplete } from './surgicalSafetyGateService.js';
 
 function tenantOr(value) {
   return requireTenantId(String(value || '').trim());
@@ -127,6 +128,11 @@ export async function recordEntry({
   // accumulator update failed after the entry committed).
   const tid = tenantOr(tenantId);
   return setTenantTx(tid, async (tx) => {
+    await assertWhoSignInComplete({
+      db: tx,
+      tenantId: tid,
+      otScheduleId: ot_schedule_id,
+    });
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO anesthesia_chart_entries
          (ot_schedule_id, recorded_at, hr, sbp, dbp, map, spo2, etco2, rr, temp_c,

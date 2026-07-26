@@ -14,18 +14,30 @@ import '../../../l10n/app_strings.dart';
 typedef TheatreScheduleLoader =
     Future<List<dynamic>> Function({required String date});
 typedef TheatreAvailabilityLoader = Future<List<dynamic>> Function(String date);
+typedef TheatreStatusUpdater =
+    Future<Map<String, dynamic>> Function(int id, String status);
+typedef TheatreSafetyPhaseRecorder =
+    Future<Map<String, dynamic>> Function(
+      int scheduleId,
+      String phase,
+      Map<String, dynamic> evidence,
+    );
 typedef RealtimeEventStreamFactory =
     Stream<RealtimeEvent> Function(String channel);
 
 class TheatreScreen extends StatefulWidget {
   final TheatreScheduleLoader? loadSchedule;
   final TheatreAvailabilityLoader? loadAvailability;
+  final TheatreStatusUpdater? updateStatus;
+  final TheatreSafetyPhaseRecorder? recordSafetyPhase;
   final RealtimeEventStreamFactory? realtimeEvents;
 
   const TheatreScreen({
     super.key,
     this.loadSchedule,
     this.loadAvailability,
+    this.updateStatus,
+    this.recordSafetyPhase,
     this.realtimeEvents,
   });
 
@@ -181,7 +193,9 @@ class _TheatreScreenState extends State<TheatreScreen>
     final s = AppStrings.of(context);
     return switch (status?.toLowerCase()) {
       'scheduled' => s.theatreStatusScheduled,
+      'pre_op' => s.theatreStatusPreOp,
       'in_progress' => s.theatreStatusInProgress,
+      'post_op' => s.theatreStatusPostOp,
       'completed' => s.theatreStatusCompleted,
       'cancelled' => s.theatreStatusCancelled,
       _ => status ?? '—',
@@ -448,13 +462,125 @@ class _TheatreScreenState extends State<TheatreScreen>
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
+                          onPressed: () => _updateStatus(ctx, id, 'pre_op'),
+                          icon: const Icon(Icons.medical_services_outlined),
+                          label: Text(str.theatreBeginPreOp),
+                        ),
+                      ),
+                    if (status == 'pre_op') ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _showWhoChecklistSheet(
+                              id: id,
+                              surgery: s,
+                              phase: 'sign_in',
+                              title: str.theatreWhoSignIn,
+                              itemKeys: const [
+                                'identity',
+                                'procedure_and_site',
+                                'consent',
+                                'allergies_and_anesthesia_risk',
+                                'readiness',
+                              ],
+                              itemLabels: [
+                                str.theatreWhoIdentity,
+                                str.theatreWhoProcedureSite,
+                                str.theatreWhoConsent,
+                                str.theatreWhoAllergiesRisk,
+                                str.theatreWhoReadiness,
+                              ],
+                            );
+                          },
+                          icon: const Icon(Icons.verified_user_outlined),
+                          label: Text(str.theatreWhoSignIn),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _showWhoChecklistSheet(
+                              id: id,
+                              surgery: s,
+                              phase: 'time_out',
+                              title: str.theatreWhoTimeOut,
+                              itemKeys: const [
+                                'identity',
+                                'procedure_and_site',
+                                'team_brief',
+                                'critical_concerns',
+                              ],
+                              itemLabels: [
+                                str.theatreWhoIdentity,
+                                str.theatreWhoProcedureSite,
+                                str.theatreWhoTeamBrief,
+                                str.theatreWhoCriticalConcerns,
+                              ],
+                            );
+                          },
+                          icon: const Icon(Icons.pause_circle_outline),
+                          label: Text(str.theatreWhoTimeOut),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
                           onPressed: () =>
                               _updateStatus(ctx, id, 'in_progress'),
                           icon: const Icon(Icons.play_arrow),
                           label: Text(str.theatreStartSurgery),
                         ),
                       ),
+                    ],
                     if (status == 'in_progress') ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _showWhoChecklistSheet(
+                              id: id,
+                              surgery: s,
+                              phase: 'sign_out',
+                              title: str.theatreWhoSignOut,
+                              itemKeys: const [
+                                'procedure_recorded',
+                                'counts_and_specimens',
+                                'equipment_concerns',
+                                'recovery_plan',
+                              ],
+                              itemLabels: [
+                                str.theatreWhoProcedureRecorded,
+                                str.theatreWhoCountsSpecimens,
+                                str.theatreWhoEquipmentConcerns,
+                                str.theatreWhoRecoveryPlan,
+                              ],
+                            );
+                          },
+                          icon: const Icon(Icons.fact_check_outlined),
+                          label: Text(str.theatreWhoSignOut),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _updateStatus(ctx, id, 'post_op'),
+                          icon: const Icon(Icons.local_hospital_outlined),
+                          label: Text(str.theatreMovePostOp),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.successGreen,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (status == 'post_op')
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
@@ -466,7 +592,6 @@ class _TheatreScreenState extends State<TheatreScreen>
                           ),
                         ),
                       ),
-                    ],
                     if (status != 'completed' && status != 'cancelled') ...[
                       const SizedBox(height: 10),
                       SizedBox(
@@ -536,7 +661,9 @@ class _TheatreScreenState extends State<TheatreScreen>
     Navigator.pop(sheetCtx);
     final str = AppStrings.of(context);
     try {
-      await TheatreApiService.updateStatus(id, status);
+      await (widget.updateStatus != null
+          ? widget.updateStatus!(id, status)
+          : TheatreApiService.updateStatus(id, status));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -557,6 +684,129 @@ class _TheatreScreenState extends State<TheatreScreen>
         );
       }
     }
+  }
+
+  void _showWhoChecklistSheet({
+    required int id,
+    required Map<String, dynamic> surgery,
+    required String phase,
+    required String title,
+    required List<String> itemKeys,
+    required List<String> itemLabels,
+  }) {
+    assert(itemKeys.length == itemLabels.length);
+    final confirmed = List<bool>.filled(itemLabels.length, false);
+    final str = AppStrings.of(context);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (_, setSheetState) {
+            final allConfirmed = confirmed.every((value) => value);
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      str.theatreWhoReadAloud,
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    for (var i = 0; i < itemLabels.length; i++)
+                      CheckboxListTile(
+                        key: ValueKey('who-$phase-$i'),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(itemLabels[i]),
+                        value: confirmed[i],
+                        onChanged: (value) =>
+                            setSheetState(() => confirmed[i] = value == true),
+                      ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        key: ValueKey('complete-who-$phase'),
+                        onPressed: allConfirmed
+                            ? () async {
+                                Navigator.pop(ctx);
+                                try {
+                                  final evidence = <String, dynamic>{
+                                    'patient_uid': surgery['patient_uid'],
+                                    'items': [
+                                      for (
+                                        var i = 0;
+                                        i < itemLabels.length;
+                                        i++
+                                      )
+                                        {
+                                          'item': itemKeys[i],
+                                          'confirmed': confirmed[i],
+                                        },
+                                    ],
+                                    'all_items_confirmed': true,
+                                    'outstanding_items': <dynamic>[],
+                                    'status': 'complete',
+                                  };
+                                  await (widget.recordSafetyPhase != null
+                                      ? widget.recordSafetyPhase!(
+                                          id,
+                                          phase,
+                                          evidence,
+                                        )
+                                      : TheatreApiService.recordSafetyPhase(
+                                          id,
+                                          phase,
+                                          evidence,
+                                        ));
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(str.theatreWhoRecorded),
+                                    ),
+                                  );
+                                  _fetchSchedule(showLoading: false);
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '${str.errorSomethingWentWrong}: $e',
+                                      ),
+                                      backgroundColor: AppTheme.errorRed,
+                                    ),
+                                  );
+                                }
+                              }
+                            : null,
+                        icon: const Icon(Icons.verified_outlined),
+                        label: Text(str.theatreWhoComplete),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _showChecklistSheet(int id, Map<String, dynamic> surgery) {

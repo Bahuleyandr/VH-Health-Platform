@@ -90,6 +90,15 @@ class TheatreApiService {
     return _put('/theatre/$id/checklist', {'checklist': checklist});
   }
 
+  /// PUT /surgical/safety/:scheduleId/:phase
+  static Future<Map<String, dynamic>> recordSafetyPhase(
+    int scheduleId,
+    String phase,
+    Map<String, dynamic> evidence,
+  ) async {
+    return _put('/surgical/safety/$scheduleId/$phase', evidence);
+  }
+
   /// DELETE /theatre/:id
   static Future<Map<String, dynamic>> cancelSurgery(int id) async {
     return _delete('/theatre/$id');

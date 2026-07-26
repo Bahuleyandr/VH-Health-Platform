@@ -246,3 +246,53 @@ describe('theatreService.updateStatus closure gates', () => {
     });
   });
 });
+
+describe('theatreService.updateStatus start gates', () => {
+  const current = {
+    id: 42,
+    status: 'pre_op',
+    patient_uid: 'ba000000-0000-4000-8000-00000000a001',
+    consent_obtained: true,
+    pre_op_checklist: {},
+  };
+
+  it('rejects pre_op to in_progress until WHO sign-in is complete', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([current])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await expect(theatreService.updateStatus(
+      42,
+      'in_progress',
+      SURGEON_UID,
+      { tenantId: TENANT_ID },
+    )).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WHO_SIGNIN_REQUIRED',
+    });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/phase = 'sign_in'/);
+  });
+
+  it('starts only after sign-in and time-out are both present', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([current])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 11 }])
+      .mockResolvedValueOnce([{ id: 12 }])
+      .mockResolvedValueOnce([{ ...current, status: 'in_progress' }]);
+
+    const row = await theatreService.updateStatus(
+      42,
+      'in_progress',
+      SURGEON_UID,
+      { tenantId: TENANT_ID },
+    );
+
+    expect(row.status).toBe('in_progress');
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/phase = 'sign_in'/);
+    expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/phase = 'time_out'/);
+  });
+});

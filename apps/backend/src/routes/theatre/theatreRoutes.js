@@ -110,6 +110,7 @@ router.put('/:id/status', paramId(), validate, async (req, res, next) => {
 
     const result = await theatreService.updateStatus(parseInt(id, 10), status, req.user?.uid, {
       tenantId: tenantOf(req),
+      actorRole: req.user?.role || null,
     });
     emitOrBoardEvent('status-changed', { scheduleId: result?.id, status: result?.status, tenantId: tenantOf(req) });
     return success(res, result, 'Surgery status updated successfully');
