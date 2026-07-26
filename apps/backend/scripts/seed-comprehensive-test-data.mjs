@@ -3,6 +3,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { seedCurrentBedStructure } from './seed-current-bed-structure.mjs';
 import { compileWorkflowDefinition } from '../src/services/workflow/workflowDefinitionCompiler.js';
+import {
+  INPATIENT_ADMISSION_TO_RECOVERY_DEFINITION,
+  compileInpatientAdmissionToRecoveryDefinition
+} from '../src/services/pathways/inpatientPathwayDefinition.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
@@ -1714,46 +1718,25 @@ async function seedOpInpatientEvidenceGraph() {
   }
 
   const workflowKey = 'inpatient_admission_to_recovery';
-  const stepKey = 'pending_result_review';
-  const rawDefinition = {
-    workflow_key: workflowKey,
-    version: 1,
-    steps: [
-      {
-        step_key: stepKey,
-        step_kind: 'task',
-        display_name: 'Review pending discharge result',
-        assigned_role: 'DOCTOR',
-        metadata: { seed: true, source: 'seed-comprehensive-test-data' },
-        work_semantics: {
-          task_kind: 'follow_up',
-          priority: 'normal',
-          title: 'Review pending discharge result',
-          description: 'Synthetic local test-only S4 coverage.',
-          sla_completion_semantics: 'none'
-        }
-      }
-    ],
-    triggers: [],
-    defaults: {}
-  };
-  const compiledDefinition = compileWorkflowDefinition(rawDefinition);
+  const stepKey = 'await_discharge_evidence';
+  const rawDefinition = INPATIENT_ADMISSION_TO_RECOVERY_DEFINITION;
+  const compiledDefinition = compileInpatientAdmissionToRecoveryDefinition();
   const evidenceAt = new Date('2026-05-04T09:00:00.000Z');
   const definition = await client.query(
     `INSERT INTO workflow_definitions
        (tenant_id, workflow_key, version, display_name, description, category,
         steps, triggers, defaults, is_active, created_by)
-     VALUES
-       ($1::uuid, $2::text, 1, 'Seed inpatient pathway coverage',
-        'Synthetic local test-only S4 evidence coverage.', 'test_fixture',
-        $3::jsonb, $4::jsonb, $5::jsonb, FALSE, $6::uuid)
+      VALUES
+        ($1::uuid, $2::text, 1, 'Seed inpatient pathway coverage',
+         'Synthetic local test-only S4 evidence coverage.', NULL,
+         $3::jsonb, $4::jsonb, $5::jsonb, FALSE, $6::uuid)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
       workflowKey,
-      JSON.stringify(compiledDefinition.steps),
-      JSON.stringify(compiledDefinition.triggers),
-      JSON.stringify(compiledDefinition.defaults),
+      JSON.stringify(rawDefinition.steps),
+      JSON.stringify(rawDefinition.triggers),
+      JSON.stringify(rawDefinition.defaults),
       context.physician_uid
     ]
   );
@@ -1834,14 +1817,14 @@ async function seedOpInpatientEvidenceGraph() {
   );
   const runId = Number(run.rows[0].id);
   const step = await client.query(
-    `INSERT INTO workflow_steps
-       (tenant_id, workflow_run_id, step_key, display_name, step_kind,
-        status, ordering, assigned_to, assigned_role, metadata)
-     VALUES
-       ($1::uuid, $2::integer, $3::text, 'Review pending discharge result',
-        'task', 'in_progress', 0, $4::uuid, 'DOCTOR',
-        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
-     RETURNING id`,
+      `INSERT INTO workflow_steps
+         (tenant_id, workflow_run_id, step_key, display_name, step_kind,
+          status, ordering, assigned_to, assigned_role, metadata)
+      VALUES
+        ($1::uuid, $2::integer, $3::text, 'Await discharge safety evidence',
+         'wait', 'in_progress', 3, $4::uuid, 'DOCTOR',
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+      RETURNING id`,
     [DEFAULT_TENANT_ID, runId, stepKey, context.physician_uid]
   );
   const stepId = Number(step.rows[0].id);
@@ -2499,24 +2482,6 @@ async function seedOpInpatientEvidenceGraph() {
       contactAuditId,
       evidenceAt
     ]
-  );
-
-  await client.query(
-    `UPDATE workflow_definitions
-        SET is_active = FALSE, updated_at = NOW()
-      WHERE tenant_id = $1::uuid AND id = $2::integer`,
-    [DEFAULT_TENANT_ID, definitionId]
-  );
-  await client.query(
-    `UPDATE care_pathway_definition_governance
-        SET governance_status = 'retired',
-            retired_by = $1::uuid,
-            retired_at = $2::timestamptz,
-            retirement_reason = 'Synthetic test-only S4 pathway remains disabled.',
-            effective_until = $2::timestamptz,
-            updated_at = NOW()
-      WHERE tenant_id = $3::uuid AND id = $4::uuid`,
-    [approver.uid, evidenceAt, DEFAULT_TENANT_ID, governanceId]
   );
 }
 
