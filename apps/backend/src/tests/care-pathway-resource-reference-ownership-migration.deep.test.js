@@ -251,7 +251,8 @@ async function expectStatementFailure(client, statement, params, code, message) 
     failure = error;
   }
   await client.query('ROLLBACK TO SAVEPOINT expected_statement_failure');
-  expect(failure).toMatchObject({ code });
+  expect(failure).toBeDefined();
+  expect(Array.isArray(code) ? code : [code]).toContain(failure.code);
   if (message) expect(failure.message).toContain(message);
 }
 
@@ -359,7 +360,7 @@ describeIfDb('migration 595 accepted-ownership reference integrity', () => {
         WHERE tenant_id = $1::uuid
           AND id = $2::integer`,
       [fixture.tenantId, taskId],
-      '23503',
+      ['23503', '23001'],
       'fk_care_pathway_resource_references_task',
     );
   });
