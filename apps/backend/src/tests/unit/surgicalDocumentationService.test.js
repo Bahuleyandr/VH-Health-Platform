@@ -105,6 +105,7 @@ describe('upsertSafetyChecklistPhase — WHO time-out wrong-site gate', () => {
 
   it('allows completing a matched-side time-out', async () => {
     mockSchedule();
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 6 }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 7, phase: 'time_out', status: 'complete' }]);
     const row = await upsertSafetyChecklistPhase({
       tenantId: TENANT, otScheduleId: 42, phase: 'time_out',
@@ -116,6 +117,7 @@ describe('upsertSafetyChecklistPhase — WHO time-out wrong-site gate', () => {
 
   it('allows a mismatched time-out only with an explicit clinical override', async () => {
     mockSchedule();
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 6 }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 8, phase: 'time_out', status: 'complete' }]);
     const row = await upsertSafetyChecklistPhase({
       tenantId: TENANT, otScheduleId: 42, phase: 'time_out',
@@ -604,11 +606,64 @@ describe('upsertSafetyChecklistPhase', () => {
       tenantId: TENANT,
       otScheduleId: 42,
       phase: 'sign_in',
+      performedBy: USER,
       items: [{ item: 'patient_id', confirmed: true }],
       outstandingItems: [],
       allItemsConfirmed: true,
     });
     expect(row.status).toBe('complete');
+  });
+
+  it('rejects completing sign-in without authenticated, non-empty evidence', async () => {
+    mockSchedule();
+    await expect(upsertSafetyChecklistPhase({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      phase: 'sign_in',
+      allItemsConfirmed: true,
+      status: 'complete',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WHO_SIGNIN_EVIDENCE_INCOMPLETE',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects sign-in when an item contradicts all_items_confirmed', async () => {
+    mockSchedule();
+    await expect(upsertSafetyChecklistPhase({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      phase: 'sign_in',
+      performedBy: USER,
+      items: [{ item: 'patient_id', confirmed: false }],
+      allItemsConfirmed: true,
+      status: 'complete',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WHO_SIGNIN_EVIDENCE_INCOMPLETE',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a sign-in override until a separate emergency policy is approved', async () => {
+    mockSchedule();
+    await expect(upsertSafetyChecklistPhase({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      phase: 'sign_in',
+      performedBy: USER,
+      items: [{ item: 'patient_id', confirmed: false }],
+      outstandingItems: [{ item: 'patient_id' }],
+      allItemsConfirmed: false,
+      status: 'incomplete_with_override',
+      overrideReason: 'Emergency',
+      overrideAuthorizedBy: USER,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WHO_SIGNIN_OVERRIDE_NOT_APPROVED',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
   it('infers status=incomplete_with_override when overrideReason given', async () => {

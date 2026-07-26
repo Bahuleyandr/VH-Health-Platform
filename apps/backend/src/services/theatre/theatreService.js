@@ -8,6 +8,7 @@ import { getCataractBiometryReadiness } from '../clinical/ophthalmologyService.j
 import { assertPrivilegeForGate, isGateEnabled } from '../staff/credentialingService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { getOtSterilityWarnings } from '../cssd/cssdService.js';
+import { assertWhoSignInComplete } from './surgicalSafetyGateService.js';
 
 // Postgres exclusion_violation — raised by migration 319's
 // excl_ot_schedules_room_no_overlap when an insert/update would create a
@@ -584,6 +585,13 @@ class TheatreService {
         // close. Reuses the same consent sources as the closure gate.
         await this._assertConsentDocumented(scheduleId, tenantId, current, tx);
 
+        await assertWhoSignInComplete({
+          db: tx,
+          tenantId,
+          otScheduleId: scheduleId,
+          message: 'WHO sign-in must be completed before moving an OT case to in_progress',
+        });
+
         const timeOutRows = await tx.$queryRawUnsafe(
           `SELECT id FROM surgical_safety_checklists
            WHERE ot_schedule_id = $1
@@ -597,7 +605,8 @@ class TheatreService {
                  AND override_authorized_by IS NOT NULL
                )
              )
-           LIMIT 1`,
+           LIMIT 1
+           FOR SHARE`,
           scheduleId, tenantId
         );
         if (timeOutRows.length === 0) {

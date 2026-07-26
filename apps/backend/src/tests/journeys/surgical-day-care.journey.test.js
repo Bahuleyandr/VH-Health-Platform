@@ -310,10 +310,25 @@ describeJourney('Journey: surgical-day-care', () => {
       expect(row[0].status).toBe('scheduled');
     });
 
-    it('advances scheduled → pre_op → in_progress after the WHO time-out', async () => {
+    it('advances scheduled → pre_op → in_progress after WHO sign-in and time-out', async () => {
       const preOp = await admin.put(`/api/v1/theatre/${otScheduleId}/status`).send({ status: 'pre_op' });
       expect(preOp.statusCode).toBe(200);
       expect(preOp.body.data.status).toBe('pre_op');
+
+      const signIn = await anesthetist.put(`/api/v1/surgical/safety/${otScheduleId}/sign_in`).send({
+        patient_uid: PATIENT_UID,
+        all_items_confirmed: true,
+        status: 'complete',
+        items: [
+          { item: 'identity', confirmed: true },
+          { item: 'procedure_and_site', confirmed: true },
+          { item: 'consent', confirmed: true },
+          { item: 'allergies_and_anesthesia_risk', confirmed: true },
+          { item: 'readiness', confirmed: true },
+        ],
+      });
+      expect(signIn.statusCode).toBe(200);
+      expect(signIn.body.data.status).toBe('complete');
 
       // WHO surgical safety time-out, recorded + confirmed by the surgeon on
       // the surgical surface — gates the move into in_progress.

@@ -296,6 +296,14 @@ describe('Theatre scheduling — deep integration', () => {
       expect(preOp.statusCode).toBe(200);
       expect(preOp.body.data.status).toBe('pre_op');
 
+      const signIn = await admin.put(`/api/v1/surgical/safety/${scheduleId}/sign_in`).send({
+        patient_uid: PATIENT_UID,
+        all_items_confirmed: true,
+        status: 'complete',
+        items: [{ item: 'identity_and_anesthesia_readiness', confirmed: true }],
+      });
+      expect(signIn.statusCode).toBe(200);
+
       const blocked = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({ status: 'in_progress' });
       expect(blocked.statusCode).toBe(400);
       expect(blocked.body.message).toMatch(/WHO time-out/i);
@@ -443,6 +451,24 @@ describe('Theatre scheduling — deep integration', () => {
     });
 
     it('lets the responsible surgeon create and sign the intra-op note', async () => {
+      const signIn = await anesthetist.put(`/api/v1/surgical/safety/${scheduleId}/sign_in`).send({
+        patient_uid: PATIENT_UID,
+        performed_by: SURGEON_UID,
+        performed_at: '2000-01-01T00:00:00.000Z',
+        all_items_confirmed: true,
+        status: 'complete',
+        items: [
+          { item: 'identity', confirmed: true },
+          { item: 'procedure_and_site', confirmed: true },
+          { item: 'consent', confirmed: true },
+          { item: 'allergies_and_anesthesia_risk', confirmed: true },
+          { item: 'readiness', confirmed: true },
+        ],
+      });
+      expect(signIn.statusCode).toBe(200);
+      expect(signIn.body.data.performed_by).toBe(ANESTHETIST_UID);
+      expect(new Date(signIn.body.data.performed_at).getUTCFullYear()).not.toBe(2000);
+
       const timeout = await surgeon.put(`/api/v1/surgical/safety/${scheduleId}/time_out`).send({
         patient_uid: PATIENT_UID,
         all_items_confirmed: true,
@@ -509,6 +535,14 @@ describe('Theatre scheduling — deep integration', () => {
     });
 
     it('creates the case anaesthesia record from an intra-op drug chart entry', async () => {
+      const signIn = await anesthetist.put(`/api/v1/surgical/safety/${scheduleId}/sign_in`).send({
+        patient_uid: PATIENT_UID,
+        all_items_confirmed: true,
+        status: 'complete',
+        items: [{ item: 'identity_and_anesthesia_readiness', confirmed: true }],
+      });
+      expect(signIn.statusCode).toBe(200);
+
       const entry = await anesthetist.post('/api/v1/anesthesia/entries').send({
         ot_schedule_id: scheduleId,
         recorded_at: '2026-05-15T10:00:00.000Z',

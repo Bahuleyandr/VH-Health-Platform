@@ -18,6 +18,23 @@ beforeEach(() => {
 });
 
 describe('anesthesiaChartService.recordEntry', () => {
+  it('rejects charting before the WHO sign-in without writing anesthesia data', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(recordEntry({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      ot_schedule_id: 42,
+      recorded_by: '22222222-2222-4222-8222-222222222222',
+      hr: 78,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WHO_SIGNIN_REQUIRED',
+    });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/phase = 'sign_in'/);
+  });
+
   // The chart-entry INSERT and the case-record rollup recompute now run in
   // ONE setTenantTx transaction, and the rollup is recomputed deterministically
   // from the chart rows via SUM()/jsonb_agg (audit 2026-06-18 §3 fix #5) — no
@@ -27,6 +44,7 @@ describe('anesthesiaChartService.recordEntry', () => {
   // run in order inside the tx.
   it('creates the chart row then atomically increments the case anesthesia record rollup in one tx', async () => {
     queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 7 }]) // mandatory WHO sign-in
       .mockResolvedValueOnce([{ id: 11, ot_schedule_id: 42 }]) // INSERT chart entry
       .mockResolvedValueOnce([]); // recompute INSERT INTO anesthesia_records
 
@@ -45,19 +63,20 @@ describe('anesthesiaChartService.recordEntry', () => {
     });
 
     expect(row.id).toBe(11);
-    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
-    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/INSERT INTO anesthesia_chart_entries/);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/phase = 'sign_in'/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO anesthesia_chart_entries/);
     // Rollup is maintained as an ATOMIC per-entry increment keyed on the
     // just-inserted entry id — race-safe via the ON CONFLICT row-lock re-read of
     // the current total, NOT a SUM()-recompute over the whole chart (which lost
     // concurrent inserts under READ COMMITTED).
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(
       /fluids_in_ml = anesthesia_records\.fluids_in_ml \+ EXCLUDED\.fluids_in_ml/,
     );
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO anesthesia_records/);
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/ON CONFLICT \(tenant_id, ot_schedule_id\) DO UPDATE/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/INSERT INTO anesthesia_records/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/ON CONFLICT \(tenant_id, ot_schedule_id\) DO UPDATE/);
     // The increment takes tenant + schedule id + the just-inserted entry id.
-    expect(queryUnsafeMock.mock.calls[1].slice(1)).toEqual([
+    expect(queryUnsafeMock.mock.calls[2].slice(1)).toEqual([
       '00000000-0000-4000-8000-000000000001',
       42,
       11,

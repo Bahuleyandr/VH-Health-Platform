@@ -2172,7 +2172,9 @@ class AppStrings {
   String theatreDurationMinutes(String minutes) =>
       format('s4.dynamic.theatre.duration_minutes', {'minutes': minutes});
   String get theatreStatusScheduled => _t('theatre.status.scheduled');
+  String get theatreStatusPreOp => _t('theatre.status.pre_op');
   String get theatreStatusInProgress => _t('theatre.status.in_progress');
+  String get theatreStatusPostOp => _t('theatre.status.post_op');
   String get theatreStatusCompleted => _t('theatre.status.completed');
   String get theatreStatusCancelled => _t('theatre.status.cancelled');
   String get theatreSurgeonPrefix => _t('theatre.surgeon_prefix');
@@ -2200,6 +2202,27 @@ class AppStrings {
   String get theatreSubmitChecklist => _t('theatre.submit_checklist');
   String get theatreChecklistUpdated => _t('theatre.checklist_updated');
   String get theatreStatusUpdatedTo => _t('theatre.status_updated_to');
+  String get theatreBeginPreOp => _t('theatre.begin_preop');
+  String get theatreMovePostOp => _t('theatre.move_postop');
+  String get theatreWhoSignIn => _t('theatre.who.sign_in');
+  String get theatreWhoTimeOut => _t('theatre.who.time_out');
+  String get theatreWhoSignOut => _t('theatre.who.sign_out');
+  String get theatreWhoReadAloud => _t('theatre.who.read_aloud');
+  String get theatreWhoComplete => _t('theatre.who.complete');
+  String get theatreWhoRecorded => _t('theatre.who.recorded');
+  String get theatreWhoIdentity => _t('theatre.who.identity');
+  String get theatreWhoProcedureSite => _t('theatre.who.procedure_site');
+  String get theatreWhoConsent => _t('theatre.who.consent');
+  String get theatreWhoAllergiesRisk => _t('theatre.who.allergies_risk');
+  String get theatreWhoReadiness => _t('theatre.who.readiness');
+  String get theatreWhoTeamBrief => _t('theatre.who.team_brief');
+  String get theatreWhoCriticalConcerns => _t('theatre.who.critical_concerns');
+  String get theatreWhoProcedureRecorded =>
+      _t('theatre.who.procedure_recorded');
+  String get theatreWhoCountsSpecimens => _t('theatre.who.counts_specimens');
+  String get theatreWhoEquipmentConcerns =>
+      _t('theatre.who.equipment_concerns');
+  String get theatreWhoRecoveryPlan => _t('theatre.who.recovery_plan');
   String get theatreYes => _t('theatre.yes');
   String get theatreNo => _t('theatre.no');
   String get theatreAvailable => _t('theatre.available');
@@ -5221,7 +5244,9 @@ class AppStrings {
       's4.dynamic.theatre.ot_room': 'OT {room}',
       's4.dynamic.theatre.duration_minutes': '{minutes} min',
       'theatre.status.scheduled': 'Scheduled',
+      'theatre.status.pre_op': 'Pre-op',
       'theatre.status.in_progress': 'In Progress',
+      'theatre.status.post_op': 'Post-op',
       'theatre.status.completed': 'Completed',
       'theatre.status.cancelled': 'Cancelled',
       'theatre.surgeon_prefix': 'Surgeon:',
@@ -5248,6 +5273,31 @@ class AppStrings {
       'theatre.submit_checklist': 'Submit Checklist',
       'theatre.checklist_updated': 'Checklist updated',
       'theatre.status_updated_to': 'Status updated to',
+      'theatre.begin_preop': 'Begin pre-op',
+      'theatre.move_postop': 'Move to post-op',
+      'theatre.who.sign_in': 'WHO sign-in',
+      'theatre.who.time_out': 'WHO time-out',
+      'theatre.who.sign_out': 'WHO sign-out',
+      'theatre.who.read_aloud':
+          'Confirm each item aloud with the theatre team.',
+      'theatre.who.complete': 'Complete checklist',
+      'theatre.who.recorded': 'WHO safety phase recorded',
+      'theatre.who.identity': 'Patient identity confirmed',
+      'theatre.who.procedure_site': 'Procedure and site confirmed',
+      'theatre.who.consent': 'Consent confirmed',
+      'theatre.who.allergies_risk':
+          'Allergies, airway, anesthesia and blood-loss risks reviewed',
+      'theatre.who.readiness':
+          'Required equipment, imaging, antibiotics and blood readiness confirmed',
+      'theatre.who.team_brief': 'Team introductions and roles confirmed',
+      'theatre.who.critical_concerns':
+          'Critical steps, duration and concerns shared',
+      'theatre.who.procedure_recorded': 'Procedure performed recorded',
+      'theatre.who.counts_specimens':
+          'Instrument, sponge and needle counts; specimen labels confirmed',
+      'theatre.who.equipment_concerns':
+          'Equipment problems and unresolved concerns recorded',
+      'theatre.who.recovery_plan': 'Recovery and postoperative plan confirmed',
       'theatre.yes': 'Yes',
       'theatre.no': 'No',
       'theatre.available': 'Available',
@@ -11331,8 +11381,10 @@ class AppStrings {
       's4.dynamic.theatre.ot_room': 'OT {room}',
       's4.dynamic.theatre.duration_minutes': '{minutes} मिनट',
       'theatre.status.scheduled': 'निर्धारित',
+      'theatre.status.pre_op': 'प्री-ऑप',
       // REVIEW: clinical-action status - surgery
       'theatre.status.in_progress': 'चल रहा है',
+      'theatre.status.post_op': 'पोस्ट-ऑप',
       // REVIEW: clinical-action status - surgery
       'theatre.status.completed': 'पूर्ण',
       // REVIEW: clinical-action status - surgery
@@ -11373,6 +11425,31 @@ class AppStrings {
       'theatre.checklist_updated': 'चेकलिस्ट अपडेट की गई',
       // REVIEW: clinical-action confirmation
       'theatre.status_updated_to': 'स्थिति अपडेट की गई:',
+      'theatre.begin_preop': 'प्री-ऑप शुरू करें',
+      'theatre.move_postop': 'पोस्ट-ऑप में भेजें',
+      'theatre.who.sign_in': 'WHO साइन-इन',
+      'theatre.who.time_out': 'WHO टाइम-आउट',
+      'theatre.who.sign_out': 'WHO साइन-आउट',
+      'theatre.who.read_aloud':
+          'थिएटर टीम के साथ हर बिंदु को बोलकर पुष्टि करें।',
+      'theatre.who.complete': 'चेकलिस्ट पूरी करें',
+      'theatre.who.recorded': 'WHO सुरक्षा चरण दर्ज किया गया',
+      'theatre.who.identity': 'मरीज़ की पहचान की पुष्टि हुई',
+      'theatre.who.procedure_site': 'प्रक्रिया और स्थान की पुष्टि हुई',
+      'theatre.who.consent': 'सहमति की पुष्टि हुई',
+      'theatre.who.allergies_risk':
+          'एलर्जी, वायुमार्ग, एनेस्थीसिया और रक्तस्राव जोखिम की समीक्षा हुई',
+      'theatre.who.readiness':
+          'उपकरण, इमेजिंग, एंटीबायोटिक और रक्त की तैयारी की पुष्टि हुई',
+      'theatre.who.team_brief': 'टीम परिचय और भूमिकाओं की पुष्टि हुई',
+      'theatre.who.critical_concerns':
+          'महत्वपूर्ण चरण, अवधि और चिंताएँ साझा की गईं',
+      'theatre.who.procedure_recorded': 'की गई प्रक्रिया दर्ज हुई',
+      'theatre.who.counts_specimens':
+          'उपकरण, स्पंज और सुई की गिनती तथा नमूना लेबल की पुष्टि हुई',
+      'theatre.who.equipment_concerns':
+          'उपकरण समस्याएँ और अनसुलझी चिंताएँ दर्ज हुईं',
+      'theatre.who.recovery_plan': 'रिकवरी और पोस्ट-ऑप योजना की पुष्टि हुई',
       'theatre.yes': 'हाँ',
       'theatre.no': 'नहीं',
       'theatre.available': 'उपलब्ध',
@@ -17914,8 +17991,10 @@ class AppStrings {
       's4.dynamic.theatre.duration_minutes': '{minutes} நிமி',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.status.scheduled': 'திட்டமிடப்பட்டது',
+      'theatre.status.pre_op': 'அறுவை சிகிச்சைக்கு முன்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.status.in_progress': 'செயல்பாட்டில் உள்ளது',
+      'theatre.status.post_op': 'அறுவை சிகிச்சைக்குப் பின்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.status.completed': 'முடிக்கப்பட்டது',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -17962,6 +18041,35 @@ class AppStrings {
       'theatre.checklist_updated': 'சரிபார்ப்பு பட்டியல் புதுப்பிக்கப்பட்டது',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.status_updated_to': 'நிலை புதுப்பிக்கப்பட்டது',
+      'theatre.begin_preop': 'அறுவை சிகிச்சைக்கு முன் பணியைத் தொடங்கு',
+      'theatre.move_postop': 'அறுவை சிகிச்சைக்குப் பிந்தைய நிலைக்கு மாற்று',
+      'theatre.who.sign_in': 'WHO சைன்-இன்',
+      'theatre.who.time_out': 'WHO டைம்-அவுட்',
+      'theatre.who.sign_out': 'WHO சைன்-அவுட்',
+      'theatre.who.read_aloud':
+          'அறுவை சிகிச்சைக் குழுவுடன் ஒவ்வொரு அம்சத்தையும் உரக்க உறுதிப்படுத்தவும்.',
+      'theatre.who.complete': 'சரிபார்ப்பு பட்டியலை முடிக்கவும்',
+      'theatre.who.recorded': 'WHO பாதுகாப்பு கட்டம் பதிவு செய்யப்பட்டது',
+      'theatre.who.identity': 'நோயாளியின் அடையாளம் உறுதிப்படுத்தப்பட்டது',
+      'theatre.who.procedure_site':
+          'செயல்முறையும் அறுவை சிகிச்சை இடமும் உறுதிப்படுத்தப்பட்டது',
+      'theatre.who.consent': 'ஒப்புதல் உறுதிப்படுத்தப்பட்டது',
+      'theatre.who.allergies_risk':
+          'ஒவ்வாமை, சுவாசப்பாதை, மயக்கமருந்து மற்றும் இரத்த இழப்பு அபாயங்கள் மதிப்பாய்வு செய்யப்பட்டன',
+      'theatre.who.readiness':
+          'உபகரணம், படமெடுப்பு, ஆன்டிபயாட்டிக் மற்றும் இரத்தத் தயார்நிலை உறுதிப்படுத்தப்பட்டது',
+      'theatre.who.team_brief':
+          'குழு அறிமுகங்களும் பொறுப்புகளும் உறுதிப்படுத்தப்பட்டன',
+      'theatre.who.critical_concerns':
+          'முக்கிய படிகள், கால அளவு மற்றும் கவலைகள் பகிரப்பட்டன',
+      'theatre.who.procedure_recorded':
+          'செய்யப்பட்ட செயல்முறை பதிவு செய்யப்பட்டது',
+      'theatre.who.counts_specimens':
+          'கருவி, ஸ்பாஞ்ச், ஊசி எண்ணிக்கைகளும் மாதிரி லேபிள்களும் உறுதிப்படுத்தப்பட்டன',
+      'theatre.who.equipment_concerns':
+          'உபகரணப் பிரச்சினைகளும் தீராத கவலைகளும் பதிவு செய்யப்பட்டன',
+      'theatre.who.recovery_plan':
+          'மீட்பு மற்றும் அறுவை சிகிச்சைக்குப் பிந்தைய திட்டம் உறுதிப்படுத்தப்பட்டது',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.yes': 'ஆம்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -24543,8 +24651,10 @@ class AppStrings {
       's4.dynamic.theatre.duration_minutes': '{minutes} నిమి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.status.scheduled': 'షెడ్యూల్ చేయబడింది',
+      'theatre.status.pre_op': 'ప్రీ-ఆప్',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.status.in_progress': 'పురోగతిలో ఉంది',
+      'theatre.status.post_op': 'పోస్ట్-ఆప్',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.status.completed': 'పూర్తయింది',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -24591,6 +24701,34 @@ class AppStrings {
       'theatre.checklist_updated': 'చెక్‌లిస్ట్ నవీకరించబడింది',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.status_updated_to': 'స్థితి అప్‌డేట్ చేయబడింది',
+      'theatre.begin_preop': 'ప్రీ-ఆప్ ప్రారంభించండి',
+      'theatre.move_postop': 'పోస్ట్-ఆప్‌కు తరలించండి',
+      'theatre.who.sign_in': 'WHO సైన్-ఇన్',
+      'theatre.who.time_out': 'WHO టైమ్-అవుట్',
+      'theatre.who.sign_out': 'WHO సైన్-అవుట్',
+      'theatre.who.read_aloud':
+          'థియేటర్ బృందంతో ప్రతి అంశాన్ని బిగ్గరగా నిర్ధారించండి.',
+      'theatre.who.complete': 'చెక్‌లిస్ట్ పూర్తి చేయండి',
+      'theatre.who.recorded': 'WHO భద్రతా దశ నమోదు చేయబడింది',
+      'theatre.who.identity': 'రోగి గుర్తింపు నిర్ధారించబడింది',
+      'theatre.who.procedure_site':
+          'ప్రక్రియ మరియు శస్త్రచికిత్స స్థలం నిర్ధారించబడ్డాయి',
+      'theatre.who.consent': 'సమ్మతి నిర్ధారించబడింది',
+      'theatre.who.allergies_risk':
+          'అలర్జీలు, శ్వాసమార్గం, అనస్థీషియా మరియు రక్తనష్టం ప్రమాదాలు సమీక్షించబడ్డాయి',
+      'theatre.who.readiness':
+          'పరికరాలు, ఇమేజింగ్, యాంటీబయాటిక్ మరియు రక్త సిద్ధత నిర్ధారించబడ్డాయి',
+      'theatre.who.team_brief':
+          'బృంద పరిచయాలు మరియు బాధ్యతలు నిర్ధారించబడ్డాయి',
+      'theatre.who.critical_concerns':
+          'ముఖ్య దశలు, వ్యవధి మరియు ఆందోళనలు పంచుకోబడ్డాయి',
+      'theatre.who.procedure_recorded': 'చేసిన ప్రక్రియ నమోదు చేయబడింది',
+      'theatre.who.counts_specimens':
+          'పరికరాలు, స్పాంజ్, సూది లెక్కలు మరియు నమూనా లేబుళ్లు నిర్ధారించబడ్డాయి',
+      'theatre.who.equipment_concerns':
+          'పరికర సమస్యలు మరియు పరిష్కరించని ఆందోళనలు నమోదు చేయబడ్డాయి',
+      'theatre.who.recovery_plan':
+          'రికవరీ మరియు పోస్ట్-ఆప్ ప్రణాళిక నిర్ధారించబడింది',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.yes': 'అవును',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
