@@ -43,6 +43,12 @@ jest.unstable_mockModule('../../controllers/appointment/appointmentAdminControll
   getAppointmentSLADashboard: jest.fn((_req, res) => res.status(200).json({})),
   getStatusAuditTrail: jest.fn((_req, res) => res.status(200).json({})),
 }));
+jest.unstable_mockModule('../../controllers/appointment/appointmentPathwayController.js', () => ({
+  getPathwayWork: jest.fn((_req, res) => res.status(200).json({})),
+  recordClosureEvidence: jest.fn((_req, res) => res.status(200).json({})),
+  requestInpatientTransfer: jest.fn((_req, res) => res.status(200).json({})),
+  acceptInpatientTransfer: jest.fn((_req, res) => res.status(200).json({})),
+}));
 
 const passThrough = (_req, _res, next) => next();
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
