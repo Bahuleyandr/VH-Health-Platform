@@ -31,6 +31,10 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeService.js', () => ({
   emitCriticalLabAlertAcknowledged: jest.fn(),
 }));
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  linkPendingResultOwnerActionsForGenerationTx: jest.fn(),
+  publishInpatientDiagnosticResourceLinkedTx: jest.fn(),
+}));
 jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => ({
   enqueueCriticalResultTask: enqueueCriticalResultTaskMock,
   ensureCriticalResultTaskOpen: jest.fn().mockResolvedValue({ created: false, reopened: false, taskId: null }),

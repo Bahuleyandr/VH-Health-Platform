@@ -65,6 +65,11 @@ jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeServ
   emitCriticalLabAlertAcknowledged: emitCriticalLabAlertAcknowledgedMock,
 }));
 
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  linkPendingResultOwnerActionsForGenerationTx: jest.fn(),
+  publishInpatientDiagnosticResourceLinkedTx: jest.fn(),
+}));
+
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   acknowledgeTask: acknowledgeTaskMock,
   acknowledgeLabCriticalAlertTaskFromTrustedWorkflow: acknowledgeTaskMock,
@@ -405,7 +410,7 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     expect(insertCall[0]).toMatch(/INSERT INTO lab_results/);
     expect(insertCall[0]).toMatch(/investigation_id/);
     expect(insertCall[2]).toBe(42);
-    expect(insertCall[4]).toBe('Canonical Patient');
+    expect(insertCall[5]).toBe('Canonical Patient');
 
     // The dup-analyte probe should also have happened (call 5).
     const dupProbe = queryRawUnsafeMock.mock.calls[4];

@@ -31,6 +31,11 @@ jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeServ
   emitCriticalLabAlertAcknowledged: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  linkPendingResultOwnerActionsForGenerationTx: jest.fn(),
+  publishInpatientDiagnosticResourceLinkedTx: jest.fn(),
+}));
+
 jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => ({
   materializeLabCriticalAlertGeneration: jest.fn(),
   supersedeCriticalAlertWithDiagnosticGenerationTx: jest.fn(),

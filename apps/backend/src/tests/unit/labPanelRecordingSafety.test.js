@@ -41,6 +41,11 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
 }));
 
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  linkPendingResultOwnerActionsForGenerationTx: jest.fn(),
+  publishInpatientDiagnosticResourceLinkedTx: jest.fn(),
+}));
+
 jest.unstable_mockModule('../../services/notification/staffNotificationService.js', () => ({
   sendStaffNotifications: sendStaffNotificationsMock,
 }));

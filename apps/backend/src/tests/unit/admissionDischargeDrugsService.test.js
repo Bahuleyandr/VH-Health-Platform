@@ -6,6 +6,7 @@ const updateMock = jest.fn();
 const auditCreateMock = jest.fn();
 const queryUnsafeMock = jest.fn();
 const emitDischargeDrugsDispensedMock = jest.fn();
+const publishInpatientSourceEventTxMock = jest.fn();
 
 const prismaDefaultMock = {
   admissions: {
@@ -64,6 +65,14 @@ jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeServ
   emitCriticalLabAlertAcknowledged: jest.fn(),
   emitCdsAlertAcknowledged: jest.fn(),
 }));
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  establishInitialPrimaryPhysicianTx: jest.fn(),
+  getInpatientDischargeEvidence: jest.fn(),
+  getInpatientDischargeEvidenceTx: jest.fn(),
+  publishInpatientSourceEventTx: publishInpatientSourceEventTxMock,
+  recordPrimaryPhysicianChangeTx: jest.fn(),
+  resolveInpatientPathwayModeTx: jest.fn(),
+}));
 
 const admissionService = (await import('../../services/emr/admissionService.js')).default;
 
@@ -79,6 +88,7 @@ beforeEach(() => {
   auditCreateMock.mockReset();
   queryUnsafeMock.mockReset();
   emitDischargeDrugsDispensedMock.mockReset().mockResolvedValue({});
+  publishInpatientSourceEventTxMock.mockReset().mockResolvedValue({});
 });
 
 afterEach(() => {
@@ -159,6 +169,12 @@ describe('admissionService.markDischargeDrugsDispensed evidence gate', () => {
       admission: stamped,
       actorUid: PHARMACY,
       actorRole: 'PHARMACY_STAFF',
+    }));
+    expect(publishInpatientSourceEventTxMock).toHaveBeenCalledWith(expect.objectContaining({
+      tx: prismaDefaultMock,
+      tenantId: TENANT,
+      eventType: 'discharge.drugs_dispensed',
+      admission: stamped,
     }));
   });
 });
