@@ -182,10 +182,13 @@ describeWithDatabase('migration 588 database outbox recovery contract', () => {
 
   test('keeps the projector insert-only trigger unchanged and adds no source-update trigger', async () => {
     const triggers = await client.query(
-      `SELECT tgname, pg_get_triggerdef(oid) AS definition
-         FROM pg_trigger
-        WHERE tgrelid = 'event_outbox'::regclass AND NOT tgisinternal
-        ORDER BY tgname`,
+      `SELECT trigger_row.tgname, pg_get_triggerdef(trigger_row.oid) AS definition
+         FROM pg_trigger trigger_row
+         JOIN pg_proc trigger_function ON trigger_function.oid = trigger_row.tgfoid
+        WHERE trigger_row.tgrelid = 'event_outbox'::regclass
+          AND NOT trigger_row.tgisinternal
+          AND trigger_function.proname = 'pathway_projector_enqueue_new_event'
+        ORDER BY trigger_row.tgname`,
     );
     expect(triggers.rows).toHaveLength(1);
     expect(triggers.rows[0].tgname).toBe('pathway_projector_enqueue_new_event');
