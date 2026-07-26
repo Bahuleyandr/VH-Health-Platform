@@ -10,6 +10,8 @@ const prismaMock = {
 const setTenantTxMock = jest.fn();
 const logAuditMock = jest.fn();
 const ensureAppointmentQueueForAppointmentMock = jest.fn();
+const recordAppointmentCreatedEvidenceTxMock = jest.fn();
+const recordAppointmentMutationEvidenceTxMock = jest.fn();
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -17,6 +19,57 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
   isTenantTransactionClient: () => true,
   setTenantTx: setTenantTxMock,
+}));
+
+jest.unstable_mockModule('../../services/appointment/appointmentLifecycleService.js', () => ({
+  lockAppointmentForLifecycleTx: async (tx, { tenantId, appointmentId }) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT * FROM appointments
+        WHERE id=$1::integer AND tenant_id=$2::uuid
+        LIMIT 1 FOR UPDATE`,
+      appointmentId,
+      tenantId,
+    );
+    return rows[0];
+  },
+  recordAppointmentCreatedEvidenceTx: recordAppointmentCreatedEvidenceTxMock,
+  recordAppointmentMutationEvidenceTx: recordAppointmentMutationEvidenceTxMock,
+  transitionAppointment: async ({
+    tenantId,
+    appointmentId,
+    toStatus,
+    mutate,
+  }) => setTenantTxMock(tenantId, async (tx) => {
+    const previousRows = await tx.$queryRawUnsafe(
+      `SELECT * FROM appointments
+        WHERE id=$1::integer AND tenant_id=$2::uuid
+        LIMIT 1 FOR UPDATE`,
+      appointmentId,
+      tenantId,
+    );
+    const previous = previousRows[0];
+    const mutation = mutate
+      ? await mutate({ tx, current: previous })
+      : {
+          appointment: (await tx.$queryRawUnsafe(
+            `UPDATE appointments
+                SET status=$1::text
+              WHERE id=$2::integer AND tenant_id=$3::uuid
+              RETURNING *`,
+            toStatus,
+            appointmentId,
+            tenantId,
+          ))[0],
+        };
+    return {
+      ...mutation,
+      appointment: mutation.appointment,
+      previous,
+      from_status: previous.status,
+      to_status: toStatus,
+      idempotent: false,
+    };
+  }),
 }));
 
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({
@@ -117,6 +170,10 @@ describe('appointment workflow audit logging', () => {
     prismaMock.$executeRawUnsafe.mockReset();
     ensureAppointmentQueueForAppointmentMock.mockReset();
     ensureAppointmentQueueForAppointmentMock.mockResolvedValue(null);
+    recordAppointmentCreatedEvidenceTxMock.mockReset();
+    recordAppointmentCreatedEvidenceTxMock.mockResolvedValue(null);
+    recordAppointmentMutationEvidenceTxMock.mockReset();
+    recordAppointmentMutationEvidenceTxMock.mockResolvedValue(null);
     logAuditMock.mockResolvedValue(undefined);
     setImmediateSpy = jest
       .spyOn(global, 'setImmediate')
@@ -132,6 +189,7 @@ describe('appointment workflow audit logging', () => {
       uid: undefined,
       status: 'SCHEDULED',
       confirmed_at: null,
+      token_number: null,
     });
     const updated = appointmentRow({ status: 'CONFIRMED' });
     txQueryRawUnsafe
@@ -155,8 +213,8 @@ describe('appointment workflow audit logging', () => {
     expect(txQueryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
     expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('AND tenant_id = $3::uuid');
     expect(txQueryRawUnsafe.mock.calls[1][3]).toBe(TENANT_ID);
-    expect(txQueryRawUnsafe.mock.calls[2][0]).toContain('AND tenant_id = $6::uuid');
-    expect(txQueryRawUnsafe.mock.calls[2][6]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[2][0]).toContain('AND tenant_id = $7::uuid');
+    expect(txQueryRawUnsafe.mock.calls[2][7]).toBe(TENANT_ID);
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
     expect(req.phiContext).toEqual(expect.objectContaining({
@@ -198,8 +256,8 @@ describe('appointment workflow audit logging', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
     expect(txQueryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
-    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('tenant_id=$2::uuid');
-    expect(txQueryRawUnsafe.mock.calls[1][2]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('tenant_id=$3::uuid');
+    expect(txQueryRawUnsafe.mock.calls[1][3]).toBe(TENANT_ID);
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_APPOINTMENT_NO_SHOW',
@@ -304,8 +362,8 @@ describe('appointment workflow audit logging', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
     expect(txQueryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
-    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('tenant_id=$3::uuid');
-    expect(txQueryRawUnsafe.mock.calls[1][3]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('AND tenant_id = $4::uuid');
+    expect(txQueryRawUnsafe.mock.calls[1][4]).toBe(TENANT_ID);
     expect(req.phiContext).toEqual(expect.objectContaining({
       appointmentId: 42,
       patientId: 123,
@@ -343,8 +401,8 @@ describe('appointment workflow audit logging', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
     expect(txQueryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
-    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('tenant_id=$2::uuid');
-    expect(txQueryRawUnsafe.mock.calls[1][2]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('tenant_id=$3::uuid');
+    expect(txQueryRawUnsafe.mock.calls[1][3]).toBe(TENANT_ID);
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
     expect(logAuditMock).toHaveBeenCalledWith(
@@ -364,13 +422,15 @@ describe('appointment workflow audit logging', () => {
   });
 
   it('scopes admission advice updates to the request tenant', async () => {
-    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([
-      appointmentRow({
-        advised_for_admission_at: new Date('2026-06-01T05:00:00.000Z'),
-        advised_for_admission_by: '11111111-1111-4111-8111-111111111111',
-        advised_for_admission_note: 'Needs inpatient observation',
-      }),
-    ]);
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([appointmentRow({ status: 'COMPLETED' })])
+      .mockResolvedValueOnce([
+        appointmentRow({
+          advised_for_admission_at: new Date('2026-06-01T05:00:00.000Z'),
+          advised_for_admission_by: '11111111-1111-4111-8111-111111111111',
+          advised_for_admission_note: 'Needs inpatient observation',
+        }),
+      ]);
 
     const req = makeReq({
       body: { note: 'Needs inpatient observation' },
@@ -386,7 +446,7 @@ describe('appointment workflow audit logging', () => {
     await adviseForAdmission(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('AND tenant_id = $4::uuid');
-    expect(prismaMock.$queryRawUnsafe.mock.calls[0][4]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('AND tenant_id = $4::uuid');
+    expect(txQueryRawUnsafe.mock.calls[1][4]).toBe(TENANT_ID);
   });
 });

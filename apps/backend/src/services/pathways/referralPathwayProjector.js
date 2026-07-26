@@ -1,7 +1,7 @@
 import { AppError } from '../../utils/AppError.js';
 import {
   createRegisteredWorkflowSystemActor,
-  workflowRuntimeRegistry,
+  workflowRuntimeRegistryV3,
 } from '../workflow/workflowRuntimeRegistry.js';
 import {
   executePathwayCommand,
@@ -104,7 +104,6 @@ export async function projectReferralPathwayEvent({
   generation,
   tenantId,
   event,
-  registry,
   activationEvidenceCapability = null,
 } = {}) {
   const mode = await resolvePathwayModeTx({
@@ -124,7 +123,7 @@ export async function projectReferralPathwayEvent({
     );
   }
 
-  const runtimeRegistry = registry ?? workflowRuntimeRegistry;
+  const runtimeRegistry = workflowRuntimeRegistryV3;
   const compiled = compileReferralRequestToClosureDefinition({ registry: runtimeRegistry });
   const workflowDefinitionId = await approvedDefinitionIdTx(tx, tenantId, compiled.checksum);
   const actor = createRegisteredWorkflowSystemActor({
@@ -217,7 +216,7 @@ export async function projectReferralPathwayEvent({
 }
 
 export async function referralPathwayProjectorHandler(context) {
-  return projectReferralPathwayEvent({ ...context, registry: context.registry });
+  return projectReferralPathwayEvent(context);
 }
 
 export default referralPathwayProjectorHandler;

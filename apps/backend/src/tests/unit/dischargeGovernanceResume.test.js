@@ -34,6 +34,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../services/events/eventOutboxService.js', () => ({
   publishEvent: jest.fn().mockResolvedValue(undefined),
 }));
+jest.unstable_mockModule('../../services/discharge/dischargeService.js', () => ({
+  materializeDischargeComposeSections: jest.fn().mockResolvedValue(undefined),
+}));
 jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
   getClinicalAiModule: jest.fn().mockResolvedValue({ enabled: true, settings: {} }),
 }));

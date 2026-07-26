@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
+import '../../../core/models/care_pathway_work_models.dart';
+import '../../../core/services/care_pathway_api_service.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/clinical_print_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -28,6 +31,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
   String? _busyKey;
   String? _error;
   Map<String, dynamic>? _hub;
+  InpatientPendingResultsWork? _pendingResultsWork;
 
   @override
   void initState() {
@@ -41,9 +45,15 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       _error = null;
     });
     try {
-      final hub = await MedicalApiService.getDischargeHub(widget.admissionId);
+      final results = await Future.wait<dynamic>([
+        MedicalApiService.getDischargeHub(widget.admissionId),
+        CarePathwayApiService.getAdmissionPendingResults(widget.admissionId),
+      ]);
       if (!mounted) return;
-      setState(() => _hub = hub);
+      setState(() {
+        _hub = Map<String, dynamic>.from(results[0] as Map);
+        _pendingResultsWork = results[1] as InpatientPendingResultsWork;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -72,6 +82,169 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     if (fromHub.isNotEmpty) return fromHub;
     if (widget.patientName.trim().isNotEmpty) return widget.patientName;
     return 'Patient';
+  }
+
+  bool _requireOnline() {
+    if (ConnectivitySyncService.instance.isOnline) return true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: AppText(
+          's4.lib.discharge_hub.pathway_actions_require_connection',
+        ),
+      ),
+    );
+    return false;
+  }
+
+  int? _signedSummaryId() {
+    final fromPathway = _pendingResultsWork?.signedSummaryId;
+    if (fromPathway != null) return fromPathway;
+    final summary = _map(_hub?['summary']);
+    if (summary['is_signed'] != true) return null;
+    final value = summary['id'];
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  Future<void> _createPendingResultHandoff(
+    DischargePendingResultHandoff item,
+  ) async {
+    if (!_requireOnline() || !item.canCreateNamedOwnerHandoff) return;
+    final busyKey = 'handoff:${item.sourceType}:${item.sourceId}';
+    setState(() => _busyKey = busyKey);
+    try {
+      await CarePathwayApiService.createPendingResultHandoff(
+        admissionId: widget.admissionId,
+        sourceType: item.sourceType,
+        sourceId: item.sourceId,
+        resourceReferenceId: item.resourceReferenceId!,
+        patientSafeLabel: item.safeLabel,
+      );
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText('s4.lib.discharge_hub.named_owner_handoff_recorded'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _busyKey = null);
+    }
+  }
+
+  Future<void> _bindPendingResultToSummary(
+    DischargePendingResultHandoff item,
+  ) async {
+    final summaryId = _signedSummaryId();
+    if (!_requireOnline() || !item.canBindSignedSummary || summaryId == null) {
+      return;
+    }
+    final busyKey = 'summary:${item.handoffId}';
+    setState(() => _busyKey = busyKey);
+    try {
+      await CarePathwayApiService.bindPendingResultToSignedSummary(
+        admissionId: widget.admissionId,
+        handoffId: item.handoffId!,
+        dischargeSummaryId: summaryId,
+      );
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText(
+            's4.lib.discharge_hub.pending_result_bound_to_summary',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _busyKey = null);
+    }
+  }
+
+  Future<void> _recordFollowUpException() async {
+    if (!_requireOnline()) return;
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const AppText('s4.lib.discharge_hub.follow_up_exception_title'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            key: const Key('discharge-follow-up-exception-reason'),
+            controller: controller,
+            autofocus: true,
+            minLines: 3,
+            maxLines: 6,
+            maxLength: 1000,
+            decoration: InputDecoration(
+              labelText: AppStrings.of(
+                context,
+              ).lookup('s4.lib.discharge_hub.follow_up_exception_reason'),
+              border: const OutlineInputBorder(),
+            ),
+            validator: (value) => value?.trim().isNotEmpty == true
+                ? null
+                : AppStrings.of(context).lookup(
+                    's4.lib.discharge_hub.follow_up_exception_reason_required',
+                  ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const AppText('action.cancel'),
+          ),
+          FilledButton(
+            key: const Key('discharge-follow-up-exception-submit'),
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(dialogContext, controller.text.trim());
+            },
+            child: const AppText(
+              's4.lib.discharge_hub.record_follow_up_exception',
+            ),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (reason == null || !mounted) return;
+    setState(() => _busyKey = 'follow-up-exception');
+    try {
+      await CarePathwayApiService.recordFollowUpException(
+        admissionId: widget.admissionId,
+        reason: reason,
+      );
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText('s4.lib.discharge_hub.follow_up_exception_recorded'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _busyKey = null);
+    }
   }
 
   Future<void> _showSafetyFlags(Map<String, dynamic> summary) async {
@@ -369,6 +542,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                   const SizedBox(height: 12),
                   _buildSummaryCard(theme),
                   const SizedBox(height: 12),
+                  _buildPendingResults(theme),
+                  const SizedBox(height: 12),
                   _buildWorkItems(theme),
                   const SizedBox(height: 12),
                   _buildReadinessCard(theme),
@@ -630,6 +805,353 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
         ),
         ...items.map((item) => _workItemCard(theme, item)),
       ],
+    );
+  }
+
+  Widget _buildPendingResults(ThemeData theme) {
+    final s = AppStrings.of(context);
+    final pendingWork = _pendingResultsWork;
+    final pathway = _map(
+      _hub?['pathway'] ??
+          _hub?['pathway_evidence'] ??
+          _hub?['inpatient_pathway'],
+    );
+    final pathwayMode =
+        (pendingWork?.mode ??
+                _hub?['pathway_mode'] ??
+                _hub?['mode'] ??
+                pathway['mode'] ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase();
+    var raw =
+        _hub?['pending_result_handoffs'] ??
+        _hub?['pending_results'] ??
+        pathway['pending_result_handoffs'] ??
+        pathway['pending_results'] ??
+        _map(pathway['evidence'])['pending_results'];
+    if (raw is Map) {
+      raw = raw['items'] ?? raw['pending_result_handoffs'];
+    }
+    final pendingResults =
+        pendingWork?.items ??
+        _list(
+          raw,
+        ).map(DischargePendingResultHandoff.fromJson).toList(growable: false);
+
+    return Card(
+      key: const Key('discharge-pending-result-handoffs'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _sectionTitle(
+              theme,
+              s.lookup('s4.lib.discharge_hub.pending_result_handoffs'),
+              Icons.science_outlined,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              s.lookup(switch (pathwayMode) {
+                'off' => 's4.lib.discharge_hub.pathway_mode_off_explanation',
+                'shadow' =>
+                  's4.lib.discharge_hub.pathway_mode_shadow_explanation',
+                _ => 's4.lib.discharge_hub.pending_result_handoffs_explanation',
+              }),
+            ),
+            const SizedBox(height: 12),
+            if (pendingResults.isEmpty)
+              Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_outline,
+                    size: 20,
+                    color: AppTheme.successOnSurface,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      s.lookup(
+                        's4.lib.discharge_hub.no_pending_result_handoffs',
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else
+              ...pendingResults.map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _pendingResultCard(
+                    theme,
+                    item,
+                    pathwayMode: pathwayMode,
+                  ),
+                ),
+              ),
+            if (pathwayMode == 'active') ...[
+              const Divider(height: 22),
+              if (pendingWork?.followUpExceptionReason?.isNotEmpty == true)
+                Container(
+                  key: const Key('discharge-follow-up-exception-recorded'),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.warningOnSurface.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    s.format(
+                      's4.dynamic.discharge_hub.follow_up_exception_reason',
+                      {'reason': pendingWork!.followUpExceptionReason},
+                    ),
+                  ),
+                )
+              else
+                OutlinedButton.icon(
+                  key: const Key('discharge-record-follow-up-exception'),
+                  onPressed: _busyKey == 'follow-up-exception'
+                      ? null
+                      : _recordFollowUpException,
+                  icon: _busyKey == 'follow-up-exception'
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.rule_outlined),
+                  label: Text(
+                    s.lookup('s4.lib.discharge_hub.record_follow_up_exception'),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _pendingResultCard(
+    ThemeData theme,
+    DischargePendingResultHandoff item, {
+    required String pathwayMode,
+  }) {
+    final s = AppStrings.of(context);
+    final owner = [
+      item.ownerName,
+      item.ownerRole,
+      item.ownerRoute,
+    ].whereType<String>().where((part) => part.isNotEmpty).join(' · ');
+    final label = item.safeLabel.isEmpty
+        ? s.lookup('s4.lib.discharge_hub.pending_result')
+        : item.safeLabel;
+    final blockerDetails = item.blockerCodes
+        .map((code) => code.trim())
+        .where((part) => part.isNotEmpty)
+        .toSet()
+        .toList();
+    final enforcesBlocking =
+        item.blocking && pathwayMode != 'off' && pathwayMode != 'shadow';
+    final statusKey = enforcesBlocking
+        ? 's4.lib.discharge_hub.pending_result_blocks_discharge'
+        : item.blocking && pathwayMode == 'shadow'
+        ? 's4.lib.discharge_hub.pending_result_would_block_in_active_mode'
+        : item.handoffComplete
+        ? 's4.lib.discharge_hub.pending_result_handed_off'
+        : 's4.lib.discharge_hub.handoff_incomplete';
+
+    return Container(
+      key: Key('pending-result-${item.sourceType}-${item.sourceId}'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color:
+              (enforcesBlocking
+                      ? AppTheme.errorOnSurface
+                      : AppTheme.warningOnSurface)
+                  .withValues(alpha: 0.35),
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                enforcesBlocking
+                    ? Icons.report_outlined
+                    : Icons.pending_actions,
+                color: enforcesBlocking
+                    ? AppTheme.errorOnSurface
+                    : AppTheme.warningOnSurface,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      [
+                        item.sourceType.replaceAll('_', ' '),
+                        item.currentStatus.replaceAll('_', ' '),
+                      ].where((part) => part.isNotEmpty).join(' · '),
+                    ),
+                  ],
+                ),
+              ),
+              Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text(s.lookup(statusKey)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            owner.isEmpty
+                ? s.lookup('s4.lib.discharge_hub.named_physician_not_recorded')
+                : s.format('s4.dynamic.discharge_hub.named_physician', {
+                    'owner': owner,
+                  }),
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _chip(
+                item.exactLineage
+                    ? s.lookup('s4.lib.discharge_hub.exact_lineage_confirmed')
+                    : s.lookup(
+                        's4.lib.discharge_hub.exact_lineage_not_confirmed',
+                      ),
+                item.exactLineage ? Colors.green : Colors.orange,
+                item.exactLineage ? Icons.link : Icons.link_off,
+              ),
+              _chip(
+                item.summaryIncluded
+                    ? s.lookup(
+                        's4.lib.discharge_hub.included_in_signed_summary',
+                      )
+                    : s.lookup('s4.lib.discharge_hub.not_in_signed_summary'),
+                item.summaryIncluded ? Colors.green : Colors.orange,
+                item.summaryIncluded
+                    ? Icons.description_outlined
+                    : Icons.file_present_outlined,
+              ),
+              _chip(
+                item.handoffComplete
+                    ? s.lookup('s4.lib.discharge_hub.handoff_accepted')
+                    : s.lookup('s4.lib.discharge_hub.handoff_incomplete'),
+                item.handoffComplete ? Colors.green : Colors.orange,
+                item.handoffComplete
+                    ? Icons.how_to_reg_outlined
+                    : Icons.person_search_outlined,
+              ),
+            ],
+          ),
+          if (pathwayMode == 'active' && item.supportsStaffHandoffAction) ...[
+            const SizedBox(height: 10),
+            Text(
+              s.lookup(
+                's4.lib.discharge_hub.pending_result_action_explanation',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (item.handoffId == null)
+                  FilledButton.icon(
+                    key: Key(
+                      'pending-result-create-handoff-${item.sourceType}-${item.sourceId}',
+                    ),
+                    onPressed:
+                        item.canCreateNamedOwnerHandoff &&
+                            _busyKey !=
+                                'handoff:${item.sourceType}:${item.sourceId}'
+                        ? () => _createPendingResultHandoff(item)
+                        : null,
+                    icon:
+                        _busyKey ==
+                            'handoff:${item.sourceType}:${item.sourceId}'
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.person_add_alt_1_outlined),
+                    label: Text(
+                      item.resourceReferenceId == null
+                          ? s.lookup(
+                              's4.lib.discharge_hub.exact_reference_required',
+                            )
+                          : s.lookup(
+                              's4.lib.discharge_hub.record_named_owner_handoff',
+                            ),
+                    ),
+                  ),
+                if (item.canBindSignedSummary)
+                  OutlinedButton.icon(
+                    key: Key(
+                      'pending-result-bind-summary-${item.sourceType}-${item.sourceId}',
+                    ),
+                    onPressed:
+                        _signedSummaryId() != null &&
+                            _busyKey != 'summary:${item.handoffId}'
+                        ? () => _bindPendingResultToSummary(item)
+                        : null,
+                    icon: _busyKey == 'summary:${item.handoffId}'
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.note_add_outlined),
+                    label: Text(
+                      _signedSummaryId() == null
+                          ? s.lookup(
+                              's4.lib.discharge_hub.signed_summary_required',
+                            )
+                          : s.lookup(
+                              's4.lib.discharge_hub.include_in_signed_summary',
+                            ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          if (blockerDetails.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              s.lookup(
+                pathwayMode == 'off' || pathwayMode == 'shadow'
+                    ? 's4.lib.discharge_hub.review_findings'
+                    : 's4.lib.discharge_hub.blocking_reasons',
+              ),
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            ...blockerDetails.map(
+              (reason) => Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text('• $reason'),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

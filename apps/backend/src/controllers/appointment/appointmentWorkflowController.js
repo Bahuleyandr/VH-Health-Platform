@@ -18,6 +18,12 @@ import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { ensureAppointmentQueueForAppointment } from '../../services/appointment/appointmentQueueService.js';
 import { attachTeleconsultState } from '../../services/appointment/appointmentTeleconsultStateService.js';
+import {
+  lockAppointmentForLifecycleTx,
+  recordAppointmentCreatedEvidenceTx,
+  recordAppointmentMutationEvidenceTx,
+  transitionAppointment,
+} from '../../services/appointment/appointmentLifecycleService.js';
 // Aliased: this file has its own request-level requireTenantId(req); this is the
 // value-level fail-closed guard for the anti-spoof claim source below.
 import { requireTenantId as requireTenantValue } from '../../services/tenant/tenantService.js';
@@ -221,106 +227,106 @@ export const confirmAppointment = async (req, res) => {
   try {
     const { id } = req.params;
     const tenantId = requireTenantId(req);
-    const staffId = req.user?.id;
     const { confirmation_notes, appointment_date, appointment_time } = req.body;
 
-    const { result, a, tokenNumber, newDate, newTime } = await setTenantTx(tenantId, async (tx) => {
-      const apptRows = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone, visit_no, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
-        Number(id),
-        tenantId,
-      );
-      if (!apptRows.length) {
-        const err = new Error('Appointment not found');
-        err.statusCode = HTTP_STATUS.NOT_FOUND;
-        throw err;
-      }
-      const a = apptRows[0];
-      if (a.status === 'CANCELLED') {
-        const err = new Error('Cannot confirm a cancelled appointment');
-        err.statusCode = HTTP_STATUS.BAD_REQUEST;
-        throw err;
-      }
-
-      const targetDate = appointment_date || a.appointment_date;
-      const newDate = appointment_date || a.appointment_date;
-      const newTime = appointment_time || a.appointment_time;
-
-      // D65 — Compute the visit_no scoped by department-prefix + date
-      // so the search-by-visit_no surface that the reception counter
-      // uses can find a confirmed phone-booked follow-up. Pre-fix the
-      // token counter was global-per-day (cross-department), so when a
-      // GENERAL-MEDICINE OPD slot got confirmed the same day as a
-      // CARDIOLOGY slot, both tokens collided on the same visit_no
-      // prefix. Scope the token counter to the dept prefix the visit_no
-      // will use — same approach the walk-in path uses — so the
-      // resulting (prefix, token) pair is unique under the UNIQUE
-      // constraint on appointments.visit_no.
-      // Findings 55a91186 + 6e610cd1.
-      const yyyymmdd = (() => {
-        const d = targetDate instanceof Date ? targetDate : new Date(targetDate);
-        return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-      })();
-      const visitNoLikePrefix = `${deptPrefix(a.department)}-${yyyymmdd}-`;
-      const tokenResult = await tx.$queryRawUnsafe(
-        `SELECT COALESCE(MAX(NULLIF(token_number, '')::int), 0) + 1 AS next_token
-         FROM appointments
-         WHERE DATE(appointment_date) = DATE($1) AND confirmed_at IS NOT NULL
-           AND token_number ~ '^[0-9]+$'
-           AND visit_no LIKE $2 || '%'
-           AND tenant_id = $3::uuid`,
-        targetDate, visitNoLikePrefix, tenantId,
-      );
-      const tokenNumber = String(parseInt(tokenResult[0].next_token));
-      // Compose the deterministic visit_no the counter searches on.
-      // Idempotent re-confirm preserves the existing visit_no if the
-      // caller is re-running confirm against a row that already has
-      // one (which can happen on a retried POST).
-      const visitNo = a.visit_no || composeVisitNo({
-        department: a.department, date: newDate, tokenNumber,
-      });
-
-      const result = await tx.$queryRawUnsafe(`
-        UPDATE appointments SET
-          status = 'CONFIRMED',
-          confirmed_at = NOW(),
-          token_number = $1,
-          appointment_date = $2,
-          appointment_time = $3,
-          visit_no = $5,
-          sla_target_at = COALESCE(sla_target_at, created_at + INTERVAL '30 minutes'),
-          updated_at = NOW()
-        WHERE id = $4
-          AND tenant_id = $6::uuid
-        RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes,
-                  token_number, visit_no, confirmed_at, department, tenant_id, created_at, updated_at
-      `,
-        tokenNumber, newDate, newTime, Number(id), visitNo, tenantId,
-      );
-
-      await tx.$executeRawUnsafe(
-        `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-         VALUES ($1,$2,'CONFIRMED',$3,'staff',$4)`,
-        Number(id), a.status, staffId, confirmation_notes || null,
-      );
-
-      const queue = await ensureAppointmentQueueForAppointment(tx, result[0], {
-        actorUid: req.user?.uid,
-        source: 'confirm',
-      });
-      if (queue) {
-        result[0] = {
-          ...result[0],
-          queue_id: queue.id,
-          appointment_queue: queue,
+    const transition = await transitionAppointment({
+      tenantId,
+      appointmentId: Number(id),
+      toStatus: 'CONFIRMED',
+      actorUid: req.user?.uid || null,
+      actorId: req.user?.id || null,
+      actorRole: req.user?.role || null,
+      reason: confirmation_notes || null,
+      source: 'confirm',
+      mutate: async ({ tx, current }) => {
+        const targetDate = appointment_date || current.appointment_date;
+        const targetTime = appointment_time || current.appointment_time;
+        const date = targetDate instanceof Date ? targetDate : new Date(targetDate);
+        const yyyymmdd = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+        const visitNoLikePrefix = `${deptPrefix(current.department)}-${yyyymmdd}-`;
+        let tokenNumber = current.token_number;
+        if (!tokenNumber) {
+          const tokenRows = await tx.$queryRawUnsafe(
+            `SELECT COALESCE(MAX(NULLIF(token_number, '')::integer), 0) + 1 AS next_token
+               FROM appointments
+              WHERE DATE(appointment_date) = DATE($1::date)
+                AND confirmed_at IS NOT NULL
+                AND token_number ~ '^[0-9]+$'
+                AND visit_no LIKE $2::text || '%'
+                AND tenant_id = $3::uuid`,
+            targetDate,
+            visitNoLikePrefix,
+            tenantId,
+          );
+          tokenNumber = String(Number(tokenRows[0].next_token));
+        }
+        const visitNo = current.visit_no || composeVisitNo({
+          department: current.department,
+          date: targetDate,
+          tokenNumber,
+        });
+        const rows = await tx.$queryRawUnsafe(
+          `UPDATE appointments
+              SET status = 'CONFIRMED',
+                  confirmed_at = COALESCE(confirmed_at, NOW()),
+                  token_number = COALESCE(token_number, $1::text),
+                  appointment_date = $2::date,
+                  appointment_time = $3::text,
+                  visit_no = COALESCE(visit_no, $4::text),
+                  sla_target_at = COALESCE(
+                    sla_target_at,
+                    created_at + INTERVAL '30 minutes'
+                  ),
+                  updated_by = COALESCE($5::uuid, updated_by),
+                  updated_at = NOW()
+            WHERE id = $6::integer
+              AND tenant_id = $7::uuid
+            RETURNING id, uid, patient_id, doctor_id, appointment_date,
+                      appointment_time, status, reason, notes, token_number,
+                      visit_no, confirmed_at, department, queue_id, tenant_id,
+                      created_at, updated_at`,
+          tokenNumber,
+          targetDate,
+          targetTime,
+          visitNo,
+          req.user?.uid || null,
+          Number(id),
+          tenantId,
+        );
+        let appointment = {
+          ...current,
+          ...rows[0],
+          patient_uid: current.patient_uid,
+          doctor_uid: current.doctor_uid,
         };
-      }
-
-      return { result, a, tokenNumber, newDate, newTime };
+        const queue = await ensureAppointmentQueueForAppointment(tx, appointment, {
+          actorUid: req.user?.uid,
+          source: 'confirm',
+        });
+        if (queue) {
+          appointment = {
+            ...appointment,
+            queue_id: queue.id,
+            appointment_queue: queue,
+          };
+        }
+        return {
+          appointment,
+          eventPayload: {
+            token_number: appointment.token_number,
+            visit_no: appointment.visit_no,
+          },
+        };
+      },
     });
+    const result = transition.appointment;
+    const a = transition.previous;
+    const tokenNumber = result.token_number;
+    const newDate = result.appointment_date;
+    const newTime = result.appointment_time;
 
-    attachAppointmentPhiContext(req, result[0]);
-    await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_CONFIRMED', result[0], {
+    attachAppointmentPhiContext(req, result);
+    await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_CONFIRMED', result, {
       from_status: a.status,
       to_status: 'CONFIRMED',
       confirmation_notes: confirmation_notes || null,
@@ -362,7 +368,7 @@ export const confirmAppointment = async (req, res) => {
     });
 
     emitAppointmentEvent('confirm', { tenantId });
-    success(res, result[0], `Appointment confirmed. Token #${tokenNumber}`);
+    success(res, result, `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
     return relayAppError(res, err, 'Failed to confirm appointment');
   }
@@ -375,31 +381,17 @@ export const markNoShow = async (req, res) => {
   try {
     const { id } = req.params;
     const tenantId = requireTenantId(req);
-    const staffId = req.user?.id;
-
-    const { result, prevStatus } = await setTenantTx(tenantId, async (tx) => {
-      const appt = await tx.$queryRawUnsafe(
-        'SELECT id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
-        Number(id),
-        tenantId,
-      );
-      if (!appt.length) {
-        const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
-      }
-      const updated = await tx.$queryRawUnsafe(
-        `UPDATE appointments SET status='NO_SHOW', updated_at=NOW() WHERE id=$1 AND tenant_id=$2::uuid
-         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
-                   status, token_number, visit_no, department, tenant_id, updated_at`,
-        Number(id),
-        tenantId,
-      );
-      await tx.$executeRawUnsafe(
-        `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role)
-         VALUES ($1,$2,'NO_SHOW',$3,'staff')`,
-        Number(id), appt[0].status, staffId,
-      );
-      return { result: updated[0], prevStatus: appt[0].status };
+    const transition = await transitionAppointment({
+      tenantId,
+      appointmentId: Number(id),
+      toStatus: 'NO_SHOW',
+      actorUid: req.user?.uid || null,
+      actorId: req.user?.id || null,
+      actorRole: req.user?.role || null,
+      source: 'no_show',
     });
+    const result = transition.appointment;
+    const prevStatus = transition.from_status;
 
     attachAppointmentPhiContext(req, result);
     await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_NO_SHOW', result, {
@@ -437,38 +429,67 @@ export const rescheduleAppointment = async (req, res) => {
       );
     }
 
-    const {
-      original,
-      replacement,
-      prevStatus,
-    } = await setTenantTx(tenantId, async (tx) => {
-      const apptRows = await tx.$queryRawUnsafe(
-        `SELECT id, uid, phone, patient_id, patient_name, doctor_id, doctor_name,
-                appointment_date, appointment_time, status, reason, notes,
-                department, visit_type, payer_type, patient_category,
-                insurer_name, policy_number, scheme_name, triage_acuity, tenant_id
-           FROM appointments
-          WHERE id = $1::int
-            AND tenant_id = $2::uuid
-          FOR UPDATE`,
-        Number(id),
-        tenantId,
-      );
-      if (!apptRows.length) {
-        const err = new Error('Appointment not found');
-        err.statusCode = HTTP_STATUS.NOT_FOUND;
-        throw err;
-      }
-
-      const current = apptRows[0];
-      const prevStatus = current.status || 'SCHEDULED';
-      if (['CANCELLED', 'NO_SHOW', 'COMPLETED', 'RESCHEDULED'].includes(prevStatus)) {
-        const err = new Error(`Cannot reschedule an appointment with status ${prevStatus}`);
-        err.statusCode = HTTP_STATUS.BAD_REQUEST;
-        throw err;
-      }
-
-      if (current.doctor_id) {
+    const auditNote = note
+      ? `Rescheduled to ${appointment_date} ${appointment_time}: ${note}`
+      : `Rescheduled to ${appointment_date} ${appointment_time}`;
+    const transition = await transitionAppointment({
+      tenantId,
+      appointmentId: Number(id),
+      toStatus: 'RESCHEDULED',
+      actorUid,
+      actorId: staffId || null,
+      actorRole: req.user?.role || null,
+      reason: auditNote,
+      source: 'reschedule',
+      eventType: 'appointment.rescheduled',
+      resolveIdempotent: async ({ tx, current }) => {
+        const existingRows = await tx.$queryRawUnsafe(
+          `SELECT child.id, child.uid, child.patient_id, child.doctor_id,
+                  child.appointment_date, child.appointment_time, child.status,
+                  child.reason, child.notes, child.token_number, child.visit_no,
+                  child.department, child.parent_appointment_id, child.queue_id,
+                  child.tenant_id, child.created_at, child.updated_at
+             FROM appointments AS child
+             JOIN appointment_status_history AS history
+               ON history.tenant_id = child.tenant_id
+              AND history.appointment_id = child.parent_appointment_id
+              AND history.to_status = 'RESCHEDULED'
+              AND history.changed_by IS NOT DISTINCT FROM $6::integer
+              AND history.reason = $7::text
+            WHERE child.tenant_id = $1::uuid
+              AND child.parent_appointment_id = $2::integer
+              AND child.patient_id = $3::integer
+              AND child.doctor_id IS NOT DISTINCT FROM $4::integer
+              AND child.appointment_date = $5::date
+              AND child.appointment_time = $8::text
+            ORDER BY child.created_at ASC, child.id ASC
+            LIMIT 2
+            FOR SHARE OF child`,
+          tenantId,
+          Number(id),
+          Number(current.patient_id),
+          current.doctor_id == null ? null : Number(current.doctor_id),
+          appointment_date,
+          staffId || null,
+          auditNote,
+          appointment_time,
+        );
+        if (existingRows.length !== 1) {
+          throw AppError.conflict(
+            'The appointment was already rescheduled with a different or ambiguous replacement',
+            'APPOINTMENT_RESCHEDULE_RETRY_MISMATCH',
+          );
+        }
+        return {
+          replacement: {
+            ...existingRows[0],
+            patient_uid: current.patient_uid,
+            doctor_uid: current.doctor_uid,
+          },
+        };
+      },
+      mutate: async ({ tx, current }) => {
+        if (current.doctor_id) {
         const conflicts = await tx.$queryRawUnsafe(
           `SELECT id
              FROM appointments
@@ -484,20 +505,15 @@ export const rescheduleAppointment = async (req, res) => {
           appointment_date,
           appointment_time,
           Number(id),
-          current.tenant_id,
-        );
+            tenantId,
+          );
         if (conflicts.length) {
           const err = new Error('Time slot already booked');
           err.statusCode = HTTP_STATUS.CONFLICT;
           throw err;
         }
-      }
-
-      const auditNote = note
-        ? `Rescheduled to ${appointment_date} ${appointment_time}: ${note}`
-        : `Rescheduled to ${appointment_date} ${appointment_time}`;
-
-      const newRows = await tx.$queryRawUnsafe(
+        }
+        const newRows = await tx.$queryRawUnsafe(
         `INSERT INTO appointments (
            phone, patient_id, patient_name, doctor_id, doctor_name,
            appointment_date, appointment_time, reason, notes, status,
@@ -529,30 +545,32 @@ export const rescheduleAppointment = async (req, res) => {
         note || `Rescheduled from appointment #${id}`,
         actorUid,
         tenantId,
-      );
-
-      await tx.$executeRawUnsafe(
-        `INSERT INTO appointment_status_history
-           (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-         VALUES ($1::int, NULL, 'SCHEDULED', $2::int, 'staff', $3)`,
-        Number(newRows[0].id),
-        staffId || null,
-        `Created by rescheduling appointment #${id}`,
-      );
-
-      const queue = await ensureAppointmentQueueForAppointment(tx, newRows[0], {
+        );
+        let replacement = {
+          ...newRows[0],
+          patient_uid: current.patient_uid,
+          doctor_uid: current.doctor_uid,
+        };
+        await recordAppointmentCreatedEvidenceTx(tx, {
+          tenantId,
+          appointment: replacement,
+          actorUid,
+          actorId: staffId || null,
+          actorRole: req.user?.role || null,
+          source: 'reschedule_replacement',
+        });
+        const queue = await ensureAppointmentQueueForAppointment(tx, replacement, {
         actorUid,
         source: 'reschedule',
       });
-      if (queue) {
-        newRows[0] = {
-          ...newRows[0],
+        if (queue) {
+          replacement = {
+            ...replacement,
           queue_id: queue.id,
           appointment_queue: queue,
         };
-      }
-
-      const updatedOriginal = await tx.$queryRawUnsafe(
+        }
+        const updatedOriginal = await tx.$queryRawUnsafe(
         `UPDATE appointments
             SET status = 'RESCHEDULED',
                 notes = CASE
@@ -571,37 +589,41 @@ export const rescheduleAppointment = async (req, res) => {
         auditNote,
         actorUid,
         tenantId,
-      );
-
-      await tx.$executeRawUnsafe(
-        `INSERT INTO appointment_status_history
-           (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-         VALUES ($1::int, $2, 'RESCHEDULED', $3::int, 'staff', $4)`,
-        Number(id),
-        prevStatus,
-        staffId || null,
-        auditNote,
-      );
-
-      return {
-        original: updatedOriginal[0],
-        replacement: newRows[0],
-        prevStatus,
-      };
+        );
+        return {
+          appointment: {
+            ...current,
+            ...updatedOriginal[0],
+            patient_uid: current.patient_uid,
+            doctor_uid: current.doctor_uid,
+          },
+          replacement,
+          eventPayload: {
+            replacement_appointment_id: Number(replacement.id),
+            replacement_appointment_uid: replacement.uid || null,
+            replacement_appointment_date: replacement.appointment_date,
+            replacement_appointment_time: replacement.appointment_time,
+          },
+        };
+      },
     });
+    const original = transition.appointment;
+    const replacement = transition.replacement;
+    const prevStatus = transition.from_status;
 
     attachAppointmentPhiContext(req, original);
-    await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_RESCHEDULED', original, {
-      from_status: prevStatus,
-      to_status: 'RESCHEDULED',
-      replacement_appointment_id: replacement.id,
-      replacement_appointment_uid: replacement.uid || null,
-      replacement_appointment_date: replacement.appointment_date,
-      replacement_appointment_time: replacement.appointment_time,
-      reschedule_note: note || null,
-    });
-
-    emitAppointmentEvent('reschedule', { tenantId });
+    if (!transition.idempotent) {
+      await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_RESCHEDULED', original, {
+        from_status: prevStatus,
+        to_status: 'RESCHEDULED',
+        replacement_appointment_id: replacement.id,
+        replacement_appointment_uid: replacement.uid || null,
+        replacement_appointment_date: replacement.appointment_date,
+        replacement_appointment_time: replacement.appointment_time,
+        reschedule_note: note || null,
+      });
+      emitAppointmentEvent('reschedule', { tenantId });
+    }
     success(res, {
       original,
       appointment: replacement,
@@ -621,50 +643,61 @@ export const completeAppointment = async (req, res) => {
     const staffId = req.user?.id;
     const { notes } = req.body;
 
-    const { result, prevStatus, patientId } = await setTenantTx(tenantId, async (tx) => {
-      const appt = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, doctor_id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
-        Number(id),
-        tenantId,
-      );
-      if (!appt.length) {
-        const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
-      }
-
-      // H2 RBAC — a DOCTOR completing/closing a visit must be the assigned
-      // clinician (or an authorized supervisor). Front-desk / nursing / admin
-      // roles keep their existing "mark patient as visited" ability; this guard
-      // only fences off a *peer doctor* signing off another doctor's visit.
-      // Unassigned appointments (doctor_id null) stay completable by anyone with
-      // the route's RBAC. Compared with String() per the IDOR convention.
-      if (
-        isDoctor(req.user?.role) &&
-        appt[0].doctor_id !== null &&
-        appt[0].doctor_id !== undefined &&
-        !canWriteAppointmentClinical(
-          { id: req.user.id, uid: req.user.uid, role: req.user.role },
-          { doctor_id: appt[0].doctor_id },
-        )
-      ) {
-        throw AppError.forbidden(
-          'You are not the assigned clinician for this appointment',
-          'NOT_ASSIGNED_CLINICIAN',
+    const transition = await transitionAppointment({
+      tenantId,
+      appointmentId: Number(id),
+      toStatus: 'COMPLETED',
+      actorUid: req.user?.uid || null,
+      actorId: staffId || null,
+      actorRole: req.user?.role || null,
+      reason: notes || null,
+      source: 'complete',
+      authorize: ({ current }) => {
+        if (
+          isDoctor(req.user?.role)
+          && current.doctor_id !== null
+          && current.doctor_id !== undefined
+          && !canWriteAppointmentClinical(
+            { id: req.user.id, uid: req.user.uid, role: req.user.role },
+            { doctor_id: current.doctor_id },
+          )
+        ) {
+          throw AppError.forbidden(
+            'You are not the assigned clinician for this appointment',
+            'NOT_ASSIGNED_CLINICIAN',
+          );
+        }
+      },
+      mutate: async ({ tx, current }) => {
+        const rows = await tx.$queryRawUnsafe(
+          `UPDATE appointments
+              SET status = 'COMPLETED',
+                  notes = COALESCE($1::text, notes),
+                  updated_by = COALESCE($2::uuid, updated_by),
+                  updated_at = NOW()
+            WHERE id = $3::integer
+              AND tenant_id = $4::uuid
+            RETURNING id, uid, patient_id, doctor_id, appointment_date,
+                      appointment_time, status, notes, token_number, visit_no,
+                      department, queue_id, tenant_id, updated_at`,
+          notes || null,
+          req.user?.uid || null,
+          Number(id),
+          tenantId,
         );
-      }
-
-      const updated = await tx.$queryRawUnsafe(
-        `UPDATE appointments SET status='COMPLETED', notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1 AND tenant_id=$3::uuid
-         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
-                   status, notes, token_number, visit_no, department, tenant_id, updated_at`,
-        Number(id), notes || null, tenantId,
-      );
-      await tx.$executeRawUnsafe(
-        `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role)
-         VALUES ($1,$2,'COMPLETED',$3,'staff')`,
-        Number(id), appt[0].status, staffId,
-      );
-      return { result: updated[0], prevStatus: appt[0].status, patientId: appt[0].patient_id };
+        return {
+          appointment: {
+            ...current,
+            ...rows[0],
+            patient_uid: current.patient_uid,
+            doctor_uid: current.doctor_uid,
+          },
+        };
+      },
     });
+    const result = transition.appointment;
+    const prevStatus = transition.from_status;
+    const patientId = transition.previous.patient_id;
 
     attachAppointmentPhiContext(req, result);
     await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_COMPLETED', result, {
@@ -732,32 +765,21 @@ export const cancelAppointment = async (req, res) => {
   try {
     const { id } = req.params;
     const tenantId = requireTenantId(req);
-    const staffId = req.user?.id;
     const { cancellation_reason } = req.body;
 
-    const { result, patientId, prevStatus } = await setTenantTx(tenantId, async (tx) => {
-      const appt = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
-        Number(id),
-        tenantId,
-      );
-      if (!appt.length) {
-        const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
-      }
-      const updated = await tx.$queryRawUnsafe(
-        `UPDATE appointments SET status='CANCELLED', updated_at=NOW() WHERE id=$1 AND tenant_id=$2::uuid
-         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
-                   status, token_number, visit_no, department, tenant_id, updated_at`,
-        Number(id),
-        tenantId,
-      );
-      await tx.$executeRawUnsafe(
-        `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-         VALUES ($1,$2,'CANCELLED',$3,'staff',$4)`,
-        Number(id), appt[0].status, staffId, cancellation_reason || null,
-      );
-      return { result: updated[0], patientId: appt[0].patient_id, prevStatus: appt[0].status };
+    const transition = await transitionAppointment({
+      tenantId,
+      appointmentId: Number(id),
+      toStatus: 'CANCELLED',
+      actorUid: req.user?.uid || null,
+      actorId: req.user?.id || null,
+      actorRole: req.user?.role || null,
+      reason: cancellation_reason || null,
+      source: 'cancel',
     });
+    const result = transition.appointment;
+    const patientId = transition.previous.patient_id;
+    const prevStatus = transition.from_status;
 
     attachAppointmentPhiContext(req, result);
     await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_CANCELLED', result, {
@@ -2003,7 +2025,7 @@ export const registerWalkIn = async (req, res) => {
                  $11, $12,
                  $13, $14, $15, $16, $17,
                  $19::uuid)
-         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
+         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
                    status, confirmed_at, token_number, visit_no, department, created_at,
                    visit_type, parent_appointment_id,
                    payer_type, patient_category, insurer_name, policy_number, scheme_name,
@@ -2035,15 +2057,42 @@ export const registerWalkIn = async (req, res) => {
         actingTenantId,
       );
       const appt = apptRows[0];
-
-      // changed_by on this table is int, NOT uuid (different from appointments.created_by).
-      await tx.$executeRawUnsafe(
-        `INSERT INTO appointment_status_history
-           (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-         VALUES ($1, NULL, 'CONFIRMED', $2, 'staff', 'Walk-in registration')`,
-        appt.id,
-        staffId,
+      const patientIdentityRows = await tx.$queryRawUnsafe(
+        `SELECT uid
+           FROM users
+          WHERE tenant_id = $1::uuid
+            AND id = $2::integer
+          LIMIT 1`,
+        actingTenantId,
+        patientId,
       );
+      appt.patient_uid = patientIdentityRows[0]?.uid || null;
+      if (!appt.patient_uid) {
+        throw AppError.conflict(
+          'Walk-in appointment is not linked to a patient identity',
+          'APPOINTMENT_PATIENT_REQUIRED',
+        );
+      }
+      const doctorIdentityRows = resolvedDoctorIdForInsert
+        ? await tx.$queryRawUnsafe(
+          `SELECT uid
+             FROM users
+            WHERE tenant_id = $1::uuid
+              AND id = $2::integer
+            LIMIT 1`,
+          actingTenantId,
+          resolvedDoctorIdForInsert,
+        )
+        : [];
+      appt.doctor_uid = doctorIdentityRows[0]?.uid || null;
+      await recordAppointmentCreatedEvidenceTx(tx, {
+        tenantId: actingTenantId,
+        appointment: appt,
+        actorUid: staffUid,
+        actorId: staffId || null,
+        actorRole: req.user?.role || null,
+        source: 'walk_in',
+      });
 
       const queue = await ensureAppointmentQueueForAppointment(tx, appt, {
         actorUid: staffUid,
@@ -2437,31 +2486,60 @@ export const adviseForAdmission = async (req, res) => {
     const note = typeof req.body?.note === 'string' ? req.body.note.trim() : null;
     const advisedBy = req.user?.uid ?? null;
 
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE appointments
-          SET advised_for_admission_at = NOW(),
-              advised_for_admission_by = $1::uuid,
-              advised_for_admission_note = $2,
-              updated_at = NOW()
-        WHERE id = $3
-          AND tenant_id = $4::uuid
-        RETURNING id, uid, patient_id, doctor_id, advised_for_admission_at,
-                  advised_for_admission_by, advised_for_admission_note, status, tenant_id`,
-      advisedBy, note, id, tenantId,
-    );
-    if (!rows.length) {
-      return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
-    }
+    const appointment = await setTenantTx(tenantId, async (tx) => {
+      const current = await lockAppointmentForLifecycleTx(tx, {
+        tenantId,
+        appointmentId: id,
+      });
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE appointments
+            SET advised_for_admission_at = NOW(),
+                advised_for_admission_by = $1::uuid,
+                advised_for_admission_note = $2::text,
+                updated_by = COALESCE($1::uuid, updated_by),
+                updated_at = NOW()
+          WHERE id = $3::integer
+            AND tenant_id = $4::uuid
+          RETURNING id, uid, patient_id, doctor_id, advised_for_admission_at,
+                    advised_for_admission_by, advised_for_admission_note,
+                    status, tenant_id, updated_at`,
+        advisedBy,
+        note,
+        id,
+        tenantId,
+      );
+      const updated = {
+        ...current,
+        ...rows[0],
+        patient_uid: current.patient_uid,
+        doctor_uid: current.doctor_uid,
+      };
+      await recordAppointmentMutationEvidenceTx(tx, {
+        tenantId,
+        appointment: updated,
+        prior: current,
+        eventType: 'appointment.admission_advised',
+        source: 'advise_admission',
+        actorUid: advisedBy,
+        actorRole: req.user?.role || null,
+        payload: {
+          advised_for_admission_at: updated.advised_for_admission_at,
+          advised_for_admission_by: updated.advised_for_admission_by,
+          note_present: Boolean(note),
+        },
+      });
+      return updated;
+    });
 
     // Phase 1.5 — best-effort audit row. logAudit is fire-and-forget
     // with its own error trap, so a write failure here cannot 500 the
     // advise event itself.
     logAudit(req, 'appointment-advise-admission', {
-      appointment_id: rows[0].id,
-      appointment_uid: rows[0].uid,
-      patient_id: rows[0].patient_id,
-      doctor_id: rows[0].doctor_id,
-      advised_at: rows[0].advised_for_admission_at,
+      appointment_id: appointment.id,
+      appointment_uid: appointment.uid,
+      patient_id: appointment.patient_id,
+      doctor_id: appointment.doctor_id,
+      advised_at: appointment.advised_for_admission_at,
       note,
     }).catch(() => {});
 
@@ -2469,13 +2547,10 @@ export const adviseForAdmission = async (req, res) => {
     // terminals, log shippers) routinely re-decode JSON bodies as cp1252
     // and render UTF-8 em-dash bytes as mojibake. Finding:
     // 2026-05-09-inpatient-admission-receptionist-response-mojibake.
-    success(res, rows[0], 'Patient advised for admission - admission counter notified');
+    success(res, appointment, 'Patient advised for admission - admission counter notified');
   } catch (err) {
     logger.error('adviseForAdmission error:', { requestId: req.id, err: err?.message, stack: err?.stack });
-    error(res, 'Failed to advise for admission', HTTP_STATUS.INTERNAL_SERVER_ERROR, {
-      code: 'ADVISE_ADMISSION_FAILED',
-      requestId: req.id,
-    });
+    return relayAppError(res, err, 'Failed to advise for admission');
   }
 };
 

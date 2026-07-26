@@ -798,10 +798,12 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
       );
       doctorUserId = userRows[0].id;
       const idRows = await prisma.$queryRawUnsafe(
-        `SELECT COALESCE(MAX(id), 0)::int + 1000 AS id FROM doctors`,
+        `SELECT GREATEST(
+                  COALESCE((SELECT MAX(id) FROM doctors), 0),
+                  COALESCE((SELECT MAX(id) FROM users), 0)
+                )::int + 1000 AS id`,
       );
       doctorRowId = Number(idRows[0].id);
-      if (doctorRowId === doctorUserId) doctorRowId += 1;
 
       await prisma.$executeRawUnsafe(
         `INSERT INTO doctors

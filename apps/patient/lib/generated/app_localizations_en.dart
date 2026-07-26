@@ -943,6 +943,17 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not open the discharge summary PDF.';
 
   @override
+  String get dischargeSummaryPendingResultsTitle =>
+      'Results pending at discharge';
+
+  @override
+  String get dischargeSummaryPendingResultsSubtitle =>
+      'These results were pending when this signed summary was issued. The named clinician remains responsible for follow-up.';
+
+  @override
+  String get dischargeSummaryPendingResultClinician => 'Responsible clinician';
+
+  @override
   String get dischargeSummariesOfficialHint =>
       'Official signed summaries from your hospital stay are fetched separately.';
 
@@ -1960,7 +1971,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextSubtitle =>
-      'Goals and follow-ups your care team marked for you.';
+      'Information and next steps your care team shared with you.';
 
   @override
   String get yourHealthWhatsNextGoals => 'Goals';
@@ -1985,6 +1996,51 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextDue => 'Due';
+
+  @override
+  String get yourHealthWhatsNextActions => 'Next steps';
+
+  @override
+  String get yourHealthWhatsNextStatus => 'Status';
+
+  @override
+  String get yourHealthWhatsNextResponsibleClinician => 'Responsible clinician';
+
+  @override
+  String get yourHealthWhatsNextContact => 'Contact';
+
+  @override
+  String get yourHealthWhatsNextPatientAction => 'What you can do';
+
+  @override
+  String get yourHealthWhatsNextStatusPlanned => 'Planned';
+
+  @override
+  String get yourHealthWhatsNextStatusOpen => 'Open';
+
+  @override
+  String get yourHealthWhatsNextStatusScheduled => 'Scheduled';
+
+  @override
+  String get yourHealthWhatsNextStatusPending => 'Pending';
+
+  @override
+  String get yourHealthWhatsNextStatusInProgress => 'In progress';
+
+  @override
+  String get yourHealthWhatsNextStatusReady => 'Ready';
+
+  @override
+  String get yourHealthWhatsNextStatusCompleted => 'Completed';
+
+  @override
+  String get yourHealthWhatsNextStatusCancelled => 'Cancelled';
+
+  @override
+  String get yourHealthWhatsNextStatusOnHold => 'On hold';
+
+  @override
+  String get yourHealthWhatsNextStatusOverdue => 'Overdue';
 
   @override
   String get ancTimelineTitle => 'ANC Timeline';

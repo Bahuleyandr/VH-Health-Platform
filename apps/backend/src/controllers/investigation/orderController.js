@@ -69,6 +69,7 @@ export const orderInvestigation = async (req, res) => {
         body.collection_deadline_at ?? body.collectionDeadlineAt ?? body.collection_deadline,
       fasting_required: body.fasting_required ?? body.fastingRequired,
       fasting_instructions: body.fasting_instructions ?? body.fastingInstructions,
+      admission_id: body.admission_id ?? body.admissionId,
       priority: body.priority ? String(body.priority).toUpperCase() : body.priority,
       orderedBy: requestedBy,
       actorRole: req.user?.role || null,
@@ -154,6 +155,7 @@ export const legacyInvestigationRequest = async (req, res) => {
       createdBy: requestedBy,
       actorRole: req.user?.role || null,
       tenantId: req.tenantId,
+      admission_id: req.body.admission_id ?? req.body.admissionId ?? null,
     });
 
     await logAudit(req, 'legacy-investigation-requested', { phone, test_name });

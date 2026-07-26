@@ -261,7 +261,18 @@ function orderTaskTitle(order) {
   );
 }
 
-function buildTaskOverlay(orders = [], dischargeConsults = []) {
+function objectValue(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildTaskOverlay(orders = [], dischargeConsults = [], pathwayTasks = []) {
   const openOrders = orders.filter((order) =>
     !CLOSED_ORDER_STATUSES.includes(String(order.status || '').toLowerCase()));
   const pendingConsults = dischargeConsults.filter((item) => !item.completed_at);
@@ -274,6 +285,11 @@ function buildTaskOverlay(orders = [], dischargeConsults = []) {
       priority: order.priority || 'routine',
       created_at: order.created_at,
       route: order.order_type === 'medication' ? 'drug_chart' : 'orders',
+      relationship_kind: 'child_action',
+      blocking_state: 'clinical_work',
+      named_owner: order.ordered_by
+        ? { uid: order.ordered_by, display_name: null, role: null }
+        : null,
     })),
     ...pendingConsults.slice(0, 4).map((item) => ({
       id: `discharge:${item.id}`,
@@ -283,13 +299,46 @@ function buildTaskOverlay(orders = [], dischargeConsults = []) {
       priority: 'routine',
       created_at: item.requested_at,
       route: 'discharge_hub',
+      relationship_kind: 'child_action',
+      blocking_state: 'blocking',
+      named_owner: null,
+      owner_role: item.consult_type || null,
     })),
-  ].slice(0, 6);
+    ...pathwayTasks.slice(0, 8).map((task) => {
+      const metadata = objectValue(task.metadata);
+      return {
+        id: `pathway:${task.id}`,
+        task_id: Number(task.id),
+        kind: task.task_kind || 'pathway_task',
+        label: task.title,
+        status: task.status,
+        priority: task.priority || 'normal',
+        created_at: task.created_at,
+        route: task.related_resource_type === 'discharge_pending_result_handoff'
+          || task.related_resource_type === 'discharge_pending_result_action'
+          ? 'discharge_hub'
+          : 'pathway_work',
+        relationship_kind: metadata.relationship_kind || 'child_action',
+        blocking_state: metadata.blocking_state || 'pathway_work',
+        named_owner: task.assigned_to_uid
+          ? {
+              uid: task.assigned_to_uid,
+              display_name: task.owner_name || null,
+              role: task.owner_role || null,
+            }
+          : null,
+        owner_role: task.assigned_to_role || null,
+        related_resource_type: task.related_resource_type || null,
+        related_resource_id: task.related_resource_id || null,
+      };
+    }),
+  ].slice(0, 12);
 
   return {
-    open_count: openOrders.length + pendingConsults.length,
+    open_count: openOrders.length + pendingConsults.length + pathwayTasks.length,
     open_order_count: openOrders.length,
     discharge_work_item_count: pendingConsults.length,
+    pathway_task_count: pathwayTasks.length,
     items,
   };
 }
@@ -579,6 +628,32 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
       : [],
   ]);
 
+  const pathwayTasks = !shouldMinimizePayload(role) && admissionIds.length && tenantId
+    ? await prisma.$queryRawUnsafe(
+      `SELECT task.id, task.task_kind, task.title, task.status, task.priority,
+              task.assigned_to_uid, task.assigned_to_role,
+              task.related_resource_type, task.related_resource_id,
+              task.metadata, task.created_at,
+              pathway.source_episode_id::integer AS admission_id,
+              owner.name AS owner_name, owner.role AS owner_role
+         FROM care_pathway_instances AS pathway
+         JOIN tasks AS task
+           ON task.tenant_id = pathway.tenant_id
+          AND task.workflow_run_id = pathway.workflow_run_id
+         LEFT JOIN users AS owner
+           ON owner.tenant_id = task.tenant_id
+          AND owner.uid = task.assigned_to_uid
+        WHERE pathway.tenant_id = $1::uuid
+          AND pathway.pathway_key = 'inpatient_admission_to_recovery'
+          AND pathway.source_episode_type = 'admission'
+          AND pathway.source_episode_id = ANY($2::text[])
+          AND task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+        ORDER BY task.created_at ASC, task.id ASC`,
+      tenantId,
+      admissionIds.map(String),
+    )
+    : [];
+
   // NL14-P1/P3 command-board seam: attach the ICU chart-depth payload (with
   // the NICU/PICU specialty view nested under `nicu` when the unit is
   // NICU/PICU) to rows backed by an ACTIVE icu_admissions row. The staff
@@ -673,6 +748,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   const alertsByPatient = byUid(alerts);
   const infectionCasesByPatient = byUid(infectionCases);
   const consultsByAdmission = byUid(dischargeConsults, 'admission_id');
+  const pathwayTasksByAdmission = byUid(pathwayTasks, 'admission_id');
   const notesByEncounter = byUid(recentNotes.filter((row) => row.encounter_id), 'encounter_id');
   const isolationOrdersByPatient = byUid(isolationOrders);
 
@@ -827,8 +903,18 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
         })),
       },
       tasks: minimizePayload
-        ? { open_count: 0, open_order_count: 0, discharge_work_item_count: 0, items: [] }
-        : buildTaskOverlay(uniqueOrders, consultRows),
+        ? {
+            open_count: 0,
+            open_order_count: 0,
+            discharge_work_item_count: 0,
+            pathway_task_count: 0,
+            items: [],
+          }
+        : buildTaskOverlay(
+          uniqueOrders,
+          consultRows,
+          pathwayTasksByAdmission.get(admission.id) || [],
+        ),
       notes: {
         recent_count: minimizePayload ? 0 : noteRows.length,
         latest: minimizePayload ? null : noteRows[0] || null,

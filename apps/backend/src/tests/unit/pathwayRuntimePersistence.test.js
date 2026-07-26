@@ -19,6 +19,7 @@ const {
   getPathwayTransitionLedgerStateTx,
   loadGovernedPathwayDefinitionTx,
   preflightPathwaySlaRulesTx,
+  resolvePathwayRuntimeRegistryVersionTx,
 } = await import('../../services/pathways/pathwayRuntimePersistence.js');
 
 beforeEach(() => {
@@ -30,6 +31,44 @@ it('requires the exact branded transaction capability', async () => {
     tx: { $queryRawUnsafe: jest.fn() },
     tenantId: TENANT,
   })).rejects.toMatchObject({ code: 'PATHWAY_RUNTIME_TX_REQUIRED' });
+});
+
+it('loads the exact immutable runtime registry version from creation evidence', async () => {
+  TX.$queryRawUnsafe.mockResolvedValue([{
+    metadata: {
+      pathway_runtime: {
+        registry_version: 2,
+      },
+    },
+  }]);
+  await expect(resolvePathwayRuntimeRegistryVersionTx({
+    tx: TX,
+    tenantId: TENANT,
+    pathwayInstanceId: '22222222-2222-4222-8222-222222222222',
+  })).resolves.toBe(2);
+  expect(TX.$queryRawUnsafe.mock.calls[0][0]).toContain(
+    "creation.transition_key = 'pathway_instance_created'",
+  );
+  expect(TX.$queryRawUnsafe.mock.calls[0][0]).toContain('creation.sequence_number = 1');
+});
+
+it.each([
+  ['missing creation evidence', []],
+  ['missing runtime metadata', [{ metadata: {} }]],
+  ['non-integer registry version', [{ metadata: { pathway_runtime: { registry_version: '2' } } }]],
+  ['duplicate creation evidence', [
+    { metadata: { pathway_runtime: { registry_version: 2 } } },
+    { metadata: { pathway_runtime: { registry_version: 2 } } },
+  ]],
+])('fails closed for %s', async (_label, rows) => {
+  TX.$queryRawUnsafe.mockResolvedValue(rows);
+  await expect(resolvePathwayRuntimeRegistryVersionTx({
+    tx: TX,
+    tenantId: TENANT,
+    pathwayInstanceId: '22222222-2222-4222-8222-222222222222',
+  })).rejects.toMatchObject({
+    code: 'PATHWAY_RUNTIME_REGISTRY_PIN_MISSING',
+  });
 });
 
 it('uses integer-returning advisory lock wrappers in sorted order', async () => {

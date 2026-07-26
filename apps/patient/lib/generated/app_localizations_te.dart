@@ -954,6 +954,17 @@ class AppLocalizationsTe extends AppLocalizations {
       'డిశ్చార్జ్ సారాంశ PDF తెరవలేకపోయింది.';
 
   @override
+  String get dischargeSummaryPendingResultsTitle =>
+      'డిశ్చార్జ్ సమయంలో పెండింగ్‌లో ఉన్న ఫలితాలు';
+
+  @override
+  String get dischargeSummaryPendingResultsSubtitle =>
+      'ఈ సంతకం చేసిన సారాంశం జారీ చేసినప్పుడు ఈ ఫలితాలు పెండింగ్‌లో ఉన్నాయి. పేరుతో పేర్కొన్న వైద్యుడు ఫాలో-అప్‌కు బాధ్యత వహిస్తారు.';
+
+  @override
+  String get dischargeSummaryPendingResultClinician => 'బాధ్యత వహించే వైద్యుడు';
+
+  @override
   String get dischargeSummariesOfficialHint =>
       'మీ ఆసుపత్రి నివాసానికి సంబంధించిన అధికారిక సంతకం చేసిన సారాంశాలు వేరుగా పొందబడతాయి.';
 
@@ -1991,7 +2002,7 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextSubtitle =>
-      'మీ కేర్ టీమ్ మీ కోసం గుర్తించిన లక్ష్యాలు మరియు ఫాలో-అప్స్.';
+      'మీ సంరక్షణ బృందం మీతో పంచుకున్న సమాచారం మరియు తదుపరి దశలు.';
 
   @override
   String get yourHealthWhatsNextGoals => 'లక్ష్యాలు';
@@ -2017,6 +2028,52 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextDue => 'గడువు';
+
+  @override
+  String get yourHealthWhatsNextActions => 'తదుపరి దశలు';
+
+  @override
+  String get yourHealthWhatsNextStatus => 'స్థితి';
+
+  @override
+  String get yourHealthWhatsNextResponsibleClinician =>
+      'బాధ్యత వహించే వైద్యుడు';
+
+  @override
+  String get yourHealthWhatsNextContact => 'సంప్రదింపు';
+
+  @override
+  String get yourHealthWhatsNextPatientAction => 'మీరు చేయాల్సింది';
+
+  @override
+  String get yourHealthWhatsNextStatusPlanned => 'ప్రణాళిక చేయబడింది';
+
+  @override
+  String get yourHealthWhatsNextStatusOpen => 'తెరిచి ఉంది';
+
+  @override
+  String get yourHealthWhatsNextStatusScheduled => 'షెడ్యూల్ చేయబడింది';
+
+  @override
+  String get yourHealthWhatsNextStatusPending => 'పెండింగ్‌లో ఉంది';
+
+  @override
+  String get yourHealthWhatsNextStatusInProgress => 'కొనసాగుతోంది';
+
+  @override
+  String get yourHealthWhatsNextStatusReady => 'సిద్ధంగా ఉంది';
+
+  @override
+  String get yourHealthWhatsNextStatusCompleted => 'పూర్తయింది';
+
+  @override
+  String get yourHealthWhatsNextStatusCancelled => 'రద్దు చేయబడింది';
+
+  @override
+  String get yourHealthWhatsNextStatusOnHold => 'తాత్కాలికంగా నిలిపివేయబడింది';
+
+  @override
+  String get yourHealthWhatsNextStatusOverdue => 'ఆలస్యమైంది';
 
   @override
   String get ancTimelineTitle => 'ANC టైమ్‌లైన్';

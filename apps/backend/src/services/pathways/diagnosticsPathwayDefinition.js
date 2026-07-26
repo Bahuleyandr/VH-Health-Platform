@@ -1,5 +1,5 @@
 import { compileWorkflowDefinition } from '../workflow/workflowDefinitionCompiler.js';
-import { workflowRuntimeRegistry } from '../workflow/workflowRuntimeRegistry.js';
+import { workflowRuntimeRegistryV2 } from '../workflow/workflowRuntimeRegistry.js';
 import { CARE_PATHWAY_KEYS } from './pathwayMode.js';
 
 export const DIAGNOSTIC_ACTION_SLA_RULE_CODE = 'diagnostic_result_action_review';
@@ -61,7 +61,7 @@ export const DIAGNOSTICS_ORDER_TO_ACTION_DEFINITION = Object.freeze({
 });
 
 export function compileDiagnosticsOrderToActionDefinition({
-  registry = workflowRuntimeRegistry,
+  registry = workflowRuntimeRegistryV2,
 } = {}) {
   return compileWorkflowDefinition(DIAGNOSTICS_ORDER_TO_ACTION_DEFINITION, { registry });
 }

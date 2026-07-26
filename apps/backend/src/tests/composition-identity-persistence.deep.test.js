@@ -38,13 +38,19 @@ const EMPTY_TENANT_ID = '00000000-0000-4000-8000-00000c1d0002'; // no catalog ro
 
 const PATIENT_UID = 'c1d00000-0000-4000-8000-00000000d001'; // NO-allergy patient
 const DOCTOR_UID = 'c1d00000-0000-4000-8000-00000000d002';
+const EMPTY_PATIENT_UID = 'c1d00000-0000-4000-8000-00000000e001';
+const EMPTY_DOCTOR_UID = 'c1d00000-0000-4000-8000-00000000e002';
 const PATIENT_PHONE = '+919711000701';
 const DOCTOR_PHONE = '+919711000702';
+const EMPTY_PATIENT_PHONE = '+919711000703';
+const EMPTY_DOCTOR_PHONE = '+919711000704';
 
 jest.setTimeout(60000);
 
 let patientId; // integer users.id
 let doctorId; // integer users.id
+let emptyPatientId;
+let emptyDoctorId;
 let compositionId; // amoxicillin+clavulanic_acid composition
 let augmentinId; // high-confidence catalog row (that composition)
 
@@ -65,12 +71,15 @@ async function catalogId(name) {
 }
 
 // Build a minimal Express-style req/res pair for the controller handlers.
-function makeReqRes(body, { role = 'DOCTOR', uid = DOCTOR_UID, id } = {}) {
+function makeReqRes(
+  body,
+  { role = 'DOCTOR', uid = DOCTOR_UID, id, tenantId = TENANT_ID } = {},
+) {
   const req = {
     body,
     params: {},
     user: { role, uid, id },
-    tenantId: TENANT_ID,
+    tenantId,
   };
   const res = {
     statusCode: null,
@@ -102,7 +111,10 @@ async function cleanup() {
     `DELETE FROM prescription_safety_overrides WHERE patient_id = $1`, patientId ?? -1,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM e_prescriptions WHERE patient_uid = $1::uuid`, PATIENT_UID,
+    `DELETE FROM e_prescriptions
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_UID,
+    EMPTY_PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid AND source_table = 'clinical_orders'`,
@@ -119,7 +131,12 @@ async function cleanup() {
     `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID,
+    `DELETE FROM users
+      WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+    PATIENT_UID,
+    DOCTOR_UID,
+    EMPTY_PATIENT_UID,
+    EMPTY_DOCTOR_UID,
   ).catch(() => {});
 }
 
@@ -131,13 +148,21 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
     // Ensure users cleared before seeding (patientId/doctorId not yet known here).
     await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'CIPTEST %'`).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM e_prescriptions WHERE patient_uid = $1::uuid`, PATIENT_UID,
+      `DELETE FROM e_prescriptions
+        WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID,
+      EMPTY_PATIENT_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID,
+      `DELETE FROM users
+        WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+      PATIENT_UID,
+      DOCTOR_UID,
+      EMPTY_PATIENT_UID,
+      EMPTY_DOCTOR_UID,
     ).catch(() => {});
 
     // NO-allergy patient so CDS does not block the medication create.
@@ -156,6 +181,30 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
       DOCTOR_UID, DOCTOR_PHONE, TENANT_ID,
     );
     doctorId = Number(d[0].id);
+    const emptyPatient = await prisma.$queryRawUnsafe(
+      `INSERT INTO users
+         (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES
+         ($1::uuid, $2, 'CIP Empty Tenant Patient [test]', 'PATIENT',
+          true, $3::uuid, NOW())
+       RETURNING id`,
+      EMPTY_PATIENT_UID,
+      EMPTY_PATIENT_PHONE,
+      EMPTY_TENANT_ID,
+    );
+    emptyPatientId = Number(emptyPatient[0].id);
+    const emptyDoctor = await prisma.$queryRawUnsafe(
+      `INSERT INTO users
+         (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES
+         ($1::uuid, $2, 'CIP Empty Tenant Doctor [test]', 'DOCTOR',
+          true, $3::uuid, NOW())
+       RETURNING id`,
+      EMPTY_DOCTOR_UID,
+      EMPTY_DOCTOR_PHONE,
+      EMPTY_TENANT_ID,
+    );
+    emptyDoctorId = Number(emptyDoctor[0].id);
 
     // Composition (amoxicillin + clavulanic acid).
     const comp = await prisma.$queryRawUnsafe(
@@ -393,15 +442,17 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
 
   it('e-Rx CREATE: guarded — a catalog_id under an empty tenant resolves nothing; persist succeeds, client composition_id stripped', async () => {
     const { req, res } = makeReqRes({
-      patient_id: patientId,
-      doctor_id: doctorId,
+      patient_id: emptyPatientId,
+      doctor_id: emptyDoctorId,
       diagnosis: 'Guarded path',
       medications: [
         { catalog_id: augmentinId, name: 'Ghost', composition_id: 999999, dose: '1 tab' },
       ],
-    }, { id: doctorId });
-    // Force the empty tenant so enrichment resolves nothing.
-    req.tenantId = EMPTY_TENANT_ID;
+    }, {
+      uid: EMPTY_DOCTOR_UID,
+      id: emptyDoctorId,
+      tenantId: EMPTY_TENANT_ID,
+    });
 
     await createPrescription(req, res);
     expect(res.statusCode).toBe(201);

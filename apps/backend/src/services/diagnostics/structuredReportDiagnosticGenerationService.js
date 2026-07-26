@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { isTenantTransactionClient } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  linkPendingResultOwnerActionsForGenerationTx,
+  publishInpatientDiagnosticResourceLinkedTx,
+} from '../emr/inpatientPathwayDomainService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { CARE_PATHWAY_KEYS, PATHWAY_MODES } from '../pathways/pathwayMode.js';
 import { resolvePathwayModeTx } from '../pathways/pathwayRuntimePersistence.js';
@@ -235,6 +239,49 @@ async function createStructuredReportGenerationTx({
   };
   const itemSnapshotSha256 = sha256ClinicalJson(itemSnapshot);
   const snapshotSha256 = aggregateItemHashes([itemSnapshotSha256]);
+  const admissionRows = sourceKind === 'radiology_report'
+    ? await db.$queryRawUnsafe(
+      `SELECT patient_uid, admission_id
+         FROM radiology_orders
+        WHERE tenant_id = $1::uuid
+          AND id = $2::integer
+        LIMIT 1
+        FOR SHARE`,
+      tid,
+      radiologyOrderId,
+    )
+    : await db.$queryRawUnsafe(
+      `SELECT source_case.patient_uid, source_case.admission_id
+         FROM ap_reports AS source_report
+         JOIN ap_cases AS source_case
+           ON source_case.tenant_id = source_report.tenant_id
+          AND source_case.id = source_report.ap_case_id
+        WHERE source_report.tenant_id = $1::uuid
+          AND source_report.id = $2::bigint
+        LIMIT 1
+        FOR SHARE OF source_report, source_case`,
+      tid,
+      apReportId,
+    );
+  const admissionSource = admissionRows[0];
+  if (
+    !admissionSource
+    || String(admissionSource.patient_uid).toLowerCase() !== cleanPatientUid.toLowerCase()
+  ) {
+    throw AppError.conflict(
+      'Structured diagnostic source does not match the requested patient',
+      'DIAGNOSTIC_SOURCE_IDENTITY_MISMATCH',
+    );
+  }
+  const admissionId = admissionSource.admission_id == null
+    ? null
+    : Number(admissionSource.admission_id);
+  if (admissionId != null && (!Number.isSafeInteger(admissionId) || admissionId <= 0)) {
+    throw AppError.conflict(
+      'Structured diagnostic source admission lineage is invalid',
+      'DIAGNOSTIC_ADMISSION_LINEAGE_MISMATCH',
+    );
+  }
 
   const existing = await loadExistingGeneration(db, tid, sourceKind, episodeKey, version);
   if (existing) {
@@ -243,6 +290,7 @@ async function createStructuredReportGenerationTx({
       || Number(existing.item_count) !== 1
       || existing.classification !== classification
       || String(existing.signer_uid) !== cleanSignerUid
+      || (existing.admission_id == null ? null : Number(existing.admission_id)) !== admissionId
     ) {
       throw AppError.conflict(
         'Diagnostic generation identity was reused with different content',
@@ -254,6 +302,13 @@ async function createStructuredReportGenerationTx({
       tenantId: tid,
       generationId: existing.id,
     });
+    if (admissionId != null) {
+      await linkPendingResultOwnerActionsForGenerationTx({
+        tx: db,
+        tenantId: tid,
+        generationId: existing.id,
+      });
+    }
     return Object.freeze({ ...existing, release_state: releaseState, replayed: true });
   }
 
@@ -386,7 +441,7 @@ async function createStructuredReportGenerationTx({
 
   const inserted = await db.$queryRawUnsafe(
     `INSERT INTO diagnostic_result_generations
-       (id, tenant_id, patient_uid, encounter_id, source_kind, source_table,
+       (id, tenant_id, patient_uid, admission_id, encounter_id, source_kind, source_table,
         source_episode_type, source_episode_key, source_version,
         lab_signoff_id, investigation_id, radiology_order_id, radiology_addendum_id,
         ap_report_id, ap_addendum_id, ordering_owner_uid, owner_source,
@@ -395,40 +450,41 @@ async function createStructuredReportGenerationTx({
         critical_acknowledgement_task_id, critical_acknowledgement_sla_id,
         canonical_timeline_event_id, canonical_audit_event_id)
      VALUES
-       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::text,
-        $7::text, $8::text, $9::bigint,
-        NULL, NULL, $10::integer, $11::bigint,
-        $12::bigint, $13::bigint, $14::uuid, $15::text,
-        $16::uuid, $17::text,
+       ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::uuid, $6::text, $7::text,
+        $8::text, $9::text, $10::bigint,
+        NULL, NULL, $11::integer, $12::bigint,
+        $13::bigint, $14::bigint, $15::uuid, $16::text,
+        $17::uuid, $18::text,
         COALESCE(CASE
-          WHEN $5::text = 'radiology_report' AND $11::bigint IS NULL THEN (
+          WHEN $6::text = 'radiology_report' AND $12::bigint IS NULL THEN (
             SELECT source.classification_signed_at
               FROM radiology_orders AS source
-             WHERE source.tenant_id = $2::uuid AND source.id = $10::integer
+             WHERE source.tenant_id = $2::uuid AND source.id = $11::integer
           )
-          WHEN $5::text = 'radiology_report' THEN (
+          WHEN $6::text = 'radiology_report' THEN (
             SELECT source.signed_at
               FROM radiology_report_addenda AS source
-             WHERE source.tenant_id = $2::uuid AND source.id = $11::bigint
+             WHERE source.tenant_id = $2::uuid AND source.id = $12::bigint
           )
-          WHEN $5::text = 'anatomical_pathology_report' AND $13::bigint IS NULL THEN (
+          WHEN $6::text = 'anatomical_pathology_report' AND $14::bigint IS NULL THEN (
             SELECT source.signed_at
               FROM ap_reports AS source
-             WHERE source.tenant_id = $2::uuid AND source.id = $12::bigint
+             WHERE source.tenant_id = $2::uuid AND source.id = $13::bigint
           )
           ELSE (
             SELECT source.addendum_at
               FROM ap_report_addenda AS source
-             WHERE source.tenant_id = $2::uuid AND source.id = $13::bigint
+             WHERE source.tenant_id = $2::uuid AND source.id = $14::bigint
           )
-        END, $18::timestamptz),
-        $19::text, $20::jsonb,
-        $21::text, 1, $22::uuid,
-        $23::integer, $24::uuid, $25::uuid, $26::uuid)
+        END, $19::timestamptz),
+        $20::text, $21::jsonb,
+        $22::text, 1, $23::uuid,
+        $24::integer, $25::uuid, $26::uuid, $27::uuid)
      RETURNING *`,
     generationId,
     tid,
     cleanPatientUid,
+    admissionId,
     encounterId,
     sourceKind,
     sourceTable,
@@ -506,6 +562,24 @@ async function createStructuredReportGenerationTx({
       'Diagnostic generation event could not be published',
       'DIAGNOSTIC_EVENT_REQUIRED',
     );
+  }
+  if (admissionId != null) {
+    await publishInpatientDiagnosticResourceLinkedTx({
+      tx: db,
+      tenantId: tid,
+      admissionId,
+      patientUid: cleanPatientUid,
+      resourceType: 'diagnostic_result_generation',
+      resourceId: generationId,
+      canonicalTimelineEventId: canonical.timeline.id,
+      canonicalAuditEventId: canonical.audit.id,
+      occurredAt: signed,
+    });
+    await linkPendingResultOwnerActionsForGenerationTx({
+      tx: db,
+      tenantId: tid,
+      generationId,
+    });
   }
 
   return Object.freeze({

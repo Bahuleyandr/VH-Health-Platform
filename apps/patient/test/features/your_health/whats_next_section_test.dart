@@ -6,12 +6,66 @@ import 'package:vhhealth/features/your_health/widgets/whats_next_section.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 void main() {
-  testWidgets('shows care-plan goals and follow-ups', (tester) async {
+  test('parses typed next steps and ignores untyped injected entries', () {
+    final bundle = WhatsNextBundle.fromJson({
+      'next_steps': [
+        {
+          'label': 'Book a follow-up visit',
+          'explanation': 'Choose a suitable appointment.',
+          'due_date': '2026-08-04',
+          'status': 'scheduled',
+          'patient_action': 'Review your appointment.',
+          'responsible_clinician_display_name': 'Dr Rao',
+          'responsible_clinician_role': 'Doctor',
+          'safe_contact': 'Use secure messages for help.',
+          'route_token': 'appointments',
+          'raw_task_label': 'Internal blocker',
+          'staff_comments': 'Internal only',
+          'preliminary_result': 'Unverified value',
+        },
+        'raw task label',
+        {'explanation': 'Missing a safe label'},
+      ],
+    });
+
+    expect(bundle.nextSteps, hasLength(1));
+    expect(bundle.nextSteps.single.label, 'Book a follow-up visit');
+    expect(
+      bundle.nextSteps.single.explanation,
+      'Choose a suitable appointment.',
+    );
+    expect(bundle.nextSteps.single.dueDate, isNotNull);
+    expect(bundle.nextSteps.single.status, 'scheduled');
+    expect(bundle.nextSteps.single.patientAction, 'Review your appointment.');
+    expect(bundle.nextSteps.single.responsibleClinicianDisplayName, 'Dr Rao');
+    expect(bundle.nextSteps.single.responsibleClinicianRole, 'Doctor');
+    expect(
+      bundle.nextSteps.single.safeContact,
+      'Use secure messages for help.',
+    );
+    expect(bundle.nextSteps.single.routeToken, 'appointments');
+  });
+
+  testWidgets('shows typed next steps with care-plan goals and follow-ups', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _LocalizedHarness(
         child: WhatsNextSection(
           repository: _FakeWhatsNextRepository(
             const WhatsNextBundle(
+              nextSteps: [
+                WhatsNextStep(
+                  label: 'Book a follow-up visit',
+                  explanation: 'Choose a suitable appointment.',
+                  status: 'scheduled',
+                  patientAction: 'Review your appointment.',
+                  responsibleClinicianDisplayName: 'Dr Rao',
+                  responsibleClinicianRole: 'Doctor',
+                  safeContact: 'Use secure messages for help.',
+                  routeToken: 'appointments',
+                ),
+              ],
               goals: [
                 WhatsNextGoal(
                   id: 1,
@@ -43,6 +97,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text("What's next"), findsOneWidget);
+    expect(find.text('Next steps'), findsOneWidget);
+    expect(find.text('Book a follow-up visit'), findsOneWidget);
+    expect(find.text('Choose a suitable appointment.'), findsOneWidget);
+    expect(find.textContaining('Dr Rao - Doctor'), findsOneWidget);
+    expect(find.textContaining('Review your appointment.'), findsOneWidget);
     expect(find.text('Goals'), findsOneWidget);
     expect(find.text('Keep fasting sugar under 110'), findsOneWidget);
     expect(find.text('Follow-ups'), findsOneWidget);

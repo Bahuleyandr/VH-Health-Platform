@@ -2,9 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
+import '../../../core/models/care_pathway_work_models.dart';
 import '../../../core/providers/clinical_inbox_provider.dart';
+import '../../../core/services/care_pathway_api_service.dart';
 import '../../../core/services/clinical_inbox_api_service.dart';
+import '../../../core/widgets/post_discharge_cross_sign_sheet.dart';
 import '../../../l10n/app_strings.dart';
 
 class ClinicalInboxScreen extends StatefulWidget {
@@ -16,6 +20,7 @@ class ClinicalInboxScreen extends StatefulWidget {
 
 class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
   Timer? _minuteTimer;
+  final Set<String> _acceptingTransfers = {};
 
   @override
   void initState() {
@@ -90,9 +95,12 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
                     child: _ClinicalInboxTaskCard(
                       task: task,
                       now: now,
+                      acceptingTransfer: _acceptingTransfers.contains(task.id),
                       onOpen: () => _showTaskDetail(context, task),
                       onAcknowledge: () => _acknowledge(context, task),
                       onReview: () => _beginDiagnosticReview(context, task),
+                      onAcceptTransfer: () =>
+                          _acceptInpatientTransfer(context, task),
                     ),
                   ),
               ],
@@ -121,6 +129,10 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
     BuildContext context,
     ClinicalInboxTask task,
   ) async {
+    if (task.isPostDischargePendingResultReview) {
+      await _beginPostDischargeCrossSign(context, task);
+      return;
+    }
     final strings = AppStrings.of(context);
     try {
       var currentTask = task;
@@ -144,6 +156,200 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
     }
   }
 
+  Future<void> _beginPostDischargeCrossSign(
+    BuildContext context,
+    ClinicalInboxTask task,
+  ) async {
+    final strings = AppStrings.of(context);
+    if (!ConnectivitySyncService.instance.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.lookup('clinical_inbox.cross_sign.requires_connection'),
+          ),
+        ),
+      );
+      return;
+    }
+    try {
+      final review = await _refreshPostDischargeCrossSignReview(
+        context,
+        task.pendingResultHandoffId,
+      );
+      if (!context.mounted) return;
+      if (review == null || !review.canCrossSign) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              strings.lookup('clinical_inbox.cross_sign.no_longer_actionable'),
+            ),
+          ),
+        );
+        return;
+      }
+      await showPostDischargeCrossSignSheet(
+        context,
+        review: review,
+        refreshReview: () => _refreshPostDischargeCrossSignReview(
+          context,
+          review.command.handoffId,
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.format('clinical_inbox.cross_sign.failed', {
+              'reason': error.toString(),
+            }),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<PostDischargeCrossSignReview?> _refreshPostDischargeCrossSignReview(
+    BuildContext context,
+    String handoffId,
+  ) async {
+    final provider = context.read<ClinicalInboxProvider>();
+    await provider.refresh();
+    final matches = provider.tasks.where(
+      (candidate) =>
+          candidate.isPostDischargePendingResultReview &&
+          candidate.pendingResultHandoffId == handoffId,
+    );
+    if (matches.isEmpty) return null;
+    final task = matches.first;
+    return _postDischargeReviewForTask(task);
+  }
+
+  PostDischargeCrossSignReview _postDischargeReviewForTask(
+    ClinicalInboxTask task,
+  ) {
+    return PostDischargeCrossSignReview(
+      command: PostDischargeCrossSignCommand(
+        admissionId: task.pendingResultAdmissionId!,
+        handoffId: task.pendingResultHandoffId,
+        generationId: task.diagnosticGenerationId,
+        diagnosticActionId: task.diagnosticAuthoritativeActionId,
+        generationSnapshotSha256: task.diagnosticGenerationSnapshotSha256,
+        actionTaskId: task.id,
+      ),
+      patientSafeLabel: task.title,
+      diagnosticClassification: task.diagnosticClassification,
+      diagnosticActionKind: task.diagnosticAuthoritativeActionKind,
+      diagnosticDisposition: task.diagnosticAuthoritativeDisposition,
+      diagnosticActionOccurredAt: task.diagnosticAuthoritativeActionOccurredAt,
+      canCrossSign: task.needsPostDischargeCrossSign,
+    );
+  }
+
+  Future<void> _acceptInpatientTransfer(
+    BuildContext context,
+    ClinicalInboxTask task,
+  ) async {
+    final strings = AppStrings.of(context);
+    if (!ConnectivitySyncService.instance.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.lookup(
+              'clinical_inbox.transfer_accept_requires_connection',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    final appointmentId = task.sourceAppointmentId;
+    if (appointmentId == null ||
+        !task.isOpInpatientTransferReview ||
+        _acceptingTransfers.contains(task.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.lookup('clinical_inbox.transfer_binding_unavailable'),
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() => _acceptingTransfers.add(task.id));
+    try {
+      final receipt = await CarePathwayApiService.acceptInpatientTransfer(
+        appointmentId: appointmentId,
+        handoffId: task.relatedResourceId,
+      );
+      if (!context.mounted) return;
+      await context.read<ClinicalInboxProvider>().refresh();
+      if (!context.mounted) return;
+      setState(() => _acceptingTransfers.remove(task.id));
+      await _showAcceptedAdmissionSource(context, receipt.admissionSource);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted && _acceptingTransfers.contains(task.id)) {
+        setState(() => _acceptingTransfers.remove(task.id));
+      }
+    }
+  }
+
+  Future<void> _showAcceptedAdmissionSource(
+    BuildContext context,
+    OpAdmissionSourceTuple source,
+  ) {
+    final strings = AppStrings.of(context);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(strings.lookup('clinical_inbox.transfer_accepted_title')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              strings.lookup(
+                'clinical_inbox.transfer_admission_source_explanation',
+              ),
+            ),
+            const SizedBox(height: 14),
+            _DetailLine(
+              label: strings.lookup(
+                'clinical_inbox.transfer_source_appointment',
+              ),
+              value: source.appointmentId.toString(),
+            ),
+            _DetailLine(
+              label: strings.lookup('clinical_inbox.transfer_source_pathway'),
+              value: source.sourcePathwayInstanceId,
+            ),
+            _DetailLine(
+              label: strings.lookup('clinical_inbox.transfer_source_handoff'),
+              value: source.sourceHandoffId,
+            ),
+            _DetailLine(
+              label: strings.lookup(
+                'clinical_inbox.transfer_accepted_recipient',
+              ),
+              value: source.acceptedRecipientUid ?? '-',
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(strings.actionClose),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showTaskDetail(BuildContext context, ClinicalInboxTask task) {
     showModalBottomSheet<void>(
       context: context,
@@ -151,10 +357,15 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
       isScrollControlled: true,
       builder: (sheetContext) => _ClinicalInboxTaskDetail(
         task: task,
+        acceptingTransfer: _acceptingTransfers.contains(task.id),
         onAcknowledge: () => _acknowledge(context, task),
         onReview: () {
           Navigator.pop(sheetContext);
           unawaited(_beginDiagnosticReview(context, task));
+        },
+        onAcceptTransfer: () {
+          Navigator.pop(sheetContext);
+          unawaited(_acceptInpatientTransfer(context, task));
         },
       ),
     );
@@ -167,6 +378,8 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback onAcknowledge;
   final VoidCallback onReview;
+  final VoidCallback onAcceptTransfer;
+  final bool acceptingTransfer;
 
   const _ClinicalInboxTaskCard({
     required this.task,
@@ -174,6 +387,8 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
     required this.onOpen,
     required this.onAcknowledge,
     required this.onReview,
+    required this.onAcceptTransfer,
+    required this.acceptingTransfer,
   });
 
   @override
@@ -183,6 +398,11 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
     final busy = provider.isMutating(task.id);
     final canAck = task.needsAcknowledgement && !busy;
     final canReview = task.needsDoctorAction && !busy;
+    final canCrossSign = task.needsPostDischargeCrossSign && !busy;
+    final canAcceptTransfer =
+        task.isOpInpatientTransferReview &&
+        task.sourceAppointmentId != null &&
+        !acceptingTransfer;
     final color = _priorityColor(context, task, now);
 
     return Card(
@@ -239,7 +459,11 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
               Align(
                 alignment: Alignment.centerRight,
                 child: FilledButton(
-                  onPressed: canReview
+                  onPressed: canAcceptTransfer
+                      ? onAcceptTransfer
+                      : canCrossSign
+                      ? onReview
+                      : canReview
                       ? onReview
                       : canAck
                       ? onAcknowledge
@@ -255,14 +479,42 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              task.needsDoctorAction
+                              task.needsDoctorAction ||
+                                      task.needsPostDischargeCrossSign
                                   ? strings.clinicalInboxClaiming
                                   : strings.clinicalInboxAcknowledging,
                             ),
                           ],
                         )
+                      : acceptingTransfer
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              strings.lookup(
+                                'clinical_inbox.accepting_transfer',
+                              ),
+                            ),
+                          ],
+                        )
                       : Text(
-                          task.needsDoctorAction
+                          task.isOpInpatientTransferReview
+                              ? strings.lookup(
+                                  'clinical_inbox.accept_inpatient_transfer',
+                                )
+                              : task.isPostDischargePendingResultReview
+                              ? strings.lookup(
+                                  task.needsPostDischargeCrossSign
+                                      ? 'clinical_inbox.cross_sign.review'
+                                      : 'clinical_inbox.cross_sign.read_only',
+                                )
+                              : task.needsDoctorAction
                               ? task.isRoleOwned
                                     ? strings.clinicalInboxClaimReview
                                     : strings.clinicalInboxReviewAction
@@ -284,11 +536,15 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
   final ClinicalInboxTask task;
   final VoidCallback onAcknowledge;
   final VoidCallback onReview;
+  final VoidCallback onAcceptTransfer;
+  final bool acceptingTransfer;
 
   const _ClinicalInboxTaskDetail({
     required this.task,
     required this.onAcknowledge,
     required this.onReview,
+    required this.onAcceptTransfer,
+    required this.acceptingTransfer,
   });
 
   @override
@@ -367,6 +623,46 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                   label: strings.clinicalInboxRoleQueue,
                   value: currentTask.assignedToRole,
                 ),
+              if (currentTask.isOpInpatientTransferReview) ...[
+                _DetailLine(
+                  label: strings.lookup(
+                    'clinical_inbox.transfer_source_appointment',
+                  ),
+                  value: currentTask.sourceAppointmentId?.toString() ?? '-',
+                ),
+                _DetailLine(
+                  label: strings.lookup(
+                    'clinical_inbox.transfer_source_handoff',
+                  ),
+                  value: currentTask.relatedResourceId,
+                ),
+              ],
+              if (currentTask.isPostDischargePendingResultReview) ...[
+                _DetailLine(
+                  label: strings.lookup(
+                    'clinical_inbox.cross_sign.generation_id',
+                  ),
+                  value: currentTask.diagnosticGenerationId,
+                ),
+                _DetailLine(
+                  label: strings.lookup(
+                    'clinical_inbox.cross_sign.generation_hash',
+                  ),
+                  value: currentTask.diagnosticGenerationSnapshotSha256,
+                ),
+                _DetailLine(
+                  label: strings.lookup(
+                    'clinical_inbox.cross_sign.authoritative_action',
+                  ),
+                  value: currentTask.diagnosticAuthoritativeActionId,
+                ),
+                _DetailLine(
+                  label: strings.lookup(
+                    'clinical_inbox.cross_sign.prior_disposition',
+                  ),
+                  value: currentTask.diagnosticAuthoritativeDisposition,
+                ),
+              ],
               if (currentTask.dueAt != null)
                 _DetailLine(
                   label: strings.clinicalInboxDue,
@@ -399,12 +695,19 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: currentTask.needsDoctorAction && !busy
+                  onPressed:
+                      currentTask.isOpInpatientTransferReview &&
+                          currentTask.sourceAppointmentId != null &&
+                          !acceptingTransfer
+                      ? onAcceptTransfer
+                      : currentTask.needsPostDischargeCrossSign && !busy
+                      ? onReview
+                      : currentTask.needsDoctorAction && !busy
                       ? onReview
                       : currentTask.needsAcknowledgement && !busy
                       ? onAcknowledge
                       : null,
-                  child: busy
+                  child: busy || acceptingTransfer
                       ? Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -415,14 +718,29 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              currentTask.needsDoctorAction
+                              acceptingTransfer
+                                  ? strings.lookup(
+                                      'clinical_inbox.accepting_transfer',
+                                    )
+                                  : currentTask.needsDoctorAction ||
+                                        currentTask.needsPostDischargeCrossSign
                                   ? strings.clinicalInboxClaiming
                                   : strings.clinicalInboxAcknowledging,
                             ),
                           ],
                         )
                       : Text(
-                          currentTask.needsDoctorAction
+                          currentTask.isOpInpatientTransferReview
+                              ? strings.lookup(
+                                  'clinical_inbox.accept_inpatient_transfer',
+                                )
+                              : currentTask.isPostDischargePendingResultReview
+                              ? strings.lookup(
+                                  currentTask.needsPostDischargeCrossSign
+                                      ? 'clinical_inbox.cross_sign.review'
+                                      : 'clinical_inbox.cross_sign.read_only',
+                                )
+                              : currentTask.needsDoctorAction
                               ? currentTask.isRoleOwned
                                     ? strings.clinicalInboxClaimReview
                                     : strings.clinicalInboxReviewAction

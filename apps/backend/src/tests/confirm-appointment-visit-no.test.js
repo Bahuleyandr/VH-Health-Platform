@@ -81,7 +81,7 @@ async function seedAppointment({ department }) {
            (uid, phone, patient_id, doctor_id, appointment_date,
             appointment_time, status, department, tenant_id, updated_at)
          VALUES (gen_random_uuid(), $1, $2::int, $3::int,
-                 CURRENT_DATE + INTERVAL '1 day', $5, 'PENDING', $4,
+                 CURRENT_DATE + INTERVAL '1 day', $5, 'SCHEDULED', $4,
                  '00000000-0000-4000-8000-000000000001'::uuid, NOW())
          RETURNING id`,
         '9700655001', patientId, doctorId, department, slot,
@@ -91,7 +91,7 @@ async function seedAppointment({ department }) {
            (uid, phone, patient_id, doctor_id, appointment_date,
             appointment_time, status, department, updated_at)
          VALUES (gen_random_uuid(), $1, $2::int, $3::int,
-                 CURRENT_DATE + INTERVAL '1 day', $5, 'PENDING', $4,
+                 CURRENT_DATE + INTERVAL '1 day', $5, 'SCHEDULED', $4,
                  NOW())
          RETURNING id`,
         '9700655001', patientId, doctorId, department, slot,

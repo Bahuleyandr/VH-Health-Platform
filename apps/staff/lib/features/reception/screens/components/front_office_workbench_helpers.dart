@@ -77,6 +77,32 @@ int? frontOfficeAdmissionAdviceIdFrom(Map<String, dynamic> row) {
 }
 
 @visibleForTesting
+Map<String, dynamic>? frontOfficeAcceptedAdmissionSourceFrom(
+  Map<String, dynamic> row,
+) {
+  final raw = row['admission_source'];
+  if (raw is! Map) return null;
+  final source = Map<String, dynamic>.from(raw);
+  final appointmentId = _intFrom(source['appointment_id']);
+  final pathwayId = _text(source['source_pathway_instance_id']);
+  final handoffId = _text(source['source_handoff_id']);
+  final recipientUid = _text(source['accepted_recipient_uid']);
+  if (appointmentId == null ||
+      appointmentId <= 0 ||
+      pathwayId.isEmpty ||
+      handoffId.isEmpty ||
+      recipientUid.isEmpty) {
+    return null;
+  }
+  return {
+    'appointment_id': appointmentId,
+    'source_pathway_instance_id': pathwayId,
+    'source_handoff_id': handoffId,
+    'accepted_recipient_uid': recipientUid,
+  };
+}
+
+@visibleForTesting
 Map<String, dynamic>? frontOfficeAdmissionAdvicePatientFrom(
   Map<String, dynamic> row,
 ) {

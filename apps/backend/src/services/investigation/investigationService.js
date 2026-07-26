@@ -1039,6 +1039,7 @@ export const addResults = async (
         data,
         select: {
           id: true, patient_id: true, patient_uid: true, requested_by: true,
+          admission_id: true,
           test_name: true, test_type: true, status: true,
           results: true, interpretation: true, result_summary: true,
           completed_at: true, verified_at: true, verified_by: true, updated_at: true,

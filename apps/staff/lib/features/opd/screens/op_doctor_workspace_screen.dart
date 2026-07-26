@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/dictation/dictation_section_router.dart';
+import '../../../core/models/care_pathway_work_models.dart';
+import '../../../core/services/care_pathway_api_service.dart';
+import '../../../core/services/clinical_inbox_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/recent_patients_service.dart';
 import '../../../core/services/schedule_api_service.dart';
@@ -13,10 +18,61 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../core/widgets/post_discharge_cross_sign_sheet.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../emr/note_draft_autosave.dart';
 import '../../emr/widgets/note_draft_status_indicator.dart';
+import '../widgets/care_pathway_action_dialogs.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
+
+@visibleForTesting
+bool opPathwayPreflightAllowsLegacyCompletion({
+  required AppointmentPathwayWork? lastKnownWork,
+  required Object error,
+}) {
+  final mode = lastKnownWork?.mode.trim().toLowerCase();
+  if (mode == 'off' || mode == 'shadow') return true;
+  if (mode == 'active') return false;
+  return error is CarePathwayApiException && error.isMissingPathwayWorkSurface;
+}
+
+@visibleForTesting
+List<Map<String, dynamic>> opInpatientTransferRecipientOptions(
+  List<dynamic> staff,
+) {
+  const physicianRoles = {
+    'DOCTOR',
+    'CONSULTANT',
+    'JUNIOR_DOCTOR',
+    'SENIOR_DOCTOR',
+    'ANAESTHETIST',
+  };
+  return staff
+      .whereType<Map>()
+      .map((row) => Map<String, dynamic>.from(row))
+      .where((row) {
+        final uid = _firstStaffText(row, const [
+          'uid',
+          'user_uid',
+          'staff_uid',
+        ]);
+        final role = _firstStaffText(row, const ['role']).toUpperCase();
+        final active = row['is_active'] ?? row['active'];
+        return uid.isNotEmpty &&
+            physicianRoles.contains(role) &&
+            active != false &&
+            active?.toString().toLowerCase() != 'false';
+      })
+      .toList(growable: false);
+}
+
+String _firstStaffText(Map<String, dynamic> row, List<String> keys) {
+  for (final key in keys) {
+    final value = row[key]?.toString().trim();
+    if (value != null && value.isNotEmpty && value != 'null') return value;
+  }
+  return '';
+}
 
 class OpDoctorWorkspaceScreen extends StatefulWidget {
   final String patientUid;
@@ -65,6 +121,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
   bool _opNoteSigned = false;
   bool _hasAppointmentPrescription = false;
   Map<String, dynamic>? _diagnosisCoding;
+  AppointmentPathwayWork? _pathwayWork;
+  bool _pathwayWorkLoading = false;
+  String? _pathwayWorkError;
+  String? _pathwayActionBusy;
 
   final _chiefCtrl = TextEditingController();
   final _historyCtrl = TextEditingController();
@@ -110,6 +170,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       ctrl.addListener(_onNoteFieldChanged);
     }
     _loadTimeline();
+    _loadPathwayWork();
     RecentPatientsService.add(widget.patientUid, widget.patientName);
   }
 
@@ -208,6 +269,42 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         _loading = false;
       });
     }
+  }
+
+  Future<AppointmentPathwayWork?> _loadPathwayWork({
+    bool showLoading = true,
+  }) async {
+    final appointmentId = widget.appointmentId;
+    if (appointmentId == null) return null;
+    if (showLoading && mounted) {
+      setState(() {
+        _pathwayWorkLoading = true;
+        _pathwayWorkError = null;
+      });
+    }
+    try {
+      final work = await CarePathwayApiService.getAppointmentPathwayWork(
+        appointmentId,
+      );
+      if (!mounted) return null;
+      setState(() {
+        _pathwayWork = work;
+        _pathwayWorkError = null;
+      });
+      return work;
+    } catch (e) {
+      if (!mounted) return null;
+      setState(() {
+        _pathwayWorkError = e.toString().replaceFirst('Exception: ', '');
+      });
+      return null;
+    } finally {
+      if (mounted) setState(() => _pathwayWorkLoading = false);
+    }
+  }
+
+  Future<void> _refreshWorkspace() async {
+    await Future.wait([_loadTimeline(), _loadPathwayWork()]);
   }
 
   /// After the timeline + any committed OP note have loaded, restore an
@@ -591,28 +688,251 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     return parts.first;
   }
 
+  bool _requireOnlinePathwayAction() {
+    if (ConnectivitySyncService.instance.isOnline) return true;
+    ErrorToast.show(
+      context,
+      _label('s4.lib.op_doctor_workspace.pathway_actions_require_connection'),
+    );
+    return false;
+  }
+
+  Future<void> _recordClosureEvidence() async {
+    final appointmentId = widget.appointmentId;
+    final work = _pathwayWork;
+    if (appointmentId == null ||
+        work == null ||
+        !work.isActive ||
+        !_requireOnlinePathwayAction()) {
+      return;
+    }
+    final command = await showDialog<OpClosureEvidenceCommand>(
+      context: context,
+      builder: (_) => OpClosureEvidenceDialog(work: work),
+    );
+    if (command == null || !mounted) return;
+    setState(() => _pathwayActionBusy = 'closure');
+    try {
+      await CarePathwayApiService.recordAppointmentClosureEvidence(
+        appointmentId: appointmentId,
+        command: command,
+      );
+      if (!mounted) return;
+      SuccessToast.show(
+        context,
+        _label('s4.lib.op_doctor_workspace.closure_evidence_recorded'),
+      );
+      await _loadPathwayWork(showLoading: false);
+    } catch (error) {
+      if (!mounted) return;
+      ErrorToast.show(context, error.toString());
+    } finally {
+      if (mounted) setState(() => _pathwayActionBusy = null);
+    }
+  }
+
+  Future<void> _requestInpatientTransfer() async {
+    final appointmentId = widget.appointmentId;
+    final work = _pathwayWork;
+    if (appointmentId == null ||
+        work == null ||
+        !work.isActive ||
+        !_requireOnlinePathwayAction()) {
+      return;
+    }
+    setState(() => _pathwayActionBusy = 'transfer');
+    try {
+      final staff = await HrApiService.getStaffList(
+        active: true,
+        suppressErrors: false,
+      );
+      final recipients = opInpatientTransferRecipientOptions(staff);
+      if (!mounted) return;
+      if (recipients.isEmpty) {
+        ErrorToast.show(
+          context,
+          _label('s4.lib.op_doctor_workspace.no_active_inpatient_recipients'),
+        );
+        return;
+      }
+      final input = await showDialog<OpInpatientTransferInput>(
+        context: context,
+        builder: (_) => OpInpatientTransferDialog(recipients: recipients),
+      );
+      if (input == null || !mounted) return;
+      final receipt = await CarePathwayApiService.requestInpatientTransfer(
+        appointmentId: appointmentId,
+        intendedRecipientUid: input.recipientUid,
+        reason: input.reason,
+      );
+      if (!mounted) return;
+      SuccessToast.show(
+        context,
+        _format('s4.dynamic.op_doctor_workspace.transfer_requested', {
+          'handoffId': receipt.handoffId,
+        }),
+      );
+      await _loadPathwayWork(showLoading: false);
+    } catch (error) {
+      if (!mounted) return;
+      ErrorToast.show(context, error.toString());
+    } finally {
+      if (mounted) setState(() => _pathwayActionBusy = null);
+    }
+  }
+
+  Future<void> _reviewPriorAdmissionPendingResult(
+    OpFollowUpPendingResult item,
+  ) async {
+    if (!_requireOnlinePathwayAction() ||
+        _pathwayActionBusy != null ||
+        item.handoffId.isEmpty) {
+      return;
+    }
+    setState(() => _pathwayActionBusy = 'cross-sign:${item.handoffId}');
+    try {
+      final review = await _refreshPriorAdmissionCrossSign(item.handoffId);
+      if (!mounted) return;
+      if (review == null || !review.canCrossSign) {
+        ErrorToast.show(
+          context,
+          _label('clinical_inbox.cross_sign.no_longer_actionable'),
+        );
+        return;
+      }
+      setState(() => _pathwayActionBusy = null);
+      final route = _authoritativeResultRoute(item.route);
+      await showPostDischargeCrossSignSheet(
+        context,
+        review: review,
+        refreshReview: () =>
+            _refreshPriorAdmissionCrossSign(review.command.handoffId),
+        onOpenResult: route == null ? null : () => context.push(route),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ErrorToast.show(context, error.toString());
+    } finally {
+      if (mounted && _pathwayActionBusy != null) {
+        setState(() => _pathwayActionBusy = null);
+      }
+    }
+  }
+
+  Future<PostDischargeCrossSignReview?> _refreshPriorAdmissionCrossSign(
+    String handoffId,
+  ) async {
+    final work = await _loadPathwayWork(showLoading: false);
+    if (work == null) return null;
+    for (final candidate in work.priorAdmissionPendingResults) {
+      if (candidate.handoffId == handoffId &&
+          candidate.hasExactCrossSignBinding) {
+        return _postDischargeReviewForPendingResult(candidate);
+      }
+    }
+    return null;
+  }
+
+  PostDischargeCrossSignReview _postDischargeReviewForPendingResult(
+    OpFollowUpPendingResult item,
+  ) {
+    return PostDischargeCrossSignReview(
+      command: PostDischargeCrossSignCommand(
+        admissionId: item.admissionId!,
+        handoffId: item.handoffId,
+        generationId: item.generationId,
+        diagnosticActionId: item.diagnosticActionId,
+        generationSnapshotSha256: item.generationSnapshotSha256,
+        actionTaskId: item.actionTaskId.toString(),
+      ),
+      patientSafeLabel: item.patientSafeLabel,
+      diagnosticClassification: item.diagnosticClassification,
+      diagnosticActionKind: item.diagnosticActionKind,
+      diagnosticDisposition: item.diagnosticDisposition,
+      diagnosticActionOccurredAt: item.diagnosticActionOccurredAt,
+      canCrossSign: item.needsCrossSign,
+    );
+  }
+
+  String? _authoritativeResultRoute(String? routeToken) {
+    return switch (routeToken) {
+      'investigations' => Uri(
+        path: '/investigations',
+        queryParameters: {
+          'context': 'op',
+          'patient_uid': widget.patientUid,
+          if (widget.patientId != null)
+            'patient_id': widget.patientId.toString(),
+          if (widget.appointmentId != null)
+            'appointment_id': widget.appointmentId.toString(),
+        },
+      ).toString(),
+      'radiology' => '/radiology',
+      _ => null,
+    };
+  }
+
   Future<void> _completeAppointment() async {
     final id = widget.appointmentId;
     if (id == null || !_canComplete) return;
+    if (!ConnectivitySyncService.instance.isOnline) {
+      ErrorToast.show(
+        context,
+        _label('s4.lib.op_doctor_workspace.completion_requires_connection'),
+      );
+      return;
+    }
     setState(() => _completing = true);
     try {
-      await ScheduleApiService.updateAppointmentStatus(
-        id.toString(),
-        'completed',
-      );
+      AppointmentPathwayWork? latestWork;
+      try {
+        latestWork = await CarePathwayApiService.getAppointmentPathwayWork(id);
+        if (!mounted) return;
+        setState(() {
+          _pathwayWork = latestWork;
+          _pathwayWorkError = null;
+        });
+      } catch (error) {
+        if (!opPathwayPreflightAllowsLegacyCompletion(
+          lastKnownWork: _pathwayWork,
+          error: error,
+        )) {
+          rethrow;
+        }
+      }
+      final activeWork = latestWork;
+      if (activeWork != null &&
+          activeWork.isActive &&
+          !activeWork.visitCompletion.allowed) {
+        final message = activeWork.visitCompletion.blockers
+            .map((blocker) => blocker.message)
+            .where((message) => message.isNotEmpty)
+            .join('\n');
+        ErrorToast.show(
+          context,
+          message.isEmpty
+              ? _label(
+                  's4.lib.op_doctor_workspace.completion_blocked_by_pathway_work',
+                )
+              : message,
+        );
+        return;
+      }
+      await ScheduleApiService.completeAppointmentStaff(id);
       if (!mounted) return;
       setState(() {
         _status = 'COMPLETED';
-        _completing = false;
       });
       SuccessToast.show(
         context,
         _label('s4.lib.op_doctor_workspace.consultation_marked_complete'),
       );
+      await _loadPathwayWork(showLoading: false);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _completing = false);
       ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _completing = false);
     }
   }
 
@@ -1200,6 +1520,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
               ),
             ),
             const SizedBox(height: 4),
+            if (widget.appointmentId != null) ...[
+              _buildPathwayWorkPanel(),
+              const SizedBox(height: 12),
+            ],
             FilledButton.icon(
               onPressed: _canComplete ? _completeAppointment : null,
               icon: _completing
@@ -1230,6 +1554,298 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPathwayWorkPanel() {
+    final s = AppStrings.of(context);
+    final work = _pathwayWork;
+    final mode = work?.mode.trim().toLowerCase() ?? '';
+    final unresolved = work?.unresolvedItems ?? const <CarePathwayWorkItem>[];
+    final priorAdmissionPendingResults =
+        work?.priorAdmissionPendingResults ?? const <OpFollowUpPendingResult>[];
+    final gateBlocked =
+        work != null && work.isActive && !work.visitCompletion.allowed;
+    final color = gateBlocked ? AppTheme.errorOnSurface : AppTheme.primaryBlue;
+    final explanationKey = switch (mode) {
+      'off' => 's4.lib.op_doctor_workspace.pathway_mode_off_explanation',
+      'shadow' => 's4.lib.op_doctor_workspace.pathway_mode_shadow_explanation',
+      _ => 's4.lib.op_doctor_workspace.pathway_work_explanation',
+    };
+
+    return Container(
+      key: const Key('op-pathway-unresolved-work'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.account_tree_outlined, size: 20, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.lookup(
+                    's4.lib.op_doctor_workspace.unresolved_pathway_work',
+                  ),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (work != null)
+                Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(work.mode.toUpperCase()),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(s.lookup(explanationKey)),
+          if (_pathwayWorkLoading) ...[
+            const SizedBox(height: 10),
+            const LinearProgressIndicator(),
+          ] else if (_pathwayWorkError != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.sync_problem, size: 18, color: color),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    s.lookup(
+                      's4.lib.op_doctor_workspace.pathway_work_unavailable',
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: s.lookup('action.retry'),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _loadPathwayWork,
+                  icon: const Icon(Icons.refresh, size: 18),
+                ),
+              ],
+            ),
+          ] else if (work != null) ...[
+            const SizedBox(height: 10),
+            if (unresolved.isEmpty && priorAdmissionPendingResults.isEmpty)
+              Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_outline,
+                    size: 18,
+                    color: AppTheme.successOnSurface,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      s.lookup(
+                        's4.lib.op_doctor_workspace.no_unresolved_pathway_work',
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else
+              ...unresolved.map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _buildPathwayWorkItem(item, mode: mode),
+                ),
+              ),
+            if (priorAdmissionPendingResults.isNotEmpty) ...[
+              if (unresolved.isNotEmpty) const Divider(height: 18),
+              Text(
+                s.lookup('summary.pending_results'),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              ...priorAdmissionPendingResults.map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _buildPriorAdmissionPendingResult(item),
+                ),
+              ),
+            ],
+            if (work.isActive && work.visitCompletion.blockers.isNotEmpty) ...[
+              const Divider(height: 18),
+              ...work.visitCompletion.blockers.map(
+                (blocker) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.block, size: 17, color: color),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          blocker.message.isNotEmpty
+                              ? blocker.message
+                              : blocker.code.replaceAll('_', ' '),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (work.isActive) ...[
+              const Divider(height: 18),
+              Text(
+                s.lookup('s4.lib.op_doctor_workspace.active_pathway_actions'),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                s.lookup(
+                  's4.lib.op_doctor_workspace.active_pathway_actions_explanation',
+                ),
+              ),
+              if (work.closureEvidence != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  key: const Key('op-closure-evidence-recorded'),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.successOnSurface.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    s.format(
+                      's4.dynamic.op_doctor_workspace.closure_evidence_summary',
+                      {
+                        'basis': work.closureEvidence!.closureBasis.replaceAll(
+                          '_',
+                          ' ',
+                        ),
+                        'revision': work.closureEvidence!.revision,
+                      },
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    key: const Key('op-record-closure-evidence'),
+                    onPressed: _pathwayActionBusy == null
+                        ? _recordClosureEvidence
+                        : null,
+                    icon: _pathwayActionBusy == 'closure'
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.fact_check_outlined),
+                    label: Text(
+                      s.lookup(
+                        work.closureEvidence == null
+                            ? 's4.lib.op_doctor_workspace.record_closure_evidence'
+                            : 's4.lib.op_doctor_workspace.revise_closure_evidence',
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('op-request-inpatient-transfer'),
+                    onPressed: _pathwayActionBusy == null
+                        ? _requestInpatientTransfer
+                        : null,
+                    icon: _pathwayActionBusy == 'transfer'
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.move_up_outlined),
+                    label: Text(
+                      s.lookup(
+                        's4.lib.op_doctor_workspace.request_inpatient_transfer',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPriorAdmissionPendingResult(OpFollowUpPendingResult item) {
+    return OpPriorAdmissionPendingResultCard(
+      item: item,
+      busy: _pathwayActionBusy == 'cross-sign:${item.handoffId}',
+      actionEnabled: _pathwayActionBusy == null,
+      onReview: () => _reviewPriorAdmissionPendingResult(item),
+    );
+  }
+
+  Widget _buildPathwayWorkItem(
+    CarePathwayWorkItem item, {
+    required String mode,
+  }) {
+    final s = AppStrings.of(context);
+    final owner = [
+      item.ownerName,
+      item.ownerRole,
+      item.route,
+    ].whereType<String>().where((value) => value.isNotEmpty).join(' · ');
+    final state = item.evidenceState.replaceAll('_', ' ');
+    final blockingLabel = item.blocking && mode == 'shadow'
+        ? s.lookup('s4.lib.op_doctor_workspace.would_block_in_active_mode')
+        : item.blocking && mode != 'off'
+        ? s.lookup('s4.lib.op_doctor_workspace.blocking_pathway_work')
+        : s.lookup('s4.lib.op_doctor_workspace.nonblocking_pathway_work');
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          item.blocking ? Icons.report_outlined : Icons.pending_actions,
+          size: 18,
+          color: item.blocking
+              ? AppTheme.errorOnSurface
+              : AppTheme.warningOnSurface,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.resourceType.replaceAll('_', ' '),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(
+                [
+                  item.relationshipKind.replaceAll('_', ' '),
+                  state,
+                  blockingLabel,
+                ].join(' · '),
+              ),
+              Text(
+                owner.isEmpty
+                    ? s.lookup(
+                        's4.lib.op_doctor_workspace.named_owner_not_recorded',
+                      )
+                    : s.format('s4.dynamic.op_doctor_workspace.named_owner', {
+                        'owner': owner,
+                      }),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1503,7 +2119,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         );
 
         return RefreshIndicator(
-          onRefresh: _loadTimeline,
+          onRefresh: _refreshWorkspace,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(20),
@@ -1549,6 +2165,117 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
           : _error != null
           ? ErrorState(message: _error!, onRetry: _loadTimeline)
           : _buildContent(),
+    );
+  }
+}
+
+class OpPriorAdmissionPendingResultCard extends StatelessWidget {
+  final OpFollowUpPendingResult item;
+  final bool busy;
+  final bool actionEnabled;
+  final VoidCallback onReview;
+
+  const OpPriorAdmissionPendingResultCard({
+    super.key,
+    required this.item,
+    required this.busy,
+    required this.actionEnabled,
+    required this.onReview,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    final owner = [
+      item.ownerName,
+      item.ownerRole,
+    ].where((value) => value.isNotEmpty).join(' · ');
+    final status = [
+      item.sourceType.replaceAll('_', ' '),
+      item.resultStatus.replaceAll('_', ' '),
+      item.handoffState.replaceAll('_', ' '),
+      if (item.taskStatus != null) item.taskStatus!.replaceAll('_', ' '),
+    ].join(' · ');
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          item.needsCrossSign
+              ? Icons.notification_important_outlined
+              : Icons.pending_actions_outlined,
+          size: 18,
+          color: item.needsCrossSign
+              ? AppTheme.errorOnSurface
+              : AppTheme.warningOnSurface,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.patientSafeLabel,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(status),
+              if (item.diagnosticClassification.isNotEmpty)
+                Text(
+                  '${strings.clinicalInboxClassification}: '
+                  '${item.diagnosticClassification.toUpperCase()}',
+                ),
+              if (item.generationId.isNotEmpty)
+                SelectableText(
+                  '${strings.lookup('clinical_inbox.cross_sign.generation_id')}: '
+                  '${item.generationId}',
+                ),
+              if (item.diagnosticDisposition.isNotEmpty)
+                Text(
+                  '${strings.lookup('clinical_inbox.cross_sign.prior_disposition')}: '
+                  '${item.diagnosticDisposition}',
+                ),
+              Text(
+                owner.isEmpty
+                    ? strings.lookup(
+                        's4.lib.op_doctor_workspace.named_owner_not_recorded',
+                      )
+                    : strings.format(
+                        's4.dynamic.op_doctor_workspace.named_owner',
+                        {'owner': owner},
+                      ),
+              ),
+              const SizedBox(height: 6),
+              if (item.needsCrossSign)
+                FilledButton.icon(
+                  key: Key('op-pending-result-cross-sign-${item.handoffId}'),
+                  onPressed: actionEnabled && !busy ? onReview : null,
+                  icon: busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.verified_user_outlined, size: 18),
+                  label: Text(
+                    strings.lookup(
+                      busy
+                          ? 'clinical_inbox.cross_sign.recording'
+                          : 'clinical_inbox.cross_sign.review',
+                    ),
+                  ),
+                )
+              else
+                Text(
+                  strings.lookup(
+                    item.handoffState == 'resolved'
+                        ? 'clinical_inbox.cross_sign.read_only'
+                        : 'clinical_inbox.cross_sign.owner_only',
+                  ),
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

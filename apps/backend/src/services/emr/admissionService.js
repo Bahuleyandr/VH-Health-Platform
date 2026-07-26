@@ -18,8 +18,10 @@ import {
   saveDischargeSummary,
 } from './dischargeSummaryGenerator.js';
 import {
+  canAllocateIcu,
   canEditDischargeSummary,
   canSignDischargeSummary,
+  ICU_BED_TYPES,
 } from '../../utils/roleHelpers.js';
 import {
   issueDefaultAttendantPasses,
@@ -50,6 +52,16 @@ import {
   resolveInpatientAdmissionScope,
 } from './inpatientScopeService.js';
 import { normalizeRole as normalizeCanonicalRole } from '../../utils/roles.js';
+import {
+  establishInitialPrimaryPhysicianTx,
+  getInpatientDischargeEvidence,
+  getInpatientDischargeEvidenceTx,
+  publishInpatientSourceEventTx,
+  recordPrimaryPhysicianChangeTx,
+  resolveInpatientPathwayModeTx,
+} from './inpatientPathwayDomainService.js';
+import { PATHWAY_MODES } from '../pathways/pathwayMode.js';
+import { validateOpTransferAdmissionSourceTx } from './inpatientAdmissionSourceValidation.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -70,6 +82,9 @@ const READINESS_GATED_DISCHARGE_TYPES = new Set(['home', 'transfer', 'aor']);
 // Mirrors the CHECK on admissions.room_category (migration 177).
 const VALID_ROOM_CATEGORIES = ['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care'];
 const ACTIVE_ER_ORDER_STATUSES = ['ordered', 'verified', 'in_progress'];
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ACTIVE_CANONICAL_ENCOUNTER_STATUSES = new Set(['open', 'active']);
 const ICU_ALLOCATE_ROLES = new Set([
   'DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR',
   'ADMIN', 'SUPER_ADMIN', 'MEDICAL_SUPERINTENDENT',
@@ -192,6 +207,9 @@ const ADMISSION_RETURNING_SELECT = {
   // admissions detail/list payloads can render the prior-discharge
   // continuity context.
   prior_admission_id: true,
+  source_appointment_id: true,
+  source_pathway_instance_id: true,
+  source_handoff_id: true,
 };
 
 function admissionWhereById(admissionId, tenantId = null) {
@@ -233,7 +251,7 @@ const ADMISSION_DOCTOR_ROLES = new Set([
 //   2026-05-22-inpatient-admission-receptionist-06e43c24 / -7523da24.
 // Roleless validation (`admitting_doctor` only) returns the canonical
 // users.id so callers can stamp it on dependent rows (preauth, etc).
-async function assertDoctorUid(uid, fieldLabel) {
+async function assertDoctorUid(uid, fieldLabel, tenantId = null) {
   if (uid === undefined || uid === null || uid === '') return null;
   const uidStr = String(uid).trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uidStr)) {
@@ -242,8 +260,11 @@ async function assertDoctorUid(uid, fieldLabel) {
       'INVALID_DOCTOR_UID',
     );
   }
-  const row = await prisma.users.findUnique({
-    where: { uid: uidStr },
+  const row = await prisma.users.findFirst({
+    where: {
+      uid: uidStr,
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+    },
     select: { id: true, role: true, is_active: true },
   });
   if (!row) {
@@ -348,6 +369,195 @@ function formatIpNumber(admissionId, admittedAt = null) {
   return `IP-${year}-${String(id).padStart(5, '0')}`;
 }
 
+function inpatientEncounterType(admissionType) {
+  return admissionType === 'day_care' ? 'daycare' : 'ip';
+}
+
+function assertExistingAdmissionEncounterBinding({
+  encounter,
+  admission,
+  encounterType,
+}) {
+  const patientMatches = String(encounter.patient_uid).toLowerCase()
+    === String(admission.patient_uid).toLowerCase();
+  const detailEncounterMatches = encounter.admission_encounter_id == null
+    || String(encounter.admission_encounter_id).toLowerCase()
+      === String(admission.encounter_id).toLowerCase();
+  if (
+    !patientMatches
+    || Number(encounter.admission_id) !== Number(admission.id)
+    || encounter.encounter_type !== encounterType
+    || !ACTIVE_CANONICAL_ENCOUNTER_STATUSES.has(encounter.status)
+    || !detailEncounterMatches
+  ) {
+    throw AppError.conflict(
+      'The admission is already bound to an incompatible canonical encounter',
+      'INPATIENT_ENCOUNTER_BINDING_INVALID',
+    );
+  }
+}
+
+export async function ensureAdmissionPatientEncounterTx({
+  tx,
+  tenantId,
+  admission,
+  actorUid,
+}) {
+  const tid = requireTenantId(tenantId);
+  const admissionId = Number(admission?.id);
+  const patientUid = String(admission?.patient_uid || '').trim().toLowerCase();
+  const requestedEncounterId = String(admission?.encounter_id || '').trim().toLowerCase();
+  const actor = String(actorUid || '').trim().toLowerCase();
+  if (
+    !tx?.$queryRawUnsafe
+    || !Number.isSafeInteger(admissionId)
+    || admissionId <= 0
+    || !UUID_RE.test(patientUid)
+    || !UUID_RE.test(requestedEncounterId)
+    || !UUID_RE.test(actor)
+  ) {
+    throw AppError.internal(
+      'Admission canonical encounter identity is unavailable',
+      'INPATIENT_ENCOUNTER_IDENTITY_INVALID',
+    );
+  }
+
+  const lockedAdmissions = await tx.$queryRawUnsafe(
+    `SELECT id, tenant_id, patient_uid, encounter_id, admission_type, status,
+            admitted_at, admitting_doctor, attending_doctor
+       FROM admissions
+      WHERE tenant_id = $1::uuid
+        AND id = $2::integer
+        AND patient_uid = $3::uuid
+      LIMIT 2
+      FOR UPDATE`,
+    tid,
+    admissionId,
+    patientUid,
+  );
+  if (
+    lockedAdmissions.length !== 1
+    || !['admitted', 'transferred'].includes(lockedAdmissions[0].status)
+    || !lockedAdmissions[0].encounter_id
+  ) {
+    throw AppError.conflict(
+      'The admission is not eligible for canonical encounter materialization',
+      'INPATIENT_ENCOUNTER_ADMISSION_INVALID',
+    );
+  }
+  const lockedAdmission = lockedAdmissions[0];
+  const encounterType = inpatientEncounterType(lockedAdmission.admission_type);
+  const existingRows = await tx.$queryRawUnsafe(
+    `SELECT *
+       FROM patient_encounters
+      WHERE tenant_id = $1::uuid
+        AND admission_id = $2::integer
+      LIMIT 2
+      FOR UPDATE`,
+    tid,
+    admissionId,
+  );
+  if (existingRows.length > 1) {
+    throw AppError.conflict(
+      'The admission has ambiguous canonical encounter ownership',
+      'INPATIENT_ENCOUNTER_BINDING_INVALID',
+    );
+  }
+  if (existingRows[0]) {
+    const existing = existingRows[0];
+    assertExistingAdmissionEncounterBinding({
+      encounter: existing,
+      admission: lockedAdmission,
+      encounterType,
+    });
+    if (
+      String(existing.id).toLowerCase()
+      !== String(lockedAdmission.encounter_id).toLowerCase()
+    ) {
+      const updatedAdmissions = await tx.$queryRawUnsafe(
+        `UPDATE admissions
+            SET encounter_id = $4::uuid,
+                updated_at = GREATEST(
+                  clock_timestamp(),
+                  updated_at + INTERVAL '1 microsecond'
+                )
+          WHERE tenant_id = $1::uuid
+            AND id = $2::integer
+            AND patient_uid = $3::uuid
+            AND encounter_id = $5::uuid
+          RETURNING encounter_id`,
+        tid,
+        admissionId,
+        patientUid,
+        existing.id,
+        lockedAdmission.encounter_id,
+      );
+      if (updatedAdmissions.length !== 1) {
+        throw AppError.conflict(
+          'The admission encounter binding changed during materialization',
+          'INPATIENT_ENCOUNTER_BINDING_CONFLICT',
+        );
+      }
+      admission.encounter_id = String(existing.id);
+    }
+    return Object.freeze({ encounter: existing, replayed: true });
+  }
+
+  const primaryDoctorUid = lockedAdmission.attending_doctor
+    || lockedAdmission.admitting_doctor
+    || null;
+  const insertedRows = await tx.$queryRawUnsafe(
+    `INSERT INTO patient_encounters
+       (id, tenant_id, patient_uid, encounter_type, status, admission_id,
+        admission_encounter_id, primary_doctor_uid, care_team_uids,
+        opened_at, activated_at, created_by, updated_by, status_history,
+        metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::text, 'active', $5::integer,
+        $1::uuid, $6::uuid,
+        ARRAY(
+          SELECT DISTINCT uid
+            FROM unnest(ARRAY[$7::uuid, $8::uuid, $9::uuid]) AS uid
+           WHERE uid IS NOT NULL
+        ),
+        COALESCE($10::timestamptz, clock_timestamp()), clock_timestamp(),
+        $9::uuid, $9::uuid,
+        jsonb_build_array(jsonb_build_object(
+          'status', 'active',
+          'changed_at', clock_timestamp(),
+          'changed_by', $9::uuid,
+          'reason', 'inpatient admission created'
+        )),
+        $11::jsonb)
+     RETURNING *`,
+    requestedEncounterId,
+    tid,
+    patientUid,
+    encounterType,
+    admissionId,
+    primaryDoctorUid,
+    lockedAdmission.admitting_doctor,
+    lockedAdmission.attending_doctor,
+    actor,
+    lockedAdmission.admitted_at,
+    JSON.stringify({
+      source: 'admission_service',
+      admission_id: admissionId,
+      admission_type: lockedAdmission.admission_type,
+    }),
+  );
+  if (
+    insertedRows.length !== 1
+    || String(insertedRows[0].id).toLowerCase() !== requestedEncounterId
+  ) {
+    throw AppError.internal(
+      'Admission canonical encounter could not be materialized',
+      'INPATIENT_ENCOUNTER_MATERIALIZATION_REQUIRED',
+    );
+  }
+  return Object.freeze({ encounter: insertedRows[0], replayed: false });
+}
+
 async function admitPatient(data) {
   const {
     patient_uid,
@@ -423,6 +633,8 @@ async function admitPatient(data) {
     //   2026-05-21-inpatient-admission-receptionist-5e965972.
     admission_advice_id,
     appointment_id: appointmentIdArg,
+    source_pathway_instance_id: sourcePathwayInstanceIdArg,
+    source_handoff_id: sourceHandoffIdArg,
   } = data;
   const admissionTenantId = tenant_id || null;
 
@@ -440,9 +652,9 @@ async function admitPatient(data) {
   // optional (carry-over from ER); admitting is required. Findings:
   //   2026-05-22-inpatient-admission-receptionist-06e43c24
   //   2026-05-22-inpatient-admission-receptionist-7523da24.
-  await assertDoctorUid(admitting_doctor, 'admitting_doctor');
+  await assertDoctorUid(admitting_doctor, 'admitting_doctor', admissionTenantId);
   if (attending_doctor) {
-    await assertDoctorUid(attending_doctor, 'attending_doctor');
+    await assertDoctorUid(attending_doctor, 'attending_doctor', admissionTenantId);
   }
   // Normalise admission_type case + common synonyms so callers passing
   // DAY_CARE / DAYCARE / Day-Care / daycare don't crash with
@@ -510,6 +722,31 @@ async function admitPatient(data) {
     }
     adviceAppointmentId = parsed;
   }
+  const normalizeOptionalUuid = (value, label) => {
+    if (value === undefined || value === null || value === '') return null;
+    const normalized = String(value).trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)) {
+      throw AppError.badRequest(`${label} must be a UUID`);
+    }
+    return normalized;
+  };
+  const sourcePathwayInstanceId = normalizeOptionalUuid(
+    sourcePathwayInstanceIdArg,
+    'source_pathway_instance_id',
+  );
+  const sourceHandoffId = normalizeOptionalUuid(sourceHandoffIdArg, 'source_handoff_id');
+  if (Boolean(sourcePathwayInstanceId) !== Boolean(sourceHandoffId)) {
+    throw AppError.badRequest(
+      'source_pathway_instance_id and source_handoff_id must be supplied together',
+      'INPATIENT_SOURCE_LINKAGE_INCOMPLETE',
+    );
+  }
+  if (sourcePathwayInstanceId && adviceAppointmentId === null) {
+    throw AppError.badRequest(
+      'A pathway handoff source requires the exact source appointment',
+      'INPATIENT_SOURCE_APPOINTMENT_REQUIRED',
+    );
+  }
 
   // Optional review-after timestamp (migration 229). Validate up front so
   // a malformed value fails clean instead of as an opaque Prisma error.
@@ -572,7 +809,7 @@ async function admitPatient(data) {
   if (!VALID_PRIORITIES.includes(priority)) {
     throw AppError.badRequest(`Invalid priority: ${priority}`);
   }
-  const resolvedAttendingDoctor = attending_doctor ?? erVisit?.attending_doctor_uid ?? null;
+  let resolvedAttendingDoctor = attending_doctor ?? erVisit?.attending_doctor_uid ?? null;
   const erArrivalAt = erVisit?.arrival_at ?? null;
 
   // Bed-allocation gate (migration 171). Strict-with-emergency-exception:
@@ -849,7 +1086,8 @@ async function admitPatient(data) {
 
   let carriedErOrders = [];
 
-  const admission = await setTenantTx(requireTenantId(admissionTenantId), async (tx) => {
+  const transactionTenantId = requireTenantId(admissionTenantId);
+  const admission = await setTenantTx(transactionTenantId, async (tx) => {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
     const patientUser = await tx.users.findFirst({
       where: {
@@ -861,6 +1099,28 @@ async function admitPatient(data) {
     if (!patientUser) throw AppError.notFound('Patient not found');
     const patientIntId = patientUser.id;
     const patientName = patientUser.name;
+
+    const transferSource = await validateOpTransferAdmissionSourceTx({
+      tx,
+      tenantId: transactionTenantId,
+      patientUid: patient_uid,
+      appointmentId: adviceAppointmentId,
+      sourcePathwayInstanceId,
+      sourceHandoffId,
+    });
+    if (transferSource.accepted_recipient_uid) {
+      const acceptedRecipientUid = transferSource.accepted_recipient_uid;
+      if (
+        resolvedAttendingDoctor
+        && String(resolvedAttendingDoctor).toLowerCase() !== acceptedRecipientUid
+      ) {
+        throw AppError.conflict(
+          'The admission attending physician must be the accepted OP-to-inpatient transfer recipient',
+          'INPATIENT_TRANSFER_PRIMARY_MISMATCH',
+        );
+      }
+      resolvedAttendingDoctor = acceptedRecipientUid;
+    }
 
     const admission = await tx.admissions.create({
       data: {
@@ -909,9 +1169,19 @@ async function admitPatient(data) {
         // Re-admission continuity link (migration 230). Null unless a
         // prior discharge for this patient falls within the 7-day window.
         prior_admission_id: priorAdmissionId,
+        source_appointment_id: adviceAppointmentId,
+        source_pathway_instance_id: sourcePathwayInstanceId,
+        source_handoff_id: sourceHandoffId,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
+    const canonicalEncounter = await ensureAdmissionPatientEncounterTx({
+      tx,
+      tenantId: transactionTenantId,
+      admission,
+      actorUid: created_by,
+    });
+    admission.encounter_id = canonicalEncounter.encounter.id;
     admission.ip_number = formatIpNumber(admission.id, admission.admitted_at);
 
     // B-4 — audit row when consent was bypassed. The admissions row
@@ -1104,7 +1374,7 @@ async function admitPatient(data) {
     // audit row. The payload uses only in-tx admission fields (patient_name,
     // ward, bed_number set above); patient_hospital_number is a Phase-1.5
     // post-commit enrichment and is deliberately not part of this write.
-    await recordCanonicalAdmissionEvent({
+    const canonicalAdmission = await recordCanonicalAdmissionEvent({
       tenantId: admission.tenant_id || tenant_id,
       patientUid: admission.patient_uid,
       encounterId: admission.encounter_id,
@@ -1133,6 +1403,59 @@ async function admitPatient(data) {
       timelineIdempotencyKey: `admissions:${admission.id}:created`,
       auditIdempotencyKey: `admissions:${admission.id}:audit:created`,
     }, tx);
+
+    const primary = await establishInitialPrimaryPhysicianTx({
+      tx,
+      admission,
+      actorUid: created_by,
+      actorRole: actor_role,
+    });
+    await publishInpatientSourceEventTx({
+      tx,
+      tenantId: admission.tenant_id,
+      mode: primary.mode,
+      eventType: 'admission.created',
+      admission,
+      payload: {
+        patient_uid: admission.patient_uid,
+        canonical_timeline_event_id: canonicalAdmission.timeline.id,
+        canonical_audit_event_id: canonicalAdmission.audit.id,
+        primary_physician_assignment_id: primary.assignment?.id || null,
+        source_appointment_id: admission.source_appointment_id,
+        source_pathway_instance_id: admission.source_pathway_instance_id,
+        source_handoff_id: admission.source_handoff_id,
+        prior_admission_id: admission.prior_admission_id,
+      },
+    });
+    if (admission.prior_admission_id) {
+      await publishInpatientSourceEventTx({
+        tx,
+        tenantId: admission.tenant_id,
+        mode: primary.mode,
+        eventType: 'admission.readmission_linked',
+        admission,
+        payload: {
+          patient_uid: admission.patient_uid,
+          prior_admission_id: admission.prior_admission_id,
+        },
+      });
+    }
+    if (admission.bed_id) {
+      await publishInpatientSourceEventTx({
+        tx,
+        tenantId: admission.tenant_id,
+        mode: primary.mode,
+        eventType: 'bed.assigned',
+        admission,
+        aggregateType: 'bed',
+        aggregateId: admission.bed_id,
+        payload: {
+          patient_uid: admission.patient_uid,
+          bed_id: admission.bed_id,
+          bed_number: admission.bed_number,
+        },
+      });
+    }
 
     return admission;
   });
@@ -1199,21 +1522,18 @@ async function admitPatient(data) {
   // filters purely on that timestamp being non-null. Nothing previously
   // cleared it once the patient was actually admitted, so an admitted OPD
   // patient stayed stuck in the advised-for-admission queue indefinitely.
-  // Mark the originating advice fulfilled by nulling the flag columns so
-  // the patient drops out of the queue. Scope: the explicit source
-  // appointment when the admit carried admission_advice_id/appointment_id
-  // (verified to belong to this patient), otherwise every still-open
-  // advised appointment for this patient. Best-effort, post-commit — a
-  // failure here is logged but must never roll back the admission.
+  // Mark only the exact durable source appointment fulfilled. Patient/time
+  // proximity is not admission lineage and must never clear other advice
+  // rows. Best-effort, post-commit — a failure here is logged but must never
+  // roll back the admission.
   // Finding: 2026-05-21-inpatient-admission-receptionist-5e965972.
-  try {
-    let cleared = [];
-    if (adviceAppointmentId !== null) {
+  if (adviceAppointmentId !== null) {
+    try {
       // Explicit link. Clear only this appointment, and only if it both
       // belongs to this patient and is currently flagged — so a stale or
       // mismatched id is a no-op rather than wrongly closing someone
       // else's advice.
-      cleared = await prisma.$queryRawUnsafe(
+      const cleared = await prisma.$queryRawUnsafe(
         `UPDATE appointments a
             SET advised_for_admission_at = NULL,
                 advised_for_admission_by = NULL,
@@ -1231,57 +1551,36 @@ async function admitPatient(data) {
         patient_uid,
         admission.tenant_id || admissionTenantId,
       );
-    } else {
-      // No explicit link — clear any still-open advised appointment(s) for
-      // this patient. Keyed off users.uid → appointments.patient_id.
-      cleared = await prisma.$queryRawUnsafe(
-        `UPDATE appointments a
-            SET advised_for_admission_at = NULL,
-                advised_for_admission_by = NULL,
-                advised_for_admission_note = NULL,
-                updated_at = NOW()
-          FROM users u
-          WHERE a.patient_id = u.id
-            AND u.uid = $1::uuid
-            AND a.tenant_id = $2::uuid
-            AND u.tenant_id = $2::uuid
-            AND a.advised_for_admission_at IS NOT NULL
-        RETURNING a.id`,
-        patient_uid,
-        admission.tenant_id || admissionTenantId,
-      );
-    }
-    if (cleared.length) {
-      const clearedIds = cleared.map((r) => r.id);
-      logger.info(
-        `admitPatient: closed admission-advice for ${clearedIds.length} appointment(s) ` +
-        `[${clearedIds.join(', ')}] on admission #${admission.id} (patient ${patient_uid})`,
-      );
-      // Audit the fulfillment so compliance can reconstruct that this
-      // admission consumed the OPD advice. Best-effort, fire-and-forget.
-      await prisma.audit_logs.create({
-        data: {
-          uid: created_by,
-          action: 'ADMISSION_ADVICE_FULFILLED',
-          resource: 'admission',
-          resource_id: String(admission.id),
-          metadata: {
-            patient_uid,
-            admission_id: admission.id,
-            cleared_appointment_ids: clearedIds,
-            via: adviceAppointmentId !== null ? 'explicit_appointment_id' : 'patient_match',
+      if (cleared.length) {
+        const clearedIds = cleared.map((r) => r.id);
+        logger.info(
+          `admitPatient: closed admission-advice for appointment ` +
+          `[${clearedIds.join(', ')}] on admission #${admission.id} (patient ${patient_uid})`,
+        );
+        await prisma.audit_logs.create({
+          data: {
+            uid: created_by,
+            action: 'ADMISSION_ADVICE_FULFILLED',
+            resource: 'admission',
+            resource_id: String(admission.id),
+            metadata: {
+              patient_uid,
+              admission_id: admission.id,
+              cleared_appointment_ids: clearedIds,
+              via: 'explicit_source_appointment',
+            },
+            ip_address: null,
           },
-          ip_address: null,
-        },
-      }).catch(() => {});
-    } else if (adviceAppointmentId !== null) {
-      logger.warn(
-        `admitPatient: admission_advice_id=${adviceAppointmentId} did not match an open advised ` +
-        `appointment for patient ${patient_uid} on admission #${admission.id} — nothing to close`,
-      );
+        }).catch(() => {});
+      } else {
+        logger.warn(
+          `admitPatient: source_appointment_id=${adviceAppointmentId} did not match an open advised ` +
+          `appointment for patient ${patient_uid} on admission #${admission.id} — nothing to close`,
+        );
+      }
+    } catch (e) {
+      logger.warn(`admitPatient: advice-queue close failed for admission ${admission.id}: ${e.message}`);
     }
-  } catch (e) {
-    logger.warn(`admitPatient: advice-queue close failed for admission ${admission.id}: ${e.message}`);
   }
 
   // Phase 1.5: TPA pre-auth auto-draft. When the admission has a linked
@@ -1465,6 +1764,36 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
     if (admission.bed_id) {
       throw AppError.conflict(`Admission already has bed ${admission.bed_id} — use /admissions/:id/transfer to move beds`);
     }
+    const pathwayMode = await resolveInpatientPathwayModeTx(tx, admission.tenant_id);
+    if (pathwayMode === PATHWAY_MODES.ACTIVE) {
+      const primaryRows = await tx.$queryRawUnsafe(
+        `SELECT assignment.id
+           FROM inpatient_primary_physician_assignments AS assignment
+           JOIN users AS physician
+             ON physician.tenant_id = assignment.tenant_id
+            AND physician.uid = assignment.physician_uid
+            AND physician.is_active = TRUE
+          WHERE assignment.tenant_id = $1::uuid
+            AND assignment.admission_id = $2::integer
+            AND assignment.patient_uid = $3::uuid
+            AND care_pathway_named_clinician_is_viable(
+                  assignment.tenant_id,
+                  assignment.physician_uid
+                )
+          ORDER BY assignment.assignment_version DESC
+          LIMIT 1
+          FOR SHARE OF assignment`,
+        admission.tenant_id,
+        admissionId,
+        admission.patient_uid,
+      );
+      if (!primaryRows[0]) {
+        throw AppError.conflict(
+          'Bed assignment requires a current named primary physician for this admission',
+          'INPATIENT_PRIMARY_PHYSICIAN_REQUIRED',
+        );
+      }
+    }
 
     const bedRows = await tx.$queryRaw`
       SELECT id, status, bed_number, bed_type, ward_id, ward_name
@@ -1474,6 +1803,15 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
       FOR UPDATE
     `;
     if (!bedRows.length) throw AppError.notFound('Bed not found');
+    if (
+      ICU_BED_TYPES.has(String(bedRows[0].bed_type || '').toLowerCase())
+      && !canAllocateIcu(normalizeCanonicalRole(options.actorRole))
+    ) {
+      throw AppError.forbidden(
+        'ICU/CCU bed allocation requires physician or admission-officer authorisation',
+        'ICU_TIER_REQUIRED',
+      );
+    }
     if (bedRows[0].status !== 'available') {
       throw AppError.badRequest(`Bed ${bedRows[0].bed_number} is not available (current status: ${bedRows[0].status})`);
     }
@@ -1537,7 +1875,7 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
         admission_id: admissionId,
         from_bed_id: null,
         to_bed_id: bedId,
-        reason: 'Bed allocated to bedless emergency admission',
+        reason: 'Bed assigned to existing canonical admission',
         transferred_by: assignedBy,
       },
     });
@@ -1593,6 +1931,19 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
       timelineIdempotencyKey: `admissions:${admissionId}:bed_assigned:${bedId}`,
       auditIdempotencyKey: `admissions:${admissionId}:audit:bed_assigned:${bedId}`,
     }, tx);
+    await publishInpatientSourceEventTx({
+      tx,
+      tenantId: updatedAdmission.tenant_id,
+      eventType: 'bed.assigned',
+      admission: updatedAdmission,
+      aggregateType: 'bed',
+      aggregateId: bedId,
+      payload: {
+        patient_uid: updatedAdmission.patient_uid,
+        bed_id: bedId,
+        bed_number: bedRows[0].bed_number,
+      },
+    });
     return updatedAdmission;
   });
 }
@@ -1949,6 +2300,17 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
       actorUid: requestedBy,
       actorRole: requestedByRole,
     });
+    await publishInpatientSourceEventTx({
+      tx,
+      tenantId: updated.tenant_id,
+      eventType: 'discharge.workflow_opened',
+      admission: updated,
+      payload: {
+        patient_uid: updated.patient_uid,
+        discharge_initiated_at: now.toISOString(),
+        consult_ids: consults.map((consult) => consult.id),
+      },
+    });
 
     return {
       admission: updated,
@@ -2247,6 +2609,19 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
       actorUid: completedBy,
       actorRole: options.role || null,
     });
+    await publishInpatientSourceEventTx({
+      tx,
+      tenantId: admission.tenant_id,
+      eventType: 'discharge.work_item_completed',
+      admission,
+      aggregateType: 'discharge_consult',
+      aggregateId: row.id,
+      payload: {
+        patient_uid: admission.patient_uid,
+        consult_id: row.id,
+        consult_type: row.consult_type,
+      },
+    });
     return row;
   });
 
@@ -2280,9 +2655,20 @@ async function hasDischargeMedicationEvidence(admission) {
              OR wr.workflow_key = 'discharge_summary_compose'
            )
            AND wr.status IN ('completed', 'complete', 'finalized', 'reviewed')
-      ) OR EXISTS (
-        SELECT 1
-          FROM admissions a
+       ) OR EXISTS (
+         SELECT 1
+           FROM medication_reconciliations reconciliation
+          WHERE reconciliation.tenant_id = $4::uuid
+            AND reconciliation.admission_id = $1::int
+            AND reconciliation.patient_uid = $2::uuid
+            AND reconciliation.rec_type = 'discharge'
+            AND reconciliation.status = 'completed'
+            AND reconciliation.completed_at IS NOT NULL
+            AND reconciliation.completed_by IS NOT NULL
+            AND jsonb_typeof(reconciliation.metadata -> 'take_home_list') = 'array'
+       ) OR EXISTS (
+         SELECT 1
+           FROM admissions a
          WHERE a.id = $1::int
            AND a.patient_uid = $2::uuid
            AND a.discharge_summary IS NOT NULL
@@ -2295,6 +2681,7 @@ async function hasDischargeMedicationEvidence(admission) {
     admission.id,
     admission.patient_uid,
     admission.discharge_initiated_at,
+    admission.tenant_id,
   );
   return rows[0]?.has_evidence === true;
 }
@@ -2383,6 +2770,16 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy, options = {
       actorUid: dispensedBy,
       actorRole: options.actorRole || options.role || 'PHARMACY',
     });
+    await publishInpatientSourceEventTx({
+      tx,
+      tenantId: row.tenant_id,
+      eventType: 'discharge.drugs_dispensed',
+      admission: row,
+      payload: {
+        patient_uid: row.patient_uid,
+        discharge_drugs_dispensed_at: row.discharge_drugs_dispensed_at,
+      },
+    });
     return row;
   });
 
@@ -2396,6 +2793,19 @@ function normalizeDischargeType(value = 'home') {
     throw AppError.badRequest(`Invalid discharge_type: ${normalized}`);
   }
   return normalized;
+}
+
+function activeDischargeBranchBlockers(dischargeType, pathwayMode) {
+  if (
+    pathwayMode === PATHWAY_MODES.ACTIVE
+    && dischargeType === 'transfer'
+  ) {
+    return [{
+      type: 'EXTERNAL_TRANSFER_BRANCH_DEFERRED',
+      message: 'External-facility discharge transfer remains blocked until governed accepting-facility, recipient-owner, transport, exception, and terminal-outcome evidence is registered.',
+    }];
+  }
+  return [];
 }
 
 function buildDischargeReadinessChecklist(blockers, { gated, transitionAllowed }) {
@@ -2413,6 +2823,29 @@ function buildDischargeReadinessChecklist(blockers, { gated, transitionAllowed }
     investigations_resolved: !gated || clear('PENDING_RESULTS'),
     radiology_resolved: !gated || clear('PENDING_RADIOLOGY'),
     follow_up_booked: !gated || clear('FOLLOWUP_NOT_BOOKED'),
+    structured_summary_signed: !gated || clear('STRUCTURED_SUMMARY_NOT_SIGNED'),
+    patient_guardian_instructions_recorded:
+      !gated || clear('PATIENT_GUARDIAN_INSTRUCTIONS_REQUIRED'),
+    escalation_contact_recorded:
+      !gated || clear('ESCALATION_CONTACT_REQUIRED'),
+    equipment_home_care_plan_recorded:
+      !gated || clear('EQUIPMENT_HOME_CARE_PLAN_REQUIRED'),
+    discharge_destination_recorded:
+      !gated || clear('DISCHARGE_DESTINATION_REQUIRED'),
+    transport_plan_recorded:
+      !gated || clear('TRANSPORT_PLAN_REQUIRED'),
+    external_transfer_governance_ready:
+      !gated || clear('EXTERNAL_TRANSFER_BRANCH_DEFERRED'),
+    inpatient_owner_assignment_converged:
+      !gated || clear('INPATIENT_OWNER_ASSIGNMENT_DIVERGED'),
+    formal_medication_reconciliation_completed:
+      !gated || clear('FORMAL_DISCHARGE_MEDICATION_RECONCILIATION_REQUIRED'),
+    admission_follow_up_or_exception:
+      !gated || clear('ADMISSION_FOLLOW_UP_OR_EXCEPTION_REQUIRED'),
+    pending_result_projection_ready:
+      !gated || clear('PENDING_RESULT_PROJECTION_NOT_READY'),
+    pending_result_handoffs_complete:
+      !gated || clear('PENDING_RESULT_HANDOFF_INCOMPLETE'),
   };
 }
 
@@ -2439,6 +2872,7 @@ async function getDischargeReadiness(admissionId, options = {}) {
   const transitionAllowed = allowedFromPre.includes('discharged');
   const gated = READINESS_GATED_DISCHARGE_TYPES.has(dischargeType);
   const blockers = [];
+  let inpatientPathway = null;
 
   if (!transitionAllowed) {
     blockers.push({
@@ -2558,7 +2992,12 @@ async function getDischargeReadiness(admissionId, options = {}) {
       });
     }
 
-    const pendingResults = await prisma.$queryRawUnsafe(
+    inpatientPathway = await getInpatientDischargeEvidence(admissionId, {
+      tenantId: admissionPre.tenant_id,
+    });
+
+    if (inpatientPathway.mode !== PATHWAY_MODES.ACTIVE) {
+      const pendingResults = await prisma.$queryRawUnsafe(
       `SELECT id FROM investigations
         WHERE patient_uid = $1::uuid
           AND COALESCE(status, '') NOT IN ('COMPLETED', 'CANCELLED', 'completed', 'cancelled')
@@ -2567,36 +3006,36 @@ async function getDischargeReadiness(admissionId, options = {}) {
       admissionPre.patient_uid,
       admissionPre.admitted_at,
     );
-    if (pendingResults.length > 0) {
-      blockers.push({
-        type: 'PENDING_RESULTS',
-        message: `${pendingResults.length} pending lab/imaging result(s) tied to this admission. Review or cancel before discharge.`,
-        count: pendingResults.length,
-      });
-    }
+      if (pendingResults.length > 0) {
+        blockers.push({
+          type: 'PENDING_RESULTS',
+          message: `${pendingResults.length} pending lab/imaging result(s) tied to this admission. Review or cancel before discharge.`,
+          count: pendingResults.length,
+        });
+      }
 
-    const pendingRadiology = await prisma.radiology_orders.findMany({
-      where: {
-        patient_uid: admissionPre.patient_uid,
-        status: { notIn: ['completed', 'cancelled', 'reported', 'signed_off'] },
-        created_at: admissionPre.admitted_at ? { gte: admissionPre.admitted_at } : undefined,
-      },
-      select: { id: true, modality: true, body_part: true, status: true },
-      take: 5,
-    });
-    if (pendingRadiology.length > 0) {
-      blockers.push({
-        type: 'PENDING_RADIOLOGY',
-        message: `${pendingRadiology.length} pending radiology order(s) (${pendingRadiology
-          .map((r) => `${r.modality} ${r.body_part || ''} [${r.status}]`.trim())
-          .join(', ')}). Resolve or cancel before discharge.`,
-        count: pendingRadiology.length,
-        orders: pendingRadiology,
+      const pendingRadiology = await prisma.radiology_orders.findMany({
+        where: {
+          patient_uid: admissionPre.patient_uid,
+          status: { notIn: ['completed', 'cancelled', 'reported', 'signed_off'] },
+          created_at: admissionPre.admitted_at ? { gte: admissionPre.admitted_at } : undefined,
+        },
+        select: { id: true, modality: true, body_part: true, status: true },
+        take: 5,
       });
-    }
+      if (pendingRadiology.length > 0) {
+        blockers.push({
+          type: 'PENDING_RADIOLOGY',
+          message: `${pendingRadiology.length} pending radiology order(s) (${pendingRadiology
+            .map((r) => `${r.modality} ${r.body_part || ''} [${r.status}]`.trim())
+            .join(', ')}). Resolve or cancel before discharge.`,
+          count: pendingRadiology.length,
+          orders: pendingRadiology,
+        });
+      }
 
-    try {
-      const followupRows = await prisma.$queryRawUnsafe(
+      try {
+        const followupRows = await prisma.$queryRawUnsafe(
         `SELECT id, due_at, appointment_id, status
            FROM follow_up_plans
           WHERE patient_uid = $1::uuid
@@ -2608,14 +3047,21 @@ async function getDischargeReadiness(admissionId, options = {}) {
         Number.isFinite(admissionPre.encounter_id) ? admissionPre.encounter_id : null,
         admissionPre.admitted_at ? new Date(admissionPre.admitted_at).toISOString() : null,
       );
-      if (followupRows.length === 0) {
-        blockers.push({
-          type: 'FOLLOWUP_NOT_BOOKED',
-          message: 'Final discharge requires a booked follow-up plan (e.g., POD1 review) for this admission. Create one via POST /admin/follow-ups before final discharge.',
-        });
+        if (followupRows.length === 0) {
+          blockers.push({
+            type: 'FOLLOWUP_NOT_BOOKED',
+            message: 'Final discharge requires a booked follow-up plan (e.g., POD1 review) for this admission. Create one via POST /admin/follow-ups before final discharge.',
+          });
+        }
+      } catch (e) {
+        logger.warn(`Discharge readiness: follow-up check skipped (${e.message})`);
       }
-    } catch (e) {
-      logger.warn(`Discharge readiness: follow-up check skipped (${e.message})`);
+    } else {
+      blockers.push(...inpatientPathway.active_blockers);
+      blockers.push(...activeDischargeBranchBlockers(
+        dischargeType,
+        inpatientPathway.mode,
+      ));
     }
   }
 
@@ -2633,6 +3079,8 @@ async function getDischargeReadiness(admissionId, options = {}) {
     blockers,
     blocker_count: blockers.length,
     rules_authoritative: true,
+    pathway_mode: inpatientPathway?.mode || PATHWAY_MODES.OFF,
+    inpatient_pathway: inpatientPathway,
   };
 }
 
@@ -2662,6 +3110,7 @@ async function getDischargeHub(admissionId, actor = {}) {
       : aiMetadata?.fallback_reason
         ? 'fallback'
         : 'rules_draft';
+  const pendingResults = readiness.inpatient_pathway?.pending_results?.items || [];
 
   return {
     admission,
@@ -2694,6 +3143,16 @@ async function getDischargeHub(admissionId, actor = {}) {
           safety_flag_count: 0,
         },
     readiness,
+    pathway_mode: readiness.pathway_mode,
+    pending_results: pendingResults,
+    pending_result_handoffs: pendingResults,
+    pending_result_counts: {
+      total: pendingResults.length,
+      blocking: pendingResults.filter((item) => item.blocking).length,
+      handoff_complete_warning: pendingResults.filter(
+        (item) => item.handoff_complete_warning,
+      ).length,
+    },
     actor: {
       uid: actor.uid || null,
       role: actorRole || null,
@@ -2819,6 +3278,36 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
     if (!allowedFrom || !allowedFrom.includes('discharged')) {
       throw AppError.invalidTransition(admission.status, 'discharged', allowedFrom || []);
     }
+    if (READINESS_GATED_DISCHARGE_TYPES.has(discharge_type)) {
+      const activeReadiness = await getInpatientDischargeEvidenceTx(admission.id, {
+        tenantId: admission.tenant_id,
+        tx,
+      });
+      const lockedActiveBlockers = [
+        ...activeReadiness.active_blockers,
+        ...activeDischargeBranchBlockers(
+          discharge_type,
+          activeReadiness.mode,
+        ),
+      ];
+      if (
+        activeReadiness.mode === PATHWAY_MODES.ACTIVE
+        && lockedActiveBlockers.length > 0
+      ) {
+        const err = AppError.badRequest(
+          'Discharge blocked — active inpatient evidence changed before final discharge.',
+        );
+        err.code = 'DISCHARGE_NOT_READY';
+        err.details = {
+          blockers: lockedActiveBlockers,
+          checklist: buildDischargeReadinessChecklist(
+            lockedActiveBlockers,
+            { gated: true, transitionAllowed: true },
+          ),
+        };
+        throw err;
+      }
+    }
 
     const losDays = computeLos(admission.admitted_at, new Date());
     const targetStatus = discharge_type === 'lama' ? 'lama'
@@ -2903,8 +3392,20 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
       db: tx,
       admission: { ...updated, discharge_type },
       actorUid: dischargedBy,
-      actorRole: 'DISCHARGE',
+      actorRole: options.actorRole || 'DISCHARGE',
       payload: {
+        los_days: losDays,
+        bed_turnover: bedTurnover,
+      },
+    });
+    await publishInpatientSourceEventTx({
+      tx,
+      tenantId: updated.tenant_id,
+      eventType: 'discharge.completed',
+      admission: updated,
+      payload: {
+        patient_uid: updated.patient_uid,
+        discharge_type,
         los_days: losDays,
         bed_turnover: bedTurnover,
       },
@@ -3010,12 +3511,21 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     // here with a typed lock-then-include via two queries so the join can be
     // expressed via Prisma.
     const targetBedLocked = await tx.$queryRaw`
-      SELECT id, status, bed_number FROM beds
+      SELECT id, status, bed_number, bed_type FROM beds
       WHERE id = ${toBedId}
         AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
       FOR UPDATE
     `;
     if (!targetBedLocked.length) throw AppError.notFound('Target bed not found');
+    if (
+      ICU_BED_TYPES.has(String(targetBedLocked[0].bed_type || '').toLowerCase())
+      && !canAllocateIcu(normalizeCanonicalRole(options.actorRole))
+    ) {
+      throw AppError.forbidden(
+        'Transfer to ICU/CCU requires physician or admission-officer authorisation',
+        'ICU_TIER_REQUIRED',
+      );
+    }
     if (targetBedLocked[0].status !== 'available') {
       throw AppError.badRequest(`Target bed ${targetBedLocked[0].bed_number} is not available (current status: ${targetBedLocked[0].status})`);
     }
@@ -3028,11 +3538,75 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
       select: {
         id: true,
         bed_number: true,
+        ward_id: true,
         wards: { select: { name: true } },
       },
     });
     const targetBedNumber = targetBed?.bed_number ?? targetBedLocked[0].bed_number;
     const targetWardName = targetBed?.wards?.name ?? null;
+    if (
+      toWardId != null
+      && Number(toWardId) !== Number(targetBed?.ward_id)
+    ) {
+      throw AppError.badRequest(
+        'to_ward_id must match the target bed ward',
+        'BED_TRANSFER_WARD_MISMATCH',
+      );
+    }
+
+    const fromBedRows = fromBedId
+      ? await tx.$queryRaw`
+          SELECT id, bed_type, status, admission_id, patient_uid
+            FROM beds
+           WHERE id = ${fromBedId}
+             AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+           FOR UPDATE
+        `
+      : [];
+    const fromBed = fromBedRows[0] || null;
+    if (
+      fromBedId
+      && (
+        !fromBed
+        || String(fromBed.status || '').toLowerCase() !== 'occupied'
+        || Number(fromBed.admission_id) !== Number(admissionId)
+        || String(fromBed.patient_uid || '').toLowerCase()
+          !== String(admission.patient_uid).toLowerCase()
+      )
+    ) {
+      throw AppError.conflict(
+        'The admission source bed is not occupied by this exact admission and patient',
+        'BED_TRANSFER_SOURCE_BACKLINK_MISMATCH',
+      );
+    }
+    const fromBedType = String(fromBed?.bed_type || '').toLowerCase() || null;
+    const toBedType = String(targetBedLocked[0].bed_type || '').toLowerCase() || null;
+    const classRank = {
+      general: 1,
+      semi_private: 2,
+      private: 3,
+      deluxe: 4,
+      icu: 5,
+      day_care: 1,
+    };
+    const isClassUpgrade = (classRank[toBedType] || 0) > (classRank[fromBedType] || 0)
+      && fromBedType !== toBedType
+      && !ICU_BED_TYPES.has(toBedType);
+    if (isClassUpgrade && options.acknowledgeClassChange !== true) {
+      throw AppError.badRequest(
+        `Bed transfer ${fromBedType} → ${toBedType} changes the room class and tariff. `
+          + 'The patient/guardian must consent to the upgrade and the cost difference. '
+          + 'Re-submit with acknowledge_class_change: true after consent is recorded.',
+        'BED_TRANSFER_CLASS_CHANGE_UNACKNOWLEDGED',
+        {
+          from_bed_type: fromBedType,
+          to_bed_type: toBedType,
+        },
+      );
+    }
+    const targetRoomCategory = VALID_ROOM_CATEGORIES.includes(toBedType)
+      ? toBedType
+      : null;
 
     // Resolve patient int id for beds FK
     const patientUser = await tx.users.findFirst({
@@ -3048,8 +3622,8 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     // Bed back-linking on transfer. Clear from-bed fully and send it
     // through housekeeping before it can be allocated again, then
     // snapshot the admission onto the to-bed.
-    // Migration 172. Patients freely move between bed categories
-    // mid-admission per project decision (2026-05-09); no category gate.
+    // Migration 172. The target bed is authoritative for the ward and room
+    // category; class upgrades require the D34 consent acknowledgement above.
     if (fromBedId) {
       await tx.beds.update({
         where: { id: fromBedId },
@@ -3102,7 +3676,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
       },
     });
 
-    const newWard = toWardId || targetWardName || admission.ward;
+    const newWard = targetWardName || admission.ward;
 
     const updated = await tx.admissions.update({
       where: { id: admissionId },
@@ -3111,6 +3685,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
         ward: newWard,
         bed_number: targetBedNumber,
         status: 'transferred',
+        ...(targetRoomCategory ? { room_category: targetRoomCategory } : {}),
         updated_at: new Date(),
       },
       select: ADMISSION_RETURNING_SELECT,
@@ -3123,7 +3698,14 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
         resource: 'admission',
         resource_id: String(admissionId),
         metadata: {
-          from_bed_id: fromBedId, to_bed_id: toBedId, to_ward: newWard, reason,
+          from_bed_id: fromBedId,
+          to_bed_id: toBedId,
+          to_ward: newWard,
+          reason,
+          from_bed_type: fromBedType,
+          to_bed_type: toBedType,
+          class_change: isClassUpgrade,
+          class_change_acknowledged: options.acknowledgeClassChange === true,
           patient_uid: admission.patient_uid,
         },
         ip_address: null,
@@ -3155,12 +3737,31 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
         to_bed_id: toBedId,
         to_ward: updated.ward,
         bed_number: updated.bed_number,
+        room_category: updated.room_category,
+        from_bed_type: fromBedType,
+        to_bed_type: toBedType,
+        class_change: isClassUpgrade,
+        class_change_acknowledged: options.acknowledgeClassChange === true,
         reason: reason || 'Transfer',
       },
       afterState: updated,
       timelineIdempotencyKey: `admissions:${admissionId}:bed_transferred:${toBedId}:${updated.updated_at?.toISOString?.() || Date.now()}`,
       auditIdempotencyKey: `admissions:${admissionId}:audit:bed_transferred:${toBedId}:${updated.updated_at?.toISOString?.() || Date.now()}`,
     }, tx);
+    await publishInpatientSourceEventTx({
+      tx,
+      tenantId: updated.tenant_id,
+      eventType: 'bed.transferred',
+      admission: updated,
+      aggregateType: 'bed_transfer',
+      aggregateId: `${admissionId}:${toBedId}`,
+      payload: {
+        patient_uid: updated.patient_uid,
+        from_bed_id: fromBedId || null,
+        to_bed_id: toBedId,
+        to_ward: updated.ward,
+      },
+    });
 
     logger.info(`Admission #${admissionId} transferred: bed ${fromBedId} -> ${toBedId}`);
     return {
@@ -3882,12 +4483,13 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy, options 
   // attending uid with any uuid — even a patient or HR user — and the
   // discharge-summary signer lookup picks up the bad uid. Finding:
   //   2026-05-22-inpatient-admission-receptionist-06e43c24.
-  await assertDoctorUid(doctorUid, 'doctor_uid');
+  await assertDoctorUid(doctorUid, 'doctor_uid', tenantId);
 
   return setTenantTx(requireTenantId(tenantId), async (tx) => {
     // FOR UPDATE lock on admission row.
     const admRows = await tx.$queryRaw`
-      SELECT id, tenant_id, attending_doctor, patient_uid, status
+      SELECT id, tenant_id, attending_doctor, admitting_doctor,
+             patient_uid, encounter_id, status
       FROM admissions
       WHERE id = ${admissionId}
         AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
@@ -3899,6 +4501,23 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy, options 
     }
 
     const previousDoctor = admRows[0].attending_doctor;
+    if (
+      String(previousDoctor || '').toLowerCase()
+      === String(doctorUid || '').toLowerCase()
+    ) {
+      await recordPrimaryPhysicianChangeTx({
+        tx,
+        admission: admRows[0],
+        physicianUid: doctorUid,
+        acceptedHandoffId: options.acceptedHandoffId || null,
+        actorUid: updatedBy,
+        actorRole: options.actorRole || options.role || null,
+      });
+      return findAdmissionById(tx, admissionId, {
+        tenantId,
+        select: ADMISSION_RETURNING_SELECT,
+      });
+    }
 
     const updated = await tx.admissions.update({
       where: { id: admissionId },
@@ -3942,6 +4561,14 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy, options 
       timelineIdempotencyKey: `admissions:${admissionId}:attending_doctor:${doctorUid}:${updated.updated_at?.toISOString?.() || Date.now()}`,
       auditIdempotencyKey: `admissions:${admissionId}:audit:attending_doctor:${doctorUid}:${updated.updated_at?.toISOString?.() || Date.now()}`,
     }, tx);
+    await recordPrimaryPhysicianChangeTx({
+      tx,
+      admission: updated,
+      physicianUid: doctorUid,
+      acceptedHandoffId: options.acceptedHandoffId || null,
+      actorUid: updatedBy,
+      actorRole: options.actorRole || options.role || null,
+    });
     return updated;
   });
 }

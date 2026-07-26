@@ -19,7 +19,9 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const createAppointmentMock = jest.fn();
 const getAppointmentByIdMock = jest.fn();
 const rescheduleInPlaceMock = jest.fn();
+const updateAppointmentMock = jest.fn();
 const validateBookingRequestMock = jest.fn();
+const validateUpdateRequestMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: jest.fn(async () => []) },
@@ -29,7 +31,7 @@ jest.unstable_mockModule('../../services/appointment/appointmentService.js', () 
   default: {
     createAppointment: createAppointmentMock,
     getAppointmentById: getAppointmentByIdMock,
-    updateAppointment: jest.fn(),
+    updateAppointment: updateAppointmentMock,
     cancelAppointment: jest.fn(),
     rescheduleAppointmentInPlace: rescheduleInPlaceMock,
   },
@@ -40,7 +42,7 @@ jest.unstable_mockModule('../../services/appointment/appointmentQueryService.js'
 jest.unstable_mockModule('../../services/appointment/appointmentValidationService.js', () => ({
   default: {
     validateBookingRequest: validateBookingRequestMock,
-    validateUpdateRequest: jest.fn(),
+    validateUpdateRequest: validateUpdateRequestMock,
   },
 }));
 jest.unstable_mockModule('../../utils/appointment/appointmentHelpers.js', () => ({
@@ -100,7 +102,9 @@ beforeEach(() => {
   createAppointmentMock.mockReset();
   getAppointmentByIdMock.mockReset();
   rescheduleInPlaceMock.mockReset();
+  updateAppointmentMock.mockReset();
   validateBookingRequestMock.mockReset();
+  validateUpdateRequestMock.mockReset();
 });
 
 describe('appointmentCrudController relays AppError code + details over HTTP', () => {
@@ -200,6 +204,100 @@ describe('appointmentCrudController relays AppError code + details over HTTP', (
     expect(response.statusCode).toBe(403);
     expect(response.body.code).toBe('RESCHEDULE_WINDOW_CLOSED');
     expect(response.body.details).toEqual({ reason: 'x' });
+  });
+
+  test('reschedule preserves an OP ownership-integrity conflict instead of calling it a slot conflict', async () => {
+    getAppointmentByIdMock.mockResolvedValueOnce({
+      id: 55, patient_id: 1, doctor_id: 2, status: 'SCHEDULED',
+    });
+    rescheduleInPlaceMock.mockRejectedValueOnce(AppError.conflict(
+      'Changing the doctor requires an explicit accepted OP ownership handoff',
+      'APPOINTMENT_RESCHEDULE_OWNER_CHANGE_REQUIRES_HANDOFF',
+    ));
+
+    const response = await request(app)
+      .patch('/api/v1/appointments/55/reschedule')
+      .send({
+        appointment_date: '2026-08-01',
+        appointment_time: '13:15',
+        doctor_id: 3,
+      });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body.message).toBe(
+      'Changing the doctor requires an explicit accepted OP ownership handoff',
+    );
+    expect(response.body.code).toBe(
+      'APPOINTMENT_RESCHEDULE_OWNER_CHANGE_REQUIRES_HANDOFF',
+    );
+    expect(response.body.details?.code).not.toBe('APPOINTMENT_SLOT_CONFLICT');
+  });
+
+  test('PUT scheduling changes use the governed same-row reschedule seam', async () => {
+    getAppointmentByIdMock.mockResolvedValueOnce({
+      id: 55,
+      patient_id: 1,
+      doctor_id: 2,
+      status: 'SCHEDULED',
+      appointment_date: '2026-08-01',
+      appointment_time: '10:00',
+    });
+    validateUpdateRequestMock.mockResolvedValueOnce({ valid: true });
+    rescheduleInPlaceMock.mockResolvedValueOnce({
+      appointment: {
+        id: 55,
+        status: 'SCHEDULED',
+        appointment_date: '2026-08-02',
+        appointment_time: '13:15',
+      },
+    });
+
+    const response = await request(app)
+      .put('/api/v1/appointments/55')
+      .send({
+        appointment_date: '2026-08-02',
+        appointment_time: '13:15',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(rescheduleInPlaceMock).toHaveBeenCalledWith(
+      '55',
+      expect.objectContaining({
+        appointment_date: '2026-08-02',
+        appointment_time: '13:15',
+      }),
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        actorRole: 'RECEPTIONIST',
+      }),
+    );
+    expect(updateAppointmentMock).not.toHaveBeenCalled();
+  });
+
+  test('PUT relays a live OP reschedule integrity rejection', async () => {
+    getAppointmentByIdMock.mockResolvedValueOnce({
+      id: 55,
+      patient_id: 1,
+      doctor_id: 2,
+      status: 'SCHEDULED',
+      appointment_date: '2026-08-01',
+      appointment_time: '10:00',
+    });
+    validateUpdateRequestMock.mockResolvedValueOnce({ valid: true });
+    rescheduleInPlaceMock.mockRejectedValueOnce(AppError.conflict(
+      'Changing the schedule requires the governed OP reschedule workflow',
+      'APPOINTMENT_RESCHEDULE_OWNER_CHANGE_REQUIRES_HANDOFF',
+    ));
+
+    const response = await request(app)
+      .put('/api/v1/appointments/55')
+      .send({ appointment_date: '2026-08-02' });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body.code).toBe(
+      'APPOINTMENT_RESCHEDULE_OWNER_CHANGE_REQUIRES_HANDOFF',
+    );
+    expect(updateAppointmentMock).not.toHaveBeenCalled();
   });
 
   test('reschedule returns the generic 500 for a non-AppError and never leaks err.message', async () => {

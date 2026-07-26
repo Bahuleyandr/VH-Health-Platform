@@ -4,11 +4,20 @@ import {
   CANONICAL_PATHWAY_KEYS,
   CARE_PATHWAY_KEYS,
 } from './pathwayMode.js';
+import {
+  workflowRuntimeRegistryV2,
+  workflowRuntimeRegistryV3,
+  workflowRuntimeRegistryV4,
+} from '../workflow/workflowRuntimeRegistry.js';
 import { compileDiagnosticsOrderToActionDefinition } from './diagnosticsPathwayDefinition.js';
+import { compileInpatientAdmissionToRecoveryDefinition } from './inpatientPathwayDefinition.js';
+import { compileOpContactToRecoveryDefinition } from './opPathwayDefinition.js';
 import { compileReferralRequestToClosureDefinition } from './referralPathwayDefinition.js';
 import {
   COMMON_PATHWAY_RECONCILIATION_CHECKS,
   DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS,
+  INPATIENT_PATHWAY_RECONCILIATION_CHECKS,
+  OP_PATHWAY_RECONCILIATION_CHECKS,
   REFERRAL_PATHWAY_RECONCILIATION_CHECKS,
 } from './pathwayReconciliationChecks.js';
 
@@ -406,27 +415,31 @@ const EMERGENCY_CLOCK_EXCLUSIONS = Object.freeze([
   ownerEvidenceRef,
 })));
 
-const diagnosticsDefinition = compileDiagnosticsOrderToActionDefinition();
-const DIAGNOSTICS_ADAPTER = Object.freeze({
+const diagnosticsDefinitionV4 = compileDiagnosticsOrderToActionDefinition({
+  registry: workflowRuntimeRegistryV3,
+});
+const DIAGNOSTICS_ADAPTER_V4 = Object.freeze({
   adapterId: 'diagnostics_order_to_action_v1',
   adapterVersion: 'diagnostics.reconciliation_adapter.v1',
   workflowKey: CARE_PATHWAY_KEYS.DIAGNOSTICS,
-  definitionVersion: diagnosticsDefinition.version,
-  definitionChecksum: diagnosticsDefinition.checksum,
+  definitionVersion: diagnosticsDefinitionV4.version,
+  definitionChecksum: diagnosticsDefinitionV4.checksum,
   checks: DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS,
 });
 
-const referralDefinition = compileReferralRequestToClosureDefinition();
+const referralDefinitionV4 = compileReferralRequestToClosureDefinition({
+  registry: workflowRuntimeRegistryV3,
+});
 const REFERRAL_ADAPTER = Object.freeze({
   adapterId: 'referral_request_to_closure_v1',
   adapterVersion: 'referral.reconciliation_adapter.v1',
   workflowKey: CARE_PATHWAY_KEYS.REFERRAL,
-  definitionVersion: referralDefinition.version,
-  definitionChecksum: referralDefinition.checksum,
+  definitionVersion: referralDefinitionV4.version,
+  definitionChecksum: referralDefinitionV4.checksum,
   checks: REFERRAL_PATHWAY_RECONCILIATION_CHECKS,
 });
 
-const productionProfiles = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
+const productionProfilesV4 = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
   pathwayKey,
   profileVersion: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS
     ? 2
@@ -435,7 +448,7 @@ const productionProfiles = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
       : 1,
   commonCheckIds: COMMON_CHECK_IDS,
   domainAdapters: pathwayKey === CARE_PATHWAY_KEYS.DIAGNOSTICS
-    ? [DIAGNOSTICS_ADAPTER]
+    ? [DIAGNOSTICS_ADAPTER_V4]
     : pathwayKey === CARE_PATHWAY_KEYS.REFERRAL
       ? [REFERRAL_ADAPTER]
       : [],
@@ -450,10 +463,85 @@ const productionProfiles = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
     : NO_VERTICAL_ADAPTER,
 }));
 
-export const pathwayReconciliationRegistry = createPathwayReconciliationRegistry({
+export const pathwayReconciliationRegistryV4 = createPathwayReconciliationRegistry({
   version: 4,
   commonChecks: COMMON_PATHWAY_RECONCILIATION_CHECKS,
-  profiles: productionProfiles,
+  profiles: productionProfilesV4,
 });
+
+const diagnosticsDefinitionV5 = compileDiagnosticsOrderToActionDefinition({
+  registry: workflowRuntimeRegistryV2,
+});
+const referralDefinitionV5 = compileReferralRequestToClosureDefinition({
+  registry: workflowRuntimeRegistryV3,
+});
+const opDefinitionV5 = compileOpContactToRecoveryDefinition({
+  registry: workflowRuntimeRegistryV4,
+});
+const inpatientDefinitionV5 = compileInpatientAdmissionToRecoveryDefinition({
+  registry: workflowRuntimeRegistryV4,
+});
+
+const PRODUCTION_ADAPTERS_V5 = Object.freeze({
+  [CARE_PATHWAY_KEYS.DIAGNOSTICS]: Object.freeze({
+    adapterId: 'diagnostics_order_to_action_v1',
+    adapterVersion: 'diagnostics.reconciliation_adapter.v1',
+    workflowKey: CARE_PATHWAY_KEYS.DIAGNOSTICS,
+    definitionVersion: diagnosticsDefinitionV5.version,
+    definitionChecksum: diagnosticsDefinitionV5.checksum,
+    checks: DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS,
+  }),
+  [CARE_PATHWAY_KEYS.REFERRAL]: Object.freeze({
+    adapterId: 'referral_request_to_closure_v1',
+    adapterVersion: 'referral.reconciliation_adapter.v1',
+    workflowKey: CARE_PATHWAY_KEYS.REFERRAL,
+    definitionVersion: referralDefinitionV5.version,
+    definitionChecksum: referralDefinitionV5.checksum,
+    checks: REFERRAL_PATHWAY_RECONCILIATION_CHECKS,
+  }),
+  [CARE_PATHWAY_KEYS.OP]: Object.freeze({
+    adapterId: 'op_contact_to_recovery_v1',
+    adapterVersion: 'op.reconciliation_adapter.v1',
+    workflowKey: CARE_PATHWAY_KEYS.OP,
+    definitionVersion: opDefinitionV5.version,
+    definitionChecksum: opDefinitionV5.checksum,
+    checks: OP_PATHWAY_RECONCILIATION_CHECKS,
+  }),
+  [CARE_PATHWAY_KEYS.INPATIENT]: Object.freeze({
+    adapterId: 'inpatient_admission_to_recovery_v1',
+    adapterVersion: 'inpatient.reconciliation_adapter.v1',
+    workflowKey: CARE_PATHWAY_KEYS.INPATIENT,
+    definitionVersion: inpatientDefinitionV5.version,
+    definitionChecksum: inpatientDefinitionV5.checksum,
+    checks: INPATIENT_PATHWAY_RECONCILIATION_CHECKS,
+  }),
+});
+
+const V5_ADAPTER_PATHWAY_KEYS = new Set(Object.keys(PRODUCTION_ADAPTERS_V5));
+const productionProfilesV5 = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
+  pathwayKey,
+  profileVersion: V5_ADAPTER_PATHWAY_KEYS.has(pathwayKey) ? 2 : 1,
+  commonCheckIds: COMMON_CHECK_IDS,
+  domainAdapters: V5_ADAPTER_PATHWAY_KEYS.has(pathwayKey)
+    ? [PRODUCTION_ADAPTERS_V5[pathwayKey]]
+    : [],
+  repairDescriptors: [],
+  excludedClocks: pathwayKey === CARE_PATHWAY_KEYS.EMERGENCY
+    ? EMERGENCY_CLOCK_EXCLUSIONS
+    : pathwayKey === CARE_PATHWAY_KEYS.INPATIENT
+      ? PORTER_EXCLUSIONS
+      : [],
+  blockingReason: V5_ADAPTER_PATHWAY_KEYS.has(pathwayKey)
+    ? null
+    : NO_VERTICAL_ADAPTER,
+}));
+
+export const pathwayReconciliationRegistryV5 = createPathwayReconciliationRegistry({
+  version: 5,
+  commonChecks: COMMON_PATHWAY_RECONCILIATION_CHECKS,
+  profiles: productionProfilesV5,
+});
+
+export const pathwayReconciliationRegistry = pathwayReconciliationRegistryV5;
 
 export default pathwayReconciliationRegistry;

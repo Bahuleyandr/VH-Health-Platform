@@ -1017,6 +1017,9 @@
   "dischargeSummaryOpenPdf": "Open PDF",
   "dischargeSummaryOpeningPdf": "Opening PDF...",
   "dischargeSummaryPdfOpenFailed": "Could not open the discharge summary PDF.",
+  "dischargeSummaryPendingResultsTitle": "Results pending at discharge",
+  "dischargeSummaryPendingResultsSubtitle": "These results were pending when this signed summary was issued. The named clinician remains responsible for follow-up.",
+  "dischargeSummaryPendingResultClinician": "Responsible clinician",
   "dischargeSummariesOfficialHint": "Official signed summaries from your hospital stay are fetched separately.",
   "labResultsTitle": "Lab results",
   "labResultsEmptyTitle": "No lab results yet",
@@ -1953,7 +1956,7 @@
   "@yourHealthWhatsNextTitle": {
     "description": "Heading for the care-plan next steps section in Your Health"
   },
-  "yourHealthWhatsNextSubtitle": "Goals and follow-ups your care team marked for you.",
+  "yourHealthWhatsNextSubtitle": "Information and next steps your care team shared with you.",
   "@yourHealthWhatsNextSubtitle": {
     "description": "Subtitle for the care-plan next steps section"
   },
@@ -1989,6 +1992,36 @@
   "@yourHealthWhatsNextDue": {
     "description": "Label before a care-plan due date"
   },
+  "yourHealthWhatsNextActions": "Next steps",
+  "@yourHealthWhatsNextActions": {
+    "description": "Heading for patient-safe next-step actions"
+  },
+  "yourHealthWhatsNextStatus": "Status",
+  "@yourHealthWhatsNextStatus": {
+    "description": "Label before a patient-safe next-step status"
+  },
+  "yourHealthWhatsNextResponsibleClinician": "Responsible clinician",
+  "@yourHealthWhatsNextResponsibleClinician": {
+    "description": "Label before the responsible clinician display name and role"
+  },
+  "yourHealthWhatsNextContact": "Contact",
+  "@yourHealthWhatsNextContact": {
+    "description": "Label before approved patient-safe contact guidance"
+  },
+  "yourHealthWhatsNextPatientAction": "What you can do",
+  "@yourHealthWhatsNextPatientAction": {
+    "description": "Label before the action the patient can take"
+  },
+  "yourHealthWhatsNextStatusPlanned": "Planned",
+  "yourHealthWhatsNextStatusOpen": "Open",
+  "yourHealthWhatsNextStatusScheduled": "Scheduled",
+  "yourHealthWhatsNextStatusPending": "Pending",
+  "yourHealthWhatsNextStatusInProgress": "In progress",
+  "yourHealthWhatsNextStatusReady": "Ready",
+  "yourHealthWhatsNextStatusCompleted": "Completed",
+  "yourHealthWhatsNextStatusCancelled": "Cancelled",
+  "yourHealthWhatsNextStatusOnHold": "On hold",
+  "yourHealthWhatsNextStatusOverdue": "Overdue",
   "ancTimelineTitle": "ANC Timeline",
   "@ancTimelineTitle": {
     "description": "Screen title for antenatal-care timeline"

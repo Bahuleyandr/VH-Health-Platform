@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/models/care_pathway_work_models.dart';
 import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -9,6 +10,17 @@ import '../../../l10n/app_strings.dart';
 import '../widgets/icu_chart_depth_panel.dart';
 import '../widgets/nicu_picu_chart_panel.dart';
 import '../widgets/patient_summary_sheet.dart';
+
+@visibleForTesting
+String patientCommandBoardTaskOwnerLabel(CarePathwayTaskItem task) {
+  final ownerIdentity = task.ownerName?.trim().isNotEmpty == true
+      ? task.ownerName!.trim()
+      : task.ownerUid?.trim() ?? '';
+  return [
+    ownerIdentity,
+    task.ownerRole?.trim() ?? '',
+  ].where((part) => part.isNotEmpty).join(' · ');
+}
 
 @visibleForTesting
 String patientCommandBoardScopeLabel(Map<String, dynamic> board) {
@@ -602,20 +614,56 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       title: s.lookup('s4.lib.patient_command_board.open_tasks_referrals'),
       rows: tasks,
       empty: s.lookup('s4.lib.patient_command_board.no_open_tasks'),
-      itemBuilder: (item) => ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.task_alt_outlined),
-        title: Text(
-          _text(item['label'], s.lookup('s4.lib.patient_command_board.task')),
-        ),
-        subtitle: Text(
-          [
-            _text(item['kind']).replaceAll('_', ' '),
-            _text(item['status']),
-            _text(item['priority']),
-          ].where((part) => part.isNotEmpty).join(' - '),
-        ),
-      ),
+      itemBuilder: (item) {
+        final task = CarePathwayTaskItem.fromJson(item);
+        final owner = patientCommandBoardTaskOwnerLabel(task);
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            task.isBlocking ? Icons.report_outlined : Icons.task_alt_outlined,
+            color: task.isBlocking ? AppTheme.errorOnSurface : null,
+          ),
+          title: Text(
+            task.label.isEmpty
+                ? s.lookup('s4.lib.patient_command_board.task')
+                : task.label,
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                [task.kind, task.status, task.priority]
+                    .where((part) => part.isNotEmpty)
+                    .map((part) => part.replaceAll('_', ' '))
+                    .join(' · '),
+              ),
+              if (task.relationship.isNotEmpty)
+                Text(
+                  s.format(
+                    's4.dynamic.patient_command_board.task_relationship',
+                    {'relationship': task.relationship.replaceAll('_', ' ')},
+                  ),
+                ),
+              if (task.blockingState.isNotEmpty)
+                Text(
+                  s.format(
+                    's4.dynamic.patient_command_board.task_blocking_state',
+                    {'state': task.blockingState.replaceAll('_', ' ')},
+                  ),
+                ),
+              Text(
+                owner.isEmpty
+                    ? s.lookup(
+                        's4.lib.patient_command_board.named_owner_not_recorded',
+                      )
+                    : s.format('s4.dynamic.patient_command_board.task_owner', {
+                        'owner': owner,
+                      }),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

@@ -21,6 +21,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import prisma from '../src/lib/prisma.js';
 import { getTenantBySlug, createTenant, updateTenant } from '../src/services/tenant/tenantService.js';
+import { mergeGenericTenantSettings } from '../src/services/tenant/tenantSettingsMutationPolicy.js';
 import { provisionTenantKek } from '../src/services/security/tenantKekProvider.js';
 import { getActiveCatalogueCount } from '../src/services/immunisation/catalogueStatus.js';
 
@@ -88,7 +89,9 @@ async function main() {
     console.log(`  2. branding …………………… WOULD set settings.branding = ${JSON.stringify(branding)}`);
   } else {
     const current = (tenant.settings && typeof tenant.settings === 'object') ? tenant.settings : {};
-    const merged = { ...current, branding: { ...(current.branding || {}), ...branding } };
+    const merged = mergeGenericTenantSettings(current, {
+      branding: { ...(current.branding || {}), ...branding },
+    });
     tenant = await updateTenant(tenantId, { settings: merged });
     console.log(`  2. branding …………………… set (name="${branding.name}"${branding.primaryColor ? `, primary=${branding.primaryColor}` : ''})`);
   }

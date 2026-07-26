@@ -13,6 +13,7 @@ import {
   upsertInteropSecret,
 } from '../interop/tenantInteropSecretService.js';
 import { getTenantById, updateTenant } from '../tenant/tenantService.js';
+import { mergeGenericTenantSettings } from '../tenant/tenantSettingsMutationPolicy.js';
 import { AppError } from '../../utils/AppError.js';
 
 export const NHCX_SECRET_KINDS = Object.freeze({
@@ -176,10 +177,7 @@ export async function updateNHCXConfigForTenant(tenantId, patch = {}) {
   const settings = settingsObject(tenant.settings);
   const normalized = normalizeNHCXConfig(patch, existingNHCXSettings(tenant));
   const updated = await updateTenant(tenantId, {
-    settings: {
-      ...settings,
-      nhcx: normalized,
-    },
+    settings: mergeGenericTenantSettings(settings, { nhcx: normalized }),
   });
   clearNHCXConfigCache(tenantId);
   return publicConfig(normalizeNHCXConfig(existingNHCXSettings(updated)));

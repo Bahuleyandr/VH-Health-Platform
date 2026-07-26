@@ -25,6 +25,7 @@ import { getClinicalAiModule } from '../ai/clinicalAiModuleService.js';
 import { PATIENT_EXPLAINER_MODULE_KEYS } from '../ai/patientExplainersService.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { serializePatientPendingResults } from './patientSafeProjection.js';
 
 const ACTIVE_APPOINTMENT_STATUSES = ['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'CHECKED_IN'];
 const PENDING_LAB_ORDER_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'SAMPLE_COLLECTED', 'PROCESSING'];
@@ -1515,7 +1516,46 @@ async function fetchDischargeSummaryWithSections({ tenantId, patient_uid, where,
       ORDER BY display_order, id`,
     summary.id,
   );
-  return { ...summary, sections };
+  const pendingResultRows = await prisma.$queryRawUnsafe(
+    `SELECT handoff.discharge_summary_id,
+            handoff.summary_included_at,
+            handoff.summary_inclusion_timeline_event_id,
+            handoff.patient_safe_label,
+            handoff.handoff_state,
+            summary.status AS summary_status,
+            clinician.name AS resolved_clinician_display_name,
+            clinician.role AS resolved_clinician_role
+       FROM discharge_pending_result_handoffs AS handoff
+       JOIN discharge_summaries AS summary
+         ON summary.id = handoff.discharge_summary_id
+        AND summary.tenant_id = handoff.tenant_id
+        AND summary.admission_id = handoff.admission_id
+        AND summary.patient_uid = handoff.patient_uid
+       LEFT JOIN users AS clinician
+         ON clinician.uid = handoff.named_physician_uid
+        AND clinician.tenant_id = handoff.tenant_id
+      WHERE handoff.tenant_id = $1::uuid
+        AND handoff.patient_uid = $2::uuid
+        AND handoff.admission_id = $3::int
+        AND handoff.discharge_summary_id = $4::int
+        AND handoff.summary_included_at IS NOT NULL
+        AND handoff.summary_inclusion_timeline_event_id IS NOT NULL
+        AND summary.status = ANY($5::text[])
+        AND handoff.handoff_state <> 'superseded'
+      ORDER BY handoff.id`,
+    tenantId,
+    String(patient_uid),
+    summary.admission_id,
+    summary.id,
+    PATIENT_VISIBLE_DISCHARGE_STATUSES,
+  );
+  return {
+    ...summary,
+    sections,
+    pending_results: serializePatientPendingResults(pendingResultRows, {
+      summaryId: summary.id,
+    }),
+  };
 }
 
 export async function getMyDischargeSummary({ tenantId, patient_uid, id }) {

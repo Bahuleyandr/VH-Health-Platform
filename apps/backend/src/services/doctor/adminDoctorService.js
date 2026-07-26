@@ -2,7 +2,92 @@
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { CARE_PATHWAY_KEYS, PATHWAY_MODES } from '../pathways/pathwayMode.js';
+
+const OP_PATHWAY_KEY = CARE_PATHWAY_KEYS.OP;
+
+function normalizeDoctorIds(values) {
+  return [...new Set(
+    (Array.isArray(values) ? values : [values])
+      .map(value => Number.parseInt(value, 10))
+      .filter(value => Number.isInteger(value) && value > 0)
+  )];
+}
+
+async function lockFutureScheduledAppointmentsTx(tx, doctorIds) {
+  const normalizedIds = normalizeDoctorIds(doctorIds);
+  if (normalizedIds.length === 0) return [];
+
+  // Appointment booking does not take a doctor-profile row lock. The table
+  // lock closes the insert race between this preflight and the legacy bulk
+  // cancellation/reassignment statement.
+  await tx.$executeRawUnsafe(
+    'LOCK TABLE appointments IN SHARE ROW EXCLUSIVE MODE'
+  );
+  return tx.$queryRawUnsafe(
+    `SELECT appointment.id, appointment.tenant_id,
+            appointment.appointment_date, appointment.appointment_time,
+            CASE
+              WHEN LOWER(BTRIM(COALESCE(
+                tenant.settings -> 'care_pathways' ->> $2::text,
+                ''
+              ))) = 'active'
+              THEN 'active'
+              WHEN LOWER(BTRIM(COALESCE(
+                tenant.settings -> 'care_pathways' ->> $2::text,
+                ''
+              ))) = 'shadow'
+              THEN 'shadow'
+              ELSE 'off'
+            END AS pathway_mode,
+            EXISTS (
+              SELECT 1
+                FROM users AS patient
+                JOIN care_pathway_instances AS pathway
+                  ON pathway.tenant_id = appointment.tenant_id
+                 AND pathway.patient_uid = patient.uid
+                 AND pathway.pathway_key = $2::text
+                 AND pathway.source_episode_type = 'appointment'
+                 AND pathway.source_episode_id = appointment.id::text
+                 AND pathway.clinical_status IN ('planned', 'active', 'on_hold')
+               WHERE patient.tenant_id = appointment.tenant_id
+                 AND patient.id = appointment.patient_id
+            ) AS has_live_op_pathway
+       FROM appointments AS appointment
+       JOIN tenants AS tenant
+         ON tenant.id = appointment.tenant_id
+      WHERE appointment.doctor_id = ANY($1::int[])
+        AND appointment.status = 'SCHEDULED'
+        AND appointment.appointment_date > CURRENT_DATE
+      ORDER BY appointment.tenant_id, appointment.id
+      FOR UPDATE OF appointment, tenant`,
+    normalizedIds,
+    OP_PATHWAY_KEY
+  );
+}
+
+function requireGovernedAppointmentLifecycle(appointments, operation) {
+  const activeAppointments = appointments.filter(
+    appointment => appointment.pathway_mode === PATHWAY_MODES.ACTIVE
+  );
+  if (activeAppointments.length === 0) return;
+
+  const livePathwayCount = activeAppointments.filter(
+    appointment => appointment.has_live_op_pathway === true
+  ).length;
+  throw AppError.conflict(
+    'Active-pathway appointments must be cancelled or reassigned through the canonical per-appointment lifecycle and accepted ownership handoff workflow',
+    'DOCTOR_APPOINTMENT_PATHWAY_CONVERGENCE_REQUIRED',
+    {
+      operation,
+      affected_appointment_count: activeAppointments.length,
+      live_pathway_count: livePathwayCount,
+      projection_pending_count: activeAppointments.length - livePathwayCount
+    }
+  );
+}
 
 export class AdminDoctorService {
   // Get doctor management overview
@@ -261,21 +346,32 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       }
         
       case 'deactivate': {
-        const deactivateResult = await prisma.$queryRawUnsafe(
-          'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
-          doctorIds
-        );
-        
-        // Cancel future appointments for deactivated doctors
-        await prisma.$queryRawUnsafe(`
-          UPDATE appointments SET 
-            status = 'CANCELLED',
-            notes = COALESCE(notes || ' ', '') || 'Doctor deactivated by admin',
-            updated_at = NOW()
-          WHERE doctor_id = ANY($1) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-        `, doctorIds);
-        
-        results = deactivateResult;
+        results = await prisma.$transaction(async tx => {
+          const affectedAppointments = await lockFutureScheduledAppointmentsTx(
+            tx,
+            doctorIds
+          );
+          requireGovernedAppointmentLifecycle(
+            affectedAppointments,
+            'bulk_deactivate'
+          );
+          const deactivateResult = await tx.$queryRawUnsafe(
+            'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
+            doctorIds
+          );
+
+          // Preserve the legacy off/shadow behavior. Active-mode appointments
+          // have already failed closed above and must use the governed flow.
+          await tx.$queryRawUnsafe(`
+            UPDATE appointments SET
+              status = 'CANCELLED',
+              notes = COALESCE(notes || ' ', '') || 'Doctor deactivated by admin',
+              updated_at = NOW()
+            WHERE doctor_id = ANY($1) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+          `, doctorIds);
+
+          return deactivateResult;
+        });
         break;
       }
         
@@ -332,42 +428,68 @@ async performBulkOperation(operation, doctorIds, data = {}) {
     try {
       const doctorIdentifier = parseInt(id, 10);
       const { is_available, reason } = availabilityData;
-      
-      const result = await prisma.$queryRawUnsafe(`
-        UPDATE doctors SET 
-          is_available = $1,
-          updated_at = NOW()
-        WHERE id = $2 OR user_id = $2
-        RETURNING id, user_id, specialty as specialization, department, is_available, created_at, updated_at
-      `, is_available, doctorIdentifier);
-      
-      if (result.length === 0) {
-        throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
-      }
-      
-      let affectedAppointments = [];
-      
-      // If making unavailable, update scheduled appointments
-      if (!is_available) {
-        const doctorIds = [result[0].id, result[0].user_id].filter(Boolean).map(Number);
-        const doctorIdList = doctorIds.join(',');
-        const appointmentResult = await prisma.$queryRawUnsafe(`
-          UPDATE appointments SET 
-            status = 'CANCELLED',
-            notes = COALESCE(notes || ' ', '') || 'Doctor became unavailable: ' || COALESCE($1, 'Administrative decision'),
+
+      return prisma.$transaction(async tx => {
+        const doctorRows = await tx.$queryRawUnsafe(
+          `SELECT id, user_id, specialty AS specialization, department,
+                  is_available, created_at, updated_at
+             FROM doctors
+            WHERE id = $1 OR user_id = $1
+            ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END, id
+            FOR UPDATE`,
+          doctorIdentifier
+        );
+
+        if (doctorRows.length === 0) {
+          throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
+        }
+
+        let affectedAppointments = [];
+        if (!is_available) {
+          const doctorIds = normalizeDoctorIds(
+            doctorRows.flatMap(doctor => [doctor.id, doctor.user_id])
+          );
+          const scheduledAppointments = await lockFutureScheduledAppointmentsTx(
+            tx,
+            doctorIds
+          );
+          requireGovernedAppointmentLifecycle(
+            scheduledAppointments,
+            'availability_unavailable'
+          );
+        }
+
+        const result = await tx.$queryRawUnsafe(`
+          UPDATE doctors SET
+            is_available = $1,
             updated_at = NOW()
-          WHERE doctor_id = ANY(ARRAY[${doctorIdList}]::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-          RETURNING id, appointment_date, appointment_time
-        `, reason || null);
-        
-        affectedAppointments = appointmentResult;
-      }
-      
-      return {
-        doctor: result[0],
-        affected_appointments: affectedAppointments.length,
-        cancelled_appointments: affectedAppointments
-      };
+          WHERE id = $2 OR user_id = $2
+          RETURNING id, user_id, specialty as specialization, department, is_available, created_at, updated_at
+        `, is_available, doctorIdentifier);
+
+        // If making unavailable, preserve the legacy off/shadow cancellation.
+        if (!is_available) {
+          const doctorIds = normalizeDoctorIds(
+            result.flatMap(doctor => [doctor.id, doctor.user_id])
+          );
+          const appointmentResult = await tx.$queryRawUnsafe(`
+            UPDATE appointments SET
+              status = 'CANCELLED',
+              notes = COALESCE(notes || ' ', '') || 'Doctor became unavailable: ' || COALESCE($1, 'Administrative decision'),
+              updated_at = NOW()
+            WHERE doctor_id = ANY($2::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+            RETURNING id, appointment_date, appointment_time
+          `, reason || null, doctorIds);
+
+          affectedAppointments = appointmentResult;
+        }
+
+        return {
+          doctor: result[0],
+          affected_appointments: affectedAppointments.length,
+          cancelled_appointments: affectedAppointments
+        };
+      });
     } catch (error) {
       logger.error('Error updating doctor availability:', error);
       throw error;
@@ -379,82 +501,92 @@ async performBulkOperation(operation, doctorIds, data = {}) {
     try {
       const doctorIdentifier = parseInt(id, 10);
       const { reason, transfer_patients_to } = options;
-      
-      // Verify doctor exists
-      const doctorCheck = await prisma.$queryRawUnsafe(
-        `SELECT d.id, d.user_id, COALESCE(u.name, d.name) as name, d.department
-         FROM doctors d
-         LEFT JOIN users u ON u.id = d.user_id
-         WHERE d.id = $1 OR d.user_id = $1`,
-        doctorIdentifier
-      );
-      
-      if (doctorCheck.length === 0) {
-        throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
-      }
-      
-      const doctorIds = [doctorCheck[0].id, doctorCheck[0].user_id].filter(Boolean).map(Number);
-      const doctorIdList = doctorIds.join(',');
 
-      // Check for future appointments
-      const futureAppointments = await prisma.$queryRawUnsafe(
-        `SELECT COUNT(*)::int as count FROM appointments WHERE doctor_id = ANY(ARRAY[${doctorIdList}]::int[]) AND status = $1 AND appointment_date > CURRENT_DATE`,
-        'SCHEDULED'
-      );
-      
-      const futureCount = parseInt(futureAppointments[0].count);
-      
-      if (futureCount > 0 && !transfer_patients_to) {
-        throw new Error(`Doctor has ${futureCount} future appointments. Provide transfer_patients_to doctor ID or cancel appointments first`);
-      }
-      
-      // Transfer or cancel future appointments
-      if (futureCount > 0) {
-        if (transfer_patients_to) {
-          const transferTarget = parseInt(transfer_patients_to, 10);
-          // Verify transfer target doctor exists
-          const transferDoctor = await prisma.$queryRawUnsafe(
-            'SELECT name FROM users WHERE id = $1 AND role = $2',
-            transferTarget, 'DOCTOR'
-          );
-          
-          if (transferDoctor.length === 0) {
-            throw new Error('Transfer target doctor not found');
-          }
-          
-          await prisma.$executeRawUnsafe(`
-            UPDATE appointments SET 
-              doctor_id = $1,
-              notes = COALESCE(notes || ' ', '') || 'Transferred due to doctor account deletion',
-              updated_at = NOW()
-            WHERE doctor_id = ANY(ARRAY[${doctorIdList}]::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-          `, transferTarget);
-        } else {
-          await prisma.$executeRawUnsafe(`
-            UPDATE appointments SET 
-              status = 'CANCELLED',
-              notes = COALESCE(notes || ' ', '') || 'Doctor account deleted: ' || COALESCE($1, 'Administrative decision'),
-              updated_at = NOW()
-            WHERE doctor_id = ANY(ARRAY[${doctorIdList}]::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-          `, reason || null);
+      return prisma.$transaction(async tx => {
+        // Verify and lock the exact doctor row before deriving affected
+        // appointment tenants from the appointment rows themselves.
+        const doctorCheck = await tx.$queryRawUnsafe(
+          `SELECT d.id, d.user_id, d.tenant_id,
+                  COALESCE(u.name, d.name) as name, d.department
+             FROM doctors d
+             LEFT JOIN users u ON u.id = d.user_id
+            WHERE d.id = $1 OR d.user_id = $1
+            ORDER BY CASE WHEN d.id = $1 THEN 0 ELSE 1 END, d.id
+            FOR UPDATE OF d`,
+          doctorIdentifier
+        );
+
+        if (doctorCheck.length === 0) {
+          throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
         }
-      }
-      
-      // Soft delete: deactivate doctor
-      await prisma.$executeRawUnsafe(
-        'UPDATE doctors SET is_available = false, is_active = false, updated_at = NOW() WHERE id = $1 OR user_id = $1',
-        doctorIdentifier
-      );
-      
-      return {
-        doctor: doctorCheck[0],
-        appointments_handled: {
-          future_appointments: futureCount,
-          action: transfer_patients_to ? 'transferred' : 'cancelled',
-          transfer_to: transfer_patients_to || null
-        },
-        deletion_reason: reason
-      };
+
+        const doctorIds = normalizeDoctorIds(
+          doctorCheck.flatMap(doctor => [doctor.id, doctor.user_id])
+        );
+        const futureAppointments = await lockFutureScheduledAppointmentsTx(
+          tx,
+          doctorIds
+        );
+        const futureCount = futureAppointments.length;
+
+        requireGovernedAppointmentLifecycle(
+          futureAppointments,
+          transfer_patients_to ? 'account_delete_transfer' : 'account_delete_cancel'
+        );
+
+        if (futureCount > 0 && !transfer_patients_to) {
+          throw new Error(`Doctor has ${futureCount} future appointments. Provide transfer_patients_to doctor ID or cancel appointments first`);
+        }
+
+        // Transfer or cancel future appointments. Active-mode appointments
+        // fail closed above; this remains the off/shadow compatibility path.
+        if (futureCount > 0) {
+          if (transfer_patients_to) {
+            const transferTarget = parseInt(transfer_patients_to, 10);
+            // Verify transfer target doctor exists
+            const transferDoctor = await tx.$queryRawUnsafe(
+              'SELECT name FROM users WHERE id = $1 AND role = $2',
+              transferTarget, 'DOCTOR'
+            );
+
+            if (transferDoctor.length === 0) {
+              throw new Error('Transfer target doctor not found');
+            }
+
+            await tx.$executeRawUnsafe(`
+              UPDATE appointments SET
+                doctor_id = $1,
+                notes = COALESCE(notes || ' ', '') || 'Transferred due to doctor account deletion',
+                updated_at = NOW()
+              WHERE doctor_id = ANY($2::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+            `, transferTarget, doctorIds);
+          } else {
+            await tx.$executeRawUnsafe(`
+              UPDATE appointments SET
+                status = 'CANCELLED',
+                notes = COALESCE(notes || ' ', '') || 'Doctor account deleted: ' || COALESCE($1, 'Administrative decision'),
+                updated_at = NOW()
+              WHERE doctor_id = ANY($2::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+            `, reason || null, doctorIds);
+          }
+        }
+
+        // Soft delete: deactivate doctor
+        await tx.$executeRawUnsafe(
+          'UPDATE doctors SET is_available = false, is_active = false, updated_at = NOW() WHERE id = $1 OR user_id = $1',
+          doctorIdentifier
+        );
+
+        return {
+          doctor: doctorCheck[0],
+          appointments_handled: {
+            future_appointments: futureCount,
+            action: transfer_patients_to ? 'transferred' : 'cancelled',
+            transfer_to: transfer_patients_to || null
+          },
+          deletion_reason: reason
+        };
+      });
     } catch (error) {
       logger.error('Error deleting doctor account:', error);
       throw error;

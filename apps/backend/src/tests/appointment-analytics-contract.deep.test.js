@@ -41,7 +41,7 @@ describe('Appointment admin analytics / operations — contract deep', () => {
   let adminIntId, doctorIntId, doctorProfileId, departmentId;
   let patient1IntId, patient2IntId;
   let admin;
-  let appt1Id, appt2Id;
+  let appt1Id, appt2Id, overrideApptId;
   const apptDate = futureDateISO(95);
 
   beforeAll(async () => {
@@ -266,8 +266,8 @@ describe('Appointment admin analytics / operations — contract deep', () => {
 
   it('POST /admin/bulk-update-status → BulkUpdateStatusResponse', async () => {
     const res = await admin.post('/api/v1/appointments/admin/bulk-update-status').send({
-      appointment_ids: [appt1Id, appt2Id],
-      status: 'completed',
+      appointment_ids: [appt1Id],
+      status: 'cancelled',
       reason: 'P5T4 bulk update',
     });
     expect([200, 201]).toContain(res.statusCode);
@@ -285,46 +285,30 @@ describe('Appointment admin analytics / operations — contract deep', () => {
     });
     expect([200, 201]).toContain(res.statusCode);
     assertResponse('POST', '/api/v1/appointments/admin/override-book', res.body);
+    overrideApptId = Number(res.body.data.appointment.id);
   });
 
   it('POST /admin/resolve-conflict → ResolveConflictResponse', async () => {
     const res = await admin.post('/api/v1/appointments/admin/resolve-conflict').send({
-      conflict_appointments: [appt1Id, appt2Id],
+      conflict_appointments: [appt1Id, overrideApptId],
       resolution_action: 'cancel_second',
     });
     expect([200, 201]).toContain(res.statusCode);
     assertResponse('POST', '/api/v1/appointments/admin/resolve-conflict', res.body);
   });
 
-  // bulk-delete archives each row into appointment_archive (created by migration
-  // 346) BEFORE deleting it. Use a dedicated throwaway appointment so the other
-  // fixtures are untouched. ('11:30' is a fresh slot for this doctor/date.)
-  it('DELETE /admin/bulk-delete → BulkDeleteResponse', async () => {
-    const r = await prisma.$queryRawUnsafe(
-      `INSERT INTO appointments
-         (uid, phone, patient_id, patient_name, doctor_id, doctor_name,
-          appointment_date, appointment_time, status, reason, department,
-          admin_override, reminder_sent, created_at, updated_at)
-       VALUES (gen_random_uuid(), $1, $2::int, 'P5T4 Patient One', $3::int,
-          'Dr. P5T4 Analytics', $4::date, '11:30', 'SCHEDULED', 'Bulk-delete seed',
-          $5, false, false, NOW(), NOW())
-       RETURNING id`,
-      PATIENT1_PHONE, patient1IntId, doctorIntId, apptDate, DEPT_NAME);
-    const throwawayId = Number(r[0].id);
-
+  // S4 retires hard deletion: longitudinal appointment evidence remains
+  // available through the canonical cancellation and retention workflows.
+  it('DELETE /admin/bulk-delete → documented retired-operation response', async () => {
     const res = await admin.delete('/api/v1/appointments/admin/bulk-delete').send({
-      appointment_ids: [throwawayId],
+      appointment_ids: [appt1Id],
       reason: 'P5T4 bulk delete',
     });
-    expect(res.statusCode).toBe(200);
-    assertResponse('DELETE', '/api/v1/appointments/admin/bulk-delete', res.body);
-    // Archived (then deleted) — the row should be gone from appointments and
-    // present in appointment_archive.
-    const gone = await prisma.$queryRawUnsafe(
-      `SELECT 1 FROM appointments WHERE id = $1`, throwawayId);
-    expect(gone.length).toBe(0);
-    const archived = await prisma.$queryRawUnsafe(
-      `SELECT original_id FROM appointment_archive WHERE original_id = $1`, throwawayId);
-    expect(archived.length).toBe(1);
+    expect(res.statusCode).toBe(410);
+    expect(res.body).toMatchObject({
+      success: false,
+      code: 'APPOINTMENT_HARD_DELETE_RETIRED',
+    });
+    assertResponse('DELETE', '/api/v1/appointments/admin/bulk-delete', res.body, 410);
   });
 });

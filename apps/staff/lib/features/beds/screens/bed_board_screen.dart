@@ -2293,17 +2293,9 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
     if (id.isEmpty) return;
     setState(() => _busy = true);
     try {
-      // PUT /beds/:id sets specific fields; null patient_* preserves them
-      // (the controller does `patient_id = $4` directly so we must send
-      // current values back if we want them kept). Use the current bed's
-      // patient fields to avoid clearing them on a maintenance flip.
       final response = await ApiClient.put(
         '/beds/$id',
-        body: {
-          'status': newStatus,
-          'patient_id': widget.bed['patient_id'],
-          'patient_name': widget.bed['patient_name'],
-        },
+        body: {'status': newStatus},
       );
       if (!mounted) return;
       final s = AppStrings.of(context);
@@ -2426,12 +2418,9 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
   }
 
   Future<void> _transfer() async {
-    final patientUid = (widget.bed['patient_uid'] ?? '').toString();
-    if (patientUid.isEmpty) {
-      ErrorToast.show(
-        context,
-        AppStrings.of(context).bedSheetPatientUidMissingCannotTransferBed,
-      );
+    final admissionId = _admissionId();
+    if (admissionId.isEmpty) {
+      ErrorToast.show(context, AppStrings.of(context).bedSheetTransferFailed);
       return;
     }
 
@@ -2469,7 +2458,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
       final response = await ApiClient.post(
         '/beds/transfer',
         body: {
-          'patient_uid': patientUid,
+          'admission_id': admissionId,
           'to_bed_id': targetId,
           'reason': (picked['reason'] ?? '').toString().trim().isEmpty
               ? 'Bed transfer'
@@ -2509,58 +2498,8 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
   }
 
   Future<void> _admit() async {
-    final id = _bedId();
-    if (id.isEmpty) return;
-    // Open the global patient picker — when a patient is selected via
-    // the modal, capture them and POST /beds/:id/admit. We can't await
-    // the picker's pop value directly because PatientSearchSheet does
-    // its own context.go on tap; instead, use a small inline picker.
-    final picked = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.cardSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => const _AdmitPatientPicker(),
-    );
-    if (picked == null || !mounted) return;
-
-    final s = AppStrings.of(context);
-    final patientName = (picked['name'] ?? '').toString();
-    final patientIntId = picked['id'];
-    if (patientName.isEmpty) {
-      ErrorToast.show(context, s.bedSheetPatientMissingName);
-      return;
-    }
-
-    setState(() => _busy = true);
-    try {
-      final body = <String, dynamic>{
-        'patient_name': patientName,
-        'patient_id': ?patientIntId,
-      };
-      final response = await ApiClient.post('/beds/$id/admit', body: body);
-      if (!mounted) return;
-      if (response.isSuccess) {
-        SuccessToast.show(
-          context,
-          AppStrings.of(context).bedSheetPatientAdmitted(patientName),
-        );
-        await widget.onChanged();
-      } else {
-        ErrorToast.show(
-          context,
-          response.failureMessage(s.bedSheetAdmitFailed),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ErrorToast.show(context, s.bedBoardServerUnreachable);
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    if (!widget.embedded) Navigator.of(context).pop(false);
+    if (mounted) context.push('/emr/admissions');
   }
 
   @override
@@ -2626,13 +2565,6 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
           ),
         );
       }
-      actions.add(
-        OutlinedButton.icon(
-          onPressed: _busy ? null : () => _setStatus('maintenance'),
-          icon: const Icon(Icons.build, size: 16),
-          label: Text(s.bedBoardLegendMaintenance),
-        ),
-      );
     } else if (status == 'available' && canMovePatients) {
       actions.add(
         FilledButton.icon(
@@ -2926,230 +2858,6 @@ class _TransferBedPickerState extends State<_TransferBedPicker> {
           subtitle: floor.isEmpty ? null : Text(s.bedBoardFloorLabel(floor)),
           selected: selected,
           onTap: () => setState(() => _selectedBed = bed),
-        );
-      },
-    );
-  }
-}
-
-/// Slim search picker used by the bed-sheet's "Admit Patient" flow.
-/// Same as [PatientSearchSheet] but pops the selected patient back to
-/// the caller via `Navigator.pop(picked)` instead of routing into
-/// the EMR. Lives in this file because it only makes sense in this
-/// admit-bed context.
-class _AdmitPatientPicker extends StatefulWidget {
-  const _AdmitPatientPicker();
-  @override
-  State<_AdmitPatientPicker> createState() => _AdmitPatientPickerState();
-}
-
-class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
-  final _ctrl = TextEditingController();
-  final _focus = FocusNode();
-  Timer? _debounce;
-  String _last = '';
-  bool _loading = false;
-  String? _error;
-  List<Map<String, dynamic>> _rows = [];
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _ctrl.dispose();
-    _focus.dispose();
-    super.dispose();
-  }
-
-  Future<void> _search(String q) async {
-    final s = AppStrings.of(context);
-    if (q.isEmpty) {
-      setState(() {
-        _rows = [];
-        _last = '';
-      });
-      return;
-    }
-    _last = q;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final response = await ApiClient.get(
-        '/patients/search',
-        queryParameters: {'q': q, 'limit': '20'},
-      );
-      if (!mounted || q != _last) return;
-      if (response.isSuccess) {
-        final raw = response.raw;
-        if (raw is Map<String, dynamic>) {
-          final data = raw['data'];
-          if (data is Map<String, dynamic>) {
-            final list = data['patients'];
-            if (list is List) {
-              _rows = list
-                  .whereType<Map<String, dynamic>>()
-                  .map((e) => Map<String, dynamic>.from(e))
-                  .toList();
-            }
-          }
-        }
-        setState(() => _loading = false);
-      } else {
-        setState(() {
-          _error = response.failureMessage(s.bedSheetPatientSearchFailed);
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = s.bedBoardServerUnreachable;
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: viewInsets),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.7,
-          child: Column(
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(top: 8, bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  AppStrings.of(context).bedBoardAdmitWhichPatient,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: TextField(
-                  controller: _ctrl,
-                  focusNode: _focus,
-                  decoration: InputDecoration(
-                    hintText: AppStrings.of(context).bedBoardAdmitSearchHint,
-                    prefixIcon: const ExcludeSemantics(
-                      child: Icon(Icons.search),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: AppTheme.backgroundGrey,
-                  ),
-                  onChanged: (v) {
-                    _debounce?.cancel();
-                    _debounce = Timer(
-                      const Duration(milliseconds: 300),
-                      () => _search(v.trim()),
-                    );
-                  },
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(child: _buildBody()),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_loading && _rows.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            _error!,
-            style: const TextStyle(color: AppTheme.errorRed),
-          ),
-        ),
-      );
-    }
-    if (_last.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            AppStrings.of(context).bedBoardTypeToFindPatient,
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
-        ),
-      );
-    }
-    if (_rows.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            AppStrings.of(context).noMatchesFor(_last),
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
-        ),
-      );
-    }
-    return ListView.separated(
-      itemCount: _rows.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (ctx, i) {
-        final p = _rows[i];
-        final name = (p['name'] ?? AppStrings.of(ctx).bedBoardPatientUnnamed)
-            .toString();
-        final age = p['age'];
-        final gender = (p['gender'] ?? '').toString();
-        final phone = (p['phone'] ?? '').toString();
-        final hospitalNumber =
-            (p['hospital_number'] ?? p['patient_hospital_number'] ?? '')
-                .toString();
-        final subtitleParts = <String>[
-          if (hospitalNumber.isNotEmpty)
-            AppStrings.of(ctx).bedBoardSemanticHospitalId(hospitalNumber),
-          if (age != null && age.toString().isNotEmpty)
-            '${age.toString()} ${AppStrings.of(ctx).bedSheetYearSuffix}',
-          if (gender.isNotEmpty)
-            gender[0].toUpperCase() + gender.substring(1).toLowerCase(),
-          if (phone.isNotEmpty) phone,
-        ];
-        return ListTile(
-          title: Text(
-            name,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          subtitle: subtitleParts.isEmpty
-              ? null
-              : Text(subtitleParts.join(' · ')),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(ctx).pop(p),
         );
       },
     );

@@ -1139,19 +1139,11 @@ export const schemas = {
 
   // ---- POST /admin/bulk-update-status ------------------------------------
   // data = { updatedCount, updatedAppointments[], status, reason, updatedBy }.
-  // updatedAppointments = RETURNING id, patient_id, doctor_id,
-  // appointment_date, status (fixed) — strict item.
+  // The canonical transition service returns its hydrated appointment row.
   BulkUpdatedAppointment: {
     type: 'object',
-    additionalProperties: false,
-    required: ['id', 'status'],
-    properties: {
-      id: { type: 'integer' },
-      patient_id: { type: 'integer', nullable: true },
-      doctor_id: { type: 'integer', nullable: true },
-      appointment_date: { type: 'string', format: 'date-time', nullable: true },
-      status: { type: 'string', nullable: true },
-    },
+    additionalProperties: true,
+    allOf: [{ $ref: '#/components/schemas/Appointment' }],
   },
   BulkUpdateStatusResult: {
     type: 'object',
@@ -1168,27 +1160,12 @@ export const schemas = {
   BulkUpdateStatusResponse: envelope('BulkUpdateStatusResult'),
 
   // ---- POST /admin/override-book -----------------------------------------
-  // data = { appointment:<RETURNING row>, override:true, bookedBy }. RETURNING
-  // is a fixed column list incl admin_override/override_reason/visit_type/created_by.
+  // appointmentService.createAppointment returns the hydrated appointment,
+  // including patient/doctor UIDs and its post-commit queue projection.
   OverrideBookedAppointment: {
     type: 'object',
-    additionalProperties: false,
-    required: ['id', 'status'],
-    properties: {
-      id: { type: 'integer' },
-      patient_id: { type: 'integer', nullable: true },
-      doctor_id: { type: 'integer', nullable: true },
-      appointment_date: { type: 'string', format: 'date-time', nullable: true },
-      reason: { type: 'string', nullable: true },
-      status: { type: 'string', nullable: true },
-      notes: { type: 'string', nullable: true },
-      admin_override: { type: 'boolean', nullable: true },
-      override_reason: { type: 'string', nullable: true },
-      visit_type: { type: 'string', nullable: true, enum: [...VISIT_TYPE] },
-      created_at: { type: 'string', format: 'date-time', nullable: true },
-      created_by: { type: 'string', format: 'uuid', nullable: true },
-      updated_at: { type: 'string', format: 'date-time', nullable: true },
-    },
+    additionalProperties: true,
+    allOf: [{ $ref: '#/components/schemas/Appointment' }],
   },
   OverrideBookResult: {
     type: 'object',
@@ -1263,33 +1240,37 @@ export const schemas = {
   },
   SendRemindersResponse: envelope('SendRemindersResult'),
 
-  // ---- DELETE /admin/bulk-delete (body) ----------------------------------
-  // data = { deletedCount, deletedIds[], reason, deletedBy, archived }.
-  // deletedIds = archiveResult.map(r => r.original_id) (integers).
-  BulkDeleteResult: {
+  // ---- DELETE /admin/bulk-delete -----------------------------------------
+  // S4 retires hard deletion in favour of the canonical lifecycle and
+  // retention workflows. The route is retained as an explicit 410 contract.
+  AppointmentHardDeleteRetiredResponse: {
     type: 'object',
     additionalProperties: true,
-    required: ['deletedCount', 'deletedIds', 'archived'],
+    required: ['success', 'message', 'code'],
     properties: {
-      deletedCount: { type: 'integer' },
-      deletedIds: { type: 'array', items: { type: 'integer' } },
-      reason: { type: 'string', nullable: true },
-      deletedBy: { type: 'string', nullable: true },
-      archived: { type: 'boolean' },
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      code: { type: 'string', enum: ['APPOINTMENT_HARD_DELETE_RETIRED'] },
+      requestId: { type: 'string', nullable: true },
     },
   },
-  BulkDeleteResponse: envelope('BulkDeleteResult'),
 
   // ---- T4 request bodies -------------------------------------------------
   BulkUpdateStatusRequest: {
     type: 'object',
     additionalProperties: true,
     required: ['appointment_ids', 'status'],
-    description: 'POST /api/v1/appointments/admin/bulk-update-status. status '
-      + 'must be one of completed|cancelled|no_show.',
+    description: 'POST /api/v1/appointments/admin/bulk-update-status. Exactly one '
+      + 'appointment may be cancelled or marked no-show; clinician-owned completion '
+      + 'returns 409.',
     properties: {
-      appointment_ids: { type: 'array', items: { type: 'integer' } },
-      status: { type: 'string', enum: ['completed', 'cancelled', 'no_show'] },
+      appointment_ids: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 1,
+        items: { type: 'integer' },
+      },
+      status: { type: 'string', enum: ['cancelled', 'no_show'] },
       reason: { type: 'string' },
     },
   },
@@ -1332,18 +1313,6 @@ export const schemas = {
       exclude_cancelled: { type: 'boolean' },
     },
   },
-  BulkDeleteRequest: {
-    type: 'object',
-    additionalProperties: true,
-    required: ['appointment_ids', 'reason'],
-    description: 'DELETE /api/v1/appointments/admin/bulk-delete (body). '
-      + 'reason is mandatory (audit trail).',
-    properties: {
-      appointment_ids: { type: 'array', items: { type: 'integer' } },
-      reason: { type: 'string' },
-    },
-  },
-
   // ======================================================================
   // T5 — DOCUMENT / PATIENT-RECORDS sub-domain (BOUNDED, RESPONSE-ONLY).
   // Source: src/controllers/appointment/appointmentDocumentController.js
@@ -1793,8 +1762,9 @@ export const operations = {
     response: 'SendRemindersResponse',
   },
   'DELETE /api/v1/appointments/admin/bulk-delete': {
-    request: 'BulkDeleteRequest',
-    response: 'BulkDeleteResponse',
+    response: 'AppointmentHardDeleteRetiredResponse',
+    responseStatus: 410,
+    responseDescription: 'Appointment hard deletion is retired.',
   },
 
   // ======================================================================

@@ -4,6 +4,16 @@
 import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import admissionService from '../../services/emr/admissionService.js';
+import {
+  getInpatientDischargeEvidence,
+  listPostDischargeContacts,
+  recordFollowUpException,
+  recordPendingResultAvailable,
+  recordPendingResultHandoff,
+  recordPendingResultOwnerCrossSign,
+  recordPendingResultSummaryInclusion,
+  recordPostDischargeContact,
+} from '../../services/emr/inpatientPathwayDomainService.js';
 import patientCommandBoardService from '../../services/emr/patientCommandBoardService.js';
 import * as dischargeSummaryGenerator from '../../services/emr/dischargeSummaryGenerator.js';
 import {
@@ -383,7 +393,12 @@ router.post(
       return error(res, 'bed_id is required (integer)', HTTP_STATUS.BAD_REQUEST);
     }
     const assignedBy = req.user?.uid;
-    const admission = await admissionService.assignBedToAdmission(admissionId, bedId, assignedBy, tenantOptions(req));
+    const admission = await admissionService.assignBedToAdmission(
+      admissionId,
+      bedId,
+      assignedBy,
+      { ...tenantOptions(req), actorRole: req.user?.role },
+    );
     success(res, { admission }, 'Bed assigned to admission');
   })
 );
@@ -492,6 +507,147 @@ router.get(
   })
 );
 
+router.get(
+  '/:id/pending-results',
+  guardAdmissionResourceView,
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    await assertAdmissionInTenant(req, admissionId);
+    const projection = await getInpatientDischargeEvidence(
+      admissionId,
+      tenantOptions(req),
+    );
+    success(res, projection, 'Admission pending-result projection retrieved');
+  }),
+);
+
+router.post(
+  '/:id/pending-result-handoffs',
+  guardAdmissionResourceWrite,
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const handoff = await recordPendingResultHandoff(
+      admissionId,
+      req.body || {},
+      admissionActor(req),
+    );
+    success(res, { handoff }, 'Pending-result handoff recorded', HTTP_STATUS.CREATED);
+  }),
+);
+
+router.put(
+  '/:id/pending-result-handoffs/:handoffId/summary-inclusion',
+  guardAdmissionResourceWrite,
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const handoff = await recordPendingResultSummaryInclusion(
+      admissionId,
+      req.params.handoffId,
+      req.body || {},
+      admissionActor(req),
+    );
+    success(res, { handoff }, 'Pending result included in signed discharge summary');
+  }),
+);
+
+router.post(
+  '/:id/pending-result-handoffs/:handoffId/result-available',
+  guardAdmissionResourceWrite,
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const result = await recordPendingResultAvailable(
+      admissionId,
+      req.params.handoffId,
+      req.body || {},
+      admissionActor(req),
+    );
+    success(res, result, 'Pending result marked available');
+  }),
+);
+
+router.post(
+  '/:id/pending-result-handoffs/:handoffId/cross-sign',
+  guardAdmissionResourceWrite,
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const resolution = await recordPendingResultOwnerCrossSign(
+      admissionId,
+      req.params.handoffId,
+      {
+        ...(req.body || {}),
+        idempotencyKey: req.get('Idempotency-Key'),
+      },
+      admissionActor(req),
+    );
+    success(res, { resolution }, 'Pending result cross-signed by its named physician');
+  }),
+);
+
+router.post(
+  '/:id/follow-up-exception',
+  guardAdmissionResourceWrite,
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const exception = await recordFollowUpException(
+      admissionId,
+      req.body || {},
+      admissionActor(req),
+    );
+    success(res, { exception }, 'Admission follow-up exception recorded', HTTP_STATUS.CREATED);
+  }),
+);
+
+router.get(
+  '/:id/post-discharge-contacts',
+  guardAdmissionResourceView,
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const contacts = await listPostDischargeContacts(
+      admissionId,
+      tenantOptions(req),
+    );
+    success(res, { contacts, count: contacts.length }, 'Post-discharge contacts retrieved');
+  }),
+);
+
+router.post(
+  '/:id/post-discharge-contacts',
+  guardAdmissionResourceWrite,
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const contact = await recordPostDischargeContact(
+      admissionId,
+      req.body || {},
+      admissionActor(req),
+    );
+    success(res, { contact }, 'Post-discharge contact recorded', HTTP_STATUS.CREATED);
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // POST /:id/discharge — Discharge a patient
 // ---------------------------------------------------------------------------
@@ -507,7 +663,12 @@ router.post(
     const dischargedBy = req.user?.uid;
     const dischargeData = req.body;
 
-    const admission = await admissionService.dischargePatient(admissionId, dischargeData, dischargedBy, tenantOptions(req));
+    const admission = await admissionService.dischargePatient(
+      admissionId,
+      dischargeData,
+      dischargedBy,
+      { ...tenantOptions(req), actorRole: req.user?.role },
+    );
     success(res, { admission }, 'Patient discharged successfully');
   })
 );
@@ -524,8 +685,18 @@ router.post(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const { to_ward_id, to_bed_id, reason } = req.body;
+    const {
+      to_ward_id,
+      to_bed_id,
+      reason,
+      acknowledge_class_change,
+      acknowledgeClassChange,
+    } = req.body;
     const transferredBy = req.user?.uid;
+    const acknowledgeClassUpgrade = acknowledge_class_change === true
+      || acknowledgeClassChange === true
+      || acknowledge_class_change === 'true'
+      || acknowledgeClassChange === 'true';
 
     if (!to_bed_id) {
       return error(res, 'to_bed_id is required', HTTP_STATUS.BAD_REQUEST);
@@ -537,7 +708,11 @@ router.post(
       parseInt(to_bed_id, 10),
       reason || null,
       transferredBy,
-      tenantOptions(req),
+      {
+        ...tenantOptions(req),
+        actorRole: req.user?.role || null,
+        acknowledgeClassChange: acknowledgeClassUpgrade,
+      },
     );
     success(res, { admission }, 'Patient transferred successfully');
   })
@@ -652,13 +827,22 @@ router.put(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const { doctor_uid } = req.body;
+    const { doctor_uid, accepted_handoff_id } = req.body;
     if (!doctor_uid) {
       return error(res, 'doctor_uid is required', HTTP_STATUS.BAD_REQUEST);
     }
 
     const updatedBy = req.user?.uid;
-    const admission = await admissionService.updateAttendingDoctor(admissionId, doctor_uid, updatedBy, tenantOptions(req));
+    const admission = await admissionService.updateAttendingDoctor(
+      admissionId,
+      doctor_uid,
+      updatedBy,
+      {
+        ...tenantOptions(req),
+        actorRole: req.user?.role,
+        acceptedHandoffId: accepted_handoff_id || null,
+      },
+    );
     success(res, { admission }, 'Attending doctor updated');
   })
 );
@@ -778,7 +962,24 @@ router.get(
 
     await assertAdmissionInTenant(req, admissionId);
     const summary = await dischargeSummaryGenerator.getLatestDischargeSummary(admissionId);
-    success(res, { discharge_summary: summary }, summary ? 'Discharge summary retrieved' : 'No discharge summary found');
+    const pathway = await getInpatientDischargeEvidence(
+      admissionId,
+      tenantOptions(req),
+    );
+    const pendingResults = pathway.pending_results?.items || [];
+    success(res, {
+      discharge_summary: summary
+        ? {
+            ...summary,
+            pathway_mode: pathway.mode,
+            pending_results: pendingResults,
+            pending_result_handoffs: pendingResults,
+          }
+        : null,
+      pathway_mode: pathway.mode,
+      pending_results: pendingResults,
+      pending_result_handoffs: pendingResults,
+    }, summary ? 'Discharge summary retrieved' : 'No discharge summary found');
   })
 );
 

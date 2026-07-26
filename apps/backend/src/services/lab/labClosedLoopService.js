@@ -22,6 +22,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { code39Svg } from '../../utils/barcode/code39.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { notifyCreatedCriticalLabAlerts } from './labResultsService.js';
 import { materializeLabCriticalAlertGeneration } from './labCriticalAlertService.js';
 import {
@@ -617,6 +618,7 @@ async function lockAndResolveAstmSource({ tx, tenantId, accession }) {
       specimen,
       bookingId: null,
       investigationId: null,
+      admissionId: null,
       orderingClinicianUid: null,
     };
   }
@@ -654,6 +656,7 @@ async function lockAndResolveAstmSource({ tx, tenantId, accession }) {
       specimen,
       bookingId: Number(booking.id),
       investigationId: null,
+      admissionId: null,
       orderingClinicianUid: null,
     };
   }
@@ -662,7 +665,8 @@ async function lockAndResolveAstmSource({ tx, tenantId, accession }) {
     `SELECT investigation.id,
             investigation.patient_uid,
             investigation.requested_by,
-            investigation.status
+            investigation.status,
+            investigation.admission_id
        FROM investigations AS investigation
       WHERE investigation.tenant_id = $1::uuid
         AND investigation.id = $2::int
@@ -687,6 +691,9 @@ async function lockAndResolveAstmSource({ tx, tenantId, accession }) {
     specimen,
     bookingId: Number(booking.id),
     investigationId: Number(investigation.id),
+    admissionId: investigation.admission_id == null
+      ? null
+      : Number(investigation.admission_id),
     orderingClinicianUid: investigation.requested_by || null,
   };
 }
@@ -1097,20 +1104,21 @@ async function ingestAstmInterfaceMessage({
       const parsedResult = parsed.results[index];
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO lab_results
-           (tenant_id, booking_id, investigation_id, patient_uid, patient_name,
+           (tenant_id, booking_id, investigation_id, admission_id, patient_uid, patient_name,
             test_code, test_name, value_text, value_numeric, unit,
             reference_range, reference_range_low, reference_range_high,
             abnormal_flag, status, performed_by_lab, specimen_id, analyzer_id,
             raw_obx, received_at, interface_message_id, interface_result_index)
-         VALUES ($1::uuid, $2::int, $3::int, $4::uuid, $5,
-                 $6, $7, $8, $9::numeric, $10,
-                 $11, $12::numeric, $13::numeric,
-                 $14, 'preliminary', $15, $16::int, $17::int,
-                 $18, NOW(), $19::int, $20::int)
+         VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::uuid, $6,
+                 $7, $8, $9, $10::numeric, $11,
+                 $12, $13::numeric, $14::numeric,
+                 $15, 'preliminary', $16, $17::int, $18::int,
+                 $19, NOW(), $20::int, $21::int)
          RETURNING *`,
         tenantId,
         source.bookingId,
         source.investigationId,
+        source.admissionId,
         source.specimen.patient_uid,
         source.specimen.patient_name || null,
         parsedResult.test_code,
@@ -1166,7 +1174,7 @@ async function ingestAstmInterfaceMessage({
         }),
         interface_result_index: index + 1,
       };
-      await recordAstmResultCanonicalEvent({
+      const canonical = await recordAstmResultCanonicalEvent({
         tx,
         tenantId,
         result,
@@ -1180,6 +1188,19 @@ async function ingestAstmInterfaceMessage({
         bindingIdentity,
         senderIdentity,
       });
+      if (result.admission_id != null) {
+        await publishInpatientDiagnosticResourceLinkedTx({
+          tx,
+          tenantId,
+          admissionId: result.admission_id,
+          patientUid: result.patient_uid,
+          resourceType: 'lab_result',
+          resourceId: result.id,
+          canonicalTimelineEventId: canonical.timeline.id,
+          canonicalAuditEventId: canonical.audit.id,
+          occurredAt: result.received_at || result.created_at,
+        });
+      }
       insertedResults.push(result);
       verdicts.push(verdict);
     }

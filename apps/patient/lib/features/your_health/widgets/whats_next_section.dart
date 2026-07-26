@@ -125,7 +125,16 @@ class _WhatsNextContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (bundle.nextSteps.isNotEmpty) ...[
+          _SectionHeading(
+            icon: Icons.directions_outlined,
+            title: l10n.yourHealthWhatsNextActions,
+          ),
+          const SizedBox(height: 6),
+          ...bundle.nextSteps.take(5).map((step) => _NextStepRow(step: step)),
+        ],
         if (bundle.goals.isNotEmpty) ...[
+          if (bundle.nextSteps.isNotEmpty) const SizedBox(height: 10),
           _SectionHeading(
             icon: Icons.flag_outlined,
             title: l10n.yourHealthWhatsNextGoals,
@@ -134,7 +143,8 @@ class _WhatsNextContent extends StatelessWidget {
           ...bundle.goals.take(3).map((goal) => _GoalRow(goal: goal)),
         ],
         if (bundle.followUps.isNotEmpty) ...[
-          if (bundle.goals.isNotEmpty) const SizedBox(height: 10),
+          if (bundle.nextSteps.isNotEmpty || bundle.goals.isNotEmpty)
+            const SizedBox(height: 10),
           _SectionHeading(
             icon: Icons.event_available_outlined,
             title: l10n.yourHealthWhatsNextFollowUps,
@@ -169,6 +179,43 @@ class _SectionHeading extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _NextStepRow extends StatelessWidget {
+  const _NextStepRow({required this.step});
+
+  final WhatsNextStep step;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final clinician = [
+      if ((step.responsibleClinicianDisplayName ?? '').isNotEmpty)
+        step.responsibleClinicianDisplayName!,
+      if ((step.responsibleClinicianRole ?? '').isNotEmpty)
+        step.responsibleClinicianRole!,
+    ].join(' - ');
+    final parts = <String>[
+      if (step.dueDate != null)
+        '${l10n.yourHealthWhatsNextDue}: ${_formatDate(context, step.dueDate!)}',
+      if ((step.status ?? '').isNotEmpty)
+        '${l10n.yourHealthWhatsNextStatus}: ${_statusLabel(l10n, step.status!)}',
+      if (clinician.isNotEmpty)
+        '${l10n.yourHealthWhatsNextResponsibleClinician}: $clinician',
+      if ((step.safeContact ?? '').isNotEmpty)
+        '${l10n.yourHealthWhatsNextContact}: ${step.safeContact}',
+    ];
+
+    return _ItemRow(
+      icon: Icons.arrow_circle_right_outlined,
+      title: step.label,
+      description: step.explanation,
+      meta: parts.join(' - '),
+      action: step.patientAction == null
+          ? null
+          : '${l10n.yourHealthWhatsNextPatientAction}: ${step.patientAction}',
     );
   }
 }
@@ -226,11 +273,19 @@ class _FollowUpRow extends StatelessWidget {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.icon, required this.title, required this.meta});
+  const _ItemRow({
+    required this.icon,
+    required this.title,
+    required this.meta,
+    this.description,
+    this.action,
+  });
 
   final IconData icon;
   final String title;
   final String meta;
+  final String? description;
+  final String? action;
 
   @override
   Widget build(BuildContext context) {
@@ -252,12 +307,26 @@ class _ItemRow extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if ((description ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(description!, style: theme.textTheme.bodyMedium),
+                ],
                 if (meta.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
                     meta,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                if ((action ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    action!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -297,4 +366,31 @@ String _formatDate(BuildContext context, DateTime date) {
   return DateFormat.yMMMd(
     Localizations.localeOf(context).toString(),
   ).format(date);
+}
+
+String _statusLabel(AppLocalizations l10n, String raw) {
+  switch (raw.trim().toLowerCase()) {
+    case 'planned':
+      return l10n.yourHealthWhatsNextStatusPlanned;
+    case 'open':
+      return l10n.yourHealthWhatsNextStatusOpen;
+    case 'scheduled':
+      return l10n.yourHealthWhatsNextStatusScheduled;
+    case 'pending':
+      return l10n.yourHealthWhatsNextStatusPending;
+    case 'in_progress':
+      return l10n.yourHealthWhatsNextStatusInProgress;
+    case 'ready':
+      return l10n.yourHealthWhatsNextStatusReady;
+    case 'completed':
+      return l10n.yourHealthWhatsNextStatusCompleted;
+    case 'cancelled':
+      return l10n.yourHealthWhatsNextStatusCancelled;
+    case 'on_hold':
+      return l10n.yourHealthWhatsNextStatusOnHold;
+    case 'overdue':
+      return l10n.yourHealthWhatsNextStatusOverdue;
+    default:
+      return raw.replaceAll('_', ' ');
+  }
 }

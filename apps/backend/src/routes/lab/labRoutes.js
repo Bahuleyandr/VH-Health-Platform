@@ -137,6 +137,7 @@ router.post('/orders', requireOrderingStaff, wrap(async (req) => {
     collection_deadline_at: body.collection_deadline_at,
     fasting_required: body.fasting_required,
     fasting_instructions: body.fasting_instructions,
+    admission_id: body.admission_id ?? body.admissionId,
     tenantId: req.tenantId,
     actorRole: req.user?.role || null,
   });

@@ -24,6 +24,7 @@ interface Bed {
   bed_number: string;
   bed_type: string | null;
   status: "available" | "occupied" | "reserved" | "maintenance" | "cleaning";
+  admission_id: number | null;
   patient_uid: string | null;
   patient_name: string | null;
   admitted_at: string | null;
@@ -72,6 +73,14 @@ const STATUS_COLOURS: Record<string, string> = {
   reserved: "bg-amber-100 text-amber-800 border-amber-300",
   cleaning: "bg-purple-100 text-purple-800 border-purple-300",
   maintenance: "bg-rose-100 text-rose-800 border-rose-300",
+};
+const BED_CLASS_RANK: Record<string, number> = {
+  general: 1,
+  semi_private: 2,
+  private: 3,
+  deluxe: 4,
+  icu: 5,
+  day_care: 1,
 };
 
 function unwrap<T>(r: unknown): T {
@@ -157,15 +166,11 @@ export default function BedsPage() {
   const admitMut = useMutation({
     mutationFn: async (vars: {
       bedId: number;
-      patient_uid: string;
-      expected_discharge?: string;
+      admission_id: number;
     }) =>
       fetchAdminAPI(`/beds/${vars.bedId}/admit`, {
         method: "POST",
-        body: {
-          patient_uid: vars.patient_uid,
-          expected_discharge: vars.expected_discharge ?? null,
-        },
+        body: { admission_id: vars.admission_id },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
   });
@@ -184,9 +189,10 @@ export default function BedsPage() {
 
   const transferMut = useMutation({
     mutationFn: async (vars: {
-      patient_uid: string;
+      admission_id: number;
       to_bed_id: number;
       reason?: string;
+      acknowledge_class_change?: boolean;
     }) =>
       fetchAdminAPI(`/beds/transfer`, {
         method: "POST",
@@ -236,13 +242,19 @@ export default function BedsPage() {
   });
 
   function admit(bed: Bed) {
-    const uid = window.prompt(`Admit to ${bed.bed_number} — patient UID:`, "");
-    if (!uid) return;
-    const eta = window.prompt(`Expected discharge (YYYY-MM-DD, optional):`, "");
+    const admissionRaw = window.prompt(
+      `Assign ${bed.bed_number} to existing admission id:`,
+      "",
+    );
+    if (!admissionRaw) return;
+    const admissionId = Number(admissionRaw);
+    if (!Number.isInteger(admissionId) || admissionId <= 0) {
+      window.alert("Admission id must be a positive whole number.");
+      return;
+    }
     admitMut.mutate({
       bedId: bed.id,
-      patient_uid: uid,
-      expected_discharge: eta || undefined,
+      admission_id: admissionId,
     });
   }
 
@@ -261,19 +273,41 @@ export default function BedsPage() {
   }
 
   function transfer(bed: Bed) {
-    if (!bed.patient_uid) return;
+    if (!bed.admission_id) {
+      window.alert("This bed is not linked to a canonical admission.");
+      return;
+    }
     const toBedStr = window.prompt(
-      `Transfer ${bed.patient_name ?? bed.patient_uid.slice(0, 8)} from ${bed.bed_number} to bed id:`,
+      `Transfer ${bed.patient_name ?? bed.patient_uid?.slice(0, 8) ?? `admission ${bed.admission_id}`} from ${bed.bed_number} to bed id:`,
       "",
     );
     if (!toBedStr) return;
     const toBedId = Number(toBedStr);
-    if (!Number.isFinite(toBedId)) return;
+    if (!Number.isInteger(toBedId) || toBedId <= 0) return;
+    const targetBed = beds.find((candidate) => candidate.id === toBedId);
+    if (!targetBed) {
+      window.alert("Choose a target bed from the current bed board.");
+      return;
+    }
+    const fromType = bed.bed_type ?? "";
+    const toType = targetBed.bed_type ?? "";
+    const classUpgrade =
+      fromType !== toType &&
+      (BED_CLASS_RANK[toType] ?? 0) > (BED_CLASS_RANK[fromType] ?? 0) &&
+      toType !== "icu" &&
+      toType !== "ccu";
+    const acknowledgeClassChange = classUpgrade
+      ? window.confirm(
+          `Moving ${bed.bed_number} from ${fromType || "unclassified"} to ${toType} changes the room tariff. Confirm that patient or guardian consent is recorded.`,
+        )
+      : false;
+    if (classUpgrade && !acknowledgeClassChange) return;
     const reason = window.prompt(`Transfer reason:`, "") ?? undefined;
     transferMut.mutate({
-      patient_uid: bed.patient_uid,
+      admission_id: bed.admission_id,
       to_bed_id: toBedId,
       reason,
+      acknowledge_class_change: acknowledgeClassChange,
     });
   }
 

@@ -475,10 +475,16 @@ export async function recordDose({
   if (siteOfInjection && !VALID_INJECTION_SITES.has(siteOfInjection)) {
     throw AppError.badRequest(`Invalid site_of_injection: ${siteOfInjection}`);
   }
+  const effectiveGivenAt = givenAt == null
+    ? (status === 'given' ? new Date() : null)
+    : (givenAt instanceof Date ? givenAt : new Date(String(givenAt)));
+  if (effectiveGivenAt && Number.isNaN(effectiveGivenAt.getTime())) {
+    throw AppError.badRequest('given_at must be a valid timestamp');
+  }
 
   const updateArgs = [
     status,
-    givenAt ?? (status === 'given' ? new Date() : null),
+    effectiveGivenAt,
     givenBy ?? null,
     givenByName ?? null,
     batchNumber ?? null,

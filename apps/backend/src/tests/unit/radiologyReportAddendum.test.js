@@ -27,6 +27,10 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
 }));
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  linkPendingResultOwnerActionsForGenerationTx: jest.fn(),
+  publishInpatientDiagnosticResourceLinkedTx: jest.fn(),
+}));
 jest.unstable_mockModule('../../services/diagnostics/structuredReportDiagnosticGenerationService.js', () => ({
   createRadiologyDiagnosticGenerationTx: createGenerationMock,
   normalizeDiagnosticIdempotencyKey: (value) => {

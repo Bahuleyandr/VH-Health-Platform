@@ -48,6 +48,7 @@ export async function postPatientCheckin(req, res) {
     tenantId: req.tenantId,
     patientUid: actorUid(req),
     actorUid: actorUid(req),
+    actorRole: req.user?.role || 'PATIENT',
     body: req.body ?? {},
   });
   const status = result.checkin?.front_desk_required ? 202 : 201;
@@ -61,6 +62,7 @@ export async function postSupervisedCheckin(req, res) {
   const result = await supervisedKioskCheckin({
     tenantId: req.tenantId,
     actorUid: actorUid(req),
+    actorRole: req.user?.role || null,
     body: req.body ?? {},
   });
   const status = result.checkin?.front_desk_required ? 202 : 201;

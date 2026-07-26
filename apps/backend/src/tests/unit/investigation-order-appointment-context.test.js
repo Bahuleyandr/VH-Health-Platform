@@ -29,6 +29,15 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
 }));
 
+const publishOpChildResourceLinkedTxMock = jest.fn();
+jest.unstable_mockModule('../../services/appointment/opChildResourceEventService.js', () => ({
+  publishOpChildResourceLinkedTx: publishOpChildResourceLinkedTxMock,
+}));
+
+jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
+  publishInpatientDiagnosticResourceLinkedTx: jest.fn(),
+}));
+
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
     info: jest.fn(),
@@ -102,6 +111,14 @@ describe('createInvestigationOrder appointment context', () => {
       }),
     );
     expect(result.investigation.appointment_id).toBe(44);
+    expect(publishOpChildResourceLinkedTxMock).toHaveBeenCalledWith(prismaMock, {
+      tenantId: TENANT_ID,
+      appointmentId: 44,
+      patientUid: PATIENT_UID,
+      resourceType: 'investigation',
+      resourceId: 101,
+      source: 'investigations.create',
+    });
   });
 
   it('rejects invalid appointment ids before touching appointment rows', async () => {

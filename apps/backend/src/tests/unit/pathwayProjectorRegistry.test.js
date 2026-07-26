@@ -7,11 +7,14 @@ import {
   PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES,
   PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES,
   PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES,
+  PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES,
   createPathwayProjectorRegistry,
   isPathwayProjectorRegistry,
   pathwayProjectorRegistry,
   pathwayProjectorRegistryV1,
   pathwayProjectorRegistryV2,
+  pathwayProjectorRegistryV3,
+  pathwayProjectorRegistryV4,
 } from '../../services/events/pathwayProjectorRegistry.js';
 
 describe('pathwayProjectorRegistry', () => {
@@ -29,7 +32,7 @@ describe('pathwayProjectorRegistry', () => {
     entries: [['test.changed', syntheticObserver]],
   });
 
-  it('preserves prior generations and exposes the exact generation-3 membership', () => {
+  it('preserves prior generations and exposes the exact generation-4 membership', () => {
     const diagnosticTypes = [
       'diagnostic.result.generation_signed',
       'diagnostic.result.release_became_eligible',
@@ -49,7 +52,37 @@ describe('pathwayProjectorRegistry', () => {
       'referral.closed',
       'referral.appointment_linked',
     ];
-    expect(PATHWAY_PROJECTOR_GENERATION).toBe(3);
+    const opTypes = [
+      'appointment.created',
+      'appointment.confirmed',
+      'appointment.checked_in',
+      'appointment.in_progress',
+      'appointment.completed',
+      'appointment.cancelled',
+      'appointment.no_show',
+      'appointment.rescheduled',
+      'appointment.admission_advised',
+      'appointment.follow_up_recorded',
+      'appointment.closure_evidence_recorded',
+      'appointment.child_resource_linked',
+    ];
+    const inpatientTypes = [
+      'admission.created',
+      'admission.readmission_linked',
+      'admission.diagnostic_resource_linked',
+      'bed.assigned',
+      'bed.transferred',
+      'discharge.workflow_opened',
+      'discharge.work_item_completed',
+      'discharge.drugs_dispensed',
+      'clinical_document.discharge_summary.signed',
+      'discharge.pending_result_handoff_recorded',
+      'discharge.pending_result_available',
+      'discharge.pending_result_resolved',
+      'discharge.completed',
+      'post_discharge.contact_recorded',
+    ];
+    expect(PATHWAY_PROJECTOR_GENERATION).toBe(4);
     expect(PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES).toEqual(expectedTypes);
     expect(PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES).toEqual([
       ...expectedTypes,
@@ -60,11 +93,20 @@ describe('pathwayProjectorRegistry', () => {
       ...diagnosticTypes,
       ...referralTypes,
     ]);
+    expect(PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES).toEqual([
+      ...PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES,
+      ...opTypes,
+      ...inpatientTypes.filter(
+        (eventType) => !PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES.includes(eventType),
+      ),
+    ]);
     expect(pathwayProjectorRegistryV1.eventTypes).toEqual(expectedTypes);
     expect(pathwayProjectorRegistryV1.size).toBe(6);
     expect(pathwayProjectorRegistryV2.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES);
-    expect(pathwayProjectorRegistry.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES);
-    expect(pathwayProjectorRegistry.size).toBe(20);
+    expect(pathwayProjectorRegistryV3.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES);
+    expect(pathwayProjectorRegistry).toBe(pathwayProjectorRegistryV4);
+    expect(pathwayProjectorRegistry.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES);
+    expect(pathwayProjectorRegistry.size).toBe(45);
     expect(isPathwayProjectorRegistry(pathwayProjectorRegistry)).toBe(true);
     expect(isPathwayProjectorRegistry(pathwayProjectorRegistryV1)).toBe(true);
 
@@ -74,6 +116,10 @@ describe('pathwayProjectorRegistry', () => {
     }
     expect(pathwayProjectorRegistry.resolve('order.created')).toBeUndefined();
     expect(pathwayProjectorRegistry.resolve('referral.requested')).toEqual(expect.any(Function));
+    expect(pathwayProjectorRegistry.resolve('appointment.child_resource_linked'))
+      .toEqual(expect.any(Function));
+    expect(pathwayProjectorRegistry.resolve('admission.diagnostic_resource_linked'))
+      .toEqual(expect.any(Function));
   });
 
   it('rejects duplicate and malformed registrations', () => {
@@ -130,6 +176,10 @@ describe('pathwayProjectorRegistry', () => {
       generation: 3,
       entries: [['test.replacement', observer]],
     })).toThrow(/generation 3.*canonical/i);
+    expect(() => createPathwayProjectorRegistry({
+      generation: 4,
+      entries: [['test.replacement', observer]],
+    })).toThrow(/generation 4.*canonical/i);
 
     expect(syntheticRegistry.eventTypes).toEqual(['test.changed']);
     expect(syntheticRegistry.resolve('test.changed')).toBe(syntheticObserver);

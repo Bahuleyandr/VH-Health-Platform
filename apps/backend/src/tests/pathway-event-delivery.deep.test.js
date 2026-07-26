@@ -1080,7 +1080,7 @@ describeIfDb('pathway projector event delivery (deep)', () => {
 
   it('retries handler failures without double-increment and dead-letters the seventh failed claim', async () => {
     const consumerKey = consumerFor('handler_failure');
-    const generation = 4;
+    const generation = 2002;
     const eventType = `test.pathway.s1a.poison_${RUN_TOKEN}`;
     const [event] = await prepareClaimableEvents({
       consumerKey,

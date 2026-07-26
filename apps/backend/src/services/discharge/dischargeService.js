@@ -11,6 +11,11 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  publishInpatientSourceEventTx,
+  resolveInpatientPathwayModeTx,
+} from '../emr/inpatientPathwayDomainService.js';
+import { PATHWAY_MODES } from '../pathways/pathwayMode.js';
 
 // Section keys we recognise as "discharge medications" for the
 // materialise-to-e_prescriptions handoff. Templates use slightly
@@ -30,6 +35,38 @@ const DIAGNOSIS_SECTION_KEYS = new Set([
   'discharge_diagnosis',
   'primary_diagnosis',
 ]);
+
+const INPATIENT_CLOSURE_SECTION_DEFINITIONS = Object.freeze([
+  {
+    section_key: 'patient_guardian_instructions',
+    section_title: 'Patient / Guardian Instructions',
+    display_order: 900,
+  },
+  {
+    section_key: 'escalation_contact',
+    section_title: 'Escalation Contact',
+    display_order: 901,
+  },
+  {
+    section_key: 'required_equipment_home_care',
+    section_title: 'Required Equipment / Home Care',
+    display_order: 902,
+  },
+  {
+    section_key: 'discharge_destination',
+    section_title: 'Discharge Destination',
+    display_order: 903,
+  },
+  {
+    section_key: 'transport_plan',
+    section_title: 'Transport Plan',
+    display_order: 904,
+  },
+]);
+
+const INPATIENT_CLOSURE_SECTION_KEYS = new Set(
+  INPATIENT_CLOSURE_SECTION_DEFINITIONS.map((section) => section.section_key),
+);
 
 const INACTIVE_ORDER_STATUS_RE =
   /cancelled|canceled|discontinued|stopped|\bheld\b|on[\s_-]?hold|suspended|completed/i;
@@ -165,32 +202,90 @@ function isPlaceholderBody(body) {
  * ones actually present, so each specialty template gates on its own
  * required fields without a per-template config.
  */
-function assertSignable(sections) {
+function assertSignable(sections, { requireInpatientClosure = false } = {}) {
   const rows = Array.isArray(sections) ? sections : [];
+  const presentKeys = new Set(
+    rows.map((section) => String(section?.section_key || '').toLowerCase()),
+  );
+  const missing = requireInpatientClosure
+    ? [...INPATIENT_CLOSURE_SECTION_KEYS].filter((key) => !presentKeys.has(key))
+    : [];
   const blank = [];
   const placeholder = [];
   for (const s of rows) {
     const key = String(s?.section_key || '').toLowerCase();
-    if (!REQUIRED_SIGN_SECTION_KEYS.has(key)) continue;
+    const required = REQUIRED_SIGN_SECTION_KEYS.has(key)
+      || (requireInpatientClosure && INPATIENT_CLOSURE_SECTION_KEYS.has(key));
+    if (!required) continue;
     if (isBlankBody(s?.body)) {
       blank.push(s.section_key);
     } else if (isPlaceholderBody(s?.body)) {
       placeholder.push(s.section_key);
     }
   }
-  if (blank.length === 0 && placeholder.length === 0) return;
+  if (missing.length === 0 && blank.length === 0 && placeholder.length === 0) return;
 
   const parts = [];
+  if (missing.length) parts.push(`missing: ${missing.join(', ')}`);
   if (blank.length) parts.push(`blank: ${blank.join(', ')}`);
   if (placeholder.length) {
     parts.push(`unreviewed placeholder text: ${placeholder.join(', ')}`);
   }
   throw AppError.conflict(
     `Discharge summary cannot be signed — required clinical section(s) are incomplete (${parts.join('; ')}). `
-    + 'Fill in the procedure/diagnosis and discharge medications and replace any placeholder text before sign-off.',
+    + 'Complete the diagnosis/procedure, discharge medications, patient or guardian instructions, '
+    + 'escalation contact, required equipment or home-care plan, discharge destination, and '
+    + 'transport plan before sign-off.',
     'DISCHARGE_SUMMARY_INCOMPLETE',
-    { blank_sections: blank, placeholder_sections: placeholder },
+    {
+      missing_sections: missing,
+      blank_sections: blank,
+      placeholder_sections: placeholder,
+    },
   );
+}
+
+async function assertSummarySignableTx({ tx, tenantId, id }) {
+  // Governed mode transitions lock tenant before provisioning summaries.
+  // Use the same global order here to avoid tenant↔summary deadlocks.
+  const tenantRows = await tx.$queryRawUnsafe(
+    `SELECT id
+       FROM tenants
+      WHERE id = $1::uuid
+      FOR SHARE`,
+    tenantId,
+  );
+  if (!tenantRows.length) {
+    throw AppError.notFound('Tenant not found', 'TENANT_NOT_FOUND');
+  }
+  const ownerRows = await tx.$queryRawUnsafe(
+    `SELECT id, admission_id, status
+       FROM discharge_summaries
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+      FOR UPDATE`,
+    Number(id),
+    tenantId,
+  );
+  if (!ownerRows.length) throw AppError.notFound('Discharge summary not found');
+  const summary = ownerRows[0];
+
+  let requireInpatientClosure = false;
+  if (summary.admission_id != null) {
+    requireInpatientClosure = (
+      await resolveInpatientPathwayModeTx(tx, tenantId)
+    ) === PATHWAY_MODES.ACTIVE;
+  }
+
+  const sections = await tx.$queryRawUnsafe(
+    `SELECT section_key, body
+       FROM discharge_summary_sections
+      WHERE discharge_summary_id = $1::int
+      FOR UPDATE`,
+    Number(id),
+  );
+  assertSignable(sections, { requireInpatientClosure });
+  return summary;
 }
 
 // ── Section auto-population ─────────────────────────────────────────
@@ -821,6 +916,11 @@ export async function createDraft({
 }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   const template = await pickTemplate({ tenantId, template_code, specialty });
+  const materializeInpatientClosure = admission_id
+    ? await setTenantTx(requireTenantId(tenantId), async (tx) => (
+        await resolveInpatientPathwayModeTx(tx, tenantId)
+      ) !== PATHWAY_MODES.OFF)
+    : false;
 
   // Accept both naming styles: callers may send the bare field
   // (`patient_name`) or the explicit snapshot column name
@@ -873,7 +973,18 @@ export async function createDraft({
   // template actually declares an auto-populatable section, so a
   // section-less template stays a zero-extra-query path.
   // Finding: 2026-05-09-tpa-insurance-claim-discharge-summary-sections-not-auto-populated
-  const sections = Array.isArray(template.sections) ? template.sections : [];
+  const templateSections = Array.isArray(template.sections) ? template.sections : [];
+  const templateSectionKeys = new Set(
+    templateSections.map((section) => String(section?.section_key || '').toLowerCase()),
+  );
+  const sections = materializeInpatientClosure
+    ? [
+        ...templateSections,
+        ...INPATIENT_CLOSURE_SECTION_DEFINITIONS.filter(
+          (section) => !templateSectionKeys.has(section.section_key),
+        ),
+      ]
+    : templateSections;
   const neededKeys = new Set(
     sections
       .map((s) => String(s?.section_key || '').toLowerCase())
@@ -1059,53 +1170,67 @@ export async function generateSignedDischargeSummaryPdfBuffer({
 export async function updateSection({
   tenantId, id, section_key, body, edited_by,
 }) {
-  // Verify ownership before edit (prevents cross-tenant tampering).
-  const owner = await prisma.$queryRawUnsafe(
-    `SELECT id, status FROM discharge_summaries
-      WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
-  );
-  if (!owner.length) throw AppError.notFound('Discharge summary not found');
-  if (owner[0].status === 'signed' || owner[0].status === 'delivered') {
-    throw AppError.badRequest(
-      `Discharge summary is ${owner[0].status} — sections cannot be edited.`,
+  await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    // Lock the parent before the section so edit and sign use one ordering.
+    // A concurrent sign cannot commit and then be followed by a stale draft
+    // edit that mutates the now-final patient document.
+    const owner = await tx.$queryRawUnsafe(
+      `SELECT id, status
+         FROM discharge_summaries
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      Number(id),
+      tenantId,
     );
-  }
-  const sectionRows = await prisma.$queryRawUnsafe(
-    `SELECT id, section_key, section_title, body, edited_by, edited_at
-       FROM discharge_summary_sections
-      WHERE discharge_summary_id = $1::int AND section_key = $2
-      LIMIT 1`,
-    Number(id), String(section_key),
-  );
-  if (!sectionRows.length) {
-    throw AppError.notFound(`Section ${section_key} not found on this summary`);
-  }
-  const before = sectionRows[0];
-  await prisma.$executeRawUnsafe(
-    `UPDATE discharge_summary_sections
-        SET body = $1, edited_by = $2::uuid, edited_at = NOW()
-      WHERE discharge_summary_id = $3::int AND section_key = $4`,
-    body || null,
-    edited_by ? String(edited_by) : null,
-    Number(id), String(section_key),
-  );
-  // Bump parent updated_at to track edit recency.
-  await prisma.$executeRawUnsafe(
-    `UPDATE discharge_summaries SET updated_at = NOW() WHERE id = $1::int`,
-    Number(id),
-  );
-  await appendDischargeAudit({
-    tenantId,
-    id,
-    action: 'DISCHARGE_SUMMARY_SECTION_EDIT',
-    actorUid: edited_by,
-    metadata: {
-      section_key: String(section_key),
-      section_title: before.section_title || null,
-      previous_body: before.body || null,
-      new_body: body || null,
-    },
+    if (!owner.length) throw AppError.notFound('Discharge summary not found');
+    if (owner[0].status === 'signed' || owner[0].status === 'delivered') {
+      throw AppError.badRequest(
+        `Discharge summary is ${owner[0].status} — sections cannot be edited.`,
+      );
+    }
+    const sectionRows = await tx.$queryRawUnsafe(
+      `SELECT id, section_key, section_title, body, edited_by, edited_at
+         FROM discharge_summary_sections
+        WHERE discharge_summary_id = $1::int
+          AND section_key = $2
+        LIMIT 1
+        FOR UPDATE`,
+      Number(id),
+      String(section_key),
+    );
+    if (!sectionRows.length) {
+      throw AppError.notFound(`Section ${section_key} not found on this summary`);
+    }
+    const before = sectionRows[0];
+    await tx.$executeRawUnsafe(
+      `UPDATE discharge_summary_sections
+          SET body = $1, edited_by = $2::uuid, edited_at = NOW()
+        WHERE discharge_summary_id = $3::int AND section_key = $4`,
+      body || null,
+      edited_by ? String(edited_by) : null,
+      Number(id),
+      String(section_key),
+    );
+    await tx.$executeRawUnsafe(
+      `UPDATE discharge_summaries
+          SET updated_at = NOW()
+        WHERE id = $1::int`,
+      Number(id),
+    );
+    await appendDischargeAudit({
+      tenantId,
+      id,
+      db: tx,
+      action: 'DISCHARGE_SUMMARY_SECTION_EDIT',
+      actorUid: edited_by,
+      metadata: {
+        section_key: String(section_key),
+        section_title: before.section_title || null,
+        previous_body: before.body || null,
+        new_body: body || null,
+      },
+    });
   });
   return getOne({ tenantId, id });
 }
@@ -1171,29 +1296,13 @@ export async function setSectionTranslation({
 }
 
 export async function markReadyForSignoff({ tenantId, id, marked_by = null }) {
-  // Same completeness gate as sign() — surface incomplete required
-  // sections at "mark ready" so the doctor sees the blocker before the
-  // sign-off step rather than only at the final sign. Ownership-scoped
-  // read prevents a cross-tenant id probing section content. Finding:
-  // 2026-05-22-surgical-day-care-discharge-ae484c86.
-  const ownerRows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM discharge_summaries
-      WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
-  );
-  if (!ownerRows.length) throw AppError.notFound('Discharge summary not found');
-  const gateSections = await prisma.$queryRawUnsafe(
-    `SELECT section_key, body
-       FROM discharge_summary_sections
-      WHERE discharge_summary_id = $1::int`,
-    Number(id),
-  );
-  assertSignable(gateSections);
-
   // Atomic: status flip + legacy audit + canonical timeline/audit events commit
-  // together (canonical timeline invariant). setTenantTx also scopes the writes
-  // under the discharge_summaries RLS policy (migration 304).
+  // together (canonical timeline invariant). The same transaction locks the
+  // tenant mode, summary, and sections before applying active-only closure
+  // requirements, so shadow mode cannot change clinical behavior and a
+  // concurrent edit/activation cannot race the signability decision.
   await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    await assertSummarySignableTx({ tx, tenantId, id });
     const rows = await tx.$queryRawUnsafe(
       `UPDATE discharge_summaries
           SET status = 'ready_for_signoff', updated_at = NOW()
@@ -1231,26 +1340,6 @@ export async function sign({
     throw AppError.badRequest('signed_by_name is required');
   }
 
-  // Completeness gate (pre-flight, outside any txn). A signed discharge
-  // summary is final patient-facing instruction — block the sign if the
-  // required clinical sections present on this summary are blank or
-  // still carry template placeholder text. Verify ownership in the same
-  // read so a cross-tenant id can't probe section content. Finding:
-  // 2026-05-22-surgical-day-care-discharge-ae484c86.
-  const ownerRows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM discharge_summaries
-      WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
-  );
-  if (!ownerRows.length) throw AppError.notFound('Discharge summary not found');
-  const gateSections = await prisma.$queryRawUnsafe(
-    `SELECT section_key, body
-       FROM discharge_summary_sections
-      WHERE discharge_summary_id = $1::int`,
-    Number(id),
-  );
-  assertSignable(gateSections);
-
   // Atomic sign (canonical timeline invariant + audit 2026-06-18 §4): the status
   // flip, the legacy audit row, the canonical timeline/audit events, AND the
   // admission summary_signed_at stamp all commit together (previously the flip,
@@ -1260,6 +1349,7 @@ export async function sign({
   // POST-COMMIT best-effort (idempotent, patient-app convenience) — an
   // e_prescriptions hiccup must not roll back a legally-signed discharge.
   const signed = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    await assertSummarySignableTx({ tx, tenantId, id });
     const rows = await tx.$queryRawUnsafe(
       `UPDATE discharge_summaries
           SET status = 'signed', signed_by = $1::uuid,
@@ -1291,7 +1381,7 @@ export async function sign({
         signed_at: row.signed_at || null,
       },
     });
-    await emitDischargeCanonicalEvent({
+    const canonical = await emitDischargeCanonicalEvent({
       db: tx, tenantId, id, patientUid: row.patient_uid,
       admissionId: row.admission_id,
       eventType: 'discharge_summary.signed', eventStatus: 'signed',
@@ -1312,6 +1402,24 @@ export async function sign({
           WHERE id = $2::int`,
         row.signed_at, Number(row.admission_id),
       );
+      await publishInpatientSourceEventTx({
+        tx,
+        tenantId,
+        eventType: 'clinical_document.discharge_summary.signed',
+        admission: {
+          id: Number(row.admission_id),
+          tenant_id: tenantId,
+          patient_uid: row.patient_uid,
+        },
+        aggregateType: 'discharge_summary',
+        aggregateId: Number(id),
+        payload: {
+          patient_uid: row.patient_uid,
+          discharge_summary_id: Number(id),
+          canonical_timeline_event_id: canonical?.timeline?.id || null,
+          canonical_audit_event_id: canonical?.audit?.id || null,
+        },
+      });
     }
     return row;
   });

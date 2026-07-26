@@ -2,6 +2,10 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isDefaultTenantAllowed } from '../../config/tenantRlsConfig.js';
+import {
+  RESERVED_CARE_PATHWAYS_SETTINGS_KEY,
+  serializeGenericTenantSettings,
+} from './tenantSettingsMutationPolicy.js';
 
 export const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -115,6 +119,9 @@ export async function createTenant(data = {}) {
 
   const region = validateRegion(clean(data.region || 'IN').toUpperCase());
   const compliance = validateProfile(clean(data.compliance_profile || 'DPDP').toUpperCase());
+  const serializedSettings = serializeGenericTenantSettings(
+    Object.prototype.hasOwnProperty.call(data, 'settings') ? data.settings : {},
+  );
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO tenants (slug, name, region, compliance_profile, settings, created_at, updated_at)
@@ -125,7 +132,7 @@ export async function createTenant(data = {}) {
     name,
     region,
     compliance,
-    JSON.stringify(data.settings || {})
+    serializedSettings
   );
   if (!rows[0]) {
     throw AppError.conflict(`Tenant slug already exists: ${slug}`);
@@ -163,9 +170,20 @@ export async function updateTenant(tenantId, patch = {}) {
     values.push(validateStatus(clean(patch.status).toLowerCase()));
     idx += 1;
   }
-  if (patch.settings != null) {
-    fields.push(`settings = $${idx}::jsonb`);
-    values.push(JSON.stringify(patch.settings));
+  if (Object.prototype.hasOwnProperty.call(patch, 'settings')) {
+    fields.push(
+      `settings = CASE
+         WHEN jsonb_typeof(settings) = 'object'
+          AND settings ? '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}'
+         THEN $${idx}::jsonb
+              || jsonb_build_object(
+                   '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}',
+                   settings -> '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}'
+                 )
+         ELSE $${idx}::jsonb
+       END`
+    );
+    values.push(serializeGenericTenantSettings(patch.settings));
     idx += 1;
   }
 

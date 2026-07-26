@@ -5,6 +5,7 @@ class DischargeSummary {
     required this.primaryDiagnosis,
     required this.status,
     required this.sections,
+    this.pendingResults = const [],
     this.patientName,
     this.hospitalNumber,
     this.admittedAt,
@@ -43,6 +44,15 @@ class DischargeSummary {
             ),
           )
           .toList(),
+      pendingResults: (json['pending_results'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => DischargePendingResult.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
+          .where((item) => item.label.isNotEmpty)
+          .toList(growable: false),
     );
   }
 
@@ -62,8 +72,13 @@ class DischargeSummary {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final List<DischargeSummarySection> sections;
+  final List<DischargePendingResult> pendingResults;
 
   DateTime? get displayDate => dischargedAt ?? signedAt ?? createdAt;
+
+  bool get canShowPendingResults =>
+      (status == 'signed' || status == 'delivered') &&
+      pendingResults.isNotEmpty;
 }
 
 class DischargeSummarySection {
@@ -101,6 +116,32 @@ class DischargeSummarySection {
     if (translated != null && translated.isNotEmpty) return translated;
     return body;
   }
+}
+
+class DischargePendingResult {
+  const DischargePendingResult({
+    required this.label,
+    required this.status,
+    this.responsibleClinicianDisplayName,
+    this.responsibleClinicianRole,
+  });
+
+  factory DischargePendingResult.fromJson(Map<String, dynamic> json) {
+    return DischargePendingResult(
+      label: json['label']?.toString().trim() ?? '',
+      status: json['status']?.toString().trim() ?? '',
+      responsibleClinicianDisplayName:
+          json['responsible_clinician_display_name']?.toString().trim(),
+      responsibleClinicianRole: json['responsible_clinician_role']
+          ?.toString()
+          .trim(),
+    );
+  }
+
+  final String label;
+  final String status;
+  final String? responsibleClinicianDisplayName;
+  final String? responsibleClinicianRole;
 }
 
 int _asInt(dynamic value) {

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/models/care_pathway_work_models.dart';
 import 'package:vhhealth_staff/features/emr/screens/patient_command_board_screen.dart';
 
 void main() {
@@ -220,6 +221,23 @@ void main() {
           'activities': [{}],
         }),
         '2 goals - 1 activity - active',
+      );
+    });
+
+    test('uses owner UID fallback without presenting route as owner', () {
+      final task = CarePathwayTaskItem.fromJson({
+        'label': 'Review order',
+        'kind': 'review',
+        'status': 'open',
+        'priority': 'normal',
+        'route': 'orders',
+        'named_owner': {'uid': 'doctor-12'},
+      });
+
+      expect(patientCommandBoardTaskOwnerLabel(task), 'doctor-12');
+      expect(
+        patientCommandBoardTaskOwnerLabel(task),
+        isNot(contains('orders')),
       );
     });
   });

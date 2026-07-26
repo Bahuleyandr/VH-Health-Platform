@@ -1,7 +1,7 @@
 // src/routes/bed/bedRoutes.js
 import express from 'express';
 import * as bedController from '../../controllers/bed/bedController.js';
-import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
   ADMIN_ROUTE_ROLES,
@@ -31,8 +31,10 @@ const guardBedWrite = patientAccessGuardForResource('BED_MANAGEMENT', {
   resourceType: 'bed',
   allowNoPatientResource: true,
 });
-const guardBedAdmitPatient = patientAccessGuard('BED_MANAGEMENT', {
+const guardBedAdmitPatient = patientAccessGuardForResource('BED_MANAGEMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
+  resourceType: 'admission',
+  idSelector: (req) => req.body?.admission_id,
 });
 
 // ===== BED ROUTES =====
@@ -42,11 +44,11 @@ bedRouter.get('/ward/:wardId', wardIdValidation, bedController.getBedsByWard);
 bedRouter.post('/', requireBedAdmin, createBedValidation, bedController.createBed);
 bedRouter.put('/:id', requireClinical, guardBedWrite, updateBedValidation, bedController.updateBed);
 // PATCH /:id/notes — quick-note save from the staff bed-board sheet.
-// Separate from PUT /:id because that handler's body contract requires
-// patient fields and would null them out when the sheet only sends notes.
+// Separate from PUT /:id so the patient-linked notes workflow keeps its
+// dedicated authorization, audit, and realtime-event behavior.
 bedRouter.patch('/:id/notes', requireClinical, guardBedWrite, bedController.updateBedNotes);
 bedRouter.delete('/:id', requireBedAdmin, deleteBedValidation, bedController.deleteBed);
-bedRouter.post('/:id/admit', requireBedAllocation, guardBedAdmitPatient, admitValidation, bedController.admitPatient);
+bedRouter.post('/:id/admit', requireBedAllocation, admitValidation, guardBedAdmitPatient, bedController.admitPatient);
 // /:id/discharge intentionally omitted — handled exclusively by bedManagementRoutes
 // (mounted after this router at /api/v1/beds). Defining it here shadowed the new
 // handler and bypassed the cleaning-status transition and housekeeping ticket.

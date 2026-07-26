@@ -1,5 +1,6 @@
 // src/validators/bed/bedValidators.js
 import { body, param, validationResult } from 'express-validator';
+import { AppError } from '../../utils/AppError.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -48,9 +49,16 @@ export const updateBedValidation = [
   param('id').isInt({ min: 1 }).withMessage('Bed ID must be a positive integer'),
   body('ward_id').optional().isInt({ min: 1 }),
   body('bed_number').optional().trim().isLength({ max: 20 }),
-  body('status').optional().isIn(['available', 'occupied', 'reserved', 'maintenance']),
-  body('patient_id').optional({ nullable: true }).isInt({ min: 1 }),
-  body('patient_name').optional({ nullable: true }).trim().isLength({ max: 100 }),
+  body('status').optional().isIn(['available', 'reserved', 'maintenance'])
+    .withMessage('Generic bed updates cannot change patient occupancy'),
+  body('patient_id').not().exists()
+    .withMessage('Patient assignment requires the canonical admission workflow'),
+  body('patient_uid').not().exists()
+    .withMessage('Patient assignment requires the canonical admission workflow'),
+  body('patient_name').not().exists()
+    .withMessage('Patient assignment requires the canonical admission workflow'),
+  body('admission_id').not().exists()
+    .withMessage('Admission assignment requires the canonical admission workflow'),
   body('notes').optional().trim(),
   validate
 ];
@@ -62,28 +70,19 @@ export const deleteBedValidation = [
 
 export const admitValidation = [
   param('id').isInt({ min: 1 }).withMessage('Bed ID must be a positive integer'),
-  // C-2 (audit 2026-06-18): bedService.admitPatient now creates a REAL admission
-  // (admissions.patient_uid + bed_transfers.patient_uid are NOT NULL), so a bed can
-  // no longer be occupied by name alone. patient_name is optional — the service
-  // falls back to users.name — but a resolvable patient reference is mandatory.
-  body('patient_name').optional().trim(),
-  body('patient_id').optional().isInt({ min: 1 }),
-  body('patient_uid').optional().isUUID().withMessage('patient_uid must be a valid UUID'),
-  body('notes').optional().trim(),
-  // Require at least one resolvable patient reference (patient_id or patient_uid).
-  // Rejects a name-only body at the edge (400) instead of letting it fail deeper
-  // in bedService.admitPatient (AppError ADMIT_PATIENT_REQUIRED).
-  body().custom((_value, { req }) => {
-    const rawId = req.body?.patient_id;
-    const hasId = rawId !== undefined && rawId !== null && String(rawId).trim() !== '';
-    const rawUid = req.body?.patient_uid;
-    const hasUid = typeof rawUid === 'string' && rawUid.trim() !== '';
-    if (!hasId && !hasUid) {
-      throw new Error('patient_uid or patient_id is required');
+  body('admission_id').optional().isInt({ min: 1 })
+    .withMessage('admission_id must be a positive integer'),
+  validate,
+  (req, _res, next) => {
+    const admissionId = Number(req.body?.admission_id);
+    if (!Number.isSafeInteger(admissionId) || admissionId <= 0) {
+      return next(AppError.badRequest(
+        'admission_id is required; create the canonical admission before assigning a bed',
+        'ADMISSION_ID_REQUIRED',
+      ));
     }
-    return true;
-  }),
-  validate
+    return next();
+  },
 ];
 
 export const dischargeValidation = [

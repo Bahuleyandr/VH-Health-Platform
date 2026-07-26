@@ -218,6 +218,112 @@ describe('runEscalationSweep', () => {
     expect(String(note.body || note.title || '')).toMatch(/escalat|critical|review/i);
   });
 
+  it.each([
+    {
+      label: 'OP-to-inpatient review task',
+      taskKind: 'op_to_inpatient_transfer_review',
+      relatedResourceType: 'care_handoff_instance',
+      taskContract: 'op_to_inpatient_transfer_review_v1',
+    },
+    {
+      label: 'covering-transfer review task',
+      taskKind: 'pathway_owner_transfer_review',
+      relatedResourceType: 'care_handoff_instance',
+      taskContract: 'covering_clinician_transfer_review_v1',
+    },
+    {
+      label: 'pending-result tracking task',
+      taskKind: 'follow_up',
+      relatedResourceType: 'discharge_pending_result_handoff',
+      taskContract: 'discharge_pending_result_tracking_v1',
+    },
+    {
+      label: 'pending-result owner-action task',
+      taskKind: 'review',
+      relatedResourceType: 'discharge_pending_result_action',
+      taskContract: 'discharge_pending_result_action_v1',
+    },
+  ])('broad pending_too_long priority rules cannot rewrite a $label', async ({
+    taskKind,
+    relatedResourceType,
+    taskContract,
+  }) => {
+    const broadRule = rule({
+      match_filter: {},
+      trigger_condition: 'pending_too_long',
+      trigger_window_minutes: 1,
+    });
+    const protectedTask = task({
+      task_kind: taskKind,
+      title: 'Review protected S4 work',
+      priority: 'normal',
+      related_resource_type: relatedResourceType,
+      related_resource_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      due_at: null,
+      workflow_sla_instance_id: null,
+      sla_completion_semantics: 'none',
+      sla_rule_code: null,
+      breach_at: null,
+      created_at: new Date('2026-06-15T11:00:00.000Z'),
+      metadata: { task_contract: taskContract },
+    });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([broadRule])
+      .mockResolvedValueOnce([protectedTask])
+      .mockResolvedValueOnce([]);
+
+    const result = await runEscalationSweep({ now: NOW });
+
+    expect(result).toMatchObject({ scanned: 1, escalated: 0 });
+    expect(executeRawMock).not.toHaveBeenCalled();
+    expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'escalation sweep: per-task action failed',
+      expect.objectContaining({ tenantId: TENANT, taskId: 77, ruleId: 5 }),
+    );
+  });
+
+  it('keeps priority escalation available for ordinary pathway-owned tasks', async () => {
+    const broadRule = rule({
+      match_filter: { task_kind: 'follow_up' },
+      trigger_condition: 'pending_too_long',
+      trigger_window_minutes: 1,
+      action_payload: { tier: 1 },
+    });
+    const pathwayTask = task({
+      task_kind: 'follow_up',
+      priority: 'normal',
+      related_resource_type: 'care_pathway_instance',
+      related_resource_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      due_at: null,
+      workflow_run_id: 17,
+      workflow_step_id: 171,
+      workflow_sla_instance_id: null,
+      sla_completion_semantics: 'none',
+      sla_rule_code: null,
+      breach_at: null,
+      created_at: new Date('2026-06-15T11:00:00.000Z'),
+      metadata: {
+        stage_key: 'recover_unattended_visit',
+        materialization_kind: 'task',
+      },
+    });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([broadRule])
+      .mockResolvedValueOnce([pathwayTask])
+      .mockResolvedValueOnce([]);
+
+    const result = await runEscalationSweep({ now: NOW });
+
+    expect(result.escalated).toBe(1);
+    expect(executeRawMock).toHaveBeenCalledTimes(1);
+    expect(executeRawMock.mock.calls[0][0]).toMatch(/priority\s*=\s*'critical'/i);
+  });
+
   it('is idempotent: a task already escalated for this rule is NOT re-fired', async () => {
     const already = task({
       metadata: {

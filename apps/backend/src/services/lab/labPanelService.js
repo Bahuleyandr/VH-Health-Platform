@@ -17,6 +17,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import { materializeLabCriticalAlertGeneration } from './labCriticalAlertService.js';
 import {
@@ -191,6 +192,7 @@ async function resolvePanelSourceTx({
               investigation.id AS investigation_id,
               investigation.status AS investigation_status,
               investigation.requested_by AS ordering_clinician_uid,
+              investigation.admission_id,
               patient.uid AS patient_uid,
               patient.name AS patient_name,
               patient.gender,
@@ -225,6 +227,7 @@ async function resolvePanelSourceTx({
     return {
       bookingId: null,
       investigationId: Number(source.investigation_id),
+      admissionId: source.admission_id == null ? null : Number(source.admission_id),
       patientUid: String(source.patient_uid),
       patientName: source.patient_name ?? null,
       gender: source.gender ?? null,
@@ -240,6 +243,7 @@ async function resolvePanelSourceTx({
             investigation.id AS investigation_id,
             investigation.status AS investigation_status,
             investigation.requested_by AS ordering_clinician_uid,
+            investigation.admission_id,
             patient.uid AS patient_uid,
             patient.name AS patient_name,
             patient.gender,
@@ -281,6 +285,7 @@ async function resolvePanelSourceTx({
   return {
     bookingId: Number(source.booking_id),
     investigationId: Number(source.investigation_id),
+    admissionId: source.admission_id == null ? null : Number(source.admission_id),
     patientUid: String(source.patient_uid),
     patientName: source.patient_name ?? null,
     gender: source.gender ?? null,
@@ -574,6 +579,7 @@ export async function recordLabPanel({
           tenant_id: tid,
           booking_id: source.bookingId,
           investigation_id: source.investigationId,
+          admission_id: source.admissionId,
           patient_uid: source.patientUid,
           patient_name: source.patientName,
           loinc_code: analyte.loinc_code ?? range?.loinc_code ?? null,
@@ -649,7 +655,7 @@ export async function recordLabPanel({
         throw new Error('Non-critical lab panel result unexpectedly materialized critical rails');
       }
 
-      await recordCanonicalClinicalEvent({
+      const canonical = await recordCanonicalClinicalEvent({
         tenantId: tid,
         patientUid: source.patientUid,
         encounterId: null,
@@ -694,6 +700,21 @@ export async function recordLabPanel({
         timelineIdempotencyKey: `lab_results:${recordedResult.id}:lab.result_recorded:${recordedResult.status}`,
         auditIdempotencyKey: `lab_results:${recordedResult.id}:audit:lab.result_recorded:${recordedResult.status}`,
       }, { db: tx, strict: true });
+      if (recordedResult.admission_id != null) {
+        await publishInpatientDiagnosticResourceLinkedTx({
+          tx,
+          tenantId: tid,
+          admissionId: recordedResult.admission_id,
+          patientUid: recordedResult.patient_uid,
+          resourceType: 'lab_result',
+          resourceId: recordedResult.id,
+          canonicalTimelineEventId: canonical.timeline.id,
+          canonicalAuditEventId: canonical.audit.id,
+          occurredAt: recordedResult.performed_at
+            || recordedResult.received_at
+            || recordedResult.created_at,
+        });
+      }
       rows.push(recordedResult);
     }
 

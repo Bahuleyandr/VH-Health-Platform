@@ -118,7 +118,13 @@ export async function fetchDocumentTx({ tx, documentType, documentId } = {}) {
   return fetchDocumentFrom(tx, documentType, documentId);
 }
 
-function validateSignatureInput({ method, signatureId, canonicalAuditEventId }) {
+function validateSignatureInput({
+  method,
+  signatureId,
+  canonicalAuditEventId,
+  canonicalAuditResourceTable,
+  canonicalAuditResourceId,
+}) {
   if (!['electronic_attestation', 'aadhaar_esign', 'dsc'].includes(method)) {
     throw AppError.badRequest('signature_method must be electronic_attestation|aadhaar_esign|dsc', 'SIGN_BAD_METHOD');
   }
@@ -126,6 +132,24 @@ function validateSignatureInput({ method, signatureId, canonicalAuditEventId }) 
     throw AppError.internal(
       'Preallocated signature and canonical audit identities must be supplied together',
       'SIGN_PREALLOCATED_EVIDENCE_INCOMPLETE',
+    );
+  }
+  const hasAuditResourceTable = canonicalAuditResourceTable != null;
+  const hasAuditResourceId = canonicalAuditResourceId != null;
+  if (
+    hasAuditResourceTable !== hasAuditResourceId
+    || (
+      hasAuditResourceTable
+      && (
+        canonicalAuditEventId == null
+        || !String(canonicalAuditResourceTable).trim()
+        || !String(canonicalAuditResourceId).trim()
+      )
+    )
+  ) {
+    throw AppError.internal(
+      'Preallocated audit resource table and identity must be supplied together',
+      'SIGN_PREALLOCATED_AUDIT_BINDING_INCOMPLETE',
     );
   }
 }
@@ -140,7 +164,8 @@ function validateSignatureInput({ method, signatureId, canonicalAuditEventId }) 
 export async function signDocumentTx({
   documentType, documentId, statement = null, method = 'electronic_attestation',
   esignTxnRef = null, certificateRef = null, signatureId = null,
-  canonicalAuditEventId = null,
+  canonicalAuditEventId = null, canonicalAuditResourceTable = null,
+  canonicalAuditResourceId = null,
 } = {}, context = {}, { tx } = {}) {
   if (!context.actorUid) throw AppError.unauthorized('Signer identity missing');
   if (!isTenantTransactionClient(tx)) {
@@ -149,11 +174,23 @@ export async function signDocumentTx({
       'SIGN_TENANT_TX_REQUIRED',
     );
   }
-  validateSignatureInput({ method, signatureId, canonicalAuditEventId });
+  validateSignatureInput({
+    method,
+    signatureId,
+    canonicalAuditEventId,
+    canonicalAuditResourceTable,
+    canonicalAuditResourceId,
+  });
   const { spec, row } = await fetchDocumentFrom(tx, documentType, documentId);
   const hash = contentHashOf(row.doc);
 
   if (canonicalAuditEventId) {
+    const expectedAuditResourceTable = canonicalAuditResourceTable == null
+      ? spec.table
+      : String(canonicalAuditResourceTable).trim();
+    const expectedAuditResourceId = canonicalAuditResourceId == null
+      ? String(documentId)
+      : String(canonicalAuditResourceId).trim();
     const canonical = await tx.$queryRawUnsafe(
       `SELECT id, tenant_id, patient_uid, resource_table, resource_id
          FROM clinical_audit_events
@@ -166,8 +203,8 @@ export async function signDocumentTx({
       canonicalAuditEventId,
       row.tenant_id,
       row.patient_uid || null,
-      spec.table,
-      String(documentId),
+      expectedAuditResourceTable,
+      expectedAuditResourceId,
     );
     if (canonical.length !== 1) {
       throw AppError.internal(

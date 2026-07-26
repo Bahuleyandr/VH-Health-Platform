@@ -3159,6 +3159,106 @@ d('pathway executor PostgreSQL conformance', () => {
     }]);
   }, 60_000);
 
+  it('lets the exact recipient request and accept diagnostic coverage from a live wait stage', async () => {
+    const fixture = await seedFixture([
+      waitDefinition('diagnostics_order_to_action', 2),
+    ]);
+    const definition = fixture.definitions[0];
+    const started = await startCarePathwayInstance(startInput(
+      fixture,
+      definition,
+      'wait-ownership-start',
+    ));
+    const live = await executePathwayCommand(commandInput(
+      fixture,
+      started.id,
+      `wait-ownership-materialize.${compactToken()}`,
+      'materialize_wait_stage',
+    ));
+    expect(live.instance.run).toMatchObject({ status: 'blocked', current_step_key: 'gate_2' });
+    const coveringUid = await setTenantTx(fixture.tenantId, (tx) => seedStaffUser(tx, {
+      tenantId: fixture.tenantId,
+    }));
+    const requested = await requestCarePathwayOwnerTransfer({
+      tenantId: fixture.tenantId,
+      pathwayInstanceId: started.id,
+      coveringClinicianUid: coveringUid,
+      reason: 'Cover the live diagnostic wait-stage obligation',
+      idempotencyKey: `wait-transfer-request.${compactToken()}`,
+      actor: actor(fixture.doctorUid),
+    });
+    expect(requested).toMatchObject({
+      replayed: false,
+      handoff: {
+        status: 'requested',
+        intended_recipient_uid: coveringUid,
+        sending_step_key: 'gate_2',
+      },
+      task: {
+        task_kind: 'pathway_owner_transfer_review',
+        assigned_to_uid: coveringUid,
+        status: 'open',
+      },
+    });
+    const acceptInput = {
+      tenantId: fixture.tenantId,
+      handoffId: requested.handoff.id,
+      idempotencyKey: `wait-transfer-accept.${compactToken()}`,
+      actor: actor(coveringUid),
+    };
+    await expect(acceptCarePathwayOwnerTransfer(acceptInput)).resolves.toMatchObject({
+      replayed: false,
+      instance: { owning_clinician_uid: coveringUid },
+      handoff: {
+        status: 'accepted',
+        accepted_by_uid: coveringUid,
+      },
+      task: { status: 'completed' },
+    });
+    await expect(acceptCarePathwayOwnerTransfer(acceptInput)).resolves.toMatchObject({
+      replayed: true,
+      instance: { owning_clinician_uid: coveringUid },
+      handoff: { status: 'accepted' },
+    });
+  }, 60_000);
+
+  it.each([
+    ['referral', 'referral_request_to_closure'],
+    ['OP', 'op_contact_to_recovery'],
+  ])(
+    'does not let a %s wait stage bypass its domain-specific owner flow',
+    async (_label, pathwayKey) => {
+      const fixture = await seedFixture([waitDefinition(pathwayKey, 2)]);
+      const started = await startCarePathwayInstance(startInput(
+        fixture,
+        fixture.definitions[0],
+        `${_label.toLowerCase()}-wait-ownership-start`,
+      ));
+      const live = await executePathwayCommand(commandInput(
+        fixture,
+        started.id,
+        `${_label.toLowerCase()}-wait-ownership-materialize.${compactToken()}`,
+        'materialize_wait_stage',
+      ));
+      expect(live.instance.run).toMatchObject({ status: 'blocked', current_step_key: 'gate_2' });
+      const coveringUid = await setTenantTx(fixture.tenantId, (tx) => seedStaffUser(tx, {
+        tenantId: fixture.tenantId,
+      }));
+      await expect(requestCarePathwayOwnerTransfer({
+        tenantId: fixture.tenantId,
+        pathwayInstanceId: started.id,
+        coveringClinicianUid: coveringUid,
+        reason: `Attempt generic coverage for ${_label} wait stage`,
+        idempotencyKey: `${_label.toLowerCase()}-wait-transfer.${compactToken()}`,
+        actor: actor(fixture.doctorUid),
+      })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PATHWAY_OWNER_STAGE_UNAVAILABLE',
+      });
+    },
+    60_000,
+  );
+
   it('lets the exact recipient review and accept a transfer while preserving completed SLA attribution', async () => {
     const live = await seedMaterializedOwnershipFixture();
     const coveringUid = await setTenantTx(live.fixture.tenantId, (tx) => seedStaffUser(tx, {

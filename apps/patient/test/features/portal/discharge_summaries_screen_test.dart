@@ -7,6 +7,55 @@ import 'package:vhhealth/features/portal/services/discharge_summaries_repository
 import 'package:vhhealth/generated/app_localizations.dart';
 
 void main() {
+  test(
+    'parses only patient-safe pending-result fields from signed summaries',
+    () {
+      final summary = DischargeSummary.fromJson({
+        'id': 42,
+        'admission_id': 7,
+        'primary_diagnosis': 'Acute gastroenteritis',
+        'status': 'signed',
+        'pending_results': [
+          {
+            'label': 'Blood culture report',
+            'status': 'pending',
+            'responsible_clinician_display_name': 'Dr Rao',
+            'responsible_clinician_role': 'Doctor',
+            'result_value': 'Unverified internal result',
+            'source_id': '991',
+            'linked_task_id': 'internal-task',
+            'blocker_text': 'Internal blocker',
+            'staff_comments': 'Internal comment',
+          },
+          {'status': 'pending'},
+        ],
+        'sections': const [],
+      });
+
+      expect(summary.canShowPendingResults, isTrue);
+      expect(summary.pendingResults, hasLength(1));
+      expect(summary.pendingResults.single.label, 'Blood culture report');
+      expect(summary.pendingResults.single.status, 'pending');
+      expect(
+        summary.pendingResults.single.responsibleClinicianDisplayName,
+        'Dr Rao',
+      );
+      expect(summary.pendingResults.single.responsibleClinicianRole, 'Doctor');
+
+      final draft = DischargeSummary.fromJson({
+        'id': 43,
+        'admission_id': 7,
+        'primary_diagnosis': 'Draft',
+        'status': 'draft',
+        'pending_results': [
+          {'label': 'Must stay hidden', 'status': 'pending'},
+        ],
+        'sections': const [],
+      });
+      expect(draft.canShowPendingResults, isFalse);
+    },
+  );
+
   testWidgets('shows discharge summary rows and read-only detail sections', (
     tester,
   ) async {
@@ -33,11 +82,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.detailRequests, 1);
-    expect(find.text('Summary sections'), findsOneWidget);
+    expect(find.text('Summary sections', skipOffstage: false), findsOneWidget);
     expect(find.text('Diagnosis'), findsWidgets);
-    expect(find.text('Acute gastroenteritis, improved'), findsOneWidget);
-    expect(find.text('Medicines on discharge'), findsOneWidget);
-    expect(find.text('ORS for 3 days'), findsOneWidget);
+    expect(
+      find.text('Acute gastroenteritis, improved', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Medicines on discharge', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(find.text('ORS for 3 days', skipOffstage: false), findsOneWidget);
+    expect(
+      find.text('Results pending at discharge', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Blood culture report', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Dr Rao - Doctor', skipOffstage: false),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Open PDF'));
     await tester.pumpAndSettle();
@@ -147,6 +214,14 @@ DischargeSummary _sampleSummary() {
     wardAtDischarge: 'Ward 3A',
     signedByName: 'Dr Rao',
     signedAt: DateTime.utc(2026, 7, 1, 8, 30),
+    pendingResults: const [
+      DischargePendingResult(
+        label: 'Blood culture report',
+        status: 'pending',
+        responsibleClinicianDisplayName: 'Dr Rao',
+        responsibleClinicianRole: 'Doctor',
+      ),
+    ],
     sections: const [
       DischargeSummarySection(
         key: 'diagnosis',

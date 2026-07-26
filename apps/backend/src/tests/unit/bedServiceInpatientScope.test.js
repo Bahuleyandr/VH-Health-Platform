@@ -17,7 +17,14 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/emr/inpatientScopeService.js', () => ({
+  ACTIVE_ADMISSION_STATUSES: ['admitted', 'transferred'],
+  FULL_INPATIENT_SCOPE_ROLES: new Set(['ADMIN', 'SUPER_ADMIN']),
   MINIMIZED_INPATIENT_PAYLOAD_ROLES: new Set(['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE']),
+  applyInpatientAdmissionScope: (baseWhere) => baseWhere,
+  resolveInpatientAdmissionScope: jest.fn(async () => ({
+    allAdmissions: true,
+    admissionWhere: {},
+  })),
   resolveInpatientLocationScope: resolveInpatientLocationScopeMock,
 }));
 
@@ -129,5 +136,74 @@ describe('bedService inpatient location scoping', () => {
     expect(wardIdsParam).toEqual([5]);
     expect(wardNamesParam).toEqual(['fifth ward']);
     expect(result.wards[0].occupied_count).toBe(4);
+  });
+});
+
+describe('bedService generic update occupancy boundary', () => {
+  it('rejects direct patient/admission occupancy writes before querying', async () => {
+    await expect(
+      bedService.updateBed(44, {
+        status: 'occupied',
+        patient_uid: '20000000-0000-4000-8000-000000000002',
+        admission_id: 71,
+      }, { tenantId: TENANT }),
+    ).rejects.toMatchObject({ code: 'BED_OCCUPANCY_REQUIRES_ADMISSION' });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('uses an exact tenant predicate for an allowed bed-master update', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 44,
+        status: 'available',
+        patient_id: null,
+        patient_uid: null,
+        patient_name: null,
+        admission_id: null,
+      }])
+      .mockResolvedValueOnce([{ id: 44, status: 'maintenance', tenant_id: TENANT }]);
+
+    await expect(
+      bedService.updateBed(44, { status: 'maintenance' }, { tenantId: TENANT }),
+    ).resolves.toMatchObject({ id: 44, status: 'maintenance' });
+
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain('tenant_id = $2::uuid');
+    expect(queryUnsafeMock.mock.calls[0][2]).toBe(TENANT);
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain('tenant_id = $6::uuid');
+    expect(queryUnsafeMock.mock.calls[1][6]).toBe(TENANT);
+  });
+
+  it('refuses to move an occupied bed out of occupancy through generic PUT', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 44,
+      status: 'occupied',
+      patient_id: 18,
+      patient_uid: '20000000-0000-4000-8000-000000000002',
+      patient_name: 'Linked Patient',
+      admission_id: 71,
+    }]);
+
+    await expect(
+      bedService.updateBed(44, { status: 'maintenance' }, { tenantId: TENANT }),
+    ).rejects.toMatchObject({
+      code: 'BED_OCCUPIED_TRANSITION_REQUIRES_ADMISSION',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires the ready workflow before a cleaning bed becomes available', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 44,
+      status: 'cleaning',
+      patient_id: null,
+      patient_uid: null,
+      patient_name: null,
+      admission_id: null,
+    }]);
+
+    await expect(
+      bedService.updateBed(44, { status: 'available' }, { tenantId: TENANT }),
+    ).rejects.toMatchObject({ code: 'BED_READY_WORKFLOW_REQUIRED' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 });

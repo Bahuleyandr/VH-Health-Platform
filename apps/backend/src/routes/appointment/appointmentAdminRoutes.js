@@ -5,8 +5,11 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import appointmentService from '../../services/appointment/appointmentService.js';
+import { transitionAppointment } from '../../services/appointment/appointmentLifecycleService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { rowsToCsv } from '../../utils/csv.js';
 
 const router = express.Router();
@@ -539,28 +542,49 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         if (!['completed', 'cancelled', 'no_show'].includes(status)) {
           return error(res, 'Invalid status. Must be completed, cancelled, or no_show', HTTP_STATUS.BAD_REQUEST);
         }
+        const ids = [...new Set(appointment_ids.map(value => Number.parseInt(value, 10)))];
+        if (
+          ids.length > 200
+          || ids.some(id => !Number.isInteger(id) || id <= 0)
+        ) {
+          return error(
+            res,
+            'appointment_ids must contain 1-200 positive integer IDs',
+            HTTP_STATUS.BAD_REQUEST,
+          );
+        }
+        if (ids.length !== 1) {
+          return error(
+            res,
+            'Multi-appointment status mutation is retired; update one appointment at a time through the canonical lifecycle',
+            HTTP_STATUS.CONFLICT,
+            { topLevel: { code: 'APPOINTMENT_MULTI_STATUS_UPDATE_RETIRED' } },
+          );
+        }
+        if (status === 'completed') {
+          return error(
+            res,
+            'Bulk appointment completion is unsupported; complete each visit through its clinician-owned pathway workflow',
+            HTTP_STATUS.CONFLICT,
+            { topLevel: { code: 'APPOINTMENT_BULK_COMPLETION_UNSUPPORTED' } },
+          );
+        }
 
-        // The admin client sends the status lowercase (request contract kept), but
-        // appointment status is canonically UPPERCASE in the DB ('COMPLETED' /
-        // 'CANCELLED' / 'NO_SHOW') — writing the lowercase value would corrupt the
-        // row (every status read elsewhere compares uppercase). Normalize before
-        // the UPDATE; keep `status` for validation + the response/log messages.
+        const tenantId = resolveTenantOrThrow(req);
         const canonicalStatus = status.toUpperCase();
-
-        // Args are ($1 status, $2 reason, $3 updated_by uuid, $4.. ids), so the
-        // id IN-list must start at $4 — starting at $3 collided with the uuid
-        // updated_by and bound a uuid into an integer id slot (42804).
-        const placeholders = appointment_ids.map((_, i) => `$${i + 4}`).join(',');
-
-        const result = await prisma.$queryRawUnsafe(`
-          UPDATE appointments
-          SET status = $1,
-              notes = COALESCE(notes || E'\n', '') || 'Admin update: ' || $2,
-              updated_at = NOW(),
-              updated_by = $3
-          WHERE id IN (${placeholders})
-          RETURNING id, patient_id, doctor_id, appointment_date, status
-        `, canonicalStatus, reason || `Status changed to ${status}`, req.user?.uid, ...appointment_ids);
+        const auditReason = reason || `Status changed to ${status}`;
+        const transition = await transitionAppointment({
+          tenantId,
+          appointmentId: ids[0],
+          toStatus: canonicalStatus,
+          actorUid: req.user?.uid || null,
+          actorId: req.user?.id || null,
+          actorRole: req.user?.role || null,
+          reason: auditReason,
+          notes: `Admin update: ${auditReason}`,
+          source: 'admin_bulk_update',
+        });
+        const result = [transition.appointment];
 
         // Log admin action
         for (const appointment of result) {
@@ -577,7 +601,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
       } catch (err) {
         logger.error('Bulk Update Error:', err);
-        error(res, 'Failed to bulk update appointments', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+        return relayAppError(res, err, 'Failed to bulk update appointments');
       }
     }],
 
@@ -599,68 +623,48 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           );
         }
 
-        // Check for conflicts unless explicitly ignored
-        if (!ignore_conflicts) {
-          const conflictCheck = await prisma.$queryRawUnsafe(`
-            SELECT id FROM appointments 
-            WHERE doctor_id = $1 
-              AND appointment_date = $2
-              AND status = 'SCHEDULED'
-          `, doctor_id, appointment_date);
-
-          if (conflictCheck.length > 0) {
-            return error(res, 'Time slot conflict detected. Set ignore_conflicts=true to override', HTTP_STATUS.CONFLICT);
-          }
+        const instant = new Date(appointment_date);
+        if (Number.isNaN(instant.getTime())) {
+          return error(
+            res,
+            'appointment_date must be a valid date and time',
+            HTTP_STATUS.BAD_REQUEST,
+          );
         }
-
-        // The appointments table requires phone/appointment_time/updated_at (NOT
-        // NULL, no default) plus uid/doctor_name — none of which the override
-        // payload carries, so the original INSERT 23502'd. Mirror the main book
-        // path: resolve phone + names from the patient/doctor users rows, derive
-        // appointment_time from the appointment_date timestamp, gen_random_uuid()
-        // for uid and NOW() for created_at/updated_at.
-        const [patientRow] = await prisma.$queryRawUnsafe(
-          'SELECT phone, name FROM users WHERE id = $1', patient_id);
-        const [doctorRow] = await prisma.$queryRawUnsafe(
-          'SELECT name FROM users WHERE id = $1', doctor_id);
-        const patientPhone = patientRow?.phone ?? '';
-        const patientName = patientRow?.name ?? null;
-        const doctorName = doctorRow?.name ?? '';
-
-        // Create appointment with admin override
-        const result = await prisma.$queryRawUnsafe(`
-          INSERT INTO appointments (
-            uid, patient_id, doctor_id, phone, doctor_name, patient_name,
-            appointment_date, appointment_time, reason,
-            status, created_at, updated_at, created_by,
-            notes, admin_override, override_reason, visit_type
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, $5,
-            $6::timestamp::date, to_char($6::timestamp, 'HH24:MI'), $7,
-            'SCHEDULED', NOW(), NOW(), $8,
-            $9, true, $10, $11
-          )
-          RETURNING id, patient_id, doctor_id, appointment_date, reason, status, notes, admin_override, override_reason, visit_type, created_at, created_by, updated_at
-        `,
-          patient_id, doctor_id, patientPhone, doctorName, patientName,
-          appointment_date, reason,
-          req.user?.uid,
-          `Admin override booking by ${req.user?.name}`,
+        const datePart = String(appointment_date).slice(0, 10);
+        const timeMatch = String(appointment_date).match(/T(\d{2}:\d{2})/);
+        const timePart = timeMatch?.[1]
+          || `${String(instant.getHours()).padStart(2, '0')}:${String(instant.getMinutes()).padStart(2, '0')}`;
+        const appointment = await appointmentService.createAppointment({
+          patient_id,
+          doctor_id,
+          appointment_date: datePart,
+          appointment_time: timePart,
+          reason,
+          notes: `Admin override booking by ${req.user?.name}`,
+          visit_type: normalizedVisitType,
+          admin_override: true,
           override_reason,
-          normalizedVisitType
-        );
+          tenant_id: resolveTenantOrThrow(req),
+        }, {
+          actorUid: req.user?.uid || null,
+          actorId: req.user?.id || null,
+          actorRole: req.user?.role || null,
+          ignoreConflicts: ignore_conflicts === true,
+          source: 'admin_override_book',
+        });
 
-        logger.info(`Admin ${req.user?.name} override booked appointment ${result[0].id}`);
+        logger.info(`Admin ${req.user?.name} override booked appointment ${appointment.id}`);
 
         success(res, {
-          appointment: result[0],
+          appointment,
           override: true,
           bookedBy: req.user?.name
         }, 'Appointment booked with admin override');
 
       } catch (err) {
         logger.error('Override Booking Error:', err);
-        error(res, 'Failed to override book appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+        return relayAppError(res, err, 'Failed to override book appointment');
       }
     }],
 
@@ -673,41 +677,90 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           return error(res, 'Exactly 2 conflicting appointment IDs required', HTTP_STATUS.BAD_REQUEST);
         }
 
-        let result;
+        const tenantId = resolveTenantOrThrow(req);
+        let updatedAppointment;
         
         switch (resolution_action) {
           case 'cancel_first':
-            result = await prisma.$queryRawUnsafe(
-              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
-              'CANCELLED', `Cancelled by admin due to conflict resolution`, conflict_appointments[0]
-            );
+            updatedAppointment = (await transitionAppointment({
+              tenantId,
+              appointmentId: conflict_appointments[0],
+              toStatus: 'CANCELLED',
+              actorUid: req.user?.uid || null,
+              actorId: req.user?.id || null,
+              actorRole: req.user?.role || null,
+              reason: 'Cancelled by admin due to conflict resolution',
+              notes: 'Cancelled by admin due to conflict resolution',
+              source: 'admin_conflict_resolution',
+            })).appointment;
             break;
 
           case 'cancel_second':
-            result = await prisma.$queryRawUnsafe(
-              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
-              'CANCELLED', `Cancelled by admin due to conflict resolution`, conflict_appointments[1]
-            );
+            updatedAppointment = (await transitionAppointment({
+              tenantId,
+              appointmentId: conflict_appointments[1],
+              toStatus: 'CANCELLED',
+              actorUid: req.user?.uid || null,
+              actorId: req.user?.id || null,
+              actorRole: req.user?.role || null,
+              reason: 'Cancelled by admin due to conflict resolution',
+              notes: 'Cancelled by admin due to conflict resolution',
+              source: 'admin_conflict_resolution',
+            })).appointment;
             break;
 
           case 'reschedule_first':
             if (!new_time) {
               return error(res, 'new_time required for rescheduling', HTTP_STATUS.BAD_REQUEST);
             }
-            result = await prisma.$queryRawUnsafe(
-              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
-              new_time, `Rescheduled by admin due to conflict`, conflict_appointments[0]
-            );
+            {
+              const instant = new Date(new_time);
+              if (Number.isNaN(instant.getTime())) {
+                return error(res, 'new_time must be a valid date and time', HTTP_STATUS.BAD_REQUEST);
+              }
+              updatedAppointment = (await appointmentService.rescheduleAppointmentInPlace(
+                conflict_appointments[0],
+                {
+                  appointment_date: String(new_time).slice(0, 10),
+                  appointment_time: String(new_time).match(/T(\d{2}:\d{2})/)?.[1]
+                    || `${String(instant.getHours()).padStart(2, '0')}:${String(instant.getMinutes()).padStart(2, '0')}`,
+                  notes: 'Rescheduled by admin due to conflict',
+                },
+                {
+                  tenantId,
+                  actorUid: req.user?.uid || null,
+                  actorId: req.user?.id || null,
+                  actorRole: req.user?.role || null,
+                },
+              )).appointment;
+            }
             break;
 
           case 'reschedule_second':
             if (!new_time) {
               return error(res, 'new_time required for rescheduling', HTTP_STATUS.BAD_REQUEST);
             }
-            result = await prisma.$queryRawUnsafe(
-              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
-              new_time, `Rescheduled by admin due to conflict`, conflict_appointments[1]
-            );
+            {
+              const instant = new Date(new_time);
+              if (Number.isNaN(instant.getTime())) {
+                return error(res, 'new_time must be a valid date and time', HTTP_STATUS.BAD_REQUEST);
+              }
+              updatedAppointment = (await appointmentService.rescheduleAppointmentInPlace(
+                conflict_appointments[1],
+                {
+                  appointment_date: String(new_time).slice(0, 10),
+                  appointment_time: String(new_time).match(/T(\d{2}:\d{2})/)?.[1]
+                    || `${String(instant.getHours()).padStart(2, '0')}:${String(instant.getMinutes()).padStart(2, '0')}`,
+                  notes: 'Rescheduled by admin due to conflict',
+                },
+                {
+                  tenantId,
+                  actorUid: req.user?.uid || null,
+                  actorId: req.user?.id || null,
+                  actorRole: req.user?.role || null,
+                },
+              )).appointment;
+            }
             break;
             
           default:
@@ -718,13 +771,13 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         success(res, {
           resolution: resolution_action,
-          updatedAppointment: result[0],
+          updatedAppointment,
           resolvedBy: req.user?.name
         }, 'Conflict resolved successfully');
 
       } catch (err) {
         logger.error('Conflict Resolution Error:', err);
-        error(res, 'Failed to resolve conflict', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+        return relayAppError(res, err, 'Failed to resolve conflict');
       }
     }],
 
@@ -805,58 +858,12 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
   ],
 
   delete: [
-    // Bulk Delete (with audit trail)
-    ['/bulk-delete', async (req, res) => {
-      try {
-        const { appointment_ids, reason } = req.body;
-
-        if (!appointment_ids || !Array.isArray(appointment_ids) || appointment_ids.length === 0) {
-          return error(res, 'appointment_ids array is required', HTTP_STATUS.BAD_REQUEST);
-        }
-
-        if (!reason) {
-          return error(res, 'Deletion reason is required', HTTP_STATUS.BAD_REQUEST);
-        }
-
-        // Archive before deletion
-        const archiveResult = await prisma.$queryRawUnsafe(`
-          INSERT INTO appointment_archive (
-            original_id, patient_id, doctor_id, appointment_date,
-            status, reason, notes, deleted_by, deleted_at, deletion_reason
-          )
-          SELECT 
-            id, patient_id, doctor_id, appointment_date,
-            status, reason, notes, $1, NOW(), $2
-          FROM appointments
-          WHERE id = ANY($3)
-          RETURNING original_id
-        `, req.user?.uid, reason, appointment_ids);
-
-        // Delete appointments. Use `= ANY($1)` with the id array bound as a
-        // single param (matching the archive INSERT above + the send-reminders
-        // handler) — the prior `id IN (${placeholders})` form passed the array
-        // as one arg, so it bound the whole array to $1 (the (sql, params)
-        // array-as-$1 lint blind-spot) and failed at runtime.
-        await prisma.$queryRawUnsafe(
-          `DELETE FROM appointments WHERE id = ANY($1)`,
-          appointment_ids
-        );
-
-        logger.info(`Admin ${req.user?.name} bulk deleted ${archiveResult.length} appointments`);
-
-        success(res, {
-          deletedCount: archiveResult.length,
-          deletedIds: archiveResult.map(r => r.original_id),
-          reason,
-          deletedBy: req.user?.name,
-          archived: true
-        }, `${archiveResult.length} appointments deleted and archived`);
-
-      } catch (err) {
-        logger.error('Bulk Delete Error:', err);
-        error(res, 'Failed to bulk delete appointments', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-      }
-    }]
+    ['/bulk-delete', (_req, res) => error(
+      res,
+      'Appointment hard deletion is retired; use the canonical cancellation and retention workflows',
+      410,
+      { topLevel: { code: 'APPOINTMENT_HARD_DELETE_RETIRED' } },
+    )]
   ]
 });
 

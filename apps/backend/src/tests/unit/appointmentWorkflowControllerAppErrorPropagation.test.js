@@ -17,7 +17,12 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const setTenantTxMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: { $queryRawUnsafe: jest.fn(async () => []) },
+  isTenantTransactionClient: () => true,
+  pickTenantClient: (client) => client,
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn({ $queryRawUnsafe: jest.fn(async () => []) }),
+  setTenant: async (_tenantId, fn) => fn({ $queryRawUnsafe: jest.fn(async () => []) }),
   setTenantTx: setTenantTxMock,
 }));
 
@@ -36,6 +41,12 @@ jest.unstable_mockModule('../../controllers/appointment/appointmentDocumentContr
 jest.unstable_mockModule('../../controllers/appointment/appointmentAdminController.js', () => ({
   getAppointmentSLADashboard: jest.fn((_req, res) => res.status(200).json({})),
   getStatusAuditTrail: jest.fn((_req, res) => res.status(200).json({})),
+}));
+jest.unstable_mockModule('../../controllers/appointment/appointmentPathwayController.js', () => ({
+  getPathwayWork: jest.fn((_req, res) => res.status(200).json({})),
+  recordClosureEvidence: jest.fn((_req, res) => res.status(200).json({})),
+  requestInpatientTransfer: jest.fn((_req, res) => res.status(200).json({})),
+  acceptInpatientTransfer: jest.fn((_req, res) => res.status(200).json({})),
 }));
 
 // Route-level guard shims (RBAC / PHI / upload / validators pass through).
@@ -77,7 +88,10 @@ jest.unstable_mockModule('../../services/maternity/maternityService.js', () => (
   computeGestationalAge: jest.fn(() => null),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  currentCanonicalTransactionRevision: jest.fn(async () => 1),
   recordCanonicalClinicalEvent: jest.fn(async () => null),
+  recordClinicalAuditEvent: jest.fn(async () => null),
+  recordTimelineEvent: jest.fn(async () => null),
 }));
 jest.unstable_mockModule('../../services/smsService.js', () => ({
   sendAppointmentConfirmationSMS: jest.fn(async () => null),
@@ -102,6 +116,7 @@ jest.unstable_mockModule('../../services/appointment/appointmentTeleconsultState
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: TENANT_ID,
+  getTenantById: jest.fn(async () => ({ id: TENANT_ID, settings: {} })),
   requireTenantId: (req) => req.tenantId,
   resolveTenantOrThrow: (req) => req.tenantId,
 }));

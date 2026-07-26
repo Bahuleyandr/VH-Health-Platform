@@ -10,6 +10,7 @@ import logger from '../../logging/logger.js';
 import { computeGestationalAge } from '../maternity/maternityService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { AppError } from '../../utils/AppError.js';
 import { attachAppointmentQueues } from './appointmentQueueService.js';
 import { attachTeleconsultState } from './appointmentTeleconsultStateService.js';
 
@@ -385,6 +386,76 @@ function flattenListRow(row, allergyMap = null) {
   return attachPatientAllergies(flat, patient, allergyMap);
 }
 
+async function attachAcceptedOpTransferSources(appointments, tenantId) {
+  const ids = [...new Set(
+    appointments
+      .map(appointment => Number(appointment?.id))
+      .filter(id => Number.isInteger(id) && id > 0),
+  )];
+  if (!tenantId || ids.length === 0) {
+    return appointments.map(appointment => ({
+      ...appointment,
+      admission_source: null,
+    }));
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT appointment.id AS appointment_id,
+            pathway.id AS source_pathway_instance_id,
+            handoff.id AS source_handoff_id,
+            handoff.accepted_by_uid AS accepted_recipient_uid,
+            COUNT(*) OVER (
+              PARTITION BY appointment.id
+            )::integer AS exact_match_count
+       FROM appointments AS appointment
+       JOIN users AS patient
+         ON patient.tenant_id = appointment.tenant_id
+        AND patient.id = appointment.patient_id
+       JOIN care_pathway_instances AS pathway
+         ON pathway.tenant_id = appointment.tenant_id
+        AND pathway.patient_uid = patient.uid
+        AND pathway.pathway_key = 'op_contact_to_recovery'
+        AND pathway.source_episode_type = 'appointment'
+        AND pathway.source_episode_id = appointment.id::text
+       JOIN care_handoff_instances AS handoff
+         ON handoff.tenant_id = pathway.tenant_id
+        AND handoff.patient_uid = pathway.patient_uid
+        AND handoff.sending_pathway_instance_id = pathway.id
+        AND handoff.handoff_type = 'op_to_inpatient_transfer'
+        AND handoff.source_resource_type = 'appointment'
+        AND handoff.source_resource_id = appointment.id::text
+        AND handoff.status = 'accepted'
+        AND handoff.accepted_at IS NOT NULL
+        AND handoff.intended_recipient_uid IS NOT NULL
+        AND handoff.accepted_by_uid = handoff.intended_recipient_uid
+        AND handoff.sender_uid <> handoff.intended_recipient_uid
+      WHERE appointment.tenant_id = $1::uuid
+        AND appointment.id = ANY($2::integer[])
+        AND appointment.advised_for_admission_at IS NOT NULL
+      ORDER BY appointment.id, handoff.accepted_at DESC, handoff.id DESC`,
+    tenantId,
+    ids,
+  );
+  if (rows.some(row => Number(row.exact_match_count) !== 1)) {
+    throw AppError.conflict(
+      'Admission advice has ambiguous accepted OP-to-inpatient transfer lineage',
+      'OP_INPATIENT_ADMISSION_SOURCE_AMBIGUOUS',
+    );
+  }
+  const byAppointment = new Map(rows.map(row => [
+    Number(row.appointment_id),
+    Object.freeze({
+      appointment_id: Number(row.appointment_id),
+      source_pathway_instance_id: String(row.source_pathway_instance_id).toLowerCase(),
+      source_handoff_id: String(row.source_handoff_id).toLowerCase(),
+      accepted_recipient_uid: String(row.accepted_recipient_uid).toLowerCase(),
+    }),
+  ]));
+  return appointments.map(appointment => ({
+    ...appointment,
+    admission_source: byAppointment.get(Number(appointment.id)) || null,
+  }));
+}
+
 function appointmentOrderBy(sortBy, sortOrder) {
   const direction = sortOrder.toLowerCase();
   switch (sortBy) {
@@ -510,13 +581,23 @@ export class AppointmentQueryService {
 
       const allergyMap = await loadAllergiesForPatients(rows.map((row) => row[REL_PATIENT]));
 
-      const appointments = await attachTeleconsultState(
+      let appointments = await attachTeleconsultState(
         await attachAppointmentQueues(
           rows.map((row) => flattenListRow(row, allergyMap)),
           prisma,
         ),
         prisma,
       );
+      const advisedForAdmission = filters.advised_for_admission === true
+        || filters.advised_for_admission === 'true'
+        || filters.advised_for_admission === '1'
+        || filters.advised_for_admission === 1;
+      if (advisedForAdmission) {
+        appointments = await attachAcceptedOpTransferSources(
+          appointments,
+          tenantId,
+        );
+      }
 
       return {
         appointments,

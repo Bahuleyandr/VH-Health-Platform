@@ -2,6 +2,8 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import bedService from '../../services/bed/bedService.js';
+import admissionService from '../../services/emr/admissionService.js';
+import { AppError } from '../../utils/AppError.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { emitBedEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -144,13 +146,17 @@ export const createBed = async (req, res) => {
 
 export const updateBed = async (req, res) => {
   try {
-    const bed = await bedService.updateBed(req.params.id, req.body);
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
+    const bed = await bedService.updateBed(
+      req.params.id,
+      req.body,
+      { tenantId },
+    );
     if (!bed) return error(res, 'Bed not found', HTTP_STATUS.NOT_FOUND);
     emitBedEvent('bed-updated', bed);
     success(res, { bed }, 'Bed updated');
   } catch (err) {
-    logger.error('Error updating bed:', err);
-    error(res, 'Failed to update bed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to update bed');
   }
 };
 
@@ -180,23 +186,24 @@ export const deleteBed = async (req, res) => {
 export const admitPatient = async (req, res) => {
   try {
     const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
-    // C-2 — route through the hardened bedService.admitPatient, which creates a
-    // real admission + bed_transfers + canonical event under a FOR UPDATE lock
-    // (the old path left a half-populated bed with no admission). Pass the
-    // resolved tenant + the actor's uid through so the canonical/audit layer and
-    // RLS scope are correct.
-    const bed = await bedService.admitPatient(
-      req.params.id,
-      req.body,
-      req.user?.role,
-      { tenantId, actorUid: req.user?.uid || null },
+    const admissionId = Number(req.body?.admission_id);
+    if (!Number.isSafeInteger(admissionId) || admissionId <= 0) {
+      throw AppError.badRequest(
+        'admission_id is required; create the canonical admission before assigning a bed',
+        'ADMISSION_ID_REQUIRED',
+      );
+    }
+    const bedId = Number(req.params.id);
+    const admission = await admissionService.assignBedToAdmission(
+      admissionId,
+      bedId,
+      req.user?.uid || null,
+      { tenantId, actorRole: req.user?.role || null },
     );
-    if (!bed) return error(res, 'Bed not available for admission', HTTP_STATUS.BAD_REQUEST);
-    emitBedEvent('patient-admitted', bed);
-    success(res, { bed }, 'Patient admitted');
+    emitBedEvent('bed-assigned', admission);
+    success(res, { admission }, 'Bed assigned to admission');
   } catch (err) {
-    // Surface AppError (e.g. ICU tier forbidden) so the actor sees the real reason.
-    return relayAppError(res, err, 'Failed to admit patient');
+    return relayAppError(res, err, 'Failed to assign bed');
   }
 };
 
@@ -221,8 +228,8 @@ export const dischargePatient = async (req, res) => {
 };
 
 // PATCH /beds/:id/notes — staff app's bed-board detail sheet uses this
-// to save quick notes without touching patient_id/patient_name (the
-// full updateBed handler nulls those when they're absent from the body).
+// patient-linked path so authorization, audit, and realtime events remain
+// separate from generic bed-master updates.
 // Body: { notes: string | null }. Empty string clears the field; null
 // clears it too. Emits a `bed-notes-updated` realtime event so other
 // open bed-board screens refresh.

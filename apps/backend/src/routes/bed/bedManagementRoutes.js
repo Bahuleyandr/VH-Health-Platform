@@ -5,16 +5,16 @@ import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import bedManagementService from '../../services/bed/bedManagementService.js';
 import admissionService from '../../services/emr/admissionService.js';
-import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success } from '../../utils/responseHelper.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
-  BED_ALLOCATION_ROUTE_ROLES,
   BED_CLINICAL_ROUTE_ROLES,
   HOUSEKEEPING_ROUTE_ROLES,
 } from '../../config/routeRolePolicy.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
+import { AppError } from '../../utils/AppError.js';
 
 const router = express.Router();
 
@@ -24,7 +24,6 @@ const router = express.Router();
 // via POST /:id/ready. This guard re-narrows the patient-movement
 // endpoints (admit / transfer / discharge) back to clinical roles.
 const requireClinicalForBedMovement = requireRole(...BED_CLINICAL_ROUTE_ROLES);
-const requireBedAllocation = requireRole(...BED_ALLOCATION_ROUTE_ROLES);
 const requireHousekeepingForBedReady = requireRole(...HOUSEKEEPING_ROUTE_ROLES);
 const guardBedResourceWrite = patientAccessGuardForResource('BED_MANAGEMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
@@ -36,8 +35,10 @@ const guardBedResourceView = patientAccessGuardForResource('BED_BOARD', {
   resourceType: 'bed',
   allowNoPatientResource: true,
 });
-const guardBedPatientWrite = patientAccessGuard('BED_MANAGEMENT', {
+const guardAdmissionBodyWrite = patientAccessGuardForResource('BED_MANAGEMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
+  resourceType: 'admission',
+  idSelector: (req) => req.body?.admission_id,
 });
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,21 @@ const guardBedPatientWrite = patientAccessGuard('BED_MANAGEMENT', {
 // ---------------------------------------------------------------------------
 function wrapAsync(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+function requireCanonicalTransferIdentity(req, _res, next) {
+  const admissionId = Number(req.body?.admission_id);
+  if (!Number.isSafeInteger(admissionId) || admissionId <= 0) {
+    return next(AppError.badRequest(
+      'admission_id is required; transfer the canonical admission, not a patient-only bed record',
+      'ADMISSION_ID_REQUIRED',
+    ));
+  }
+  const toBedId = Number(req.body?.to_bed_id);
+  if (!Number.isSafeInteger(toBedId) || toBedId <= 0) {
+    return next(AppError.badRequest('to_bed_id is required', 'TO_BED_ID_REQUIRED'));
+  }
+  return next();
 }
 
 function tenantIdOf(req) {
@@ -89,32 +105,9 @@ router.get(
   })
 );
 
-// ---------------------------------------------------------------------------
-// POST /:id/admit — Admit a patient to a bed
-// ---------------------------------------------------------------------------
-router.post(
-  '/:id/admit',
-  rejectMobileClinicalWrite,
-  requireBedAllocation,
-  guardBedPatientWrite,
-  wrapAsync(async (req, res) => {
-    const bedId = parseInt(req.params.id, 10);
-    const { patient_uid, expected_discharge } = req.body;
-
-    if (!patient_uid) {
-      return error(res, 'patient_uid is required', HTTP_STATUS.BAD_REQUEST);
-    }
-
-    const bed = await bedManagementService.admitPatient(
-      bedId,
-      patient_uid,
-      expected_discharge || null,
-      req.user?.role || null,
-      tenantOptions(req),
-    );
-    success(res, { bed }, 'Patient admitted', HTTP_STATUS.CREATED);
-  })
-);
+// POST /:id/admit is defined only by bedRoutes. It is a late bed-assignment
+// adapter for an existing canonical admission; this router intentionally has
+// no parallel admission writer.
 
 // ---------------------------------------------------------------------------
 // POST /:id/discharge — Start discharge cascade for the active admission.
@@ -163,38 +156,34 @@ router.post(
   '/transfer',
   rejectMobileClinicalWrite,
   requireClinicalForBedMovement,
-  guardBedPatientWrite,
+  requireCanonicalTransferIdentity,
+  guardAdmissionBodyWrite,
   wrapAsync(async (req, res) => {
     const {
-      patient_uid, to_bed_id, reason,
-      // D34 — Operator (cashier / admission-counter) must surface a
-      // class-change consent to the patient before re-tariffing
-      // general → private / deluxe. Pass the consent flag through to
-      // the service which will 400 with BED_TRANSFER_CLASS_CHANGE_UNACKNOWLEDGED
-      // for unacknowledged upgrades. Accept both snake_case and
-      // camelCase from the staff app.
+      admission_id, to_bed_id, reason,
       acknowledge_class_change, acknowledgeClassChange,
     } = req.body;
     const transferredBy = req.user?.uid || null;
 
-    if (!patient_uid || !to_bed_id) {
-      return error(res, 'patient_uid and to_bed_id are required', HTTP_STATUS.BAD_REQUEST);
-    }
-
-    const ackFlag = acknowledge_class_change === true
+    const admissionId = Number(admission_id);
+    const toBedId = Number(to_bed_id);
+    const acknowledgeClassUpgrade = acknowledge_class_change === true
       || acknowledgeClassChange === true
       || acknowledge_class_change === 'true'
       || acknowledgeClassChange === 'true';
-
-    const result = await bedManagementService.transferPatient(
-      patient_uid,
-      parseInt(to_bed_id, 10),
+    const admission = await admissionService.transferPatient(
+      admissionId,
+      null,
+      toBedId,
       reason || null,
       transferredBy,
-      req.user?.role || null,
-      { acknowledgeClassChange: ackFlag, ...tenantOptions(req) },
+      {
+        ...tenantOptions(req),
+        actorRole: req.user?.role || null,
+        acknowledgeClassChange: acknowledgeClassUpgrade,
+      },
     );
-    success(res, result, 'Patient transferred');
+    success(res, { admission }, 'Patient transferred');
   })
 );
 

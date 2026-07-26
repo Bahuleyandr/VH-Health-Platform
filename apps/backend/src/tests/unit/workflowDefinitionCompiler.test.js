@@ -11,7 +11,13 @@ import {
   createWorkflowRuntimeRegistry,
   isRegisteredWorkflowSystemActor,
   isWorkflowRuntimeRegistry,
+  listWorkflowRuntimeRegistryVersions,
+  resolveWorkflowRuntimeRegistryVersion,
   workflowRuntimeRegistry,
+  workflowRuntimeRegistryV1,
+  workflowRuntimeRegistryV2,
+  workflowRuntimeRegistryV3,
+  workflowRuntimeRegistryV4,
 } from '../../services/workflow/workflowRuntimeRegistry.js';
 
 let nextSyntheticRegistryVersion = 700;
@@ -108,7 +114,8 @@ describe('workflow JSON safety budget', () => {
 describe('workflow runtime registry', () => {
   it('keeps the production registry code-reviewed, immutable and identity-verifiable', () => {
     expect(isWorkflowRuntimeRegistry(workflowRuntimeRegistry)).toBe(true);
-    expect(workflowRuntimeRegistry.version).toBe(3);
+    expect(workflowRuntimeRegistry).toBe(workflowRuntimeRegistryV4);
+    expect(workflowRuntimeRegistry.version).toBe(4);
     expect(workflowRuntimeRegistry.conditionHandlerIds).toEqual([
       'diagnostics.route_generation.v1',
       'diagnostics.normal_closure.v1',
@@ -116,18 +123,45 @@ describe('workflow runtime registry', () => {
       'referral.receiver_acceptance.v1',
       'referral.signed_response.v1',
       'referral.originator_closure.v1',
+      'op.contact_owner.v1',
+      'op.arrival_or_recovery.v1',
+      'op.visit_completion.v1',
+      'op.recovery_action.v1',
+      'op.closure_evidence.v1',
+      'op.child_work_closure.v1',
+      'inpatient.accepted_admission.v1',
+      'inpatient.discharge_planning.v1',
+      'inpatient.readiness_work.v1',
+      'inpatient.discharge_evidence.v1',
+      'inpatient.discharge_completion.v1',
+      'inpatient.post_discharge_contact.v1',
     ]);
     expect(workflowRuntimeRegistry.actionHandlerIds).toEqual([
       'diagnostics.finalize.v1',
       'referral.finalize.v1',
+      'op.finalize.v1',
+      'inpatient.finalize.v1',
     ]);
     expect(workflowRuntimeRegistry.childFanoutHandlerIds).toEqual([]);
     expect(workflowRuntimeRegistry.systemActorKeys).toEqual([
       'diagnostics.pathway_projector.v1',
       'referral.pathway_projector.v1',
+      'op.pathway_projector.v1',
+      'inpatient.pathway_projector.v1',
     ]);
     expect(Object.isFrozen(workflowRuntimeRegistry)).toBe(true);
     expect(isWorkflowRuntimeRegistry({ version: 1 })).toBe(false);
+  });
+
+  it('resolves every shipped runtime registry by exact persisted version and fails closed', () => {
+    expect(listWorkflowRuntimeRegistryVersions().slice(0, 4)).toEqual([1, 2, 3, 4]);
+    expect(resolveWorkflowRuntimeRegistryVersion(1)).toBe(workflowRuntimeRegistryV1);
+    expect(resolveWorkflowRuntimeRegistryVersion(2)).toBe(workflowRuntimeRegistryV2);
+    expect(resolveWorkflowRuntimeRegistryVersion(3)).toBe(workflowRuntimeRegistryV3);
+    expect(resolveWorkflowRuntimeRegistryVersion(4)).toBe(workflowRuntimeRegistryV4);
+    expect(() => resolveWorkflowRuntimeRegistryVersion(999_999)).toThrow(
+      /version 999999 is not registered/,
+    );
   });
 
   it('copies handler declarations and resolves exact versioned ids only', () => {
@@ -283,7 +317,7 @@ describe('workflow definition compiler', () => {
     expect(compiled).toMatchObject({
       workflow_key: 'synthetic_pathway',
       version: 3,
-      registry_version: 3,
+      registry_version: 4,
     });
     expect(compiled.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(checksumCompiledWorkflowDefinition(compiled)).toBe(compiled.checksum);

@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -59,7 +60,7 @@ const STAIN_ALIASES = {
   cytology: 'cytology',
 };
 
-const AP_CASE_RETURNING = `id, tenant_id, ap_case_uid, case_number, patient_uid, encounter_id,
+const AP_CASE_RETURNING = `id, tenant_id, ap_case_uid, case_number, patient_uid, encounter_id, admission_id,
   source_investigation_id, primary_specimen_id, case_kind, priority, status,
   clinical_history, accessioned_at, accessioned_by, metadata, created_at, updated_at`;
 
@@ -234,7 +235,7 @@ function generateCaseNumber(caseKind) {
 }
 
 async function emitPathologyCanonicalEvent(db, row, eventType, options = {}) {
-  await recordCanonicalClinicalEvent({
+  return recordCanonicalClinicalEvent({
     tenantId: row.tenant_id,
     patientUid: row.patient_uid,
     encounterId: row.encounter_id || null,
@@ -411,19 +412,91 @@ class PathologyService {
       }
 
       const primarySpecimenId = optionalInt(data.primary_specimen_id ?? data.primarySpecimenId) || specimenIds[0];
+      const explicitAdmissionId = optionalInt(data.admission_id ?? data.admissionId);
+      const sourceInvestigationId = optionalInt(
+        data.source_investigation_id ?? data.sourceInvestigationId,
+      );
+      const sourceAdmissionRows = sourceInvestigationId
+        ? await tx.$queryRawUnsafe(
+          `SELECT admission_id
+             FROM investigations
+            WHERE tenant_id = $1::uuid
+              AND id = $2::integer
+              AND patient_uid = $3::uuid
+            LIMIT 1
+            FOR SHARE`,
+          tenantId,
+          sourceInvestigationId,
+          patientUid,
+        )
+        : [];
+      const encounterId = optionalUuid(data.encounter_id ?? data.encounterId);
+      const encounterAdmissionRows = encounterId
+        ? await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM admissions
+            WHERE tenant_id = $1::uuid
+              AND encounter_id = $2::uuid
+              AND patient_uid = $3::uuid
+            LIMIT 2
+            FOR SHARE`,
+          tenantId,
+          encounterId,
+          patientUid,
+        )
+        : [];
+      if (encounterAdmissionRows.length > 1) {
+        throw AppError.conflict(
+          'Pathology encounter resolves to more than one admission',
+          'AP_ADMISSION_AMBIGUOUS',
+        );
+      }
+      const lineageCandidates = [
+        explicitAdmissionId,
+        sourceAdmissionRows[0]?.admission_id,
+        encounterAdmissionRows[0]?.id,
+      ].filter((value) => value != null).map(Number);
+      if (new Set(lineageCandidates).size > 1) {
+        throw AppError.conflict(
+          'Pathology admission lineage inputs do not agree',
+          'AP_ADMISSION_LINEAGE_MISMATCH',
+        );
+      }
+      const admissionId = lineageCandidates[0] ?? null;
+      if (explicitAdmissionId) {
+        const admissionRows = await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM admissions
+            WHERE tenant_id = $1::uuid
+              AND id = $2::integer
+              AND patient_uid = $3::uuid
+            LIMIT 1
+            FOR SHARE`,
+          tenantId,
+          explicitAdmissionId,
+          patientUid,
+        );
+        if (!admissionRows[0]) {
+          throw AppError.conflict(
+            'Pathology admission does not belong to this tenant and patient',
+            'AP_ADMISSION_MISMATCH',
+          );
+        }
+      }
       const inserted = await tx.$queryRawUnsafe(
         `INSERT INTO ap_cases
-           (tenant_id, case_number, patient_uid, encounter_id, source_investigation_id,
+           (tenant_id, case_number, patient_uid, encounter_id, admission_id, source_investigation_id,
             primary_specimen_id, case_kind, priority, status, clinical_history,
             accessioned_by, metadata)
-         VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5::int,
-                 $6::int, $7, $8, 'accessioned', $9, $10::uuid, $11::jsonb)
+         VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5::int, $6::int,
+                 $7::int, $8, $9, 'accessioned', $10, $11::uuid, $12::jsonb)
          RETURNING ${AP_CASE_RETURNING}`,
         tenantId,
         caseNumber,
         patientUid,
-        optionalUuid(data.encounter_id ?? data.encounterId),
-        optionalInt(data.source_investigation_id ?? data.sourceInvestigationId),
+        encounterId,
+        admissionId,
+        sourceInvestigationId,
         primarySpecimenId,
         caseKind,
         priority,
@@ -445,7 +518,7 @@ class PathologyService {
         );
       }
 
-      await emitPathologyCanonicalEvent(tx, row, 'pathology.case_accessioned', {
+      const canonical = await emitPathologyCanonicalEvent(tx, row, 'pathology.case_accessioned', {
         actorUid: data.accessioned_by ?? data.accessionedBy ?? context.actorUid,
         actorRole: context.actorRole || null,
         afterStatus: 'accessioned',
@@ -453,6 +526,19 @@ class PathologyService {
         summary: `Pathology case ${row.case_number} accessioned`,
         payload: { specimen_count: specimenIds.length },
       });
+      if (row.admission_id != null) {
+        await publishInpatientDiagnosticResourceLinkedTx({
+          tx,
+          tenantId,
+          admissionId: row.admission_id,
+          patientUid: row.patient_uid,
+          resourceType: 'anatomical_pathology_case',
+          resourceId: row.id,
+          canonicalTimelineEventId: canonical.timeline.id,
+          canonicalAuditEventId: canonical.audit.id,
+          occurredAt: row.accessioned_at,
+        });
+      }
 
       return loadCaseDetail(tx, row.id, tenantId);
     });

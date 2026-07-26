@@ -26,6 +26,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
+import { isInpatientPendingResultPhysicianRole } from '../emr/inpatientPendingResultPolicy.js';
 import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
 import { roleCanBreakGlass } from '../security/breakGlassService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -46,12 +47,19 @@ const MAX_LIST_LIMIT = 200;
 const TEXT_MAX = 8000;
 const SHORT_MAX = 255;
 const HANDLER_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.v[1-9][0-9]*$/;
+const REGISTERED_CONDITION_COMPLETION_BINDINGS = Object.freeze({
+  'op.recovery_action.v1': Object.freeze({
+    evidenceResourceType: 'op_visit_closure_evidence',
+    evidenceResourceIdField: 'closure_evidence_id',
+  }),
+});
 
 export const TASK_KINDS = [
   'general',
   'follow_up',
   'review',
   'pathway_owner_transfer_review',
+  'op_to_inpatient_transfer_review',
   'escalation',
   'verification',
   'admin',
@@ -80,12 +88,91 @@ const LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY = Symbol(
   'LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY',
 );
 const COVERING_TRANSFER_TASK_AUTHORITY = Symbol('COVERING_TRANSFER_TASK_AUTHORITY');
+const OP_INPATIENT_TRANSFER_TASK_AUTHORITY = Symbol('OP_INPATIENT_TRANSFER_TASK_AUTHORITY');
+const PENDING_RESULT_OWNER_ACTION_TASK_AUTHORITY = Symbol(
+  'PENDING_RESULT_OWNER_ACTION_TASK_AUTHORITY',
+);
+const PENDING_RESULT_TASK_TRANSFER_AUTHORITY = Symbol(
+  'PENDING_RESULT_TASK_TRANSFER_AUTHORITY',
+);
+const PENDING_RESULT_TASK_CREATION_AUTHORITY = Symbol(
+  'PENDING_RESULT_TASK_CREATION_AUTHORITY',
+);
+const COVERING_TRANSFER_TASK_CREATION_AUTHORITY = Symbol(
+  'COVERING_TRANSFER_TASK_CREATION_AUTHORITY',
+);
+const OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY = Symbol(
+  'OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY',
+);
+const PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY = Symbol(
+  'PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY',
+);
 
 const GENERIC_RUNTIME_DENIED_APPROVAL_KINDS = new Set([
   'care_pathway_definition_governance',
   'credential_privilege_grant',
 ]);
 const COVERING_TRANSFER_TASK_CONTRACT = 'covering_clinician_transfer_review_v1';
+const OP_INPATIENT_TRANSFER_TASK_CONTRACT = 'op_to_inpatient_transfer_review_v1';
+
+function requiredTaskFactoryTx(tx, code, message) {
+  if (!tx?.$queryRawUnsafe) {
+    throw AppError.internal(message, code);
+  }
+  return tx;
+}
+
+function assertProtectedTaskCreationAllowed({
+  taskKind,
+  relatedResourceType,
+  metadata,
+  authority,
+}) {
+  const requiresPendingResultAuthority = [
+    'discharge_pending_result_handoff',
+    'discharge_pending_result_action',
+  ].includes(relatedResourceType);
+  if (
+    requiresPendingResultAuthority
+    && authority !== PENDING_RESULT_TASK_CREATION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'Pending-result tasks must use the inpatient domain task factory',
+      'INPATIENT_PENDING_RESULT_TASK_FACTORY_REQUIRED',
+    );
+  }
+  if (
+    taskKind === 'pathway_owner_transfer_review'
+    && authority !== COVERING_TRANSFER_TASK_CREATION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'Covering-transfer review tasks must use the pathway ownership task factory',
+      'COVERING_TRANSFER_TASK_FACTORY_REQUIRED',
+    );
+  }
+  if (
+    taskKind === 'op_to_inpatient_transfer_review'
+    && authority !== OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'OP-to-inpatient review tasks must use the appointment transfer task factory',
+      'OP_INPATIENT_TRANSFER_TASK_FACTORY_REQUIRED',
+    );
+  }
+  if (
+    metadata?.task_contract
+    && ![
+      COVERING_TRANSFER_TASK_CREATION_AUTHORITY,
+      OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY,
+      PENDING_RESULT_TASK_CREATION_AUTHORITY,
+    ].includes(authority)
+  ) {
+    throw AppError.conflict(
+      'Contract-bound tasks must use their registered domain task factory',
+      'TASK_CONTRACT_FACTORY_REQUIRED',
+    );
+  }
+}
 
 const TASK_TRANSITIONS = {
   open: ['in_progress', 'blocked', 'completed', 'cancelled'],
@@ -676,6 +763,7 @@ export async function createTask({
   stageOccurrenceKey = null,
   metadata = null,
   executorAuthority = null,
+  protectedTaskCreationAuthority = null,
   // Optional transaction client (e.g. a setTenantTx tx) — defaults to the
   // singleton. Lets the results-inbox producer create a task inside the same
   // tenant-scoped transaction as its SLA-instance link.
@@ -695,6 +783,7 @@ export async function createTask({
   const cleanWorkflowRunId = workflowRunId ? normalizeId(workflowRunId, 'workflow_run_id') : null;
   const cleanWorkflowStepId = workflowStepId ? normalizeId(workflowStepId, 'workflow_step_id') : null;
   const cleanParentTaskId = parentTaskId ? normalizeId(parentTaskId, 'parent_task_id') : null;
+  const cleanTaskKind = normalizeEnum(taskKind, TASK_KINDS, 'task_kind') || 'general';
   const cleanRelatedResourceType = safeText(relatedResourceType, 60);
   const cleanRelatedResourceId = safeText(relatedResourceId, 120);
   const assignment = normalizeTaskAssignment({ assignedToUid, assignedToRole });
@@ -712,6 +801,12 @@ export async function createTask({
   }
   const cleanStageOccurrenceKey = safeText(stageOccurrenceKey, 200);
   const cleanMetadata = normalizeTaskMetadata(metadata);
+  assertProtectedTaskCreationAllowed({
+    taskKind: cleanTaskKind,
+    relatedResourceType: cleanRelatedResourceType,
+    metadata: cleanMetadata,
+    authority: protectedTaskCreationAuthority,
+  });
   const verifiedExecutorAuthority = await hasPathwayExecutorAuthority(executorAuthority);
   await assertPathwayExecutorAuthority({
     tenantId: tid,
@@ -821,7 +916,7 @@ export async function createTask({
       cleanWorkflowRunId,
       cleanWorkflowStepId,
       cleanParentTaskId,
-      normalizeEnum(taskKind, TASK_KINDS, 'task_kind') || 'general',
+      cleanTaskKind,
       cleanTitle,
       safeText(description),
       maybeUuid(patientUid, 'patient_uid'),
@@ -844,6 +939,344 @@ export async function createTask({
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
   }
+}
+
+export async function createPendingResultTrackingTaskTx({
+  tenantId = null,
+  handoffId,
+  admissionId,
+  patientUid,
+  sourceType,
+  sourceId,
+  patientSafeLabel,
+  ownerUid,
+  createdBy,
+  predecessorTrackingTaskId = null,
+  rearmReason = null,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'INPATIENT_PENDING_RESULT_TASK_FACTORY_TX_REQUIRED',
+    'Pending-result tracking task creation requires a transaction',
+  );
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanAdmissionId = normalizeId(admissionId, 'admission_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanOwnerUid = maybeUuid(ownerUid, 'owner_uid');
+  const cleanCreatedBy = maybeUuid(createdBy, 'created_by');
+  const cleanSourceType = safeText(sourceType, 60);
+  const cleanSourceId = safeText(sourceId, 160);
+  const cleanLabel = safeText(patientSafeLabel, 240);
+  const cleanPredecessorTrackingTaskId = predecessorTrackingTaskId == null
+    ? null
+    : normalizeId(predecessorTrackingTaskId, 'predecessor_tracking_task_id');
+  const cleanRearmReason = safeText(rearmReason, 80);
+  if (
+    !cleanHandoffId
+    || !cleanPatientUid
+    || !cleanOwnerUid
+    || !cleanCreatedBy
+    || !cleanSourceType
+    || !cleanSourceId
+    || !cleanLabel
+  ) {
+    throw AppError.badRequest(
+      'Pending-result tracking task requires exact handoff, admission, patient, source, owner, and provenance',
+      'INPATIENT_PENDING_RESULT_TASK_FACTORY_INPUT_INVALID',
+    );
+  }
+  if (
+    Boolean(cleanPredecessorTrackingTaskId) !== Boolean(cleanRearmReason)
+    || (
+      cleanRearmReason
+      && !['doctor_reopened', 'corrected_generation'].includes(cleanRearmReason)
+    )
+  ) {
+    throw AppError.badRequest(
+      'Pending-result tracking task rearm requires its exact predecessor task and reason',
+      'INPATIENT_PENDING_RESULT_TASK_FACTORY_LINEAGE_INVALID',
+    );
+  }
+  return createTask({
+    tenantId,
+    taskKind: 'follow_up',
+    title: `Follow up ${cleanLabel}`,
+    description: 'Track the named physician handoff for a result pending at discharge.',
+    patientUid: cleanPatientUid,
+    relatedResourceType: 'discharge_pending_result_handoff',
+    relatedResourceId: cleanHandoffId,
+    assignedToUid: cleanOwnerUid,
+    createdBy: cleanCreatedBy,
+    metadata: {
+      admission_id: cleanAdmissionId,
+      source_type: cleanSourceType,
+      source_id: cleanSourceId,
+      relationship_kind: 'child_action',
+      blocking_state: 'handoff_warning',
+      task_contract: 'discharge_pending_result_tracking_v1',
+      correlation_contract: 'pending_result_tracking_v1',
+      predecessor_tracking_task_id: cleanPredecessorTrackingTaskId,
+      rearm_reason: cleanRearmReason,
+    },
+    protectedTaskCreationAuthority: PENDING_RESULT_TASK_CREATION_AUTHORITY,
+    tx,
+    onConflictResourceDoNothing: true,
+  });
+}
+
+export async function createPendingResultOwnerActionTaskTx({
+  tenantId = null,
+  handoffId,
+  generationId,
+  admissionId,
+  patientUid,
+  parentTaskId,
+  patientSafeLabel,
+  sourceType,
+  sourceId,
+  ownerUid,
+  createdBy,
+  predecessorGenerationId = null,
+  predecessorOwnerActionId = null,
+  predecessorResolutionActionId = null,
+  rearmSourceActionId = null,
+  rearmReason = null,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'INPATIENT_PENDING_RESULT_TASK_FACTORY_TX_REQUIRED',
+    'Pending-result owner-action task creation requires a transaction',
+  );
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanGenerationId = maybeUuid(generationId, 'generation_id');
+  const cleanAdmissionId = normalizeId(admissionId, 'admission_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanParentTaskId = normalizeId(parentTaskId, 'parent_task_id');
+  const cleanLabel = safeText(patientSafeLabel, 240);
+  const cleanSourceType = safeText(sourceType, 60);
+  const cleanSourceId = safeText(sourceId, 160);
+  const cleanOwnerUid = maybeUuid(ownerUid, 'owner_uid');
+  const cleanCreatedBy = maybeUuid(createdBy, 'created_by');
+  const cleanPredecessorGenerationId = maybeUuid(
+    predecessorGenerationId,
+    'predecessor_generation_id',
+  );
+  const cleanPredecessorOwnerActionId = maybeUuid(
+    predecessorOwnerActionId,
+    'predecessor_owner_action_id',
+  );
+  const cleanPredecessorResolutionActionId = maybeUuid(
+    predecessorResolutionActionId,
+    'predecessor_resolution_action_id',
+  );
+  const cleanRearmSourceActionId = maybeUuid(
+    rearmSourceActionId,
+    'rearm_source_action_id',
+  );
+  const cleanRearmReason = safeText(rearmReason, 80);
+  if (
+    !cleanHandoffId
+    || !cleanGenerationId
+    || !cleanPatientUid
+    || !cleanLabel
+    || !cleanSourceType
+    || !cleanSourceId
+    || !cleanOwnerUid
+    || !cleanCreatedBy
+  ) {
+    throw AppError.badRequest(
+      'Pending-result owner-action task requires exact handoff, generation, admission, patient, owner, and provenance',
+      'INPATIENT_PENDING_RESULT_TASK_FACTORY_INPUT_INVALID',
+    );
+  }
+  const isDoctorReopen = cleanRearmReason === 'doctor_reopened';
+  const isCorrectedGeneration = cleanRearmReason === 'corrected_generation';
+  if (
+    (isDoctorReopen && (
+      !cleanPredecessorOwnerActionId
+      || !cleanPredecessorResolutionActionId
+      || !cleanRearmSourceActionId
+      || cleanPredecessorGenerationId
+    ))
+    || (isCorrectedGeneration && (
+      !cleanPredecessorOwnerActionId
+      || !cleanPredecessorGenerationId
+      || cleanRearmSourceActionId
+    ))
+    || (!isDoctorReopen && !isCorrectedGeneration && (
+      cleanPredecessorOwnerActionId
+      || cleanPredecessorGenerationId
+      || cleanPredecessorResolutionActionId
+      || cleanRearmSourceActionId
+      || cleanRearmReason
+    ))
+  ) {
+    throw AppError.badRequest(
+      'Pending-result owner-action task lineage does not match initial, correction, or doctor-reopen creation',
+      'INPATIENT_PENDING_RESULT_TASK_FACTORY_LINEAGE_INVALID',
+    );
+  }
+  return createTask({
+    tenantId,
+    parentTaskId: cleanParentTaskId,
+    taskKind: 'review',
+    title: `Review ${cleanLabel}`,
+    description: isDoctorReopen
+      ? 'A pending-at-discharge result requires renewed review by the named physician.'
+      : isCorrectedGeneration
+        ? 'A corrected result pending at discharge is available for the named physician.'
+        : 'A result pending at discharge is now available for the named physician.',
+    patientUid: cleanPatientUid,
+    relatedResourceType: 'discharge_pending_result_action',
+    relatedResourceId: isDoctorReopen
+      ? `${cleanHandoffId}:${cleanGenerationId}:${cleanPredecessorOwnerActionId}`
+      : `${cleanHandoffId}:${cleanGenerationId}`,
+    assignedToUid: cleanOwnerUid,
+    createdBy: cleanCreatedBy,
+    metadata: {
+      admission_id: cleanAdmissionId,
+      handoff_id: cleanHandoffId,
+      generation_id: cleanGenerationId,
+      predecessor_generation_id: cleanPredecessorGenerationId,
+      predecessor_owner_action_id: cleanPredecessorOwnerActionId,
+      predecessor_resolution_action_id: cleanPredecessorResolutionActionId,
+      rearm_source_action_id: cleanRearmSourceActionId,
+      source_type: cleanSourceType,
+      source_id: cleanSourceId,
+      relationship_kind: 'child_action',
+      blocking_state: 'result_action',
+      correlation_source: 'diagnostic_generation',
+      task_contract: 'discharge_pending_result_action_v1',
+      correlation_contract: 'pending_result_owner_action_v2',
+      rearm_reason: cleanRearmReason,
+    },
+    protectedTaskCreationAuthority: PENDING_RESULT_TASK_CREATION_AUTHORITY,
+    tx,
+    onConflictResourceDoNothing: true,
+  });
+}
+
+export async function createCoveringTransferReviewTaskTx({
+  tenantId = null,
+  handoffId,
+  pathwayInstanceId,
+  patientUid,
+  encounterId = null,
+  recipientUid,
+  senderUid,
+  requestFingerprint,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'COVERING_TRANSFER_TASK_FACTORY_TX_REQUIRED',
+    'Covering-transfer review task creation requires a transaction',
+  );
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanPathwayInstanceId = maybeUuid(pathwayInstanceId, 'pathway_instance_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanEncounterId = maybeUuid(encounterId, 'encounter_id');
+  const cleanRecipientUid = maybeUuid(recipientUid, 'recipient_uid');
+  const cleanSenderUid = maybeUuid(senderUid, 'sender_uid');
+  const cleanFingerprint = safeText(requestFingerprint, 128);
+  if (
+    !cleanHandoffId
+    || !cleanPathwayInstanceId
+    || !cleanPatientUid
+    || !cleanRecipientUid
+    || !cleanSenderUid
+    || cleanSenderUid.toLowerCase() === cleanRecipientUid.toLowerCase()
+    || !/^[0-9a-f]{64}$/.test(cleanFingerprint)
+  ) {
+    throw AppError.badRequest(
+      'Covering-transfer task requires exact handoff, pathway, patient, actors, and request evidence',
+      'COVERING_TRANSFER_TASK_FACTORY_INPUT_INVALID',
+    );
+  }
+  return createTask({
+    tenantId,
+    taskKind: 'pathway_owner_transfer_review',
+    title: 'Review covering clinician transfer request',
+    description: 'Accept or decline the explicit covering clinician handoff.',
+    patientUid: cleanPatientUid,
+    relatedResourceType: 'care_handoff_instance',
+    relatedResourceId: cleanHandoffId,
+    priority: 'normal',
+    assignedToUid: cleanRecipientUid,
+    createdBy: cleanSenderUid,
+    slaCompletionSemantics: 'none',
+    metadata: {
+      task_contract: COVERING_TRANSFER_TASK_CONTRACT,
+      care_pathway_instance_id: cleanPathwayInstanceId,
+      canonical_encounter_id: cleanEncounterId,
+      request_fingerprint: cleanFingerprint,
+    },
+    protectedTaskCreationAuthority: COVERING_TRANSFER_TASK_CREATION_AUTHORITY,
+    tx,
+  });
+}
+
+export async function createOpInpatientTransferReviewTaskTx({
+  tenantId = null,
+  handoffId,
+  pathwayInstanceId,
+  sourceAppointmentId,
+  patientUid,
+  recipientUid,
+  senderUid,
+  requestFingerprint,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'OP_INPATIENT_TRANSFER_TASK_FACTORY_TX_REQUIRED',
+    'OP-to-inpatient review task creation requires a transaction',
+  );
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanPathwayInstanceId = maybeUuid(pathwayInstanceId, 'pathway_instance_id');
+  const cleanAppointmentId = normalizeId(sourceAppointmentId, 'source_appointment_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanRecipientUid = maybeUuid(recipientUid, 'recipient_uid');
+  const cleanSenderUid = maybeUuid(senderUid, 'sender_uid');
+  const cleanFingerprint = safeText(requestFingerprint, 128);
+  if (
+    !cleanHandoffId
+    || !cleanPathwayInstanceId
+    || !cleanPatientUid
+    || !cleanRecipientUid
+    || !cleanSenderUid
+    || cleanSenderUid.toLowerCase() === cleanRecipientUid.toLowerCase()
+    || !/^[0-9a-f]{64}$/.test(cleanFingerprint)
+  ) {
+    throw AppError.badRequest(
+      'OP-to-inpatient task requires exact handoff, pathway, appointment, patient, actors, and request evidence',
+      'OP_INPATIENT_TRANSFER_TASK_FACTORY_INPUT_INVALID',
+    );
+  }
+  return createTask({
+    tenantId,
+    taskKind: 'op_to_inpatient_transfer_review',
+    title: 'Review OP-to-inpatient transfer request',
+    description: 'Accept the exact originating outpatient transfer before admission.',
+    patientUid: cleanPatientUid,
+    relatedResourceType: 'care_handoff_instance',
+    relatedResourceId: cleanHandoffId,
+    priority: 'normal',
+    assignedToUid: cleanRecipientUid,
+    createdBy: cleanSenderUid,
+    dueAt: null,
+    slaCompletionSemantics: 'none',
+    metadata: {
+      task_contract: OP_INPATIENT_TRANSFER_TASK_CONTRACT,
+      care_pathway_instance_id: cleanPathwayInstanceId,
+      source_appointment_id: cleanAppointmentId,
+      request_fingerprint: cleanFingerprint,
+    },
+    protectedTaskCreationAuthority: OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY,
+    tx,
+  });
 }
 
 export async function listTasks({
@@ -947,6 +1380,20 @@ function isCoveringTransferReviewTask(taskRow) {
     && taskRow?.metadata?.task_contract === COVERING_TRANSFER_TASK_CONTRACT;
 }
 
+function isOpInpatientTransferReviewTask(taskRow) {
+  return taskRow?.task_kind === 'op_to_inpatient_transfer_review'
+    && taskRow?.related_resource_type === 'care_handoff_instance'
+    && taskRow?.metadata?.task_contract === OP_INPATIENT_TRANSFER_TASK_CONTRACT;
+}
+
+function isPendingResultOwnerActionTask(taskRow) {
+  return taskRow?.related_resource_type === 'discharge_pending_result_action';
+}
+
+function isPendingResultTrackingTask(taskRow) {
+  return taskRow?.related_resource_type === 'discharge_pending_result_handoff';
+}
+
 function assertGenericTaskMutationAllowed(taskRow, authority = null) {
   if (
     isCoveringTransferReviewTask(taskRow)
@@ -955,6 +1402,40 @@ function assertGenericTaskMutationAllowed(taskRow, authority = null) {
     throw AppError.conflict(
       'Covering-transfer review tasks must use the pathway ownership workflow',
       'COVERING_TRANSFER_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (
+    isOpInpatientTransferReviewTask(taskRow)
+    && authority !== OP_INPATIENT_TRANSFER_TASK_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'OP-to-inpatient transfer review tasks must use the appointment transfer workflow',
+      'OP_INPATIENT_TRANSFER_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (
+    isPendingResultOwnerActionTask(taskRow)
+    && ![
+      PENDING_RESULT_OWNER_ACTION_TASK_AUTHORITY,
+      PENDING_RESULT_TASK_TRANSFER_AUTHORITY,
+      PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY,
+    ].includes(authority)
+  ) {
+    throw AppError.conflict(
+      'Pending-result owner-action tasks must use the inpatient result review workflow',
+      'INPATIENT_PENDING_RESULT_ACTION_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (
+    isPendingResultTrackingTask(taskRow)
+    && ![
+      PENDING_RESULT_TASK_TRANSFER_AUTHORITY,
+      PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY,
+    ].includes(authority)
+  ) {
+    throw AppError.conflict(
+      'Pending-result tracking tasks must use the inpatient handoff workflow',
+      'INPATIENT_PENDING_RESULT_HANDOFF_TASK_WORKFLOW_REQUIRED',
     );
   }
 }
@@ -968,6 +1449,7 @@ export async function transitionTask({
   slaSourceBindingAuthority = null,
   acknowledgementTransitionAuthority = null,
   coveringTransferTaskAuthority = null,
+  pendingResultOwnerActionTaskAuthority = null,
   tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
@@ -989,13 +1471,18 @@ export async function transitionTask({
       slaSourceBindingAuthority,
       acknowledgementTransitionAuthority,
       coveringTransferTaskAuthority,
+      pendingResultOwnerActionTaskAuthority,
       tx: scopedTx,
     }));
   }
   const db = tx;
 
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
-  assertGenericTaskMutationAllowed(current, coveringTransferTaskAuthority);
+  assertGenericTaskMutationAllowed(
+    current,
+    coveringTransferTaskAuthority
+      || pendingResultOwnerActionTaskAuthority,
+  );
   const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db });
   await assertPathwayExecutorAuthority({
     tenantId: tid,
@@ -1101,6 +1588,862 @@ export async function transitionTask({
     });
   }
   return rows[0];
+}
+
+export async function supersedePendingResultOwnerActionTaskFromGenerationTx({
+  tenantId = null,
+  id,
+  handoffId,
+  generationId,
+  supersedingGenerationId,
+  patientUid,
+  ownerUid,
+  parentTaskId,
+  actorUid,
+  tx = null,
+} = {}) {
+  if (!tx) {
+    throw AppError.internal(
+      'Pending-result owner-action supersession requires a transaction',
+      'INPATIENT_PENDING_RESULT_ACTION_TASK_TX_REQUIRED',
+    );
+  }
+  const tid = resolveTenantId({ tenantId });
+  const taskId = normalizeId(id, 'task id');
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id').toLowerCase();
+  const cleanGenerationId = maybeUuid(generationId, 'generation_id').toLowerCase();
+  const cleanSupersedingGenerationId = maybeUuid(
+    supersedingGenerationId,
+    'superseding_generation_id',
+  ).toLowerCase();
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid').toLowerCase();
+  const cleanOwnerUid = maybeUuid(ownerUid, 'owner_uid').toLowerCase();
+  const cleanParentTaskId = normalizeId(parentTaskId, 'parent_task_id');
+  const cleanActorUid = requireActorUid(actorUid);
+  const current = await getTaskForUpdate({
+    tenantId: tid,
+    id: taskId,
+    db: tx,
+  });
+  if (
+    current.task_kind !== 'review'
+    || current.related_resource_type !== 'discharge_pending_result_action'
+    || current.related_resource_id !== `${cleanHandoffId}:${cleanGenerationId}`
+    || Number(current.parent_task_id) !== cleanParentTaskId
+    || String(current.patient_uid || '').toLowerCase() !== cleanPatientUid
+    || String(current.assigned_to_uid || '').toLowerCase() !== cleanOwnerUid
+    || current.assigned_to_role != null
+    || current.workflow_run_id != null
+    || current.workflow_step_id != null
+    || current.workflow_sla_instance_id != null
+    || current.sla_completion_semantics !== 'none'
+  ) {
+    throw AppError.conflict(
+      'Pending-result owner-action task does not match the generation being superseded',
+      'INPATIENT_PENDING_RESULT_ACTION_TASK_BINDING_INVALID',
+    );
+  }
+  const binding = await tx.$queryRawUnsafe(
+    `SELECT action.id
+       FROM discharge_pending_result_owner_actions AS action
+       JOIN discharge_pending_result_handoffs AS handoff
+         ON handoff.tenant_id = action.tenant_id
+        AND handoff.id = action.handoff_id
+        AND handoff.admission_id = action.admission_id
+        AND handoff.patient_uid = action.patient_uid
+       JOIN diagnostic_result_generations AS successor
+         ON successor.tenant_id = action.tenant_id
+        AND successor.id = $7::uuid
+        AND successor.predecessor_generation_id = action.generation_id
+        AND successor.patient_uid = action.patient_uid
+        AND successor.admission_id = action.admission_id
+      WHERE action.tenant_id = $1::uuid
+        AND action.task_id = $2::integer
+        AND action.handoff_id = $3::uuid
+        AND action.generation_id = $4::uuid
+        AND action.patient_uid = $5::uuid
+        AND handoff.task_id = $8::integer
+        AND handoff.named_physician_uid = $6::uuid
+        AND NOT EXISTS (
+          SELECT 1
+            FROM discharge_pending_result_owner_actions AS action_successor
+           WHERE action_successor.tenant_id = action.tenant_id
+             AND action_successor.handoff_id = action.handoff_id
+              AND action_successor.predecessor_owner_action_id = action.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM diagnostic_result_generations AS newer_generation
+           WHERE newer_generation.tenant_id = successor.tenant_id
+             AND newer_generation.predecessor_generation_id = successor.id
+             AND newer_generation.patient_uid = successor.patient_uid
+             AND newer_generation.admission_id = successor.admission_id
+        )
+      LIMIT 2
+      FOR SHARE OF action, handoff, successor`,
+    tid,
+    taskId,
+    cleanHandoffId,
+    cleanGenerationId,
+    cleanPatientUid,
+    cleanOwnerUid,
+    cleanSupersedingGenerationId,
+    cleanParentTaskId,
+  );
+  if (binding.length !== 1) {
+    throw AppError.conflict(
+      'Pending-result owner-action task lacks an exact current correction binding',
+      'INPATIENT_PENDING_RESULT_ACTION_TASK_BINDING_INVALID',
+    );
+  }
+  return transitionTask({
+    tenantId: tid,
+    id: taskId,
+    nextStatus: 'cancelled',
+    cancellationReason: 'Superseded by a corrected diagnostic generation',
+    actorUid: cleanActorUid,
+    pendingResultOwnerActionTaskAuthority:
+      PENDING_RESULT_OWNER_ACTION_TASK_AUTHORITY,
+    tx,
+  });
+}
+
+export async function reassignPendingResultTasksForAcceptedCoveringHandoffTx({
+  tenantId = null,
+  admissionId,
+  patientUid,
+  priorAssignmentId,
+  assignmentId,
+  acceptedHandoffId,
+  priorPhysicianUid,
+  physicianUid,
+  actorUid,
+  tx = null,
+} = {}) {
+  if (!tx) {
+    throw AppError.internal(
+      'Pending-result ownership reassignment requires a transaction',
+      'INPATIENT_PENDING_RESULT_TASK_REASSIGNMENT_TX_REQUIRED',
+    );
+  }
+  const tid = resolveTenantId({ tenantId });
+  const cleanAdmissionId = normalizeId(admissionId, 'admission_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanPriorAssignmentId = maybeUuid(priorAssignmentId, 'prior_assignment_id');
+  const cleanAssignmentId = maybeUuid(assignmentId, 'assignment_id');
+  const cleanAcceptedHandoffId = maybeUuid(acceptedHandoffId, 'accepted_handoff_id');
+  const cleanPriorPhysicianUid = maybeUuid(priorPhysicianUid, 'prior_physician_uid');
+  const cleanPhysicianUid = maybeUuid(physicianUid, 'physician_uid');
+  const cleanActorUid = requireActorUid(actorUid);
+  if (
+    !cleanPatientUid
+    || !cleanPriorAssignmentId
+    || !cleanAssignmentId
+    || !cleanAcceptedHandoffId
+    || !cleanPriorPhysicianUid
+    || !cleanPhysicianUid
+  ) {
+    throw AppError.badRequest(
+      'Pending-result ownership reassignment requires exact assignment, handoff, patient, and physician identifiers',
+      'INPATIENT_PENDING_RESULT_TASK_REASSIGNMENT_BINDING_INVALID',
+    );
+  }
+
+  const acceptedTransfer = await tx.$queryRawUnsafe(
+    `SELECT assignment.id
+       FROM inpatient_primary_physician_assignments AS assignment
+       JOIN inpatient_primary_physician_assignments AS prior_assignment
+         ON prior_assignment.tenant_id = assignment.tenant_id
+        AND prior_assignment.id = assignment.supersedes_assignment_id
+        AND prior_assignment.admission_id = assignment.admission_id
+        AND prior_assignment.patient_uid = assignment.patient_uid
+       JOIN admissions AS admission
+         ON admission.tenant_id = assignment.tenant_id
+        AND admission.id = assignment.admission_id
+        AND admission.patient_uid = assignment.patient_uid
+       JOIN care_handoff_instances AS coverage
+         ON coverage.tenant_id = assignment.tenant_id
+        AND coverage.id = assignment.accepted_handoff_id
+        AND coverage.patient_uid = assignment.patient_uid
+       JOIN care_pathway_instances AS pathway
+         ON pathway.tenant_id = coverage.tenant_id
+        AND pathway.id = coverage.sending_pathway_instance_id
+        AND pathway.patient_uid = coverage.patient_uid
+        AND pathway.workflow_run_id = coverage.sending_workflow_run_id
+      WHERE assignment.tenant_id = $1::uuid
+        AND assignment.id = $2::uuid
+        AND assignment.admission_id = $3::integer
+        AND assignment.patient_uid = $4::uuid
+        AND assignment.physician_uid = $5::uuid
+        AND assignment.assignment_source = 'accepted_covering_handoff'
+        AND assignment.accepted_handoff_id = $6::uuid
+        AND assignment.supersedes_assignment_id = $7::uuid
+        AND assignment.assigned_by_uid = $8::uuid
+        AND prior_assignment.physician_uid = $9::uuid
+        AND admission.attending_doctor = assignment.physician_uid
+        AND pathway.pathway_key = 'inpatient_admission_to_recovery'
+        AND pathway.source_episode_type = 'admission'
+        AND pathway.source_episode_id = assignment.admission_id::text
+        AND pathway.owning_clinician_uid = assignment.physician_uid
+        AND coverage.handoff_type = 'covering_clinician_reassignment'
+        AND coverage.status = 'accepted'
+        AND coverage.accepted_at IS NOT NULL
+        AND coverage.sender_uid = prior_assignment.physician_uid
+        AND coverage.recipient_kind = 'user'
+        AND coverage.intended_recipient_uid = assignment.physician_uid
+        AND coverage.accepted_by_uid = assignment.physician_uid
+        AND coverage.receiving_pathway_instance_id = pathway.id
+        AND coverage.receiving_workflow_run_id = pathway.workflow_run_id
+        AND coverage.receiving_step_key = coverage.sending_step_key
+        AND coverage.source_resource_type = 'care_pathway_instance'
+        AND coverage.source_resource_id = pathway.id::text
+      LIMIT 2
+      FOR SHARE OF assignment, prior_assignment, admission, coverage, pathway`,
+    tid,
+    cleanAssignmentId,
+    cleanAdmissionId,
+    cleanPatientUid,
+    cleanPhysicianUid,
+    cleanAcceptedHandoffId,
+    cleanPriorAssignmentId,
+    cleanActorUid,
+    cleanPriorPhysicianUid,
+  );
+  if (acceptedTransfer.length !== 1) {
+    throw AppError.conflict(
+      'Pending-result task ownership lacks an exact accepted inpatient covering handoff',
+      'INPATIENT_PENDING_RESULT_TASK_REASSIGNMENT_BINDING_INVALID',
+    );
+  }
+
+  const trackingTasks = await tx.$queryRawUnsafe(
+    `SELECT handoff.id AS handoff_id,
+            handoff.task_id,
+            handoff.primary_physician_assignment_id,
+            handoff.named_physician_uid,
+            task.task_kind,
+            task.patient_uid,
+            task.related_resource_type,
+            task.related_resource_id,
+            task.assigned_to_uid,
+            task.assigned_to_role,
+            task.workflow_run_id,
+            task.workflow_step_id,
+            task.workflow_sla_instance_id,
+            task.sla_completion_semantics,
+            task.status
+       FROM discharge_pending_result_handoffs AS handoff
+       JOIN tasks AS task
+         ON task.tenant_id = handoff.tenant_id
+        AND task.id = handoff.task_id
+      WHERE handoff.tenant_id = $1::uuid
+        AND handoff.admission_id = $2::integer
+        AND handoff.patient_uid = $3::uuid
+        AND handoff.handoff_state IN ('pending', 'result_available')
+      ORDER BY handoff.id
+      FOR UPDATE OF handoff, task`,
+    tid,
+    cleanAdmissionId,
+    cleanPatientUid,
+  );
+  const liveStatuses = new Set(['open', 'in_progress', 'blocked', 'overdue']);
+  for (const row of trackingTasks) {
+    if (
+      String(row.primary_physician_assignment_id || '').toLowerCase()
+        !== cleanPriorAssignmentId.toLowerCase()
+      || String(row.named_physician_uid || '').toLowerCase()
+        !== cleanPriorPhysicianUid.toLowerCase()
+      || row.task_kind !== 'follow_up'
+      || String(row.patient_uid || '').toLowerCase() !== cleanPatientUid.toLowerCase()
+      || row.related_resource_type !== 'discharge_pending_result_handoff'
+      || row.related_resource_id !== String(row.handoff_id)
+      || String(row.assigned_to_uid || '').toLowerCase()
+        !== cleanPriorPhysicianUid.toLowerCase()
+      || row.assigned_to_role != null
+      || row.workflow_run_id != null
+      || row.workflow_step_id != null
+      || row.workflow_sla_instance_id != null
+      || row.sla_completion_semantics !== 'none'
+      || !liveStatuses.has(row.status)
+    ) {
+      throw AppError.conflict(
+        'A live pending-result tracking task does not match its exact handoff owner',
+        'INPATIENT_PENDING_RESULT_TASK_REASSIGNMENT_BINDING_INVALID',
+      );
+    }
+  }
+
+  const handoffIds = trackingTasks.map((row) => String(row.handoff_id).toLowerCase());
+  const actionTasks = handoffIds.length === 0
+    ? []
+    : await tx.$queryRawUnsafe(
+      `SELECT action.handoff_id,
+              action.generation_id,
+              action.task_id,
+              task.task_kind,
+              task.patient_uid,
+              task.related_resource_type,
+              task.related_resource_id,
+              task.parent_task_id,
+              task.assigned_to_uid,
+              task.assigned_to_role,
+              task.workflow_run_id,
+              task.workflow_step_id,
+              task.workflow_sla_instance_id,
+              task.sla_completion_semantics,
+              task.status
+         FROM discharge_pending_result_owner_actions AS action
+         JOIN tasks AS task
+           ON task.tenant_id = action.tenant_id
+          AND task.id = action.task_id
+        WHERE action.tenant_id = $1::uuid
+          AND action.handoff_id = ANY($2::uuid[])
+          AND NOT EXISTS (
+            SELECT 1
+              FROM discharge_pending_result_owner_actions AS successor
+             WHERE successor.tenant_id = action.tenant_id
+               AND successor.handoff_id = action.handoff_id
+               AND successor.predecessor_owner_action_id = action.id
+          )
+        ORDER BY action.handoff_id, action.recorded_at, action.id
+        FOR UPDATE OF action, task`,
+      tid,
+      handoffIds,
+    );
+  const trackingByHandoff = new Map(
+    trackingTasks.map((row) => [String(row.handoff_id).toLowerCase(), row]),
+  );
+  for (const row of actionTasks) {
+    const tracking = trackingByHandoff.get(String(row.handoff_id).toLowerCase());
+    if (
+      !tracking
+      || row.task_kind !== 'review'
+      || String(row.patient_uid || '').toLowerCase() !== cleanPatientUid.toLowerCase()
+      || row.related_resource_type !== 'discharge_pending_result_action'
+      || row.related_resource_id !== `${row.handoff_id}:${row.generation_id}`
+      || Number(row.parent_task_id) !== Number(tracking.task_id)
+      || String(row.assigned_to_uid || '').toLowerCase()
+        !== cleanPriorPhysicianUid.toLowerCase()
+      || row.assigned_to_role != null
+      || row.workflow_run_id != null
+      || row.workflow_step_id != null
+      || row.workflow_sla_instance_id != null
+      || row.sla_completion_semantics !== 'none'
+      || !liveStatuses.has(row.status)
+    ) {
+      throw AppError.conflict(
+        'A current pending-result owner-action task does not match its exact handoff owner',
+        'INPATIENT_PENDING_RESULT_TASK_REASSIGNMENT_BINDING_INVALID',
+      );
+    }
+  }
+
+  const taskIds = [
+    ...trackingTasks.map((row) => Number(row.task_id)),
+    ...actionTasks.map((row) => Number(row.task_id)),
+  ];
+  for (const taskId of taskIds) {
+    await reassignTask({
+      tenantId: tid,
+      id: taskId,
+      assignedToUid: cleanPhysicianUid,
+      assignedToRole: null,
+      pendingResultTaskTransferAuthority: PENDING_RESULT_TASK_TRANSFER_AUTHORITY,
+      tx,
+    });
+  }
+  return Object.freeze({
+    tracking_task_ids: Object.freeze(
+      trackingTasks.map((row) => Number(row.task_id)),
+    ),
+    action_task_ids: Object.freeze(actionTasks.map((row) => Number(row.task_id))),
+  });
+}
+
+async function completePendingResultTaskWithSettlementAuthority({
+  tenantId,
+  task,
+  actorUid,
+  tx,
+}) {
+  let current = task;
+  if (current.status === 'blocked') {
+    current = await transitionTask({
+      tenantId,
+      id: Number(current.id),
+      nextStatus: 'in_progress',
+      actorUid,
+      pendingResultOwnerActionTaskAuthority:
+        PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY,
+      tx,
+    });
+  }
+  if (current.status === 'completed') return current;
+  return transitionTask({
+    tenantId,
+    id: Number(current.id),
+    nextStatus: 'completed',
+    actorUid,
+    pendingResultOwnerActionTaskAuthority:
+      PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY,
+    tx,
+  });
+}
+
+export async function settlePendingResultTasksFromOwnerCrossSignTx({
+  tenantId = null,
+  handoffId,
+  generationId,
+  ownerActionId,
+  crossSignActionId,
+  actionTaskId,
+  trackingTaskId,
+  patientUid,
+  actorUid,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'INPATIENT_PENDING_RESULT_TASK_SETTLEMENT_TX_REQUIRED',
+    'Pending-result task settlement requires a transaction',
+  );
+  const tid = resolveTenantId({ tenantId });
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanGenerationId = maybeUuid(generationId, 'generation_id');
+  const cleanOwnerActionId = maybeUuid(ownerActionId, 'owner_action_id');
+  const cleanCrossSignActionId = maybeUuid(crossSignActionId, 'cross_sign_action_id');
+  const cleanActionTaskId = normalizeId(actionTaskId, 'action_task_id');
+  const cleanTrackingTaskId = normalizeId(trackingTaskId, 'tracking_task_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanActorUid = requireActorUid(actorUid);
+  if (
+    !cleanHandoffId
+    || !cleanGenerationId
+    || !cleanOwnerActionId
+    || !cleanCrossSignActionId
+    || !cleanPatientUid
+  ) {
+    throw AppError.badRequest(
+      'Pending-result settlement requires exact handoff, generation, owner-action, task, patient, and action identifiers',
+      'INPATIENT_PENDING_RESULT_TASK_SETTLEMENT_BINDING_INVALID',
+    );
+  }
+
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT cross_sign.id AS cross_sign_action_id,
+            cross_sign.signature_id,
+            cross_sign.canonical_timeline_event_id,
+            cross_sign.canonical_audit_event_id,
+            prior_action.id AS prior_action_id,
+            prior_action.action_kind AS prior_action_kind,
+            prior_action.signature_id AS prior_signature_id,
+            owner_action.id AS owner_action_id,
+            owner_action.owner_uid,
+            owner_action.predecessor_owner_action_id,
+            owner_action.predecessor_generation_id,
+            owner_action.rearm_source_action_id,
+            handoff.id AS handoff_id,
+            handoff.admission_id,
+            handoff.patient_uid,
+            handoff.named_physician_uid,
+            handoff.task_id AS tracking_task_id,
+            handoff.handoff_state,
+            handoff.resolution_action_id,
+            handoff.resolved_by_uid,
+            pathway.id AS pathway_instance_id,
+            action_task.id AS action_task_id,
+            action_task.task_kind AS action_task_kind,
+            action_task.parent_task_id AS action_parent_task_id,
+            action_task.patient_uid AS action_patient_uid,
+            action_task.related_resource_type AS action_resource_type,
+            action_task.related_resource_id AS action_resource_id,
+            action_task.assigned_to_uid AS action_assigned_to_uid,
+            action_task.assigned_to_role AS action_assigned_to_role,
+            action_task.workflow_run_id AS action_workflow_run_id,
+            action_task.workflow_step_id AS action_workflow_step_id,
+            action_task.workflow_sla_instance_id AS action_sla_id,
+            action_task.sla_completion_semantics AS action_sla_semantics,
+            action_task.status AS action_task_status,
+            tracking_task.task_kind AS tracking_task_kind,
+            tracking_task.parent_task_id AS tracking_parent_task_id,
+            tracking_task.patient_uid AS tracking_patient_uid,
+            tracking_task.related_resource_type AS tracking_resource_type,
+            tracking_task.related_resource_id AS tracking_resource_id,
+            tracking_task.assigned_to_uid AS tracking_assigned_to_uid,
+            tracking_task.assigned_to_role AS tracking_assigned_to_role,
+            tracking_task.workflow_run_id AS tracking_workflow_run_id,
+            tracking_task.workflow_step_id AS tracking_workflow_step_id,
+            tracking_task.workflow_sla_instance_id AS tracking_sla_id,
+            tracking_task.sla_completion_semantics AS tracking_sla_semantics,
+            tracking_task.status AS tracking_task_status
+       FROM diagnostic_result_actions AS cross_sign
+       JOIN diagnostic_result_actions AS prior_action
+         ON prior_action.tenant_id = cross_sign.tenant_id
+        AND prior_action.id = cross_sign.predecessor_action_id
+        AND prior_action.patient_uid = cross_sign.patient_uid
+        AND prior_action.generation_id = cross_sign.generation_id
+       JOIN discharge_pending_result_owner_actions AS owner_action
+         ON owner_action.tenant_id = cross_sign.tenant_id
+        AND owner_action.id = $4::uuid
+        AND owner_action.patient_uid = cross_sign.patient_uid
+        AND owner_action.generation_id = cross_sign.generation_id
+        AND owner_action.task_id = cross_sign.task_id
+        AND owner_action.owner_uid = cross_sign.actor_uid
+       JOIN discharge_pending_result_handoffs AS handoff
+         ON handoff.tenant_id = owner_action.tenant_id
+        AND handoff.id = owner_action.handoff_id
+        AND handoff.admission_id = owner_action.admission_id
+        AND handoff.patient_uid = owner_action.patient_uid
+       JOIN care_pathway_instances AS pathway
+         ON pathway.tenant_id = handoff.tenant_id
+        AND pathway.id = cross_sign.pathway_instance_id
+        AND pathway.patient_uid = handoff.patient_uid
+        AND pathway.pathway_key = 'inpatient_admission_to_recovery'
+        AND pathway.source_episode_type = 'admission'
+        AND pathway.source_episode_id = handoff.admission_id::text
+       JOIN tasks AS action_task
+         ON action_task.tenant_id = owner_action.tenant_id
+        AND action_task.id = owner_action.task_id
+       JOIN tasks AS tracking_task
+         ON tracking_task.tenant_id = handoff.tenant_id
+        AND tracking_task.id = handoff.task_id
+      WHERE cross_sign.tenant_id = $1::uuid
+        AND cross_sign.id = $2::uuid
+        AND cross_sign.action_kind = 'discharge_owner_cross_sign'
+        AND cross_sign.generation_id = $3::uuid
+        AND cross_sign.patient_uid = $8::uuid
+        AND cross_sign.task_id = $6::integer
+        AND cross_sign.actor_uid = $9::uuid
+        AND cross_sign.signature_id IS NOT NULL
+        AND cross_sign.canonical_timeline_event_id IS NOT NULL
+        AND cross_sign.canonical_audit_event_id IS NOT NULL
+        AND cross_sign.downstream_resource_type =
+              'discharge_pending_result_handoff'
+        AND cross_sign.downstream_resource_id = $5::uuid::text
+        AND prior_action.action_kind = 'doctor_disposition'
+        AND prior_action.signature_id IS NOT NULL
+        AND handoff.id = $5::uuid
+        AND handoff.task_id = $7::integer
+        AND handoff.named_physician_uid = $9::uuid
+        AND handoff.handoff_state = 'resolved'
+        AND handoff.resolution_action_id = cross_sign.id
+        AND handoff.resolved_by_uid = $9::uuid
+        AND NOT EXISTS (
+          SELECT 1
+            FROM discharge_pending_result_owner_actions AS successor
+           WHERE successor.tenant_id = owner_action.tenant_id
+             AND successor.handoff_id = owner_action.handoff_id
+             AND successor.predecessor_owner_action_id = owner_action.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM diagnostic_result_generations AS successor_generation
+           WHERE successor_generation.tenant_id = cross_sign.tenant_id
+             AND successor_generation.patient_uid = cross_sign.patient_uid
+             AND successor_generation.admission_id = handoff.admission_id
+             AND successor_generation.predecessor_generation_id =
+                   cross_sign.generation_id
+        )
+      LIMIT 2
+      FOR UPDATE OF cross_sign, prior_action, owner_action, handoff,
+                    action_task, tracking_task`,
+    tid,
+    cleanCrossSignActionId,
+    cleanGenerationId,
+    cleanOwnerActionId,
+    cleanHandoffId,
+    cleanActionTaskId,
+    cleanTrackingTaskId,
+    cleanPatientUid,
+    cleanActorUid,
+  );
+  if (rows.length !== 1) {
+    throw AppError.conflict(
+      'Pending-result settlement lacks an exact current named-owner cross-sign binding',
+      'INPATIENT_PENDING_RESULT_TASK_SETTLEMENT_BINDING_INVALID',
+    );
+  }
+  const row = rows[0];
+  const expectedActionResourceId = row.rearm_source_action_id != null
+    ? `${cleanHandoffId}:${cleanGenerationId}:${row.predecessor_owner_action_id}`
+    : `${cleanHandoffId}:${cleanGenerationId}`;
+  const actionTaskIsExact = (
+    row.action_task_kind === 'review'
+    && Number(row.action_parent_task_id) === cleanTrackingTaskId
+    && String(row.action_patient_uid || '').toLowerCase() === cleanPatientUid.toLowerCase()
+    && row.action_resource_type === 'discharge_pending_result_action'
+    && row.action_resource_id === expectedActionResourceId
+    && String(row.action_assigned_to_uid || '').toLowerCase() === cleanActorUid
+    && row.action_assigned_to_role == null
+    && row.action_workflow_run_id == null
+    && row.action_workflow_step_id == null
+    && row.action_sla_id == null
+    && row.action_sla_semantics === 'none'
+  );
+  const trackingTaskIsExact = (
+    row.tracking_task_kind === 'follow_up'
+    && row.tracking_parent_task_id == null
+    && String(row.tracking_patient_uid || '').toLowerCase() === cleanPatientUid.toLowerCase()
+    && row.tracking_resource_type === 'discharge_pending_result_handoff'
+    && row.tracking_resource_id === cleanHandoffId
+    && String(row.tracking_assigned_to_uid || '').toLowerCase() === cleanActorUid
+    && row.tracking_assigned_to_role == null
+    && row.tracking_workflow_run_id == null
+    && row.tracking_workflow_step_id == null
+    && row.tracking_sla_id == null
+    && row.tracking_sla_semantics === 'none'
+  );
+  if (!actionTaskIsExact || !trackingTaskIsExact) {
+    throw AppError.conflict(
+      'Pending-result settlement tasks do not match their exact handoff, owner, and generation',
+      'INPATIENT_PENDING_RESULT_TASK_SETTLEMENT_BINDING_INVALID',
+    );
+  }
+  const liveStatuses = new Set(['open', 'in_progress', 'blocked', 'overdue']);
+  const bothCompleted = row.action_task_status === 'completed'
+    && row.tracking_task_status === 'completed';
+  const bothLive = liveStatuses.has(row.action_task_status)
+    && liveStatuses.has(row.tracking_task_status);
+  if (!bothCompleted && !bothLive) {
+    throw AppError.conflict(
+      'Pending-result settlement tasks are not in one coherent live or completed state',
+      'INPATIENT_PENDING_RESULT_TASK_SETTLEMENT_STATE_INVALID',
+    );
+  }
+  if (bothCompleted) {
+    return Object.freeze({
+      action_task_id: cleanActionTaskId,
+      tracking_task_id: cleanTrackingTaskId,
+      replayed: true,
+    });
+  }
+  const actionTask = await completePendingResultTaskWithSettlementAuthority({
+    tenantId: tid,
+    task: { id: cleanActionTaskId, status: row.action_task_status },
+    actorUid: cleanActorUid,
+    tx,
+  });
+  const trackingTask = await completePendingResultTaskWithSettlementAuthority({
+    tenantId: tid,
+    task: { id: cleanTrackingTaskId, status: row.tracking_task_status },
+    actorUid: cleanActorUid,
+    tx,
+  });
+  return Object.freeze({
+    action_task_id: Number(actionTask.id),
+    tracking_task_id: Number(trackingTask.id),
+    replayed: false,
+  });
+}
+
+export async function settlePendingResultTasksFromDiagnosticActionTx({
+  tenantId = null,
+  handoffId,
+  generationId,
+  ownerActionId,
+  diagnosticActionId,
+  actionTaskId,
+  trackingTaskId,
+  patientUid,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'INPATIENT_PENDING_RESULT_TASK_SETTLEMENT_TX_REQUIRED',
+    'Pending-result diagnostic settlement requires a transaction',
+  );
+  const tid = resolveTenantId({ tenantId });
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanGenerationId = maybeUuid(generationId, 'generation_id');
+  const cleanOwnerActionId = maybeUuid(ownerActionId, 'owner_action_id');
+  const cleanDiagnosticActionId = maybeUuid(diagnosticActionId, 'diagnostic_action_id');
+  const cleanActionTaskId = normalizeId(actionTaskId, 'action_task_id');
+  const cleanTrackingTaskId = normalizeId(trackingTaskId, 'tracking_task_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT diagnostic_action.action_kind,
+            diagnostic_action.actor_uid,
+            diagnostic_action.signature_id,
+            owner_action.predecessor_generation_id,
+            owner_action.predecessor_owner_action_id,
+            owner_action.rearm_source_action_id,
+            handoff.named_physician_uid,
+            handoff.resolved_by_uid,
+            action_task.id AS action_task_id,
+            action_task.task_kind AS action_task_kind,
+            action_task.parent_task_id AS action_parent_task_id,
+            action_task.patient_uid AS action_patient_uid,
+            action_task.related_resource_type AS action_resource_type,
+            action_task.related_resource_id AS action_resource_id,
+            action_task.assigned_to_uid AS action_assigned_to_uid,
+            action_task.assigned_to_role AS action_assigned_to_role,
+            action_task.workflow_run_id AS action_workflow_run_id,
+            action_task.workflow_step_id AS action_workflow_step_id,
+            action_task.workflow_sla_instance_id AS action_sla_id,
+            action_task.sla_completion_semantics AS action_sla_semantics,
+            action_task.status AS action_task_status,
+            tracking_task.id AS tracking_task_id,
+            tracking_task.task_kind AS tracking_task_kind,
+            tracking_task.parent_task_id AS tracking_parent_task_id,
+            tracking_task.patient_uid AS tracking_patient_uid,
+            tracking_task.related_resource_type AS tracking_resource_type,
+            tracking_task.related_resource_id AS tracking_resource_id,
+            tracking_task.assigned_to_uid AS tracking_assigned_to_uid,
+            tracking_task.assigned_to_role AS tracking_assigned_to_role,
+            tracking_task.workflow_run_id AS tracking_workflow_run_id,
+            tracking_task.workflow_step_id AS tracking_workflow_step_id,
+            tracking_task.workflow_sla_instance_id AS tracking_sla_id,
+            tracking_task.sla_completion_semantics AS tracking_sla_semantics,
+            tracking_task.status AS tracking_task_status
+       FROM diagnostic_result_actions AS diagnostic_action
+       JOIN discharge_pending_result_owner_actions AS owner_action
+         ON owner_action.tenant_id = diagnostic_action.tenant_id
+        AND owner_action.id = $4::uuid
+        AND owner_action.generation_id = diagnostic_action.generation_id
+        AND owner_action.patient_uid = diagnostic_action.patient_uid
+       JOIN discharge_pending_result_handoffs AS handoff
+         ON handoff.tenant_id = owner_action.tenant_id
+        AND handoff.id = owner_action.handoff_id
+        AND handoff.admission_id = owner_action.admission_id
+        AND handoff.patient_uid = owner_action.patient_uid
+       JOIN tasks AS action_task
+         ON action_task.tenant_id = owner_action.tenant_id
+        AND action_task.id = owner_action.task_id
+       JOIN tasks AS tracking_task
+         ON tracking_task.tenant_id = handoff.tenant_id
+        AND tracking_task.id = handoff.task_id
+      WHERE diagnostic_action.tenant_id = $1::uuid
+        AND diagnostic_action.id = $2::uuid
+        AND diagnostic_action.generation_id = $3::uuid
+        AND diagnostic_action.patient_uid = $8::uuid
+        AND diagnostic_action.action_kind IN (
+              'doctor_disposition',
+              'normal_auto_closed'
+            )
+        AND handoff.id = $5::uuid
+        AND handoff.handoff_state = 'resolved'
+        AND handoff.resolution_action_id = diagnostic_action.id
+        AND handoff.task_id = $7::integer
+        AND owner_action.task_id = $6::integer
+        AND (
+          (
+            diagnostic_action.action_kind = 'doctor_disposition'
+            AND diagnostic_action.signature_id IS NOT NULL
+            AND diagnostic_action.actor_uid = owner_action.owner_uid
+            AND diagnostic_action.actor_uid = handoff.named_physician_uid
+            AND handoff.resolved_by_uid = diagnostic_action.actor_uid
+          )
+          OR
+          (
+            diagnostic_action.action_kind = 'normal_auto_closed'
+            AND diagnostic_action.actor_uid IS NULL
+            AND handoff.resolved_by_uid IS NULL
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM discharge_pending_result_owner_actions AS successor
+           WHERE successor.tenant_id = owner_action.tenant_id
+             AND successor.handoff_id = owner_action.handoff_id
+             AND successor.predecessor_owner_action_id = owner_action.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM diagnostic_result_generations AS successor_generation
+           WHERE successor_generation.tenant_id = diagnostic_action.tenant_id
+             AND successor_generation.patient_uid = diagnostic_action.patient_uid
+             AND successor_generation.admission_id = handoff.admission_id
+             AND successor_generation.predecessor_generation_id =
+                   diagnostic_action.generation_id
+        )
+      LIMIT 2
+      FOR UPDATE OF diagnostic_action, owner_action, handoff,
+                    action_task, tracking_task`,
+    tid,
+    cleanDiagnosticActionId,
+    cleanGenerationId,
+    cleanOwnerActionId,
+    cleanHandoffId,
+    cleanActionTaskId,
+    cleanTrackingTaskId,
+    cleanPatientUid,
+  );
+  if (rows.length !== 1) {
+    throw AppError.conflict(
+      'Pending-result diagnostic settlement lacks an exact current action and owner binding',
+      'INPATIENT_PENDING_RESULT_TASK_SETTLEMENT_BINDING_INVALID',
+    );
+  }
+  const row = rows[0];
+  const expectedActionResourceId = row.rearm_source_action_id
+    ? `${cleanHandoffId}:${cleanGenerationId}:${row.predecessor_owner_action_id}`
+    : `${cleanHandoffId}:${cleanGenerationId}`;
+  const actionTaskIsExact = (
+    row.action_task_kind === 'review'
+    && Number(row.action_parent_task_id) === cleanTrackingTaskId
+    && String(row.action_patient_uid || '').toLowerCase() === cleanPatientUid.toLowerCase()
+    && row.action_resource_type === 'discharge_pending_result_action'
+    && row.action_resource_id === expectedActionResourceId
+    && String(row.action_assigned_to_uid || '').toLowerCase()
+      === String(row.named_physician_uid || '').toLowerCase()
+    && row.action_assigned_to_role == null
+    && row.action_workflow_run_id == null
+    && row.action_workflow_step_id == null
+    && row.action_sla_id == null
+    && row.action_sla_semantics === 'none'
+  );
+  const trackingTaskIsExact = (
+    row.tracking_task_kind === 'follow_up'
+    && row.tracking_parent_task_id == null
+    && String(row.tracking_patient_uid || '').toLowerCase() === cleanPatientUid.toLowerCase()
+    && row.tracking_resource_type === 'discharge_pending_result_handoff'
+    && row.tracking_resource_id === cleanHandoffId
+    && String(row.tracking_assigned_to_uid || '').toLowerCase()
+      === String(row.named_physician_uid || '').toLowerCase()
+    && row.tracking_assigned_to_role == null
+    && row.tracking_workflow_run_id == null
+    && row.tracking_workflow_step_id == null
+    && row.tracking_sla_id == null
+    && row.tracking_sla_semantics === 'none'
+  );
+  const liveStatuses = new Set(['open', 'in_progress', 'blocked', 'overdue']);
+  const bothCompleted = row.action_task_status === 'completed'
+    && row.tracking_task_status === 'completed';
+  const bothLive = liveStatuses.has(row.action_task_status)
+    && liveStatuses.has(row.tracking_task_status);
+  if (!actionTaskIsExact || !trackingTaskIsExact || (!bothCompleted && !bothLive)) {
+    throw AppError.conflict(
+      'Pending-result diagnostic settlement tasks are not exact and coherent',
+      'INPATIENT_PENDING_RESULT_TASK_SETTLEMENT_STATE_INVALID',
+    );
+  }
+  if (bothCompleted) {
+    return Object.freeze({
+      action_task_id: cleanActionTaskId,
+      tracking_task_id: cleanTrackingTaskId,
+      replayed: true,
+    });
+  }
+  const completionActorUid = row.action_kind === 'doctor_disposition'
+    ? String(row.actor_uid)
+    : undefined;
+  const actionTask = await completePendingResultTaskWithSettlementAuthority({
+    tenantId: tid,
+    task: { id: cleanActionTaskId, status: row.action_task_status },
+    actorUid: completionActorUid,
+    tx,
+  });
+  const trackingTask = await completePendingResultTaskWithSettlementAuthority({
+    tenantId: tid,
+    task: { id: cleanTrackingTaskId, status: row.tracking_task_status },
+    actorUid: completionActorUid,
+    tx,
+  });
+  return Object.freeze({
+    action_task_id: Number(actionTask.id),
+    tracking_task_id: Number(trackingTask.id),
+    replayed: false,
+  });
 }
 
 /**
@@ -1644,6 +2987,206 @@ export async function completePathwayTaskFromRegisteredEvidence({
     previousTaskStatus,
     previousSlaStatus,
     mutated: !wasCompleted || Boolean(completedSla),
+  });
+}
+
+export async function completePathwayTaskFromRegisteredCondition({
+  tenantId = null,
+  pathwayInstanceId,
+  id,
+  workflowRunId,
+  workflowStepId,
+  conditionHandler,
+  evidenceResourceType,
+  evidenceResourceId,
+  evidence = {},
+  actor = null,
+  signal = null,
+  executorAuthority = null,
+  tx = null,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  if (!await hasPathwayExecutorAuthority(executorAuthority)) {
+    throw AppError.conflict(
+      'Pathway-bound workflow mutations must use the pathway executor',
+      'PATHWAY_EXECUTOR_REQUIRED',
+    );
+  }
+  const taskId = normalizeStrictPositiveId(id, 'task id');
+  const runId = normalizeStrictPositiveId(workflowRunId, 'workflow_run_id');
+  const stepId = normalizeStrictPositiveId(workflowStepId, 'workflow_step_id');
+  const cleanPathwayInstanceId = maybeUuid(pathwayInstanceId, 'pathway_instance_id');
+  if (!cleanPathwayInstanceId) {
+    throw AppError.badRequest(
+      'pathway_instance_id is required',
+      'PATHWAY_TASK_CONTEXT_INVALID',
+    );
+  }
+  const { isTenantTransactionClient } = await import('../../lib/prisma.js');
+  if (!tx || !isTenantTransactionClient(tx)) {
+    throw AppError.conflict(
+      'Pathway condition completion requires a branded tenant transaction',
+      'PATHWAY_RUNTIME_TX_REQUIRED',
+    );
+  }
+  const cleanHandler = requireCanonicalHandlerId(conditionHandler);
+  const cleanResourceType = safeText(evidenceResourceType, 120);
+  const cleanResourceId = safeText(evidenceResourceId, 220);
+  if (!cleanResourceType || !cleanResourceId) {
+    throw AppError.badRequest(
+      'Registered condition completion requires an evidence resource',
+      'PATHWAY_REGISTERED_CONDITION_EVIDENCE_INVALID',
+    );
+  }
+  const payload = cloneBudgetedWorkflowJson(
+    normalizeJsonObject(evidence, 'evidence'),
+    'evidence',
+    'PATHWAY_HANDLER_CONTRACT_INVALID',
+  );
+  const completionBinding = REGISTERED_CONDITION_COMPLETION_BINDINGS[cleanHandler];
+  const payloadResourceId = safeText(
+    payload?.[completionBinding?.evidenceResourceIdField],
+    220,
+  );
+  if (
+    !completionBinding
+    || cleanResourceType !== completionBinding.evidenceResourceType
+    || !maybeUuid(cleanResourceId, 'evidence_resource_id')
+    || payloadResourceId !== cleanResourceId
+  ) {
+    throw AppError.conflict(
+      'Registered condition evidence does not match its sealed completion binding',
+      'PATHWAY_REGISTERED_CONDITION_EVIDENCE_INVALID',
+    );
+  }
+  const provenance = await normalizePathwayEvidenceProvenance(actor, signal);
+  const cleanActorUid = provenance.actor_kind === 'user' ? provenance.actor_uid : null;
+  const normalizedEvidence = Object.freeze(cloneBudgetedWorkflowJson({
+    kind: 'pathway_registered_condition',
+    handler_id: cleanHandler,
+    decision: 'satisfied',
+    resource_type: cleanResourceType,
+    resource_id: cleanResourceId,
+    payload,
+    provenance,
+  }, 'normalized_evidence', 'PATHWAY_HANDLER_CONTRACT_INVALID'));
+
+  const pathwayRows = await tx.$queryRawUnsafe(
+    `SELECT id
+       FROM care_pathway_instances
+      WHERE tenant_id = $1::uuid
+        AND workflow_run_id = $2::bigint
+        AND id = $3::uuid
+      LIMIT 1`,
+    tid,
+    runId,
+    cleanPathwayInstanceId,
+  );
+  if (!pathwayRows[0]?.id) {
+    throw AppError.conflict(
+      'Pathway task run and step context is not registered',
+      'PATHWAY_TASK_CONTEXT_MISMATCH',
+    );
+  }
+  const { lockPathwayRuntimeTx } = await import('../pathways/pathwayRuntimePersistence.js');
+  const runtime = await lockPathwayRuntimeTx({
+    tx,
+    tenantId: tid,
+    pathwayInstanceId: pathwayRows[0].id,
+  });
+  const current = runtime.tasks.find((task) => Number(task.id) === taskId);
+  const step = runtime.steps.find((candidate) => Number(candidate.id) === stepId);
+  if (
+    Number(runtime.run?.id) !== runId
+    || !step
+    || runtime.run.current_step_key !== step.step_key
+    || Number(step.workflow_run_id) !== runId
+    || !current
+    || Number(current.workflow_run_id) !== runId
+    || Number(current.workflow_step_id) !== stepId
+  ) {
+    throw AppError.conflict(
+      'Pathway task is not the supplied run current step',
+      'PATHWAY_TASK_CONTEXT_MISMATCH',
+    );
+  }
+  let pinnedSteps = runtime.definition?.steps;
+  if (typeof pinnedSteps === 'string') {
+    try {
+      pinnedSteps = JSON.parse(pinnedSteps);
+    } catch {
+      pinnedSteps = null;
+    }
+  }
+  const pinnedStep = Array.isArray(pinnedSteps)
+    ? pinnedSteps.find((candidate) => candidate?.step_key === step.step_key)
+    : null;
+  const pinnedHandler = safeText(pinnedStep?.condition_handler, 120);
+  if (
+    !pinnedStep
+    || pinnedStep.step_kind !== 'task'
+    || !pinnedHandler
+    || pinnedHandler !== cleanHandler
+  ) {
+    throw AppError.conflict(
+      'Pathway evidence handler does not match the pinned governed task step',
+      'PATHWAY_HANDLER_CONTRACT_INVALID',
+    );
+  }
+  if (
+    pinnedStep.work_semantics?.sla_completion_semantics !== 'none'
+    || current.sla_completion_semantics !== 'none'
+    || current.workflow_sla_instance_id
+  ) {
+    throw AppError.conflict(
+      'Pathway task is not registered for no-SLA condition completion',
+      'REGISTERED_CONDITION_COMPLETION_NOT_ALLOWED',
+    );
+  }
+
+  let taskState = current;
+  const previousTaskStatus = taskState.status;
+  const wasCompleted = taskState.status === 'completed';
+  if (taskState.status === 'cancelled') {
+    throw AppError.invalidTransition('cancelled', 'completed', TASK_TRANSITIONS.cancelled);
+  }
+  if (!wasCompleted) {
+    if (taskState.status === 'blocked') {
+      taskState = await transitionTask({
+        tenantId: tid,
+        id: taskId,
+        nextStatus: 'in_progress',
+        executorAuthority,
+        tx,
+      });
+    }
+    taskState = await transitionTask({
+      tenantId: tid,
+      id: taskId,
+      nextStatus: 'completed',
+      ...(cleanActorUid ? { actorUid: cleanActorUid } : {}),
+      executorAuthority,
+      tx,
+    });
+    await postTaskComment({
+      tenantId: tid,
+      taskId,
+      authorUid: cleanActorUid,
+      body: `Task completed from registered pathway condition ${cleanHandler}`,
+      bodyKind: 'state_change',
+      metadata: {
+        to: 'completed',
+        completion_via: 'registered_condition',
+        evidence: normalizedEvidence,
+      },
+      tx,
+    });
+  }
+  return Object.freeze({
+    task: taskState,
+    evidence: normalizedEvidence,
+    previousTaskStatus,
+    mutated: !wasCompleted,
   });
 }
 
@@ -2775,23 +4318,88 @@ export async function listInboxTasks({
               pathway.owning_clinician_uid AS pathway_owner_uid,
               pathway.accountable_role AS pathway_accountable_role,
               step.step_key AS pathway_stage_key,
-              COALESCE(pathway_generation.id, direct_generation.id) AS diagnostic_generation_id,
-              COALESCE(pathway_generation.classification, direct_generation.classification)
+              COALESCE(
+                pathway_generation.id,
+                direct_generation.id,
+                pending_generation.id
+              ) AS diagnostic_generation_id,
+              COALESCE(
+                pathway_generation.classification,
+                direct_generation.classification,
+                pending_generation.classification
+              )
                 AS diagnostic_classification,
-              COALESCE(pathway_generation.snapshot_sha256, direct_generation.snapshot_sha256)
+              COALESCE(
+                pathway_generation.snapshot_sha256,
+                direct_generation.snapshot_sha256,
+                pending_generation.snapshot_sha256
+              )
                 AS diagnostic_generation_snapshot_sha256,
-              COALESCE(pathway_generation.source_version, direct_generation.source_version)
+              COALESCE(
+                pathway_generation.source_version,
+                direct_generation.source_version,
+                pending_generation.source_version
+              )
                 AS diagnostic_source_version,
               COALESCE(
                 pathway_generation.predecessor_generation_id,
-                direct_generation.predecessor_generation_id
+                direct_generation.predecessor_generation_id,
+                pending_generation.predecessor_generation_id
               ) AS diagnostic_predecessor_generation_id,
               (
                 COALESCE(
                   pathway_generation.predecessor_generation_id,
-                  direct_generation.predecessor_generation_id
+                  direct_generation.predecessor_generation_id,
+                  pending_generation.predecessor_generation_id
                 ) IS NOT NULL
-              ) AS diagnostic_is_correction
+              ) AS diagnostic_is_correction,
+              pending_handoff.admission_id AS pending_result_admission_id,
+              pending_handoff.id AS pending_result_handoff_id,
+              pending_owner_action.id AS pending_result_owner_action_id,
+              pending_handoff.named_physician_uid
+                AS pending_result_named_physician_uid,
+              pending_handoff.handoff_state AS pending_result_handoff_state,
+              pending_handoff.resolution_action_id
+                AS pending_result_resolution_action_id,
+              pending_handoff.resolved_at AS pending_result_resolved_at,
+              pending_handoff.resolved_by_uid AS pending_result_resolved_by_uid,
+              pending_tracking_task.id AS pending_result_tracking_task_id,
+              pending_tracking_task.status AS pending_result_tracking_task_status,
+              authoritative_action.id AS diagnostic_authoritative_action_id,
+              authoritative_action.action_kind
+                AS diagnostic_authoritative_action_kind,
+              authoritative_action.disposition
+                AS diagnostic_authoritative_disposition,
+              authoritative_action.occurred_at
+                AS diagnostic_authoritative_action_occurred_at,
+              (
+                pending_owner_action.id IS NOT NULL
+                AND $5::boolean
+                AND pending_handoff.handoff_state = 'result_available'
+                AND pending_handoff.resolution_action_id IS NULL
+                AND pending_handoff.resolved_at IS NULL
+                AND pending_handoff.resolved_by_uid IS NULL
+                AND pending_handoff.named_physician_uid = $2::uuid
+                AND pending_tracking_task.status IN (
+                  'open',
+                  'in_progress',
+                  'blocked',
+                  'overdue'
+                )
+                AND authoritative_action.action_kind = 'doctor_disposition'
+                AND authoritative_action.signature_id IS NOT NULL
+                AND authoritative_action.actor_uid IS DISTINCT FROM
+                      pending_handoff.named_physician_uid
+                AND NOT EXISTS (
+                  SELECT 1
+                    FROM diagnostic_result_generations AS newer_generation
+                   WHERE newer_generation.tenant_id = pending_generation.tenant_id
+                     AND newer_generation.patient_uid = pending_generation.patient_uid
+                     AND newer_generation.admission_id = pending_generation.admission_id
+                     AND newer_generation.predecessor_generation_id =
+                           pending_generation.id
+                )
+              ) AS can_cross_sign
          FROM (
            SELECT ${TASK_RETURNING}
              FROM tasks
@@ -2819,8 +4427,69 @@ export async function listInboxTasks({
           AND pathway_generation.id::text = pathway.source_episode_id
          LEFT JOIN diagnostic_result_generations AS direct_generation
            ON direct_generation.tenant_id = inbox.tenant_id
-          AND inbox.related_resource_type = 'diagnostic_result_generation'
-          AND direct_generation.id::text = inbox.related_resource_id
+           AND inbox.related_resource_type = 'diagnostic_result_generation'
+           AND direct_generation.id::text = inbox.related_resource_id
+         LEFT JOIN discharge_pending_result_owner_actions AS pending_owner_action
+           ON pending_owner_action.tenant_id = inbox.tenant_id
+          AND pending_owner_action.task_id = inbox.id
+          AND inbox.related_resource_type = 'discharge_pending_result_action'
+          AND NOT EXISTS (
+            SELECT 1
+              FROM discharge_pending_result_owner_actions AS successor
+             WHERE successor.tenant_id = pending_owner_action.tenant_id
+               AND successor.handoff_id = pending_owner_action.handoff_id
+               AND successor.predecessor_owner_action_id =
+                     pending_owner_action.id
+          )
+         LEFT JOIN discharge_pending_result_handoffs AS pending_handoff
+           ON pending_handoff.tenant_id = pending_owner_action.tenant_id
+          AND pending_handoff.id = pending_owner_action.handoff_id
+          AND pending_handoff.admission_id = pending_owner_action.admission_id
+          AND pending_handoff.patient_uid = pending_owner_action.patient_uid
+          AND pending_handoff.named_physician_uid = pending_owner_action.owner_uid
+         LEFT JOIN tasks AS pending_tracking_task
+           ON pending_tracking_task.tenant_id = pending_handoff.tenant_id
+          AND pending_tracking_task.id = pending_handoff.task_id
+          AND pending_tracking_task.patient_uid = pending_handoff.patient_uid
+          AND pending_tracking_task.related_resource_type =
+                'discharge_pending_result_handoff'
+          AND pending_tracking_task.related_resource_id =
+                pending_handoff.id::text
+          AND pending_tracking_task.assigned_to_uid =
+                pending_handoff.named_physician_uid
+          AND pending_tracking_task.assigned_to_role IS NULL
+         LEFT JOIN diagnostic_result_generations AS pending_generation
+           ON pending_generation.tenant_id = pending_owner_action.tenant_id
+          AND pending_generation.id = pending_owner_action.generation_id
+          AND pending_generation.patient_uid = pending_owner_action.patient_uid
+          AND pending_generation.admission_id = pending_owner_action.admission_id
+         LEFT JOIN LATERAL (
+           SELECT action.id,
+                  action.action_kind,
+                  action.disposition,
+                  action.actor_uid,
+                  action.signature_id,
+                  action.occurred_at
+             FROM diagnostic_result_actions AS action
+            WHERE action.tenant_id = pending_owner_action.tenant_id
+              AND action.generation_id = pending_owner_action.generation_id
+              AND action.patient_uid = pending_owner_action.patient_uid
+              AND (
+                (
+                  action.action_kind = 'doctor_disposition'
+                  AND action.signature_id IS NOT NULL
+                )
+                OR action.action_kind = 'normal_auto_closed'
+              )
+            ORDER BY
+              CASE action.action_kind
+                WHEN 'doctor_disposition' THEN 0
+                ELSE 1
+              END,
+              action.occurred_at DESC,
+              action.id DESC
+            LIMIT 1
+         ) AS authoritative_action ON pending_owner_action.id IS NOT NULL
        ORDER BY
          CASE inbox.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
          inbox.due_at NULLS LAST,
@@ -2830,6 +4499,7 @@ export async function listInboxTasks({
       actor.uid,
       actor.queueRole,
       safeLimit,
+      isInpatientPendingResultPhysicianRole(actor.role),
     );
     return { tasks: rows, count: rows.length };
   } catch (err) {
@@ -2976,9 +4646,183 @@ export async function settleCoveringTransferReviewTaskTx({
   return settled;
 }
 
+export async function settleOpInpatientTransferReviewTaskTx({
+  tenantId = null,
+  id,
+  handoffId,
+  pathwayInstanceId,
+  appointmentId,
+  patientUid,
+  requestFingerprint,
+  recipientUid,
+  actorUid,
+  tx,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  if (!tx) {
+    throw AppError.internal(
+      'OP-to-inpatient transfer task settlement requires a transaction',
+      'OP_INPATIENT_TRANSFER_TASK_TX_REQUIRED',
+    );
+  }
+  const taskId = normalizeId(id, 'task id');
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanPathwayInstanceId = maybeUuid(pathwayInstanceId, 'pathway_instance_id');
+  const cleanAppointmentId = normalizeId(appointmentId, 'appointment_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanRecipientUid = maybeUuid(recipientUid, 'recipient_uid');
+  const cleanActorUid = requireActorUid(actorUid);
+  const cleanFingerprint = safeText(requestFingerprint, 64);
+  if (!/^[0-9a-f]{64}$/.test(cleanFingerprint || '')) {
+    throw AppError.badRequest(
+      'request_fingerprint must be a SHA-256 digest',
+      'OP_INPATIENT_TRANSFER_TASK_FINGERPRINT_INVALID',
+    );
+  }
+
+  const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
+  assertGenericTaskMutationAllowed(current, OP_INPATIENT_TRANSFER_TASK_AUTHORITY);
+  const bindings = await tx.$queryRawUnsafe(
+    `SELECT handoff.id
+       FROM care_handoff_instances AS handoff
+       JOIN tasks AS task
+         ON task.tenant_id = handoff.tenant_id
+        AND task.id = handoff.task_id
+      WHERE handoff.tenant_id = $1::uuid
+        AND handoff.id = $2::uuid
+        AND handoff.sending_pathway_instance_id = $3::uuid
+        AND handoff.source_resource_type = 'appointment'
+        AND handoff.source_resource_id = $4::integer::text
+        AND handoff.patient_uid = $5::uuid
+        AND handoff.intended_recipient_uid = $6::uuid
+        AND handoff.accepted_by_uid IS NULL
+        AND handoff.handoff_type = 'op_to_inpatient_transfer'
+        AND handoff.status = 'requested'
+        AND handoff.task_id = $7::bigint
+        AND handoff.request_fingerprint = $8::char(64)
+        AND task.patient_uid = handoff.patient_uid
+        AND task.workflow_run_id IS NULL
+        AND task.workflow_step_id IS NULL
+        AND task.task_kind = 'op_to_inpatient_transfer_review'
+        AND task.related_resource_type = 'care_handoff_instance'
+        AND task.related_resource_id = handoff.id::text
+        AND task.assigned_to_uid = handoff.intended_recipient_uid
+        AND task.assigned_to_role IS NULL
+        AND task.due_at IS NULL
+        AND task.workflow_sla_instance_id IS NULL
+        AND task.sla_completion_semantics = 'none'
+        AND task.metadata ->> 'task_contract' =
+              'op_to_inpatient_transfer_review_v1'
+        AND task.metadata ->> 'care_pathway_instance_id' =
+              handoff.sending_pathway_instance_id::text
+        AND task.metadata ->> 'source_appointment_id' =
+              handoff.source_resource_id
+        AND task.metadata ->> 'request_fingerprint' =
+              handoff.request_fingerprint::text
+      LIMIT 1
+      FOR SHARE OF handoff`,
+    tid,
+    cleanHandoffId,
+    cleanPathwayInstanceId,
+    cleanAppointmentId,
+    cleanPatientUid,
+    cleanRecipientUid,
+    taskId,
+    cleanFingerprint,
+  );
+  if (
+    !bindings[0]
+    || current.workflow_run_id !== null
+    || current.workflow_step_id !== null
+    || String(current.patient_uid || '').toLowerCase() !== cleanPatientUid.toLowerCase()
+    || current.task_kind !== 'op_to_inpatient_transfer_review'
+    || current.related_resource_type !== 'care_handoff_instance'
+    || String(current.related_resource_id || '').toLowerCase() !== cleanHandoffId.toLowerCase()
+    || String(current.assigned_to_uid || '').toLowerCase() !== cleanRecipientUid.toLowerCase()
+    || current.assigned_to_role !== null
+    || current.due_at !== null
+    || current.workflow_sla_instance_id !== null
+    || current.sla_completion_semantics !== 'none'
+    || current.metadata?.task_contract !== OP_INPATIENT_TRANSFER_TASK_CONTRACT
+    || String(current.metadata?.care_pathway_instance_id || '').toLowerCase()
+      !== cleanPathwayInstanceId.toLowerCase()
+    || String(current.metadata?.source_appointment_id || '') !== String(cleanAppointmentId)
+    || String(current.metadata?.request_fingerprint || '') !== cleanFingerprint
+    || !TASK_CLAIMABLE_STATUSES.has(current.status)
+  ) {
+    throw AppError.conflict(
+      'OP-to-inpatient transfer review task binding is invalid',
+      'OP_INPATIENT_TRANSFER_TASK_BINDING_INVALID',
+    );
+  }
+
+  const settledAt = new Date().toISOString();
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET status = 'completed',
+            completed_at = $3::timestamptz,
+            cancelled_at = NULL,
+            cancellation_reason = NULL,
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'op_inpatient_transfer_outcome', 'accepted',
+                   'op_inpatient_transfer_settled_by', $4::text,
+                   'op_inpatient_transfer_settled_at', $3::text
+                 ),
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status = $5::text
+        AND task_kind = 'op_to_inpatient_transfer_review'
+        AND workflow_run_id IS NULL
+        AND workflow_step_id IS NULL
+        AND patient_uid = $6::uuid
+        AND related_resource_type = 'care_handoff_instance'
+        AND related_resource_id = $7::uuid::text
+        AND assigned_to_uid = $4::uuid
+        AND assigned_to_role IS NULL
+        AND due_at IS NULL
+        AND workflow_sla_instance_id IS NULL
+        AND sla_completion_semantics = 'none'
+      RETURNING ${TASK_RETURNING}`,
+    tid,
+    taskId,
+    settledAt,
+    cleanActorUid,
+    current.status,
+    cleanPatientUid,
+    cleanHandoffId,
+  );
+  const settled = rows[0];
+  if (!settled) {
+    throw AppError.conflict(
+      'OP-to-inpatient transfer review task changed before settlement',
+      'OP_INPATIENT_TRANSFER_TASK_CAS_CONFLICT',
+    );
+  }
+  await postTaskComment({
+    tenantId: tid,
+    taskId,
+    authorUid: cleanActorUid,
+    body: 'OP-to-inpatient transfer accepted',
+    bodyKind: 'state_change',
+    metadata: {
+      from: current.status,
+      to: 'completed',
+      outcome: 'accepted',
+      handoff_id: cleanHandoffId,
+      appointment_id: cleanAppointmentId,
+      care_pathway_instance_id: cleanPathwayInstanceId,
+    },
+    tx,
+  });
+  return settled;
+}
+
 export async function reassignTask({
   tenantId = null, id, assignedToUid, assignedToRole,
   executorAuthority = null,
+  pendingResultTaskTransferAuthority = null,
   tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
@@ -3004,11 +4848,12 @@ export async function reassignTask({
       assignedToUid,
       assignedToRole,
       executorAuthority,
+      pendingResultTaskTransferAuthority,
       tx: scopedTx,
     }));
   }
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
-  assertGenericTaskMutationAllowed(current);
+  assertGenericTaskMutationAllowed(current, pendingResultTaskTransferAuthority);
   const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db });
   await assertPathwayExecutorAuthority({
     tenantId: tid,
@@ -4001,17 +5846,27 @@ export const __testing__ = {
 
 export default {
   createTask,
+  createPendingResultTrackingTaskTx,
+  createPendingResultOwnerActionTaskTx,
+  createCoveringTransferReviewTaskTx,
+  createOpInpatientTransferReviewTaskTx,
   listTasks,
   listInboxTasks,
   claimInboxTask,
   getTask,
   transitionTask,
+  supersedePendingResultOwnerActionTaskFromGenerationTx,
+  reassignPendingResultTasksForAcceptedCoveringHandoffTx,
+  settlePendingResultTasksFromDiagnosticActionTx,
+  settlePendingResultTasksFromOwnerCrossSignTx,
   supersedeAcknowledgementTaskFromTrustedWorkflow,
   completeTaskFromDomainEvidence,
+  completePathwayTaskFromRegisteredCondition,
   completePathwayTaskFromRegisteredEvidence,
   acknowledgeTask,
   acknowledgeColdChainTaskFromTrustedWorkflow,
   settleCoveringTransferReviewTaskTx,
+  settleOpInpatientTransferReviewTaskTx,
   reassignTask,
   postTaskComment,
   listTaskComments,
