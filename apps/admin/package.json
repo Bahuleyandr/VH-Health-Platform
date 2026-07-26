@@ -4,7 +4,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "postinstall": "node ../../scripts/patch-minimatch-compat.mjs",
+    "postinstall": "node scripts/patch-minimatch-compat.mjs",
     "predev": "npm run generate:types",
     "dev": "next dev --turbopack -p 3001",
     "dev:qa": "next dev --turbopack -p 3201",

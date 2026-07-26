@@ -8,6 +8,7 @@ FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+COPY scripts/patch-minimatch-compat.mjs ./scripts/patch-minimatch-compat.mjs
 RUN npm ci
 
 # ---- Build Stage ----

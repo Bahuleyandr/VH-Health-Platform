@@ -16,8 +16,12 @@ function check(name, predicate) {
 const backendApp = read('apps/backend/src/app.js');
 const backendAllowlist = read('apps/backend/src/middleware/ipAllowlistMiddleware.js');
 const backendDockerfile = read('apps/backend/Dockerfile');
+const backendPackage = JSON.parse(read('apps/backend/package.json'));
+const backendMinimatchPatch = read('apps/backend/scripts/patch-minimatch-compat.mjs');
 const adminMiddleware = read('apps/admin/src/middleware.ts');
 const adminDockerfile = read('apps/admin/Dockerfile');
+const adminPackage = JSON.parse(read('apps/admin/package.json'));
+const adminMinimatchPatch = read('apps/admin/scripts/patch-minimatch-compat.mjs');
 const staffWebDockerfile = read('apps/staff/Dockerfile.web');
 const mcpIndex = read('infra/mcp/vh-mcp-postgres/index.js');
 const mcpK8s = read('infra/mcp/vh-mcp-postgres/k8s.yaml');
@@ -28,6 +32,22 @@ const githubReleaseImages = read('.github/workflows/release-images.yml');
 const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
 
 const sha256Digest = '@sha256:[a-f0-9]{64}';
+const minimatchPatchCopy =
+  'COPY scripts/patch-minimatch-compat.mjs ./scripts/patch-minimatch-compat.mjs';
+
+function installStagesCopyMinimatchPatch(dockerfile, expectedStageCount) {
+  const installStages = dockerfile
+    .split(/^FROM /m)
+    .filter((stage) => stage.includes('RUN npm ci'));
+  return (
+    installStages.length === expectedStageCount &&
+    installStages.every(
+      (stage) =>
+        stage.indexOf(minimatchPatchCopy) >= 0 &&
+        stage.indexOf(minimatchPatchCopy) < stage.indexOf('RUN npm ci'),
+    )
+  );
+}
 
 check('backend HTTPS redirect does not reflect req.headers.host', () =>
   !/https:\/\/\$\{req\.headers\.host\}/.test(backendApp) &&
@@ -56,6 +76,15 @@ check('release Dockerfiles use digest-pinned base image defaults', () =>
   new RegExp(`^ARG FLUTTER_IMAGE=ghcr\\.io/cirruslabs/flutter:3\\.44\\.0${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
   new RegExp(`^ARG NGINX_IMAGE=nginx:1\\.27-alpine${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
   !/^FROM (node|nginx|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
+
+check('container npm postinstall hooks remain inside each Docker build context', () =>
+  backendPackage.scripts.postinstall ===
+    'node scripts/patch-minimatch-compat.mjs' &&
+  adminPackage.scripts.postinstall ===
+    'node scripts/patch-minimatch-compat.mjs' &&
+  backendMinimatchPatch === adminMinimatchPatch &&
+  installStagesCopyMinimatchPatch(backendDockerfile, 2) &&
+  installStagesCopyMinimatchPatch(adminDockerfile, 1));
 
 check('release workflows keep backend base image overrides digest-pinned', () => {
   const combined = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;

@@ -5,6 +5,7 @@ FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+COPY scripts/patch-minimatch-compat.mjs ./scripts/patch-minimatch-compat.mjs
 RUN npm ci
 
 COPY prisma ./prisma
@@ -19,6 +20,7 @@ RUN apk upgrade --no-cache libcrypto3 libssl3 c-ares && \
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+COPY scripts/patch-minimatch-compat.mjs ./scripts/patch-minimatch-compat.mjs
 RUN npm ci --omit=dev && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
