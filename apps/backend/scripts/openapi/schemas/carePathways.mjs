@@ -963,11 +963,25 @@ export const schemas = {
     },
     allOf: [
       {
-        if: {
-          properties: { decision: { const: 'decline' } },
-          required: ['decision'],
-        },
-        then: { required: ['reason'] },
+        oneOf: [
+          {
+            properties: {
+              decision: { enum: ['accept'] },
+            },
+          },
+          {
+            required: ['reason'],
+            properties: {
+              decision: { enum: ['decline'] },
+              reason: {
+                type: 'string',
+                minLength: 1,
+                maxLength: 2000,
+                pattern: '^[^\\u0000-\\u001F\\u007F-\\u009F]+$',
+              },
+            },
+          },
+        ],
       },
     ],
   },

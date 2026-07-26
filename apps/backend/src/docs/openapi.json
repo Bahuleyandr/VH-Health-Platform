@@ -14112,21 +14112,35 @@
         },
         "allOf": [
           {
-            "if": {
-              "properties": {
-                "decision": {
-                  "const": "decline"
+            "oneOf": [
+              {
+                "properties": {
+                  "decision": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
                 }
               },
-              "required": [
-                "decision"
-              ]
-            },
-            "then": {
-              "required": [
-                "reason"
-              ]
-            }
+              {
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "decision": {
+                    "enum": [
+                      "decline"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                  }
+                }
+              }
+            ]
           }
         ]
       },
