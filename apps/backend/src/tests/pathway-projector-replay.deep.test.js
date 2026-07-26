@@ -341,7 +341,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
 
   it('claims only the row being dispatched while later rows remain untouched', async () => {
     const consumerKey = consumerFor('claim_on_dispatch');
-    const generation = 5;
+    const generation = 10_005;
     const eventType = `test.pathway.replay.dispatch_${RUN_TOKEN}`;
     await primeGeneration(consumerKey, generation);
     const first = await seedEvent(eventType);
