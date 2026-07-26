@@ -63,9 +63,18 @@ const patches = [
 ];
 
 let patchedFiles = 0;
+const installedMinimatchRoots = new Set();
 
 for (const minimatchRoot of new Set(minimatchPackages)) {
-  const rootStat = await lstat(minimatchRoot);
+  let rootStat;
+  try {
+    rootStat = await lstat(minimatchRoot);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      continue;
+    }
+    throw error;
+  }
   if (rootStat.isSymbolicLink()) {
     throw new Error(`Refusing to patch symlinked package at ${minimatchRoot}`);
   }
@@ -82,6 +91,7 @@ for (const minimatchRoot of new Set(minimatchPackages)) {
   if (metadata.name !== "minimatch" || metadata.version !== MINIMATCH_VERSION) {
     throw new Error(`Refusing to patch unexpected package at ${minimatchRoot}`);
   }
+  installedMinimatchRoots.add(minimatchRoot);
 
   for (const patch of patches) {
     const target = path.join(minimatchRoot, ...patch.relativePath.split("/"));
@@ -103,9 +113,15 @@ for (const minimatchRoot of new Set(minimatchPackages)) {
   }
 }
 
+if (installedMinimatchRoots.size === 0) {
+  throw new Error(
+    `No installed minimatch@${MINIMATCH_VERSION} package was found to patch`,
+  );
+}
+
 const localRequire = createRequire(import.meta.url);
 
-for (const minimatchRoot of new Set(minimatchPackages)) {
+for (const minimatchRoot of installedMinimatchRoots) {
   const commonJs = localRequire(minimatchRoot);
   const esm = await import(
     pathToFileURL(path.join(minimatchRoot, "dist/esm/index.js"))
@@ -130,5 +146,5 @@ for (const minimatchRoot of new Set(minimatchPackages)) {
 }
 
 console.log(
-  `minimatch compatibility ready: ${minimatchPackages.length} package copies verified, ${patchedFiles} files patched`,
+  `minimatch compatibility ready: ${installedMinimatchRoots.size} package copies verified, ${patchedFiles} files patched`,
 );

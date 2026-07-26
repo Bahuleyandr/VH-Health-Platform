@@ -6,7 +6,7 @@
   "private": true,
   "main": "src/bin/www.js",
   "scripts": {
-    "postinstall": "node ../../scripts/patch-minimatch-compat.mjs",
+    "postinstall": "node scripts/patch-minimatch-compat.mjs",
     "prestart": "npm run db:generate",
     "start": "node --enable-source-maps src/bin/www.js",
     "predev": "npm run db:generate",
