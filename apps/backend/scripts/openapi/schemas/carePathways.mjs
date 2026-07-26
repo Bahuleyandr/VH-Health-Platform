@@ -926,6 +926,255 @@ export const schemas = {
   },
   OpInpatientTransferResponse: strictEnvelope('OpInpatientTransferResult'),
 
+  EdDestinationHandoffRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['destination', 'intended_recipient_role', 'reason'],
+    properties: {
+      destination: {
+        type: 'string',
+        enum: ['ward', 'icu', 'hdu', 'surgery', 'external_transfer'],
+      },
+      intended_recipient_role: {
+        type: 'string',
+        pattern: '^[A-Z][A-Z0-9_]{1,79}$',
+      },
+      reason: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 2000,
+        pattern: '^[^\\u0000-\\u001F\\u007F-\\u009F]+$',
+      },
+    },
+  },
+
+  EdDestinationHandoffDecisionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['decision'],
+    properties: {
+      decision: { type: 'string', enum: ['accept', 'decline'] },
+      reason: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 2000,
+        pattern: '^[^\\u0000-\\u001F\\u007F-\\u009F]+$',
+      },
+    },
+    allOf: [
+      {
+        if: {
+          properties: { decision: { const: 'decline' } },
+          required: ['decision'],
+        },
+        then: { required: ['reason'] },
+      },
+    ],
+  },
+
+  EdDestinationHandoff: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'status',
+      'destination',
+      'intended_recipient_role',
+      'requested_at',
+      'accepted_at',
+      'declined_at',
+      'accepted_by_uid',
+      'decline_reason',
+      'reroute_reason',
+    ],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      status: { type: 'string', enum: ['requested', 'accepted', 'declined'] },
+      destination: {
+        type: 'string',
+        enum: ['ward', 'icu', 'hdu', 'surgery', 'external_transfer'],
+      },
+      intended_recipient_role: {
+        type: 'string',
+        pattern: '^[A-Z][A-Z0-9_]{1,79}$',
+      },
+      requested_at: { type: 'string', format: 'date-time' },
+      accepted_at: nullableDateTime,
+      declined_at: nullableDateTime,
+      accepted_by_uid: nullableUuid,
+      decline_reason: { type: 'string', nullable: true },
+      reroute_reason: { type: 'string', nullable: true },
+    },
+  },
+
+  EdDestinationHandoffTask: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'task_kind',
+      'priority',
+      'status',
+      'assigned_to_role',
+    ],
+    properties: {
+      id: { type: 'integer', minimum: 1 },
+      task_kind: {
+        type: 'string',
+        enum: ['ed_destination_handoff_review'],
+      },
+      priority: { type: 'string', enum: ['high'] },
+      status: {
+        type: 'string',
+        enum: ['open', 'in_progress', 'blocked', 'overdue', 'completed', 'cancelled'],
+      },
+      assigned_to_role: {
+        type: 'string',
+        pattern: '^[A-Z][A-Z0-9_]{1,79}$',
+      },
+    },
+  },
+
+  EdDestinationHandoffTransition: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['transition_key', 'occurred_at'],
+    properties: {
+      transition_key: {
+        type: 'string',
+        enum: [
+          'ed_destination_handoff_requested',
+          'ed_destination_handoff_accepted',
+          'ed_destination_handoff_declined',
+          'ed_destination_handoff_rerouted',
+        ],
+      },
+      occurred_at: nullableDateTime,
+    },
+  },
+
+  EdDestinationSource: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'emergency_visit_id',
+      'source_pathway_instance_id',
+      'source_handoff_id',
+    ],
+    properties: {
+      emergency_visit_id: { type: 'integer', minimum: 1 },
+      source_pathway_instance_id: { type: 'string', format: 'uuid' },
+      source_handoff_id: { type: 'string', format: 'uuid' },
+    },
+  },
+
+  EdDestinationHandoffResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['handoff', 'task', 'transition', 'destination_source', 'replayed'],
+    properties: {
+      handoff: { $ref: '#/components/schemas/EdDestinationHandoff' },
+      task: { $ref: '#/components/schemas/EdDestinationHandoffTask' },
+      transition: {
+        $ref: '#/components/schemas/EdDestinationHandoffTransition',
+      },
+      destination_source: {
+        $ref: '#/components/schemas/EdDestinationSource',
+      },
+      replayed: { type: 'boolean' },
+    },
+  },
+  EdDestinationHandoffResponse: strictEnvelope('EdDestinationHandoffResult'),
+
+  EdDestinationHandoffListItem: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'emergency_visit_id',
+      'status',
+      'request_reason',
+      'decline_reason',
+      'reroute_reason',
+      'requested_at',
+      'accepted_at',
+      'declined_at',
+      'sender_uid',
+      'intended_recipient_role',
+      'accepted_by_uid',
+      'destination',
+      'supersedes_handoff_id',
+      'rerouted_to_handoff_id',
+      'task_id',
+      'task_status',
+      'visit_number',
+      'patient_uid',
+      'visit_status',
+      'disposition',
+      'attending_doctor_uid',
+      'arrival_at',
+      'can_decide',
+      'can_reroute',
+    ],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      emergency_visit_id: { type: 'integer', minimum: 1 },
+      status: { type: 'string', enum: ['requested', 'accepted', 'declined'] },
+      request_reason: { type: 'string', minLength: 1 },
+      decline_reason: { type: 'string', nullable: true },
+      reroute_reason: { type: 'string', nullable: true },
+      requested_at: { type: 'string', format: 'date-time' },
+      accepted_at: nullableDateTime,
+      declined_at: nullableDateTime,
+      sender_uid: { type: 'string', format: 'uuid' },
+      intended_recipient_role: {
+        type: 'string',
+        pattern: '^[A-Z][A-Z0-9_]{1,79}$',
+      },
+      accepted_by_uid: nullableUuid,
+      destination: {
+        type: 'string',
+        enum: ['ward', 'icu', 'hdu', 'surgery', 'external_transfer'],
+      },
+      supersedes_handoff_id: nullableUuid,
+      rerouted_to_handoff_id: nullableUuid,
+      task_id: { type: 'integer', minimum: 1 },
+      task_status: {
+        type: 'string',
+        enum: ['open', 'in_progress', 'blocked', 'overdue', 'completed', 'cancelled'],
+      },
+      visit_number: { type: 'string', minLength: 1 },
+      patient_uid: { type: 'string', format: 'uuid' },
+      visit_status: { type: 'string', minLength: 1 },
+      disposition: { type: 'string', nullable: true },
+      attending_doctor_uid: nullableUuid,
+      arrival_at: { type: 'string', format: 'date-time' },
+      can_decide: { type: 'boolean' },
+      can_reroute: { type: 'boolean' },
+    },
+  },
+
+  EdDestinationHandoffList: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['handoffs', 'count', 'actor_role'],
+    properties: {
+      handoffs: {
+        type: 'array',
+        maxItems: 200,
+        items: {
+          $ref: '#/components/schemas/EdDestinationHandoffListItem',
+        },
+      },
+      count: { type: 'integer', minimum: 0, maximum: 200 },
+      actor_role: {
+        type: 'string',
+        pattern: '^[A-Z][A-Z0-9_]{1,79}$',
+      },
+    },
+  },
+  EdDestinationHandoffListResponse: strictEnvelope('EdDestinationHandoffList'),
+
   InpatientPrimaryPhysicianAssignment: {
     type: 'object',
     additionalProperties: false,
@@ -1947,6 +2196,49 @@ export const operations = {
     },
     request: 'OpInpatientTransferAcceptRequest',
     response: 'OpInpatientTransferResponse',
+  },
+  'POST /api/v1/ed/visits/{id}/destination-handoffs': {
+    summary: 'Request an ED receiving-destination role handoff',
+    description:
+      'Creates an exact ED-pathway handoff and role-owned review task without inventing an SLA. A new request returns 201; an idempotent replay returns 200.',
+    parameters: [idempotencyKeyParameter],
+    pathParameters: {
+      id: { type: 'integer', minimum: 1 },
+    },
+    request: 'EdDestinationHandoffRequest',
+    response: 'EdDestinationHandoffResponse',
+    responseStatus: 201,
+  },
+  'GET /api/v1/ed/destination-handoffs': {
+    summary: 'List ED destination handoffs visible to the authenticated actor',
+    description:
+      'Returns handoffs sent by the actor or assigned to the actor current exact database role.',
+    response: 'EdDestinationHandoffListResponse',
+  },
+  'POST /api/v1/ed/visits/{id}/destination-handoffs/{handoffId}/decisions': {
+    summary: 'Accept or decline an ED destination handoff',
+    description:
+      'Allows an active holder of the exact assigned database role to accept or decline the handoff. A decline requires a reason.',
+    parameters: [idempotencyKeyParameter],
+    pathParameters: {
+      id: { type: 'integer', minimum: 1 },
+      handoffId: { type: 'string', format: 'uuid' },
+    },
+    request: 'EdDestinationHandoffDecisionRequest',
+    response: 'EdDestinationHandoffResponse',
+  },
+  'POST /api/v1/ed/visits/{id}/destination-handoffs/{handoffId}/reroute': {
+    summary: 'Reroute a declined ED destination handoff',
+    description:
+      'Allows only the unchanged ED pathway owner to replace one declined handoff with a new explicit destination and role request.',
+    parameters: [idempotencyKeyParameter],
+    pathParameters: {
+      id: { type: 'integer', minimum: 1 },
+      handoffId: { type: 'string', format: 'uuid' },
+    },
+    request: 'EdDestinationHandoffRequest',
+    response: 'EdDestinationHandoffResponse',
+    responseStatus: 201,
   },
   ...admissionAliases('GET /{id}/pending-results', {
     summary: 'Read inpatient pending-result and discharge evidence',

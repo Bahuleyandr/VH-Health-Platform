@@ -49,6 +49,7 @@ export const TRIAGE_PRIORITIES = [
 ];
 export const DISPOSITIONS = [
   'discharged_home', 'admitted_ward', 'admitted_icu', 'admitted_hdu',
+  'admitted',
   'transferred_out', 'left_against_medical_advice', 'lwbs',
   'expired', 'observation', 'opd_followup', 'other',
 ];
@@ -245,12 +246,14 @@ export async function createEmergencyVisit({
   isMlc = false,
   metadata = null,
   createdBy = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const cleanNumber = safeText(visitNumber, 80);
   if (!cleanNumber) throw AppError.badRequest('visit_number is required');
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const db = tx || prisma;
+    const rows = await db.$queryRawUnsafe(
       `INSERT INTO emergency_visits
          (tenant_id, facility_id, visit_number, patient_uid,
           arrival_at, arrival_mode, ambulance_request_id, chief_complaint,
@@ -280,15 +283,18 @@ export async function createEmergencyVisit({
 }
 
 export async function transitionEmergencyVisit({
-  tenantId = null, id, nextStatus, disposition = null,
+  tenantId = null, id, nextStatus, disposition = null, tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const visitId = normalizeId(id, 'emergency_visit id');
   const cleanStatus = normalizeEnum(nextStatus, VISIT_STATUSES, 'next_status', { required: true });
 
-  const current = await prisma.$queryRawUnsafe(
-    `SELECT id, status FROM emergency_visits
-     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+  const db = tx || prisma;
+  const current = await db.$queryRawUnsafe(
+    `SELECT ${VISIT_RETURNING} FROM emergency_visits
+     WHERE id = $1 AND tenant_id = $2::uuid
+     LIMIT 1
+     FOR UPDATE`,
     visitId, tid,
   );
   if (!current[0]) throw AppError.notFound('Emergency visit not found');
@@ -322,12 +328,21 @@ export async function transitionEmergencyVisit({
   params.push(visitId);
   params.push(tid);
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `UPDATE emergency_visits SET ${updates.join(', ')}
-     WHERE id = $${params.length - 1} AND tenant_id = $${params.length}::uuid
+     WHERE id = $${params.length - 1}
+       AND tenant_id = $${params.length}::uuid
+       AND status = $${params.length + 1}::text
      RETURNING ${VISIT_RETURNING}`,
     ...params,
+    current[0].status,
   );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Emergency visit changed before transition',
+      'ED_VISIT_TRANSITION_CAS_CONFLICT',
+    );
+  }
   return rows[0];
 }
 

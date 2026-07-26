@@ -11,6 +11,10 @@ import {
   inpatientPathwayProjectorHandler,
 } from '../pathways/inpatientPathwayProjector.js';
 import {
+  EMERGENCY_PATHWAY_EVENT_TYPES,
+  emergencyPathwayProjectorHandler,
+} from '../pathways/emergencyPathwayProjector.js';
+import {
   OP_PATHWAY_EVENT_TYPES,
   opPathwayProjectorHandler,
 } from '../pathways/opPathwayProjector.js';
@@ -51,6 +55,13 @@ export const PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES = Object.freeze([
   ]),
 ]);
 
+export const PATHWAY_PROJECTOR_GENERATION_5_EVENT_TYPES = Object.freeze([
+  ...new Set([
+    ...PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES,
+    ...EMERGENCY_PATHWAY_EVENT_TYPES,
+  ]),
+]);
+
 const EVENT_TYPE_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/;
 const registriesByGeneration = new Map();
 
@@ -83,6 +94,8 @@ function requireGenerationMembership(generation, handlers) {
         ? PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES
         : generation === 4
           ? PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES
+          : generation === 5
+            ? PATHWAY_PROJECTOR_GENERATION_5_EVENT_TYPES
           : null;
   if (!canonicalMembership) return;
   const exact = handlers.size === canonicalMembership.length
@@ -103,7 +116,7 @@ function requireGenerationMembership(generation, handlers) {
  */
 function buildPathwayProjectorRegistry({ generation, entries }, { allowCanonical = false } = {}) {
   const normalizedGeneration = requireGeneration(generation);
-  if ([1, 2, 3, 4].includes(normalizedGeneration) && !allowCanonical) {
+  if ([1, 2, 3, 4, 5].includes(normalizedGeneration) && !allowCanonical) {
     throw new TypeError(
       `Pathway projector generation ${normalizedGeneration} is reserved for its canonical registry`,
     );
@@ -251,10 +264,53 @@ export const pathwayProjectorRegistryV4 = buildPathwayProjectorRegistry(
   { allowCanonical: true },
 );
 
-if (PATHWAY_PROJECTOR_GENERATION !== pathwayProjectorRegistryV4.generation) {
+const dischargeSummarySignedObserverV5 = createShadowObserver(
+  'clinical_document.discharge_summary.signed',
+  5,
+);
+const dischargeSummarySignedProjectorV5 = Object.freeze(async (input) => {
+  const legacyObservation = await dischargeSummarySignedObserverV5(input);
+  const projection = await inpatientPathwayProjectorHandler(input);
+  return Object.freeze({
+    ...projection,
+    legacy_shadow_observed: legacyObservation.shadow_observed,
+  });
+});
+
+const generationFiveEntries = [
+  ...PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES.map((eventType) =>
+    Object.freeze([
+      eventType,
+      eventType === 'clinical_document.discharge_summary.signed'
+        ? dischargeSummarySignedProjectorV5
+        : createShadowObserver(eventType, 5),
+    ])),
+  ...DIAGNOSTIC_PATHWAY_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, diagnosticPathwayProjectorHandler])),
+  ...REFERRAL_PATHWAY_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, referralPathwayProjectorHandler])),
+  ...OP_PATHWAY_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, opPathwayProjectorHandler])),
+  ...INPATIENT_PATHWAY_EVENT_TYPES
+    .filter((eventType) => !PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES.includes(eventType))
+    .map((eventType) =>
+      Object.freeze([eventType, inpatientPathwayProjectorHandler])),
+  ...EMERGENCY_PATHWAY_EVENT_TYPES.map((eventType) =>
+    Object.freeze([eventType, emergencyPathwayProjectorHandler])),
+];
+
+export const pathwayProjectorRegistryV5 = buildPathwayProjectorRegistry(
+  {
+    generation: 5,
+    entries: generationFiveEntries,
+  },
+  { allowCanonical: true },
+);
+
+if (PATHWAY_PROJECTOR_GENERATION !== pathwayProjectorRegistryV5.generation) {
   throw new TypeError('Configured pathway projector generation has no canonical registry');
 }
 
-export const pathwayProjectorRegistry = pathwayProjectorRegistryV4;
+export const pathwayProjectorRegistry = pathwayProjectorRegistryV5;
 
 export default pathwayProjectorRegistry;

@@ -9,16 +9,48 @@ import '../../../l10n/app_strings.dart';
 typedef EdPolicyLoader = Future<Map<String, dynamic>> Function();
 typedef StemiActivationCreator =
     Future<Map<String, dynamic>> Function(Map<String, dynamic> body);
+typedef EdDestinationHandoffLoader =
+    Future<List<Map<String, dynamic>>> Function();
+typedef EdDestinationHandoffRequester =
+    Future<Map<String, dynamic>> Function({
+      required int emergencyVisitId,
+      required String destination,
+      required String intendedRecipientRole,
+      required String reason,
+    });
+typedef EdDestinationHandoffDecider =
+    Future<Map<String, dynamic>> Function({
+      required int emergencyVisitId,
+      required String handoffId,
+      required String decision,
+      String? reason,
+    });
+typedef EdDestinationHandoffRerouter =
+    Future<Map<String, dynamic>> Function({
+      required int emergencyVisitId,
+      required String handoffId,
+      required String destination,
+      required String intendedRecipientRole,
+      required String reason,
+    });
 
 class EdTraumaWorkbenchScreen extends StatefulWidget {
   const EdTraumaWorkbenchScreen({
     super.key,
     this.loadPolicy,
     this.createStemiActivation,
+    this.loadDestinationHandoffs,
+    this.requestDestinationHandoff,
+    this.decideDestinationHandoff,
+    this.rerouteDestinationHandoff,
   });
 
   final EdPolicyLoader? loadPolicy;
   final StemiActivationCreator? createStemiActivation;
+  final EdDestinationHandoffLoader? loadDestinationHandoffs;
+  final EdDestinationHandoffRequester? requestDestinationHandoff;
+  final EdDestinationHandoffDecider? decideDestinationHandoff;
+  final EdDestinationHandoffRerouter? rerouteDestinationHandoff;
 
   @override
   State<EdTraumaWorkbenchScreen> createState() =>
@@ -34,6 +66,9 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
   final _activationReason = TextEditingController();
   final _teamLeaderUid = TextEditingController();
   final _roleCode = TextEditingController(text: 'team_leader');
+  final _handoffVisitId = TextEditingController();
+  final _handoffRole = TextEditingController();
+  final _handoffReason = TextEditingController();
 
   final _surveyActivationId = TextEditingController();
   final _surveyVisitId = TextEditingController();
@@ -57,6 +92,7 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
   String _activationLevel = 'full';
   String _surveyKind = 'primary';
   String _evidenceKind = 'vital_snapshot';
+  String _handoffDestination = 'ward';
   bool _surveyComplete = false;
   bool _injuryDiagramComplete = false;
   bool _policeNotificationComplete = false;
@@ -65,6 +101,7 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
   String? _error;
   String? _message;
   Map<String, dynamic>? _policy;
+  List<Map<String, dynamic>> _destinationHandoffs = const [];
 
   @override
   void initState() {
@@ -83,6 +120,9 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
       _activationReason,
       _teamLeaderUid,
       _roleCode,
+      _handoffVisitId,
+      _handoffRole,
+      _handoffReason,
       _surveyActivationId,
       _surveyVisitId,
       _airway,
@@ -113,8 +153,17 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
     try {
       final loader = widget.loadPolicy ?? EdTraumaApiService.getPolicy;
       final policy = await loader();
+      final handoffLoader = widget.loadDestinationHandoffs;
+      final handoffs = handoffLoader != null
+          ? await handoffLoader()
+          : widget.loadPolicy == null
+          ? await EdTraumaApiService.listDestinationHandoffs()
+          : const <Map<String, dynamic>>[];
       if (!mounted) return;
-      setState(() => _policy = policy);
+      setState(() {
+        _policy = policy;
+        _destinationHandoffs = handoffs;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = _cleanError(e));
@@ -175,6 +224,209 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
       _surveyActivationId.text = '${row['id'] ?? ''}';
       _message = strings.lookup('ed_trauma.activation_saved');
     });
+  }
+
+  Future<void> _requestDestinationHandoff() async {
+    final strings = AppStrings.of(context);
+    await _submit(() async {
+      final visitId = _intText(_handoffVisitId);
+      if (visitId == null) {
+        throw Exception(strings.lookup('ed_trauma.handoff.visit_required'));
+      }
+      if (_text(_handoffRole).isEmpty || _text(_handoffReason).isEmpty) {
+        throw Exception(
+          strings.lookup('ed_trauma.handoff.role_reason_required'),
+        );
+      }
+      final requester =
+          widget.requestDestinationHandoff ??
+          EdTraumaApiService.requestDestinationHandoff;
+      await requester(
+        emergencyVisitId: visitId,
+        destination: _handoffDestination,
+        intendedRecipientRole: _text(_handoffRole).toUpperCase(),
+        reason: _text(_handoffReason),
+      );
+      await _reloadDestinationHandoffs();
+      if (!mounted) return;
+      _message = strings.lookup('ed_trauma.handoff.requested');
+    });
+  }
+
+  Future<void> _reloadDestinationHandoffs() async {
+    final loader = widget.loadDestinationHandoffs;
+    final handoffs = loader != null
+        ? await loader()
+        : widget.loadPolicy == null
+        ? await EdTraumaApiService.listDestinationHandoffs()
+        : _destinationHandoffs;
+    if (mounted) setState(() => _destinationHandoffs = handoffs);
+  }
+
+  Future<void> _decideDestinationHandoff(
+    Map<String, dynamic> handoff,
+    String decision,
+  ) async {
+    final strings = AppStrings.of(context);
+    String? reason;
+    if (decision == 'decline') {
+      reason = await _reasonDialog(
+        title: strings.lookup('ed_trauma.handoff.decline_title'),
+      );
+      if (reason == null) return;
+    }
+    await _submit(() async {
+      final decider =
+          widget.decideDestinationHandoff ??
+          EdTraumaApiService.decideDestinationHandoff;
+      await decider(
+        emergencyVisitId: handoff['emergency_visit_id'] as int,
+        handoffId: '${handoff['id']}',
+        decision: decision,
+        reason: reason,
+      );
+      await _reloadDestinationHandoffs();
+      if (!mounted) return;
+      _message = strings.lookup(
+        decision == 'accept'
+            ? 'ed_trauma.handoff.accepted'
+            : 'ed_trauma.handoff.declined',
+      );
+    });
+  }
+
+  Future<void> _rerouteHandoff(Map<String, dynamic> handoff) async {
+    final strings = AppStrings.of(context);
+    final result = await _rerouteDialog();
+    if (result == null) return;
+    await _submit(() async {
+      final rerouter =
+          widget.rerouteDestinationHandoff ??
+          EdTraumaApiService.rerouteDestinationHandoff;
+      await rerouter(
+        emergencyVisitId: handoff['emergency_visit_id'] as int,
+        handoffId: '${handoff['id']}',
+        destination: result.$1,
+        intendedRecipientRole: result.$2,
+        reason: result.$3,
+      );
+      await _reloadDestinationHandoffs();
+      if (!mounted) return;
+      _message = strings.lookup('ed_trauma.handoff.rerouted');
+    });
+  }
+
+  Future<String?> _reasonDialog({required String title}) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          key: const ValueKey('ed-handoff-decline-reason'),
+          controller: controller,
+          maxLines: 3,
+          decoration: InputDecoration(
+            labelText: AppStrings.of(
+              context,
+            ).lookup('ed_trauma.handoff.reason'),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(AppStrings.of(context).actionCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isNotEmpty) Navigator.pop(context, value);
+            },
+            child: Text(AppStrings.of(context).actionSubmit),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  Future<(String, String, String)?> _rerouteDialog() async {
+    var destination = 'ward';
+    final role = TextEditingController();
+    final reason = TextEditingController();
+    final result = await showDialog<(String, String, String)>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            AppStrings.of(context).lookup('ed_trauma.handoff.reroute_title'),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: destination,
+                items:
+                    const ['ward', 'icu', 'hdu', 'surgery', 'external_transfer']
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setDialogState(() => destination = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('ed-handoff-reroute-role'),
+                controller: role,
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('ed_trauma.handoff.receiving_role'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('ed-handoff-reroute-reason'),
+                controller: reason,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('ed_trauma.handoff.reason'),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(AppStrings.of(context).actionCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final cleanRole = role.text.trim().toUpperCase();
+                final cleanReason = reason.text.trim();
+                if (cleanRole.isNotEmpty && cleanReason.isNotEmpty) {
+                  Navigator.pop(context, (destination, cleanRole, cleanReason));
+                }
+              },
+              child: Text(AppStrings.of(context).actionSubmit),
+            ),
+          ],
+        ),
+      ),
+    );
+    role.dispose();
+    reason.dispose();
+    return result;
   }
 
   Future<void> _submitSurvey() async {
@@ -302,6 +554,7 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
           : RefreshIndicator(
               onRefresh: _loadPolicy,
               child: ListView(
+                key: const ValueKey('ed-trauma-workbench-scroll'),
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                 children: [
                   _PolicyBanner(active: active, scale: policyScale),
@@ -313,6 +566,64 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
                     const SizedBox(height: 12),
                     _MessageBanner(message: _message!, isError: false),
                   ],
+                  const SizedBox(height: 14),
+                  _Section(
+                    title: s.lookup('ed_trauma.handoff.title'),
+                    icon: Icons.move_down_outlined,
+                    children: [
+                      _TextField(
+                        fieldKey: const ValueKey('ed-handoff-visit-id'),
+                        controller: _handoffVisitId,
+                        label: s.lookup('ed_trauma.ed_visit_id'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      _SelectField(
+                        label: s.lookup('ed_trauma.handoff.destination'),
+                        value: _handoffDestination,
+                        values: const [
+                          'ward',
+                          'icu',
+                          'hdu',
+                          'surgery',
+                          'external_transfer',
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _handoffDestination = value),
+                      ),
+                      _TextField(
+                        fieldKey: const ValueKey('ed-handoff-role'),
+                        controller: _handoffRole,
+                        label: s.lookup('ed_trauma.handoff.receiving_role'),
+                      ),
+                      _TextField(
+                        fieldKey: const ValueKey('ed-handoff-reason'),
+                        controller: _handoffReason,
+                        label: s.lookup('ed_trauma.handoff.reason'),
+                        maxLines: 2,
+                      ),
+                      _SubmitButton(
+                        key: const ValueKey('ed-handoff-request'),
+                        label: s.lookup('ed_trauma.handoff.request'),
+                        icon: Icons.outbox_outlined,
+                        busy: _loading,
+                        onPressed: _requestDestinationHandoff,
+                      ),
+                      if (_destinationHandoffs.isEmpty)
+                        Text(s.lookup('ed_trauma.handoff.empty'))
+                      else
+                        ..._destinationHandoffs.map(
+                          (handoff) => _DestinationHandoffCard(
+                            handoff: handoff,
+                            busy: _loading,
+                            onAccept: () =>
+                                _decideDestinationHandoff(handoff, 'accept'),
+                            onDecline: () =>
+                                _decideDestinationHandoff(handoff, 'decline'),
+                            onReroute: () => _rerouteHandoff(handoff),
+                          ),
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 14),
                   _Section(
                     title: s.lookup('ed_trauma.stemi.title'),
@@ -541,6 +852,100 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _DestinationHandoffCard extends StatelessWidget {
+  const _DestinationHandoffCard({
+    required this.handoff,
+    required this.busy,
+    required this.onAccept,
+    required this.onDecline,
+    required this.onReroute,
+  });
+
+  final Map<String, dynamic> handoff;
+  final bool busy;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+  final VoidCallback onReroute;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    final status = '${handoff['status'] ?? ''}';
+    final destination = '${handoff['destination'] ?? ''}';
+    final role = '${handoff['intended_recipient_role'] ?? ''}';
+    final canDecide = handoff['can_decide'] == true && status == 'requested';
+    final canReroute = handoff['can_reroute'] == true && status == 'declined';
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              strings.format('ed_trauma.handoff.item', {
+                'visit': handoff['emergency_visit_id'] ?? '',
+                'destination': destination,
+              }),
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              strings.format('ed_trauma.handoff.role_status', {
+                'role': role,
+                'status': status,
+              }),
+            ),
+            if ('${handoff['decline_reason'] ?? ''}'.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                strings.format('ed_trauma.handoff.decline_reason', {
+                  'reason': handoff['decline_reason'],
+                }),
+              ),
+            ],
+            if (canDecide) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      key: ValueKey('ed-handoff-accept-${handoff['id']}'),
+                      onPressed: busy ? null : onAccept,
+                      icon: const Icon(Icons.check_circle_outline),
+                      label: Text(strings.lookup('ed_trauma.handoff.accept')),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      key: ValueKey('ed-handoff-decline-${handoff['id']}'),
+                      onPressed: busy ? null : onDecline,
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: Text(strings.lookup('ed_trauma.handoff.decline')),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (canReroute) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                key: ValueKey('ed-handoff-reroute-${handoff['id']}'),
+                onPressed: busy ? null : onReroute,
+                icon: const Icon(Icons.alt_route),
+                label: Text(strings.lookup('ed_trauma.handoff.reroute')),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

@@ -10,6 +10,7 @@ jest.unstable_mockModule(
 );
 
 const {
+  validateEdHandoffAdmissionSourceTx,
   validateOpTransferAdmissionSourceTx,
 } = await import('../../services/emr/inpatientAdmissionSourceValidation.js');
 
@@ -113,5 +114,93 @@ describe('active OP advice admission source validation', () => {
     })).rejects.toMatchObject({
       code: 'INPATIENT_SOURCE_TRANSFER_INVALID',
     });
+  });
+});
+
+describe('active ED admission source validation', () => {
+  function activeEdTx({ accepted = true } = {}) {
+    return {
+      $queryRawUnsafe: jest.fn(async (sql) => {
+        if (
+          sql.includes('FROM care_pathway_instances AS pathway')
+          && !sql.includes('JOIN care_pathway_instances AS pathway')
+        ) {
+          return [{ id: PATHWAY_ID }];
+        }
+        if (sql.includes('FROM care_handoff_instances AS handoff')) {
+          return accepted ? [{ id: HANDOFF_ID }] : [];
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }),
+    };
+  }
+
+  it('requires the exact accepted ED handoff for a live active visit', async () => {
+    resolvePathwayModeTxMock.mockResolvedValue('active');
+    const tx = activeEdTx();
+
+    await expect(validateEdHandoffAdmissionSourceTx({
+      tx,
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      emergencyVisitId: 73,
+    })).rejects.toMatchObject({
+      code: 'ED_ADMISSION_SOURCE_HANDOFF_REQUIRED',
+    });
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks active role and completed no-SLA task evidence on the exact tuple', async () => {
+    resolvePathwayModeTxMock.mockResolvedValue('active');
+    const tx = activeEdTx();
+
+    await expect(validateEdHandoffAdmissionSourceTx({
+      tx,
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      emergencyVisitId: 73,
+      sourcePathwayInstanceId: PATHWAY_ID,
+      sourceHandoffId: HANDOFF_ID,
+    })).resolves.toEqual({
+      linkage_required: true,
+      source_pathway_instance_id: PATHWAY_ID,
+    });
+    const sql = tx.$queryRawUnsafe.mock.calls[1][0];
+    for (const contract of [
+      'JOIN tasks AS task',
+      "task.task_kind = 'ed_destination_handoff_review'",
+      "task.status = 'completed'",
+      'task.assigned_to_role = handoff.intended_recipient_role',
+      'task.due_at IS NULL',
+      'task.workflow_sla_instance_id IS NULL',
+      "task.sla_completion_semantics = 'none'",
+      'handoff.intended_recipient_role = UPPER(BTRIM(accepter.role))',
+    ]) {
+      expect(sql).toContain(contract);
+    }
+    expect(tx.$queryRawUnsafe.mock.calls[1].slice(1)).toEqual([
+      TENANT_ID,
+      HANDOFF_ID,
+      PATIENT_UID,
+      PATHWAY_ID,
+      73,
+      'emergency_arrival_to_aftercare',
+    ]);
+  });
+
+  it('keeps off and shadow admission behavior unchanged without a supplied tuple', async () => {
+    resolvePathwayModeTxMock.mockResolvedValue('shadow');
+    const tx = activeEdTx();
+
+    await expect(validateEdHandoffAdmissionSourceTx({
+      tx,
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      emergencyVisitId: 73,
+    })).resolves.toEqual({
+      linkage_required: false,
+      source_pathway_instance_id: null,
+    });
+    expect(tx.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 });

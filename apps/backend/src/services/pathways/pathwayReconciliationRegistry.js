@@ -8,14 +8,17 @@ import {
   workflowRuntimeRegistryV2,
   workflowRuntimeRegistryV3,
   workflowRuntimeRegistryV4,
+  workflowRuntimeRegistryV5,
 } from '../workflow/workflowRuntimeRegistry.js';
 import { compileDiagnosticsOrderToActionDefinition } from './diagnosticsPathwayDefinition.js';
+import { compileEmergencyArrivalToAftercareDefinition } from './emergencyPathwayDefinition.js';
 import { compileInpatientAdmissionToRecoveryDefinition } from './inpatientPathwayDefinition.js';
 import { compileOpContactToRecoveryDefinition } from './opPathwayDefinition.js';
 import { compileReferralRequestToClosureDefinition } from './referralPathwayDefinition.js';
 import {
   COMMON_PATHWAY_RECONCILIATION_CHECKS,
   DIAGNOSTIC_PATHWAY_RECONCILIATION_CHECKS,
+  EMERGENCY_PATHWAY_RECONCILIATION_CHECKS,
   INPATIENT_PATHWAY_RECONCILIATION_CHECKS,
   OP_PATHWAY_RECONCILIATION_CHECKS,
   REFERRAL_PATHWAY_RECONCILIATION_CHECKS,
@@ -542,6 +545,46 @@ export const pathwayReconciliationRegistryV5 = createPathwayReconciliationRegist
   profiles: productionProfilesV5,
 });
 
-export const pathwayReconciliationRegistry = pathwayReconciliationRegistryV5;
+const emergencyDefinitionV6 = compileEmergencyArrivalToAftercareDefinition({
+  registry: workflowRuntimeRegistryV5,
+});
+const PRODUCTION_ADAPTERS_V6 = Object.freeze({
+  ...PRODUCTION_ADAPTERS_V5,
+  [CARE_PATHWAY_KEYS.EMERGENCY]: Object.freeze({
+    adapterId: 'emergency_arrival_to_aftercare_v1',
+    adapterVersion: 'emergency.reconciliation_adapter.v1',
+    workflowKey: CARE_PATHWAY_KEYS.EMERGENCY,
+    definitionVersion: emergencyDefinitionV6.version,
+    definitionChecksum: emergencyDefinitionV6.checksum,
+    checks: EMERGENCY_PATHWAY_RECONCILIATION_CHECKS,
+  }),
+});
+
+const V6_ADAPTER_PATHWAY_KEYS = new Set(Object.keys(PRODUCTION_ADAPTERS_V6));
+const productionProfilesV6 = CANONICAL_PATHWAY_KEYS.map((pathwayKey) => ({
+  pathwayKey,
+  profileVersion: V6_ADAPTER_PATHWAY_KEYS.has(pathwayKey) ? 2 : 1,
+  commonCheckIds: COMMON_CHECK_IDS,
+  domainAdapters: V6_ADAPTER_PATHWAY_KEYS.has(pathwayKey)
+    ? [PRODUCTION_ADAPTERS_V6[pathwayKey]]
+    : [],
+  repairDescriptors: [],
+  excludedClocks: pathwayKey === CARE_PATHWAY_KEYS.EMERGENCY
+    ? EMERGENCY_CLOCK_EXCLUSIONS
+    : pathwayKey === CARE_PATHWAY_KEYS.INPATIENT
+      ? PORTER_EXCLUSIONS
+      : [],
+  blockingReason: V6_ADAPTER_PATHWAY_KEYS.has(pathwayKey)
+    ? null
+    : NO_VERTICAL_ADAPTER,
+}));
+
+export const pathwayReconciliationRegistryV6 = createPathwayReconciliationRegistry({
+  version: 6,
+  commonChecks: COMMON_PATHWAY_RECONCILIATION_CHECKS,
+  profiles: productionProfilesV6,
+});
+
+export const pathwayReconciliationRegistry = pathwayReconciliationRegistryV6;
 
 export default pathwayReconciliationRegistry;

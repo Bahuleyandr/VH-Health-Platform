@@ -2021,6 +2021,138 @@ async function inpatientContinuityEvidence({ tx, tenantId, pathwayKey }) {
   ));
 }
 
+async function emergencySourceProjectionEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.EMERGENCY) {
+    return result('EMERGENCY_SOURCE_PROJECTION_DRIFT', 0);
+  }
+  return result('EMERGENCY_SOURCE_PROJECTION_DRIFT', await count(
+    tx,
+    `SELECT COUNT(*)::integer AS finding_count
+       FROM emergency_visits AS visit
+       JOIN tenants AS tenant
+         ON tenant.id = visit.tenant_id
+       LEFT JOIN care_pathway_instances AS pathway
+         ON pathway.tenant_id = visit.tenant_id
+        AND pathway.patient_uid = visit.patient_uid
+        AND pathway.pathway_key = 'emergency_arrival_to_aftercare'
+        AND pathway.source_episode_type = 'emergency_visit'
+        AND pathway.source_episode_id = visit.id::text
+      WHERE visit.tenant_id = $1::uuid
+        AND tenant.settings #>>
+              '{care_pathways,emergency_arrival_to_aftercare}'
+              IN ('shadow', 'active')
+        AND visit.patient_uid IS NOT NULL
+        AND visit.encounter_id IS NOT NULL
+        AND (
+          pathway.id IS NULL
+          OR pathway.workflow_run_id IS NULL
+          OR pathway.definition_checksum IS NULL
+        )`,
+    tenantId,
+  ));
+}
+
+async function emergencyDestinationHandoffEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.EMERGENCY) {
+    return result('EMERGENCY_DESTINATION_HANDOFF_DRIFT', 0);
+  }
+  return result('EMERGENCY_DESTINATION_HANDOFF_DRIFT', await count(
+    tx,
+    `WITH findings AS (
+       SELECT handoff.id::text AS finding_id
+         FROM care_handoff_instances AS handoff
+         LEFT JOIN tasks AS task
+           ON task.tenant_id = handoff.tenant_id
+          AND task.id = handoff.task_id
+         LEFT JOIN users AS accepter
+           ON accepter.tenant_id = handoff.tenant_id
+          AND accepter.uid = handoff.accepted_by_uid
+         LEFT JOIN emergency_visits AS visit
+           ON visit.tenant_id = handoff.tenant_id
+          AND visit.patient_uid = handoff.patient_uid
+          AND visit.id::text = handoff.source_resource_id
+        WHERE handoff.tenant_id = $1::uuid
+          AND handoff.handoff_type = 'ed_destination_handoff'
+          AND (
+            task.id IS NULL
+            OR task.task_kind <> 'ed_destination_handoff_review'
+            OR task.related_resource_type <> 'care_handoff_instance'
+            OR task.related_resource_id <> handoff.id::text
+            OR task.encounter_id IS NOT NULL
+            OR task.metadata ->> 'canonical_encounter_id'
+                 IS DISTINCT FROM visit.encounter_id::text
+            OR task.assigned_to_uid IS NOT NULL
+            OR task.assigned_to_role IS DISTINCT FROM
+                 handoff.intended_recipient_role
+            OR task.due_at IS NOT NULL
+            OR task.workflow_sla_instance_id IS NOT NULL
+            OR task.sla_completion_semantics <> 'none'
+            OR (
+              handoff.status = 'requested'
+              AND task.status NOT IN (
+                'open', 'in_progress', 'blocked', 'overdue'
+              )
+            )
+            OR (
+              handoff.status = 'accepted'
+              AND (
+                task.status <> 'completed'
+                OR accepter.uid IS NULL
+                OR UPPER(BTRIM(accepter.role)) IS DISTINCT FROM
+                     handoff.intended_recipient_role
+                OR NOT accepter.is_active
+                OR accepter.status <> 'active'
+                OR accepter.is_deleted
+                OR accepter.deleted_at IS NOT NULL
+              )
+            )
+          )
+       UNION ALL
+       SELECT visit.id::text
+         FROM emergency_visits AS visit
+         JOIN tenants AS tenant
+           ON tenant.id = visit.tenant_id
+         LEFT JOIN care_pathway_instances AS pathway
+           ON pathway.tenant_id = visit.tenant_id
+          AND pathway.patient_uid = visit.patient_uid
+          AND pathway.pathway_key = 'emergency_arrival_to_aftercare'
+          AND pathway.source_episode_type = 'emergency_visit'
+          AND pathway.source_episode_id = visit.id::text
+        WHERE visit.tenant_id = $1::uuid
+          AND tenant.settings #>>
+                '{care_pathways,emergency_arrival_to_aftercare}' = 'active'
+          AND visit.status IN ('admitted', 'transferred')
+          AND NOT EXISTS (
+            SELECT 1
+              FROM care_handoff_instances AS handoff
+             WHERE handoff.tenant_id = visit.tenant_id
+               AND handoff.patient_uid = visit.patient_uid
+               AND handoff.sending_pathway_instance_id = pathway.id
+               AND handoff.handoff_type = 'ed_destination_handoff'
+               AND handoff.source_resource_type = 'emergency_visit'
+               AND handoff.source_resource_id = visit.id::text
+               AND handoff.status = 'accepted'
+               AND handoff.accepted_at IS NOT NULL
+               AND handoff.accepted_by_uid IS NOT NULL
+               AND (
+                 visit.status <> 'admitted'
+                 OR EXISTS (
+                   SELECT 1
+                     FROM admissions AS admission
+                    WHERE admission.tenant_id = visit.tenant_id
+                      AND admission.patient_uid = visit.patient_uid
+                      AND admission.from_er_visit_id = visit.id
+                      AND admission.source_pathway_instance_id = pathway.id
+                      AND admission.source_handoff_id = handoff.id
+                 )
+               )
+          )
+     )
+     SELECT COUNT(*)::integer AS finding_count FROM findings`,
+    tenantId,
+  ));
+}
+
 export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'runtime_pins', handlerVersion: 'care_pathway.runtime_pins.v1', run: runtimePins }),
   Object.freeze({ id: 'transition_sequence', handlerVersion: 'care_pathway.transition_sequence.v1', run: transitionSequence }),
@@ -2065,6 +2197,11 @@ export const INPATIENT_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'inpatient_diagnostic_reference_completeness', handlerVersion: 'care_pathway.inpatient_diagnostic_reference_completeness.v1', run: inpatientDiagnosticReferenceCompleteness }),
   Object.freeze({ id: 'inpatient_discharge_evidence', handlerVersion: 'care_pathway.inpatient_discharge_evidence.v1', run: inpatientDischargeEvidence }),
   Object.freeze({ id: 'inpatient_continuity_evidence', handlerVersion: 'care_pathway.inpatient_continuity_evidence.v1', run: inpatientContinuityEvidence }),
+]);
+
+export const EMERGENCY_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
+  Object.freeze({ id: 'emergency_source_projection', handlerVersion: 'care_pathway.emergency_source_projection.v1', run: emergencySourceProjectionEvidence }),
+  Object.freeze({ id: 'emergency_destination_handoff_evidence', handlerVersion: 'care_pathway.emergency_destination_handoff_evidence.v1', run: emergencyDestinationHandoffEvidence }),
 ]);
 
 export default COMMON_PATHWAY_RECONCILIATION_CHECKS;

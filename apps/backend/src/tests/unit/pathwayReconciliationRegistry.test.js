@@ -6,8 +6,10 @@ import {
   pathwayReconciliationRegistry,
   pathwayReconciliationRegistryV4,
   pathwayReconciliationRegistryV5,
+  pathwayReconciliationRegistryV6,
 } from '../../services/pathways/pathwayReconciliationRegistry.js';
 import { compileDiagnosticsOrderToActionDefinition } from '../../services/pathways/diagnosticsPathwayDefinition.js';
+import { compileEmergencyArrivalToAftercareDefinition } from '../../services/pathways/emergencyPathwayDefinition.js';
 import { compileInpatientAdmissionToRecoveryDefinition } from '../../services/pathways/inpatientPathwayDefinition.js';
 import { compileOpContactToRecoveryDefinition } from '../../services/pathways/opPathwayDefinition.js';
 import { compileReferralRequestToClosureDefinition } from '../../services/pathways/referralPathwayDefinition.js';
@@ -19,6 +21,7 @@ import {
   workflowRuntimeRegistryV2,
   workflowRuntimeRegistryV3,
   workflowRuntimeRegistryV4,
+  workflowRuntimeRegistryV5,
 } from '../../services/workflow/workflowRuntimeRegistry.js';
 
 const CHECKSUM = 'a'.repeat(64);
@@ -66,14 +69,15 @@ function repairDescriptor(overrides = {}) {
 
 describe('pathwayReconciliationRegistry', () => {
   test('ships an exhaustive branded production registry with no live repair authority', () => {
-    expect(pathwayReconciliationRegistry).toBe(pathwayReconciliationRegistryV5);
-    expect(pathwayReconciliationRegistry.version).toBe(5);
+    expect(pathwayReconciliationRegistry).toBe(pathwayReconciliationRegistryV6);
+    expect(pathwayReconciliationRegistry.version).toBe(6);
     expect(pathwayReconciliationRegistryV4.version).toBe(4);
+    expect(pathwayReconciliationRegistryV5.version).toBe(5);
     expect(isPathwayReconciliationRegistry(pathwayReconciliationRegistryV4)).toBe(true);
     expect(isPathwayReconciliationRegistry(pathwayReconciliationRegistry)).toBe(true);
     expect(pathwayReconciliationRegistry.pathwayKeys).toEqual(CANONICAL_PATHWAY_KEYS);
     expect(pathwayReconciliationRegistry.checksum)
-      .toBe('cea7cbd09234bf85657444e9f6eae6358e549ea1798ef756fe12045a5ccf2929');
+      .toBe('6f852f13f3832e1ef5e35755f8c096931bd3df4dde4195cee284a7a285ba14eb');
     expect(pathwayReconciliationRegistryV4.checksum)
       .toBe('e28608a8430d6518b0b61d2ceaa4154a9d669f0da7cee033caae75544e22e0c4');
     expect(pathwayReconciliationRegistry.checksum)
@@ -101,6 +105,12 @@ describe('pathwayReconciliationRegistry', () => {
         adapterId: 'inpatient_admission_to_recovery_v1',
         checksum: compileInpatientAdmissionToRecoveryDefinition({
           registry: workflowRuntimeRegistryV4,
+        }).checksum,
+      },
+      [CARE_PATHWAY_KEYS.EMERGENCY]: {
+        adapterId: 'emergency_arrival_to_aftercare_v1',
+        checksum: compileEmergencyArrivalToAftercareDefinition({
+          registry: workflowRuntimeRegistryV5,
         }).checksum,
       },
     };
@@ -132,6 +142,11 @@ describe('pathwayReconciliationRegistry', () => {
         domainAdapters: [],
       });
     expect(pathwayReconciliationRegistryV4.resolveProfile(CARE_PATHWAY_KEYS.INPATIENT))
+      .toMatchObject({
+        blockingReason: 'vertical_domain_adapter_not_registered',
+        domainAdapters: [],
+      });
+    expect(pathwayReconciliationRegistryV5.resolveProfile(CARE_PATHWAY_KEYS.EMERGENCY))
       .toMatchObject({
         blockingReason: 'vertical_domain_adapter_not_registered',
         domainAdapters: [],

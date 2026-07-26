@@ -21,7 +21,6 @@ import {
 import {
   certifyMlcRecord,
   createAmbulanceRequest,
-  createEmergencyVisit,
   createMlcRecord,
   listAmbulanceRequests,
   listEmergencyVisits,
@@ -31,8 +30,18 @@ import {
   recordTriageAssessment,
   setVisitTriagePriority,
   transitionAmbulanceRequest,
-  transitionEmergencyVisit,
 } from '../../services/ed/edOperationsService.js';
+import {
+  createEmergencyVisitWithPathwayEvidence,
+  transitionEmergencyVisitWithPathwayEvidence,
+} from '../../services/ed/edPathwayDomainService.js';
+import {
+  decideEdDestinationHandoff,
+  listEdDestinationHandoffs,
+  requestEdDestinationHandoff,
+  rerouteEdDestinationHandoff,
+} from '../../services/ed/edDestinationHandoffService.js';
+import { AppError } from '../../utils/AppError.js';
 import {
   addTraumaTimelineEvent,
   createTraumaActivation,
@@ -45,6 +54,68 @@ import {
 } from '../../services/ed/edTraumaMlcService.js';
 
 const router = express.Router();
+
+function requireHandoffActor(req) {
+  const uid = req.user?.uid;
+  const primaryRole = req.user?.role
+    ? String(req.user.role).trim().toUpperCase()
+    : null;
+  const suppliedRoles = Array.isArray(req.user?.roles)
+    ? req.user.roles
+    : req.user?.roles
+      ? [req.user.roles]
+      : [];
+  const roles = [
+    ...new Set([
+      primaryRole,
+      ...suppliedRoles.map(role => String(role).trim().toUpperCase()),
+    ].filter(Boolean)),
+  ];
+  if (!uid || roles.length === 0) {
+    throw AppError.unauthorized('Authenticated ED handoff actor is required');
+  }
+  return {
+    kind: 'user',
+    uid,
+    roles,
+    primaryRole: primaryRole || roles[0],
+    rawRole: req.user?.rawRole || primaryRole || roles[0],
+    authorizationMode: 'authenticated_ed_handoff_route',
+  };
+}
+
+function requireIdempotencyKey(req) {
+  const key = typeof req.get('Idempotency-Key') === 'string'
+    ? req.get('Idempotency-Key').trim()
+    : '';
+  if (!key) {
+    throw AppError.badRequest(
+      'Idempotency-Key header is required',
+      'ED_DESTINATION_HANDOFF_IDEMPOTENCY_REQUIRED',
+    );
+  }
+  return key;
+}
+
+function rejectUnknownFields(body, allowed) {
+  for (const field of Object.keys(body || {})) {
+    if (!allowed.has(field)) {
+      throw AppError.badRequest(
+        `Unsupported ED destination handoff field: ${field}`,
+        'ED_DESTINATION_HANDOFF_FIELD_UNSUPPORTED',
+      );
+    }
+  }
+}
+
+function setHandoffPhiContext(req, result) {
+  if (result?.__patient_uid) {
+    req.phiContext = {
+      ...(req.phiContext || {}),
+      patientUid: String(result.__patient_uid),
+    };
+  }
+}
 
 // Tenant ED policy
 router.get('/policy', async (req, res, next) => {
@@ -81,7 +152,7 @@ router.put('/policy', async (req, res, next) => {
 router.post('/visits', async (req, res, next) => {
   try {
     const b = req.body || {};
-    const row = await createEmergencyVisit({
+    const row = await createEmergencyVisitWithPathwayEvidence({
       tenantId: req.tenantId, facilityId: b.facility_id,
       visitNumber: b.visit_number, patientUid: b.patient_uid,
       arrivalAt: b.arrival_at, arrivalMode: b.arrival_mode,
@@ -90,6 +161,7 @@ router.post('/visits', async (req, res, next) => {
       attendingDoctorUid: b.attending_doctor_uid,
       isMlc: b.is_mlc, metadata: b.metadata,
       createdBy: req.user?.uid || null,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
     });
     emitEdBoardEvent('arrival', row, { tenantId: req.tenantId });
     return success(res, row, 'Emergency visit created', 201);
@@ -112,15 +184,117 @@ router.get('/visits', async (req, res, next) => {
 
 router.patch('/visits/:id/transition', async (req, res, next) => {
   try {
-    const row = await transitionEmergencyVisit({
+    const row = await transitionEmergencyVisitWithPathwayEvidence({
       tenantId: req.tenantId, id: req.params.id,
       nextStatus: req.body?.next_status,
       disposition: req.body?.disposition,
+      acceptedHandoffId: req.body?.accepted_handoff_id,
+      actorUid: req.user?.uid || null,
+      actorRole: req.user?.role || req.user?.roles?.[0] || null,
     });
     emitEdBoardEvent('transition', row, { tenantId: req.tenantId });
     return success(res, row, 'Emergency visit transitioned');
   } catch (err) { return next(err); }
 });
+
+router.post('/visits/:id/destination-handoffs', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    rejectUnknownFields(
+      body,
+      new Set(['destination', 'intended_recipient_role', 'reason']),
+    );
+    const result = await requestEdDestinationHandoff({
+      tenantId: req.tenantId,
+      emergencyVisitId: req.params.id,
+      destination: body.destination,
+      intendedRecipientRole: body.intended_recipient_role,
+      reason: body.reason,
+      idempotencyKey: requireIdempotencyKey(req),
+      actor: requireHandoffActor(req),
+    });
+    setHandoffPhiContext(req, result);
+    return success(
+      res,
+      result,
+      result.replayed
+        ? 'ED destination handoff request replayed'
+        : 'ED destination handoff requested',
+      result.replayed ? 200 : 201,
+    );
+  } catch (err) { return next(err); }
+});
+
+router.get('/destination-handoffs', async (req, res, next) => {
+  try {
+    const result = await listEdDestinationHandoffs({
+      tenantId: req.tenantId,
+      actor: requireHandoffActor(req),
+      status: req.query.status || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'ED destination handoffs retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.post(
+  '/visits/:id/destination-handoffs/:handoffId/decisions',
+  async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      rejectUnknownFields(body, new Set(['decision', 'reason']));
+      const result = await decideEdDestinationHandoff({
+        tenantId: req.tenantId,
+        emergencyVisitId: req.params.id,
+        handoffId: req.params.handoffId,
+        decision: body.decision,
+        reason: body.reason,
+        idempotencyKey: requireIdempotencyKey(req),
+        actor: requireHandoffActor(req),
+      });
+      setHandoffPhiContext(req, result);
+      return success(
+        res,
+        result,
+        result.replayed
+          ? 'ED destination handoff decision replayed'
+          : 'ED destination handoff decision recorded',
+      );
+    } catch (err) { return next(err); }
+  },
+);
+
+router.post(
+  '/visits/:id/destination-handoffs/:handoffId/reroute',
+  async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      rejectUnknownFields(
+        body,
+        new Set(['destination', 'intended_recipient_role', 'reason']),
+      );
+      const result = await rerouteEdDestinationHandoff({
+        tenantId: req.tenantId,
+        emergencyVisitId: req.params.id,
+        handoffId: req.params.handoffId,
+        destination: body.destination,
+        intendedRecipientRole: body.intended_recipient_role,
+        reason: body.reason,
+        idempotencyKey: requireIdempotencyKey(req),
+        actor: requireHandoffActor(req),
+      });
+      setHandoffPhiContext(req, result);
+      return success(
+        res,
+        result,
+        result.replayed
+          ? 'ED destination handoff reroute replayed'
+          : 'ED destination handoff rerouted',
+        result.replayed ? 200 : 201,
+      );
+    } catch (err) { return next(err); }
+  },
+);
 
 router.patch('/visits/:id/triage-priority', async (req, res, next) => {
   try {
