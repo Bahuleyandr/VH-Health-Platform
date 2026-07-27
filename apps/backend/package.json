@@ -70,6 +70,7 @@
     "care-pathways:register-referral-definition": "node scripts/register-referral-pathway-definition.mjs",
     "care-pathways:register-op-definition": "node scripts/register-op-pathway-definition.mjs",
     "care-pathways:register-inpatient-definition": "node scripts/register-inpatient-pathway-definition.mjs",
+    "care-pathways:register-emergency-definition": "node scripts/register-emergency-pathway-definition.mjs",
     "care-pathways:backfill-referral-receiver-tasks": "node scripts/backfill-referral-receiver-tasks.mjs",
     "care-pathways:set-shadow-mode": "node scripts/set-care-pathway-shadow-mode.mjs",
     "lab:audit-ingest-582-584-readiness": "node scripts/audit-lab-oru-replay-readiness.mjs",

@@ -60,6 +60,7 @@ export const TASK_KINDS = [
   'review',
   'pathway_owner_transfer_review',
   'op_to_inpatient_transfer_review',
+  'ed_destination_handoff_review',
   'escalation',
   'verification',
   'admin',
@@ -89,6 +90,7 @@ const LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY = Symbol(
 );
 const COVERING_TRANSFER_TASK_AUTHORITY = Symbol('COVERING_TRANSFER_TASK_AUTHORITY');
 const OP_INPATIENT_TRANSFER_TASK_AUTHORITY = Symbol('OP_INPATIENT_TRANSFER_TASK_AUTHORITY');
+const ED_DESTINATION_HANDOFF_TASK_AUTHORITY = Symbol('ED_DESTINATION_HANDOFF_TASK_AUTHORITY');
 const PENDING_RESULT_OWNER_ACTION_TASK_AUTHORITY = Symbol(
   'PENDING_RESULT_OWNER_ACTION_TASK_AUTHORITY',
 );
@@ -104,6 +106,9 @@ const COVERING_TRANSFER_TASK_CREATION_AUTHORITY = Symbol(
 const OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY = Symbol(
   'OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY',
 );
+const ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY = Symbol(
+  'ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY',
+);
 const PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY = Symbol(
   'PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY',
 );
@@ -114,6 +119,7 @@ const GENERIC_RUNTIME_DENIED_APPROVAL_KINDS = new Set([
 ]);
 const COVERING_TRANSFER_TASK_CONTRACT = 'covering_clinician_transfer_review_v1';
 const OP_INPATIENT_TRANSFER_TASK_CONTRACT = 'op_to_inpatient_transfer_review_v1';
+const ED_DESTINATION_HANDOFF_TASK_CONTRACT = 'ed_destination_handoff_review_v1';
 
 function requiredTaskFactoryTx(tx, code, message) {
   if (!tx?.$queryRawUnsafe) {
@@ -160,10 +166,20 @@ function assertProtectedTaskCreationAllowed({
     );
   }
   if (
+    taskKind === 'ed_destination_handoff_review'
+    && authority !== ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'ED destination review tasks must use the ED handoff task factory',
+      'ED_DESTINATION_HANDOFF_TASK_FACTORY_REQUIRED',
+    );
+  }
+  if (
     metadata?.task_contract
     && ![
       COVERING_TRANSFER_TASK_CREATION_AUTHORITY,
       OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY,
+      ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY,
       PENDING_RESULT_TASK_CREATION_AUTHORITY,
     ].includes(authority)
   ) {
@@ -1279,6 +1295,75 @@ export async function createOpInpatientTransferReviewTaskTx({
   });
 }
 
+export async function createEdDestinationHandoffReviewTaskTx({
+  tenantId = null,
+  handoffId,
+  pathwayInstanceId,
+  emergencyVisitId,
+  patientUid,
+  encounterId,
+  recipientRole,
+  senderUid,
+  destination,
+  requestFingerprint,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'ED_DESTINATION_HANDOFF_TASK_FACTORY_TX_REQUIRED',
+    'ED destination review task creation requires a transaction',
+  );
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanPathwayInstanceId = maybeUuid(pathwayInstanceId, 'pathway_instance_id');
+  const cleanVisitId = normalizeId(emergencyVisitId, 'emergency_visit_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanEncounterId = maybeUuid(encounterId, 'encounter_id');
+  const cleanRecipientRole = safeText(recipientRole, 80);
+  const cleanSenderUid = maybeUuid(senderUid, 'sender_uid');
+  const cleanDestination = safeText(destination, 40);
+  const cleanFingerprint = safeText(requestFingerprint, 128);
+  if (
+    !cleanHandoffId
+    || !cleanPathwayInstanceId
+    || !cleanPatientUid
+    || !cleanEncounterId
+    || !cleanRecipientRole
+    || !/^[A-Z][A-Z0-9_]{1,79}$/.test(cleanRecipientRole)
+    || !cleanSenderUid
+    || !cleanDestination
+    || !/^[0-9a-f]{64}$/.test(cleanFingerprint)
+  ) {
+    throw AppError.badRequest(
+      'ED destination task requires exact handoff, pathway, visit, patient, encounter, sender, destination, role, and request evidence',
+      'ED_DESTINATION_HANDOFF_TASK_FACTORY_INPUT_INVALID',
+    );
+  }
+  return createTask({
+    tenantId,
+    taskKind: 'ed_destination_handoff_review',
+    title: `Accept ED destination handoff: ${cleanDestination.replaceAll('_', ' ')}`,
+    description: 'Accept or decline the exact Emergency Department destination handoff.',
+    patientUid: cleanPatientUid,
+    relatedResourceType: 'care_handoff_instance',
+    relatedResourceId: cleanHandoffId,
+    priority: 'high',
+    assignedToRole: cleanRecipientRole,
+    createdBy: cleanSenderUid,
+    dueAt: null,
+    slaCompletionSemantics: 'none',
+    metadata: {
+      task_contract: ED_DESTINATION_HANDOFF_TASK_CONTRACT,
+      care_pathway_instance_id: cleanPathwayInstanceId,
+      emergency_visit_id: cleanVisitId,
+      canonical_encounter_id: cleanEncounterId,
+      destination: cleanDestination,
+      request_fingerprint: cleanFingerprint,
+    },
+    protectedTaskCreationAuthority: ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY,
+    tx,
+  });
+}
+
 export async function listTasks({
   tenantId = null,
   status = null,
@@ -1386,6 +1471,12 @@ function isOpInpatientTransferReviewTask(taskRow) {
     && taskRow?.metadata?.task_contract === OP_INPATIENT_TRANSFER_TASK_CONTRACT;
 }
 
+function isEdDestinationHandoffReviewTask(taskRow) {
+  return taskRow?.task_kind === 'ed_destination_handoff_review'
+    && taskRow?.related_resource_type === 'care_handoff_instance'
+    && taskRow?.metadata?.task_contract === ED_DESTINATION_HANDOFF_TASK_CONTRACT;
+}
+
 function isPendingResultOwnerActionTask(taskRow) {
   return taskRow?.related_resource_type === 'discharge_pending_result_action';
 }
@@ -1411,6 +1502,15 @@ function assertGenericTaskMutationAllowed(taskRow, authority = null) {
     throw AppError.conflict(
       'OP-to-inpatient transfer review tasks must use the appointment transfer workflow',
       'OP_INPATIENT_TRANSFER_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (
+    isEdDestinationHandoffReviewTask(taskRow)
+    && authority !== ED_DESTINATION_HANDOFF_TASK_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'ED destination review tasks must use the ED handoff workflow',
+      'ED_DESTINATION_HANDOFF_TASK_WORKFLOW_REQUIRED',
     );
   }
   if (
@@ -4813,6 +4913,222 @@ export async function settleOpInpatientTransferReviewTaskTx({
       handoff_id: cleanHandoffId,
       appointment_id: cleanAppointmentId,
       care_pathway_instance_id: cleanPathwayInstanceId,
+    },
+    tx,
+  });
+  return settled;
+}
+
+export async function settleEdDestinationHandoffReviewTaskTx({
+  tenantId = null,
+  id,
+  handoffId,
+  pathwayInstanceId,
+  emergencyVisitId,
+  patientUid,
+  encounterId,
+  requestFingerprint,
+  recipientRole,
+  actorUid,
+  outcome,
+  reason = null,
+  tx,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  if (!tx) {
+    throw AppError.internal(
+      'ED destination task settlement requires a transaction',
+      'ED_DESTINATION_HANDOFF_TASK_TX_REQUIRED',
+    );
+  }
+  const taskId = normalizeId(id, 'task id');
+  const cleanHandoffId = maybeUuid(handoffId, 'handoff_id');
+  const cleanPathwayInstanceId = maybeUuid(pathwayInstanceId, 'pathway_instance_id');
+  const cleanVisitId = normalizeId(emergencyVisitId, 'emergency_visit_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanEncounterId = maybeUuid(encounterId, 'encounter_id');
+  const cleanFingerprint = safeText(requestFingerprint, 64);
+  const cleanRecipientRole = safeText(recipientRole, 80);
+  const cleanActorUid = requireActorUid(actorUid);
+  const cleanOutcome = normalizeEnum(outcome, ['accepted', 'declined'], 'outcome', {
+    required: true,
+  });
+  const cleanReason = safeText(reason, 2000);
+  if (!/^[0-9a-f]{64}$/.test(cleanFingerprint || '')) {
+    throw AppError.badRequest(
+      'request_fingerprint must be a SHA-256 digest',
+      'ED_DESTINATION_HANDOFF_TASK_FINGERPRINT_INVALID',
+    );
+  }
+  if (!/^[A-Z][A-Z0-9_]{1,79}$/.test(cleanRecipientRole || '')) {
+    throw AppError.badRequest(
+      'recipient_role is invalid',
+      'ED_DESTINATION_HANDOFF_TASK_ROLE_INVALID',
+    );
+  }
+  if (cleanOutcome === 'declined' && !cleanReason) {
+    throw AppError.badRequest(
+      'A decline reason is required',
+      'ED_DESTINATION_HANDOFF_DECLINE_REASON_REQUIRED',
+    );
+  }
+
+  const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
+  assertGenericTaskMutationAllowed(current, ED_DESTINATION_HANDOFF_TASK_AUTHORITY);
+  const bindings = await tx.$queryRawUnsafe(
+    `SELECT handoff.id
+       FROM care_handoff_instances AS handoff
+       JOIN tasks AS task
+         ON task.tenant_id = handoff.tenant_id
+        AND task.id = handoff.task_id
+      WHERE handoff.tenant_id = $1::uuid
+        AND handoff.id = $2::uuid
+        AND handoff.sending_pathway_instance_id = $3::uuid
+        AND handoff.source_resource_type = 'emergency_visit'
+        AND handoff.source_resource_id = $4::integer::text
+        AND handoff.patient_uid = $5::uuid
+        AND handoff.intended_recipient_role = $6::text
+        AND handoff.accepted_by_uid IS NULL
+        AND handoff.handoff_type = 'ed_destination_handoff'
+        AND handoff.status = 'requested'
+        AND handoff.task_id = $7::bigint
+        AND handoff.request_fingerprint = $8::char(64)
+        AND task.patient_uid = handoff.patient_uid
+        AND task.encounter_id IS NULL
+        AND task.workflow_run_id IS NULL
+        AND task.workflow_step_id IS NULL
+        AND task.task_kind = 'ed_destination_handoff_review'
+        AND task.related_resource_type = 'care_handoff_instance'
+        AND task.related_resource_id = handoff.id::text
+        AND task.assigned_to_uid IS NULL
+        AND task.assigned_to_role = handoff.intended_recipient_role
+        AND task.due_at IS NULL
+        AND task.workflow_sla_instance_id IS NULL
+        AND task.sla_completion_semantics = 'none'
+        AND task.metadata ->> 'task_contract' =
+              'ed_destination_handoff_review_v1'
+        AND task.metadata ->> 'care_pathway_instance_id' =
+              handoff.sending_pathway_instance_id::text
+        AND task.metadata ->> 'emergency_visit_id' =
+              handoff.source_resource_id
+        AND task.metadata ->> 'canonical_encounter_id' =
+              $9::uuid::text
+        AND task.metadata ->> 'request_fingerprint' =
+              handoff.request_fingerprint::text
+      LIMIT 1
+      FOR SHARE OF handoff`,
+    tid,
+    cleanHandoffId,
+    cleanPathwayInstanceId,
+    cleanVisitId,
+    cleanPatientUid,
+    cleanRecipientRole,
+    taskId,
+    cleanFingerprint,
+    cleanEncounterId,
+  );
+  if (
+    !bindings[0]
+    || current.workflow_run_id !== null
+    || current.workflow_step_id !== null
+    || String(current.patient_uid || '').toLowerCase() !== cleanPatientUid.toLowerCase()
+    || current.encounter_id !== null
+    || current.task_kind !== 'ed_destination_handoff_review'
+    || current.related_resource_type !== 'care_handoff_instance'
+    || String(current.related_resource_id || '').toLowerCase() !== cleanHandoffId.toLowerCase()
+    || current.assigned_to_uid !== null
+    || current.assigned_to_role !== cleanRecipientRole
+    || current.due_at !== null
+    || current.workflow_sla_instance_id !== null
+    || current.sla_completion_semantics !== 'none'
+    || current.metadata?.task_contract !== ED_DESTINATION_HANDOFF_TASK_CONTRACT
+    || String(current.metadata?.care_pathway_instance_id || '').toLowerCase()
+      !== cleanPathwayInstanceId.toLowerCase()
+    || String(current.metadata?.emergency_visit_id || '') !== String(cleanVisitId)
+    || String(current.metadata?.canonical_encounter_id || '').toLowerCase()
+      !== cleanEncounterId.toLowerCase()
+    || String(current.metadata?.request_fingerprint || '') !== cleanFingerprint
+    || !TASK_CLAIMABLE_STATUSES.has(current.status)
+  ) {
+    throw AppError.conflict(
+      'ED destination review task binding is invalid',
+      'ED_DESTINATION_HANDOFF_TASK_BINDING_INVALID',
+    );
+  }
+
+  const settledAt = new Date().toISOString();
+  const nextStatus = cleanOutcome === 'accepted' ? 'completed' : 'cancelled';
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET status = $3::text,
+            completed_at = CASE
+              WHEN $3::text = 'completed' THEN $4::timestamptz
+              ELSE NULL
+            END,
+            cancelled_at = CASE
+              WHEN $3::text = 'cancelled' THEN $4::timestamptz
+              ELSE NULL
+            END,
+            cancellation_reason = CASE
+              WHEN $3::text = 'cancelled' THEN $5::text
+              ELSE NULL
+            END,
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'ed_destination_handoff_outcome', $6::text,
+                   'ed_destination_handoff_settled_by', $7::text,
+                   'ed_destination_handoff_settled_at', $4::text
+                 ),
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status = $8::text
+        AND task_kind = 'ed_destination_handoff_review'
+        AND workflow_run_id IS NULL
+        AND workflow_step_id IS NULL
+        AND patient_uid = $9::uuid
+        AND encounter_id IS NULL
+        AND related_resource_type = 'care_handoff_instance'
+        AND related_resource_id = $10::uuid::text
+        AND assigned_to_uid IS NULL
+        AND assigned_to_role = $11::text
+        AND due_at IS NULL
+        AND workflow_sla_instance_id IS NULL
+        AND sla_completion_semantics = 'none'
+      RETURNING ${TASK_RETURNING}`,
+    tid,
+    taskId,
+    nextStatus,
+    settledAt,
+    cleanReason,
+    cleanOutcome,
+    cleanActorUid,
+    current.status,
+    cleanPatientUid,
+    cleanHandoffId,
+    cleanRecipientRole,
+  );
+  const settled = rows[0];
+  if (!settled) {
+    throw AppError.conflict(
+      'ED destination review task changed before settlement',
+      'ED_DESTINATION_HANDOFF_TASK_CAS_CONFLICT',
+    );
+  }
+  await postTaskComment({
+    tenantId: tid,
+    taskId,
+    authorUid: cleanActorUid,
+    body: `ED destination handoff ${cleanOutcome}`,
+    bodyKind: 'state_change',
+    metadata: {
+      from: current.status,
+      to: nextStatus,
+      outcome: cleanOutcome,
+      handoff_id: cleanHandoffId,
+      emergency_visit_id: cleanVisitId,
+      care_pathway_instance_id: cleanPathwayInstanceId,
+      ...(cleanReason ? { reason: cleanReason } : {}),
     },
     tx,
   });

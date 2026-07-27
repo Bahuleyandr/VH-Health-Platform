@@ -61,7 +61,11 @@ import {
   resolveInpatientPathwayModeTx,
 } from './inpatientPathwayDomainService.js';
 import { PATHWAY_MODES } from '../pathways/pathwayMode.js';
-import { validateOpTransferAdmissionSourceTx } from './inpatientAdmissionSourceValidation.js';
+import {
+  validateEdHandoffAdmissionSourceTx,
+  validateOpTransferAdmissionSourceTx,
+} from './inpatientAdmissionSourceValidation.js';
+import { recordEmergencyAdmissionClosureEvidenceTx } from '../ed/edPathwayDomainService.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -82,6 +86,13 @@ const READINESS_GATED_DISCHARGE_TYPES = new Set(['home', 'transfer', 'aor']);
 // Mirrors the CHECK on admissions.room_category (migration 177).
 const VALID_ROOM_CATEGORIES = ['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care'];
 const ACTIVE_ER_ORDER_STATUSES = ['ordered', 'verified', 'in_progress'];
+const OPEN_ER_VISIT_STATUSES = new Set([
+  'arriving',
+  'in_triage',
+  'awaiting_treatment',
+  'in_treatment',
+  'awaiting_disposition',
+]);
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACTIVE_CANONICAL_ENCOUNTER_STATUSES = new Set(['open', 'active']);
@@ -741,10 +752,13 @@ async function admitPatient(data) {
       'INPATIENT_SOURCE_LINKAGE_INCOMPLETE',
     );
   }
-  if (sourcePathwayInstanceId && adviceAppointmentId === null) {
+  const hasErSource = from_er_visit_id !== undefined
+    && from_er_visit_id !== null
+    && from_er_visit_id !== '';
+  if (sourcePathwayInstanceId && adviceAppointmentId === null && !hasErSource) {
     throw AppError.badRequest(
-      'A pathway handoff source requires the exact source appointment',
-      'INPATIENT_SOURCE_APPOINTMENT_REQUIRED',
+      'A pathway handoff source requires the exact source appointment or ED visit',
+      'INPATIENT_SOURCE_EPISODE_REQUIRED',
     );
   }
 
@@ -782,16 +796,24 @@ async function admitPatient(data) {
         triage_priority: true,
         attending_doctor_uid: true,
         arrival_at: true,
+        disposition_at: true,
+        departure_at: true,
+        created_at: true,
+        updated_at: true,
       },
     });
     if (!erVisit) throw AppError.notFound('Linked ER visit not found');
     if (erVisit.patient_uid && erVisit.patient_uid !== patient_uid) {
       throw AppError.badRequest('ER visit patient_uid does not match this admission');
     }
-    const TERMINAL_DISPOSITIONS = new Set(['admitted', 'discharged', 'lama', 'expired']);
-    if (erVisit.disposition && TERMINAL_DISPOSITIONS.has(erVisit.disposition)) {
+    if (
+      !OPEN_ER_VISIT_STATUSES.has(erVisit.status)
+      || erVisit.disposition_at
+      || erVisit.departure_at
+    ) {
       throw AppError.conflict(
-        `ER visit ${erVisit.id} is already ${erVisit.disposition} — cannot re-admit from a closed encounter`,
+        `ER visit ${erVisit.id} is already closed — cannot admit from a closed encounter`,
+        'ER_VISIT_ALREADY_CLOSED',
       );
     }
   }
@@ -1100,14 +1122,57 @@ async function admitPatient(data) {
     const patientIntId = patientUser.id;
     const patientName = patientUser.name;
 
-    const transferSource = await validateOpTransferAdmissionSourceTx({
-      tx,
-      tenantId: transactionTenantId,
-      patientUid: patient_uid,
-      appointmentId: adviceAppointmentId,
-      sourcePathwayInstanceId,
-      sourceHandoffId,
-    });
+    if (erVisit) {
+      const erVisitRows = await tx.$queryRawUnsafe(
+        `SELECT id, patient_uid, status, disposition, encounter_id,
+                chief_complaint, triage_priority, attending_doctor_uid,
+                arrival_at, disposition_at, departure_at, created_at, updated_at
+           FROM emergency_visits
+          WHERE tenant_id = $1::uuid
+            AND id = $2::integer
+          LIMIT 1
+          FOR UPDATE`,
+        transactionTenantId,
+        erVisit.id,
+      );
+      const lockedErVisit = erVisitRows[0];
+      if (!lockedErVisit) throw AppError.notFound('Linked ER visit not found');
+      if (
+        String(lockedErVisit.patient_uid || '').toLowerCase()
+        !== String(patient_uid).toLowerCase()
+      ) {
+        throw AppError.badRequest('ER visit patient_uid does not match this admission');
+      }
+      if (
+        !OPEN_ER_VISIT_STATUSES.has(lockedErVisit.status)
+        || lockedErVisit.disposition_at
+        || lockedErVisit.departure_at
+      ) {
+        throw AppError.conflict(
+          `ER visit ${lockedErVisit.id} is already closed — cannot admit from a closed encounter`,
+          'ER_VISIT_ALREADY_CLOSED',
+        );
+      }
+      erVisit = lockedErVisit;
+    }
+
+    const transferSource = erVisit
+      ? await validateEdHandoffAdmissionSourceTx({
+        tx,
+        tenantId: transactionTenantId,
+        patientUid: patient_uid,
+        emergencyVisitId: erVisit.id,
+        sourcePathwayInstanceId,
+        sourceHandoffId,
+      })
+      : await validateOpTransferAdmissionSourceTx({
+        tx,
+        tenantId: transactionTenantId,
+        patientUid: patient_uid,
+        appointmentId: adviceAppointmentId,
+        sourcePathwayInstanceId,
+        sourceHandoffId,
+      });
     if (transferSource.accepted_recipient_uid) {
       const acceptedRecipientUid = transferSource.accepted_recipient_uid;
       if (
@@ -1211,15 +1276,36 @@ async function admitPatient(data) {
     // distinct price tiers). See finding
     // 2026-05-08-emergency-walk-in-doctor-admit-no-er-visit-linkage.
     if (erVisit) {
-      await tx.emergency_visits.update({
+      const closedErVisit = await tx.emergency_visits.update({
         where: { id: erVisit.id },
         data: {
           disposition: 'admitted',
           disposition_at: new Date(),
           departure_at: new Date(),
-          status: erVisit.status === 'arriving' ? erVisit.status : 'in_treatment',
+          status: 'admitted',
           updated_at: new Date(),
         },
+        select: {
+          id: true,
+          tenant_id: true,
+          patient_uid: true,
+          encounter_id: true,
+          attending_doctor_uid: true,
+          status: true,
+          disposition: true,
+          disposition_at: true,
+          departure_at: true,
+          created_at: true,
+          updated_at: true,
+        },
+      });
+      await recordEmergencyAdmissionClosureEvidenceTx(tx, {
+        tenantId: transactionTenantId,
+        priorVisit: erVisit,
+        visit: closedErVisit,
+        admission,
+        actorUid: created_by,
+        actorRole: actor_role,
       });
 
       carriedErOrders = await carryActiveErOrdersToAdmission(tx, {

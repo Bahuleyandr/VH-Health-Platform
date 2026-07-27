@@ -8,6 +8,7 @@ import {
   PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES,
   PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES,
   PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES,
+  PATHWAY_PROJECTOR_GENERATION_5_EVENT_TYPES,
   createPathwayProjectorRegistry,
   isPathwayProjectorRegistry,
   pathwayProjectorRegistry,
@@ -15,7 +16,9 @@ import {
   pathwayProjectorRegistryV2,
   pathwayProjectorRegistryV3,
   pathwayProjectorRegistryV4,
+  pathwayProjectorRegistryV5,
 } from '../../services/events/pathwayProjectorRegistry.js';
+import { EMERGENCY_PATHWAY_EVENT_TYPES } from '../../services/pathways/emergencyPathwayProjector.js';
 
 describe('pathwayProjectorRegistry', () => {
   const expectedTypes = [
@@ -32,7 +35,7 @@ describe('pathwayProjectorRegistry', () => {
     entries: [['test.changed', syntheticObserver]],
   });
 
-  it('preserves prior generations and exposes the exact generation-4 membership', () => {
+  it('preserves prior generations and exposes the exact generation-5 membership', () => {
     const diagnosticTypes = [
       'diagnostic.result.generation_signed',
       'diagnostic.result.release_became_eligible',
@@ -82,7 +85,7 @@ describe('pathwayProjectorRegistry', () => {
       'discharge.completed',
       'post_discharge.contact_recorded',
     ];
-    expect(PATHWAY_PROJECTOR_GENERATION).toBe(4);
+    expect(PATHWAY_PROJECTOR_GENERATION).toBe(5);
     expect(PATHWAY_PROJECTOR_GENERATION_1_EVENT_TYPES).toEqual(expectedTypes);
     expect(PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES).toEqual([
       ...expectedTypes,
@@ -100,13 +103,20 @@ describe('pathwayProjectorRegistry', () => {
         (eventType) => !PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES.includes(eventType),
       ),
     ]);
+    expect(PATHWAY_PROJECTOR_GENERATION_5_EVENT_TYPES).toEqual([
+      ...PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES,
+      ...EMERGENCY_PATHWAY_EVENT_TYPES.filter(
+        (eventType) => !PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES.includes(eventType),
+      ),
+    ]);
     expect(pathwayProjectorRegistryV1.eventTypes).toEqual(expectedTypes);
     expect(pathwayProjectorRegistryV1.size).toBe(6);
     expect(pathwayProjectorRegistryV2.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_2_EVENT_TYPES);
     expect(pathwayProjectorRegistryV3.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_3_EVENT_TYPES);
-    expect(pathwayProjectorRegistry).toBe(pathwayProjectorRegistryV4);
-    expect(pathwayProjectorRegistry.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES);
-    expect(pathwayProjectorRegistry.size).toBe(45);
+    expect(pathwayProjectorRegistryV4.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_4_EVENT_TYPES);
+    expect(pathwayProjectorRegistry).toBe(pathwayProjectorRegistryV5);
+    expect(pathwayProjectorRegistry.eventTypes).toEqual(PATHWAY_PROJECTOR_GENERATION_5_EVENT_TYPES);
+    expect(pathwayProjectorRegistry.size).toBe(48);
     expect(isPathwayProjectorRegistry(pathwayProjectorRegistry)).toBe(true);
     expect(isPathwayProjectorRegistry(pathwayProjectorRegistryV1)).toBe(true);
 
@@ -119,6 +129,8 @@ describe('pathwayProjectorRegistry', () => {
     expect(pathwayProjectorRegistry.resolve('appointment.child_resource_linked'))
       .toEqual(expect.any(Function));
     expect(pathwayProjectorRegistry.resolve('admission.diagnostic_resource_linked'))
+      .toEqual(expect.any(Function));
+    expect(pathwayProjectorRegistry.resolve('emergency.visit.destination_closed'))
       .toEqual(expect.any(Function));
   });
 
@@ -180,6 +192,10 @@ describe('pathwayProjectorRegistry', () => {
       generation: 4,
       entries: [['test.replacement', observer]],
     })).toThrow(/generation 4.*canonical/i);
+    expect(() => createPathwayProjectorRegistry({
+      generation: 5,
+      entries: [['test.replacement', observer]],
+    })).toThrow(/generation 5.*canonical/i);
 
     expect(syntheticRegistry.eventTypes).toEqual(['test.changed']);
     expect(syntheticRegistry.resolve('test.changed')).toBe(syntheticObserver);
