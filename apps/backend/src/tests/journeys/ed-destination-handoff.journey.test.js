@@ -14,8 +14,8 @@ import {
 } from './_journeyHarness.js';
 import { setTenantTx } from '../../lib/prisma.js';
 import {
-  EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION,
-  compileEmergencyArrivalToAftercareDefinition,
+  EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2,
+  compileEmergencyArrivalToAftercareDefinitionV2,
 } from '../../services/pathways/emergencyPathwayDefinition.js';
 import { projectEmergencyPathwayEvent } from '../../services/pathways/emergencyPathwayProjector.js';
 import { createPathwayActivationEvidenceCapabilityForTests } from '../../services/pathways/pathwayExecutorService.js';
@@ -34,7 +34,7 @@ const NURSE_PHONE = `+9196603${RUN}`;
 const PATIENT_PHONE = `+9196604${RUN}`;
 const PATHWAY_KEY = 'emergency_arrival_to_aftercare';
 const compiledEmergencyDefinition =
-  compileEmergencyArrivalToAftercareDefinition();
+  compileEmergencyArrivalToAftercareDefinitionV2();
 const activationCapability =
   createPathwayActivationEvidenceCapabilityForTests();
 
@@ -70,9 +70,9 @@ async function seedGovernedEmergencyDefinition() {
     DEFAULT_TENANT,
     compiledEmergencyDefinition.workflow_key,
     compiledEmergencyDefinition.version,
-    JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION.steps),
-    JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION.triggers),
-    JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION.defaults),
+    JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.steps),
+    JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.triggers),
+    JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.defaults),
     compiledEmergencyDefinition.checksum,
   );
   if (
@@ -98,9 +98,9 @@ async function seedGovernedEmergencyDefinition() {
       compiledEmergencyDefinition.workflow_key,
       compiledEmergencyDefinition.version,
       `Emergency arrival-to-destination journey ${RUN}`,
-      JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION.steps),
-      JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION.triggers),
-      JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION.defaults),
+      JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.steps),
+      JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.triggers),
+      JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.defaults),
       ED_DOCTOR_UID,
     );
     const definitionId = Number(definitions[0].id);
@@ -211,7 +211,7 @@ async function projectLatestEmergencyEvent(
     return projectEmergencyPathwayEvent({
       tx,
       consumerKey: 'care_pathway_projector',
-      generation: 5,
+      generation: 6,
       tenantId: DEFAULT_TENANT,
       event: events[0],
       activationEvidenceCapability: activationCapability,
