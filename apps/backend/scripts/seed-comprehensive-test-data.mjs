@@ -28,6 +28,10 @@ const MANUAL_SEED_TABLES = new Set([
   'care_pathway_transition_events',
   'care_handoff_instances',
   'care_pathway_reconciliation_checks',
+  // S5 ED closure/recovery rows require the exact visit/patient/encounter/
+  // clinician graph plus canonical timeline and audit receipts.
+  'ed_closure_evidence',
+  'ed_recovery_contact_events',
   // S4 OP/inpatient evidence tables require one coherent pathway, admission,
   // named-owner, task, generation, outbox, timeline, and audit graph.
   'care_pathway_resource_references',
@@ -4586,6 +4590,262 @@ async function seedEdEncounterEvidence() {
   }]);
 }
 
+async function seedEdClosureRecoveryEvidence() {
+  if (
+    (await tableCount('ed_closure_evidence')) > 0
+    && (await tableCount('ed_recovery_contact_events')) > 0
+  ) {
+    return;
+  }
+
+  const refs = await getCoreRefs();
+  const encounterId = '59700000-0000-4000-8000-000000000001';
+  const closureId = '59700000-0000-4000-8000-000000000002';
+  const recoveryId = '59700000-0000-4000-8000-000000000003';
+  const occurredAt = new Date('2026-05-04T11:00:00.000Z');
+
+  await client.query(
+    `INSERT INTO patient_encounters
+       (id, tenant_id, patient_uid, encounter_type, status,
+        primary_doctor_uid, care_team_uids, opened_at, activated_at,
+        created_by, updated_by, metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, 'er', 'active',
+        $4::uuid, ARRAY[$4::uuid], $5::timestamptz, $5::timestamptz,
+        $4::uuid, $4::uuid,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     ON CONFLICT (id) DO UPDATE
+       SET patient_uid = EXCLUDED.patient_uid,
+           primary_doctor_uid = EXCLUDED.primary_doctor_uid,
+           care_team_uids = EXCLUDED.care_team_uids,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = NOW()`,
+    [
+      encounterId,
+      DEFAULT_TENANT_ID,
+      refs.patient.uid,
+      refs.doctor.uid,
+      occurredAt,
+    ],
+  );
+
+  const visit = await client.query(
+    `INSERT INTO emergency_visits
+       (tenant_id, visit_number, patient_uid, encounter_id, arrival_at,
+        arrival_mode, chief_complaint, attending_doctor_uid, status,
+        disposition, disposition_at, departure_at, is_mlc, metadata,
+        created_by)
+     VALUES
+       ($1::uuid, 'SEED-ED-CLOSURE-597', $2::uuid, $3::uuid,
+        $4::timestamptz, 'walk_in', 'Seed LAMA continuity coverage',
+        $5::uuid, 'left_against_advice',
+        'left_against_medical_advice', $4::timestamptz, $4::timestamptz,
+        FALSE,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        $5::uuid)
+     ON CONFLICT (tenant_id, visit_number) DO UPDATE
+       SET patient_uid = EXCLUDED.patient_uid,
+           encounter_id = EXCLUDED.encounter_id,
+           attending_doctor_uid = EXCLUDED.attending_doctor_uid,
+           status = EXCLUDED.status,
+           disposition = EXCLUDED.disposition,
+           disposition_at = EXCLUDED.disposition_at,
+           departure_at = EXCLUDED.departure_at,
+           updated_at = NOW()
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      refs.patient.uid,
+      encounterId,
+      occurredAt,
+      refs.doctor.uid,
+    ],
+  );
+  const visitId = Number(visit.rows[0].id);
+
+  const closureTimeline = await client.query(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, encounter_id, event_type, event_status,
+        source_table, source_id, resource_type, resource_id, actor_uid,
+        actor_role, occurred_at, visible_to_patient, clinical_summary,
+        payload, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'emergency.closure_evidence_recorded', 'recorded',
+        'ed_closure_evidence', $4::uuid::text,
+        'ed_closure_evidence', $4::uuid::text, $5::uuid, 'DOCTOR',
+        $6::timestamptz, FALSE, 'Seed ED LAMA closure evidence',
+        jsonb_build_object(
+          'emergency_visit_id', $7::integer,
+          'closure_kind', 'left_against_medical_advice',
+          'seed', TRUE
+        ),
+        'seed-ed-closure-597-timeline')
+     ON CONFLICT (idempotency_key) DO UPDATE
+       SET idempotency_key = EXCLUDED.idempotency_key
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      refs.patient.uid,
+      encounterId,
+      closureId,
+      refs.doctor.uid,
+      occurredAt,
+      visitId,
+    ],
+  );
+  const closureAudit = await client.query(
+    `INSERT INTO clinical_audit_events
+       (tenant_id, patient_uid, encounter_id, action, action_status,
+        actor_uid, actor_role, resource_type, resource_table, resource_id,
+        after_state, metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'emergency.closure_evidence_recorded', 'success',
+        $4::uuid, 'DOCTOR', 'ed_closure_evidence',
+        'ed_closure_evidence', $5::uuid::text,
+        '{"closure_kind":"left_against_medical_advice"}'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        'seed-ed-closure-597-audit', $6::timestamptz)
+     ON CONFLICT (idempotency_key)
+       WHERE idempotency_key IS NOT NULL
+     DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      refs.patient.uid,
+      encounterId,
+      refs.doctor.uid,
+      closureId,
+      occurredAt,
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO ed_closure_evidence
+       (id, tenant_id, emergency_visit_id, patient_uid, encounter_id,
+        evidence_revision, closure_kind, clinician_uid,
+        follow_up_required, no_follow_up_reason, patient_safe_next_steps,
+        medication_not_applicable_reason, risk_classification_code,
+        risk_summary, identity_resolution_status, patient_visibility_status,
+        canonical_timeline_event_id, canonical_audit_event_id, occurred_at,
+        idempotency_key, metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid, $5::uuid,
+        1, 'left_against_medical_advice', $6::uuid,
+        FALSE, 'No scheduled follow-up is required for seed coverage.',
+        '[{"label":"Follow the documented ED safety-net advice","status":"planned","patient_action":"Seek urgent care if symptoms worsen","route_token":"health"}]'::jsonb,
+        'No medication reconciliation is required for seed coverage.',
+        'seed_risk_reviewed',
+        'Seed-only risk review completed without a clinical policy value.',
+        'verified', 'released', $7::uuid, $8::uuid, $9::timestamptz,
+        'seed-ed-closure-597',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+    [
+      closureId,
+      DEFAULT_TENANT_ID,
+      visitId,
+      refs.patient.uid,
+      encounterId,
+      refs.doctor.uid,
+      closureTimeline.rows[0].id,
+      closureAudit.rows[0].id,
+      occurredAt,
+    ],
+  );
+
+  const recoveryTimeline = await client.query(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, encounter_id, event_type, event_status,
+        source_table, source_id, resource_type, resource_id, actor_uid,
+        actor_role, occurred_at, visible_to_patient, clinical_summary,
+        payload, idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'emergency.recovery_contact_recorded', 'attempt',
+        'ed_recovery_contact_events', $4::uuid::text,
+        'ed_recovery_contact_event', $4::uuid::text, $5::uuid, 'DOCTOR',
+        $6::timestamptz, FALSE, 'Seed ED recovery contact attempt',
+        jsonb_build_object(
+          'emergency_visit_id', $7::integer,
+          'closure_evidence_id', $8::uuid,
+          'event_kind', 'attempt',
+          'seed', TRUE
+        ),
+        'seed-ed-recovery-597-timeline')
+     ON CONFLICT (idempotency_key) DO UPDATE
+       SET idempotency_key = EXCLUDED.idempotency_key
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      refs.patient.uid,
+      encounterId,
+      recoveryId,
+      refs.doctor.uid,
+      new Date('2026-05-04T11:05:00.000Z'),
+      visitId,
+      closureId,
+    ],
+  );
+  const recoveryAudit = await client.query(
+    `INSERT INTO clinical_audit_events
+       (tenant_id, patient_uid, encounter_id, action, action_status,
+        actor_uid, actor_role, resource_type, resource_table, resource_id,
+        after_state, metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid,
+        'emergency.recovery_contact_recorded', 'success',
+        $4::uuid, 'DOCTOR', 'ed_recovery_contact_event',
+        'ed_recovery_contact_events', $5::uuid::text,
+        '{"event_kind":"attempt"}'::jsonb,
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
+        'seed-ed-recovery-597-audit', $6::timestamptz)
+     ON CONFLICT (idempotency_key)
+       WHERE idempotency_key IS NOT NULL
+     DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      refs.patient.uid,
+      encounterId,
+      refs.doctor.uid,
+      recoveryId,
+      new Date('2026-05-04T11:05:00.000Z'),
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO ed_recovery_contact_events
+       (id, tenant_id, emergency_visit_id, closure_evidence_id,
+        patient_uid, encounter_id, event_kind, contact_channel,
+        patient_safe_summary, staff_notes, recorded_by_uid,
+        canonical_timeline_event_id, canonical_audit_event_id, occurred_at,
+        idempotency_key, metadata)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid,
+        $5::uuid, $6::uuid, 'attempt', 'phone',
+        'The ED team attempted a follow-up contact.',
+        'Seed-only recovery contact coverage.', $7::uuid,
+        $8::uuid, $9::uuid, $10::timestamptz,
+        'seed-ed-recovery-597',
+        '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
+     ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+    [
+      recoveryId,
+      DEFAULT_TENANT_ID,
+      visitId,
+      closureId,
+      refs.patient.uid,
+      encounterId,
+      refs.doctor.uid,
+      recoveryTimeline.rows[0].id,
+      recoveryAudit.rows[0].id,
+      new Date('2026-05-04T11:05:00.000Z'),
+    ],
+  );
+}
+
 async function seedTransplantProgramTables() {
   if (!(await tableExists('transplant_programs'))) return;
 
@@ -4910,6 +5170,7 @@ try {
   await seedDiagnosticResultPatientNotificationEvidence();
   await seedReferralClosedLoopGraph();
   const { seeded, failed } = await seedRemainingTables();
+  await seedEdClosureRecoveryEvidence();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();
   await seedPillarDWorkflowTables();

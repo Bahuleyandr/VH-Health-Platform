@@ -7,8 +7,32 @@ const migration = readFileSync(
   ),
   'utf8',
 ).replaceAll('\r', '');
+const comprehensiveSeeder = readFileSync(
+  new URL(
+    '../../../scripts/seed-comprehensive-test-data.mjs',
+    import.meta.url,
+  ),
+  'utf8',
+).replaceAll('\r', '');
 
 describe('migration 597 ED closure and recovery evidence', () => {
+  test('keeps the comprehensive CI seed on an exact canonical ED evidence graph', () => {
+    expect(comprehensiveSeeder).toContain("'ed_closure_evidence'");
+    expect(comprehensiveSeeder).toContain("'ed_recovery_contact_events'");
+    expect(comprehensiveSeeder).toContain(
+      'async function seedEdClosureRecoveryEvidence()',
+    );
+    expect(comprehensiveSeeder).toContain(
+      'await seedEdClosureRecoveryEvidence();',
+    );
+    expect(comprehensiveSeeder).toContain(
+      "'emergency.closure_evidence_recorded'",
+    );
+    expect(comprehensiveSeeder).toContain(
+      "'emergency.recovery_contact_recorded'",
+    );
+  });
+
   test('creates append-only tenant-isolated closure and recovery evidence', () => {
     for (const table of [
       'ed_closure_evidence',
