@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 
 import { compileDiagnosticsOrderToActionDefinition } from '../../services/pathways/diagnosticsPathwayDefinition.js';
-import { compileEmergencyArrivalToAftercareDefinition } from '../../services/pathways/emergencyPathwayDefinition.js';
+import {
+  compileEmergencyArrivalToAftercareDefinition,
+  compileEmergencyArrivalToAftercareDefinitionV2,
+} from '../../services/pathways/emergencyPathwayDefinition.js';
 import { compileInpatientAdmissionToRecoveryDefinition } from '../../services/pathways/inpatientPathwayDefinition.js';
 import { compileOpContactToRecoveryDefinition } from '../../services/pathways/opPathwayDefinition.js';
 import { compileReferralRequestToClosureDefinition } from '../../services/pathways/referralPathwayDefinition.js';
@@ -32,6 +35,11 @@ const EXPECTED_PINS = Object.freeze({
     checksum: '423709d2513434e1802142922849ee194421793f0eece3f3336f04d265f73ebe',
     compile: compileEmergencyArrivalToAftercareDefinition,
   }),
+  emergencyV2: Object.freeze({
+    version: 6,
+    checksum: '87eb734bc6152a7dc513385e7f0468d8325b9fcc09100e86f85a5e1ca3dd7bf3',
+    compile: compileEmergencyArrivalToAftercareDefinitionV2,
+  }),
 });
 
 describe('care pathway definition registry pins', () => {
@@ -50,7 +58,6 @@ describe('care pathway definition registry pins', () => {
     ['referralPathwayProjector.js', 'workflowRuntimeRegistryV3'],
     ['opPathwayProjector.js', 'workflowRuntimeRegistryV4'],
     ['inpatientPathwayProjector.js', 'workflowRuntimeRegistryV4'],
-    ['emergencyPathwayProjector.js', 'workflowRuntimeRegistryV5'],
   ])('does not let %s reinterpret persisted definitions through caller context', (file, pin) => {
     const source = readFileSync(
       new URL(`../../services/pathways/${file}`, import.meta.url),
@@ -60,12 +67,26 @@ describe('care pathway definition registry pins', () => {
     expect(source).not.toMatch(/const runtimeRegistry = registry \?\?/);
   });
 
+  it('dispatches ED projection through the exact persisted V5 or V6 runtime', () => {
+    const source = readFileSync(
+      new URL(
+        '../../services/pathways/emergencyPathwayProjector.js',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    expect(source).toContain('workflowRuntimeRegistryV5');
+    expect(source).toContain('workflowRuntimeRegistryV6');
+    expect(source).toContain('Number(pathway?.pathway_version) === 1');
+    expect(source).not.toMatch(/const runtimeRegistry = registry \?\?/);
+  });
+
   it.each([
     ['register-diagnostics-pathway-definition.mjs', 'workflowRuntimeRegistryV2'],
     ['register-referral-pathway-definition.mjs', 'workflowRuntimeRegistryV3'],
     ['register-op-pathway-definition.mjs', 'workflowRuntimeRegistryV4'],
     ['register-inpatient-pathway-definition.mjs', 'workflowRuntimeRegistryV4'],
-    ['register-emergency-pathway-definition.mjs', 'workflowRuntimeRegistryV5'],
+    ['register-emergency-pathway-definition.mjs', 'workflowRuntimeRegistryV6'],
   ])('registers %s through its exact named runtime registry', (file, pin) => {
     const source = readFileSync(
       new URL(`../../../scripts/${file}`, import.meta.url),

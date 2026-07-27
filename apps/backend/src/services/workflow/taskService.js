@@ -61,6 +61,7 @@ export const TASK_KINDS = [
   'pathway_owner_transfer_review',
   'op_to_inpatient_transfer_review',
   'ed_destination_handoff_review',
+  'ed_closure_review',
   'escalation',
   'verification',
   'admin',
@@ -109,6 +110,9 @@ const OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY = Symbol(
 const ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY = Symbol(
   'ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY',
 );
+const ED_CLOSURE_TASK_CREATION_AUTHORITY = Symbol(
+  'ED_CLOSURE_TASK_CREATION_AUTHORITY',
+);
 const PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY = Symbol(
   'PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY',
 );
@@ -120,6 +124,7 @@ const GENERIC_RUNTIME_DENIED_APPROVAL_KINDS = new Set([
 const COVERING_TRANSFER_TASK_CONTRACT = 'covering_clinician_transfer_review_v1';
 const OP_INPATIENT_TRANSFER_TASK_CONTRACT = 'op_to_inpatient_transfer_review_v1';
 const ED_DESTINATION_HANDOFF_TASK_CONTRACT = 'ed_destination_handoff_review_v1';
+const ED_CLOSURE_TASK_CONTRACT = 'ed_closure_review_v1';
 
 function requiredTaskFactoryTx(tx, code, message) {
   if (!tx?.$queryRawUnsafe) {
@@ -175,11 +180,21 @@ function assertProtectedTaskCreationAllowed({
     );
   }
   if (
+    taskKind === 'ed_closure_review'
+    && authority !== ED_CLOSURE_TASK_CREATION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'ED closure review tasks must use the ED closure task factory',
+      'ED_CLOSURE_TASK_FACTORY_REQUIRED',
+    );
+  }
+  if (
     metadata?.task_contract
     && ![
       COVERING_TRANSFER_TASK_CREATION_AUTHORITY,
       OP_INPATIENT_TRANSFER_TASK_CREATION_AUTHORITY,
       ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY,
+      ED_CLOSURE_TASK_CREATION_AUTHORITY,
       PENDING_RESULT_TASK_CREATION_AUTHORITY,
     ].includes(authority)
   ) {
@@ -1360,6 +1375,72 @@ export async function createEdDestinationHandoffReviewTaskTx({
       request_fingerprint: cleanFingerprint,
     },
     protectedTaskCreationAuthority: ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY,
+    tx,
+  });
+}
+
+export async function createEdClosureReviewTaskTx({
+  tenantId = null,
+  pathwayInstanceId,
+  emergencyVisitId,
+  patientUid,
+  encounterId,
+  assignedToUid,
+  evidenceRevision = null,
+  supersedesTaskId = null,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'ED_CLOSURE_TASK_FACTORY_TX_REQUIRED',
+    'ED closure review task creation requires a transaction',
+  );
+  const cleanPathwayInstanceId = maybeUuid(pathwayInstanceId, 'pathway_instance_id');
+  const cleanVisitId = normalizeId(emergencyVisitId, 'emergency_visit_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanEncounterId = maybeUuid(encounterId, 'encounter_id');
+  const cleanAssignedToUid = maybeUuid(assignedToUid, 'assigned_to_uid');
+  const cleanEvidenceRevision = evidenceRevision == null
+    ? null
+    : normalizeId(evidenceRevision, 'evidence_revision');
+  const cleanSupersedesTaskId = supersedesTaskId == null
+    ? null
+    : normalizeId(supersedesTaskId, 'supersedes_task_id');
+  if (
+    !cleanPathwayInstanceId
+    || !cleanPatientUid
+    || !cleanEncounterId
+    || !cleanAssignedToUid
+  ) {
+    throw AppError.badRequest(
+      'ED closure task requires exact pathway, visit, patient, encounter, and clinician evidence',
+      'ED_CLOSURE_TASK_FACTORY_INPUT_INVALID',
+    );
+  }
+  return createTask({
+    tenantId,
+    taskKind: 'ed_closure_review',
+    title: `Complete ED destination or closure evidence for visit #${cleanVisitId}`,
+    description:
+      'Record the exact destination acceptance, patient-safe aftercare, recovery outcome, or death/MLC/mortuary evidence for this ED visit.',
+    patientUid: cleanPatientUid,
+    relatedResourceType: 'emergency_visit_closure',
+    relatedResourceId: String(cleanVisitId),
+    priority: 'normal',
+    assignedToUid: cleanAssignedToUid,
+    dueAt: null,
+    slaCompletionSemantics: 'none',
+    metadata: {
+      task_contract: ED_CLOSURE_TASK_CONTRACT,
+      emergency_visit_id: cleanVisitId,
+      canonical_encounter_id: cleanEncounterId,
+      care_pathway_instance_id: cleanPathwayInstanceId,
+      created_by_system_key: 'emergency.pathway_projector.v2',
+      supersedes_task_id: cleanSupersedesTaskId,
+      closure_evidence_revision: cleanEvidenceRevision,
+    },
+    protectedTaskCreationAuthority: ED_CLOSURE_TASK_CREATION_AUTHORITY,
+    onConflictResourceDoNothing: true,
     tx,
   });
 }

@@ -4,7 +4,11 @@ const executePathwayCommand = jest.fn();
 const startCarePathwayInstance = jest.fn();
 const resolvePathwayModeTx = jest.fn();
 const ensureEmergencyPatientEncounterTx = jest.fn();
+const reconcileEdClosureTaskTx = jest.fn();
 
+jest.unstable_mockModule('../../services/ed/edClosureRecoveryService.js', () => ({
+  reconcileEdClosureTaskTx,
+}));
 jest.unstable_mockModule('../../services/ed/edPathwayDomainService.js', () => ({
   ensureEmergencyPatientEncounterTx,
 }));
@@ -66,13 +70,16 @@ beforeEach(() => {
   });
   executePathwayCommand.mockResolvedValue({ replayed: false });
   ensureEmergencyPatientEncounterTx.mockResolvedValue({});
+  reconcileEdClosureTaskTx.mockResolvedValue({ task: null });
 });
 
-test('registers the three canonical ED source events', () => {
+test('registers the frozen destination events plus ED closure and recovery evidence', () => {
   expect(EMERGENCY_PATHWAY_EVENT_TYPES).toEqual([
     'emergency.visit.created',
     'emergency.visit.transitioned',
     'emergency.visit.destination_closed',
+    'emergency.visit.closure_evidence_recorded',
+    'emergency.visit.recovery_contact_recorded',
   ]);
 });
 
@@ -83,12 +90,12 @@ test('off mode is behaviorally unchanged and performs no source read or projecti
   await expect(projectEmergencyPathwayEvent({
     tx,
     consumerKey: 'care_pathway_projector',
-    generation: 5,
+    generation: 6,
     tenantId: TENANT_ID,
     event: event(),
   })).resolves.toEqual({
     consumer_key: 'care_pathway_projector',
-    generation: 5,
+    generation: 6,
     event_type: 'emergency.visit.created',
     pathway_key: 'emergency_arrival_to_aftercare',
     pathway_mode: 'off',
@@ -101,17 +108,18 @@ test('off mode is behaviorally unchanged and performs no source read or projecti
   expect(executePathwayCommand).not.toHaveBeenCalled();
 });
 
-test('shadow mode starts the exact V5 ED pathway and executes the source event', async () => {
+test('shadow mode starts the exact V6 ED pathway and executes the source event', async () => {
   const tx = {
     $queryRawUnsafe: jest.fn()
       .mockResolvedValueOnce([visit()])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 81 }]),
   };
 
   const result = await projectEmergencyPathwayEvent({
     tx,
     consumerKey: 'care_pathway_projector',
-    generation: 5,
+    generation: 6,
     tenantId: TENANT_ID,
     event: event(),
   });
@@ -151,6 +159,61 @@ test('shadow mode starts the exact V5 ED pathway and executes the source event',
   }));
 });
 
+test('generation replay preserves an existing version-1 ED runtime', async () => {
+  const tx = {
+    $queryRawUnsafe: jest.fn()
+      .mockResolvedValueOnce([visit()])
+      .mockResolvedValueOnce([{
+        id: PATHWAY_ID,
+        clinical_status: 'active',
+        pathway_version: 1,
+      }]),
+  };
+
+  const result = await projectEmergencyPathwayEvent({
+    tx,
+    consumerKey: 'care_pathway_projector',
+    generation: 6,
+    tenantId: TENANT_ID,
+    event: event(),
+  });
+
+  expect(result).toMatchObject({
+    pathway_instance_id: PATHWAY_ID,
+    pathway_replayed: true,
+  });
+  expect(startCarePathwayInstance).not.toHaveBeenCalled();
+  expect(executePathwayCommand).toHaveBeenCalledWith(expect.objectContaining({
+    pathwayInstanceId: PATHWAY_ID,
+    registry: expect.objectContaining({ version: 5 }),
+  }));
+});
+
+test('fails closed instead of reinterpreting an unknown persisted ED runtime', async () => {
+  const tx = {
+    $queryRawUnsafe: jest.fn()
+      .mockResolvedValueOnce([visit()])
+      .mockResolvedValueOnce([{
+        id: PATHWAY_ID,
+        clinical_status: 'active',
+        pathway_version: 99,
+      }]),
+  };
+
+  await expect(projectEmergencyPathwayEvent({
+    tx,
+    consumerKey: 'care_pathway_projector',
+    generation: 6,
+    tenantId: TENANT_ID,
+    event: event(),
+  })).rejects.toMatchObject({
+    statusCode: 409,
+    code: 'EMERGENCY_PATHWAY_RUNTIME_UNSUPPORTED',
+  });
+  expect(startCarePathwayInstance).not.toHaveBeenCalled();
+  expect(executePathwayCommand).not.toHaveBeenCalled();
+});
+
 test('active mode fails closed without a reconciliation activation capability', async () => {
   resolvePathwayModeTx.mockResolvedValue('active');
   const tx = { $queryRawUnsafe: jest.fn() };
@@ -158,7 +221,7 @@ test('active mode fails closed without a reconciliation activation capability', 
   await expect(projectEmergencyPathwayEvent({
     tx,
     consumerKey: 'care_pathway_projector',
-    generation: 5,
+    generation: 6,
     tenantId: TENANT_ID,
     event: event(),
   })).rejects.toMatchObject({
@@ -174,7 +237,7 @@ test('rejects an event whose aggregate and payload visit identities disagree', a
   await expect(projectEmergencyPathwayEvent({
     tx,
     consumerKey: 'care_pathway_projector',
-    generation: 5,
+    generation: 6,
     tenantId: TENANT_ID,
     event: event({
       payload: { emergency_visit_id: 74, patient_uid: PATIENT_UID },

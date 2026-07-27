@@ -2153,6 +2153,193 @@ async function emergencyDestinationHandoffEvidence({ tx, tenantId, pathwayKey })
   ));
 }
 
+async function emergencyClosureRecoveryEvidence({ tx, tenantId, pathwayKey }) {
+  if (pathwayKey !== CARE_PATHWAY_KEYS.EMERGENCY) {
+    return result('EMERGENCY_CLOSURE_RECOVERY_DRIFT', 0);
+  }
+  return result('EMERGENCY_CLOSURE_RECOVERY_DRIFT', await count(
+    tx,
+    `WITH terminal AS (
+       SELECT visit.id,
+              visit.patient_uid,
+              visit.encounter_id,
+              visit.attending_doctor_uid,
+              visit.status,
+              visit.is_mlc,
+              patient.is_unidentified,
+              closure.id AS closure_id,
+              closure.closure_kind,
+              closure.clinician_uid,
+              closure.identity_resolution_status,
+              closure.patient_merge_request_id,
+              closure.accepted_handoff_id,
+              closure.death_record_id,
+              closure.mlc_record_id,
+              handoff.id AS handoff_id,
+              handoff.metadata ->> 'destination' AS destination,
+              death.status AS death_status,
+              death.certified_at,
+              custody.has_receive AS custody_has_receive,
+              custody.has_release AS custody_has_release,
+              mlc.status AS mlc_status,
+              review.completeness_status,
+              review.certification_blocked,
+              COALESCE(recovery.attempt_count, 0)::integer AS attempt_count,
+              recovery.outcome_count,
+              merge_request.status AS merge_status
+         FROM emergency_visits AS visit
+         JOIN tenants AS tenant
+           ON tenant.id = visit.tenant_id
+         JOIN users AS patient
+           ON patient.tenant_id = visit.tenant_id
+          AND patient.uid = visit.patient_uid
+         LEFT JOIN LATERAL (
+           SELECT candidate.*
+             FROM ed_closure_evidence AS candidate
+            WHERE candidate.tenant_id = visit.tenant_id
+              AND candidate.emergency_visit_id = visit.id
+            ORDER BY candidate.evidence_revision DESC
+            LIMIT 1
+         ) AS closure ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT candidate.*
+             FROM care_handoff_instances AS candidate
+            WHERE candidate.tenant_id = visit.tenant_id
+              AND candidate.patient_uid = visit.patient_uid
+              AND candidate.handoff_type = 'ed_destination_handoff'
+              AND candidate.source_resource_type = 'emergency_visit'
+              AND candidate.source_resource_id = visit.id::text
+              AND candidate.status = 'accepted'
+            ORDER BY candidate.accepted_at DESC, candidate.id DESC
+            LIMIT 1
+         ) AS handoff ON TRUE
+         LEFT JOIN death_records AS death
+           ON death.id = closure.death_record_id
+          AND death.tenant_id = visit.tenant_id
+          AND death.patient_uid = visit.patient_uid
+         LEFT JOIN LATERAL (
+           SELECT BOOL_OR(event.event_type = 'receive') AS has_receive,
+                  BOOL_OR(event.event_type = 'release') AS has_release
+             FROM body_custody_events AS event
+            WHERE event.tenant_id = visit.tenant_id
+              AND event.death_record_id = death.id
+         ) AS custody ON TRUE
+         LEFT JOIN mlc_records AS mlc
+           ON mlc.id = closure.mlc_record_id
+          AND mlc.tenant_id = visit.tenant_id
+          AND mlc.patient_uid = visit.patient_uid
+          AND mlc.emergency_visit_id = visit.id
+         LEFT JOIN mlc_completeness_reviews AS review
+           ON review.tenant_id = mlc.tenant_id
+          AND review.mlc_record_id = mlc.id
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*) FILTER (
+                    WHERE event.event_kind = 'attempt'
+                  )::integer AS attempt_count,
+                  COUNT(*) FILTER (
+                    WHERE event.event_kind = 'outcome'
+                  )::integer AS outcome_count
+             FROM ed_recovery_contact_events AS event
+            WHERE event.tenant_id = visit.tenant_id
+              AND event.emergency_visit_id = visit.id
+              AND (
+                closure.id IS NULL
+                OR event.closure_evidence_id = closure.id
+              )
+         ) AS recovery ON TRUE
+         LEFT JOIN patient_merge_requests AS merge_request
+           ON merge_request.tenant_id = visit.tenant_id
+          AND merge_request.id = closure.patient_merge_request_id
+        WHERE visit.tenant_id = $1::uuid
+          AND tenant.settings #>>
+                '{care_pathways,emergency_arrival_to_aftercare}'
+                IN ('shadow', 'active')
+          AND visit.status IN (
+            'discharged',
+            'left_against_advice',
+            'lwbs',
+            'transferred',
+            'expired'
+          )
+     )
+     SELECT COUNT(*)::integer AS finding_count
+       FROM terminal
+      WHERE (
+        status = 'discharged'
+        AND closure_kind IS DISTINCT FROM 'discharge'
+      )
+      OR (
+        status = 'left_against_advice'
+        AND (
+          closure_kind IS DISTINCT FROM 'left_against_medical_advice'
+          OR attempt_count < 1
+          OR COALESCE(outcome_count, 0) < 1
+        )
+      )
+      OR (
+        status = 'lwbs'
+        AND (
+          closure_kind IS DISTINCT FROM 'lwbs'
+          OR attempt_count < 1
+          OR COALESCE(outcome_count, 0) < 1
+        )
+      )
+      OR (
+        status = 'transferred'
+        AND destination = 'external_transfer'
+        AND (
+          closure_kind IS DISTINCT FROM 'external_transfer'
+          OR accepted_handoff_id IS DISTINCT FROM handoff_id
+        )
+      )
+      OR (
+        status = 'expired'
+        AND (
+          closure_kind IS DISTINCT FROM 'death'
+          OR death_status NOT IN (
+            'certified',
+            'submitted_to_registrar',
+            'registered'
+          )
+          OR certified_at IS NULL
+          OR custody_has_receive IS DISTINCT FROM TRUE
+          OR custody_has_release IS DISTINCT FROM TRUE
+          OR (
+            is_mlc
+            AND (
+              mlc_status NOT IN ('certified', 'closed')
+              OR completeness_status NOT IN (
+                'complete',
+                'certified',
+                'closed'
+              )
+              OR certification_blocked IS DISTINCT FROM FALSE
+            )
+          )
+        )
+      )
+      OR (
+        closure_id IS NOT NULL
+        AND clinician_uid IS DISTINCT FROM attending_doctor_uid
+      )
+      OR (
+        is_unidentified
+        AND (
+          identity_resolution_status IS NULL
+          OR (
+            identity_resolution_status = 'merge_requested'
+            AND merge_status NOT IN ('requested', 'approved')
+          )
+          OR (
+            identity_resolution_status = 'merged'
+            AND merge_status <> 'executed'
+          )
+        )
+      )`,
+    tenantId,
+  ));
+}
+
 export const COMMON_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'runtime_pins', handlerVersion: 'care_pathway.runtime_pins.v1', run: runtimePins }),
   Object.freeze({ id: 'transition_sequence', handlerVersion: 'care_pathway.transition_sequence.v1', run: transitionSequence }),
@@ -2202,6 +2389,15 @@ export const INPATIENT_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
 export const EMERGENCY_PATHWAY_RECONCILIATION_CHECKS = Object.freeze([
   Object.freeze({ id: 'emergency_source_projection', handlerVersion: 'care_pathway.emergency_source_projection.v1', run: emergencySourceProjectionEvidence }),
   Object.freeze({ id: 'emergency_destination_handoff_evidence', handlerVersion: 'care_pathway.emergency_destination_handoff_evidence.v1', run: emergencyDestinationHandoffEvidence }),
+]);
+
+export const EMERGENCY_PATHWAY_RECONCILIATION_CHECKS_V2 = Object.freeze([
+  ...EMERGENCY_PATHWAY_RECONCILIATION_CHECKS,
+  Object.freeze({
+    id: 'emergency_closure_recovery_evidence',
+    handlerVersion: 'care_pathway.emergency_closure_recovery_evidence.v1',
+    run: emergencyClosureRecoveryEvidence,
+  }),
 ]);
 
 export default COMMON_PATHWAY_RECONCILIATION_CHECKS;

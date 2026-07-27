@@ -8909,6 +8909,7 @@ class AppStrings {
       'ed_trauma.handoff.decline': "Decline",
       'ed_trauma.handoff.declined': "Destination handoff declined",
       'ed_trauma.handoff.decline_title': "Why is this handoff declined?",
+      'ed_trauma.handoff.decline_reason_code': "Structured decline reason",
       'ed_trauma.handoff.decline_reason': "Decline reason: {reason}",
       'ed_trauma.handoff.reroute': "Reroute",
       'ed_trauma.handoff.rerouted': "Destination handoff rerouted",
@@ -8919,6 +8920,80 @@ class AppStrings {
       'ed_trauma.handoff.visit_required': "ED visit ID is required",
       'ed_trauma.handoff.role_reason_required':
           "Receiving role and clinical reason are required",
+      'ed_trauma.continuity.title': "ED destination and aftercare",
+      'ed_trauma.continuity.intro':
+          "Load an ED visit to verify destination acceptance, discharge or transfer evidence, LAMA/LWBS recovery, and death or MLC closure.",
+      'ed_trauma.continuity.load': "Load ED continuity",
+      'ed_trauma.continuity.visit_status':
+          "Visit status: {status} · disposition: {disposition}",
+      'ed_trauma.continuity.branch_complete': "Branch closure complete",
+      'ed_trauma.continuity.handoff_accepted': "Destination accepted",
+      'ed_trauma.continuity.identity_complete': "Identity accounted for",
+      'ed_trauma.continuity.recovery_complete': "Recovery outcome recorded",
+      'ed_trauma.continuity.death_certified': "Death certified",
+      'ed_trauma.continuity.mortuary_recorded': "Mortuary custody recorded",
+      'ed_trauma.continuity.mlc_complete': "MLC complete",
+      'ed_trauma.continuity.bed_pending':
+          "Admission is accepted but the bed is still pending.",
+      'ed_trauma.continuity.transition_title': "Advance ED visit",
+      'ed_trauma.continuity.next_status': "Next visit status",
+      'ed_trauma.continuity.disposition': "Disposition",
+      'ed_trauma.continuity.transition': "Record visit transition",
+      'ed_trauma.continuity.transition_saved': "ED visit transition recorded",
+      'ed_trauma.continuity.closure_title': "Record closure evidence",
+      'ed_trauma.continuity.closure_kind': "Closure branch",
+      'ed_trauma.continuity.follow_up_required': "Follow-up is required",
+      'ed_trauma.continuity.follow_up_plan_id': "Exact follow-up plan ID",
+      'ed_trauma.continuity.no_follow_up_reason':
+          "Doctor's reason that follow-up is not required",
+      'ed_trauma.continuity.patient_steps': "Patient-safe next steps",
+      'ed_trauma.continuity.add_patient_step': "Add another patient step",
+      'ed_trauma.continuity.patient_step_number': "Patient step {number}",
+      'ed_trauma.continuity.step_label': "Step label",
+      'ed_trauma.continuity.step_explanation': "Patient-safe explanation",
+      'ed_trauma.continuity.step_due_date': "Due date (YYYY-MM-DD)",
+      'ed_trauma.continuity.step_status': "Step status",
+      'ed_trauma.continuity.patient_action': "What the patient should do",
+      'ed_trauma.continuity.route_token':
+          "Safe app route, for example appointments",
+      'ed_trauma.continuity.medication_reconciliation_id':
+          "Completed discharge medication reconciliation UUID",
+      'ed_trauma.continuity.medication_not_applicable':
+          "Doctor's reason medication reconciliation is not applicable",
+      'ed_trauma.continuity.risk_code': "Clinical risk code",
+      'ed_trauma.continuity.risk_summary': "Clinical risk summary",
+      'ed_trauma.continuity.accepted_handoff_id':
+          "Accepted destination handoff UUID",
+      'ed_trauma.continuity.receiving_facility': "Receiving facility",
+      'ed_trauma.continuity.receiving_reference':
+          "Receiving facility reference",
+      'ed_trauma.continuity.receiving_confirmed_by':
+          "Person who confirmed receipt",
+      'ed_trauma.continuity.summary_resource_type':
+          "Clinical summary resource type",
+      'ed_trauma.continuity.summary_resource_id':
+          "Clinical summary resource ID",
+      'ed_trauma.continuity.ambulance_request_id': "Ambulance request ID",
+      'ed_trauma.continuity.transport_reference': "Transport reference",
+      'ed_trauma.continuity.external_attestation':
+          "Saving records that receiving acceptance, summary delivery, and transport were confirmed now.",
+      'ed_trauma.continuity.death_record_id': "Certified death record ID",
+      'ed_trauma.continuity.identity_status': "Identity resolution status",
+      'ed_trauma.continuity.identity_reason':
+          "Reason temporary identity must remain",
+      'ed_trauma.continuity.merge_request_id': "Patient merge request ID",
+      'ed_trauma.continuity.record_closure': "Record closure evidence",
+      'ed_trauma.continuity.closure_saved': "ED closure evidence recorded",
+      'ed_trauma.continuity.recovery_title': "LAMA or LWBS recovery",
+      'ed_trauma.continuity.recovery_kind': "Recovery event",
+      'ed_trauma.continuity.contact_channel': "Contact channel",
+      'ed_trauma.continuity.outcome_code': "Clinician outcome code",
+      'ed_trauma.continuity.patient_safe_summary': "Patient-safe summary",
+      'ed_trauma.continuity.staff_notes': "Private staff notes",
+      'ed_trauma.continuity.record_recovery': "Record recovery evidence",
+      'ed_trauma.continuity.recovery_saved': "ED recovery evidence recorded",
+      'ed_trauma.continuity.closure_history': "Closure revision history",
+      'ed_trauma.continuity.recovery_history': "Recovery contact history",
       'ed_trauma.policy_active': "ED policy active: {scale}",
       'ed_trauma.policy_inactive': "ED policy is not active",
       'ed_trauma.activation': "Trauma activation",

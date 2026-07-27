@@ -587,6 +587,7 @@ model ambulance_requests {
   created_at               DateTime                   @default(now()) @db.Timestamptz(6)
   updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
   tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ed_closure_evidence      ed_closure_evidence[]
   prehospital_device_links prehospital_device_links[]
   prehospital_handovers    prehospital_handovers[]
 
@@ -5004,8 +5005,10 @@ model emergency_visits {
   encounter_id                  String                          @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   admissions                    admissions[]                    @relation("AdmissionFromErVisit")
   burn_charts                   burn_charts[]
+  ed_closure_evidence           ed_closure_evidence[]
   ed_encounter_evidence         ed_encounter_evidence[]
   ed_injury_diagram_attachments ed_injury_diagram_attachments[]
+  ed_recovery_contact_events    ed_recovery_contact_events[]
   tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   mlc_completeness_reviews      mlc_completeness_reviews[]
   mlc_records                   mlc_records[]
@@ -5018,6 +5021,7 @@ model emergency_visits {
   triage_assessments            triage_assessments[]
 
   @@unique([tenant_id, visit_number])
+  @@unique([tenant_id, id], map: "ux_emergency_visits_tenant_id")
   @@index([tenant_id, status, arrival_at(sort: Desc)], map: "idx_ed_visits_tenant_status")
   @@index([tenant_id, is_mlc, arrival_at(sort: Desc)], map: "idx_ed_visits_mlc", where: raw("(is_mlc = true)"))
   @@index([tenant_id, arrival_at(sort: Desc)], map: "idx_ed_visits_open", where: raw("((status)::text <> ALL (ARRAY[('discharged'::character varying)::text, ('transferred'::character varying)::text, ('left_against_advice'::character varying)::text, ('lwbs'::character varying)::text, ('expired'::character varying)::text, ('archived'::character varying)::text]))"))
@@ -5415,6 +5419,7 @@ model follow_up_plans {
   created_by                String?                     @db.Uuid
   created_at                DateTime                    @default(now()) @db.Timestamptz(6)
   updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  ed_closure_evidence       ed_closure_evidence[]
   care_plans                care_plans?                 @relation(fields: [care_plan_id], references: [id], onUpdate: NoAction)
   tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   op_visit_closure_evidence op_visit_closure_evidence[]
@@ -6608,6 +6613,7 @@ model medication_reconciliations {
   metadata                        Json                              @default("{}")
   created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
   updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  ed_closure_evidence             ed_closure_evidence[]
   medication_reconciliation_items medication_reconciliation_items[]
   tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_reconciliations_tenant")
 
@@ -6761,6 +6767,7 @@ model mlc_records {
   created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
   updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
   burn_charts                   burn_charts[]
+  ed_closure_evidence           ed_closure_evidence[]
   ed_injury_diagram_attachments ed_injury_diagram_attachments[]
   mlc_completeness_audit_events mlc_completeness_audit_events[]
   mlc_completeness_reviews      mlc_completeness_reviews[]
@@ -7381,6 +7388,7 @@ model patient_merge_requests {
   metadata                     Json                          @default("{}")
   created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  ed_closure_evidence          ed_closure_evidence[]
   patient_duplicate_candidates patient_duplicate_candidates? @relation(fields: [candidate_id], references: [id], onUpdate: NoAction)
   tenants                      tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -11020,8 +11028,12 @@ model users {
   discharge_pending_result_handoffs_discharge_pending_result_handoffs_tenant_id_resolved_by_uidTousers             discharge_pending_result_handoffs[]       @relation("discharge_pending_result_handoffs_tenant_id_resolved_by_uidTousers")
   discharge_pending_result_owner_actions                                                                           discharge_pending_result_owner_actions[]
   doctors                                                                                                          doctors[]
+  ed_closure_evidence_ed_closure_evidence_tenant_id_clinician_uidTousers                                           ed_closure_evidence[]                     @relation("ed_closure_evidence_tenant_id_clinician_uidTousers")
+  ed_closure_evidence_ed_closure_evidence_tenant_id_patient_uidTousers                                             ed_closure_evidence[]                     @relation("ed_closure_evidence_tenant_id_patient_uidTousers")
   ed_encounter_evidence                                                                                            ed_encounter_evidence[]
   ed_injury_diagram_attachments                                                                                    ed_injury_diagram_attachments[]
+  ed_recovery_contact_events_ed_recovery_contact_events_tenant_id_recorded_by_uidTousers                           ed_recovery_contact_events[]              @relation("ed_recovery_contact_events_tenant_id_recorded_by_uidTousers")
+  ed_recovery_contact_events_ed_recovery_contact_events_tenant_id_patient_uidTousers                               ed_recovery_contact_events[]              @relation("ed_recovery_contact_events_tenant_id_patient_uidTousers")
   family_members                                                                                                   family_members[]
   feedback_nps_responses                                                                                           feedback_nps_responses[]
   full_final_settlements                                                                                           full_final_settlements[]
@@ -11854,6 +11866,7 @@ model care_handoff_instances {
   care_teams                              care_teams?                               @relation(fields: [tenant_id, intended_team_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_care_handoff_team_patient")
   tenants                                 tenants                                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_care_handoff_tenant")
   care_pathway_resource_references        care_pathway_resource_references[]
+  ed_closure_evidence                     ed_closure_evidence[]
   inpatient_primary_physician_assignments inpatient_primary_physician_assignments[]
   op_visit_closure_evidence               op_visit_closure_evidence[]
 
@@ -13837,6 +13850,7 @@ model death_records {
   created_at                   DateTime              @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime              @default(now()) @db.Timestamptz(6)
   body_custody_events          body_custody_events[]
+  ed_closure_evidence          ed_closure_evidence[]
   mortality_reviews            mortality_reviews[]
   mortuary_slots               mortuary_slots[]
 
@@ -15629,6 +15643,8 @@ model patient_encounters {
   cath_procedure_reports              cath_procedure_reports[]
   cath_report_addenda                 cath_report_addenda[]
   diagnostic_result_generations       diagnostic_result_generations[]
+  ed_closure_evidence                 ed_closure_evidence[]
+  ed_recovery_contact_events          ed_recovery_contact_events[]
   nuclear_medicine_orders             nuclear_medicine_orders[]
   oncology_diagnoses                  oncology_diagnoses[]
   oncology_staging_records            oncology_staging_records[]
@@ -15689,7 +15705,9 @@ model clinical_timeline_events {
   diagnostic_result_generations                                                                               diagnostic_result_generations[]
   discharge_pending_result_handoffs                                                                           discharge_pending_result_handoffs[]
   discharge_pending_result_owner_actions                                                                      discharge_pending_result_owner_actions?
+  ed_closure_evidence                                                                                         ed_closure_evidence[]
   ed_encounter_evidence                                                                                       ed_encounter_evidence[]
+  ed_recovery_contact_events                                                                                  ed_recovery_contact_events[]
   inpatient_primary_physician_assignments                                                                     inpatient_primary_physician_assignments[]
   lab_critical_alert_acknowledgement_receipts                                                                 lab_critical_alert_acknowledgement_receipts?
   mlc_completeness_reviews                                                                                    mlc_completeness_reviews[]
@@ -15763,8 +15781,10 @@ model clinical_audit_events {
   diagnostic_result_actions                                                                             diagnostic_result_actions[]
   diagnostic_result_generations                                                                         diagnostic_result_generations[]
   discharge_pending_result_owner_actions                                                                discharge_pending_result_owner_actions?
+  ed_closure_evidence                                                                                   ed_closure_evidence[]
   ed_encounter_evidence                                                                                 ed_encounter_evidence[]
   ed_injury_diagram_attachments                                                                         ed_injury_diagram_attachments[]
+  ed_recovery_contact_events                                                                            ed_recovery_contact_events[]
   inpatient_primary_physician_assignments                                                               inpatient_primary_physician_assignments[]
   lab_critical_alert_acknowledgement_receipts                                                           lab_critical_alert_acknowledgement_receipts?
   mlc_completeness_reviews                                                                              mlc_completeness_reviews[]
@@ -24951,6 +24971,107 @@ model post_discharge_contact_events {
   @@unique([tenant_id, id], map: "ux_post_discharge_contact_events_tenant_id")
   @@index([tenant_id, admission_id, occurred_at(sort: Desc)], map: "idx_post_discharge_contact_events_admission")
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_post_discharge_contact_events_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ed_closure_evidence {
+  id                                                       String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  emergency_visit_id                                       Int
+  patient_uid                                              String                       @db.Uuid
+  encounter_id                                             String                       @db.Uuid
+  evidence_revision                                        Int
+  closure_kind                                             String                       @db.VarChar(40)
+  clinician_uid                                            String                       @db.Uuid
+  follow_up_required                                       Boolean
+  follow_up_plan_id                                        Int?
+  no_follow_up_reason                                      String?
+  patient_safe_next_steps                                  Json
+  medication_reconciliation_id                             String?                      @db.Uuid
+  medication_not_applicable_reason                         String?
+  risk_classification_code                                 String?                      @db.VarChar(80)
+  risk_summary                                             String?
+  accepted_handoff_id                                      String?                      @db.Uuid
+  receiving_facility_name                                  String?                      @db.VarChar(240)
+  receiving_facility_reference                             String?                      @db.VarChar(160)
+  receiving_confirmed_by                                   String?                      @db.VarChar(240)
+  receiving_confirmed_at                                   DateTime?                    @db.Timestamptz(6)
+  clinical_summary_resource_type                           String?                      @db.VarChar(80)
+  clinical_summary_resource_id                             String?                      @db.VarChar(160)
+  clinical_summary_sent_at                                 DateTime?                    @db.Timestamptz(6)
+  ambulance_request_id                                     Int?
+  transport_reference                                      String?                      @db.VarChar(160)
+  transport_confirmed_at                                   DateTime?                    @db.Timestamptz(6)
+  death_record_id                                          Int?
+  mlc_record_id                                            Int?
+  identity_resolution_status                               String                       @db.VarChar(40)
+  identity_resolution_reason                               String?
+  patient_merge_request_id                                 Int?
+  patient_visibility_status                                String                       @db.VarChar(30)
+  canonical_timeline_event_id                              String                       @db.Uuid
+  canonical_audit_event_id                                 String                       @db.Uuid
+  occurred_at                                              DateTime                     @db.Timestamptz(6)
+  recorded_at                                              DateTime                     @default(now()) @db.Timestamptz(6)
+  idempotency_key                                          String                       @db.VarChar(220)
+  metadata                                                 Json                         @default("{}")
+  ambulance_requests                                       ambulance_requests?          @relation(fields: [ambulance_request_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_ed_closure_evidence_ambulance")
+  clinical_audit_events                                    clinical_audit_events        @relation(fields: [tenant_id, canonical_audit_event_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_ed_closure_evidence_audit")
+  users_ed_closure_evidence_tenant_id_clinician_uidTousers users                        @relation("ed_closure_evidence_tenant_id_clinician_uidTousers", fields: [tenant_id, clinician_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_ed_closure_evidence_clinician")
+  death_records                                            death_records?               @relation(fields: [death_record_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_ed_closure_evidence_death")
+  patient_encounters                                       patient_encounters           @relation(fields: [tenant_id, encounter_id, patient_uid], references: [tenant_id, id, patient_uid], onUpdate: NoAction, map: "fk_ed_closure_evidence_encounter")
+  follow_up_plans                                          follow_up_plans?             @relation(fields: [tenant_id, follow_up_plan_id, patient_uid], references: [tenant_id, id, patient_uid], onUpdate: NoAction, map: "fk_ed_closure_evidence_follow_up")
+  care_handoff_instances                                   care_handoff_instances?      @relation(fields: [tenant_id, accepted_handoff_id, patient_uid], references: [tenant_id, id, patient_uid], onUpdate: NoAction, map: "fk_ed_closure_evidence_handoff")
+  medication_reconciliations                               medication_reconciliations?  @relation(fields: [medication_reconciliation_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_ed_closure_evidence_medication_reconciliation")
+  patient_merge_requests                                   patient_merge_requests?      @relation(fields: [patient_merge_request_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_ed_closure_evidence_merge")
+  mlc_records                                              mlc_records?                 @relation(fields: [mlc_record_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_ed_closure_evidence_mlc")
+  users_ed_closure_evidence_tenant_id_patient_uidTousers   users                        @relation("ed_closure_evidence_tenant_id_patient_uidTousers", fields: [tenant_id, patient_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_ed_closure_evidence_patient")
+  clinical_timeline_events                                 clinical_timeline_events     @relation(fields: [tenant_id, canonical_timeline_event_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_ed_closure_evidence_timeline")
+  emergency_visits                                         emergency_visits             @relation(fields: [tenant_id, emergency_visit_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_ed_closure_evidence_visit")
+  ed_recovery_contact_events                               ed_recovery_contact_events[]
+
+  @@unique([tenant_id, idempotency_key], map: "ux_ed_closure_evidence_idempotency")
+  @@unique([tenant_id, emergency_visit_id, evidence_revision], map: "ux_ed_closure_evidence_revision")
+  @@unique([tenant_id, id], map: "ux_ed_closure_evidence_tenant_id")
+  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_ed_closure_evidence_patient")
+  @@index([tenant_id, emergency_visit_id, evidence_revision(sort: Desc)], map: "idx_ed_closure_evidence_visit")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ed_recovery_contact_events {
+  id                                                                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                         String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  emergency_visit_id                                                Int
+  closure_evidence_id                                               String                   @db.Uuid
+  patient_uid                                                       String                   @db.Uuid
+  encounter_id                                                      String                   @db.Uuid
+  event_kind                                                        String                   @db.VarChar(30)
+  contact_channel                                                   String                   @db.VarChar(30)
+  outcome_code                                                      String?                  @db.VarChar(80)
+  patient_safe_summary                                              String?
+  staff_notes                                                       String?
+  recorded_by_uid                                                   String                   @db.Uuid
+  canonical_timeline_event_id                                       String                   @db.Uuid
+  canonical_audit_event_id                                          String                   @db.Uuid
+  occurred_at                                                       DateTime                 @db.Timestamptz(6)
+  recorded_at                                                       DateTime                 @default(now()) @db.Timestamptz(6)
+  idempotency_key                                                   String                   @db.VarChar(220)
+  metadata                                                          Json                     @default("{}")
+  users_ed_recovery_contact_events_tenant_id_recorded_by_uidTousers users                    @relation("ed_recovery_contact_events_tenant_id_recorded_by_uidTousers", fields: [tenant_id, recorded_by_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_ed_recovery_contact_events_actor")
+  clinical_audit_events                                             clinical_audit_events    @relation(fields: [tenant_id, canonical_audit_event_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_ed_recovery_contact_events_audit")
+  ed_closure_evidence                                               ed_closure_evidence      @relation(fields: [tenant_id, closure_evidence_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_ed_recovery_contact_events_closure")
+  patient_encounters                                                patient_encounters       @relation(fields: [tenant_id, encounter_id, patient_uid], references: [tenant_id, id, patient_uid], onUpdate: NoAction, map: "fk_ed_recovery_contact_events_encounter")
+  users_ed_recovery_contact_events_tenant_id_patient_uidTousers     users                    @relation("ed_recovery_contact_events_tenant_id_patient_uidTousers", fields: [tenant_id, patient_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_ed_recovery_contact_events_patient")
+  clinical_timeline_events                                          clinical_timeline_events @relation(fields: [tenant_id, canonical_timeline_event_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_ed_recovery_contact_events_timeline")
+  emergency_visits                                                  emergency_visits         @relation(fields: [tenant_id, emergency_visit_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_ed_recovery_contact_events_visit")
+
+  @@unique([tenant_id, idempotency_key], map: "ux_ed_recovery_contact_events_idempotency")
+  @@unique([tenant_id, id], map: "ux_ed_recovery_contact_events_tenant_id")
+  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_ed_recovery_contact_events_patient")
+  @@index([tenant_id, emergency_visit_id, occurred_at(sort: Desc), id(sort: Desc)], map: "idx_ed_recovery_contact_events_visit")
 }
 
 enum transplant_organ_type {

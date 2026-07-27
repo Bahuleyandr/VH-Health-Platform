@@ -320,6 +320,43 @@ test.each([
   expect(appendTransitionMock).not.toHaveBeenCalled();
 });
 
+test('structured destination decline reasons are versioned and allow only canonical codes', async () => {
+  const base = {
+    tenantId: TENANT_ID,
+    emergencyVisitId: VISIT_ID,
+    pathwayInstanceId: PATHWAY_ID,
+    handoffId: HANDOFF_ID,
+    recipientRole: 'ICU_NURSE',
+    actorUid: RECIPIENT_UID,
+    decision: 'decline',
+    reason: 'No monitored bed is currently available',
+  };
+  const legacy = __testing__.decisionFingerprint(base);
+  const structured = __testing__.decisionFingerprint({
+    ...base,
+    reasonCode: 'capacity_unavailable',
+  });
+
+  expect(structured).not.toBe(legacy);
+  expect(__testing__.ED_HANDOFF_DECLINE_REASON_CODES).toContain(
+    'capacity_unavailable',
+  );
+  await expect(decideEdDestinationHandoff({
+    tenantId: TENANT_ID,
+    emergencyVisitId: VISIT_ID,
+    handoffId: HANDOFF_ID,
+    decision: 'decline',
+    reason: base.reason,
+    reasonCode: 'invented_capacity_policy',
+    idempotencyKey: 'decline-key',
+    actor: actor(RECIPIENT_UID, 'ICU_NURSE'),
+  })).rejects.toMatchObject({
+    statusCode: 400,
+    code: 'ED_DESTINATION_HANDOFF_INPUT_INVALID',
+  });
+  expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+});
+
 test('an exact active role holder accepts and atomically settles the no-SLA task', async () => {
   const requestFingerprint = fingerprint();
   const requestKey = __testing__.namespaceIdempotencyKey(

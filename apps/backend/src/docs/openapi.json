@@ -14018,6 +14018,262 @@
           }
         }
       },
+      "EdClosureEvidenceMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/EdClosureEvidenceMutationResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "EdClosureEvidenceMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "replayed",
+          "closure_evidence"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "shadow",
+              "active"
+            ]
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "closure_evidence": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EdClosureEvidenceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "closure_kind",
+          "identity_resolution_status"
+        ],
+        "properties": {
+          "closure_kind": {
+            "type": "string",
+            "enum": [
+              "discharge",
+              "left_against_medical_advice",
+              "lwbs",
+              "external_transfer",
+              "death"
+            ]
+          },
+          "follow_up_required": {
+            "type": "boolean"
+          },
+          "follow_up_plan_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "no_follow_up_reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "patient_safe_next_steps": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/EdPatientNextStepRequest"
+            }
+          },
+          "patient_next_steps": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/EdPatientNextStepRequest"
+            }
+          },
+          "medication_reconciliation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "medication_not_applicable_reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "risk_classification_code": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,79}$"
+          },
+          "risk_summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "accepted_handoff_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receiving_facility_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "receiving_facility_reference": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "receiving_confirmed_by": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "receiving_confirmed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "clinical_summary_resource_type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,79}$"
+          },
+          "clinical_summary_resource_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "clinical_summary_sent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ambulance_request_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "transport_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "transport_confirmed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "death_record_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "mlc_record_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "identity_resolution_status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "temporary_identity_retained",
+              "merge_requested",
+              "merged"
+            ]
+          },
+          "identity_resolution_reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "patient_merge_request_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EdContinuityResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/EdContinuityResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "EdContinuityResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "continuity",
+          "closure_history",
+          "recovery_contacts"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "shadow",
+              "active"
+            ]
+          },
+          "continuity": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "closure_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "recovery_contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
       "EdDestinationHandoff": {
         "type": "object",
         "additionalProperties": false,
@@ -14108,6 +14364,15 @@
             "minLength": 1,
             "maxLength": 2000,
             "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+          },
+          "reason_code": {
+            "type": "string",
+            "enum": [
+              "capacity_unavailable",
+              "clinical_mismatch",
+              "resource_unavailable",
+              "other"
+            ]
           }
         },
         "allOf": [
@@ -14180,6 +14445,7 @@
           "status",
           "request_reason",
           "decline_reason",
+          "decline_reason_code",
           "reroute_reason",
           "requested_at",
           "accepted_at",
@@ -14225,6 +14491,16 @@
           "decline_reason": {
             "type": "string",
             "nullable": true
+          },
+          "decline_reason_code": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "capacity_unavailable",
+              "clinical_mismatch",
+              "resource_unavailable",
+              "other"
+            ]
           },
           "reroute_reason": {
             "type": "string",
@@ -14522,6 +14798,158 @@
           "source_handoff_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "EdPatientNextStepRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "explanation": {
+            "type": "string",
+            "maxLength": 1200
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "open",
+              "scheduled",
+              "pending",
+              "in_progress",
+              "ready",
+              "completed",
+              "cancelled",
+              "on_hold",
+              "overdue"
+            ]
+          },
+          "patient_action": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "route_token": {
+            "type": "string",
+            "enum": [
+              "home",
+              "health",
+              "appointments",
+              "book_appointment",
+              "investigations",
+              "lab_results",
+              "diagnostic_results",
+              "referrals",
+              "discharge_summaries",
+              "messages"
+            ]
+          }
+        }
+      },
+      "EdRecoveryContactMutationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/EdRecoveryContactMutationResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "EdRecoveryContactMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "replayed",
+          "recovery_contact"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "shadow",
+              "active"
+            ]
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "recovery_contact": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EdRecoveryContactRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_kind",
+          "contact_channel"
+        ],
+        "properties": {
+          "event_kind": {
+            "type": "string",
+            "enum": [
+              "attempt",
+              "outcome"
+            ]
+          },
+          "contact_channel": {
+            "type": "string",
+            "enum": [
+              "phone",
+              "sms",
+              "email",
+              "patient_portal",
+              "in_person",
+              "video",
+              "other"
+            ]
+          },
+          "outcome_code": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,79}$"
+          },
+          "patient_safe_summary": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "staff_notes": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -45259,6 +45687,60 @@
         }
       }
     },
+    "/api/v1/admin/ed/visits/{id}/closure-evidence": {
+      "post": {
+        "operationId": "post_api_v1_admin_ed_visits_by_id_closure_evidence",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/ed/visits/{id}/continuity": {
+      "get": {
+        "operationId": "get_api_v1_admin_ed_visits_by_id_continuity",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/ed/visits/{id}/destination-handoffs": {
       "post": {
         "operationId": "post_api_v1_admin_ed_visits_by_id_destination_handoffs",
@@ -45347,6 +45829,33 @@
           },
           {
             "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/ed/visits/{id}/recovery-contacts": {
+      "post": {
+        "operationId": "post_api_v1_admin_ed_visits_by_id_recovery_contacts",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -76989,6 +77498,87 @@
         }
       }
     },
+    "/api/v1/ed/visits/{id}/closure-evidence": {
+      "post": {
+        "operationId": "post_api_v1_ed_visits_by_id_closure_evidence",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdClosureEvidenceMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record an append-only ED branch closure revision",
+        "description": "Records exact discharge, LAMA, LWBS, external-transfer, or death closure evidence as the named ED clinician. A new revision returns 201 and exact idempotent replay returns 200.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EdClosureEvidenceRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ed/visits/{id}/continuity": {
+      "get": {
+        "operationId": "get_api_v1_ed_visits_by_id_continuity",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdContinuityResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read exact ED destination, closure, and recovery evidence",
+        "description": "Returns staff-only ED branch readiness, append-only closure revisions, and recovery contacts. Patient-safe aftercare is projected separately through the patient care-plan API.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/ed/visits/{id}/destination-handoffs": {
       "post": {
         "operationId": "post_api_v1_ed_visits_by_id_destination_handoffs",
@@ -77154,6 +77744,57 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/EdDestinationHandoffRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ed/visits/{id}/recovery-contacts": {
+      "post": {
+        "operationId": "post_api_v1_ed_visits_by_id_recovery_contacts",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdRecoveryContactMutationResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record an append-only LAMA or LWBS recovery event",
+        "description": "Records a policy-neutral contact attempt or clinician outcome against the latest exact LAMA or LWBS closure revision. No timer or attempt threshold is invented.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EdRecoveryContactRequest"
               }
             }
           }

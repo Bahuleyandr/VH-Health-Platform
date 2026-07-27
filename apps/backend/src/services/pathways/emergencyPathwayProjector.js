@@ -1,10 +1,15 @@
 import { AppError } from '../../utils/AppError.js';
+import { reconcileEdClosureTaskTx } from '../ed/edClosureRecoveryService.js';
 import { ensureEmergencyPatientEncounterTx } from '../ed/edPathwayDomainService.js';
 import {
   createRegisteredWorkflowSystemActor,
   workflowRuntimeRegistryV5,
+  workflowRuntimeRegistryV6,
 } from '../workflow/workflowRuntimeRegistry.js';
-import { compileEmergencyArrivalToAftercareDefinition } from './emergencyPathwayDefinition.js';
+import {
+  compileEmergencyArrivalToAftercareDefinition,
+  compileEmergencyArrivalToAftercareDefinitionV2,
+} from './emergencyPathwayDefinition.js';
 import {
   executePathwayCommand,
   startCarePathwayInstance,
@@ -12,10 +17,16 @@ import {
 import { CARE_PATHWAY_KEYS, PATHWAY_MODES } from './pathwayMode.js';
 import { resolvePathwayModeTx } from './pathwayRuntimePersistence.js';
 
-export const EMERGENCY_PATHWAY_EVENT_TYPES = Object.freeze([
+export const EMERGENCY_PATHWAY_EVENT_TYPES_V1 = Object.freeze([
   'emergency.visit.created',
   'emergency.visit.transitioned',
   'emergency.visit.destination_closed',
+]);
+
+export const EMERGENCY_PATHWAY_EVENT_TYPES = Object.freeze([
+  ...EMERGENCY_PATHWAY_EVENT_TYPES_V1,
+  'emergency.visit.closure_evidence_recorded',
+  'emergency.visit.recovery_contact_recorded',
 ]);
 
 function positiveId(value) {
@@ -70,7 +81,7 @@ async function loadEmergencyVisitTx(tx, tenantId, event) {
   return visit;
 }
 
-async function approvedDefinitionIdTx(tx, tenantId, checksum) {
+async function approvedDefinitionIdTx(tx, tenantId, checksum, version) {
   const rows = await tx.$queryRawUnsafe(
     `SELECT definition.id
        FROM workflow_definitions AS definition
@@ -79,7 +90,7 @@ async function approvedDefinitionIdTx(tx, tenantId, checksum) {
         AND governance.workflow_definition_id = definition.id
       WHERE definition.tenant_id = $1::uuid
         AND definition.workflow_key = $2::text
-        AND definition.version = 1
+        AND definition.version = $4::integer
         AND definition.is_active = TRUE
         AND governance.governance_status = 'approved'
         AND governance.definition_checksum = $3::char(64)
@@ -91,6 +102,7 @@ async function approvedDefinitionIdTx(tx, tenantId, checksum) {
     tenantId,
     CARE_PATHWAY_KEYS.EMERGENCY,
     checksum,
+    version,
   );
   if (rows.length !== 1) {
     throw AppError.conflict(
@@ -105,7 +117,7 @@ async function approvedDefinitionIdTx(tx, tenantId, checksum) {
 
 async function loadPathwayInstanceTx(tx, tenantId, emergencyVisitId) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT id, clinical_status
+    `SELECT id, clinical_status, pathway_version
        FROM care_pathway_instances
       WHERE tenant_id = $1::uuid
         AND pathway_key = $2::text
@@ -163,19 +175,50 @@ export async function projectEmergencyPathwayEvent({
     visit,
     actorUid: visit.attending_doctor_uid,
   });
-  const runtimeRegistry = workflowRuntimeRegistryV5;
-  const compiled = compileEmergencyArrivalToAftercareDefinition({
-    registry: runtimeRegistry,
-  });
-  const workflowDefinitionId = await approvedDefinitionIdTx(
-    tx,
-    tenantId,
-    compiled.checksum,
-  );
+  let pathway = await loadPathwayInstanceTx(tx, tenantId, visit.id);
+  if (event.event_type !== 'emergency.visit.created' && !pathway) {
+    throw AppError.conflict(
+      'Emergency pathway instance is unavailable',
+      'EMERGENCY_PATHWAY_INSTANCE_MISSING',
+    );
+  }
+  if (
+    pathway
+    && !['planned', 'active', 'on_hold'].includes(pathway.clinical_status)
+  ) {
+    return Object.freeze({
+      ...boundedOutcome({ consumerKey, generation, event, mode, visit }),
+      pathway_instance_id: String(pathway.id),
+      terminal_instance_skipped: true,
+    });
+  }
+  if (pathway && ![1, 2].includes(Number(pathway.pathway_version))) {
+    throw AppError.conflict(
+      'Emergency pathway runtime version is unsupported',
+      'EMERGENCY_PATHWAY_RUNTIME_UNSUPPORTED',
+    );
+  }
+  const legacyRuntime = Number(pathway?.pathway_version) === 1;
+  const runtimeRegistry = legacyRuntime
+    ? workflowRuntimeRegistryV5
+    : workflowRuntimeRegistryV6;
+  const compiled = legacyRuntime
+    ? compileEmergencyArrivalToAftercareDefinition({ registry: runtimeRegistry })
+    : compileEmergencyArrivalToAftercareDefinitionV2({ registry: runtimeRegistry });
+  const workflowDefinitionId = event.event_type === 'emergency.visit.created' && !pathway
+    ? await approvedDefinitionIdTx(
+      tx,
+      tenantId,
+      compiled.checksum,
+      compiled.version,
+    )
+    : null;
   const occurredAt = new Date(event.created_at).toISOString();
   const actor = createRegisteredWorkflowSystemActor({
     registry: runtimeRegistry,
-    systemKey: 'emergency.pathway_projector.v1',
+    systemKey: legacyRuntime
+      ? 'emergency.pathway_projector.v1'
+      : 'emergency.pathway_projector.v2',
     sourceEventId: event.id,
     causationId: `event_outbox:${event.id}`,
     signalContext: {
@@ -185,8 +228,7 @@ export async function projectEmergencyPathwayEvent({
     },
   });
 
-  let pathway;
-  if (event.event_type === 'emergency.visit.created') {
+  if (event.event_type === 'emergency.visit.created' && !pathway) {
     pathway = await startCarePathwayInstance({
       tenantId,
       workflowDefinitionId,
@@ -212,21 +254,8 @@ export async function projectEmergencyPathwayEvent({
       activationEvidenceCapability,
       tx,
     });
-  } else {
-    pathway = await loadPathwayInstanceTx(tx, tenantId, visit.id);
-    if (!pathway) {
-      throw AppError.conflict(
-        'Emergency pathway instance is unavailable',
-        'EMERGENCY_PATHWAY_INSTANCE_MISSING',
-      );
-    }
-    if (!['planned', 'active', 'on_hold'].includes(pathway.clinical_status)) {
-      return Object.freeze({
-        ...boundedOutcome({ consumerKey, generation, event, mode, visit }),
-        pathway_instance_id: String(pathway.id),
-        terminal_instance_skipped: true,
-      });
-    }
+  } else if (event.event_type === 'emergency.visit.created') {
+    pathway = Object.freeze({ ...pathway, replayed: true });
   }
 
   const executed = await executePathwayCommand({
@@ -246,11 +275,23 @@ export async function projectEmergencyPathwayEvent({
     activationEvidenceCapability,
     tx,
   });
+  const taskReconciliation = mode === PATHWAY_MODES.ACTIVE && !legacyRuntime
+    ? await reconcileEdClosureTaskTx({
+      tx,
+      tenantId,
+      emergencyVisitId: visit.id,
+      pathwayInstanceId: pathway.id,
+    })
+    : null;
   return Object.freeze({
     ...boundedOutcome({ consumerKey, generation, event, mode, visit }),
     pathway_instance_id: String(pathway.id),
     pathway_replayed: pathway.replayed === true,
     command_replayed: executed.replayed === true,
+    closure_task_id: taskReconciliation?.task?.id
+      ? Number(taskReconciliation.task.id)
+      : null,
+    closure_task_status: taskReconciliation?.task?.status || null,
   });
 }
 

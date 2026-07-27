@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 
 import {
   EMERGENCY_PATHWAY_RUNTIME_HANDLERS,
+  EMERGENCY_PATHWAY_RUNTIME_HANDLERS_V2,
   loadEmergencyPathwayEvidence,
 } from '../../services/pathways/emergencyPathwayHandlers.js';
 
@@ -181,6 +182,39 @@ test('explicit non-receiver ED closures bypass destination acceptance without fa
   await expect(
     EMERGENCY_PATHWAY_RUNTIME_HANDLERS.destinationAcceptance.evaluate({
       loadedEvidence,
+    }),
+  ).resolves.toMatchObject({ decision: 'satisfied' });
+});
+
+test('version 2 does not close a discharge from terminal timestamps alone', async () => {
+  const loadedEvidence = {
+    emergency_visit_found: true,
+    visit_status: 'discharged',
+    non_receiver_closure_valid: true,
+    closure_valid_v2: false,
+  };
+
+  await expect(
+    EMERGENCY_PATHWAY_RUNTIME_HANDLERS_V2.destinationAcceptance.evaluate({
+      loadedEvidence,
+    }),
+  ).resolves.toMatchObject({ decision: 'satisfied' });
+  await expect(
+    EMERGENCY_PATHWAY_RUNTIME_HANDLERS_V2.closureEvidence.evaluate({
+      loadedEvidence,
+    }),
+  ).resolves.toMatchObject({ decision: 'blocked' });
+});
+
+test('version 2 closes only after the exact branch evidence is complete', async () => {
+  await expect(
+    EMERGENCY_PATHWAY_RUNTIME_HANDLERS_V2.closureEvidence.evaluate({
+      loadedEvidence: {
+        visit_status: 'left_against_advice',
+        closure_valid_v2: true,
+        recovery_complete: true,
+        identity_resolved_or_attested: true,
+      },
     }),
   ).resolves.toMatchObject({ decision: 'satisfied' });
 });

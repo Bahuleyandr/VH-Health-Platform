@@ -180,6 +180,7 @@ describe('getPatientWhatsNext', () => {
   it('preserves live legacy cards and does not project closure snapshots', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, description: 'Visible goal' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 2, reason: 'Visible follow-up' }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
 
     const result = await getPatientWhatsNext({
       tenantId: TENANT,
@@ -190,27 +191,51 @@ describe('getPatientWhatsNext', () => {
     expect(result.follow_ups).toHaveLength(1);
     expect(result.next_steps).toEqual([]);
     expect(result.count).toBe(2);
-    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
   });
 
-  it.each(['COMPLETED', 'CANCELLED'])(
-    'suppresses immutable closure next steps after the appointment is %s',
-    async (appointmentStatus) => {
+  it.each(['discharged', 'left_against_advice', 'lwbs'])(
+    'projects only patient-safe fields from a released %s ED closure',
+    async (visitStatus) => {
       queryUnsafeMock.mockResolvedValueOnce([]);
       queryUnsafeMock.mockResolvedValueOnce([]);
+      queryUnsafeMock.mockResolvedValueOnce([{
+        label: 'Return for review',
+        explanation: 'Please attend the scheduled review.',
+        due_date: '2026-07-30',
+        status: 'scheduled',
+        patient_action: 'Open appointments',
+        responsible_clinician_display_name: 'Dr ED Owner',
+        responsible_clinician_role: 'DOCTOR',
+        safe_contact: 'help@example.test',
+        route_token: 'appointments',
+      }]);
 
       const result = await getPatientWhatsNext({
         tenantId: TENANT,
         patientUid: PATIENT,
       });
 
-      expect(appointmentStatus).toMatch(/COMPLETED|CANCELLED/);
-      expect(result.next_steps).toEqual([]);
-      expect(result.count).toBe(0);
-      expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
-      expect(queryUnsafeMock.mock.calls.some(
-        ([sql]) => /op_visit_closure_evidence/i.test(sql),
-      )).toBe(false);
+      expect(visitStatus).toMatch(/discharged|left_against_advice|lwbs/);
+      expect(result.next_steps).toEqual([{
+        label: 'Return for review',
+        explanation: 'Please attend the scheduled review.',
+        due_date: '2026-07-30',
+        status: 'scheduled',
+        patient_action: 'Open appointments',
+        responsible_clinician_display_name: 'Dr ED Owner',
+        responsible_clinician_role: 'DOCTOR',
+        safe_contact: 'help@example.test',
+        route_token: 'appointments',
+      }]);
+      expect(result.count).toBe(1);
+      expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+      expect(queryUnsafeMock.mock.calls[2][0]).toMatch(
+        /patient_visibility_status = 'released'/,
+      );
+      expect(queryUnsafeMock.mock.calls[2][0]).not.toMatch(
+        /risk_summary|staff_notes|mlc_record_id|death_record_id/,
+      );
     },
   );
 });
