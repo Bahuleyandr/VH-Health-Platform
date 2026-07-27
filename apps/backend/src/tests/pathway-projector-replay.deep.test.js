@@ -385,7 +385,7 @@ describeIfDb('pathway projector generation replay (deep)', () => {
 
   it('preserves the configured per-tick dispatch cap with claim-on-dispatch', async () => {
     const consumerKey = consumerFor('dispatch_cap');
-    const generation = 6;
+    const generation = 10_006;
     const eventType = `test.pathway.replay.dispatch_cap_${RUN_TOKEN}`;
     await primeGeneration(consumerKey, generation);
     const events = [];

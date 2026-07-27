@@ -208,6 +208,10 @@ describe('pathwayProjectorRegistry', () => {
       generation: 5,
       entries: [['test.replacement', observer]],
     })).toThrow(/generation 5.*canonical/i);
+    expect(() => createPathwayProjectorRegistry({
+      generation: 6,
+      entries: [['test.replacement', observer]],
+    })).toThrow(/generation 6.*canonical/i);
 
     expect(syntheticRegistry.eventTypes).toEqual(['test.changed']);
     expect(syntheticRegistry.resolve('test.changed')).toBe(syntheticObserver);
