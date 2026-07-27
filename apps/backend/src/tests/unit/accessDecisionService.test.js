@@ -1092,6 +1092,25 @@ describe('accessDecisionService', () => {
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(encounterId);
   });
 
+  it('resolves an ED continuity visit through an exact tenant-scoped patient join', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
+
+    const patient = await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'emergency_visit',
+      resourceId: '73',
+    });
+
+    expect(patient).toEqual({ id: 15, uid: PATIENT_UID });
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0])
+      .toContain('FROM emergency_visits visit');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0])
+      .toContain('visit.tenant_id = $1::uuid');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0].slice(1)).toEqual([
+      '00000000-0000-4000-8000-000000000001',
+      73,
+    ]);
+  });
+
   it('resolves pathway and handoff UUID resources through tenant-scoped patient joins', async () => {
     const pathwayId = '33333333-3333-4333-8333-333333333333';
     const handoffId = '44444444-4444-4444-8444-444444444444';

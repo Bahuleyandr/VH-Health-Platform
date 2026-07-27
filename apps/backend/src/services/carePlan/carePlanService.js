@@ -1109,7 +1109,7 @@ export async function getPatientWhatsNext({
   const cleanUid = maybeUuid(patientUid, 'patient_uid', { required: true });
   const safeLimit = normalizeLimit(limit, 20, 50);
   try {
-    const [goalRows, followUpRows] = await Promise.all([
+    const [goalRows, followUpRows, edNextStepRows] = await Promise.all([
       prisma.$queryRawUnsafe(
         `SELECT
            g.id,
@@ -1174,12 +1174,71 @@ export async function getPatientWhatsNext({
         cleanUid,
         safeLimit,
       ),
+      prisma.$queryRawUnsafe(
+        `WITH latest_ed_closure AS (
+           SELECT DISTINCT ON (evidence.emergency_visit_id)
+                  evidence.emergency_visit_id,
+                  evidence.closure_kind,
+                  evidence.patient_safe_next_steps,
+                  evidence.occurred_at,
+                  visit.status AS visit_status
+             FROM ed_closure_evidence AS evidence
+             JOIN emergency_visits AS visit
+               ON visit.tenant_id = evidence.tenant_id
+              AND visit.id = evidence.emergency_visit_id
+              AND visit.patient_uid = evidence.patient_uid
+            WHERE evidence.tenant_id = $1::uuid
+              AND evidence.patient_uid = $2::uuid
+              AND evidence.patient_visibility_status = 'released'
+              AND evidence.closure_kind IN (
+                'discharge',
+                'left_against_medical_advice',
+                'lwbs'
+              )
+            ORDER BY evidence.emergency_visit_id,
+                     evidence.evidence_revision DESC
+         )
+         SELECT step.value ->> 'label' AS label,
+                NULLIF(step.value ->> 'explanation', '') AS explanation,
+                NULLIF(step.value ->> 'due_date', '') AS due_date,
+                COALESCE(NULLIF(step.value ->> 'status', ''), 'planned') AS status,
+                NULLIF(step.value ->> 'patient_action', '') AS patient_action,
+                NULLIF(
+                  step.value ->> 'responsible_clinician_display_name',
+                  ''
+                ) AS responsible_clinician_display_name,
+                NULLIF(
+                  step.value ->> 'responsible_clinician_role',
+                  ''
+                ) AS responsible_clinician_role,
+                NULLIF(step.value ->> 'safe_contact', '') AS safe_contact,
+                NULLIF(step.value ->> 'route_token', '') AS route_token
+           FROM latest_ed_closure AS closure
+           CROSS JOIN LATERAL jsonb_array_elements(
+             closure.patient_safe_next_steps
+           ) WITH ORDINALITY AS step(value, ordering)
+          WHERE (
+            closure.visit_status = 'discharged'
+            AND closure.closure_kind = 'discharge'
+          )
+          OR (
+            closure.visit_status = 'left_against_advice'
+            AND closure.closure_kind = 'left_against_medical_advice'
+          )
+          OR (
+            closure.visit_status = 'lwbs'
+            AND closure.closure_kind = 'lwbs'
+          )
+          ORDER BY closure.occurred_at DESC, step.ordering
+          LIMIT $3::int`,
+        tid,
+        cleanUid,
+        safeLimit,
+      ),
     ]);
-    // Closure evidence is an immutable point-in-time snapshot, not a live
-    // patient action source. Follow-up plans above remain visible only while
-    // their domain state is actionable; snapshots stay staff-side until each
-    // next-step type has an exact live source reference and satisfaction rule.
-    const nextSteps = [];
+    // ED next steps come only from the latest released revision whose live ED
+    // terminal state still matches that revision's exact closure branch.
+    const nextSteps = edNextStepRows;
     return {
       goals: goalRows,
       follow_ups: followUpRows,

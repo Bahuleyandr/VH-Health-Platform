@@ -92,6 +92,7 @@ class EdTraumaApiService {
     required String handoffId,
     required String decision,
     String? reason,
+    String? reasonCode,
   }) async {
     final resp = await ApiClient.post(
       '/ed/visits/$emergencyVisitId/destination-handoffs/$handoffId/decisions',
@@ -99,6 +100,8 @@ class EdTraumaApiService {
       body: {
         'decision': decision,
         if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+        if (reasonCode != null && reasonCode.trim().isNotEmpty)
+          'reason_code': reasonCode.trim(),
       },
     );
     if (!resp.isSuccess) {
@@ -125,6 +128,68 @@ class EdTraumaApiService {
     );
     if (!resp.isSuccess) {
       throw Exception(resp.failureMessage('Destination reroute failed'));
+    }
+    return resp.dataAsMap();
+  }
+
+  static Future<Map<String, dynamic>> getContinuity(
+    int emergencyVisitId,
+  ) async {
+    final resp = await ApiClient.get('/ed/visits/$emergencyVisitId/continuity');
+    if (!resp.isSuccess) {
+      throw Exception(resp.failureMessage('ED continuity failed'));
+    }
+    return resp.dataAsMap();
+  }
+
+  static Future<Map<String, dynamic>> transitionVisit({
+    required int emergencyVisitId,
+    required String nextStatus,
+    String? disposition,
+    String? acceptedHandoffId,
+  }) async {
+    final resp = await ApiClient.patch(
+      '/ed/visits/$emergencyVisitId/transition',
+      body: {
+        'next_status': nextStatus,
+        if (disposition != null && disposition.trim().isNotEmpty)
+          'disposition': disposition.trim(),
+        if (acceptedHandoffId != null && acceptedHandoffId.trim().isNotEmpty)
+          'accepted_handoff_id': acceptedHandoffId.trim(),
+      },
+    );
+    if (!resp.isSuccess) {
+      throw Exception(resp.failureMessage('ED visit transition failed'));
+    }
+    return resp.dataAsMap();
+  }
+
+  static Future<Map<String, dynamic>> recordClosureEvidence({
+    required int emergencyVisitId,
+    required Map<String, dynamic> body,
+  }) async {
+    final resp = await ApiClient.post(
+      '/ed/visits/$emergencyVisitId/closure-evidence',
+      idempotencyKey: IdempotencyKey.generate(),
+      body: body,
+    );
+    if (!resp.isSuccess) {
+      throw Exception(resp.failureMessage('ED closure evidence failed'));
+    }
+    return resp.dataAsMap();
+  }
+
+  static Future<Map<String, dynamic>> recordRecoveryContact({
+    required int emergencyVisitId,
+    required Map<String, dynamic> body,
+  }) async {
+    final resp = await ApiClient.post(
+      '/ed/visits/$emergencyVisitId/recovery-contacts',
+      idempotencyKey: IdempotencyKey.generate(),
+      body: body,
+    );
+    if (!resp.isSuccess) {
+      throw Exception(resp.failureMessage('ED recovery contact failed'));
     }
     return resp.dataAsMap();
   }

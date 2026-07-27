@@ -960,6 +960,15 @@ export const schemas = {
         maxLength: 2000,
         pattern: '^[^\\u0000-\\u001F\\u007F-\\u009F]+$',
       },
+      reason_code: {
+        type: 'string',
+        enum: [
+          'capacity_unavailable',
+          'clinical_mismatch',
+          'resource_unavailable',
+          'other',
+        ],
+      },
     },
     allOf: [
       {
@@ -1109,6 +1118,7 @@ export const schemas = {
       'status',
       'request_reason',
       'decline_reason',
+      'decline_reason_code',
       'reroute_reason',
       'requested_at',
       'accepted_at',
@@ -1136,6 +1146,16 @@ export const schemas = {
       status: { type: 'string', enum: ['requested', 'accepted', 'declined'] },
       request_reason: { type: 'string', minLength: 1 },
       decline_reason: { type: 'string', nullable: true },
+      decline_reason_code: {
+        type: 'string',
+        nullable: true,
+        enum: [
+          'capacity_unavailable',
+          'clinical_mismatch',
+          'resource_unavailable',
+          'other',
+        ],
+      },
       reroute_reason: { type: 'string', nullable: true },
       requested_at: { type: 'string', format: 'date-time' },
       accepted_at: nullableDateTime,
@@ -1188,6 +1208,181 @@ export const schemas = {
     },
   },
   EdDestinationHandoffListResponse: strictEnvelope('EdDestinationHandoffList'),
+
+  EdPatientNextStepRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['label'],
+    properties: {
+      label: { type: 'string', minLength: 1, maxLength: 180 },
+      explanation: { type: 'string', maxLength: 1200 },
+      due_date: { type: 'string', format: 'date' },
+      status: { type: 'string', enum: patientNextStepStatuses },
+      patient_action: { type: 'string', maxLength: 500 },
+      route_token: { type: 'string', enum: patientNextStepRouteTokens },
+    },
+  },
+
+  EdClosureEvidenceRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'closure_kind',
+      'identity_resolution_status',
+    ],
+    properties: {
+      closure_kind: {
+        type: 'string',
+        enum: [
+          'discharge',
+          'left_against_medical_advice',
+          'lwbs',
+          'external_transfer',
+          'death',
+        ],
+      },
+      follow_up_required: { type: 'boolean' },
+      follow_up_plan_id: { type: 'integer', minimum: 1 },
+      no_follow_up_reason: { type: 'string', minLength: 1, maxLength: 2000 },
+      patient_safe_next_steps: {
+        type: 'array',
+        maxItems: 32,
+        items: { $ref: '#/components/schemas/EdPatientNextStepRequest' },
+      },
+      patient_next_steps: {
+        type: 'array',
+        maxItems: 32,
+        items: { $ref: '#/components/schemas/EdPatientNextStepRequest' },
+      },
+      medication_reconciliation_id: { type: 'string', format: 'uuid' },
+      medication_not_applicable_reason: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 2000,
+      },
+      risk_classification_code: {
+        type: 'string',
+        pattern: '^[a-z][a-z0-9_]{0,79}$',
+      },
+      risk_summary: { type: 'string', minLength: 1, maxLength: 4000 },
+      accepted_handoff_id: { type: 'string', format: 'uuid' },
+      receiving_facility_name: { type: 'string', minLength: 1, maxLength: 240 },
+      receiving_facility_reference: { type: 'string', maxLength: 160 },
+      receiving_confirmed_by: { type: 'string', minLength: 1, maxLength: 240 },
+      receiving_confirmed_at: { type: 'string', format: 'date-time' },
+      clinical_summary_resource_type: {
+        type: 'string',
+        pattern: '^[a-z][a-z0-9_]{0,79}$',
+      },
+      clinical_summary_resource_id: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 160,
+      },
+      clinical_summary_sent_at: { type: 'string', format: 'date-time' },
+      ambulance_request_id: { type: 'integer', minimum: 1 },
+      transport_reference: { type: 'string', minLength: 1, maxLength: 160 },
+      transport_confirmed_at: { type: 'string', format: 'date-time' },
+      death_record_id: { type: 'integer', minimum: 1 },
+      mlc_record_id: { type: 'integer', minimum: 1 },
+      identity_resolution_status: {
+        type: 'string',
+        enum: [
+          'verified',
+          'temporary_identity_retained',
+          'merge_requested',
+          'merged',
+        ],
+      },
+      identity_resolution_reason: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 2000,
+      },
+      patient_merge_request_id: { type: 'integer', minimum: 1 },
+      occurred_at: { type: 'string', format: 'date-time' },
+    },
+  },
+
+  EdClosureEvidenceMutationResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['mode', 'replayed', 'closure_evidence'],
+    properties: {
+      mode: { type: 'string', enum: pathwayModes },
+      replayed: { type: 'boolean' },
+      closure_evidence: runtimeObject,
+    },
+  },
+  EdClosureEvidenceMutationResponse: strictEnvelope(
+    'EdClosureEvidenceMutationResult',
+  ),
+
+  EdRecoveryContactRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['event_kind', 'contact_channel'],
+    properties: {
+      event_kind: { type: 'string', enum: ['attempt', 'outcome'] },
+      contact_channel: {
+        type: 'string',
+        enum: [
+          'phone',
+          'sms',
+          'email',
+          'patient_portal',
+          'in_person',
+          'video',
+          'other',
+        ],
+      },
+      outcome_code: {
+        type: 'string',
+        pattern: '^[a-z][a-z0-9_]{0,79}$',
+      },
+      patient_safe_summary: { type: 'string', maxLength: 2000 },
+      staff_notes: { type: 'string', maxLength: 4000 },
+      occurred_at: { type: 'string', format: 'date-time' },
+    },
+  },
+
+  EdRecoveryContactMutationResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['mode', 'replayed', 'recovery_contact'],
+    properties: {
+      mode: { type: 'string', enum: pathwayModes },
+      replayed: { type: 'boolean' },
+      recovery_contact: runtimeObject,
+    },
+  },
+  EdRecoveryContactMutationResponse: strictEnvelope(
+    'EdRecoveryContactMutationResult',
+  ),
+
+  EdContinuityResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'mode',
+      'continuity',
+      'closure_history',
+      'recovery_contacts',
+    ],
+    properties: {
+      mode: { type: 'string', enum: pathwayModes },
+      continuity: runtimeObject,
+      closure_history: {
+        type: 'array',
+        items: runtimeObject,
+      },
+      recovery_contacts: {
+        type: 'array',
+        items: runtimeObject,
+      },
+    },
+  },
+  EdContinuityResponse: strictEnvelope('EdContinuityResult'),
 
   InpatientPrimaryPhysicianAssignment: {
     type: 'object',
@@ -2228,6 +2423,39 @@ export const operations = {
     description:
       'Returns handoffs sent by the actor or assigned to the actor current exact database role.',
     response: 'EdDestinationHandoffListResponse',
+  },
+  'GET /api/v1/ed/visits/{id}/continuity': {
+    summary: 'Read exact ED destination, closure, and recovery evidence',
+    description:
+      'Returns staff-only ED branch readiness, append-only closure revisions, and recovery contacts. Patient-safe aftercare is projected separately through the patient care-plan API.',
+    pathParameters: {
+      id: { type: 'integer', minimum: 1 },
+    },
+    response: 'EdContinuityResponse',
+  },
+  'POST /api/v1/ed/visits/{id}/closure-evidence': {
+    summary: 'Record an append-only ED branch closure revision',
+    description:
+      'Records exact discharge, LAMA, LWBS, external-transfer, or death closure evidence as the named ED clinician. A new revision returns 201 and exact idempotent replay returns 200.',
+    parameters: [idempotencyKeyParameter],
+    pathParameters: {
+      id: { type: 'integer', minimum: 1 },
+    },
+    request: 'EdClosureEvidenceRequest',
+    response: 'EdClosureEvidenceMutationResponse',
+    responseStatus: 201,
+  },
+  'POST /api/v1/ed/visits/{id}/recovery-contacts': {
+    summary: 'Record an append-only LAMA or LWBS recovery event',
+    description:
+      'Records a policy-neutral contact attempt or clinician outcome against the latest exact LAMA or LWBS closure revision. No timer or attempt threshold is invented.',
+    parameters: [idempotencyKeyParameter],
+    pathParameters: {
+      id: { type: 'integer', minimum: 1 },
+    },
+    request: 'EdRecoveryContactRequest',
+    response: 'EdRecoveryContactMutationResponse',
+    responseStatus: 201,
   },
   'POST /api/v1/ed/visits/{id}/destination-handoffs/{handoffId}/decisions': {
     summary: 'Accept or decline an ED destination handoff',

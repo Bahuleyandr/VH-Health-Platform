@@ -19,6 +19,7 @@ import {
   workflowRuntimeRegistryV3,
   workflowRuntimeRegistryV4,
   workflowRuntimeRegistryV5,
+  workflowRuntimeRegistryV6,
 } from '../../services/workflow/workflowRuntimeRegistry.js';
 
 let nextSyntheticRegistryVersion = 700;
@@ -115,8 +116,8 @@ describe('workflow JSON safety budget', () => {
 describe('workflow runtime registry', () => {
   it('keeps the production registry code-reviewed, immutable and identity-verifiable', () => {
     expect(isWorkflowRuntimeRegistry(workflowRuntimeRegistry)).toBe(true);
-    expect(workflowRuntimeRegistry).toBe(workflowRuntimeRegistryV5);
-    expect(workflowRuntimeRegistry.version).toBe(5);
+    expect(workflowRuntimeRegistry).toBe(workflowRuntimeRegistryV6);
+    expect(workflowRuntimeRegistry.version).toBe(6);
     expect(workflowRuntimeRegistry.conditionHandlerIds).toEqual([
       'diagnostics.route_generation.v1',
       'diagnostics.normal_closure.v1',
@@ -140,6 +141,10 @@ describe('workflow runtime registry', () => {
       'emergency.disposition_readiness.v1',
       'emergency.destination_acceptance.v1',
       'emergency.destination_closure.v1',
+      'emergency.arrival_owner.v2',
+      'emergency.disposition_readiness.v2',
+      'emergency.destination_acceptance.v2',
+      'emergency.closure_evidence.v2',
     ]);
     expect(workflowRuntimeRegistry.actionHandlerIds).toEqual([
       'diagnostics.finalize.v1',
@@ -147,6 +152,7 @@ describe('workflow runtime registry', () => {
       'op.finalize.v1',
       'inpatient.finalize.v1',
       'emergency.finalize.v1',
+      'emergency.finalize.v2',
     ]);
     expect(workflowRuntimeRegistry.childFanoutHandlerIds).toEqual([]);
     expect(workflowRuntimeRegistry.systemActorKeys).toEqual([
@@ -155,18 +161,20 @@ describe('workflow runtime registry', () => {
       'op.pathway_projector.v1',
       'inpatient.pathway_projector.v1',
       'emergency.pathway_projector.v1',
+      'emergency.pathway_projector.v2',
     ]);
     expect(Object.isFrozen(workflowRuntimeRegistry)).toBe(true);
     expect(isWorkflowRuntimeRegistry({ version: 1 })).toBe(false);
   });
 
   it('resolves every shipped runtime registry by exact persisted version and fails closed', () => {
-    expect(listWorkflowRuntimeRegistryVersions().slice(0, 5)).toEqual([1, 2, 3, 4, 5]);
+    expect(listWorkflowRuntimeRegistryVersions().slice(0, 6)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(resolveWorkflowRuntimeRegistryVersion(1)).toBe(workflowRuntimeRegistryV1);
     expect(resolveWorkflowRuntimeRegistryVersion(2)).toBe(workflowRuntimeRegistryV2);
     expect(resolveWorkflowRuntimeRegistryVersion(3)).toBe(workflowRuntimeRegistryV3);
     expect(resolveWorkflowRuntimeRegistryVersion(4)).toBe(workflowRuntimeRegistryV4);
     expect(resolveWorkflowRuntimeRegistryVersion(5)).toBe(workflowRuntimeRegistryV5);
+    expect(resolveWorkflowRuntimeRegistryVersion(6)).toBe(workflowRuntimeRegistryV6);
     expect(() => resolveWorkflowRuntimeRegistryVersion(999_999)).toThrow(
       /version 999999 is not registered/,
     );
@@ -325,7 +333,7 @@ describe('workflow definition compiler', () => {
     expect(compiled).toMatchObject({
       workflow_key: 'synthetic_pathway',
       version: 3,
-      registry_version: 5,
+      registry_version: 6,
     });
     expect(compiled.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(checksumCompiledWorkflowDefinition(compiled)).toBe(compiled.checksum);

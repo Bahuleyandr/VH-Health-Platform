@@ -43,6 +43,12 @@ export const ED_HANDOFF_DESTINATIONS = Object.freeze([
   'surgery',
   'external_transfer',
 ]);
+export const ED_HANDOFF_DECLINE_REASON_CODES = Object.freeze([
+  'capacity_unavailable',
+  'clinical_mismatch',
+  'resource_unavailable',
+  'other',
+]);
 
 const HANDOFF_COLUMNS = `id, tenant_id, patient_uid, sending_pathway_instance_id,
   sending_workflow_run_id, sending_step_key, receiving_pathway_instance_id,
@@ -118,6 +124,18 @@ function requireDestination(value) {
   return destination;
 }
 
+function optionalDeclineReasonCode(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const reasonCode = String(value || '').trim().toLowerCase();
+  if (!ED_HANDOFF_DECLINE_REASON_CODES.includes(reasonCode)) {
+    throw AppError.badRequest(
+      `reason_code must be one of: ${ED_HANDOFF_DECLINE_REASON_CODES.join(', ')}`,
+      'ED_DESTINATION_HANDOFF_INPUT_INVALID',
+    );
+  }
+  return reasonCode;
+}
+
 function requireRole(value) {
   const role = String(value || '').trim().toUpperCase();
   if (!ROLE_RE.test(role) || !ED_HANDOFF_RECIPIENT_ROLES.has(role)) {
@@ -176,9 +194,12 @@ function decisionFingerprint({
   actorUid,
   decision,
   reason,
+  reasonCode,
 }) {
   return sha256([
-    'ed_destination_handoff_decision_v1',
+    reasonCode
+      ? 'ed_destination_handoff_decision_v2'
+      : 'ed_destination_handoff_decision_v1',
     `tenant_id=${tenantId}`,
     `emergency_visit_id=${emergencyVisitId}`,
     `pathway_instance_id=${pathwayInstanceId}`,
@@ -186,6 +207,7 @@ function decisionFingerprint({
     `recipient_role=${recipientRole}`,
     `actor_uid=${actorUid}`,
     `decision=${decision}`,
+    ...(reasonCode ? [`reason_code=${reasonCode}`] : []),
     `reason=${reason || 'none'}`,
   ].join(RECORD_SEPARATOR));
 }
@@ -368,31 +390,44 @@ async function assertEmergencyRuntimeTx({ tx, tenantId, visit, runtime }) {
   });
   const definitionModule = await import('../pathways/emergencyPathwayDefinition.js');
   const registryModule = await import('../workflow/workflowRuntimeRegistry.js');
-  const compiled = definitionModule.compileEmergencyArrivalToAftercareDefinition({
-    registry: registryModule.workflowRuntimeRegistryV5,
-  });
+  const version = Number(runtime.instance.pathway_version);
+  const expectedRegistryVersion = version === 2 ? 6 : 5;
+  const expectedRegistry = version === 2
+    ? registryModule.workflowRuntimeRegistryV6
+    : registryModule.workflowRuntimeRegistryV5;
+  const compiled = version === 2
+    ? definitionModule.compileEmergencyArrivalToAftercareDefinitionV2({
+      registry: expectedRegistry,
+    })
+    : definitionModule.compileEmergencyArrivalToAftercareDefinition({
+      registry: expectedRegistry,
+    });
   const exact = (
     String(runtime.instance.patient_uid).toLowerCase()
       === String(visit.patient_uid).toLowerCase()
     && runtime.instance.pathway_key === CARE_PATHWAY_KEYS.EMERGENCY
-    && Number(runtime.instance.pathway_version) === 1
+    && [1, 2].includes(version)
     && runtime.instance.source_episode_type === 'emergency_visit'
     && String(runtime.instance.source_episode_id) === String(visit.id)
     && runtime.run.workflow_key === CARE_PATHWAY_KEYS.EMERGENCY
-    && Number(runtime.run.workflow_version) === 1
+    && Number(runtime.run.workflow_version) === version
     && Number(runtime.instance.workflow_run_id) === Number(runtime.run.id)
     && String(runtime.instance.definition_checksum || '') === compiled.checksum
     && String(runtime.run.pathway_definition_checksum || '') === compiled.checksum
-    && registryVersion === 5
+    && registryVersion === expectedRegistryVersion
     && String(runtime.instance.owning_clinician_uid || '').toLowerCase()
       === String(visit.attending_doctor_uid || '').toLowerCase()
   );
   if (!exact) {
     throw AppError.conflict(
-      'The ED handoff source binding or V5 definition pin is invalid',
+      'The ED handoff source binding or definition/runtime pin is invalid',
       'ED_DESTINATION_HANDOFF_SOURCE_INVALID',
     );
   }
+}
+
+function runtimeRegistryVersion(runtime) {
+  return Number(runtime.instance.pathway_version) === 2 ? 6 : 5;
 }
 
 async function assertRequestStageTx({ tx, tenantId, visit, runtime, step, actorUid }) {
@@ -653,7 +688,7 @@ async function insertRequestTx({
       destination,
       requested_by_uid: actor.uid,
       requested_by_role: actor.rawRole,
-      registry_version: 5,
+      registry_version: runtimeRegistryVersion(runtime),
       ...(supersedesHandoffId
         ? { supersedes_handoff_id: supersedesHandoffId }
         : {}),
@@ -813,7 +848,7 @@ export async function requestEdDestinationHandoff({
       metadata: {
         pathway_runtime: {
           definition_checksum: runtime.instance.definition_checksum,
-          registry_version: 5,
+          registry_version: runtimeRegistryVersion(runtime),
         },
       },
     });
@@ -861,6 +896,7 @@ export async function decideEdDestinationHandoff({
   handoffId: rawHandoffId,
   decision,
   reason = null,
+  reasonCode = null,
   idempotencyKey,
   actor,
   tx = null,
@@ -878,6 +914,9 @@ export async function decideEdDestinationHandoff({
   const cleanReason = cleanDecision === 'decline'
     ? requireReason(reason, 'decline reason')
     : optionalReason(reason);
+  const cleanReasonCode = cleanDecision === 'decline'
+    ? optionalDeclineReasonCode(reasonCode)
+    : null;
   const rawKey = requireIdempotencyKey(idempotencyKey);
 
   return inTenantTx(tid, tx, async db => {
@@ -924,6 +963,7 @@ export async function decideEdDestinationHandoff({
       actorUid: currentActor.uid,
       decision: cleanDecision,
       reason: cleanReason,
+      reasonCode: cleanReasonCode,
     });
     const key = namespaceIdempotencyKey(
       currentActor.uid,
@@ -958,10 +998,11 @@ export async function decideEdDestinationHandoff({
           && handoff.accepted_at
           && String(handoff.accepted_by_uid || '').toLowerCase() === currentActor.uid
           && task.status === 'completed'
-        : handoff.status === 'declined'
-          && handoff.declined_at
-          && handoff.decline_reason === cleanReason
-          && task.status === 'cancelled';
+         : handoff.status === 'declined'
+           && handoff.declined_at
+           && handoff.decline_reason === cleanReason
+           && (handoff.metadata?.decline_reason_code ?? null) === cleanReasonCode
+           && task.status === 'cancelled';
       if (!replayValid) {
         throw AppError.conflict(
           'ED destination decision replay state is invalid',
@@ -1027,11 +1068,12 @@ export async function decideEdDestinationHandoff({
                 WHEN $3::text = 'declined' THEN $5::text
                 ELSE NULL
               END,
-              metadata = COALESCE(metadata, '{}'::jsonb)
-                || jsonb_build_object(
-                     'decision_actor_uid', $4::text,
-                     'decision_actor_role', $6::text
-                   ),
+               metadata = COALESCE(metadata, '{}'::jsonb)
+                 || jsonb_build_object(
+                      'decision_actor_uid', $4::text,
+                      'decision_actor_role', $6::text,
+                      'decline_reason_code', $14::text
+                    ),
               updated_at = NOW()
         WHERE tenant_id = $1::uuid
           AND id = $2::uuid
@@ -1065,6 +1107,7 @@ export async function decideEdDestinationHandoff({
       pointer.sender_uid,
       task.id,
       handoff.request_fingerprint,
+      cleanReasonCode,
     );
     const decidedHandoff = rows[0];
     if (!decidedHandoff) {
@@ -1100,12 +1143,13 @@ export async function decideEdDestinationHandoff({
         destination: decidedHandoff.metadata?.destination,
         review_task_id: task.id,
         request_fingerprint: handoff.request_fingerprint,
-        ...(cleanReason ? { reason: cleanReason } : {}),
+         ...(cleanReason ? { reason: cleanReason } : {}),
+         ...(cleanReasonCode ? { reason_code: cleanReasonCode } : {}),
       },
       metadata: {
         pathway_runtime: {
           definition_checksum: runtime.instance.definition_checksum,
-          registry_version: 5,
+          registry_version: runtimeRegistryVersion(runtime),
         },
       },
     });
@@ -1329,7 +1373,7 @@ export async function rerouteEdDestinationHandoff({
       metadata: {
         pathway_runtime: {
           definition_checksum: runtime.instance.definition_checksum,
-          registry_version: 5,
+          registry_version: runtimeRegistryVersion(runtime),
         },
       },
     });
@@ -1370,6 +1414,8 @@ export async function listEdDestinationHandoffs({
               handoff.status,
               handoff.request_reason,
               handoff.decline_reason,
+              handoff.metadata ->> 'decline_reason_code'
+                AS decline_reason_code,
               handoff.reroute_reason,
               handoff.requested_at,
               handoff.accepted_at,
@@ -1435,6 +1481,7 @@ export async function listEdDestinationHandoffs({
 export const __testing__ = Object.freeze({
   DECISION_STEP_KEY,
   ED_HANDOFF_DESTINATIONS,
+  ED_HANDOFF_DECLINE_REASON_CODES,
   decisionFingerprint,
   namespaceIdempotencyKey,
   requestFingerprint,

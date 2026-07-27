@@ -419,6 +419,20 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'emergency_visit':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM emergency_visits visit
+           JOIN users p
+             ON p.tenant_id = visit.tenant_id
+            AND p.uid = visit.patient_uid
+            AND p.role = 'PATIENT'
+          WHERE visit.tenant_id = $1::uuid
+            AND visit.id = $2::int
+          LIMIT 1`,
+        resourceId,
+      );
     case 'encounter':
       return patientFromUuidResourceQuery(
         req,

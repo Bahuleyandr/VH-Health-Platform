@@ -23,7 +23,7 @@ function validate(extraEnv = {}) {
 describe('Pathway projector configuration', () => {
   it('keeps the consumer identity and generation in one stable config module', () => {
     expect(PATHWAY_PROJECTOR_CONSUMER_KEY).toBe('care_pathway_projector');
-    expect(PATHWAY_PROJECTOR_GENERATION).toBe(5);
+    expect(PATHWAY_PROJECTOR_GENERATION).toBe(6);
   });
 
   it.each([

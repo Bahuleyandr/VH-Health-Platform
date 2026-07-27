@@ -5,6 +5,7 @@ import '../../../core/services/stemi_pathway_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
+import '../widgets/ed_continuity_panel.dart';
 
 typedef EdPolicyLoader = Future<Map<String, dynamic>> Function();
 typedef StemiActivationCreator =
@@ -24,6 +25,7 @@ typedef EdDestinationHandoffDecider =
       required String handoffId,
       required String decision,
       String? reason,
+      String? reasonCode,
     });
 typedef EdDestinationHandoffRerouter =
     Future<Map<String, dynamic>> Function({
@@ -269,11 +271,14 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
   ) async {
     final strings = AppStrings.of(context);
     String? reason;
+    String? reasonCode;
     if (decision == 'decline') {
-      reason = await _reasonDialog(
+      final decline = await _declineDialog(
         title: strings.lookup('ed_trauma.handoff.decline_title'),
       );
-      if (reason == null) return;
+      if (decline == null) return;
+      reason = decline.$1;
+      reasonCode = decline.$2;
     }
     await _submit(() async {
       final decider =
@@ -284,6 +289,7 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
         handoffId: '${handoff['id']}',
         decision: decision,
         reason: reason,
+        reasonCode: reasonCode,
       );
       await _reloadDestinationHandoffs();
       if (!mounted) return;
@@ -316,46 +322,83 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
     });
   }
 
-  Future<String?> _reasonDialog({required String title}) async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
+  Future<(String, String)?> _declineDialog({required String title}) async {
+    var reason = '';
+    var reasonCode = 'other';
+    return showDialog<(String, String)>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          key: const ValueKey('ed-handoff-decline-reason'),
-          controller: controller,
-          maxLines: 3,
-          decoration: InputDecoration(
-            labelText: AppStrings.of(
-              context,
-            ).lookup('ed_trauma.handoff.reason'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                key: const ValueKey('ed-handoff-decline-reason-code'),
+                initialValue: reasonCode,
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('ed_trauma.handoff.decline_reason_code'),
+                ),
+                items:
+                    const [
+                          'capacity_unavailable',
+                          'clinical_mismatch',
+                          'resource_unavailable',
+                          'other',
+                        ]
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value.replaceAll('_', ' ')),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setDialogState(() => reasonCode = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('ed-handoff-decline-reason'),
+                maxLines: 3,
+                onChanged: (value) => reason = value,
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('ed_trauma.handoff.reason'),
+                ),
+              ),
+            ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(AppStrings.of(context).actionCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = reason.trim();
+                if (value.isNotEmpty) {
+                  Navigator.pop(context, (value, reasonCode));
+                }
+              },
+              child: Text(AppStrings.of(context).actionSubmit),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(AppStrings.of(context).actionCancel),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isNotEmpty) Navigator.pop(context, value);
-            },
-            child: Text(AppStrings.of(context).actionSubmit),
-          ),
-        ],
       ),
     );
-    controller.dispose();
-    return result;
   }
 
   Future<(String, String, String)?> _rerouteDialog() async {
     var destination = 'ward';
-    final role = TextEditingController();
-    final reason = TextEditingController();
-    final result = await showDialog<(String, String, String)>(
+    var role = '';
+    var reason = '';
+    return showDialog<(String, String, String)>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -385,7 +428,7 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
               const SizedBox(height: 12),
               TextField(
                 key: const ValueKey('ed-handoff-reroute-role'),
-                controller: role,
+                onChanged: (value) => role = value,
                 decoration: InputDecoration(
                   labelText: AppStrings.of(
                     context,
@@ -395,8 +438,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
               const SizedBox(height: 12),
               TextField(
                 key: const ValueKey('ed-handoff-reroute-reason'),
-                controller: reason,
                 maxLines: 3,
+                onChanged: (value) => reason = value,
                 decoration: InputDecoration(
                   labelText: AppStrings.of(
                     context,
@@ -412,8 +455,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
             ),
             FilledButton(
               onPressed: () {
-                final cleanRole = role.text.trim().toUpperCase();
-                final cleanReason = reason.text.trim();
+                final cleanRole = role.trim().toUpperCase();
+                final cleanReason = reason.trim();
                 if (cleanRole.isNotEmpty && cleanReason.isNotEmpty) {
                   Navigator.pop(context, (destination, cleanRole, cleanReason));
                 }
@@ -424,9 +467,6 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
         ),
       ),
     );
-    role.dispose();
-    reason.dispose();
-    return result;
   }
 
   Future<void> _submitSurvey() async {
@@ -849,6 +889,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  const EdContinuityPanel(),
                 ],
               ),
             ),
@@ -910,6 +952,11 @@ class _DestinationHandoffCard extends StatelessWidget {
                 }),
               ),
             ],
+            if ('${handoff['decline_reason_code'] ?? ''}'.isNotEmpty)
+              Text(
+                '${strings.lookup('ed_trauma.handoff.decline_reason_code')}: '
+                '${handoff['decline_reason_code'].toString().replaceAll('_', ' ')}',
+              ),
             if (canDecide) ...[
               const SizedBox(height: 10),
               Row(

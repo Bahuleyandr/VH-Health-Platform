@@ -259,4 +259,151 @@ export const EMERGENCY_PATHWAY_RUNTIME_HANDLERS = Object.freeze({
   }),
 });
 
+export async function loadEmergencyPathwayEvidenceV2(context) {
+  const legacy = await loadEmergencyPathwayEvidence(context);
+  if (!legacy.emergency_visit_found) return legacy;
+  // Deferred to evaluation time so the task runtime can initialize without
+  // cycling through the ED task producer and back into this handler registry.
+  const { loadEdContinuityEvidenceTx } = await import(
+    '../ed/edClosureRecoveryService.js'
+  );
+  const continuity = await loadEdContinuityEvidenceTx({
+    tx: context.tx,
+    tenantId: context.tenantId,
+    emergencyVisitId: legacy.emergency_visit_id,
+  });
+  if (!continuity) return legacy;
+  const continuityEvidence = {
+    closure_evidence_id: continuity.closure_evidence_id
+      ? String(continuity.closure_evidence_id)
+      : null,
+    evidence_revision: continuity.evidence_revision,
+    closure_kind: continuity.closure_kind || null,
+    recovery_attempt_count: continuity.recovery_attempt_count,
+    latest_outcome_code: continuity.latest_outcome_code || null,
+    latest_outcome_at: continuity.latest_outcome_at
+      ? new Date(continuity.latest_outcome_at).toISOString()
+      : null,
+    accepted_handoff_valid: continuity.accepted_handoff_valid,
+    latest_closure_matches_branch:
+      continuity.latest_closure_matches_branch,
+    recovery_complete: continuity.recovery_complete,
+    death_certified: continuity.death_certified,
+    mortuary_custody_recorded: continuity.mortuary_custody_recorded,
+    mlc_complete: continuity.mlc_complete,
+    identity_resolved_or_attested:
+      continuity.identity_resolved_or_attested,
+    bed_pending: continuity.bed_pending,
+    branch_closure_complete: continuity.branch_closure_complete,
+  };
+  const internalAdmissionClosureValid = legacy.receiver_closure_valid
+    && legacy.visit_status === 'admitted'
+    && ['ward', 'icu', 'hdu', 'surgery'].includes(legacy.destination)
+    && legacy.admission_link_valid;
+  const externalTransferClosureValid = legacy.receiver_closure_valid
+    && legacy.visit_status === 'transferred'
+    && legacy.destination === 'external_transfer'
+    && continuity.branch_closure_complete;
+  const nonReceiverClosureValid = [
+    'discharged',
+    'left_against_advice',
+    'lwbs',
+    'expired',
+  ].includes(legacy.visit_status)
+    && continuity.branch_closure_complete;
+  return {
+    ...legacy,
+    ...continuityEvidence,
+    internal_admission_closure_valid: internalAdmissionClosureValid,
+    external_transfer_closure_valid: externalTransferClosureValid,
+    non_receiver_closure_valid_v2: nonReceiverClosureValid,
+    closure_valid_v2:
+      internalAdmissionClosureValid
+      || externalTransferClosureValid
+      || nonReceiverClosureValid,
+  };
+}
+
+export const EMERGENCY_PATHWAY_RUNTIME_HANDLERS_V2 = Object.freeze({
+  arrivalOwner: Object.freeze({
+    stepKinds: Object.freeze(['wait']),
+    decisionCodes: Object.freeze(['blocked', 'satisfied']),
+    loadEvidence: loadEmergencyPathwayEvidenceV2,
+    async evaluate({ loadedEvidence }) {
+      return {
+        decision: loadedEvidence.emergency_visit_found
+          && loadedEvidence.patient_uid
+          && loadedEvidence.encounter_id
+          && loadedEvidence.attending_doctor_uid
+          && loadedEvidence.attending_doctor_is_viable
+          ? 'satisfied'
+          : 'blocked',
+        evidence: loadedEvidence,
+      };
+    },
+  }),
+  dispositionReadiness: Object.freeze({
+    stepKinds: Object.freeze(['wait']),
+    decisionCodes: Object.freeze(['blocked', 'satisfied']),
+    loadEvidence: loadEmergencyPathwayEvidenceV2,
+    async evaluate({ loadedEvidence }) {
+      return {
+        decision: loadedEvidence.visit_status === 'awaiting_disposition'
+          || [
+            'admitted',
+            'discharged',
+            'transferred',
+            'left_against_advice',
+            'lwbs',
+            'expired',
+          ].includes(loadedEvidence.visit_status)
+          ? 'satisfied'
+          : 'blocked',
+        evidence: loadedEvidence,
+      };
+    },
+  }),
+  destinationAcceptance: Object.freeze({
+    stepKinds: Object.freeze(['wait']),
+    decisionCodes: Object.freeze(['blocked', 'satisfied']),
+    loadEvidence: loadEmergencyPathwayEvidenceV2,
+    async evaluate({ loadedEvidence }) {
+      return {
+        decision: loadedEvidence.accepted_handoff_valid
+          || [
+            'discharged',
+            'left_against_advice',
+            'lwbs',
+            'expired',
+          ].includes(loadedEvidence.visit_status)
+          ? 'satisfied'
+          : 'blocked',
+        evidence: loadedEvidence,
+      };
+    },
+  }),
+  closureEvidence: Object.freeze({
+    stepKinds: Object.freeze(['wait']),
+    decisionCodes: Object.freeze(['blocked', 'satisfied']),
+    loadEvidence: loadEmergencyPathwayEvidenceV2,
+    async evaluate({ loadedEvidence }) {
+      return {
+        decision: loadedEvidence.closure_valid_v2 ? 'satisfied' : 'blocked',
+        evidence: loadedEvidence,
+      };
+    },
+  }),
+  finalize: Object.freeze({
+    stepKinds: Object.freeze(['automation']),
+    async execute({ instance }) {
+      return {
+        finalized: true,
+        source_episode_type: instance.source_episode_type,
+        source_episode_id: instance.source_episode_id,
+        closure_contract: 'emergency_closure_recovery_v2',
+      };
+    },
+  }),
+});
+
 export default EMERGENCY_PATHWAY_RUNTIME_HANDLERS;

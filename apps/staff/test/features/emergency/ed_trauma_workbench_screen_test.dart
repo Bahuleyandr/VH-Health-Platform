@@ -101,6 +101,7 @@ void main() {
                 required handoffId,
                 required decision,
                 reason,
+                reasonCode,
               }) async {
                 expect(emergencyVisitId, 314);
                 expect(handoffId, '550e8400-e29b-41d4-a716-446655440000');
@@ -125,6 +126,72 @@ void main() {
 
     expect(postedDecision, 'accept');
     expect(find.text('Destination handoff accepted'), findsOneWidget);
+  });
+
+  testWidgets('decline records a structured capacity reason and narrative', (
+    tester,
+  ) async {
+    String? postedReason;
+    String? postedReasonCode;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EdTraumaWorkbenchScreen(
+          loadPolicy: () async => {
+            'active': true,
+            'canonical_triage_scale': 'esi',
+          },
+          loadDestinationHandoffs: () async => [
+            {
+              'id': '550e8400-e29b-41d4-a716-446655440001',
+              'emergency_visit_id': 315,
+              'status': 'requested',
+              'destination': 'icu',
+              'intended_recipient_role': 'ICU_NURSE',
+              'can_decide': true,
+              'can_reroute': false,
+              'decline_reason': null,
+            },
+          ],
+          decideDestinationHandoff:
+              ({
+                required emergencyVisitId,
+                required handoffId,
+                required decision,
+                reason,
+                reasonCode,
+              }) async {
+                expect(emergencyVisitId, 315);
+                expect(decision, 'decline');
+                postedReason = reason;
+                postedReasonCode = reasonCode;
+                return const {};
+              },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final decline = find.byKey(
+      const ValueKey('ed-handoff-decline-550e8400-e29b-41d4-a716-446655440001'),
+    );
+    await tester.scrollUntilVisible(decline, 250, scrollable: workbenchScroll);
+    await tester.ensureVisible(decline);
+    await tester.pumpAndSettle();
+    await tester.tap(decline);
+    await tester.pumpAndSettle();
+    final code = find.byKey(const ValueKey('ed-handoff-decline-reason-code'));
+    await tester.tap(code);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('capacity unavailable').last);
+    await tester.enterText(
+      find.byKey(const ValueKey('ed-handoff-decline-reason')),
+      'No monitored bed is currently available',
+    );
+    await tester.tap(find.text('Submit'));
+    await tester.pumpAndSettle();
+
+    expect(postedReasonCode, 'capacity_unavailable');
+    expect(postedReason, 'No monitored bed is currently available');
   });
 
   testWidgets('Code STEMI action posts the ED patient and visit context', (

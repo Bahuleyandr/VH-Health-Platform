@@ -7,9 +7,12 @@ import {
   pathwayReconciliationRegistryV4,
   pathwayReconciliationRegistryV5,
   pathwayReconciliationRegistryV6,
+  pathwayReconciliationRegistryV7,
 } from '../../services/pathways/pathwayReconciliationRegistry.js';
 import { compileDiagnosticsOrderToActionDefinition } from '../../services/pathways/diagnosticsPathwayDefinition.js';
-import { compileEmergencyArrivalToAftercareDefinition } from '../../services/pathways/emergencyPathwayDefinition.js';
+import {
+  compileEmergencyArrivalToAftercareDefinitionV2,
+} from '../../services/pathways/emergencyPathwayDefinition.js';
 import { compileInpatientAdmissionToRecoveryDefinition } from '../../services/pathways/inpatientPathwayDefinition.js';
 import { compileOpContactToRecoveryDefinition } from '../../services/pathways/opPathwayDefinition.js';
 import { compileReferralRequestToClosureDefinition } from '../../services/pathways/referralPathwayDefinition.js';
@@ -21,7 +24,7 @@ import {
   workflowRuntimeRegistryV2,
   workflowRuntimeRegistryV3,
   workflowRuntimeRegistryV4,
-  workflowRuntimeRegistryV5,
+  workflowRuntimeRegistryV6,
 } from '../../services/workflow/workflowRuntimeRegistry.js';
 
 const CHECKSUM = 'a'.repeat(64);
@@ -69,15 +72,16 @@ function repairDescriptor(overrides = {}) {
 
 describe('pathwayReconciliationRegistry', () => {
   test('ships an exhaustive branded production registry with no live repair authority', () => {
-    expect(pathwayReconciliationRegistry).toBe(pathwayReconciliationRegistryV6);
-    expect(pathwayReconciliationRegistry.version).toBe(6);
+    expect(pathwayReconciliationRegistry).toBe(pathwayReconciliationRegistryV7);
+    expect(pathwayReconciliationRegistry.version).toBe(7);
     expect(pathwayReconciliationRegistryV4.version).toBe(4);
     expect(pathwayReconciliationRegistryV5.version).toBe(5);
+    expect(pathwayReconciliationRegistryV6.version).toBe(6);
     expect(isPathwayReconciliationRegistry(pathwayReconciliationRegistryV4)).toBe(true);
     expect(isPathwayReconciliationRegistry(pathwayReconciliationRegistry)).toBe(true);
     expect(pathwayReconciliationRegistry.pathwayKeys).toEqual(CANONICAL_PATHWAY_KEYS);
     expect(pathwayReconciliationRegistry.checksum)
-      .toBe('6f852f13f3832e1ef5e35755f8c096931bd3df4dde4195cee284a7a285ba14eb');
+      .toBe('7731ebf708604bd17238273a04348a5a5b015b2600252488204ce2a75ba338cb');
     expect(pathwayReconciliationRegistryV4.checksum)
       .toBe('e28608a8430d6518b0b61d2ceaa4154a9d669f0da7cee033caae75544e22e0c4');
     expect(pathwayReconciliationRegistry.checksum)
@@ -108,10 +112,12 @@ describe('pathwayReconciliationRegistry', () => {
         }).checksum,
       },
       [CARE_PATHWAY_KEYS.EMERGENCY]: {
-        adapterId: 'emergency_arrival_to_aftercare_v1',
-        checksum: compileEmergencyArrivalToAftercareDefinition({
-          registry: workflowRuntimeRegistryV5,
+        adapterId: 'emergency_arrival_to_aftercare_v2',
+        checksum: compileEmergencyArrivalToAftercareDefinitionV2({
+          registry: workflowRuntimeRegistryV6,
         }).checksum,
+        definitionVersion: 2,
+        profileVersion: 3,
       },
     };
     for (const pathwayKey of CANONICAL_PATHWAY_KEYS) {
@@ -121,11 +127,12 @@ describe('pathwayReconciliationRegistry', () => {
       if (expectedAdapters[pathwayKey]) {
         expect(profile.blockingReason).toBeNull();
         expect(profile.domainAdapters).toHaveLength(1);
-        expect(profile.profileVersion).toBe(2);
+        expect(profile.profileVersion)
+          .toBe(expectedAdapters[pathwayKey].profileVersion || 2);
         expect(profile.domainAdapters[0]).toMatchObject({
           adapterId: expectedAdapters[pathwayKey].adapterId,
           workflowKey: pathwayKey,
-          definitionVersion: 1,
+          definitionVersion: expectedAdapters[pathwayKey].definitionVersion || 1,
           definitionChecksum: expectedAdapters[pathwayKey].checksum,
         });
       } else {

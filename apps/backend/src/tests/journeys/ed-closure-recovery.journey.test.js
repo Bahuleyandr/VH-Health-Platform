@@ -10,7 +10,6 @@ import {
   seedDoctor,
   seedTreatmentConsent,
   seedUser,
-  seedWardWithBeds,
 } from './_journeyHarness.js';
 import { setTenantTx } from '../../lib/prisma.js';
 import {
@@ -21,30 +20,24 @@ import { projectEmergencyPathwayEvent } from '../../services/pathways/emergencyP
 import { createPathwayActivationEvidenceCapabilityForTests } from '../../services/pathways/pathwayExecutorService.js';
 
 const RUN = runSuffix();
-const ADMIN_UID = `c5100001-0000-4000-8000-${RUN.padStart(12, '0')}`;
-const ED_DOCTOR_UID = `c5100002-0000-4000-8000-${RUN.padStart(12, '0')}`;
-const RECEIVING_NURSE_UID = `c5100003-0000-4000-8000-${RUN.padStart(12, '0')}`;
-const PATIENT_UID = `c5100004-0000-4000-8000-${RUN.padStart(12, '0')}`;
-const DEPARTMENT = `J-ED-Handoff-${RUN}`;
-const WARD_NAME = `J-ED-Handoff-Ward-${RUN}`;
-const BED_NUMBER = `JEDH-${RUN}`;
-const ADMIN_PHONE = `+9196601${RUN}`;
-const DOCTOR_PHONE = `+9196602${RUN}`;
-const NURSE_PHONE = `+9196603${RUN}`;
-const PATIENT_PHONE = `+9196604${RUN}`;
+const ADMIN_UID = `c5200001-0000-4000-8000-${RUN.padStart(12, '0')}`;
+const ED_DOCTOR_UID = `c5200002-0000-4000-8000-${RUN.padStart(12, '0')}`;
+const PATIENT_UID = `c5200003-0000-4000-8000-${RUN.padStart(12, '0')}`;
+const ADMIN_PHONE = `+9196611${RUN}`;
+const DOCTOR_PHONE = `+9196612${RUN}`;
+const PATIENT_PHONE = `+9196613${RUN}`;
+const DEPARTMENT = `J-ED-Closure-${RUN}`;
 const PATHWAY_KEY = 'emergency_arrival_to_aftercare';
-const compiledEmergencyDefinition =
-  compileEmergencyArrivalToAftercareDefinitionV2();
+const compiledDefinition = compileEmergencyArrivalToAftercareDefinitionV2();
 const activationCapability =
   createPathwayActivationEvidenceCapabilityForTests();
 
-jest.setTimeout(60_000);
+jest.setTimeout(90_000);
 
-async function seedGovernedEmergencyDefinition() {
+async function seedGovernedDefinition() {
   const existing = await prisma.$queryRawUnsafe(
     `SELECT definition.id,
             governance.id AS governance_id,
-            governance.approval_id,
             (
               definition.steps = $4::jsonb
               AND definition.triggers = $5::jsonb
@@ -68,19 +61,19 @@ async function seedGovernedEmergencyDefinition() {
         AND definition.version = $3::integer
       LIMIT 2`,
     DEFAULT_TENANT,
-    compiledEmergencyDefinition.workflow_key,
-    compiledEmergencyDefinition.version,
+    compiledDefinition.workflow_key,
+    compiledDefinition.version,
     JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.steps),
     JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.triggers),
     JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.defaults),
-    compiledEmergencyDefinition.checksum,
+    compiledDefinition.checksum,
   );
   if (
     existing.length > 1
     || (existing[0] && existing[0].exact_fixture !== true)
   ) {
     throw new Error(
-      'Default tenant has a conflicting emergency pathway definition fixture',
+      'Default tenant has a conflicting emergency pathway v2 fixture',
     );
   }
   if (existing[0]) return existing[0];
@@ -95,9 +88,9 @@ async function seedGovernedEmergencyDefinition() {
           $7::jsonb, TRUE, $8::uuid)
        RETURNING id`,
       DEFAULT_TENANT,
-      compiledEmergencyDefinition.workflow_key,
-      compiledEmergencyDefinition.version,
-      `Emergency arrival-to-destination journey ${RUN}`,
+      compiledDefinition.workflow_key,
+      compiledDefinition.version,
+      `Emergency closure and recovery journey ${RUN}`,
       JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.steps),
       JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.triggers),
       JSON.stringify(EMERGENCY_ARRIVAL_TO_AFTERCARE_DEFINITION_V2.defaults),
@@ -122,7 +115,7 @@ async function seedGovernedEmergencyDefinition() {
       DEFAULT_TENANT,
       String(definitionId),
       ADMIN_UID,
-      compiledEmergencyDefinition.checksum,
+      compiledDefinition.checksum,
     );
     const governance = await tx.$queryRawUnsafe(
       `INSERT INTO care_pathway_definition_governance
@@ -131,25 +124,24 @@ async function seedGovernedEmergencyDefinition() {
           approved_at, patient_visibility_policy_ref, definition_checksum)
        VALUES
          ($1::uuid, $2::integer, $3::uuid, $3::uuid, 'approved', $4::integer,
-          $5::uuid, NOW(), 'staff_only_test_policy', $6::text)
+          $5::uuid, NOW(), 'released_ed_aftercare_test_policy', $6::text)
        RETURNING id`,
       DEFAULT_TENANT,
       definitionId,
       ED_DOCTOR_UID,
       Number(approvals[0].id),
       ADMIN_UID,
-      compiledEmergencyDefinition.checksum,
+      compiledDefinition.checksum,
     );
     return {
       id: definitionId,
       governance_id: governance[0].id,
-      approval_id: Number(approvals[0].id),
       exact_fixture: true,
     };
   });
 }
 
-async function activateEmergencyPathway() {
+async function activatePathway() {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT settings FROM tenants WHERE id = $1::uuid`,
     DEFAULT_TENANT,
@@ -176,7 +168,7 @@ async function activateEmergencyPathway() {
   return rows[0]?.settings;
 }
 
-async function restoreTenantSettings(settings) {
+async function restoreSettings(settings) {
   await prisma.$executeRawUnsafe(
     `UPDATE tenants SET settings = $2::jsonb, updated_at = NOW()
       WHERE id = $1::uuid`,
@@ -185,11 +177,7 @@ async function restoreTenantSettings(settings) {
   );
 }
 
-async function projectLatestEmergencyEvent(
-  emergencyVisitId,
-  eventType,
-  toStatus,
-) {
+async function projectLatestEvent(emergencyVisitId, eventType, toStatus = null) {
   return setTenantTx(DEFAULT_TENANT, async tx => {
     const events = await tx.$queryRawUnsafe(
       `SELECT *
@@ -199,7 +187,7 @@ async function projectLatestEmergencyEvent(
           AND aggregate_type = 'emergency_visit'
           AND aggregate_id = $3::integer::text
           AND payload ->> 'emergency_visit_id' = $3::integer::text
-          AND payload ->> 'to_status' = $4::text
+          AND ($4::text IS NULL OR payload ->> 'to_status' = $4::text)
         ORDER BY id DESC
         LIMIT 1`,
       DEFAULT_TENANT,
@@ -219,105 +207,104 @@ async function projectLatestEmergencyEvent(
   });
 }
 
-describeJourney('Journey: ED destination handoff to admission', () => {
-  let admin;
+describeJourney('Journey: ED discharge closure and patient aftercare', () => {
   let doctor;
-  let receivingNurse;
-  let bedId;
+  let patient;
   let emergencyVisitId;
   let pathwayInstanceId;
-  let handoffId;
   let settingsBefore;
 
   beforeAll(async () => {
-    const adminRow = await seedUser({
+    await seedUser({
       uid: ADMIN_UID,
       phone: ADMIN_PHONE,
-      name: `ED Journey Admin ${RUN}`,
+      name: `ED Closure Admin ${RUN}`,
       role: 'ADMIN',
     });
     const doctorRow = await seedDoctor({
       uid: ED_DOCTOR_UID,
       phone: DOCTOR_PHONE,
-      name: `Dr ED Owner ${RUN}`,
+      name: `Dr ED Closure ${RUN}`,
       department: DEPARTMENT,
     });
-    const nurseRow = await seedUser({
-      uid: RECEIVING_NURSE_UID,
-      phone: NURSE_PHONE,
-      name: `Receiving Nurse ${RUN}`,
-      role: 'NURSING_STAFF',
-    });
-    await seedUser({
+    const patientRow = await seedUser({
       uid: PATIENT_UID,
       phone: PATIENT_PHONE,
-      name: `ED Handoff Patient ${RUN}`,
+      name: `ED Closure Patient ${RUN}`,
       role: 'PATIENT',
     });
     await seedTreatmentConsent(PATIENT_UID);
-    const ward = await seedWardWithBeds({
-      wardName: WARD_NAME,
-      bedNumbers: [BED_NUMBER],
+    await grantCareTeam({
+      patientUid: PATIENT_UID,
+      staffUid: ED_DOCTOR_UID,
+      staffRole: 'DOCTOR',
+      memberName: `Dr ED Closure ${RUN}`,
     });
-    [bedId] = ward.bedIds;
-
-    admin = roleClient('ADMIN', { uid: ADMIN_UID, id: adminRow.id });
     doctor = roleClient('DOCTOR', {
       uid: ED_DOCTOR_UID,
       id: doctorRow.userId,
       phone: DOCTOR_PHONE,
     });
-    receivingNurse = roleClient('NURSING_STAFF', {
-      uid: RECEIVING_NURSE_UID,
-      id: nurseRow.id,
-      phone: NURSE_PHONE,
+    patient = roleClient('PATIENT', {
+      uid: PATIENT_UID,
+      id: patientRow.id,
+      phone: PATIENT_PHONE,
     });
-    await grantCareTeam({
-      patientUid: PATIENT_UID,
-      staffUid: ED_DOCTOR_UID,
-      staffRole: 'DOCTOR',
-      memberName: `Dr ED Owner ${RUN}`,
-    });
-    await seedGovernedEmergencyDefinition();
-    settingsBefore = await activateEmergencyPathway();
+    await seedGovernedDefinition();
+    settingsBefore = await activatePathway();
   });
 
   afterAll(async () => {
     try {
       if (settingsBefore !== undefined) {
-        await restoreTenantSettings(settingsBefore);
+        await restoreSettings(settingsBefore);
       }
     } finally {
       await prisma.$disconnect().catch(() => {});
     }
   });
 
-  it('requires exact receiving-role acceptance before linked admission closes the ED pathway', async () => {
+  it('blocks discharge until exact evidence, completes its task, and releases only safe next steps', async () => {
     const created = await doctor.post('/api/v1/ed/visits').send({
-      visit_number: `ED-HANDOFF-${RUN}`,
+      visit_number: `ED-CLOSURE-${RUN}`,
       patient_uid: PATIENT_UID,
       attending_doctor_uid: ED_DOCTOR_UID,
       arrival_mode: 'walk_in',
-      chief_complaint: 'Requires monitored ward admission',
+      chief_complaint: 'Review and discharge when safe',
     });
     expect(created.statusCode).toBe(201);
-    expect(created.body.data).toMatchObject({
-      patient_uid: PATIENT_UID,
-      attending_doctor_uid: ED_DOCTOR_UID,
-      status: 'arriving',
-      pathway_mode: 'active',
-    });
     emergencyVisitId = Number(created.body.data.id);
 
-    const projectedArrival = await projectLatestEmergencyEvent(
+    const projectedArrival = await projectLatestEvent(
       emergencyVisitId,
       'emergency.visit.created',
       'arriving',
     );
     pathwayInstanceId = projectedArrival.pathway_instance_id;
-    expect(pathwayInstanceId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-    );
+
+    await expect(prisma.$executeRawUnsafe(
+      `INSERT INTO tasks
+         (tenant_id, task_kind, title, patient_uid,
+          related_resource_type, related_resource_id, priority,
+          assigned_to_uid, sla_completion_semantics, metadata)
+       VALUES
+         ($1::uuid, 'ed_closure_review', 'Forged ED closure review',
+          $2::uuid, 'emergency_visit_closure', $3::integer::text, 'normal',
+          $4::uuid, 'none',
+          jsonb_build_object(
+            'task_contract', 'ed_closure_review_v1',
+            'emergency_visit_id', $3::integer,
+            'canonical_encounter_id', $5::text,
+            'care_pathway_instance_id', $6::text,
+            'created_by_system_key', 'emergency.pathway_projector.v2'
+          ))`,
+      DEFAULT_TENANT,
+      PATIENT_UID,
+      emergencyVisitId,
+      ADMIN_UID,
+      created.body.data.encounter_id,
+      pathwayInstanceId,
+    )).rejects.toThrow(/ED closure review task binding is noncanonical/);
 
     for (const nextStatus of [
       'in_triage',
@@ -328,168 +315,146 @@ describeJourney('Journey: ED destination handoff to admission', () => {
         .patch(`/api/v1/ed/visits/${emergencyVisitId}/transition`)
         .send({ next_status: nextStatus });
       expect(transitioned.statusCode).toBe(200);
-      expect(transitioned.body.data.status).toBe(nextStatus);
-      await projectLatestEmergencyEvent(
+      await projectLatestEvent(
         emergencyVisitId,
         'emergency.visit.transitioned',
         nextStatus,
       );
     }
 
-    const requested = await doctor
-      .post(`/api/v1/ed/visits/${emergencyVisitId}/destination-handoffs`)
-      .set('Idempotency-Key', `ed-handoff-request-${RUN}`)
-      .send({
-        destination: 'ward',
-        intended_recipient_role: 'NURSING_STAFF',
-        reason: 'Accept monitored ward care responsibility',
-      });
-    expect(requested.statusCode).toBe(201);
-    expect(requested.body.data).toMatchObject({
-      replayed: false,
-      handoff: {
-        status: 'requested',
-        destination: 'ward',
-        intended_recipient_role: 'NURSING_STAFF',
-      },
-      task: {
-        task_kind: 'ed_destination_handoff_review',
-        priority: 'high',
-        status: 'open',
-        assigned_to_role: 'NURSING_STAFF',
-      },
-      destination_source: {
-        emergency_visit_id: emergencyVisitId,
-        source_pathway_instance_id: pathwayInstanceId,
-      },
-    });
-    expect(requested.body.data.task).not.toHaveProperty('due_at');
-    expect(JSON.stringify(requested.body.data)).not.toContain(PATIENT_UID);
-    handoffId = requested.body.data.handoff.id;
-
-    const requestReplay = await doctor
-      .post(`/api/v1/ed/visits/${emergencyVisitId}/destination-handoffs`)
-      .set('Idempotency-Key', `ed-handoff-request-${RUN}`)
-      .send({
-        destination: 'ward',
-        intended_recipient_role: 'NURSING_STAFF',
-        reason: 'Accept monitored ward care responsibility',
-      });
-    expect(requestReplay.statusCode).toBe(200);
-    expect(requestReplay.body.data).toMatchObject({
-      replayed: true,
-      handoff: { id: handoffId, status: 'requested' },
-    });
-
-    const queue = await receivingNurse
-      .get('/api/v1/ed/destination-handoffs?status=requested');
-    expect(queue.statusCode).toBe(200);
-    expect(queue.body.data).toMatchObject({
-      actor_role: 'NURSING_STAFF',
-      count: 1,
-      handoffs: [{
-        id: handoffId,
-        emergency_visit_id: emergencyVisitId,
-        can_decide: true,
-        can_reroute: false,
-      }],
-    });
-
-    const missingSourceAdmission = await admin.post('/api/v1/emr/admit').send({
-      patient_uid: PATIENT_UID,
-      admitting_doctor: ED_DOCTOR_UID,
-      admission_type: 'emergency',
-      priority: 'urgent',
-      bed_id: bedId,
-      from_er_visit_id: emergencyVisitId,
-    });
-    expect(missingSourceAdmission.statusCode).toBe(409);
-    expect(missingSourceAdmission.body.code).toBe(
-      'ED_ADMISSION_SOURCE_HANDOFF_REQUIRED',
-    );
-
-    const accepted = await receivingNurse
-      .post(
-        `/api/v1/ed/visits/${emergencyVisitId}/destination-handoffs/${handoffId}/decisions`,
-      )
-      .set('Idempotency-Key', `ed-handoff-accept-${RUN}`)
-      .send({ decision: 'accept' });
-    expect(accepted.statusCode).toBe(200);
-    expect(accepted.body.data).toMatchObject({
-      replayed: false,
-      handoff: {
-        id: handoffId,
-        status: 'accepted',
-        accepted_by_uid: RECEIVING_NURSE_UID,
-      },
-      task: { status: 'completed' },
-      destination_source: {
-        emergency_visit_id: emergencyVisitId,
-        source_pathway_instance_id: pathwayInstanceId,
-        source_handoff_id: handoffId,
-      },
-    });
-
-    const admitted = await admin.post('/api/v1/emr/admit').send({
-      patient_uid: PATIENT_UID,
-      admitting_doctor: ED_DOCTOR_UID,
-      attending_doctor: ED_DOCTOR_UID,
-      admission_type: 'emergency',
-      priority: 'urgent',
-      bed_id: bedId,
-      from_er_visit_id: emergencyVisitId,
-      source_pathway_instance_id: pathwayInstanceId,
-      source_handoff_id: handoffId,
-    });
-    expect(admitted.statusCode).toBe(201);
-    const admission = admitted.body.data?.admission;
-    expect(admission).toMatchObject({
-      patient_uid: PATIENT_UID,
-      from_er_visit_id: emergencyVisitId,
-      source_pathway_instance_id: pathwayInstanceId,
-      source_handoff_id: handoffId,
-      attending_doctor: ED_DOCTOR_UID,
-    });
-
-    await projectLatestEmergencyEvent(
+    const tasksBefore = await prisma.$queryRawUnsafe(
+      `SELECT id, status, task_kind, assigned_to_uid, assigned_to_role,
+              due_at, workflow_sla_instance_id, sla_completion_semantics,
+              metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'emergency_visit_closure'
+          AND related_resource_id = $2::integer::text
+        ORDER BY id DESC
+        LIMIT 1`,
+      DEFAULT_TENANT,
       emergencyVisitId,
-      'emergency.visit.destination_closed',
-      'admitted',
     );
-    const finalRows = await prisma.$queryRawUnsafe(
+    expect(tasksBefore).toHaveLength(1);
+    expect(tasksBefore[0]).toMatchObject({
+      status: 'open',
+      task_kind: 'ed_closure_review',
+      assigned_to_uid: ED_DOCTOR_UID,
+      assigned_to_role: null,
+      due_at: null,
+      workflow_sla_instance_id: null,
+      sla_completion_semantics: 'none',
+      metadata: expect.objectContaining({
+        task_contract: 'ed_closure_review_v1',
+        care_pathway_instance_id: pathwayInstanceId,
+      }),
+    });
+
+    const premature = await doctor
+      .patch(`/api/v1/ed/visits/${emergencyVisitId}/transition`)
+      .send({ next_status: 'discharged' });
+    expect(premature.statusCode).toBeGreaterThanOrEqual(400);
+    const unchanged = await prisma.$queryRawUnsafe(
+      `SELECT status FROM emergency_visits
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      DEFAULT_TENANT,
+      emergencyVisitId,
+    );
+    expect(unchanged[0].status).toBe('awaiting_disposition');
+
+    const followUps = await prisma.$queryRawUnsafe(
+      `INSERT INTO follow_up_plans
+         (tenant_id, patient_uid, origin_kind, origin_resource_type,
+          origin_resource_id, reason, status, due_at, created_by)
+       VALUES
+         ($1::uuid, $2::uuid, 'er_visit', 'emergency_visit',
+          $3::integer::text, 'Review after ED discharge', 'scheduled',
+          NOW() + INTERVAL '3 days', $4::uuid)
+       RETURNING id`,
+      DEFAULT_TENANT,
+      PATIENT_UID,
+      emergencyVisitId,
+      ED_DOCTOR_UID,
+    );
+    const closure = await doctor
+      .post(`/api/v1/ed/visits/${emergencyVisitId}/closure-evidence`)
+      .set('Idempotency-Key', `ed-discharge-closure-${RUN}`)
+      .send({
+        closure_kind: 'discharge',
+        follow_up_required: true,
+        follow_up_plan_id: Number(followUps[0].id),
+        patient_safe_next_steps: [{
+          label: 'Attend your ED follow-up',
+          explanation: 'Please attend the scheduled review.',
+          status: 'scheduled',
+          patient_action: 'Open appointments',
+          route_token: 'appointments',
+        }],
+        medication_not_applicable_reason: 'No medicines were prescribed',
+        identity_resolution_status: 'verified',
+      });
+    expect(closure.statusCode).toBe(201);
+    expect(closure.body.data).toMatchObject({
+      replayed: false,
+      closure_evidence: {
+        closure_kind: 'discharge',
+        evidence_revision: 1,
+        patient_visibility_status: 'released',
+      },
+    });
+
+    const discharged = await doctor
+      .patch(`/api/v1/ed/visits/${emergencyVisitId}/transition`)
+      .send({ next_status: 'discharged' });
+    expect(discharged.statusCode).toBe(200);
+    expect(discharged.body.data.status).toBe('discharged');
+    await projectLatestEvent(
+      emergencyVisitId,
+      'emergency.visit.transitioned',
+      'discharged',
+    );
+
+    const closed = await prisma.$queryRawUnsafe(
       `SELECT pathway.clinical_status,
               pathway.closed_at,
               run.status AS run_status,
-              visit.status AS visit_status,
-              visit.disposition,
-              admission.source_pathway_instance_id,
-              admission.source_handoff_id
+              task.status AS task_status
          FROM care_pathway_instances AS pathway
          JOIN workflow_runs AS run
            ON run.tenant_id = pathway.tenant_id
           AND run.id = pathway.workflow_run_id
-         JOIN emergency_visits AS visit
-           ON visit.tenant_id = pathway.tenant_id
-          AND visit.id::text = pathway.source_episode_id
-         JOIN admissions AS admission
-           ON admission.tenant_id = pathway.tenant_id
-          AND admission.from_er_visit_id = visit.id
+         JOIN tasks AS task
+           ON task.tenant_id = pathway.tenant_id
+          AND task.related_resource_type = 'emergency_visit_closure'
+          AND task.related_resource_id = pathway.source_episode_id
         WHERE pathway.tenant_id = $1::uuid
           AND pathway.id = $2::uuid
-          AND admission.id = $3::integer`,
+        ORDER BY task.id DESC
+        LIMIT 1`,
       DEFAULT_TENANT,
       pathwayInstanceId,
-      Number(admission.id),
     );
-    expect(finalRows).toHaveLength(1);
-    expect(finalRows[0]).toMatchObject({
+    expect(closed[0]).toMatchObject({
       clinical_status: 'completed',
       run_status: 'completed',
-      visit_status: 'admitted',
-      disposition: 'admitted',
-      source_pathway_instance_id: pathwayInstanceId,
-      source_handoff_id: handoffId,
+      task_status: 'completed',
     });
-    expect(finalRows[0].closed_at).not.toBeNull();
+    expect(closed[0].closed_at).not.toBeNull();
+
+    const whatsNext = await patient.get('/api/v1/patient/care-plans/whats-next');
+    expect(whatsNext.statusCode).toBe(200);
+    expect(whatsNext.body.data.next_steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Attend your ED follow-up',
+          explanation: 'Please attend the scheduled review.',
+          status: 'scheduled',
+          route_token: 'appointments',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(whatsNext.body.data)).not.toMatch(
+      /risk_summary|staff_notes|mlc_record_id|death_record_id/,
+    );
   });
 });

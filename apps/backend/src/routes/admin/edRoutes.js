@@ -41,6 +41,11 @@ import {
   requestEdDestinationHandoff,
   rerouteEdDestinationHandoff,
 } from '../../services/ed/edDestinationHandoffService.js';
+import {
+  getEdContinuity,
+  recordEdClosureEvidence,
+  recordEdRecoveryContact,
+} from '../../services/ed/edClosureRecoveryService.js';
 import { AppError } from '../../utils/AppError.js';
 import {
   addTraumaTimelineEvent,
@@ -101,7 +106,7 @@ function rejectUnknownFields(body, allowed) {
   for (const field of Object.keys(body || {})) {
     if (!allowed.has(field)) {
       throw AppError.badRequest(
-        `Unsupported ED destination handoff field: ${field}`,
+        `Unsupported ED field: ${field}`,
         'ED_DESTINATION_HANDOFF_FIELD_UNSUPPORTED',
       );
     }
@@ -115,6 +120,24 @@ function setHandoffPhiContext(req, result) {
       patientUid: String(result.__patient_uid),
     };
   }
+}
+
+async function resolveEdVisitContext(req, _res, next) {
+  try {
+    const patient = await resolvePatientForResourceAccess(req, {
+      resourceType: 'emergency_visit',
+      resourceId: req.params.id,
+    });
+    if (patient?.uid) {
+      req.phiContext = {
+        ...(req.phiContext || {}),
+        patientUid: String(patient.uid),
+      };
+    }
+  } catch {
+    // The route service remains authoritative for missing or invalid visits.
+  }
+  next();
 }
 
 // Tenant ED policy
@@ -197,6 +220,115 @@ router.patch('/visits/:id/transition', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
+router.get(
+  '/visits/:id/continuity',
+  resolveEdVisitContext,
+  patientAccessGuard('ED_CONTINUITY', { careTeamModeGoverned: true }),
+  async (req, res, next) => {
+    try {
+      const result = await getEdContinuity({
+        tenantId: req.tenantId,
+        emergencyVisitId: req.params.id,
+      });
+      setHandoffPhiContext(req, result);
+      return success(res, result, 'ED continuity evidence retrieved');
+    } catch (err) { return next(err); }
+  },
+);
+
+router.post('/visits/:id/closure-evidence', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    rejectUnknownFields(
+      body,
+      new Set([
+        'closure_kind',
+        'follow_up_required',
+        'follow_up_plan_id',
+        'no_follow_up_reason',
+        'patient_safe_next_steps',
+        'patient_next_steps',
+        'medication_reconciliation_id',
+        'medication_not_applicable_reason',
+        'risk_classification_code',
+        'risk_summary',
+        'accepted_handoff_id',
+        'receiving_facility_name',
+        'receiving_facility_reference',
+        'receiving_confirmed_by',
+        'receiving_confirmed_at',
+        'clinical_summary_resource_type',
+        'clinical_summary_resource_id',
+        'clinical_summary_sent_at',
+        'ambulance_request_id',
+        'transport_reference',
+        'transport_confirmed_at',
+        'death_record_id',
+        'mlc_record_id',
+        'identity_resolution_status',
+        'identity_resolution_reason',
+        'patient_merge_request_id',
+        'occurred_at',
+      ]),
+    );
+    const actor = requireHandoffActor(req);
+    const result = await recordEdClosureEvidence({
+      tenantId: req.tenantId,
+      emergencyVisitId: req.params.id,
+      clinicianUid: actor.uid,
+      input: {
+        ...body,
+        idempotency_key: requireIdempotencyKey(req),
+      },
+    });
+    setHandoffPhiContext(req, result);
+    return success(
+      res,
+      result,
+      result.replayed
+        ? 'ED closure evidence replayed'
+        : 'ED closure evidence recorded',
+      result.replayed ? 200 : 201,
+    );
+  } catch (err) { return next(err); }
+});
+
+router.post('/visits/:id/recovery-contacts', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    rejectUnknownFields(
+      body,
+      new Set([
+        'event_kind',
+        'contact_channel',
+        'outcome_code',
+        'patient_safe_summary',
+        'staff_notes',
+        'occurred_at',
+      ]),
+    );
+    const actor = requireHandoffActor(req);
+    const result = await recordEdRecoveryContact({
+      tenantId: req.tenantId,
+      emergencyVisitId: req.params.id,
+      clinicianUid: actor.uid,
+      input: {
+        ...body,
+        idempotency_key: requireIdempotencyKey(req),
+      },
+    });
+    setHandoffPhiContext(req, result);
+    return success(
+      res,
+      result,
+      result.replayed
+        ? 'ED recovery contact replayed'
+        : 'ED recovery contact recorded',
+      result.replayed ? 200 : 201,
+    );
+  } catch (err) { return next(err); }
+});
+
 router.post('/visits/:id/destination-handoffs', async (req, res, next) => {
   try {
     const body = req.body || {};
@@ -242,13 +374,14 @@ router.post(
   async (req, res, next) => {
     try {
       const body = req.body || {};
-      rejectUnknownFields(body, new Set(['decision', 'reason']));
+      rejectUnknownFields(body, new Set(['decision', 'reason', 'reason_code']));
       const result = await decideEdDestinationHandoff({
         tenantId: req.tenantId,
         emergencyVisitId: req.params.id,
         handoffId: req.params.handoffId,
         decision: body.decision,
         reason: body.reason,
+        reasonCode: body.reason_code,
         idempotencyKey: requireIdempotencyKey(req),
         actor: requireHandoffActor(req),
       });
