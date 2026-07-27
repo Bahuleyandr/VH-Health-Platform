@@ -142,6 +142,7 @@ describe('care pathways S5 ED OpenAPI contract', () => {
       status: 'requested',
       request_reason: 'ICU monitoring is required',
       decline_reason: null,
+      decline_reason_code: null,
       reroute_reason: null,
       requested_at: '2026-07-26T10:00:00.000Z',
       accepted_at: null,
