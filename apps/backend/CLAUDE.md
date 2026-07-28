@@ -285,7 +285,7 @@ nothing of ours):
 | Cluster | Port | DB / Role | PGDATA | Purpose |
 |---|---|---|---|---|
 | Dev | 5433 | `vhhealth` / `vhhealth` | `D:/Dev/Tools/pgdata-vhhealth` | `npm run dev`, drift check, day-to-day |
-| QA | 55432 | `vhhealth_test` / `qa_writer` | `D:/Dev/Tools/vhhealth-test-postgres-data` | `scripts/qa-orchestrator.mjs`, `vh-health-qa` skill |
+| QA | 55432 | `vhhealth_test` / `qa_writer` | `D:/Dev/Tools/vhhealth-test-postgres-data` | jest deep suites (`jest.setup.cjs` default), per-session scratch DBs |
 
 ### Dev cluster
 
@@ -301,8 +301,11 @@ psql -h localhost -p 5433 -U vhhealth -d vhhealth
 
 ### QA cluster
 
-The QA cluster is what the `vh-health-qa` skill, the orchestrator,
-and the reset script all expect at `127.0.0.1:55432`. Bring it up
+The QA cluster is what `jest.setup.cjs` defaults `DATABASE_URL` to
+(`127.0.0.1:55432`), and where sessions build isolated throwaway
+databases (`CREATE DATABASE` → pgvector → `ci-setup-db.mjs`) for
+CI-faithful verification. (The `qa-orchestrator.mjs` / `qa-reset.mjs`
+scripts referenced here historically no longer exist.) Bring it up
 with the idempotent script:
 
 ```bash
@@ -315,6 +318,26 @@ The script starts postgres if it isn't already up, creates the
 pending `src/migrations/*.sql` via `ci-setup-db.mjs`, and verifies a
 Windows-side `qa_writer` connect. Re-running against a healthy
 cluster is a fast no-op.
+
+**Scratch-database hygiene.** Sessions that build throwaway databases
+on this cluster must drop them when done. Left behind, they compound:
+by 2026-07-28 the cluster had accumulated 155 databases and its
+post-crash `syncing data directory (fsync)` pass took 10–20+ minutes
+before accepting connections. Sweep with:
+
+```bash
+node apps/backend/scripts/qa-scratch-db.mjs list
+node apps/backend/scripts/qa-scratch-db.mjs prune          # dry run
+node apps/backend/scripts/qa-scratch-db.mjs prune --yes    # drop for real
+```
+
+`prune` never touches `postgres`, `vhhealth_test`, or templates, skips
+databases with live connections (unless `--include-active`) and anything
+written to in the last 3 days (`--max-age-days`), and is a dry run
+without `--yes`. Selection policy is pinned by
+`src/tests/unit/qaScratchDbPrune.test.js`. Point it at a non-default
+port with `--url` / `QA_ADMIN_DATABASE_URL` when WinNAT has stolen
+55432 and the cluster is running on a low port.
 
 **IPv6 bind caveat (Trenzalore, 2026-05-13).** On this host postgres
 fails to bind `::1:55432` with `Permission denied` even though .NET
