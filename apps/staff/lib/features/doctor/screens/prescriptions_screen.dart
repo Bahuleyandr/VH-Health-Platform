@@ -11,7 +11,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import '../../../core/models/composition_alternatives.dart';
-import '../../../core/platform_info.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/clinical_print_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -20,6 +19,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/clinical_print_pdf_action.dart';
 import '../../../core/widgets/constrained_content.dart';
+import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -1011,74 +1011,16 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     try {
       final meds = _medications.map((m) => m.toJson()).toList();
 
-      if (!ConnectivitySyncService.instance.isOnline) {
-        // Photo prescriptions can't be queued — the offline queue is JSON-only.
-        if (_handwrittenPhoto != null) {
-          if (mounted) {
-            ErrorToast.show(
-              context,
-              AppStrings.of(
-                context,
-              ).lookup('s4.lib.prescriptions.photo_needs_connection'),
-            );
-            setState(() => _submitting = false);
-          }
-          return;
-        }
-        final intent = buildOfflineRxIntent(
-          deviceType: currentDeviceType,
-          patientId: _patientId!,
-          doctorId: _doctorId!,
-          appointmentId: _appointmentId,
-          diagnosis: _diagnosisCtrl.text.trim(),
-          clinicalNotes: _clinicalNotesCtrl.text.trim().isEmpty
-              ? null
-              : _clinicalNotesCtrl.text.trim(),
-          medications: meds,
-          followUpDate: _followUpDate != null
-              ? DateFormat('yyyy-MM-dd').format(_followUpDate!)
-              : null,
-          followUpNotes: _followUpNotesCtrl.text.trim().isEmpty
-              ? null
-              : _followUpNotesCtrl.text.trim(),
-          vitals: _buildVitals(),
+      if (prescriptionSubmissionDisposition(
+            isOnline: ConnectivitySyncService.instance.isOnline,
+          ) ==
+          PrescriptionSubmissionDisposition.usePaperFallback) {
+        if (!mounted) return;
+        final strings = AppStrings.of(context);
+        await showOfflineClinicalFallbackDialog(
+          context,
+          paperFormSet: strings.offlineClinicalFallbackOpdPrescriptionPads,
         );
-        if (intent.block) {
-          if (mounted) {
-            ErrorToast.show(context, intent.reason!);
-            setState(() => _submitting = false);
-          }
-          return; // keep the form; NEVER enqueue on a blocked device
-        }
-        final firstName = meds.isNotEmpty
-            ? (meds.first['name'] ??
-                  meds.first['medication_name'] ??
-                  'medication')
-            : 'medication';
-        await ConnectivitySyncService.instance.enqueue(
-          endpoint: intent.endpoint,
-          method: 'POST',
-          body: intent.body,
-          contextLabel: AppStrings.of(context).format(
-            's4.dynamic.prescriptions.offline_context',
-            {'name': firstName},
-          ),
-        );
-        if (mounted) {
-          SuccessToast.show(
-            context,
-            AppStrings.of(
-              context,
-            ).lookup('s4.lib.prescriptions.queued_safety_checked_on_sync'),
-          );
-          _formKey.currentState!.reset();
-          setState(() {
-            if (widget.prefilledAppointment == null) {
-              _resetPrescriptionDraft(keepPatientContext: false);
-            }
-            _submitting = false;
-          });
-        }
         return;
       }
 

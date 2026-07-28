@@ -9,9 +9,19 @@ import 'package:vhhealth_core/services/mar_offline_cache.dart';
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../mar_offline_administer.dart';
+
+@visibleForTesting
+Future<void> showMarAdministrationOfflineFallback(BuildContext context) {
+  final s = AppStrings.of(context);
+  return showOfflineClinicalFallbackDialog(
+    context,
+    paperFormSet: s.offlineClinicalFallbackMarSheets,
+  );
+}
 
 /// Bedside medication administration with 5-rights barcode verification.
 ///
@@ -59,10 +69,6 @@ class _MarScanScreenState extends State<MarScanScreen> {
   Map<String, dynamic>? _verifyResult;
   bool _busy = false;
   String? _errorMessage;
-
-  /// Set when the administer was queued offline (re-verified server-side on
-  /// drain). Switches the done panel to "Recorded — pending sync".
-  bool _pendingSync = false;
 
   final MobileScannerController _scannerController = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -127,10 +133,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
   Future<void> _runVerifyOffline() async {
     final dose = await MarOfflineCache.getCachedDose(_patientUid!, widget.maId);
     if (dose == null) {
-      setState(
-        () => _errorMessage =
-            'No offline data for this dose — connect to administer.',
-      );
+      await _showAndRetainMarFallback();
       return;
     }
     final rights = evaluateFiveRights(
@@ -159,7 +162,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
     });
     try {
       if (!ConnectivitySyncService.instance.isOnline) {
-        await _administerOffline(overrideReason: overrideReason);
+        await _administerOffline();
         return;
       }
       await MedicalApiService.administerWithScan(
@@ -181,17 +184,13 @@ class _MarScanScreenState extends State<MarScanScreen> {
     }
   }
 
-  /// Offline administer: re-run the pure decision against the cached dose and
-  /// enqueue only when it is SAFE. INVARIANT: a patient/drug hard-stop NEVER
-  /// enqueues a write — it aborts back to a re-scan. The server re-verifies the
-  /// full 5-rights when the queued write drains.
-  Future<void> _administerOffline({String? overrideReason}) async {
+  /// Offline administer: re-run the pure safety decision against the cached
+  /// dose. Identity mismatches remain hard stops; otherwise the clinical action
+  /// is not recorded or queued and the nurse is directed to the MAR paper set.
+  Future<void> _administerOffline() async {
     final dose = await MarOfflineCache.getCachedDose(_patientUid!, widget.maId);
     if (dose == null) {
-      setState(
-        () => _errorMessage =
-            'No offline data for this dose — connect to administer.',
-      );
+      await _showAndRetainMarFallback();
       return;
     }
     final intent = buildOfflineAdministerIntent(
@@ -199,7 +198,6 @@ class _MarScanScreenState extends State<MarScanScreen> {
       scannedPatientUid: _patientUid!,
       scannedBarcode: _barcode!,
       at: DateTime.now().toUtc(),
-      overrideReason: overrideReason,
     );
     if (intent.hardStop) {
       // Wrong-patient / wrong-drug never-event — re-scan, no write queued.
@@ -209,26 +207,19 @@ class _MarScanScreenState extends State<MarScanScreen> {
       );
       return;
     }
-    if (!intent.enqueue) {
-      // Soft rights failed and no valid override yet — surface the override UI
-      // (the verify panel already renders _OverrideSection for soft-fails).
-      setState(
-        () => _errorMessage =
-            'Override reason required to administer this dose offline.',
-      );
-      return;
-    }
-    await ConnectivitySyncService.instance.enqueue(
-      endpoint: intent.endpoint,
-      method: 'POST',
-      body: intent.body,
-      contextLabel: 'MAR: ${dose['medication_name'] ?? ''}',
-    );
+    await _showAndRetainMarFallback();
+  }
+
+  Future<void> _showAndRetainMarFallback() async {
     if (!mounted) return;
-    setState(() {
-      _pendingSync = true;
-      _step = _Step.done;
-    });
+    final s = AppStrings.of(context);
+    await showMarAdministrationOfflineFallback(context);
+    if (!mounted) return;
+    setState(
+      () => _errorMessage = s.offlineClinicalFallbackMessage(
+        s.offlineClinicalFallbackMarSheets,
+      ),
+    );
   }
 
   void _reset() {
@@ -238,7 +229,6 @@ class _MarScanScreenState extends State<MarScanScreen> {
       _barcode = null;
       _verifyResult = null;
       _errorMessage = null;
-      _pendingSync = false;
     });
   }
 
@@ -351,7 +341,19 @@ class _MarScanScreenState extends State<MarScanScreen> {
           _rightRow(s.marScanRightRoute, rights['route'] == true),
           _rightRow(s.marScanRightTime, rights['time'] == true),
           const SizedBox(height: 20),
-          if (allPassed)
+          if (marIsIdentityMismatch(rights))
+            // Wrong-patient / wrong-drug: hard-stop, no override (audit F-H1).
+            _marHardStopPanel(s, rights)
+          else if (!ConnectivitySyncService.instance.isOnline)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _busy ? null : () => _administer(),
+                icon: const Icon(Icons.assignment_outlined),
+                label: Text(s.offlineClinicalFallbackTitle),
+              ),
+            )
+          else if (allPassed)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -365,9 +367,6 @@ class _MarScanScreenState extends State<MarScanScreen> {
                 label: Text(_busy ? s.marScanRecording : s.marScanAdminister),
               ),
             )
-          else if (marIsIdentityMismatch(rights))
-            // Wrong-patient / wrong-drug: hard-stop, no override (audit F-H1).
-            _marHardStopPanel(s, rights)
           else
             _OverrideSection(
               onOverride: (reason) => _administer(overrideReason: reason),
@@ -470,16 +469,14 @@ class _MarScanScreenState extends State<MarScanScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              _pendingSync ? Icons.cloud_off : Icons.check_circle,
-              color: _pendingSync
-                  ? AppTheme.textSecondary
-                  : AppTheme.successGreen,
+            const Icon(
+              Icons.check_circle,
+              color: AppTheme.successGreen,
               size: 72,
             ),
             const SizedBox(height: 12),
             Text(
-              _pendingSync ? 'Recorded — pending sync' : s.marScanRecorded,
+              s.marScanRecorded,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 24),

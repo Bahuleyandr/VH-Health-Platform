@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
@@ -7,7 +9,6 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import 'api_client.dart';
-import 'recent_patients_service.dart';
 import 'telemetry_service.dart';
 
 class StaffSsoProvider {
@@ -46,6 +47,28 @@ typedef StaffSsoBrowser =
       required String callbackUrlScheme,
     });
 
+enum StaffLogoutStatus { blocked, signedOut }
+
+@immutable
+class StaffLogoutResult {
+  const StaffLogoutResult._({
+    required this.status,
+    required this.blockingWriteCount,
+  });
+
+  const StaffLogoutResult.blocked(int count)
+    : this._(status: StaffLogoutStatus.blocked, blockingWriteCount: count);
+
+  const StaffLogoutResult.signedOut()
+    : this._(status: StaffLogoutStatus.signedOut, blockingWriteCount: 0);
+
+  final StaffLogoutStatus status;
+  final int blockingWriteCount;
+
+  bool get isBlocked => status == StaffLogoutStatus.blocked;
+  bool get isSignedOut => status == StaffLogoutStatus.signedOut;
+}
+
 class AuthService {
   // Centralized encrypted storage — same instance as api_config.dart and core.
   static final _storage = VHSecureStorage.instance;
@@ -55,6 +78,9 @@ class AuthService {
   @visibleForTesting
   static StaffSsoBrowser? debugStaffSsoBrowser;
 
+  @visibleForTesting
+  static bool debugDisablePostLoginSync = false;
+
   static Future<void> _saveAuthenticatedStaffSession({
     required String employeeId,
     required Map<String, dynamic> data,
@@ -62,54 +88,84 @@ class AuthService {
   }) async {
     final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
     if (token == null) return;
-
-    final refreshToken = data['refreshToken'];
-    await core_auth.AuthService.setTokens(
-      accessToken: token.toString(),
-      refreshToken: refreshToken?.toString(),
+    final staffId = _nonEmptyString(
+      data['staff']?['_id'] ?? data['staff']?['id'] ?? data['staff_id'],
     );
-    await ApiConfig.saveJwt(token.toString());
-    if (employeeId.trim().isNotEmpty) {
-      await ApiConfig.saveEmployeeId(employeeId);
+    final staffUid = _nonEmptyString(
+      data['staff']?['uid'] ??
+          data['staff']?['user_uid'] ??
+          data['staff_uid'] ??
+          data['uid'],
+    );
+    if (staffId == null && staffUid == null) {
+      throw StateError('Authenticated staff identity is missing.');
     }
 
-    final staffId =
-        data['staff']?['_id'] ?? data['staff']?['id'] ?? data['staff_id'];
-    if (staffId != null) {
-      await ApiConfig.saveStaffId(staffId.toString());
-      await core_auth.AuthService.setStaffId(staffId.toString());
-    }
-
-    final staffUid =
-        data['staff']?['uid'] ??
-        data['staff']?['user_uid'] ??
-        data['staff_uid'] ??
-        data['uid'];
-    if (staffUid != null) {
-      await ApiConfig.saveStaffUid(staffUid.toString());
-      if (staffId == null) {
-        await ApiConfig.saveStaffId(staffUid.toString());
-        await core_auth.AuthService.setStaffId(staffUid.toString());
+    final syncService = ConnectivitySyncService.instance;
+    await syncService.beginSessionBarrier();
+    try {
+      await ApiConfig.clearSessionIdentity();
+      final refreshToken = data['refreshToken'];
+      await core_auth.AuthService.setTokens(
+        accessToken: token.toString(),
+        refreshToken: refreshToken?.toString(),
+      );
+      await ApiConfig.saveJwt(token.toString());
+      if (employeeId.trim().isNotEmpty) {
+        await ApiConfig.saveEmployeeId(employeeId);
       }
+
+      if (staffId != null) {
+        await ApiConfig.saveStaffId(staffId);
+        await core_auth.AuthService.setStaffId(staffId);
+      }
+
+      if (staffUid != null) {
+        await ApiConfig.saveStaffUid(staffUid);
+        if (staffId == null) {
+          await ApiConfig.saveStaffId(staffUid);
+          await core_auth.AuthService.setStaffId(staffUid);
+        }
+      }
+
+      final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
+      await ApiConfig.saveRole(role.toString());
+
+      final phone = data['staff']?['phone'] ?? data['phone'];
+      if (phone != null) await ApiConfig.savePhone(phone.toString());
+
+      await Telemetry.setUserProperties(role: role.toString());
+      await Telemetry.event('auth.login_success', {
+        'role': role.toString(),
+        'method': loginMethod,
+      });
+
+      final crashUserId = staffUid ?? staffId ?? employeeId;
+      await CrashReporter.instance.setUserId(crashUserId);
+      await CrashReporter.instance.setCustomKey('role', role.toString());
+      await CrashReporter.instance.setCustomKey(
+        'device_type',
+        currentDeviceType,
+      );
+    } catch (_) {
+      await ApiConfig.clearSessionIdentity();
+      rethrow;
+    } finally {
+      syncService.endSessionBarrier();
     }
+    if (debugDisablePostLoginSync) return;
+    unawaited(
+      syncService.syncPending().catchError((Object error, StackTrace stack) {
+        if (kDebugMode) {
+          debugPrint('AuthService: post-login offline sync failed: $error');
+        }
+      }),
+    );
+  }
 
-    final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
-    await ApiConfig.saveRole(role.toString());
-
-    final phone = data['staff']?['phone'] ?? data['phone'];
-    if (phone != null) await ApiConfig.savePhone(phone.toString());
-
-    await Telemetry.setUserProperties(role: role.toString());
-    await Telemetry.event('auth.login_success', {
-      'role': role.toString(),
-      'method': loginMethod,
-    });
-
-    final crashUserId =
-        staffUid?.toString() ?? staffId?.toString() ?? employeeId;
-    await CrashReporter.instance.setUserId(crashUserId);
-    await CrashReporter.instance.setCustomKey('role', role.toString());
-    await CrashReporter.instance.setCustomKey('device_type', currentDeviceType);
+  static String? _nonEmptyString(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 
   static Map<String, dynamic> _successData(ApiResponse response, String label) {
@@ -310,30 +366,56 @@ class AuthService {
     throw Exception(response.failureMessage('PIN login failed'));
   }
 
-  /// Logout — clears all local credentials
-  static Future<void> logout() async {
+  /// Attempts an ordinary logout after closing the offline-write session
+  /// barrier and authoritatively rechecking the current owner's queue.
+  static Future<StaffLogoutResult> logout() async {
+    final syncService = ConnectivitySyncService.instance;
+    await syncService.beginSessionBarrier();
     try {
-      await ApiClient.post('/auth/staff/logout', body: {});
-    } catch (e) {
-      debugPrint('AuthService.logout error: $e');
-      // Best effort
-    } finally {
-      // Clear local-only EMR caches so the next staff member to log in
-      // on a shared workstation doesn't see the previous user's recent
-      // patients (privacy concern on ward kiosks).
-      await RecentPatientsService.clear();
-      // Clear the offline write-queue too — on a shared ward tablet the
-      // queue holds the previous user's pending clinical writes (vitals,
-      // nursing notes); leaving it would let the next user drain them.
-      try {
-        await ConnectivitySyncService.instance.clearQueue();
-      } catch (e) {
-        debugPrint('AuthService.logout: offline queue clear failed: $e');
+      final blockingCount = await syncService
+          .blockingWriteCountForCurrentOwner();
+      if (blockingCount > 0) {
+        return StaffLogoutResult.blocked(blockingCount);
       }
-      await ApiConfig.clearAll();
-      await Telemetry.event('auth.logout');
-      await CrashReporter.instance.setUserId(null);
+
+      try {
+        await ApiClient.post('/auth/staff/logout', body: {});
+      } catch (e) {
+        debugPrint('AuthService.logout error: $e');
+      }
+      await _clearLocalSession(telemetryEvent: 'auth.logout');
+      return const StaffLogoutResult.signedOut();
+    } finally {
+      syncService.endSessionBarrier();
     }
+  }
+
+  /// Forced/server revocation bypasses the ordinary logout blocker while
+  /// preserving all encrypted, owner-bound offline rows and device keys.
+  static Future<int> forceLogoutForRevocation() async {
+    final syncService = ConnectivitySyncService.instance;
+    await syncService.beginSessionBarrier();
+    try {
+      var unresolvedCount = 0;
+      try {
+        unresolvedCount = await syncService
+            .unresolvedWriteCountForCurrentOwner();
+      } catch (e) {
+        debugPrint('AuthService: revocation queue count failed: $e');
+      }
+      await _clearLocalSession(telemetryEvent: 'auth.session_revoked');
+      return unresolvedCount;
+    } finally {
+      syncService.endSessionBarrier();
+    }
+  }
+
+  static Future<void> _clearLocalSession({
+    required String telemetryEvent,
+  }) async {
+    await ApiConfig.clearSessionIdentity();
+    await Telemetry.event(telemetryEvent);
+    await CrashReporter.instance.setUserId(null);
   }
 
   static Future<bool> isLoggedIn() => ApiConfig.isLoggedIn();

@@ -1,21 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
 import '../../l10n/app_strings.dart';
-import '../providers/session_timeout_provider.dart';
-import '../services/auth_service.dart';
-import '../theme/app_theme.dart';
+import 'logout_flow.dart';
 
 export 'navigation_back_action.dart';
 
 /// AppBar logout action — drop into any `AppBar.actions` list to show a
 /// universal logout button on screens that don't wrap with [StaffScaffold].
 ///
-/// Tap → confirmation dialog → on confirm: [AuthService.logout] (clears
-/// JWT + refresh + role + employeeId from secure storage) → `context.go('/login')`.
-/// The auth-redirect guard in `app_router.dart` would handle this on its
-/// own once the JWT is cleared, but pushing `/login` explicitly avoids a
-/// stale-state flash on slow devices.
+/// Tap opens the ordinary sign-out flow. Unresolved offline clinical work
+/// blocks sign-out and routes the user to Sync status for reconciliation.
 ///
 /// Used directly by [StaffScaffold]; also added piecemeal to every screen
 /// that uses a raw [Scaffold]+[AppBar] (the role-specific bottom-nav
@@ -25,34 +18,12 @@ class LogoutAction extends StatelessWidget {
   const LogoutAction({super.key});
 
   Future<void> _logout(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final s = AppStrings.of(ctx);
-        return AlertDialog(
-          title: Text(s.logoutDialogTitle),
-          content: Text(s.logoutDialogBody),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(s.actionCancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
-              child: Text(s.actionLogout),
-            ),
-          ],
-        );
-      },
+    final strings = AppStrings.of(context);
+    await LogoutFlow.start(
+      context,
+      confirmationTitle: strings.logoutDialogTitle,
+      confirmationBody: strings.logoutDialogBody,
     );
-    if (confirmed != true) return;
-    await AuthService.logout();
-    if (context.mounted) {
-      context.read<SessionTimeoutProvider>().stopTracking();
-    }
-    if (!context.mounted) return;
-    context.go('/login');
   }
 
   @override

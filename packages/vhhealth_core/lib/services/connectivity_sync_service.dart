@@ -3,21 +3,15 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/offline_write_entry.dart';
 import '../utils/log_sanitizer.dart';
+import 'auth_service.dart';
 import 'http_client.dart';
 import 'offline_queue.dart';
+import 'offline_write_containment.dart';
 
-/// How a drained offline write's HTTP status maps to a queue disposition.
 enum SyncDisposition { success, conflict, retry }
 
-/// Classify a drain response. A *definitive* client rejection that a blind retry
-/// can never fix becomes a conflict the user must resolve; anything transient
-/// (auth refresh, timeout, rate-limit, server error) is retried.
-///
-/// Conflict set: 400 (e.g. CDS_BLOCKER), 403 (device-posture clinical-write
-/// gate), 409 (in-flight / state conflict), 422 (idempotency body mismatch /
-/// validation). 401 stays transient — VHHttpClient refresh-retries it and a
-/// persistent auth failure is a re-login problem, not a clinical conflict.
 SyncDisposition dispositionForStatus(int statusCode) {
   if (statusCode >= 200 && statusCode < 300) return SyncDisposition.success;
   if (statusCode == 400 ||
@@ -29,19 +23,22 @@ SyncDisposition dispositionForStatus(int statusCode) {
   return SyncDisposition.retry;
 }
 
-/// Monitors connectivity, auto-syncs pending offline writes when back online,
-/// and exposes observable state (isOnline / isSyncing / counts) to the UI.
+class OfflineSessionBarrierActive implements Exception {
+  const OfflineSessionBarrierActive();
+
+  @override
+  String toString() => 'Offline session barrier is active';
+}
+
+/// Owner-scoped offline queue coordinator.
 ///
-/// Lives in `vhhealth_core` so both patient and staff apps share the same
-/// offline-write model, conflict UX, and sync-badge widget.
-///
-/// UI code listens via `context.watch<ConnectivitySyncService>()` *or* wraps
-/// an `AnimatedBuilder(animation: ConnectivitySyncService.instance, ...)`.
+/// C0A admits only the two recognized controls, partitions drain failures by
+/// tenant/capture-owner/action-family, and retains review evidence across every
+/// session transition.
 class ConnectivitySyncService extends ChangeNotifier {
   static final ConnectivitySyncService instance = ConnectivitySyncService._();
   ConnectivitySyncService._();
 
-  // ── Observable state ──────────────────────────────────────────────────
   bool _isOnline = true;
   bool get isOnline => _isOnline;
 
@@ -54,25 +51,30 @@ class ConnectivitySyncService extends ChangeNotifier {
   int _conflictCount = 0;
   int get conflictCount => _conflictCount;
 
-  // ── Internals ─────────────────────────────────────────────────────────
-  StreamSubscription<List<ConnectivityResult>>? _subscription;
+  int _needsReviewCount = 0;
+  int get needsReviewCount => _needsReviewCount;
 
-  /// Listen to connectivity changes; trigger sync when back online.
+  int get unresolvedCount => _pendingCount + _conflictCount + _needsReviewCount;
+
+  StreamSubscription<List<ConnectivityResult>>? _subscription;
+  int _sessionBarrierDepth = 0;
+  int _activeEnqueues = 0;
+  Completer<void>? _quiescent;
+
+  bool get isSessionBarrierActive => _sessionBarrierDepth > 0;
+
   void startListening() {
     _subscription ??= Connectivity().onConnectivityChanged.listen((results) {
       final wasOffline = !_isOnline;
       final newOnline = results.any((r) => r != ConnectivityResult.none);
-
       if (kDebugMode) {
         debugPrint('ConnectivitySync: online=$newOnline results=$results');
       }
-
       if (newOnline != _isOnline) {
         _isOnline = newOnline;
         notifyListeners();
       }
-
-      if (_isOnline && wasOffline) {
+      if (_isOnline && wasOffline && !isSessionBarrierActive) {
         syncPending();
       }
     });
@@ -92,61 +94,118 @@ class ConnectivitySyncService extends ChangeNotifier {
     _subscription = null;
   }
 
-  /// Re-read pending + conflict counts from the queue and notify listeners
-  /// if anything changed. Cheap — call after any queue mutation, or on a
-  /// pull-to-refresh.
+  /// Closes admission synchronously, then waits for an enqueue or drain that
+  /// had already crossed the gate to quiesce.
+  Future<void> beginSessionBarrier() async {
+    _sessionBarrierDepth++;
+    if (_activeEnqueues == 0 && !_isSyncing) return;
+    _quiescent ??= Completer<void>();
+    await _quiescent!.future;
+  }
+
+  /// Releases one barrier holder. Extra releases are safe no-ops.
+  void endSessionBarrier() {
+    if (_sessionBarrierDepth > 0) _sessionBarrierDepth--;
+  }
+
+  void _signalQuiescentIfReady() {
+    if (_activeEnqueues == 0 && !_isSyncing) {
+      final completer = _quiescent;
+      _quiescent = null;
+      if (completer != null && !completer.isCompleted) completer.complete();
+    }
+  }
+
   Future<void> refreshCounts() async {
-    final pending = await OfflineQueue.getPending();
-    final conflicts = await OfflineQueue.getConflicts();
+    final entries = await OfflineQueue.unresolvedEntriesForCurrentOwner();
+    final pending = entries
+        .where((entry) => entry.status == OfflineWriteStatus.pending)
+        .length;
+    final conflicts = entries
+        .where((entry) => entry.status == OfflineWriteStatus.conflict)
+        .length;
+    final review = entries
+        .where((entry) => entry.status == OfflineWriteStatus.needsReview)
+        .length;
     final changed =
-        pending.length != _pendingCount || conflicts.length != _conflictCount;
-    _pendingCount = pending.length;
-    _conflictCount = conflicts.length;
+        pending != _pendingCount ||
+        conflicts != _conflictCount ||
+        review != _needsReviewCount;
+    _pendingCount = pending;
+    _conflictCount = conflicts;
+    _needsReviewCount = review;
     if (changed) notifyListeners();
   }
 
-  /// Count pending writes scoped to the currently authenticated staff owner.
-  ///
-  /// Used by session-timeout cleanup before credentials are cleared so the UI
-  /// can truthfully say whether owner-scoped writes were preserved for the
-  /// same staff member's next login.
-  Future<int> pendingWriteCountForCurrentOwner() async {
-    final pending = await OfflineQueue.getPending();
-    return pending.length;
-  }
+  Future<List<OfflineWriteEntry>> unresolvedEntriesForCurrentOwner() =>
+      OfflineQueue.unresolvedEntriesForCurrentOwner();
 
-  /// Queue a write and update counts. Prefer this over calling
-  /// [OfflineQueue.enqueue] directly so the badge stays accurate.
+  Future<int> blockingWriteCountForCurrentOwner() =>
+      OfflineQueue.blockingWriteCountForCurrentOwner();
+
+  Future<int> unresolvedWriteCountForCurrentOwner() =>
+      OfflineQueue.unresolvedWriteCountForCurrentOwner();
+
+  /// Compatibility facade used by the byte-identical idle-timeout provider.
+  /// It now counts all unresolved owner-bound states, not only `pending`.
+  Future<int> pendingWriteCountForCurrentOwner() =>
+      unresolvedWriteCountForCurrentOwner();
+
   Future<int> enqueue({
     required String endpoint,
     required String method,
     required Map<String, dynamic> body,
     String? contextLabel,
   }) async {
-    final id = await OfflineQueue.enqueue(
-      endpoint: endpoint,
+    if (isSessionBarrierActive) throw const OfflineSessionBarrierActive();
+    final classification = OfflineWriteContainment.classify(
       method: method,
-      body: body,
-      contextLabel: contextLabel,
+      path: endpoint,
     );
-    await refreshCounts();
-    return id;
+    if (!classification.isEnqueueAllowed) {
+      throw OfflineWriteRejected(
+        classification.reviewReasonCode ??
+            OfflineWriteReviewReason.unknownAction.code,
+      );
+    }
+    _activeEnqueues++;
+    try {
+      if (isSessionBarrierActive) throw const OfflineSessionBarrierActive();
+      final id = await OfflineQueue.enqueue(
+        endpoint: endpoint,
+        method: method,
+        body: body,
+        contextLabel: contextLabel,
+      );
+      await refreshCounts();
+      return id;
+    } finally {
+      _activeEnqueues--;
+      _signalQuiescentIfReady();
+    }
   }
 
-  /// User discarded a conflicted write — remove it from the queue.
-  Future<void> discardConflict(int id) async {
-    await OfflineQueue.remove(id);
-    await refreshCounts();
+  Future<bool> attestHandoff(int id, {required String actorUid}) async {
+    final recorded = await OfflineQueue.attestHandoff(
+      id: id,
+      actorUid: actorUid,
+    );
+    if (recorded) await refreshCounts();
+    return recorded;
   }
 
-  /// Remove queued (not-yet-synced) writes for [endpoint] whose decoded body
-  /// satisfies [matches], then refresh counts so the badge stays accurate.
-  /// Returns the number removed.
-  ///
-  /// Used by an offline draft-discard: dropping the queued draft `PUT` for the
-  /// discarded context stops it recreating the draft on reconnect. Prefer this
-  /// over [OfflineQueue.removePendingMatching] directly so the sync badge/counts
-  /// stay consistent.
+  Future<bool> discardConflict(
+    int id, {
+    required bool reconciliationConfirmed,
+  }) async {
+    final discarded = await OfflineQueue.discardConflict(
+      id,
+      reconciliationConfirmed: reconciliationConfirmed,
+    );
+    if (discarded) await refreshCounts();
+    return discarded;
+  }
+
   Future<int> removePendingWrites({
     required String endpoint,
     required bool Function(Map<String, dynamic> body) matches,
@@ -159,138 +218,142 @@ class ConnectivitySyncService extends ChangeNotifier {
     return removed;
   }
 
-  /// Clear the entire offline write queue and reset observable state.
-  ///
-  /// Call on logout so the next user on a shared device cannot drain the
-  /// previous user's queued clinical writes (vitals, nursing notes). Prefer
-  /// this over [OfflineQueue.clearAll] directly so the sync badge/counts
-  /// stay consistent.
-  Future<void> clearQueue() async {
-    await OfflineQueue.clearAll();
+  Future<bool> retryConflict(int id) async {
+    if (isSessionBarrierActive) return false;
+    final retried = await OfflineQueue.retryConflict(id);
+    if (!retried) return false;
     await refreshCounts();
-  }
-
-  /// User asked to retry a conflicted write — flip it back to pending and
-  /// trigger a sync pass if online.
-  Future<void> retryConflict(int id) async {
-    final db = await OfflineQueue.database;
-    await db.update(
-      'pending_writes',
-      {'status': 'pending', 'conflict_reason': null, 'retry_count': 0},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    await refreshCounts();
-    if (_isOnline) {
-      syncPending();
+    if (_isOnline && !isSessionBarrierActive) {
+      await syncPending();
     }
+    return true;
   }
 
-  /// Attempt to sync all pending writes via [VHHttpClient].
   Future<void> syncPending() async {
-    if (_isSyncing) return;
+    if (_isSyncing || isSessionBarrierActive || !_isOnline) return;
     _isSyncing = true;
     notifyListeners();
 
     try {
-      final pending = await OfflineQueue.getPending();
-      if (pending.isEmpty) {
-        await refreshCounts();
-        return;
-      }
-
-      if (kDebugMode) {
+      final ownerAtStart = await AuthService.getStaffId();
+      if (ownerAtStart == null || isSessionBarrierActive) return;
+      final entries = await OfflineQueue.unresolvedEntriesForCurrentOwner();
+      final transientlyBlockedPartitions = <String>{};
+      if (kDebugMode && entries.isNotEmpty) {
         debugPrint(
-          'ConnectivitySync: syncing ${pending.length} pending writes',
+          'ConnectivitySync: inspecting ${entries.length} unresolved writes',
         );
       }
 
-      for (final write in pending) {
-        final id = write['id'] as int;
-        final endpoint = write['endpoint'] as String;
-        final method = (write['method'] as String).toUpperCase();
-        // `body` is stored AES-256-GCM-encrypted at rest (audit 2026-06-18);
-        // decodeBody() decrypts it (and transparently reads legacy plaintext
-        // rows queued before the v4 migration).
-        final body = await OfflineQueue.decodeBody(write['body'] as String);
-        final retryCount = write['retry_count'] as int? ?? 0;
-        // Stable per-write key persisted at enqueue time. Reusing it on every
-        // redrain lets the backend de-duplicate a lost-2xx replay rather than
-        // create a duplicate order / vital / note (finding #15). Older rows
-        // queued before the v3 schema migration have a null key — they fall
-        // back to no header (best-effort, pre-existing behaviour).
-        final idempotencyKey = write['idempotency_key'] as String?;
-
-        if (retryCount > 5) {
-          if (kDebugMode) {
-            debugPrint('ConnectivitySync: skipping id=$id (max retries)');
-          }
+      for (final entry in entries) {
+        if (isSessionBarrierActive) break;
+        if (await AuthService.getStaffId() != ownerAtStart) break;
+        if (entry.status != OfflineWriteStatus.pending ||
+            entry.isSkipped ||
+            transientlyBlockedPartitions.contains(entry.partitionKey)) {
+          continue;
+        }
+        if (!entry.classification.isControl ||
+            entry.encryptionVersion != OfflineQueue.currentEncryptionVersion ||
+            entry.tenantId == null ||
+            entry.staffId != ownerAtStart ||
+            entry.retryCount >= OfflineQueue.maxRetryCount) {
           continue;
         }
 
+        final body = await OfflineQueue.readBodyForReplay(entry);
+        if (body == null) {
+          transientlyBlockedPartitions.add(entry.partitionKey);
+          continue;
+        }
+        if (isSessionBarrierActive ||
+            await AuthService.getStaffId() != ownerAtStart) {
+          break;
+        }
+
         try {
-          final resp = switch (method) {
+          final response = switch (entry.method) {
             'POST' => await VHHttpClient.post(
-              endpoint,
+              entry.endpoint,
               body: body,
-              idempotencyKey: idempotencyKey,
+              idempotencyKey: entry.idempotencyKey,
             ),
             'PUT' => await VHHttpClient.put(
-              endpoint,
+              entry.endpoint,
               body: body,
-              idempotencyKey: idempotencyKey,
-            ),
-            'PATCH' => await VHHttpClient.patch(
-              endpoint,
-              body: body,
-              idempotencyKey: idempotencyKey,
+              idempotencyKey: entry.idempotencyKey,
             ),
             _ => null,
           };
-
-          if (resp == null) {
-            if (kDebugMode) {
-              debugPrint('ConnectivitySync: unknown method $method for id=$id');
-            }
+          if (response == null) {
+            transientlyBlockedPartitions.add(entry.partitionKey);
             continue;
           }
 
-          if (resp.isSuccess) {
-            await OfflineQueue.remove(id);
+          if (response.statusCode == 401 ||
+              isSessionBarrierActive ||
+              await AuthService.getStaffId() != ownerAtStart) {
+            break;
+          }
+          if (response.isSuccess) {
+            await OfflineQueue.removeAfterSuccessfulSync(
+              id: entry.id,
+              expectedStaffId: ownerAtStart,
+              expectedTenantId: entry.tenantId!,
+            );
             if (kDebugMode) {
               debugPrint(
-                'ConnectivitySync: synced id=$id (${logSafePath(endpoint)})',
+                'ConnectivitySync: synced id=${entry.id} '
+                '(${logSafePath(entry.endpoint)})',
               );
             }
-          } else if (dispositionForStatus(resp.statusCode) ==
+          } else if (dispositionForStatus(response.statusCode) ==
               SyncDisposition.conflict) {
-            final reason =
-                resp.message ?? 'Resource was modified on the server';
-            await OfflineQueue.markConflict(id, reason);
-            if (kDebugMode) {
-              debugPrint(
-                'ConnectivitySync: CONFLICT id=$id (${logSafePath(endpoint)})',
-              );
-            }
+            await OfflineQueue.markConflict(
+              entry.id,
+              response.message ?? 'Resource was modified on the server',
+            );
+            transientlyBlockedPartitions.add(entry.partitionKey);
           } else {
-            await OfflineQueue.incrementRetry(id);
-            if (kDebugMode) {
-              debugPrint(
-                'ConnectivitySync: failed id=$id (${resp.statusCode})',
-              );
-            }
+            await OfflineQueue.incrementRetryOrExhaust(entry.id);
+            transientlyBlockedPartitions.add(entry.partitionKey);
           }
-        } catch (e) {
+        } catch (error) {
+          if (isSessionBarrierActive ||
+              await AuthService.getStaffId() != ownerAtStart) {
+            break;
+          }
           if (kDebugMode) {
-            debugPrint('ConnectivitySync: error id=$id: ${logSafeError(e)}');
+            debugPrint(
+              'ConnectivitySync: error id=${entry.id}: '
+              '${logSafeError(error)}',
+            );
           }
-          await OfflineQueue.incrementRetry(id);
+          await OfflineQueue.incrementRetryOrExhaust(entry.id);
+          transientlyBlockedPartitions.add(entry.partitionKey);
         }
       }
     } finally {
       _isSyncing = false;
-      await refreshCounts();
-      notifyListeners();
+      try {
+        await refreshCounts();
+        notifyListeners();
+      } finally {
+        _signalQuiescentIfReady();
+      }
     }
+  }
+
+  @visibleForTesting
+  Future<void> resetForTesting() async {
+    stopListening();
+    _isOnline = true;
+    _isSyncing = false;
+    _pendingCount = 0;
+    _conflictCount = 0;
+    _needsReviewCount = 0;
+    _sessionBarrierDepth = 0;
+    _activeEnqueues = 0;
+    _signalQuiescentIfReady();
   }
 }

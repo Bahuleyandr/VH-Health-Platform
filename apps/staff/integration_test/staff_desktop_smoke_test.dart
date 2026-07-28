@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:vhhealth_staff/core/config/api_config.dart';
 import 'package:vhhealth_staff/main.dart' as app;
 
 void main() {
@@ -252,7 +252,7 @@ void main() {
   testWidgets(
     'staff Windows app logs in and opens primary dashboard routes',
     (tester) async {
-      await const FlutterSecureStorage().deleteAll();
+      await ApiConfig.clearSessionIdentity();
       final previousFlutterError = FlutterError.onError;
       final previousErrorWidgetBuilder = ErrorWidget.builder;
       FlutterError.onError = (details) {

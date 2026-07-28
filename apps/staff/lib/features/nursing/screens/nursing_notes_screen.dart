@@ -4,6 +4,7 @@ import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/api_error_messages.dart';
+import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/patient_notes_list.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -20,6 +21,17 @@ typedef RecentNursingNotesLoader =
       int limit,
       String? noteType,
     });
+
+typedef NursingNotesOnlineProbe = bool Function();
+typedef NursingNoteCreator =
+    Future<Map<String, dynamic>> Function(Map<String, dynamic> body);
+
+bool defaultNursingNotesOnlineProbe() =>
+    ConnectivitySyncService.instance.isOnline;
+
+Future<Map<String, dynamic>> defaultNursingNoteCreator(
+  Map<String, dynamic> body,
+) => MedicalApiService.createClinicalNote(body);
 
 Future<Map<String, dynamic>> defaultRecentNursingNotesLoader(
   String patientUid, {
@@ -46,12 +58,16 @@ class NursingNotesScreen extends StatefulWidget {
   final String? prefillPatientName;
   final String? prefillPatientPhone;
   final RecentNursingNotesLoader recentNotesLoader;
+  final NursingNotesOnlineProbe isOnline;
+  final NursingNoteCreator createNote;
   const NursingNotesScreen({
     super.key,
     this.prefillPatientUid,
     this.prefillPatientName,
     this.prefillPatientPhone,
     this.recentNotesLoader = defaultRecentNursingNotesLoader,
+    this.isOnline = defaultNursingNotesOnlineProbe,
+    this.createNote = defaultNursingNoteCreator,
   });
 
   @override
@@ -119,6 +135,8 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
                 _AddNoteTab(
                   prefillPatientUid: widget.prefillPatientUid,
                   prefillPhone: widget.prefillPatientPhone,
+                  isOnline: widget.isOnline,
+                  createNote: widget.createNote,
                 ),
                 RecentNursingNotesTab(
                   patientUid: widget.prefillPatientUid,
@@ -148,7 +166,14 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
 class _AddNoteTab extends StatefulWidget {
   final String? prefillPatientUid;
   final String? prefillPhone;
-  const _AddNoteTab({this.prefillPatientUid, this.prefillPhone});
+  final NursingNotesOnlineProbe isOnline;
+  final NursingNoteCreator createNote;
+  const _AddNoteTab({
+    this.prefillPatientUid,
+    this.prefillPhone,
+    required this.isOnline,
+    required this.createNote,
+  });
 
   @override
   State<_AddNoteTab> createState() => _AddNoteTabState();
@@ -385,38 +410,27 @@ class _AddNoteTabState extends State<_AddNoteTab> with WidgetsBindingObserver {
         'priority': _priority,
       };
 
-      if (!ConnectivitySyncService.instance.isOnline) {
-        await ConnectivitySyncService.instance.enqueue(
-          endpoint: '/emr/notes',
-          method: 'POST',
-          body: body,
-          contextLabel: AppStrings.of(context).format(
-            's4.dynamic.nursing_notes.offline_context',
-            {'patient': _phoneCtrl.text.trim()},
-          ),
+      if (!widget.isOnline()) {
+        final s = AppStrings.of(context);
+        await showOfflineClinicalFallbackDialog(
+          context,
+          paperFormSet: s.offlineClinicalFallbackNursingNoteForms,
         );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(AppStrings.of(context).nursingNotesOfflineQueued),
-              backgroundColor: AppTheme.warningAmber,
-            ),
-          );
-        }
-      } else {
-        await MedicalApiService.createClinicalNote(body);
-        if (mounted) {
-          SuccessToast.show(
-            context,
-            AppStrings.of(context).nursingNotesSavedSuccess,
-          );
-        }
+        return;
       }
 
-      // The note is committed (or queued for commit) — drop the draft
-      // scratchpad. Keep the autosave bound for the next note; the form reset
-      // below runs under the _restoringDraft guard so clearing the fields
-      // doesn't immediately re-save an empty draft. Best-effort.
+      await widget.createNote(body);
+      if (mounted) {
+        SuccessToast.show(
+          context,
+          AppStrings.of(context).nursingNotesSavedSuccess,
+        );
+      }
+
+      // The note is committed — drop the draft scratchpad. Keep the autosave
+      // bound for the next note; the form reset below runs under the
+      // _restoringDraft guard so clearing the fields doesn't immediately
+      // re-save an empty draft. Best-effort.
       await _autosave?.clear();
 
       if (mounted) {

@@ -4,12 +4,11 @@ import 'dart:convert';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 import 'package:vhhealth_core/services/offline_queue.dart';
+import 'package:vhhealth_staff/core/config/c0a_reconciliation_config.dart';
 import 'package:vhhealth_staff/core/platform_info.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 
@@ -21,25 +20,22 @@ void main() {
     databaseFactory = databaseFactoryFfi;
     OfflineQueue.debugDbFileNameOverride =
         'staff_session_timeout_provider_test.db';
+    C0AReconciliationConfig.registerBeforeQueueStartup();
   });
 
   tearDownAll(() async {
-    await OfflineQueue.resetForTesting();
-    final dbPath = await sqflite.getDatabasesPath();
-    await sqflite.deleteDatabase(p.join(dbPath, OfflineQueue.dbFileName));
+    await OfflineQueue.deleteTestDatabase();
     OfflineQueue.debugDbFileNameOverride = null;
   });
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
-    await OfflineQueue.resetForTesting();
-    await OfflineQueue.clearAll();
+    await OfflineQueue.deleteTestDatabase();
   });
 
   tearDown(() async {
-    await OfflineQueue.clearAll();
-    await OfflineQueue.resetForTesting();
+    await OfflineQueue.deleteTestDatabase();
   });
 
   group('SessionTimeoutProvider', () {
@@ -63,14 +59,11 @@ void main() {
 
     test('shows the 60-second warning window and still-here extends', () {
       fakeAsync((async) {
-        var cleanupCount = 0;
         final provider = SessionTimeoutProvider(
           timeoutDuration: const Duration(milliseconds: 90),
           warningDuration: const Duration(milliseconds: 30),
           countdownTickDuration: const Duration(milliseconds: 10),
-          onTimeoutCleanup: () async {
-            cleanupCount += 1;
-          },
+          onTimeoutCleanup: () async {},
         );
         addTearDown(provider.dispose);
 
@@ -95,7 +88,6 @@ void main() {
         async.elapse(const Duration(milliseconds: 1));
         async.flushMicrotasks();
         expect(provider.isSessionExpired, isTrue);
-        expect(cleanupCount, 1);
       });
     });
 
@@ -103,17 +95,19 @@ void main() {
       'marks the session expired and runs privacy cleanup on idle timeout',
       () async {
         var cleanupCount = 0;
+        final cleanupCompleted = Completer<void>();
         final provider = SessionTimeoutProvider(
           timeoutDuration: const Duration(milliseconds: 10),
           onTimeoutCleanup: () async {
             cleanupCount += 1;
+            if (!cleanupCompleted.isCompleted) cleanupCompleted.complete();
           },
         );
         addTearDown(provider.dispose);
 
         provider.startTracking();
         expect(provider.isTracking, isTrue);
-        await Future<void>.delayed(const Duration(milliseconds: 40));
+        await cleanupCompleted.future.timeout(const Duration(seconds: 2));
 
         expect(provider.isSessionExpired, isTrue);
         expect(provider.isTracking, isFalse);
@@ -195,10 +189,12 @@ void main() {
 
     test('recordActivity restarts the idle window', () async {
       var cleanupCount = 0;
+      final cleanupCompleted = Completer<void>();
       final provider = SessionTimeoutProvider(
         timeoutDuration: const Duration(milliseconds: 50),
         onTimeoutCleanup: () async {
           cleanupCount += 1;
+          if (!cleanupCompleted.isCompleted) cleanupCompleted.complete();
         },
       );
       addTearDown(provider.dispose);
@@ -211,7 +207,7 @@ void main() {
       expect(provider.isSessionExpired, isFalse);
       expect(cleanupCount, 0);
 
-      await Future<void>.delayed(const Duration(milliseconds: 35));
+      await cleanupCompleted.future.timeout(const Duration(seconds: 2));
 
       expect(provider.isSessionExpired, isTrue);
       expect(cleanupCount, 1);

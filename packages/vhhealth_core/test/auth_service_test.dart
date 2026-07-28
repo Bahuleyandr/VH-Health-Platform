@@ -109,9 +109,9 @@ void main() {
     });
   });
 
-  group('AuthService — clearAll', () {
+  group('AuthService — session-only clear', () {
     test(
-      'wipes JWT, refresh token, phone, role, employeeId, staffId',
+      'wipes identity but preserves device-bound queue encryption key',
       () async {
         await AuthService.setJwt('access-123');
         await AuthService.setRefreshToken('refresh-xyz');
@@ -119,8 +119,12 @@ void main() {
         await AuthService.setUserRole('PATIENT');
         await AuthService.setEmployeeId('EMP-001');
         await AuthService.setStaffId('42');
+        await VHSecureStorage.instance.write(
+          key: 'offline_queue_aes_key',
+          value: 'device-bound-key',
+        );
 
-        await AuthService.clearAll();
+        await AuthService.clearSessionIdentity();
 
         expect(await AuthService.getJwt(), isNull);
         expect(await AuthService.getRefreshToken(), isNull);
@@ -128,6 +132,10 @@ void main() {
         expect(await AuthService.getUserRole(), isNull);
         expect(await AuthService.getEmployeeId(), isNull);
         expect(await AuthService.getStaffId(), isNull);
+        expect(
+          await VHSecureStorage.instance.read(key: 'offline_queue_aes_key'),
+          'device-bound-key',
+        );
       },
     );
   });

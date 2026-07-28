@@ -5,9 +5,19 @@ import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../specimen_scan_intent.dart';
+
+@visibleForTesting
+Future<void> showSpecimenCollectionOfflineFallback(BuildContext context) {
+  final s = AppStrings.of(context);
+  return showOfflineClinicalFallbackDialog(
+    context,
+    paperFormSet: s.offlineClinicalFallbackLaboratoryRequisitionForms,
+  );
+}
 
 class SpecimenScanScreen extends StatefulWidget {
   const SpecimenScanScreen({
@@ -36,7 +46,6 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
   SpecimenScanIntent? _hardStop;
   bool _busy = false;
   bool _scanLock = false;
-  bool _pendingSync = false;
 
   @override
   void dispose() {
@@ -88,28 +97,19 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
 
     try {
       if (!ConnectivitySyncService.instance.isOnline) {
-        await ConnectivitySyncService.instance.enqueue(
-          endpoint: intent.endpoint,
-          method: 'POST',
-          body: intent.body,
-          contextLabel: s.format('s4.dynamic.specimen_scan.context_label', {
-            'id': widget.investigationId,
-          }),
-        );
+        await showSpecimenCollectionOfflineFallback(context);
         if (!mounted) return;
-        setState(() {
-          _pendingSync = true;
-          _step = _SpecimenScanStep.done;
-        });
+        setState(
+          () => _errorMessage = s.offlineClinicalFallbackMessage(
+            s.offlineClinicalFallbackLaboratoryRequisitionForms,
+          ),
+        );
         return;
       }
       final response = await ApiClient.post(intent.endpoint, body: intent.body);
       if (!mounted) return;
       if (response.isSuccess) {
-        setState(() {
-          _pendingSync = false;
-          _step = _SpecimenScanStep.done;
-        });
+        setState(() => _step = _SpecimenScanStep.done);
       } else {
         setState(
           () => _errorMessage = response.failureMessage(
@@ -135,7 +135,6 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
       _hardStop = null;
       _errorMessage = null;
       _busy = false;
-      _pendingSync = false;
     });
   }
 
@@ -298,14 +297,10 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
 
   Widget _donePanel(AppStrings s) {
     return _messagePanel(
-      icon: _pendingSync ? Icons.cloud_off : Icons.check_circle,
-      color: _pendingSync ? AppTheme.textSecondary : AppTheme.successGreen,
-      title: _pendingSync
-          ? s.offlineRecordedPendingSync
-          : s.lookup('s4.lib.specimen_scan.specimen_collected'),
-      message: _pendingSync
-          ? s.specimenScanPendingSyncMessage
-          : s.lookup('s4.lib.specimen_scan.specimen_collected_message'),
+      icon: Icons.check_circle,
+      color: AppTheme.successGreen,
+      title: s.lookup('s4.lib.specimen_scan.specimen_collected'),
+      message: s.lookup('s4.lib.specimen_scan.specimen_collected_message'),
       actionLabel: s.incidentReportDoneButton,
       onAction: () => context.pop(true),
     );

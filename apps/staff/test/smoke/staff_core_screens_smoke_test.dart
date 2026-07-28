@@ -7,12 +7,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth_core/services/offline_queue.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
@@ -20,6 +19,7 @@ import 'package:vhhealth_staff/core/providers/clinical_inbox_provider.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth_staff/core/providers/theme_provider.dart';
 import 'package:vhhealth_staff/core/providers/websocket_provider.dart';
+import 'package:vhhealth_staff/core/services/auth_service.dart' as staff_auth;
 import 'package:vhhealth_staff/core/services/clinical_inbox_api_service.dart';
 import 'package:vhhealth_staff/features/auth/screens/login_screen.dart';
 import 'package:vhhealth_staff/features/beds/screens/bed_board_screen.dart';
@@ -309,9 +309,8 @@ void main() {
     _installSecureStorageFake();
     SharedPreferences.setMockInitialValues({});
     OfflineQueue.debugDbFileNameOverride = 'staff_core_screens_smoke.db';
-    await OfflineQueue.resetForTesting();
-    final dbPath = await sqflite.getDatabasesPath();
-    await sqflite.deleteDatabase(p.join(dbPath, OfflineQueue.dbFileName));
+    await OfflineQueue.deleteTestDatabase();
+    staff_auth.AuthService.debugDisablePostLoginSync = true;
   });
 
   tearDown(() async {
@@ -321,7 +320,9 @@ void main() {
     VHHttpClient.resetClientForTesting();
     VHHttpClient.onSessionExpired = null;
     VHHttpClient.deviceTypeProvider = null;
-    await core_auth.AuthService.clearAll();
+    staff_auth.AuthService.debugDisablePostLoginSync = false;
+    await core_auth.AuthService.clearSessionIdentity();
+    await ConnectivitySyncService.instance.resetForTesting();
     const channel = MethodChannel(
       'plugins.it_nomads.com/flutter_secure_storage',
     );

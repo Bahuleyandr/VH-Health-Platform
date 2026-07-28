@@ -11,6 +11,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'firebase_options.dart';
+import 'core/config/c0a_reconciliation_config.dart';
 import 'core/platform_info.dart';
 import 'core/config/observability_config.dart';
 import 'core/navigation/app_router.dart';
@@ -24,6 +25,7 @@ import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
 import 'core/services/code_blue_notifier.dart';
 import 'core/services/composite_crash_reporter.dart';
+import 'core/services/api_client.dart';
 import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/phi_scrubber.dart';
@@ -31,6 +33,7 @@ import 'core/services/staff_local_notifications.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/windows_screen_capture.dart';
 import 'core/widgets/patient_search_sheet.dart';
+import 'core/widgets/logout_flow.dart';
 import 'core/widgets/session_timeout_warning_layer.dart';
 import 'features/emr/widgets/patient_summary_sheet.dart';
 import 'core/widgets/session_revocation_listener.dart';
@@ -54,6 +57,8 @@ class _DismissTopRouteIntent extends Intent {
   const _DismissTopRouteIntent();
 }
 
+final _staffScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
 @pragma('vm:entry-point')
 Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
   if (message.data['type'] != 'code_blue') return;
@@ -62,8 +67,54 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
   await CodeBlueNotifier.instance.showForMessage(message);
 }
 
+void _handleServerSessionExpired() {
+  SessionTimeoutProvider? timeout;
+  final navigatorContext = rootNavigatorKey.currentContext;
+  if (navigatorContext != null) {
+    try {
+      timeout = navigatorContext.read<SessionTimeoutProvider>();
+    } catch (_) {}
+  }
+
+  unawaited(
+    ForcedLogoutFlow.run(
+      stopSessionTracking: timeout?.stopTracking,
+      navigateToLogin: () => appRouter.go('/login'),
+      reportPreservedItems: _reportPreservedOfflineItems,
+    ).catchError((Object error, StackTrace stack) {
+      if (kDebugMode) {
+        debugPrint('Forced session-expiry cleanup failed: $error');
+      }
+    }),
+  );
+}
+
+void _reportPreservedOfflineItems(int count) {
+  void show() {
+    final messenger = _staffScaffoldMessengerKey.currentState;
+    if (messenger == null) return;
+    final strings = AppStrings.of(messenger.context);
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(strings.sessionRevocationPreservedItems(count)),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+  }
+
+  if (_staffScaffoldMessengerKey.currentState == null) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => show());
+  } else {
+    show();
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  C0AReconciliationConfig.registerBeforeQueueStartup();
+  ApiClient.onSessionExpired = (_) => _handleServerSessionExpired();
   // Fail fast on misconfigured production builds (audit finding H7): throws
   // when PRODUCTION=true but CERT_PIN_HASHES is missing/malformed, so an
   // unpinned clinical build can never ship.
@@ -368,7 +419,9 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
         // `context.read<RealtimeProvider>().events(channel)` instead of
         // calling `RealtimeClient.instance.connect()` directly.
         ChangeNotifierProvider(
-          create: (_) => RealtimeProvider()..ensureConnected(),
+          create: (_) =>
+              RealtimeProvider(onSessionExpired: _handleServerSessionExpired)
+                ..ensureConnected(),
         ),
         ChangeNotifierProxyProvider<RealtimeProvider, WebSocketProvider>(
           create: (_) => WebSocketProvider(),
@@ -446,6 +499,7 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                   child: MaterialApp.router(
                     title: 'VHHealth Staff',
                     debugShowCheckedModeBanner: false,
+                    scaffoldMessengerKey: _staffScaffoldMessengerKey,
                     theme: themeProvider.lightTheme,
                     darkTheme: themeProvider.darkTheme,
                     themeMode: themeProvider.themeMode,
