@@ -25,7 +25,12 @@ const fhirPatterns = [
 ];
 const infraPatterns = [
   /^infra\/kubernetes\//,
+  /^docs\/CNPG_POSTGRES_18_QUALIFICATION\.md$/,
+  /^docs\/DEPLOYMENT_GUIDE\.md$/,
   /^scripts\/validate-kubernetes-manifests\.mjs$/,
+  /^scripts\/check-c1-1-manifest-contract\.mjs$/,
+  /^scripts\/check-c1-1-manifest-contract\.test\.mjs$/,
+  /^scripts\/c1-1-backup-scripts\.test\.mjs$/,
   /^scripts\/check-kyverno-enforce-readiness\.mjs$/,
   /^scripts\/check-prod-digests-pinned\.mjs$/,
   /^scripts\/update-prod-digests\.mjs$/,

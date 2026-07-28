@@ -61,9 +61,9 @@ images:
 # Comma-separated IPs and IPv4 CIDRs are accepted.
 # Example: "10.10.0.0/16,192.168.100.0/24"
 #
-# OPERATOR ACTION: replace the placeholder below with the actual hospital
-# VPN/management CIDRs, then commit. Do NOT leave it as-is for production —
-# all admin endpoints will return 403 until this is filled.
+# OPERATOR ACTION: set the actual hospital VPN/management CIDRs in a reviewed
+# overlay before activation. The committed value stays empty and fail-closed,
+# so this repository never carries an unresolved production token.
 patches:
   - target:
       kind: ConfigMap
@@ -74,12 +74,12 @@ patches:
       metadata:
         name: vhhealth-backend-config
       data:
-        # FILL_ME: replace with hospital VPN/mgmt CIDR(s) before first production
-        # sync. Example: "10.10.0.0/16,192.168.100.0/24"
+        # Set hospital VPN/mgmt CIDR(s) before activation.
+        # Example: "10.10.0.0/16,192.168.100.0/24"
         # Behavior when empty (NODE_ENV=production): middleware fails CLOSED —
         # all /api/v1/admin/*, /api/v1/system/*, and admin-route-protected
         # endpoints return HTTP 403 (code: ADMIN_IP_ALLOWLIST_REQUIRED).
-        ADMIN_IP_ALLOWLIST: "FILL_ME_WITH_HOSPITAL_VPN_CIDR"
+        ADMIN_IP_ALLOWLIST: ""
   - target:
       kind: ConfigMap
       name: vhhealth-admin-config
@@ -89,8 +89,8 @@ patches:
       metadata:
         name: vhhealth-admin-config
       data:
-        # FILL_ME: replace with hospital VPN/mgmt CIDR(s) before first production
-        # sync. Must match the backend ADMIN_IP_ALLOWLIST above.
+        # Set hospital VPN/mgmt CIDR(s) before activation. This must match the
+        # backend ADMIN_IP_ALLOWLIST above.
         # Behavior when empty (NODE_ENV=production): Next.js middleware.ts
         # fails CLOSED — admin portal returns 403 for all requests.
-        ADMIN_IP_ALLOWLIST: "FILL_ME_WITH_HOSPITAL_VPN_CIDR"
+        ADMIN_IP_ALLOWLIST: ""

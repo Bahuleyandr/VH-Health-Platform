@@ -1,0 +1,117 @@
+# Backup archive jobs do not call the Kubernetes API. They receive dedicated
+# no-token ServiceAccounts and no Role/RoleBinding. NetworkPolicy then limits
+# the producer to DNS + MinIO + public HTTPS and the verifier to DNS + public
+# HTTPS. Namespace default-deny remains the ingress policy.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vhhealth-backup-producer
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-backend-r2-sync
+    app.kubernetes.io/component: backup-archive-producer
+    app.kubernetes.io/part-of: vhhealth
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vhhealth-backup-verifier
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: backup-verification
+    app.kubernetes.io/component: backup-archive-verifier
+    app.kubernetes.io/part-of: vhhealth
+automountServiceAccountToken: false
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vhhealth-backup-producer-egress
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-backend-r2-sync
+    app.kubernetes.io/component: backup-archive-producer
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-backend-r2-sync
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              v1.min.io/tenant: vhhealth-minio
+      ports:
+        - protocol: TCP
+          port: 9000
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vhhealth-backup-verifier-egress
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: backup-verification
+    app.kubernetes.io/component: backup-archive-verifier
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: backup-verification
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443

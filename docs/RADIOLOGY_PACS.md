@@ -150,9 +150,11 @@ overlay if the hospital uses a different naming convention:
       value: imaging.hospital.example.local
 ```
 
-Hospital DNS: add an A or CNAME record pointing `imaging.vhhealth.hospital.local`
-to the nginx-internal ingress controller's LAN IP (typically a MetalLB or hostNetwork
-binding on the private interface).
+Do not create the hospital DNS record yet. The internal ingress controller,
+LAN-reachable VIP, and LAN DNS path are C2 work and are not implemented by the
+current manifests. Once C2 records the chosen endpoint, point
+`imaging.vhhealth.hospital.local` at that operator-approved address; do not
+assume MetalLB, a `LoadBalancer` Service, or a host-network binding exists.
 
 For staff workstations to trust the TLS certificate without browser warnings,
 the step-ca root CA must be imported into Windows/macOS/Linux trust stores on each

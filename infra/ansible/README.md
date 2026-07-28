@@ -51,7 +51,7 @@ infra/ansible/
 │   ├── site.yml                         # full bootstrap
 │   ├── upgrade-k8s.yml                  # rolling RKE2 upgrade
 │   ├── node-replace.yml                 # replace a failed node
-│   └── disaster-recover.yml             # restore from etcd snapshot
+│   └── disaster-recover.yml             # legacy; not approved for full loss
 └── roles/
     ├── common/                          # OS baseline
     ├── hardening/                       # CIS subset
@@ -131,7 +131,7 @@ ansible-playbook -i inventories/dev.yml playbooks/site.yml
 | `playbooks/site.yml`           | Initial cluster bootstrap; also re-runs as a drift-fix | Applies all 4 roles top-to-bottom; idempotent              |
 | `playbooks/upgrade-k8s.yml`    | RKE2 point-release upgrades                            | Rolling: drain → upgrade → wait Ready → uncordon, one node at a time |
 | `playbooks/node-replace.yml`   | A node died; replacement hardware installed            | Removes dead node from etcd + API, then re-applies `site.yml` on the replacement |
-| `playbooks/disaster-recover.yml` | Total cluster loss; rebuild from etcd snapshot         | Runs base roles, restores etcd via `rke2 --cluster-reset`, rejoins followers |
+| `playbooks/disaster-recover.yml` | Legacy recovery draft; do not execute for total loss   | Not approved: token and S3/local snapshot semantics do not meet the full-loss runbook |
 
 ---
 
@@ -201,31 +201,28 @@ on the replacement hardware.
 
 1. Power up the new hardware and confirm SSH + sudo for `vhhealth`.
 2. Update `inventories/prod.yml` with the new IPs if they changed.
-3. Download the snapshot to the bootstrap node:
+3. Follow the proven manual full-loss sequence in
+   [`apps/backend/docs/DISASTER-RECOVERY.md`](../../apps/backend/docs/DISASTER-RECOVERY.md#scenario-5--full-cluster-loss).
+   It keeps all servers stopped before reset, restores the S3 snapshot on N1
+   with the exact original RKE2 server token, starts and validates N1, then
+   wipes and rejoins N2 and N3 serially.
 
-   ```bash
-   ssh vhh-node-1 'sudo mkdir -p /var/lib/rancher/rke2/server/db/snapshots'
-   # Use rclone or aws s3 cp with R2 creds
-   rclone copy r2:vhhealth-etcd-snapshots/latest.db \
-     vhh-node-1:/var/lib/rancher/rke2/server/db/snapshots/
-   ```
+   `playbooks/disaster-recover.yml` is **not approved for full-cluster
+   recovery**. It does not yet preserve the required bootstrap/reset token
+   semantics or distinguish an S3 snapshot name from a downloaded local path.
+   Do not execute it for this scenario.
 
-4. Run DR:
-
-   ```bash
-   ansible-playbook -i inventories/prod.yml playbooks/disaster-recover.yml \
-     -e etcd_snapshot=/var/lib/rancher/rke2/server/db/snapshots/latest.db \
-     --ask-vault-pass
-   ```
-
-5. Reattach PVs:
-    * **CNPG Postgres** — restore from base backup (separate runbook in
-      `docs/ops/cnpg-restore.md`). etcd snapshot ≠ application data.
+4. Restore application data:
+    * **CNPG Postgres** — restore from a base backup using
+      [`docs/DR_RESTORE_DRILL.md`](../../docs/DR_RESTORE_DRILL.md) and
+      [`apps/backend/docs/RUNBOOKS/db-restore.md`](../../apps/backend/docs/RUNBOOKS/db-restore.md).
+      An etcd snapshot is not an application-data backup.
     * **Loki chunks** — objects live in R2; Loki re-indexes on first read.
     * **Grafana dashboards** — Git-synced; redeploy via Argo CD.
 
-6. Verify the `Ingress-nginx` LoadBalancer IP binds, Cloudflare Tunnel
-   reconnects, and a probe URL resolves.
+5. Verify Cloudflare Tunnel reconnects and an external probe URL resolves.
+   The internal controller, VIP, and LAN DNS path are separate C2 work; this
+   recovery procedure does not assume or validate an ingress `LoadBalancer` IP.
 
 ---
 

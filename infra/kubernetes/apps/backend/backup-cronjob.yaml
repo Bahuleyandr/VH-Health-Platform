@@ -1,12 +1,22 @@
-# Off-cluster R2 sync — mirrors CNPG-managed Postgres backups + local MinIO
-# uploads to Cloudflare R2 for 3-2-1 disaster recovery.
+# Encrypted off-site archive of the in-cluster MinIO records bucket.
 #
-# CNPG already runs physical Postgres backups inside the cluster (see Agent B's
-# platform services). This job is the "leave the building" copy — encrypted
-# + uploaded to R2 every 6h so a full-cluster loss still has a recent RPO.
+# This is not a PostgreSQL/CNPG backup. CNPG physical backups and WAL use the
+# Barman Cloud Plugin/ObjectStore path under infra/kubernetes/base/cnpg.
 #
-# Image: amazon/aws-cli — has aws, openssl, and sh baked in; tiny (~60MB).
-# For anything more complex, bake our own slim image with the exact flags.
+# The pod separates its capabilities into three sequential phases over one
+# private emptyDir: the MinIO reader fetches the complete source, the crypto-only
+# phase encrypts it and authenticates canonical metadata plus ciphertext with an
+# independent HMAC key, and the R2 producer uploads it. The stock AWS CLI image
+# intentionally contains neither tar nor OpenSSL, so those operations run in the
+# separately pinned Alpine OpenSSL image. The producer performs no destination
+# HEAD/list; reader-owned verification follows every archive window.
+#
+# The work volume is intentionally capped at 10Gi. Do not activate this job
+# unless observed MinIO usage fits plaintext + ciphertext + safety margin under
+# that ceiling. A reader-only inventory gate fails before source download, and
+# a second filesystem check fails before encryption/upload if usage races or
+# overhead no longer fits. Scaling beyond it requires a streaming/multipart,
+# replication, or dedicated staging-volume design.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -15,7 +25,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
   labels:
     app.kubernetes.io/name: vhhealth-backend-r2-sync
-    app.kubernetes.io/component: backup
+    app.kubernetes.io/component: backup-archive-producer
     app.kubernetes.io/part-of: vhhealth
 spec:
   schedule: "0 */6 * * *"
@@ -33,10 +43,13 @@ spec:
         metadata:
           labels:
             app.kubernetes.io/name: vhhealth-backend-r2-sync
-            app.kubernetes.io/component: backup
+            app.kubernetes.io/component: backup-archive-producer
+            app.kubernetes.io/part-of: vhhealth
         spec:
-          restartPolicy: OnFailure
+          serviceAccountName: vhhealth-backup-producer
           automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 30
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -44,68 +57,46 @@ spec:
             fsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: r2-sync
-              image: amazon/aws-cli:2.34.53
+          initContainers:
+            - name: minio-fetch
+              image: docker.io/amazon/aws-cli:2.34.53@sha256:cf53765c0de54ad3a8ea21818f1c4c845a8cf7ca87831c078a00fef244031493
               imagePullPolicy: IfNotPresent
-              command: ["/bin/sh", "-c"]
-              args:
-                - |
-                  set -euo pipefail
-
-                  TS=$(date -u +%Y%m%dT%H%M%SZ)
-                  STAGE=/tmp/backup-${TS}
-                  mkdir -p "${STAGE}"
-
-                  echo "[+] Sync from in-cluster MinIO to local stage"
-                  aws --endpoint-url "${MINIO_ENDPOINT}" \
-                      s3 sync "s3://${MINIO_BUCKET}/" "${STAGE}/" \
-                      --exclude "*/tmp/*" --only-show-errors
-
-                  echo "[+] Encrypt archive with BACKUP_ENCRYPTION_KEY"
-                  tar -C "${STAGE}" -cf - . | \
-                    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
-                      -pass "env:BACKUP_ENCRYPTION_KEY" \
-                      -out "/tmp/vhhealth-${TS}.tar.enc"
-
-                  echo "[+] Upload to Cloudflare R2"
-                  aws --endpoint-url "https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-                      --region auto \
-                      s3 cp "/tmp/vhhealth-${TS}.tar.enc" \
-                      "s3://${CF_R2_BUCKET}/offsite/${TS}.tar.enc" \
-                      --only-show-errors
-
-                  echo "[+] Verify upload exists"
-                  aws --endpoint-url "https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-                      --region auto \
-                      s3api head-object --bucket "${CF_R2_BUCKET}" \
-                      --key "offsite/${TS}.tar.enc" >/dev/null
-
-                  echo "[+] Prune local stage"
-                  rm -rf "${STAGE}" "/tmp/vhhealth-${TS}.tar.enc"
-
-                  echo "[+] Done — offsite/${TS}.tar.enc"
+              command:
+                - /bin/bash
+                - /opt/vhhealth/backup/upload-archive.sh
+                - fetch
               env:
-                # MinIO source creds (in-cluster). Different from R2 creds.
-                - name: AWS_ACCESS_KEY_ID
-                  valueFrom:
-                    secretKeyRef:
-                      name: vhhealth-backend-env
-                      key: CF_R2_ACCESS_KEY_ID
-                - name: AWS_SECRET_ACCESS_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: vhhealth-backend-env
-                      key: CF_R2_SECRET_ACCESS_KEY
+                - name: HOME
+                  value: /home/aws
+                - name: AWS_EC2_METADATA_DISABLED
+                  value: "true"
                 - name: MINIO_ENDPOINT
-                  value: "http://minio.vhhealth-platform.svc.cluster.local:9000"
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: MINIO_BACKUP_ENDPOINT
                 - name: MINIO_BUCKET
-                  value: "vhhealth-uploads"
-              envFrom:
-                - configMapRef:
-                    name: vhhealth-backend-config
-                - secretRef:
-                    name: vhhealth-backend-env
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: MINIO_BACKUP_BUCKET
+                - name: MINIO_CA_BUNDLE
+                  value: /var/run/vhhealth/minio-ca/ca.crt
+                - name: BACKUP_WORK_LIMIT_BYTES
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: BACKUP_WORK_LIMIT_BYTES
+                - name: MINIO_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-backup-source-reader
+                      key: ACCESS_KEY_ID
+                - name: MINIO_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-backup-source-reader
+                      key: SECRET_ACCESS_KEY
               resources:
                 requests:
                   cpu: "200m"
@@ -123,14 +114,137 @@ spec:
                   drop:
                     - ALL
               volumeMounts:
-                - name: tmp
-                  mountPath: /tmp
+                - name: scripts
+                  mountPath: /opt/vhhealth/backup
+                  readOnly: true
+                - name: work
+                  mountPath: /work
                 - name: aws-home
-                  mountPath: /home/nobody
+                  mountPath: /home/aws
+                - name: minio-ca
+                  mountPath: /var/run/vhhealth/minio-ca
+                  readOnly: true
+            - name: archive-seal
+              image: docker.io/alpine/openssl:3.5.7@sha256:045a40a53b8e283cff95052e0c39f256b7467d48c7445260d4f180fc0e767999
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - /opt/vhhealth/backup/upload-archive.sh
+                - seal
+              env:
+                - name: MINIO_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: MINIO_BACKUP_BUCKET
+                - name: R2_PREFIX
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: OFFSITE_BACKUP_PREFIX
+                - name: BACKUP_ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-crypto
+                      key: BACKUP_ENCRYPTION_KEY
+                - name: BACKUP_HMAC_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-crypto
+                      key: BACKUP_HMAC_KEY
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "512Mi"
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: scripts
+                  mountPath: /opt/vhhealth/backup
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+          containers:
+            - name: r2-sync
+              image: docker.io/amazon/aws-cli:2.34.53@sha256:cf53765c0de54ad3a8ea21818f1c4c845a8cf7ca87831c078a00fef244031493
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /opt/vhhealth/backup/upload-archive.sh
+                - upload
+              env:
+                - name: HOME
+                  value: /home/aws
+                - name: AWS_EC2_METADATA_DISABLED
+                  value: "true"
+                - name: R2_ENDPOINT
+                  value: https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com
+                - name: R2_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: CF_R2_BUCKET
+                - name: R2_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: offsite-backup-producer
+                      key: ACCESS_KEY_ID
+                - name: R2_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: offsite-backup-producer
+                      key: SECRET_ACCESS_KEY
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "1Gi"
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: scripts
+                  mountPath: /opt/vhhealth/backup
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: aws-home
+                  mountPath: /home/aws
           volumes:
-            - name: tmp
+            - name: scripts
+              configMap:
+                name: vhhealth-backup-scripts
+                defaultMode: 0555
+            - name: work
               emptyDir:
                 sizeLimit: 10Gi
             - name: aws-home
               emptyDir:
                 sizeLimit: 16Mi
+            # MinIO requestAutoCert certificates chain to the Kubernetes root
+            # CA. Mount only that public CA; do not mount an API token.
+            - name: minio-ca
+              configMap:
+                name: kube-root-ca.crt
+                defaultMode: 0444
+                items:
+                  - key: ca.crt
+                    path: ca.crt

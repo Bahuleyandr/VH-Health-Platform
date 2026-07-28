@@ -18,17 +18,16 @@
 #   overlays/dalekdefender → not used (tailscale serve handles LAN already)
 #
 # Requirements before this can route real traffic:
-#   1. Hospital DNS: A or CNAME record `clinical.<hospital>.local` ->
-#      the internal-class ingress-nginx LB IP. Ask the hospital network
-#      team; they may want a different naming convention. Document the
-#      chosen hostname in the overlay's patch.
+#   1. Do not create hospital DNS until C2 records the operator-approved
+#      LAN-reachable ingress endpoint. Then point `clinical.<hospital>.local`
+#      at that address and document the chosen hostname in the overlay patch.
 #   2. cert-manager step-ca-internal ClusterIssuer (already exists in
 #      base/cert-manager/ — see ingress-nginx.yaml line 20). The
 #      hospital's intermediate CA must be loaded into step-ca-internal
 #      for browsers on workstations to trust the cert without warnings.
-#   3. Verify ingress-nginx-internal pods are reachable from the LAN
-#      (not just cluster-internal) — typically via a MetalLB or
-#      hostNetwork DaemonSet binding to a private interface IP.
+#   3. Complete C2's internal-controller/VIP/LAN-DNS design and verify the
+#      selected endpoint is reachable from the LAN. The current manifests do
+#      not establish or imply MetalLB, a LoadBalancer, or hostNetwork binding.
 #
 # Path-prefix discipline:
 #   This Ingress only mounts /api/v1/clinical-ai/clinical/. The control

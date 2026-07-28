@@ -2,7 +2,12 @@
 
 Alert definitions: `infra/kubernetes/base/monitoring/backend-red-alerts.yaml`,
 `backend-reliability-alerts.yaml` (+ the platform alerts in `alert-rules.yaml`).
-Severities: `warning` → Discord, `critical` → PagerDuty (when wired). Every alert
+The C1.1 alert rules land inert: all four top-level production ArgoCD
+Applications are manual-sync. Child Applications may define their own policy,
+but their creation or update first requires the manual platform sync.
+Alertmanager receiver/delivery wiring remains C1.3. Severity labels express the
+intended policy (`warning` to Discord, `critical` to PagerDuty), but do not
+assume anyone is paged until C1.3 evidence proves the routes. Every alert
 annotation links back to a section here.
 
 First 2 minutes for ANY backend alert: `kubectl -n vhhealth get pods`,
@@ -16,9 +21,11 @@ and check `/health/metrics` (circuit breaker state) + Sentry release health.
    `kubectl logs ... | grep -E '"status":5'`.
 2. Circuit breaker open? (`/health/metrics` → `circuit_breaker.open`) — if
    yes, treat as DB incident: check CNPG primary
-   (`kubectl -n vhhealth get cluster vhhealth-pg`), connections, locks.
-3. Recent deploy? `argocd app history vhhealth-backend` — rollback is one
-   `argocd app rollback` away; do it on suspicion, investigate after.
+   (`kubectl -n vhhealth-platform get cluster vhhealth-pg`), connections,
+   locks.
+3. Recent deploy? Capture `vhhealth-apps` revision/history/diff, rendered image
+   digests, pod events/logs, and the incident timestamp first. Roll back only
+   with incident approval and evidence tying the regression to that revision.
 4. If errors are confined to clinical routes → see
    BackendClinicalRouteErrors (treat as patient-impacting).
 
@@ -67,7 +74,7 @@ Packs not regenerated in >1h.
 
 ## CNPGReplicationLagHigh
 
-1. `kubectl -n vhhealth get cluster vhhealth-pg -o wide` — replica states.
+1. `kubectl -n vhhealth-platform get cluster vhhealth-pg -o wide` — replica states.
 2. Sustained lag → check WAL volume I/O and network between nodes; consider
    pausing read-replica routing (`DATABASE_READ_URL` unset → reads fall
    back to primary) if stale reads are clinically risky.
@@ -75,13 +82,85 @@ Packs not regenerated in >1h.
 ## CNPGBackupNotRecent
 
 No base backup in >30h (RPO at risk).
-1. `kubectl -n vhhealth get scheduledbackup,backup` — last status + error.
-2. Most common: R2 credentials (sealed secret) rotated/expired, or the
-   `${CF_R2_ACCOUNT_ID}` substitution drifted. Test with a manual
-   `kubectl cnpg backup vhhealth-pg`.
-3. Until green again, treat the system as PITR-degraded: avoid risky DDL,
+This rule describes the qualified PG18 Barman-plugin target. Production remains
+on PostgreSQL 17 until C1.2 and the qualification gates pass; do not activate or
+interpret the plugin metric against the current PG17 runtime.
+
+1. `kubectl -n vhhealth-platform get scheduledbackup,backup` — confirm the sole
+   `vhhealth-pg-daily` schedule and inspect the latest plugin `Backup` status.
+2. Check the Barman Cloud Plugin controller/sidecar and the
+   `vhhealth-pg18-producer` `ObjectStore`. Confirm its endpoint is the committed
+   production R2 value; native Kustomize replacement is used, not runtime
+   account-ID substitution.
+3. Separate the credential failure domains. Backup production may use only
+   `cnpg-backup-producer-credentials` (bucket-scoped Object Read & Write);
+   verification may use only `cnpg-dr-reader-credentials` (separate
+   bucket-scoped Object Read-only). The configured prefix is workload routing,
+   not token scope. Never copy the producer Secret into the verifier to make an
+   alert green.
+4. If an on-demand test is approved, create a one-off `Backup` using the same
+   `method: plugin` and plugin name as `scheduled-backup.yaml`; do not invoke an
+   implicit legacy backup method.
+5. Until green again, treat the system as PITR-degraded: avoid risky DDL,
    and note the exposure window in the incident log. See
    `docs/DR_RESTORE_DRILL.md`.
+
+## CnpgPluginBackupFailed
+
+The Barman plugin reports a failed backup newer than its last available backup.
+The PostgreSQL cluster may keep serving normally while WAL/base-backup and
+restore work has stopped, so database health alone is not closure.
+
+1. Preserve the latest `Backup` custom-resource status, producer
+   `ObjectStore` status, plugin controller/sidecar logs, endpoint render, and
+   archive-freshness timestamps.
+2. If the controller or CRD is missing, reinstall the exact pinned plugin
+   release outside ArgoCD and confirm `objectstores.barmancloud.cnpg.io` before
+   touching the platform Application.
+3. Keep `cnpg-backup-producer-credentials` only in production backup resources.
+   Do not repair a verifier/restore failure by granting it writer access.
+4. Prove a new plugin `Backup`, then run reader-only verification and the
+   approved restore proof. Retain the failed and successful evidence.
+
+## CnpgRestoreProofUnexpectedlyEnabled
+
+`cnpg-scheduled-restore-proof` is an operator-gated CronJob and ships
+`suspend: true`.
+
+1. Confirm whether an approved synthetic restore window is active. If not,
+   restore `suspend: true` through a reviewed manual sync and capture who/what
+   changed it.
+2. Preserve any running Job, Cluster, ObjectStore, events, and logs before
+   cleanup. Delete only Cluster/ObjectStore resources labeled
+   `vhhealth.app/disposable-restore-proof=true`.
+3. Never delete the `vhhealth-restore-proof` namespace, its sealed reader
+   Secret, R2 objects, Backup custom resources, or drill evidence.
+
+## BackendUploadArchiveStale
+
+The six-hour encrypted archive of the MinIO upload bucket has no successful
+`vhhealth-backend-r2-sync` run in the expected window.
+
+1. Inspect the CronJob and latest Job logs. Check the source-only
+   `minio-backup-source-reader`, destination `offsite-backup-producer`,
+   `backup-crypto`, exact R2 endpoint, disk space in `/work`, and network policy.
+2. The producer intentionally performs no destination `HEAD`. Do not add
+   reader authority or the broad backend Secret to make it self-verify.
+3. After production succeeds, require the separate reader-owned verification
+   Job to prove metadata, checksum, decryption, and archive contents.
+
+## BackendUploadArchiveVerificationStale
+
+The reader-owned `backup-verification` Job has not verified the latest
+off-site archive inside the eight-hour bound.
+
+1. Inspect its Job status/logs and confirm it uses only
+   `offsite-backup-reader` plus `backup-crypto`.
+2. Compare the object metadata, downloaded SHA-256/size, decryption result, tar
+   integrity, source bucket metadata, and archive age.
+3. A healthy producer is not proof of a restorable archive. Keep the incident
+   open until reader-side verification passes; never substitute
+   `offsite-backup-producer`.
 
 <!-- ===== Reliability alerts (backend-reliability-alerts.yaml) ===== -->
 
@@ -265,7 +344,7 @@ proxy for the INVISIBLE at-most-once Redis-failover drop (the bus swallows those
 
 The Prisma circuit breaker is OPEN (≥5 consecutive query failures) — queries are
 being rejected fast for ~30s windows. Treat as a DB incident.
-1. CNPG primary health: `kubectl -n vhhealth get cluster vhhealth-pg`, connections,
+1. CNPG primary health: `kubectl -n vhhealth-platform get cluster vhhealth-pg`, connections,
    locks; `/health/metrics` → `circuit_breaker` for which client (primary/readOnly).
 2. Common causes: primary failover, connection exhaustion, a long lock. The breaker
    auto-resets (half-open) on recovery.
@@ -300,8 +379,9 @@ Availability error budget for the **99.95% SLO** (~21 min/month) is burning fast
 1. Which routes are 5xx-ing: Grafana → backend RED → errors by route, or
    `kubectl -n vhhealth logs deploy/vhhealth-backend --since=15m | grep -E '"status":5'`.
    Treat the burn like BackendHighErrorRate — the burn-rate just confirms it's eating budget.
-2. Recent deploy? A rollout on the single backend Deployment briefly burns budget;
-   `argocd app history vhhealth-backend` and roll back on suspicion.
+2. Recent deploy? Capture `vhhealth-apps` revision/history/diff, image digests,
+   pod events/logs, and the burn window. Roll back only after the evidence and
+   incident owner identify the rollout as the likely cause.
 3. **Topology caveat:** 99.95% on one Deployment with rolling restarts is aggressive
    — if this pages on routine deploys (not real incidents), the fix is to raise the
    target to 99.9% in `backend-slo.yaml` OR add a 2nd replica + `maxUnavailable=0`
@@ -319,6 +399,11 @@ Use this section for staging/prod app image digest rollbacks. Digest-pin rollbac
 is the default when the bad rollout came from a Git pin commit; ArgoCD rollback
 is the fallback when Git cannot be changed quickly enough or ArgoCD history is
 the only known-good reference.
+
+Before either mutation, capture the Application target/live revisions, history,
+diff, rendered image digests, pod events/logs, relevant metrics, and—when the
+incident touches data—the current `Backup`, `ObjectStore`, verifier/proof Job,
+and archive status. Record incident approval and the exact known-good revision.
 
 ### Preferred: revert the digest-pin commit
 
@@ -357,6 +442,28 @@ GitOps audit trail.
 Use this path during an active outage when a known-good ArgoCD history entry is
 available and waiting for a Git revert would extend patient- or operator-facing
 impact. Follow with the Git revert as soon as the service is stable.
+
+### CNPG upgrade, backup, and restore rollback boundaries
+
+The app-image rollback above does not authorize a database image downgrade.
+
+1. Before C1.1 activation, revert the Git change; the top-level manual sync
+   keeps an un-synced merge inert.
+2. During the sequential CNPG operator ladder, stop at the last passing rung.
+   Preserve every failed-rung log and health result.
+3. If the PostgreSQL 18 upgrade fails, restore the exact qualified PostgreSQL
+   17 image and retain the source backup, upgrade logs, checksums, and failure
+   evidence.
+4. After successful conversion, never point the converted data directory back
+   at a PostgreSQL 17 image. Restore the qualified PostgreSQL 17 backup into a
+   new cluster or fix forward.
+5. A broken verifier or restore-proof job may be suspended without stopping a
+   healthy WAL/base-backup stream. Remove only labeled disposable restore
+   resources.
+6. Never delete R2 objects, `Backup` custom resources, checksums, drill
+   evidence, or the only recoverable generation. Keep old and new credential
+   generations until backup, reader-only verification, and synthetic restore
+   evidence all pass.
 
 ## DbReadReplicaLagHigh
 

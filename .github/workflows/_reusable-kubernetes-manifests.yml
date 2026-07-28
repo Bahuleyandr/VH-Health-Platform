@@ -53,6 +53,15 @@ jobs:
           kustomize version
           kubeconform -v
 
+      - name: Test C1.1 manifest + backup contracts
+        run: >-
+          node --test
+          scripts/check-c1-1-manifest-contract.test.mjs
+          scripts/c1-1-backup-scripts.test.mjs
+
+      - name: Check C1.1 production render contract
+        run: node scripts/check-c1-1-manifest-contract.mjs
+
       - name: Validate rendered Kubernetes manifests
         run: node scripts/validate-kubernetes-manifests.mjs
 

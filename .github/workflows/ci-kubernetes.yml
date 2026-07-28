@@ -7,6 +7,11 @@ on:
       - '.github/workflows/ci-kubernetes.yml'
       - '.github/workflows/_reusable-kubernetes-manifests.yml'
       - 'infra/kubernetes/**'
+      - 'docs/CNPG_POSTGRES_18_QUALIFICATION.md'
+      - 'docs/DEPLOYMENT_GUIDE.md'
+      - 'scripts/check-c1-1-manifest-contract.mjs'
+      - 'scripts/check-c1-1-manifest-contract.test.mjs'
+      - 'scripts/c1-1-backup-scripts.test.mjs'
       - 'scripts/validate-kubernetes-manifests.mjs'
   push:
     branches: [main]
@@ -14,6 +19,11 @@ on:
       - '.github/workflows/ci-kubernetes.yml'
       - '.github/workflows/_reusable-kubernetes-manifests.yml'
       - 'infra/kubernetes/**'
+      - 'docs/CNPG_POSTGRES_18_QUALIFICATION.md'
+      - 'docs/DEPLOYMENT_GUIDE.md'
+      - 'scripts/check-c1-1-manifest-contract.mjs'
+      - 'scripts/check-c1-1-manifest-contract.test.mjs'
+      - 'scripts/c1-1-backup-scripts.test.mjs'
       - 'scripts/validate-kubernetes-manifests.mjs'
   workflow_dispatch:
 

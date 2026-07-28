@@ -1,0 +1,74 @@
+# Synthetic target-state template for the offline PG17-to-PG18 rehearsal.
+# It is excluded from kustomization and must never target the production
+# Cluster. The script advances an already-restored synthetic PG17 clone to
+# this exact target image only after all preconditions pass. Before running,
+# the operator provisions the isolated synthetic bucket and its synthetic-only
+# producer Secret; neither production R2 data nor production credentials are
+# valid substitutes.
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: vhhealth-pg18-rehearsal-producer
+  namespace: vhhealth-restore-proof
+  labels:
+    app.kubernetes.io/component: pg18-upgrade-rehearsal
+    app.kubernetes.io/part-of: vhhealth
+    vhhealth.app/synthetic-only: "true"
+spec:
+  configuration:
+    # Before each run, replace `run-id-required` here and in serverName with
+    # the same unique REHEARSAL_RUN_ID. The script rejects a static/reused run
+    # identity and the entire production backup bucket.
+    destinationPath: "s3://vhhealth-synthetic-qa-only/pg18-rehearsal/run-id-required/"
+    endpointURL: "https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com"
+    s3Credentials:
+      accessKeyId:
+        name: cnpg-pg18-rehearsal-producer-credentials
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: cnpg-pg18-rehearsal-producer-credentials
+        key: SECRET_ACCESS_KEY
+    wal:
+      compression: gzip
+      maxParallel: 4
+    data:
+      compression: gzip
+      immediateCheckpoint: false
+      jobs: 1
+  retentionPolicy: "7d"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vhhealth-pg18-upgrade-rehearsal
+  namespace: vhhealth-restore-proof
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: pg18-upgrade-rehearsal
+    app.kubernetes.io/part-of: vhhealth
+    vhhealth.app/synthetic-only: "true"
+    vhhealth.app/disposable-restore-proof: "true"
+spec:
+  description: "Excluded synthetic PG18 offline-upgrade target"
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8
+  instances: 1
+  enableSuperuserAccess: true
+  storage:
+    size: 110Gi
+    storageClass: local-path
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: vhhealth-pg18-rehearsal-producer
+        serverName: vhhealth-pg18-rehearsal-run-id-required
+  bootstrap:
+    initdb:
+      database: vhhealth
+      owner: vhhealth
+      dataChecksums: true
+      postInitApplicationSQL:
+        - "CREATE EXTENSION IF NOT EXISTS vector;"
+        - "CREATE TABLE synthetic_vector_proof (id bigint PRIMARY KEY, embedding vector(3));"
+        - "INSERT INTO synthetic_vector_proof VALUES (1, '[1,2,3]'), (2, '[1,2,4]');"

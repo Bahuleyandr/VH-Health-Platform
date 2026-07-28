@@ -1,5 +1,6 @@
 # monitoring/backend-red-alerts.yaml — backend RED + clinical-path alerts
-# (roadmap A6). Metric names come from the backend's own exporter
+# (roadmap A6). C1.1 adds rules but does not activate Alertmanager delivery;
+# notification wiring and proof remain C1.3. Metric names come from the backend's own exporter
 # (src/middleware/prometheusMiddleware.js): http_request_duration_seconds
 # (histogram, labels method/route/status_code) and http_requests_total.
 ---
@@ -121,7 +122,7 @@ spec:
           expr: |
             kube_job_status_failed{
               namespace="vhhealth",
-              job_name=~"(ward-downtime-packs|backup-verification|canary-health-check)-.*"
+              job_name=~"(ward-downtime-packs|backup-verification|vhhealth-backend-r2-sync|canary-health-check)-.*"
             } > 0
           for: 10m
           labels:
@@ -148,10 +149,60 @@ spec:
 
         - alert: CNPGBackupNotRecent
           expr: |
-            time() - max(cnpg_collector_last_available_backup_timestamp) > 60 * 60 * 30
+            (
+              time() - max(
+                barman_cloud_cloudnative_pg_io_last_available_backup_timestamp
+              ) > 60 * 60 * 30
+            )
+            or
+            absent(
+              barman_cloud_cloudnative_pg_io_last_available_backup_timestamp
+            )
           for: 1h
           labels:
             severity: critical
           annotations:
             summary: "No completed CNPG backup in >30h — RPO at risk (roadmap A4)"
             runbook: "docs/DR_RESTORE_DRILL.md"
+
+        - alert: BackendUploadArchiveStale
+          expr: |
+            (
+              time() - max(kube_cronjob_status_last_successful_time{
+                namespace="vhhealth",
+                cronjob="vhhealth-backend-r2-sync"
+              }) > 25200
+            )
+            or
+            absent(kube_cronjob_status_last_successful_time{
+              namespace="vhhealth",
+              cronjob="vhhealth-backend-r2-sync"
+            })
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The encrypted MinIO upload archive has not completed in >7h"
+            description: "The producer runs every six hours. Inspect its Job without reusing the producer identity for verification."
+            runbook: "apps/backend/docs/DISASTER-RECOVERY.md"
+
+        - alert: BackendUploadArchiveVerificationStale
+          expr: |
+            (
+              time() - max(kube_cronjob_status_last_successful_time{
+                namespace="vhhealth",
+                cronjob="backup-verification"
+              }) > 28800
+            )
+            or
+            absent(kube_cronjob_status_last_successful_time{
+              namespace="vhhealth",
+              cronjob="backup-verification"
+            })
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The off-site upload archive has not been verified in >8h"
+            description: "Checksum, decryption, and metadata verification is stale or absent. Inspect the reader-only verification Job."
+            runbook: "apps/backend/docs/DISASTER-RECOVERY.md"

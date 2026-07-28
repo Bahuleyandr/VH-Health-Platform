@@ -73,9 +73,6 @@ function installLinuxManifestValidators() {
 export function runInfraStage({ install } = {}) {
   let installedTools;
   try {
-    run(process.execPath, ['--test', 'scripts/update-prod-digests.test.mjs']);
-    run(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
-
     if (
       install &&
       process.platform === 'linux' &&
@@ -83,6 +80,21 @@ export function runInfraStage({ install } = {}) {
     ) {
       installedTools = installLinuxManifestValidators();
     }
+
+    run(process.execPath, ['--test', 'scripts/update-prod-digests.test.mjs']);
+    run(
+      process.execPath,
+      [
+        '--test',
+        'scripts/check-c1-1-manifest-contract.test.mjs',
+        'scripts/c1-1-backup-scripts.test.mjs',
+      ],
+      { env: installedTools?.env },
+    );
+    run(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
+    run(process.execPath, ['scripts/check-c1-1-manifest-contract.mjs'], {
+      env: installedTools?.env,
+    });
 
     run(process.execPath, ['scripts/validate-kubernetes-manifests.mjs'], {
       env: installedTools?.env,

@@ -60,7 +60,7 @@ spec:
       # PVC directory is owned by the app user before Ollama starts.
       initContainers:
         - name: model-dir-init
-          image: docker.io/library/busybox:1.36
+          image: docker.io/library/busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -81,7 +81,7 @@ spec:
               mountPath: /ollama/models
       containers:
         - name: ollama
-          image: docker.io/ollama/ollama:0.5.4
+          image: docker.io/ollama/ollama:0.5.4@sha256:18bfb1d605604fd53dcad20d0556df4c781e560ebebcd923454d627c994a0e37
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

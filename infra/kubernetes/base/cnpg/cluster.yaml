@@ -1,12 +1,9 @@
 # cnpg/cluster.yaml — VH Health production PostgreSQL cluster
 #
-# Postgres 17, 3 instances (1 primary + 2 replicas), synchronous
+# PostgreSQL 18.4, 3 instances (1 primary + 2 replicas), synchronous
 # replication with 1 sync standby, anti-affinity across zones,
-# continuous WAL archiving to Cloudflare R2 via pgBackRest, daily full
-# backups retained 30 days.
-#
-# Backend dev cluster runs Postgres 17 natively (see CLAUDE.md), so the
-# major version matches locally and in production.
+# continuous WAL archiving to Cloudflare R2 through the Barman Cloud
+# Plugin, and one daily base backup retained for 30 days.
 #
 # Why synchronous with minSyncReplicas=1: DPDP + HIPAA-analog clinical
 # data mustn't silently lose writes during failover. At 3 instances with
@@ -17,8 +14,9 @@
 # (the Ansible bootstrap labels each node with its rack/zone so the
 # scheduler spreads pods).
 #
-# Backup: BarmanObjectStore -> S3-compatible (Cloudflare R2). Credentials
-# are a SealedSecret; see `backup-credentials.sealed-secret.yaml.example`.
+# Backup: the Barman Cloud Plugin references ObjectStore
+# `vhhealth-pg18-producer`. Credentials are a producer-only SealedSecret;
+# see `cnpg-backup-producer-credentials.sealed-secret.yaml.example`.
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -33,7 +31,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   description: "VH Health primary PostgreSQL cluster (3 instances, 1 sync)"
-  imageName: ghcr.io/cloudnative-pg/postgresql:18.2-standard-bookworm
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8
   instances: 3
   minSyncReplicas: 1
   maxSyncReplicas: 1
@@ -69,14 +67,14 @@ spec:
   # SUPERUSER against the application DB at initdb — so it lands BEFORE the
   # PreSync migration Job and that Job's `db:ensure-pgvector` becomes a safe
   # idempotent no-op. The ONLY residual to confirm is image-level: the
-  # ghcr.io/cloudnative-pg/postgresql:18.2-standard-bookworm image must actually SHIP the pgvector
+  # exact PostgreSQL 18.4 image above must actually SHIP the pgvector
   # shared library (the .so), or `CREATE EXTENSION vector` fails for everyone —
   # even the superuser — with "could not open extension control file". Verify on
   # first bring-up: `kubectl cnpg psql vhhealth-pg -- -c "SELECT 1 FROM
   # pg_available_extensions WHERE name='vector'"` must return a row (this is what
-  # ensure-pgvector-extension.mjs probes too). If it does NOT, switch imageName to
-  # a pgvector-bearing image (e.g. a custom build or ghcr.io/cloudnative-pg/
-  # postgresql:18.2-* with pgvector) before the first sync.
+  # ensure-pgvector-extension.mjs probes too). If it does NOT, switch only to a
+  # signed, digest-pinned pgvector-bearing PostgreSQL 18 Bookworm image and
+  # repeat the full qualification. Never retarget the PostgreSQL 17 source.
   #
   # MAJOR UPGRADE (17 -> 18, owner decision 2026-07-12): on an EXISTING cluster
   # this imageName bump triggers CNPG's declarative offline major upgrade
@@ -249,9 +247,9 @@ spec:
       encoding: UTF8
       localeCType: "C"
       localeCollate: "C"
-      # No dataChecksums: true until we rebuild (enabling on an existing
-      # cluster requires pg_checksums --enable downtime). Set true on new
-      # clusters.
+      # Enables checksums only for newly bootstrapped clusters. Existing PG17
+      # clusters are unchanged: qualification must prove SHOW data_checksums,
+      # and use the downtime procedure to run pg_checksums --enable if it is off.
       dataChecksums: true
       secret:
         name: vhhealth-pg-app
@@ -321,38 +319,15 @@ spec:
       - name: vhhealth-pg-custom-queries
         key: queries.yaml
 
-  backup:
-    retentionPolicy: "30d"
-    barmanObjectStore:
-      destinationPath: "s3://vhhealth-db-backups/cluster/"
-      endpointURL: "https://${CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-      # R2 is S3-compatible; region + force-path-style required.
-      s3Credentials:
-        accessKeyId:
-          name: cnpg-backup-credentials
-          key: ACCESS_KEY_ID
-        secretAccessKey:
-          name: cnpg-backup-credentials
-          key: SECRET_ACCESS_KEY
-      # Audit finding M13 (2026-06-10): off-site PHI backups previously had
-      # NO encryption directive — protection relied solely on Cloudflare's
-      # provider-held at-rest keys, while the DR docs claimed AES-256.
-      # `encryption: AES256` makes barman-cloud request SSE on every upload.
-      # OPERATOR: verify the FIRST backup after this change succeeds against
-      # R2 (S3-compat SSE handling differs by provider) and record the result
-      # in docs/SECURITY_HARDENING_CHECKLIST.md; if R2 rejects the SSE
-      # header, escalate — do NOT silently remove this line.
-      encryption: AES256
-      wal:
-        compression: gzip
-        maxParallel: 8
-      data:
-        compression: gzip
-        immediateCheckpoint: false
-        jobs: 2
-      # The placeholder ${CF_R2_ACCOUNT_ID} is substituted at apply time
-      # via `envsubst` in the CI pipeline (Agent E's workflow). We cannot
-      # reference a configmap inline for endpointURL in CNPG ≤1.24.
+  # CNPG 1.30 delegates WAL archiving and base backups to the separately
+  # installed Barman Cloud Plugin. `serverName` is the immutable PG18 archive
+  # identity; PG17 evidence must remain under its previous identity.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: vhhealth-pg18-producer
+        serverName: vhhealth-pg18
 
   # Replica bootstrap: not used. Set to null so the operator knows to
   # promote in-place from existing cluster members during upgrades.
@@ -425,23 +400,3 @@ data:
         - max_conn:
             usage: GAUGE
             description: "max_connections setting"
----
-# Daily full backup at 02:00 IST == 20:30 UTC.
-apiVersion: postgresql.cnpg.io/v1
-kind: ScheduledBackup
-metadata:
-  name: vhhealth-pg-daily
-  namespace: vhhealth-platform
-  labels:
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: vhhealth-pg
-    app.kubernetes.io/component: database-backup
-    app.kubernetes.io/part-of: vhhealth
-    app.kubernetes.io/managed-by: kustomize
-spec:
-  schedule: "0 30 20 * * *"
-  cluster:
-    name: vhhealth-pg
-  backupOwnerReference: self
-  immediate: false
-  method: barmanObjectStore

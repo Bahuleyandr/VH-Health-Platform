@@ -1,68 +1,54 @@
-# cnpg/dr-restore-drill.yaml — CNPG PITR scratch-cluster template (REL-2 / B2.2)
-#
-# This file is NOT applied by ArgoCD in normal operations. It is a TEMPLATE
-# that the operator copies and fills in for each DR drill or real incident.
-#
-# Usage (copy-paste workflow — do NOT use kustomize apply on this file directly):
-#
-#   1. Determine recovery target time T (RFC3339):
-#        T="2026-06-13T10:00:00+05:30"
-#
-#   2. Substitute variables (requires envsubst or manual edit):
-#        CF_R2_ACCOUNT_ID=<your-account-id>  # from cnpg-backup-credentials
-#        RECOVERY_TARGET_TIME="${T}"
-#        envsubst < infra/kubernetes/base/cnpg/dr-restore-drill.yaml \
-#          > /tmp/drill-cluster.yaml
-#
-#   3. Create scratch namespace and apply:
-#        kubectl create namespace vhhealth-drill --dry-run=client -o yaml | kubectl apply -f -
-#        kubectl apply -f /tmp/drill-cluster.yaml
-#
-#   4. Copy backup credentials to the scratch namespace:
-#        kubectl get secret cnpg-backup-credentials -n vhhealth-platform -o yaml \
-#          | sed 's/namespace: vhhealth-platform/namespace: vhhealth-drill/' \
-#          | kubectl apply -f -
-#
-#   5. Watch recovery and run the drill script:
-#        bash infra/kubernetes/base/cnpg/dr-restore-drill.sh
-#
-# Full procedure + results template: docs/DR_RESTORE_DRILL.md
-
+# Operator-owned DR drill template. It is intentionally excluded from
+# kustomization and restores only through the Object Read-only DR identity.
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: vhhealth-pg18-reader
+  namespace: vhhealth-restore-proof
+  labels:
+    vhhealth.app/disposable-restore-proof: "true"
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  configuration:
+    destinationPath: "s3://vhhealth-db-backups/cluster/"
+    endpointURL: "https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com"
+    s3Credentials:
+      accessKeyId:
+        name: cnpg-dr-reader-credentials
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: cnpg-dr-reader-credentials
+        key: SECRET_ACCESS_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: vhhealth-pg-drill
-  namespace: vhhealth-drill
+  namespace: vhhealth-restore-proof
   labels:
     app.kubernetes.io/name: postgresql
     app.kubernetes.io/instance: vhhealth-pg-drill
     app.kubernetes.io/component: dr-drill
     app.kubernetes.io/part-of: vhhealth
+    vhhealth.app/disposable-restore-proof: "true"
   annotations:
-    # PHI warning: this cluster will contain production data. It MUST be
-    # deleted immediately after the drill. The drill script enforces this.
-    vhhealth.app/phi-warning: "DRILL CLUSTER — DELETE IMMEDIATELY AFTER USE"
-    vhhealth.app/drill-date: "${DRILL_DATE}"     # filled by operator
+    vhhealth.app/phi-warning: "DISPOSABLE DRILL CLUSTER - REMOVE AFTER EVIDENCE CAPTURE"
 spec:
-  description: "DR restore drill — temporary, DELETE after drill"
-  imageName: ghcr.io/cloudnative-pg/postgresql:18.2-standard-bookworm
+  description: "Operator-owned PG18 restore drill"
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8
   instances: 1
-  # Single instance for the drill — we need data verification, not HA.
-  # Do NOT promote to primary; access is read-only via kubectl exec.
-
-  enableSuperuserAccess: true   # needed only for drill verification queries
-  # NOTE: superuser access is safe for a drill cluster (isolated namespace,
-  # deleted immediately). Do NOT enable on the production cluster.
-
+  enableSuperuserAccess: true
   storage:
-    size: 110Gi           # +10% headroom over prod 100Gi for WAL replay overhead
+    size: 110Gi
     storageClass: local-path
-
   walStorage:
     size: 25Gi
     storageClass: local-path
-
   resources:
     requests:
       memory: "1Gi"
@@ -70,25 +56,13 @@ spec:
     limits:
       memory: "4Gi"
       cpu: "2"
-
   bootstrap:
     recovery:
-      source: vhhealth-pg-r2
-      recoveryTarget:
-        # Set to the recovery target time (10 minutes ago or the declared incident time).
-        # Format: RFC3339 with timezone. Example: "2026-06-13T10:00:00+05:30"
-        targetTime: "${RECOVERY_TARGET_TIME}"
-        targetAction: promote    # Auto-promote to allow read access for verification
-
+      source: vhhealth-pg18-r2
   externalClusters:
-    - name: vhhealth-pg-r2
-      barmanObjectStore:
-        destinationPath: "s3://vhhealth-db-backups/cluster/"
-        endpointURL: "https://${CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-        s3Credentials:
-          accessKeyId:
-            name: cnpg-backup-credentials
-            key: ACCESS_KEY_ID
-          secretAccessKey:
-            name: cnpg-backup-credentials
-            key: SECRET_ACCESS_KEY
+    - name: vhhealth-pg18-r2
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: vhhealth-pg18-reader
+          serverName: vhhealth-pg18

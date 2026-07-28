@@ -2,8 +2,8 @@
 #
 # Rules are PrometheusRule CRs picked up by the kube-prometheus-stack
 # operator (via the release=vhhealth-monitoring label selector in its
-# values). Severities: `warning` fires to Discord (default), `critical`
-# routes to PagerDuty (when wired up).
+# values). C1.1 commits rule definitions only. Alertmanager delivery is not
+# active evidence and remains owned by C1.3.
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -194,14 +194,14 @@ spec:
             summary: "Canary health-check job is failing"
             description: "The most recent canary-health-check Job reported a failure — either the canary itself is broken or it is detecting a real fault. Inspect the Job logs in ns vhhealth."
         - alert: CnpgBackupVerifyStale
-          # cnpg-backup-verify runs weekly (Sun 21:30); >8d without a schedule =
-          # the backup-restorability check is dark.
-          expr: time() - max(kube_cronjob_status_last_schedule_time{namespace="vhhealth-platform", cronjob="cnpg-backup-verify"}) > 691200
+          # cnpg-backup-verify runs daily at 21:30 UTC. More than 30 hours
+          # without a schedule, or no scheduling metric, means the check is dark.
+          expr: (time() - max(kube_cronjob_status_last_schedule_time{namespace="vhhealth-platform", cronjob="cnpg-backup-verify"}) > 108000) or absent(kube_cronjob_status_last_schedule_time{namespace="vhhealth-platform", cronjob="cnpg-backup-verify"})
           for: 1h
           labels:
             severity: critical
           annotations:
-            summary: "CNPG backup-verify CronJob has not run in >8 days"
+            summary: "CNPG backup-verify CronJob has not run in >30 hours"
             description: "Backup restorability is no longer being verified — a 'WAL with no good base backup' failure could go undetected until a real restore. Check the cnpg-backup-verify CronJob in ns vhhealth-platform."
         - alert: CnpgBackupVerifyFailing
           expr: max(kube_job_status_failed{namespace="vhhealth-platform", job_name=~"^cnpg-backup-verify.*"}) > 0
@@ -211,3 +211,27 @@ spec:
           annotations:
             summary: "CNPG backup-verify job is failing"
             description: "The latest cnpg-backup-verify Job failed — the R2 base backup may be missing or unrestorable. Treat as a DR-readiness incident. Inspect the Job logs in ns vhhealth-platform."
+        - alert: CnpgPluginBackupFailed
+          expr: |
+            max(barman_cloud_cloudnative_pg_io_last_failed_backup_timestamp)
+              > max(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp)
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The latest Barman Cloud Plugin backup attempt failed"
+            description: "The plugin reports a failed backup newer than its last available backup. Preserve the healthy WAL stream and inspect the Backup CR, ObjectStore status, and plugin logs."
+            runbook: "docs/DR_RESTORE_DRILL.md"
+        - alert: CnpgRestoreProofUnexpectedlyEnabled
+          expr: |
+            kube_cronjob_spec_suspend{
+              namespace="vhhealth-restore-proof",
+              cronjob="cnpg-scheduled-restore-proof"
+            } == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The operator-gated CNPG restore proof is not suspended"
+            description: "C1.1 ships this CronJob suspended. Suspend it immediately unless a recorded synthetic restore drill is actively in progress."
+            runbook: "docs/DR_RESTORE_DRILL.md"

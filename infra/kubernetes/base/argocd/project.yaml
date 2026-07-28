@@ -37,6 +37,8 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: "vhhealth-platform"
       server: https://kubernetes.default.svc
+    - namespace: "vhhealth-restore-proof"
+      server: https://kubernetes.default.svc
     - namespace: "vhhealth-monitoring"
       server: https://kubernetes.default.svc
     - namespace: "vhhealth-ingress"

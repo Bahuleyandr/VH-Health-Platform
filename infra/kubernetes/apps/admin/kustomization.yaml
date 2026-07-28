@@ -20,7 +20,8 @@ labels:
 
 resources:
   - configmap.yaml
-  - sealed-secret.yaml.example
+  # sealed-secret.yaml.example is a kubeseal input template. It deliberately
+  # contains placeholder ciphertext and must never be part of an Argo render.
   - deployment.yaml
   - service.yaml
   - ingress.yaml

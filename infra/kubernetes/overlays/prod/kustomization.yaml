@@ -91,6 +91,41 @@ configMapGenerator:
       - DB_POOLER_HOST=vhhealth-pg-rw-pooler.vhhealth-platform.svc.cluster.local
       - REDIS_SENTINEL_HOST=redis-sentinel.vhhealth-platform.svc.cluster.local
       - MINIO_ENDPOINT=minio-api.vhhealth-platform.svc.cluster.local
+      - R2_ENDPOINT=https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com
+
+replacements:
+  # Argo CD renders plain Kustomize: source the confirmed non-secret endpoint
+  # from vhhealth-env instead of assuming envsubst, SOPS, or a CMP.
+  - source:
+      kind: ConfigMap
+      name: vhhealth-env
+      namespace: vhhealth-platform
+      fieldPath: data.R2_ENDPOINT
+    targets:
+      - select:
+          group: barmancloud.cnpg.io
+          version: v1
+          kind: ObjectStore
+          name: vhhealth-pg18-producer
+          namespace: vhhealth-platform
+        fieldPaths:
+          - spec.configuration.endpointURL
+      - select:
+          group: batch
+          version: v1
+          kind: CronJob
+          name: cnpg-backup-verify
+          namespace: vhhealth-platform
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=verify].env.[name=R2_ENDPOINT].value
+      - select:
+          group: batch
+          version: v1
+          kind: CronJob
+          name: cnpg-scheduled-restore-proof
+          namespace: vhhealth-restore-proof
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=prove-restore].env.[name=R2_ENDPOINT].value
 
 commonAnnotations:
   vhhealth.app/environment: "production"

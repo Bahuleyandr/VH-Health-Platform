@@ -40,8 +40,32 @@ data:
   # Firebase — project ID is public; private_key + client_email live in the Secret
   FIREBASE_AUTH_ENABLED: "true"
 
-  # Cloudflare R2 — bucket + account are not secret; keys live in the Secret
+  # Cloudflare R2 — endpoint/account/bucket are not secrets. R2_ENDPOINT is the
+  # exact production S3 API endpoint confirmed in the bucket's Settings → S3
+  # API page. CF_R2_URL is a different value: r2Storage.js uses it as the public
+  # object-download base. No public/custom-domain base is proven in-repository,
+  # so it stays empty and fails closed until the operator supplies the real base
+  # before activating application uploads. Credentials stay in workload-
+  # specific sealed Secrets.
+  CF_ACCOUNT_ID: "dbe488236c64499a3dfc797a750c912d"
+  R2_ENDPOINT: "https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com"
+  CF_R2_URL: ""
   CF_R2_BUCKET: "vh-health-records"
+  OFFSITE_BACKUP_PREFIX: "offsite/minio-records"
+
+  # MinIO upload archive source. Use the operator-managed `minio` Service name
+  # covered by requestAutoCert; the custom `minio-api` alias is not in the
+  # generated certificate SANs. This is not the CNPG physical-backup target.
+  MINIO_BACKUP_ENDPOINT: "https://minio.vhhealth-platform.svc.cluster.local:443"
+  MINIO_BACKUP_BUCKET: "vhhealth-records"
+  # Producer runs every six hours; verification follows 105 minutes later.
+  # Three hours admits the producer/verifier deadline margins but rejects the
+  # preceding six-hour archive if the current producer window fails.
+  BACKUP_MAX_AGE_SECONDS: "10800"
+  # Must equal both backup work-volume sizeLimit values. The pre-download
+  # activation gate blocks production unless source/archive projections plus
+  # the scripted safety margin fit.
+  BACKUP_WORK_LIMIT_BYTES: "10737418240"
 
   # Sentry — DSN lives in Secret; project/org are non-secret metadata for release
   SENTRY_ENVIRONMENT: "production"

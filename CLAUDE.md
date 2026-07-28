@@ -148,9 +148,10 @@ the path-filtered CI and the scheduled sweep stay in sync.
 
 Backend + Admin run on a **3-node on-prem RKE2 Kubernetes cluster** inside the
 hospital. Deploys are **GitOps via ArgoCD** — GitHub Actions builds, signs, and
-pushes container images; ArgoCD watches this repo and auto-syncs the Kustomize
-overlays under `infra/kubernetes/overlays/prod` to the cluster. Postgres runs as
-a CloudNativePG-managed **PostgreSQL 17 cluster (3 replicas, HA)** in-cluster.
+pushes container images; ArgoCD watches this repo, but all four production
+Applications require an explicit operator sync of the committed manifests, so
+a merge remains inert. Postgres runs as a CloudNativePG-managed **PostgreSQL 17
+cluster (3 replicas, HA)** in-cluster.
 Ingress is **Cloudflare Tunnel → ingress-nginx → Service**, so the hospital
 firewall has zero inbound ports open. See [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)
 for the end-to-end runbook and [`docs/HARDWARE_REQUIREMENTS.md`](docs/HARDWARE_REQUIREMENTS.md)

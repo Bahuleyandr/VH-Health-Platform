@@ -22,7 +22,6 @@ labels:
 
 resources:
   - configmap.yaml
-  - sealed-secret.yaml.example
   - migration-job.yaml
   - deployment.yaml
   - service.yaml
@@ -38,8 +37,49 @@ resources:
   - network-policy.yaml
   - service-monitor.yaml
   - backup-cronjob.yaml
+  - backup-network-policy.yaml
   # REL-3 / WS2 B2.3: outage-critical jobs promoted from in-process scheduler
   # to native CronJobs so they survive backend Deployment downtime.
   - ward-downtime-packs-cronjob.yaml
   - backup-verification-cronjob.yaml
   - canary-health-check-cronjob.yaml
+
+# External scripts keep shell logic testable and keep runtime `${VAR}`
+# expansion inside the pod rather than in Argo/Kustomize.
+configMapGenerator:
+  - name: vhhealth-backup-scripts
+    files:
+      - upload-archive.sh
+      - verify-upload-archive.sh
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/name: vhhealth-backup-scripts
+    app.kubernetes.io/component: backup-archive
+    app.kubernetes.io/part-of: vhhealth
+
+# The app tier is a separate manual-sync Argo Application from the platform
+# overlay, so it carries its own non-secret ConfigMap source. These native
+# replacements still make the rendered workload endpoint literal and ensure
+# both jobs use the same confirmed value.
+replacements:
+  - source:
+      kind: ConfigMap
+      name: vhhealth-backend-config
+      fieldPath: data.R2_ENDPOINT
+    targets:
+      - select:
+          group: batch
+          version: v1
+          kind: CronJob
+          name: vhhealth-backend-r2-sync
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=r2-sync].env.[name=R2_ENDPOINT].value
+      - select:
+          group: batch
+          version: v1
+          kind: CronJob
+          name: backup-verification
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.initContainers.[name=archive-reader].env.[name=R2_ENDPOINT].value

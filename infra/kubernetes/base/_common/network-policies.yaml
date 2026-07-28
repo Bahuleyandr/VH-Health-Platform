@@ -347,10 +347,12 @@ metadata:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 spec:
-  # ingress-nginx is a DaemonSet on hostNetwork? No — we use ClusterIP +
-  # the cloudflared Tunnel, and for LAN traffic we use an LB service that
-  # terminates externally. Accept from anywhere; upstream firewall is the
-  # gatekeeper.
+  # Cloudflare Tunnel is the current external path. The internal controller,
+  # VIP, and LAN DNS path are deferred to C2; this policy is not evidence that
+  # a LoadBalancer, MetalLB, or hostNetwork endpoint exists. The empty ingress
+  # peer list permits traffic once a separately controlled network path reaches
+  # these pods; Service, CNI, and upstream firewall policy still govern
+  # reachability.
   podSelector: {}
   policyTypes: [Ingress]
   ingress:

@@ -1,52 +1,40 @@
-# cnpg/r2-backup-hardening.yaml — R2 backup bucket hardening (REL-2 / B2.2)
-#
-# Cloudflare R2 does NOT support S3 Object Lock today (as of mid-2026).
-# R2 supports ONLY:
-#   - Object versioning (via S3 API PutBucketVersioning)
-#   - Custom lifecycle rules (but not S3 ObjectLock API)
-#
-# Therefore the ransomware-resistance strategy for the CNPG backup bucket is:
-#   1. Enable R2 versioning → deletes create "delete markers", not actual
-#      deletions. A ransomware actor with the R2 API key can add delete markers
-#      but cannot permanently erase past versions. Recovery: list versions,
-#      restore the most recent non-deleted version.
-#   2. Restrict the backup R2 API key to WRITE-ONLY (PutObject, no Delete).
-#      Even a compromised key cannot remove objects — R2 Worker policy.
-#   3. The `cnpg-backup-credentials` key is a SEPARATE R2 scoped token from
-#      any admin credentials. It has object:put only, no delete.
-#   4. Use a separate "DR reader" key (object:get only) for restore drills.
-#      This key never touches the backup pipeline and cannot be used to
-#      overwrite backups.
-#   5. Periodic backup verification: the ScheduledVerification Job below runs
-#      `barman-cloud-check-wal-archive` to verify WAL continuity without
-#      requiring a full restore.
-#
-# IF R2 adds ObjectLock in future: enable it on bucket creation (cannot be
-# added later) and set COMPLIANCE mode with a 35-day retention (≥ 30d backup
-# retention + 5d buffer). Update this file and the R2 bucket policy.
-#
-# Operator setup steps (one-time):
-#   1. In the R2 dashboard, enable versioning on `vhhealth-db-backups`:
-#        wrangler r2 bucket versioning enable vhhealth-db-backups
-#      (Or via the R2 API: PUT /{bucket}?versioning with <Status>Enabled</Status>)
-#   2. Set a lifecycle rule to purge non-current versions older than 35 days:
-#        wrangler r2 object-lifecycle put vhhealth-db-backups \
-#          --rule '{"id":"purge-old-versions","status":"Enabled",
-#            "filter":{"prefix":""},
-#            "noncurrentVersionExpiration":{"noncurrentDays":35}}'
-#   3. Create a write-only R2 API token (no delete permission) for the backup
-#      pipeline. Store it as `cnpg-backup-credentials` SealedSecret.
-#   4. Create a read-only R2 API token for restore/drill. Store separately.
-#      Never use the read-only token in the backup pipeline.
-#   5. Confirm: `aws s3api get-bucket-versioning --bucket vhhealth-db-backups
-#      --endpoint-url https://<account>.r2.cloudflarestorage.com`
-#      → {"Status": "Enabled"}
-
+# CNPG backup verification uses a bucket-scoped Object Read-only DR identity.
+# The configured prefix is workload routing, not an R2 token boundary.
+# Ordinary long-lived R2 tokens are Object Read/Write or Object Read-only; the
+# producer must retain delete authority for Barman retention. Put-only
+# brokerage and independent retention/deletion authority are C6.2.
 ---
-# ScheduledBackup verification job — confirms WAL continuity in R2 weekly.
-# This runs barman-cloud-check-wal-archive using the same credentials as
-# the cluster's WAL archiver, and alerts via the job failure (which triggers
-# a Prometheus DeadManSwitch or KubeJobFailed alert).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cnpg-backup-verifier
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: cnpg-backup-verify
+    app.kubernetes.io/part-of: vhhealth
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cnpg-backup-verifier
+  namespace: vhhealth-platform
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cnpg-backup-verifier
+  namespace: vhhealth-platform
+subjects:
+  - kind: ServiceAccount
+    name: cnpg-backup-verifier
+    namespace: vhhealth-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cnpg-backup-verifier
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -60,15 +48,15 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
-  # Weekly: Sunday 03:00 IST = Saturday 21:30 UTC. Chosen to avoid overlap
-  # with the nightly base backup (19:30 UTC) and daily full (20:30 UTC).
-  schedule: "30 21 * * 0"
+  # Daily after the 20:30 UTC base-backup schedule. A failure is observable
+  # through the inert monitoring rule; Alertmanager delivery is C1.3.
+  schedule: "30 21 * * *"
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 900    # 15 min max — if it hangs, fail fast
+      activeDeadlineSeconds: 900
       backoffLimit: 1
       template:
         metadata:
@@ -78,58 +66,43 @@ spec:
             app.kubernetes.io/part-of: vhhealth
         spec:
           restartPolicy: Never
-          serviceAccountName: default
+          serviceAccountName: cnpg-backup-verifier
+          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
-            runAsUser: 26      # postgres uid in the CNPG image
-            runAsGroup: 26
-            fsGroup: 26
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
           containers:
-            - name: barman-check
-              # Use the same CNPG PostgreSQL image (contains barman-cloud tools).
-              image: ghcr.io/cloudnative-pg/postgresql:17.2-1
+            - name: verify
+              image: docker.io/amazon/aws-cli:2.34.53@sha256:cf53765c0de54ad3a8ea21818f1c4c845a8cf7ca87831c078a00fef244031493
               imagePullPolicy: IfNotPresent
-              command:
-                - /bin/bash
-                - -euo
-                - pipefail
-                - -c
-                - |
-                  echo "=== CNPG WAL archive verification — $(date) ==="
-                  echo "Bucket: s3://vhhealth-db-backups/cluster/"
-                  echo "Endpoint: https://${CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-
-                  # barman-cloud-check-wal-archive verifies that the WAL archive
-                  # on object storage is consistent with what the cluster reports.
-                  # A non-zero exit is a finding — the CronJob failure triggers
-                  # the KubeJobFailed alert.
-                  barman-cloud-check-wal-archive \
-                    --cloud-provider aws-s3 \
-                    --endpoint-url "https://${CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-                    s3://vhhealth-db-backups/cluster/ \
-                    vhhealth-pg
-
-                  echo "WAL archive verification PASSED at $(date)"
+              command: ["/bin/sh", "/opt/vhhealth/verify-cnpg-backup.sh"]
               env:
-                - name: CF_R2_ACCOUNT_ID
-                  valueFrom:
-                    secretKeyRef:
-                      name: cnpg-backup-credentials
-                      key: R2_ACCOUNT_ID
+                - name: R2_ENDPOINT
+                  value: "https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com"
+                - name: R2_BUCKET
+                  value: "vhhealth-db-backups"
+                - name: R2_PREFIX
+                  value: "cluster/"
+                - name: BARMAN_SERVER_NAME
+                  value: "vhhealth-pg18"
                 - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
-                      name: cnpg-backup-credentials
+                      name: cnpg-dr-reader-credentials
                       key: ACCESS_KEY_ID
                 - name: AWS_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
-                      name: cnpg-backup-credentials
+                      name: cnpg-dr-reader-credentials
                       key: SECRET_ACCESS_KEY
                 - name: AWS_DEFAULT_REGION
                   value: "auto"
+                - name: AWS_EC2_METADATA_DISABLED
+                  value: "true"
               resources:
                 requests:
                   memory: "128Mi"
@@ -138,16 +111,20 @@ spec:
                   memory: "256Mi"
                   cpu: "500m"
               securityContext:
-                runAsNonRoot: true
-                runAsUser: 26
-                runAsGroup: 26
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
                 capabilities:
                   drop: [ALL]
               volumeMounts:
+                - name: script
+                  mountPath: /opt/vhhealth
+                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
           volumes:
+            - name: script
+              configMap:
+                name: cnpg-backup-verification-scripts
+                defaultMode: 0555
             - name: tmp
               emptyDir: {}
