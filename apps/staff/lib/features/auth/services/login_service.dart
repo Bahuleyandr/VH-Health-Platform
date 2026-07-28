@@ -75,5 +75,5 @@ class LoginService {
     return AuthService.loginWithStaffSso(provider);
   }
 
-  static Future<void> logout() => AuthService.logout();
+  static Future<StaffLogoutResult> logout() => AuthService.logout();
 }

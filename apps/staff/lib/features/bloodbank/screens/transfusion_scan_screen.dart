@@ -5,9 +5,19 @@ import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../transfusion_scan_intent.dart';
+
+@visibleForTesting
+Future<void> showTransfusionVerificationOfflineFallback(BuildContext context) {
+  final s = AppStrings.of(context);
+  return showOfflineClinicalFallbackDialog(
+    context,
+    paperFormSet: s.offlineClinicalFallbackBloodBankVerificationSlips,
+  );
+}
 
 class TransfusionScanScreen extends StatefulWidget {
   const TransfusionScanScreen({
@@ -40,7 +50,6 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
   TransfusionScanIntent? _hardStop;
   bool _busy = false;
   bool _scanLock = false;
-  bool _pendingSync = false;
 
   @override
   void dispose() {
@@ -94,28 +103,19 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
 
     try {
       if (!ConnectivitySyncService.instance.isOnline) {
-        await ConnectivitySyncService.instance.enqueue(
-          endpoint: intent.endpoint,
-          method: 'POST',
-          body: intent.body,
-          contextLabel: s.format('s4.dynamic.transfusion_scan.context_label', {
-            'id': widget.requestId,
-          }),
-        );
+        await showTransfusionVerificationOfflineFallback(context);
         if (!mounted) return;
-        setState(() {
-          _pendingSync = true;
-          _step = _TransfusionScanStep.done;
-        });
+        setState(
+          () => _errorMessage = s.offlineClinicalFallbackMessage(
+            s.offlineClinicalFallbackBloodBankVerificationSlips,
+          ),
+        );
         return;
       }
       final response = await ApiClient.post(intent.endpoint, body: intent.body);
       if (!mounted) return;
       if (response.isSuccess) {
-        setState(() {
-          _pendingSync = false;
-          _step = _TransfusionScanStep.done;
-        });
+        setState(() => _step = _TransfusionScanStep.done);
       } else {
         setState(
           () => _errorMessage = response.failureMessage(
@@ -141,7 +141,6 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
       _hardStop = null;
       _errorMessage = null;
       _busy = false;
-      _pendingSync = false;
     });
   }
 
@@ -318,14 +317,12 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
 
   Widget _donePanel(AppStrings s) {
     return _messagePanel(
-      icon: _pendingSync ? Icons.cloud_off : Icons.check_circle,
-      color: _pendingSync ? AppTheme.textSecondary : AppTheme.successGreen,
-      title: _pendingSync
-          ? s.offlineRecordedPendingSync
-          : s.lookup('s4.lib.transfusion_scan.verification_recorded'),
-      message: _pendingSync
-          ? s.transfusionScanPendingSyncMessage
-          : s.lookup('s4.lib.transfusion_scan.verification_recorded_message'),
+      icon: Icons.check_circle,
+      color: AppTheme.successGreen,
+      title: s.lookup('s4.lib.transfusion_scan.verification_recorded'),
+      message: s.lookup(
+        's4.lib.transfusion_scan.verification_recorded_message',
+      ),
       actionLabel: s.incidentReportDoneButton,
       onAction: () => context.pop(true),
     );

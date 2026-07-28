@@ -5,12 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/models/composition_alternatives.dart';
-import '../../../core/platform_info.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/desktop_scroll_controls.dart';
+import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -169,52 +169,15 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
 
     setState(() => row.saving = true);
     try {
-      if (!ConnectivitySyncService.instance.isOnline) {
-        final intent = buildOfflineOrderIntent(
-          deviceType: currentDeviceType,
-          patientUid: _text(_admission['patient_uid']),
-          encounterId: _text(_admission['encounter_id']).isEmpty
-              ? null
-              : _text(_admission['encounter_id']),
-          medicationName: drug,
-          dose: dose,
-          route: row.route,
-          frequency: _frequencyForTimes(doseTimes),
-          doseTimes: doseTimes,
-          foodTiming: row.foodTiming.isEmpty ? null : row.foodTiming,
-          instructions: row.notesCtrl.text.trim().isEmpty
-              ? null
-              : row.notesCtrl.text.trim(),
-          catalogId: row.catalogId,
-          originalCatalogId: row.originalCatalogId,
-          compositionId: row.compositionId,
-          compositionLabel: row.compositionLabel,
-          compositionConfidence: row.compositionConfidence,
-          genericName: row.genericName,
-          strength: row.strength,
-          strengthKey: row.strengthKey,
-          form: row.form,
-          formKey: row.formKey,
-          releaseKey: row.releaseKey,
-          doNotSubstitute: row.daw,
-          startDate: DateTime.now(),
-        );
-        if (intent.block) {
-          if (!mounted) return;
-          _showSnack(s.lookup(intent.reason!), isError: true);
-          return; // keep the row; NEVER enqueue on a blocked device
-        }
-        await ConnectivitySyncService.instance.enqueue(
-          endpoint: intent.endpoint,
-          method: 'POST',
-          body: intent.body,
-          contextLabel: s.format('s4.dynamic.drug_chart.medication_order', {
-            'drug': drug,
-          }),
-        );
+      if (drugChartSubmissionDisposition(
+            isOnline: ConnectivitySyncService.instance.isOnline,
+          ) ==
+          DrugChartSubmissionDisposition.usePaperFallback) {
         if (!mounted) return;
-        _removeDraftRow(row);
-        _showSnack(s.lookup('s4.lib.drug_chart.offline_order_queued'));
+        await showOfflineClinicalFallbackDialog(
+          context,
+          paperFormSet: s.offlineClinicalFallbackInpatientDrugCharts,
+        );
         return;
       }
       await MedicalApiService.createInpatientMedicationOrder(

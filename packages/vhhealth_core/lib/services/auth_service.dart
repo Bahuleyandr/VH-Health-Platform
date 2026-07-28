@@ -63,8 +63,31 @@ class AuthService {
     return jwt != null && jwt.isNotEmpty;
   }
 
-  // ── Clear everything ─────────────────────────────────────────────────────
+  // ── Session teardown ─────────────────────────────────────────────────────
+  //
+  // Delete only identity/session keys. Device-bound credentials and the
+  // OfflineQueue AES key are deliberately outside this list and survive
+  // logout, revocation, and process restart.
+  static const _sessionIdentityKeys = <String>[
+    'jwt',
+    'refreshToken',
+    'userPhone',
+    'userRole',
+    'employeeId',
+    'staffId',
+    'staff_id',
+  ];
+
+  static Future<void> clearSessionIdentity() async {
+    for (final key in _sessionIdentityKeys) {
+      await _storage.delete(key: key);
+    }
+  }
+
+  /// Backward-compatible name for consumers not yet moved to the explicit
+  /// session-only API. This no longer performs a device-wide secure-store wipe.
+  @Deprecated('Use clearSessionIdentity')
   static Future<void> clearAll() async {
-    await _storage.deleteAll();
+    await clearSessionIdentity();
   }
 }

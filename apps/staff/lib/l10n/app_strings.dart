@@ -116,6 +116,122 @@ class AppStrings {
   String get labelOptional => _t('label.optional');
   String get labelRequired => _t('label.required');
   String get offlineRecordedPendingSync => _t('offline.recorded_pending_sync');
+  String get offlineClinicalFallbackTitle => _t('c0a.offline_fallback.title');
+  String offlineClinicalFallbackMessage(String paperFormSet) =>
+      format('c0a.offline_fallback.message', {'paperFormSet': paperFormSet});
+  String get offlineClinicalFallbackKeepOpen =>
+      _t('c0a.offline_fallback.keep_open');
+  String get offlineClinicalFallbackOpdPrescriptionPads =>
+      _t('c0a.offline_fallback.paper_set.opd_prescription_pads');
+  String get offlineClinicalFallbackInpatientDrugCharts =>
+      _t('c0a.offline_fallback.paper_set.inpatient_drug_charts');
+  String get offlineClinicalFallbackMarSheets =>
+      _t('c0a.offline_fallback.paper_set.mar_sheets');
+  String get offlineClinicalFallbackLaboratoryRequisitionForms =>
+      _t('c0a.offline_fallback.paper_set.laboratory_requisition_forms');
+  String get offlineClinicalFallbackBloodBankVerificationSlips =>
+      _t('c0a.offline_fallback.paper_set.blood_bank_verification_slips');
+  String get offlineClinicalFallbackNursingNoteForms =>
+      _t('c0a.offline_fallback.paper_set.nursing_note_forms');
+
+  // ── C0A offline clinical reconciliation ───────────────────────────
+  String get offlineSyncTitle => _t('offline_sync.title');
+  String get offlineSyncSectionUnresolved =>
+      _t('offline_sync.section.unresolved');
+  String offlineSyncPendingCount(int count) =>
+      format('offline_sync.pending_count', {'count': count});
+  String offlineSyncReviewCount(int count) =>
+      format('offline_sync.review_count', {'count': count});
+  String offlineSyncConflictCount(int count) =>
+      format('offline_sync.conflict_count', {'count': count});
+  String offlineSyncOfflineQueued(int count) =>
+      format('offline_sync.offline_queued', {'count': count});
+  String offlineSyncSyncing(int count) =>
+      format('offline_sync.syncing', {'count': count});
+  String get offlineSyncSyncInProgress => _t('offline_sync.sync_in_progress');
+  String get offlineSyncSyncNow => _t('offline_sync.sync_now');
+  String get offlineSyncEmpty => _t('offline_sync.empty');
+  String get offlineSyncStatusOnline => _t('offline_sync.status.online');
+  String get offlineSyncStatusOffline => _t('offline_sync.status.offline');
+  String get offlineSyncFieldFamily => _t('offline_sync.field.family');
+  String get offlineSyncFieldContext => _t('offline_sync.field.context');
+  String get offlineSyncFieldCaptured => _t('offline_sync.field.captured');
+  String get offlineSyncFieldEndpoint => _t('offline_sync.field.endpoint');
+  String get offlineSyncFieldStatus => _t('offline_sync.field.status');
+  String get offlineSyncFieldReason => _t('offline_sync.field.reason');
+  String get offlineSyncFieldBlocker => _t('offline_sync.field.blocker');
+  String get offlineSyncFieldRetryCount => _t('offline_sync.field.retry_count');
+  String get offlineSyncFieldCaptureOwner =>
+      _t('offline_sync.field.capture_owner');
+  String get offlineSyncFieldReconciliationOwner =>
+      _t('offline_sync.field.reconciliation_owner');
+  String get offlineSyncFieldPaperFormSet =>
+      _t('offline_sync.field.paper_form_set');
+  String get offlineSyncFieldAttestation =>
+      _t('offline_sync.field.attestation');
+  String get offlineSyncStatePending => _t('offline_sync.state.pending');
+  String get offlineSyncStateConflict => _t('offline_sync.state.conflict');
+  String get offlineSyncStateNeedsReview =>
+      _t('offline_sync.state.needs_review');
+  String get offlineSyncStateSkipped => _t('offline_sync.state.skipped');
+  String get offlineSyncStateAttested => _t('offline_sync.state.attested');
+  String get offlineSyncActionRetry => _t('offline_sync.action.retry');
+  String get offlineSyncActionDiscard => _t('offline_sync.action.discard');
+  String get offlineSyncActionAttest => _t('offline_sync.action.attest');
+  String get offlineSyncActionCancel => _t('offline_sync.action.cancel');
+  String get offlineSyncAttestationTitle =>
+      _t('offline_sync.attestation.title');
+  String get offlineSyncAttestationBody => _t('offline_sync.attestation.body');
+  String get offlineSyncAttestationConfirm =>
+      _t('offline_sync.attestation.confirm');
+  String get offlineSyncAttestationSuccess =>
+      _t('offline_sync.attestation.success');
+  String offlineSyncAttestationRecorded(String actor, String time) => format(
+    'offline_sync.attestation.recorded',
+    {'actor': actor, 'time': time},
+  );
+  String get offlineSyncDiscardTitle => _t('offline_sync.discard.title');
+  String get offlineSyncDiscardGenericTitle =>
+      _t('offline_sync.discard.generic_title');
+  String get offlineSyncDiscardGenericBody =>
+      _t('offline_sync.discard.generic_body');
+  String get offlineSyncDiscardPrescriptionTitle =>
+      _t('offline_sync.discard.prescription_title');
+  String get offlineSyncDiscardPrescriptionBody =>
+      _t('offline_sync.discard.prescription_body');
+  String get offlineSyncDiscardOrderTitle =>
+      _t('offline_sync.discard.order_title');
+  String get offlineSyncDiscardOrderBody =>
+      _t('offline_sync.discard.order_body');
+  String get offlineSyncDiscardMarTitle => _t('offline_sync.discard.mar_title');
+  String get offlineSyncDiscardMarBody => _t('offline_sync.discard.mar_body');
+  String get offlineSyncDiscardSpecimenTitle =>
+      _t('offline_sync.discard.specimen_title');
+  String get offlineSyncDiscardSpecimenBody =>
+      _t('offline_sync.discard.specimen_body');
+  String get offlineSyncDiscardTransfusionTitle =>
+      _t('offline_sync.discard.transfusion_title');
+  String get offlineSyncDiscardTransfusionBody =>
+      _t('offline_sync.discard.transfusion_body');
+  String get offlineSyncDiscardNotesTitle =>
+      _t('offline_sync.discard.notes_title');
+  String get offlineSyncDiscardNotesBody =>
+      _t('offline_sync.discard.notes_body');
+  String get offlineSyncDiscardVitalsTitle =>
+      _t('offline_sync.discard.vitals_title');
+  String get offlineSyncDiscardVitalsBody =>
+      _t('offline_sync.discard.vitals_body');
+  String get offlineSyncDiscardConfirm => _t('offline_sync.discard.confirm');
+  String get offlineSyncClinicalSafetyLead =>
+      _t('offline_sync.role.clinical_safety_lead');
+  String offlineSyncReason(String reasonCode) =>
+      _t('offline_sync.reason.$reasonCode');
+  String offlineSyncFamily(String family) => _t('offline_sync.family.$family');
+  String get offlineSyncBlockerNone => _t('offline_sync.blocker.none');
+  String get offlineSyncBlockerPartitionWaiting =>
+      _t('offline_sync.blocker.partition_waiting');
+  String offlineSyncBlockerEarlierItem(Object id) =>
+      format('offline_sync.blocker.earlier_item', {'id': id});
   String noMatchesFor(String query) => '${_t('label.no_matches_for')} "$query"';
 
   // ── Time-of-day greetings ──────────────────────────────────────────
@@ -2911,6 +3027,13 @@ class AppStrings {
   String get logoutDialogTitle => _t('logout.dialog_title');
   String get logoutDialogBody => _t('logout.dialog_body');
   String get logoutTooltip => _t('logout.tooltip');
+  String get logoutBlockedTitle => _t('logout.blocked_title');
+  String logoutBlockedBody(int count) =>
+      format('logout.blocked_body', {'count': count});
+  String get logoutStaySignedIn => _t('logout.stay_signed_in');
+  String get logoutReviewOfflineWork => _t('logout.review_offline_work');
+  String sessionRevocationPreservedItems(int count) =>
+      format('session_revocation.preserved_items', {'count': count});
 
   // ── Misc shared widgets ────────────────────────────────────────────
   String get shiftCardNoShift => _t('shift_card.no_shift');
@@ -3395,6 +3518,136 @@ class AppStrings {
       'label.optional': 'Optional',
       'label.required': 'Required',
       'offline.recorded_pending_sync': 'Recorded — pending sync',
+      // C0A immediate-safety containment
+      'c0a.offline_fallback.title': 'Offline clinical action not saved',
+      'c0a.offline_fallback.message':
+          "This action was not saved for automatic sync. Use the department's {paperFormSet} and follow the downtime reconciliation procedure. Keep the entered information open until it has been transferred to paper.",
+      'c0a.offline_fallback.keep_open': 'Keep form open',
+      'c0a.offline_fallback.paper_set.opd_prescription_pads':
+          'OPD prescription pads',
+      'c0a.offline_fallback.paper_set.inpatient_drug_charts':
+          'inpatient drug charts',
+      'c0a.offline_fallback.paper_set.mar_sheets': 'MAR sheets',
+      'c0a.offline_fallback.paper_set.laboratory_requisition_forms':
+          'laboratory requisition forms',
+      'c0a.offline_fallback.paper_set.blood_bank_verification_slips':
+          'blood-bank verification slips',
+      'c0a.offline_fallback.paper_set.nursing_note_forms': 'nursing note forms',
+      'offline_sync.title': 'Sync status',
+      'offline_sync.section.unresolved': 'Unresolved offline work',
+      'offline_sync.pending_count': '{count} pending item(s)',
+      'offline_sync.review_count': '{count} need review',
+      'offline_sync.conflict_count': '{count} conflict(s)',
+      'offline_sync.offline_queued': '{count} offline item(s)',
+      'offline_sync.syncing': 'Syncing {count}…',
+      'offline_sync.sync_in_progress': 'Sync in progress',
+      'offline_sync.sync_now': 'Sync now',
+      'offline_sync.empty': 'No unresolved offline work for this user',
+      'offline_sync.status.online': 'Online',
+      'offline_sync.status.offline': 'Offline',
+      'offline_sync.field.family': 'Action',
+      'offline_sync.field.context': 'Context',
+      'offline_sync.field.captured': 'Captured',
+      'offline_sync.field.endpoint': 'Endpoint',
+      'offline_sync.field.status': 'Status',
+      'offline_sync.field.reason': 'Reason',
+      'offline_sync.field.blocker': 'Blocker',
+      'offline_sync.field.retry_count': 'Retry count',
+      'offline_sync.field.capture_owner': 'Capture owner',
+      'offline_sync.field.reconciliation_owner': 'Reconciliation owner',
+      'offline_sync.field.paper_form_set': 'Paper form set',
+      'offline_sync.field.attestation': 'Handoff attestation',
+      'offline_sync.state.pending': 'Pending',
+      'offline_sync.state.conflict': 'Conflict',
+      'offline_sync.state.needs_review': 'Needs review',
+      'offline_sync.state.skipped': 'Skipped this pass',
+      'offline_sync.state.attested': 'Needs review · handoff attested',
+      'offline_sync.action.retry': 'Retry',
+      'offline_sync.action.discard': 'Discard',
+      'offline_sync.action.attest': 'Record handoff',
+      'offline_sync.action.cancel': 'Cancel',
+      'offline_sync.attestation.title': 'Record attested handoff?',
+      'offline_sync.attestation.body':
+          'Confirm: reviewed — transferred to paper / handed to the reconciliation owner. This attestation cannot be changed.',
+      'offline_sync.attestation.confirm': 'Attest handoff',
+      'offline_sync.attestation.success': 'Handoff attestation recorded',
+      'offline_sync.attestation.recorded':
+          'Attested by {actor} at {time} — reviewed — transferred to paper / handed to the reconciliation owner',
+      'offline_sync.discard.title': 'Discard offline clinical evidence?',
+      'offline_sync.discard.generic_title': 'Discard offline item?',
+      'offline_sync.discard.generic_body':
+          'This item is not reconciled with the server. Review it before discarding.',
+      'offline_sync.discard.prescription_title':
+          'Discard unreconciled prescription?',
+      'offline_sync.discard.prescription_body':
+          "Prescription not recorded on the server — review needed. Review the patient's medication plan before discarding.",
+      'offline_sync.discard.order_title':
+          'Discard unreconciled drug-chart order?',
+      'offline_sync.discard.order_body':
+          'Drug-chart order not recorded on the server — review needed. Review the medication chart before discarding.',
+      'offline_sync.discard.mar_title':
+          'Discard unreconciled MAR administration?',
+      'offline_sync.discard.mar_body':
+          'Administration not recorded on the server — review needed. The medication may have been given offline.',
+      'offline_sync.discard.specimen_title':
+          'Discard unreconciled specimen collection?',
+      'offline_sync.discard.specimen_body':
+          'Specimen collection not recorded on the server — review needed. Review the laboratory workflow before discarding.',
+      'offline_sync.discard.transfusion_title':
+          'Discard unreconciled transfusion verification?',
+      'offline_sync.discard.transfusion_body':
+          'Bedside transfusion verification not recorded on the server — review needed. Review the transfusion record before discarding.',
+      'offline_sync.discard.notes_title': 'Discard unreconciled note?',
+      'offline_sync.discard.notes_body':
+          'Note data on this device is not reconciled with the server. Review before discarding.',
+      'offline_sync.discard.vitals_title': 'Discard unreconciled vitals?',
+      'offline_sync.discard.vitals_body':
+          'Vitals not recorded on the server — review needed. Review the patient chart before discarding.',
+      'offline_sync.discard.confirm': 'Discard after reconciliation',
+      'offline_sync.role.clinical_safety_lead': 'Clinical safety lead',
+      'offline_sync.reason.contained_prescription_create':
+          'Prescription creation requires review',
+      'offline_sync.reason.contained_drug_chart_order':
+          'Drug-chart order requires review',
+      'offline_sync.reason.contained_mar_administration':
+          'MAR administration requires review',
+      'offline_sync.reason.contained_specimen_collection':
+          'Specimen collection requires review',
+      'offline_sync.reason.contained_transfusion_verification':
+          'Transfusion verification requires review',
+      'offline_sync.reason.contained_authoritative_note':
+          'Authoritative note requires review',
+      'offline_sync.reason.unknown_action': 'Unknown offline action',
+      'offline_sync.reason.unknown_tenant': 'Tenant could not be verified',
+      'offline_sync.reason.unknown_owner':
+          'Capture owner could not be verified',
+      'offline_sync.reason.unknown_encryption_version':
+          'Encryption version could not be verified',
+      'offline_sync.reason.decrypt_failed': 'Encrypted data could not be read',
+      'offline_sync.reason.retry_exhausted': 'Retry limit reached',
+      'offline_sync.blocker.none': 'None',
+      'offline_sync.blocker.partition_waiting':
+          'Later items in this action group are waiting',
+      'offline_sync.blocker.earlier_item':
+          'An earlier item ({id}) in this action group needs attention',
+      'offline_sync.family.prescription_create': 'Prescription',
+      'offline_sync.family.drug_chart_order': 'Drug-chart order',
+      'offline_sync.family.mar_administration': 'MAR administration',
+      'offline_sync.family.specimen_collection': 'Specimen collection',
+      'offline_sync.family.transfusion_verification':
+          'Transfusion verification',
+      'offline_sync.family.authoritative_note': 'Clinical note',
+      'offline_sync.family.vitals': 'Vitals',
+      'offline_sync.family.note_draft': 'Note draft',
+      'offline_sync.family.unknown': 'Unknown action',
+      'logout.blocked_title':
+          'Sign out blocked — offline clinical work needs review',
+      'logout.blocked_body':
+          'You have {count} unresolved offline clinical item(s). To prevent loss or recording under the wrong staff account, you cannot sign out yet. Open Sync status and follow the reconciliation handoff.',
+      'logout.stay_signed_in': 'Stay signed in',
+      'logout.review_offline_work': 'Review offline work',
+      'session_revocation.preserved_items':
+          '{count} unresolved offline clinical item(s) remain encrypted on this device for later reconciliation.',
       // Greetings
       'dashboard.greeting.morning': 'Good morning',
       'dashboard.greeting.afternoon': 'Good afternoon',
@@ -3429,7 +3682,7 @@ class AppStrings {
           'Session expires in {seconds}s. Confirm you are still here to stay signed in.',
       'session_timeout.still_here': "I'm still here",
       'session_timeout.preserved_queue':
-          '{count} queued item(s) for this user are preserved on this device and will sync after your next login.',
+          '{count} unresolved offline item(s) for this user are preserved on this device. Sign in as the same staff member to review them; review-required items will not send automatically.',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'Employee number is required',
       'login.employee_id_numbers_only': 'Numbers only (1–6 digits)',
@@ -9532,6 +9785,136 @@ class AppStrings {
       'reception_counter.ip.signature_upload_failed':
           'भर्ती बन गई, लेकिन सहमति हस्ताक्षर जोड़े नहीं जा सके।',
       'offline.recorded_pending_sync': 'दर्ज किया गया — सिंक लंबित',
+      // C0A तत्काल सुरक्षा नियंत्रण
+      'c0a.offline_fallback.title': 'ऑफ़लाइन क्लिनिकल कार्रवाई सहेजी नहीं गई',
+      'c0a.offline_fallback.message':
+          'यह कार्रवाई स्वचालित सिंक के लिए सहेजी नहीं गई। विभाग के {paperFormSet} का उपयोग करें और डाउनटाइम मिलान प्रक्रिया का पालन करें। दर्ज की गई जानकारी को कागज़ पर स्थानांतरित किए जाने तक खुला रखें।',
+      'c0a.offline_fallback.keep_open': 'फ़ॉर्म खुला रखें',
+      'c0a.offline_fallback.paper_set.opd_prescription_pads':
+          'OPD प्रिस्क्रिप्शन पैड',
+      'c0a.offline_fallback.paper_set.inpatient_drug_charts':
+          'इनपेशेंट ड्रग चार्ट',
+      'c0a.offline_fallback.paper_set.mar_sheets': 'MAR शीट',
+      'c0a.offline_fallback.paper_set.laboratory_requisition_forms':
+          'प्रयोगशाला अनुरोध फ़ॉर्म',
+      'c0a.offline_fallback.paper_set.blood_bank_verification_slips':
+          'ब्लड-बैंक सत्यापन पर्चियाँ',
+      'c0a.offline_fallback.paper_set.nursing_note_forms': 'नर्सिंग नोट फ़ॉर्म',
+      'offline_sync.title': 'सिंक स्थिति',
+      'offline_sync.section.unresolved': 'अनसुलझा ऑफ़लाइन कार्य',
+      'offline_sync.pending_count': '{count} लंबित आइटम',
+      'offline_sync.review_count': '{count} को समीक्षा चाहिए',
+      'offline_sync.conflict_count': '{count} विरोध',
+      'offline_sync.offline_queued': '{count} ऑफ़लाइन आइटम',
+      'offline_sync.syncing': '{count} आइटम सिंक हो रहे हैं…',
+      'offline_sync.sync_in_progress': 'सिंक जारी है',
+      'offline_sync.sync_now': 'अभी सिंक करें',
+      'offline_sync.empty':
+          'इस उपयोगकर्ता के लिए कोई अनसुलझा ऑफ़लाइन कार्य नहीं है',
+      'offline_sync.status.online': 'ऑनलाइन',
+      'offline_sync.status.offline': 'ऑफ़लाइन',
+      'offline_sync.field.family': 'कार्रवाई',
+      'offline_sync.field.context': 'संदर्भ',
+      'offline_sync.field.captured': 'दर्ज करने का समय',
+      'offline_sync.field.endpoint': 'एंडपॉइंट',
+      'offline_sync.field.status': 'स्थिति',
+      'offline_sync.field.reason': 'कारण',
+      'offline_sync.field.blocker': 'अवरोधक',
+      'offline_sync.field.retry_count': 'पुनः प्रयास संख्या',
+      'offline_sync.field.capture_owner': 'दर्ज करने वाला',
+      'offline_sync.field.reconciliation_owner': 'मिलान उत्तरदायी',
+      'offline_sync.field.paper_form_set': 'कागज़ी फ़ॉर्म सेट',
+      'offline_sync.field.attestation': 'हैंडऑफ सत्यापन',
+      'offline_sync.state.pending': 'लंबित',
+      'offline_sync.state.conflict': 'विरोध',
+      'offline_sync.state.needs_review': 'समीक्षा आवश्यक',
+      'offline_sync.state.skipped': 'इस बार छोड़ा गया',
+      'offline_sync.state.attested': 'समीक्षा आवश्यक · हैंडऑफ सत्यापित',
+      'offline_sync.action.retry': 'पुनः प्रयास करें',
+      'offline_sync.action.discard': 'त्यागें',
+      'offline_sync.action.attest': 'हैंडऑफ दर्ज करें',
+      'offline_sync.action.cancel': 'रद्द करें',
+      'offline_sync.attestation.title': 'सत्यापित हैंडऑफ दर्ज करें?',
+      'offline_sync.attestation.body':
+          'पुष्टि करें: समीक्षा की गई — कागज़ पर स्थानांतरित / मिलान उत्तरदायी को सौंपा गया। यह सत्यापन बदला नहीं जा सकता।',
+      'offline_sync.attestation.confirm': 'हैंडऑफ सत्यापित करें',
+      'offline_sync.attestation.success': 'हैंडऑफ सत्यापन दर्ज किया गया',
+      'offline_sync.attestation.recorded':
+          '{actor} ने {time} पर सत्यापित किया — समीक्षा की गई — कागज़ पर स्थानांतरित / मिलान उत्तरदायी को सौंपा गया',
+      'offline_sync.discard.title': 'ऑफ़लाइन क्लिनिकल प्रमाण त्यागें?',
+      'offline_sync.discard.generic_title': 'ऑफ़लाइन आइटम त्यागें?',
+      'offline_sync.discard.generic_body':
+          'इस आइटम का सर्वर से मिलान नहीं हुआ है। त्यागने से पहले इसकी समीक्षा करें।',
+      'offline_sync.discard.prescription_title':
+          'बिना मिलान वाला प्रिस्क्रिप्शन त्यागें?',
+      'offline_sync.discard.prescription_body':
+          'प्रिस्क्रिप्शन सर्वर पर दर्ज नहीं है — समीक्षा आवश्यक है। त्यागने से पहले रोगी की दवा योजना देखें।',
+      'offline_sync.discard.order_title':
+          'बिना मिलान वाला ड्रग-चार्ट आदेश त्यागें?',
+      'offline_sync.discard.order_body':
+          'ड्रग-चार्ट आदेश सर्वर पर दर्ज नहीं है — समीक्षा आवश्यक है। त्यागने से पहले दवा चार्ट देखें।',
+      'offline_sync.discard.mar_title': 'बिना मिलान वाला MAR प्रशासन त्यागें?',
+      'offline_sync.discard.mar_body':
+          'दवा देने की कार्रवाई सर्वर पर दर्ज नहीं है — समीक्षा आवश्यक है। दवा ऑफ़लाइन दी गई हो सकती है।',
+      'offline_sync.discard.specimen_title':
+          'बिना मिलान वाला नमूना संग्रह त्यागें?',
+      'offline_sync.discard.specimen_body':
+          'नमूना संग्रह सर्वर पर दर्ज नहीं है — समीक्षा आवश्यक है। त्यागने से पहले प्रयोगशाला कार्यप्रवाह देखें।',
+      'offline_sync.discard.transfusion_title':
+          'बिना मिलान वाला ट्रांसफ़्यूज़न सत्यापन त्यागें?',
+      'offline_sync.discard.transfusion_body':
+          'बेडसाइड ट्रांसफ़्यूज़न सत्यापन सर्वर पर दर्ज नहीं है — समीक्षा आवश्यक है। त्यागने से पहले ट्रांसफ़्यूज़न रिकॉर्ड देखें।',
+      'offline_sync.discard.notes_title': 'बिना मिलान वाला नोट त्यागें?',
+      'offline_sync.discard.notes_body':
+          'इस डिवाइस का नोट डेटा सर्वर से मिला हुआ नहीं है। त्यागने से पहले समीक्षा करें।',
+      'offline_sync.discard.vitals_title': 'बिना मिलान वाले वाइटल्स त्यागें?',
+      'offline_sync.discard.vitals_body':
+          'वाइटल्स सर्वर पर दर्ज नहीं हैं — समीक्षा आवश्यक है। त्यागने से पहले रोगी चार्ट देखें।',
+      'offline_sync.discard.confirm': 'मिलान के बाद त्यागें',
+      'offline_sync.role.clinical_safety_lead': 'क्लिनिकल सुरक्षा प्रमुख',
+      'offline_sync.reason.contained_prescription_create':
+          'प्रिस्क्रिप्शन बनाने की समीक्षा आवश्यक है',
+      'offline_sync.reason.contained_drug_chart_order':
+          'ड्रग-चार्ट आदेश की समीक्षा आवश्यक है',
+      'offline_sync.reason.contained_mar_administration':
+          'MAR प्रशासन की समीक्षा आवश्यक है',
+      'offline_sync.reason.contained_specimen_collection':
+          'नमूना संग्रह की समीक्षा आवश्यक है',
+      'offline_sync.reason.contained_transfusion_verification':
+          'ट्रांसफ़्यूज़न सत्यापन की समीक्षा आवश्यक है',
+      'offline_sync.reason.contained_authoritative_note':
+          'प्रामाणिक क्लिनिकल नोट की समीक्षा आवश्यक है',
+      'offline_sync.reason.unknown_action': 'अज्ञात ऑफ़लाइन कार्रवाई',
+      'offline_sync.reason.unknown_tenant': 'टेनेंट का सत्यापन नहीं हो सका',
+      'offline_sync.reason.unknown_owner':
+          'दर्ज करने वाले का सत्यापन नहीं हो सका',
+      'offline_sync.reason.unknown_encryption_version':
+          'एन्क्रिप्शन संस्करण का सत्यापन नहीं हो सका',
+      'offline_sync.reason.decrypt_failed':
+          'एन्क्रिप्टेड डेटा पढ़ा नहीं जा सका',
+      'offline_sync.reason.retry_exhausted': 'पुनः प्रयास की सीमा पूरी हो गई',
+      'offline_sync.blocker.none': 'कोई नहीं',
+      'offline_sync.blocker.partition_waiting':
+          'इस कार्रवाई समूह के बाद के आइटम प्रतीक्षा में हैं',
+      'offline_sync.blocker.earlier_item':
+          'इस कार्रवाई समूह के पहले के आइटम ({id}) पर ध्यान देना आवश्यक है',
+      'offline_sync.family.prescription_create': 'प्रिस्क्रिप्शन',
+      'offline_sync.family.drug_chart_order': 'ड्रग-चार्ट आदेश',
+      'offline_sync.family.mar_administration': 'MAR प्रशासन',
+      'offline_sync.family.specimen_collection': 'नमूना संग्रह',
+      'offline_sync.family.transfusion_verification': 'ट्रांसफ़्यूज़न सत्यापन',
+      'offline_sync.family.authoritative_note': 'क्लिनिकल नोट',
+      'offline_sync.family.vitals': 'वाइटल्स',
+      'offline_sync.family.note_draft': 'नोट ड्राफ़्ट',
+      'offline_sync.family.unknown': 'अज्ञात कार्रवाई',
+      'logout.blocked_title':
+          'साइन आउट अवरुद्ध — ऑफ़लाइन क्लिनिकल कार्य की समीक्षा आवश्यक है',
+      'logout.blocked_body':
+          'आपके पास {count} अनसुलझे ऑफ़लाइन क्लिनिकल आइटम हैं। डेटा की हानि या गलत स्टाफ खाते के अंतर्गत रिकॉर्डिंग रोकने के लिए, आप अभी साइन आउट नहीं कर सकते। सिंक स्थिति खोलें और मिलान हैंडऑफ का पालन करें।',
+      'logout.stay_signed_in': 'साइन इन रहें',
+      'logout.review_offline_work': 'ऑफ़लाइन कार्य की समीक्षा करें',
+      'session_revocation.preserved_items':
+          'बाद में मिलान के लिए {count} अनसुलझे ऑफ़लाइन क्लिनिकल आइटम इस डिवाइस पर एन्क्रिप्टेड बने हुए हैं।',
       // Greetings
       'dashboard.greeting.morning': 'सुप्रभात',
       'dashboard.greeting.afternoon': 'शुभ दोपहर',
@@ -9566,7 +9949,7 @@ class AppStrings {
           'सत्र {seconds}s में समाप्त होगा। साइन इन रहने के लिए पुष्टि करें कि आप अभी भी यहाँ हैं।',
       'session_timeout.still_here': 'मैं अभी भी यहाँ हूँ',
       'session_timeout.preserved_queue':
-          'इस उपयोगकर्ता के लिए {count} कतारबद्ध आइटम इस डिवाइस पर सुरक्षित हैं और आपके अगले लॉगिन के बाद सिंक होंगे।',
+          'इस उपयोगकर्ता के {count} अनसुलझे ऑफ़लाइन आइटम इस डिवाइस पर सुरक्षित हैं। उनकी समीक्षा के लिए उसी स्टाफ सदस्य के रूप में साइन इन करें; समीक्षा-आवश्यक आइटम अपने आप नहीं भेजे जाएँगे।',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'कर्मचारी संख्या आवश्यक है',
       'login.employee_id_numbers_only': 'केवल अंक (1–6 अंक)',
@@ -15558,6 +15941,148 @@ class AppStrings {
           'அனுமதி உருவாக்கப்பட்டது, ஆனால் ஒப்புதல் கையொப்பங்களை இணைக்க முடியவில்லை.',
       'offline.recorded_pending_sync':
           'பதிவு செய்யப்பட்டது — சிங்க் நிலுவையில்',
+      // C0A உடனடி பாதுகாப்புக் கட்டுப்பாடு
+      'c0a.offline_fallback.title':
+          'ஆஃப்லைன் மருத்துவச் செயல் சேமிக்கப்படவில்லை',
+      'c0a.offline_fallback.message':
+          'இந்தச் செயல் தானியங்கு ஒத்திசைவுக்காகச் சேமிக்கப்படவில்லை. துறையின் {paperFormSet}-ஐப் பயன்படுத்தி, சேவைத் தடைக் கால சமரச நடைமுறையைப் பின்பற்றவும். உள்ளிடப்பட்ட தகவல் காகிதத்திற்கு மாற்றப்படும் வரை அதைத் திறந்தே வைத்திருக்கவும்.',
+      'c0a.offline_fallback.keep_open': 'படிவத்தைத் திறந்தே வைக்கவும்',
+      'c0a.offline_fallback.paper_set.opd_prescription_pads':
+          'OPD மருந்துச் சீட்டுப் படிவங்கள்',
+      'c0a.offline_fallback.paper_set.inpatient_drug_charts':
+          'உள்நோயாளர் மருந்து அட்டவணைகள்',
+      'c0a.offline_fallback.paper_set.mar_sheets': 'MAR தாள்கள்',
+      'c0a.offline_fallback.paper_set.laboratory_requisition_forms':
+          'ஆய்வகக் கோரிக்கைப் படிவங்கள்',
+      'c0a.offline_fallback.paper_set.blood_bank_verification_slips':
+          'இரத்த வங்கி சரிபார்ப்புச் சீட்டுகள்',
+      'c0a.offline_fallback.paper_set.nursing_note_forms':
+          'செவிலியர் குறிப்புப் படிவங்கள்',
+      'offline_sync.title': 'ஒத்திசைவு நிலை',
+      'offline_sync.section.unresolved': 'தீர்க்கப்படாத ஆஃப்லைன் வேலை',
+      'offline_sync.pending_count': '{count} நிலுவை உருப்படிகள்',
+      'offline_sync.review_count': '{count} உருப்படிகளுக்கு ஆய்வு தேவை',
+      'offline_sync.conflict_count': '{count} முரண்பாடுகள்',
+      'offline_sync.offline_queued': '{count} ஆஃப்லைன் உருப்படிகள்',
+      'offline_sync.syncing': '{count} உருப்படிகள் ஒத்திசைக்கப்படுகின்றன…',
+      'offline_sync.sync_in_progress': 'ஒத்திசைவு நடைபெறுகிறது',
+      'offline_sync.sync_now': 'இப்போது ஒத்திசைக்கவும்',
+      'offline_sync.empty':
+          'இந்தப் பயனருக்கு தீர்க்கப்படாத ஆஃப்லைன் வேலை எதுவும் இல்லை',
+      'offline_sync.status.online': 'ஆன்லைன்',
+      'offline_sync.status.offline': 'ஆஃப்லைன்',
+      'offline_sync.field.family': 'செயல்',
+      'offline_sync.field.context': 'சூழல்',
+      'offline_sync.field.captured': 'பதிவு செய்த நேரம்',
+      'offline_sync.field.endpoint': 'முனையம்',
+      'offline_sync.field.status': 'நிலை',
+      'offline_sync.field.reason': 'காரணம்',
+      'offline_sync.field.blocker': 'தடுப்பான்',
+      'offline_sync.field.retry_count': 'மீண்டும் முயற்சி எண்ணிக்கை',
+      'offline_sync.field.capture_owner': 'பதிவு செய்தவர்',
+      'offline_sync.field.reconciliation_owner': 'சமரசப் பொறுப்பாளர்',
+      'offline_sync.field.paper_form_set': 'காகிதப் படிவத் தொகுப்பு',
+      'offline_sync.field.attestation': 'ஒப்படைப்பு சான்றுறுதி',
+      'offline_sync.state.pending': 'நிலுவையில்',
+      'offline_sync.state.conflict': 'முரண்பாடு',
+      'offline_sync.state.needs_review': 'ஆய்வு தேவை',
+      'offline_sync.state.skipped': 'இந்த முறையில் தவிர்க்கப்பட்டது',
+      'offline_sync.state.attested':
+          'ஆய்வு தேவை · ஒப்படைப்பு சான்றளிக்கப்பட்டது',
+      'offline_sync.action.retry': 'மீண்டும் முயற்சிக்கவும்',
+      'offline_sync.action.discard': 'நிராகரிக்கவும்',
+      'offline_sync.action.attest': 'ஒப்படைப்பைப் பதிவு செய்யவும்',
+      'offline_sync.action.cancel': 'ரத்து செய்யவும்',
+      'offline_sync.attestation.title':
+          'சான்றளிக்கப்பட்ட ஒப்படைப்பைப் பதிவு செய்யவா?',
+      'offline_sync.attestation.body':
+          'உறுதிப்படுத்தவும்: ஆய்வு செய்யப்பட்டது — காகிதத்திற்கு மாற்றப்பட்டது / சமரசப் பொறுப்பாளரிடம் ஒப்படைக்கப்பட்டது. இந்தச் சான்றுறுதியை மாற்ற முடியாது.',
+      'offline_sync.attestation.confirm': 'ஒப்படைப்பைச் சான்றளிக்கவும்',
+      'offline_sync.attestation.success':
+          'ஒப்படைப்பு சான்றுறுதி பதிவு செய்யப்பட்டது',
+      'offline_sync.attestation.recorded':
+          '{actor} {time}-இல் சான்றளித்தார் — ஆய்வு செய்யப்பட்டது — காகிதத்திற்கு மாற்றப்பட்டது / சமரசப் பொறுப்பாளரிடம் ஒப்படைக்கப்பட்டது',
+      'offline_sync.discard.title': 'ஆஃப்லைன் மருத்துவச் சான்றை நிராகரிக்கவா?',
+      'offline_sync.discard.generic_title': 'ஆஃப்லைன் உருப்படியை நிராகரிக்கவா?',
+      'offline_sync.discard.generic_body':
+          'இந்த உருப்படி சர்வருடன் சமரசம் செய்யப்படவில்லை. நிராகரிப்பதற்கு முன் ஆய்வு செய்யவும்.',
+      'offline_sync.discard.prescription_title':
+          'சமரசம் செய்யப்படாத மருந்துச் சீட்டை நிராகரிக்கவா?',
+      'offline_sync.discard.prescription_body':
+          'மருந்துச் சீட்டு சர்வரில் பதிவு செய்யப்படவில்லை — ஆய்வு தேவை. நிராகரிப்பதற்கு முன் நோயாளியின் மருந்துத் திட்டத்தைப் பார்க்கவும்.',
+      'offline_sync.discard.order_title':
+          'சமரசம் செய்யப்படாத மருந்து அட்டவணை ஆணையை நிராகரிக்கவா?',
+      'offline_sync.discard.order_body':
+          'மருந்து அட்டவணை ஆணை சர்வரில் பதிவு செய்யப்படவில்லை — ஆய்வு தேவை. நிராகரிப்பதற்கு முன் மருந்து அட்டவணையைப் பார்க்கவும்.',
+      'offline_sync.discard.mar_title':
+          'சமரசம் செய்யப்படாத MAR மருந்தளிப்பை நிராகரிக்கவா?',
+      'offline_sync.discard.mar_body':
+          'மருந்தளிப்பு சர்வரில் பதிவு செய்யப்படவில்லை — ஆய்வு தேவை. மருந்து ஆஃப்லைனில் கொடுக்கப்பட்டிருக்கலாம்.',
+      'offline_sync.discard.specimen_title':
+          'சமரசம் செய்யப்படாத மாதிரி சேகரிப்பை நிராகரிக்கவா?',
+      'offline_sync.discard.specimen_body':
+          'மாதிரி சேகரிப்பு சர்வரில் பதிவு செய்யப்படவில்லை — ஆய்வு தேவை. நிராகரிப்பதற்கு முன் ஆய்வகச் செயல்முறையைப் பார்க்கவும்.',
+      'offline_sync.discard.transfusion_title':
+          'சமரசம் செய்யப்படாத இரத்தமேற்றல் சரிபார்ப்பை நிராகரிக்கவா?',
+      'offline_sync.discard.transfusion_body':
+          'படுக்கையருகே செய்யப்பட்ட இரத்தமேற்றல் சரிபார்ப்பு சர்வரில் பதிவு செய்யப்படவில்லை — ஆய்வு தேவை. நிராகரிப்பதற்கு முன் இரத்தமேற்றல் பதிவைப் பார்க்கவும்.',
+      'offline_sync.discard.notes_title':
+          'சமரசம் செய்யப்படாத குறிப்பை நிராகரிக்கவா?',
+      'offline_sync.discard.notes_body':
+          'இந்தச் சாதனத்தில் உள்ள குறிப்புத் தரவு சர்வருடன் சமரசம் செய்யப்படவில்லை. நிராகரிப்பதற்கு முன் ஆய்வு செய்யவும்.',
+      'offline_sync.discard.vitals_title':
+          'சமரசம் செய்யப்படாத உயிரியல் அளவுகளை நிராகரிக்கவா?',
+      'offline_sync.discard.vitals_body':
+          'உயிரியல் அளவுகள் சர்வரில் பதிவு செய்யப்படவில்லை — ஆய்வு தேவை. நிராகரிப்பதற்கு முன் நோயாளர் அட்டவணையைப் பார்க்கவும்.',
+      'offline_sync.discard.confirm': 'சமரசத்திற்குப் பிறகு நிராகரிக்கவும்',
+      'offline_sync.role.clinical_safety_lead':
+          'மருத்துவப் பாதுகாப்புத் தலைவர்',
+      'offline_sync.reason.contained_prescription_create':
+          'மருந்துச் சீட்டு உருவாக்கம் ஆய்வு செய்யப்பட வேண்டும்',
+      'offline_sync.reason.contained_drug_chart_order':
+          'மருந்து அட்டவணை ஆணை ஆய்வு செய்யப்பட வேண்டும்',
+      'offline_sync.reason.contained_mar_administration':
+          'MAR மருந்தளிப்பு ஆய்வு செய்யப்பட வேண்டும்',
+      'offline_sync.reason.contained_specimen_collection':
+          'மாதிரி சேகரிப்பு ஆய்வு செய்யப்பட வேண்டும்',
+      'offline_sync.reason.contained_transfusion_verification':
+          'இரத்தமேற்றல் சரிபார்ப்பு ஆய்வு செய்யப்பட வேண்டும்',
+      'offline_sync.reason.contained_authoritative_note':
+          'அதிகாரப்பூர்வ மருத்துவக் குறிப்பு ஆய்வு செய்யப்பட வேண்டும்',
+      'offline_sync.reason.unknown_action': 'தெரியாத ஆஃப்லைன் செயல்',
+      'offline_sync.reason.unknown_tenant':
+          'நிறுவனத்தைச் சரிபார்க்க முடியவில்லை',
+      'offline_sync.reason.unknown_owner':
+          'பதிவு செய்தவரைச் சரிபார்க்க முடியவில்லை',
+      'offline_sync.reason.unknown_encryption_version':
+          'குறியாக்கப் பதிப்பைச் சரிபார்க்க முடியவில்லை',
+      'offline_sync.reason.decrypt_failed':
+          'குறியாக்கப்பட்ட தரவைப் படிக்க முடியவில்லை',
+      'offline_sync.reason.retry_exhausted':
+          'மீண்டும் முயற்சி வரம்பு எட்டப்பட்டது',
+      'offline_sync.blocker.none': 'எதுவுமில்லை',
+      'offline_sync.blocker.partition_waiting':
+          'இந்தச் செயல் குழுவின் பிந்தைய உருப்படிகள் காத்திருக்கின்றன',
+      'offline_sync.blocker.earlier_item':
+          'இந்தச் செயல் குழுவின் முந்தைய உருப்படிக்கு ({id}) கவனம் தேவை',
+      'offline_sync.family.prescription_create': 'மருந்துச் சீட்டு',
+      'offline_sync.family.drug_chart_order': 'மருந்து அட்டவணை ஆணை',
+      'offline_sync.family.mar_administration': 'MAR மருந்தளிப்பு',
+      'offline_sync.family.specimen_collection': 'மாதிரி சேகரிப்பு',
+      'offline_sync.family.transfusion_verification':
+          'இரத்தமேற்றல் சரிபார்ப்பு',
+      'offline_sync.family.authoritative_note': 'மருத்துவக் குறிப்பு',
+      'offline_sync.family.vitals': 'உயிரியல் அளவுகள்',
+      'offline_sync.family.note_draft': 'குறிப்பு வரைவு',
+      'offline_sync.family.unknown': 'தெரியாத செயல்',
+      'logout.blocked_title':
+          'வெளியேறுவது தடுக்கப்பட்டது — ஆஃப்லைன் மருத்துவ வேலைக்கு ஆய்வு தேவை',
+      'logout.blocked_body':
+          'உங்களிடம் {count} தீர்க்கப்படாத ஆஃப்லைன் மருத்துவ உருப்படிகள் உள்ளன. தரவு இழப்பு அல்லது தவறான பணியாளர் கணக்கில் பதிவு செய்யப்படுவதைத் தடுக்க, இப்போது வெளியேற முடியாது. ஒத்திசைவு நிலையைத் திறந்து சமரச ஒப்படைப்பு நடைமுறையைப் பின்பற்றவும்.',
+      'logout.stay_signed_in': 'உள்நுழைந்தே இருக்கவும்',
+      'logout.review_offline_work': 'ஆஃப்லைன் வேலையை ஆய்வு செய்யவும்',
+      'session_revocation.preserved_items':
+          'பின்னர் சமரசம் செய்வதற்காக {count} தீர்க்கப்படாத ஆஃப்லைன் மருத்துவ உருப்படிகள் இந்தச் சாதனத்தில் குறியாக்கப்பட்டபடி உள்ளன.',
       'dashboard.greeting.morning': 'காலை வணக்கம்',
       'dashboard.greeting.afternoon': 'மதிய வணக்கம்',
       'dashboard.greeting.evening': 'மாலை வணக்கம்',
@@ -15590,7 +16115,7 @@ class AppStrings {
           'அமர்வு {seconds}s-இல் முடியும். உள்நுழைந்தே இருக்க நீங்கள் இன்னும் இருக்கிறீர்கள் என்பதை உறுதிப்படுத்தவும்.',
       'session_timeout.still_here': 'நான் இன்னும் இருக்கிறேன்',
       'session_timeout.preserved_queue':
-          'இந்த பயனருக்கான {count} வரிசைப்படுத்தப்பட்ட உருப்படி(கள்) இந்த சாதனத்தில் பாதுகாக்கப்பட்டுள்ளன; அடுத்த உள்நுழைவுக்குப் பிறகு சிங்க் ஆகும்.',
+          'இந்தப் பயனரின் {count} தீர்க்கப்படாத ஆஃப்லைன் உருப்படிகள் இந்தச் சாதனத்தில் பாதுகாக்கப்பட்டுள்ளன. அவற்றை ஆய்வு செய்ய அதே பணியாளராக உள்நுழையவும்; ஆய்வு தேவைப்படும் உருப்படிகள் தானாக அனுப்பப்படாது.',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'ஊழியர் எண் தேவை',
       'login.employee_id_numbers_only': 'எண்கள் மட்டும் (1–6 இலக்கங்கள்)',
@@ -22279,6 +22804,140 @@ class AppStrings {
           'అడ్మిషన్ సృష్టించబడింది, కానీ సమ్మతి సంతకాలు జోడించలేకపోయాము.',
       'offline.recorded_pending_sync':
           'రికార్డ్ అయింది — సింక్ పెండింగ్‌లో ఉంది',
+      // C0A తక్షణ భద్రతా నియంత్రణ
+      'c0a.offline_fallback.title': 'ఆఫ్‌లైన్ క్లినికల్ చర్య సేవ్ కాలేదు',
+      'c0a.offline_fallback.message':
+          'ఈ చర్య ఆటోమేటిక్ సింక్ కోసం సేవ్ కాలేదు. విభాగానికి చెందిన {paperFormSet}ను ఉపయోగించి, డౌన్‌టైమ్ సమన్వయ విధానాన్ని అనుసరించండి. నమోదు చేసిన సమాచారాన్ని కాగితంపైకి బదిలీ చేసే వరకు తెరిచి ఉంచండి.',
+      'c0a.offline_fallback.keep_open': 'ఫారమ్‌ను తెరిచి ఉంచండి',
+      'c0a.offline_fallback.paper_set.opd_prescription_pads':
+          'OPD ప్రిస్క్రిప్షన్ ప్యాడ్లు',
+      'c0a.offline_fallback.paper_set.inpatient_drug_charts':
+          'ఇన్‌పేషెంట్ డ్రగ్ చార్టులు',
+      'c0a.offline_fallback.paper_set.mar_sheets': 'MAR షీట్లు',
+      'c0a.offline_fallback.paper_set.laboratory_requisition_forms':
+          'ప్రయోగశాల అభ్యర్థన ఫారమ్‌లు',
+      'c0a.offline_fallback.paper_set.blood_bank_verification_slips':
+          'బ్లడ్-బ్యాంక్ ధృవీకరణ స్లిప్పులు',
+      'c0a.offline_fallback.paper_set.nursing_note_forms':
+          'నర్సింగ్ నోట్ ఫారమ్‌లు',
+      'offline_sync.title': 'సింక్ స్థితి',
+      'offline_sync.section.unresolved': 'పరిష్కరించని ఆఫ్‌లైన్ పని',
+      'offline_sync.pending_count': '{count} పెండింగ్ అంశాలు',
+      'offline_sync.review_count': '{count} అంశాలకు సమీక్ష అవసరం',
+      'offline_sync.conflict_count': '{count} విరుద్ధాలు',
+      'offline_sync.offline_queued': '{count} ఆఫ్‌లైన్ అంశాలు',
+      'offline_sync.syncing': '{count} అంశాలు సింక్ అవుతున్నాయి…',
+      'offline_sync.sync_in_progress': 'సింక్ జరుగుతోంది',
+      'offline_sync.sync_now': 'ఇప్పుడే సింక్ చేయండి',
+      'offline_sync.empty': 'ఈ వినియోగదారుడికి పరిష్కరించని ఆఫ్‌లైన్ పని లేదు',
+      'offline_sync.status.online': 'ఆన్‌లైన్',
+      'offline_sync.status.offline': 'ఆఫ్‌లైన్',
+      'offline_sync.field.family': 'చర్య',
+      'offline_sync.field.context': 'సందర్భం',
+      'offline_sync.field.captured': 'నమోదైన సమయం',
+      'offline_sync.field.endpoint': 'ఎండ్‌పాయింట్',
+      'offline_sync.field.status': 'స్థితి',
+      'offline_sync.field.reason': 'కారణం',
+      'offline_sync.field.blocker': 'అడ్డంకి',
+      'offline_sync.field.retry_count': 'మళ్లీ ప్రయత్నించిన సంఖ్య',
+      'offline_sync.field.capture_owner': 'నమోదు చేసిన వ్యక్తి',
+      'offline_sync.field.reconciliation_owner': 'సమన్వయ బాధ్యుడు',
+      'offline_sync.field.paper_form_set': 'కాగిత ఫారమ్ సెట్',
+      'offline_sync.field.attestation': 'అప్పగింత ధృవీకరణ',
+      'offline_sync.state.pending': 'పెండింగ్‌లో ఉంది',
+      'offline_sync.state.conflict': 'విరుద్ధం',
+      'offline_sync.state.needs_review': 'సమీక్ష అవసరం',
+      'offline_sync.state.skipped': 'ఈసారి దాటవేయబడింది',
+      'offline_sync.state.attested': 'సమీక్ష అవసరం · అప్పగింత ధృవీకరించబడింది',
+      'offline_sync.action.retry': 'మళ్లీ ప్రయత్నించండి',
+      'offline_sync.action.discard': 'విస్మరించండి',
+      'offline_sync.action.attest': 'అప్పగింతను నమోదు చేయండి',
+      'offline_sync.action.cancel': 'రద్దు చేయండి',
+      'offline_sync.attestation.title': 'ధృవీకరించిన అప్పగింతను నమోదు చేయాలా?',
+      'offline_sync.attestation.body':
+          'నిర్ధారించండి: సమీక్షించబడింది — కాగితంపైకి బదిలీ చేయబడింది / సమన్వయ బాధ్యుడికి అప్పగించబడింది. ఈ ధృవీకరణను మార్చలేరు.',
+      'offline_sync.attestation.confirm': 'అప్పగింతను ధృవీకరించండి',
+      'offline_sync.attestation.success': 'అప్పగింత ధృవీకరణ నమోదు చేయబడింది',
+      'offline_sync.attestation.recorded':
+          '{actor} {time} వద్ద ధృవీకరించారు — సమీక్షించబడింది — కాగితంపైకి బదిలీ చేయబడింది / సమన్వయ బాధ్యుడికి అప్పగించబడింది',
+      'offline_sync.discard.title':
+          'ఆఫ్‌లైన్ క్లినికల్ ఆధారాన్ని విస్మరించాలా?',
+      'offline_sync.discard.generic_title': 'ఆఫ్‌లైన్ అంశాన్ని విస్మరించాలా?',
+      'offline_sync.discard.generic_body':
+          'ఈ అంశం సర్వర్‌తో సమన్వయం కాలేదు. విస్మరించే ముందు సమీక్షించండి.',
+      'offline_sync.discard.prescription_title':
+          'సమన్వయం కాని ప్రిస్క్రిప్షన్‌ను విస్మరించాలా?',
+      'offline_sync.discard.prescription_body':
+          'ప్రిస్క్రిప్షన్ సర్వర్‌లో నమోదు కాలేదు — సమీక్ష అవసరం. విస్మరించే ముందు రోగి మందుల ప్రణాళికను చూడండి.',
+      'offline_sync.discard.order_title':
+          'సమన్వయం కాని డ్రగ్-చార్ట్ ఆర్డర్‌ను విస్మరించాలా?',
+      'offline_sync.discard.order_body':
+          'డ్రగ్-చార్ట్ ఆర్డర్ సర్వర్‌లో నమోదు కాలేదు — సమీక్ష అవసరం. విస్మరించే ముందు మందుల చార్ట్‌ను చూడండి.',
+      'offline_sync.discard.mar_title':
+          'సమన్వయం కాని MAR మందుల నిర్వహణను విస్మరించాలా?',
+      'offline_sync.discard.mar_body':
+          'మందు ఇచ్చిన చర్య సర్వర్‌లో నమోదు కాలేదు — సమీక్ష అవసరం. మందు ఆఫ్‌లైన్‌లో ఇచ్చి ఉండవచ్చు.',
+      'offline_sync.discard.specimen_title':
+          'సమన్వయం కాని నమూనా సేకరణను విస్మరించాలా?',
+      'offline_sync.discard.specimen_body':
+          'నమూనా సేకరణ సర్వర్‌లో నమోదు కాలేదు — సమీక్ష అవసరం. విస్మరించే ముందు ప్రయోగశాల కార్యప్రవాహాన్ని చూడండి.',
+      'offline_sync.discard.transfusion_title':
+          'సమన్వయం కాని రక్తమార్పిడి ధృవీకరణను విస్మరించాలా?',
+      'offline_sync.discard.transfusion_body':
+          'పడక పక్కన చేసిన రక్తమార్పిడి ధృవీకరణ సర్వర్‌లో నమోదు కాలేదు — సమీక్ష అవసరం. విస్మరించే ముందు రక్తమార్పిడి రికార్డును చూడండి.',
+      'offline_sync.discard.notes_title': 'సమన్వయం కాని నోట్‌ను విస్మరించాలా?',
+      'offline_sync.discard.notes_body':
+          'ఈ పరికరంలోని నోట్ డేటా సర్వర్‌తో సమన్వయం కాలేదు. విస్మరించే ముందు సమీక్షించండి.',
+      'offline_sync.discard.vitals_title':
+          'సమన్వయం కాని వైటల్స్‌ను విస్మరించాలా?',
+      'offline_sync.discard.vitals_body':
+          'వైటల్స్ సర్వర్‌లో నమోదు కాలేదు — సమీక్ష అవసరం. విస్మరించే ముందు రోగి చార్ట్‌ను చూడండి.',
+      'offline_sync.discard.confirm': 'సమన్వయం తర్వాత విస్మరించండి',
+      'offline_sync.role.clinical_safety_lead': 'క్లినికల్ భద్రతా అధిపతి',
+      'offline_sync.reason.contained_prescription_create':
+          'ప్రిస్క్రిప్షన్ సృష్టింపుకు సమీక్ష అవసరం',
+      'offline_sync.reason.contained_drug_chart_order':
+          'డ్రగ్-చార్ట్ ఆర్డర్‌కు సమీక్ష అవసరం',
+      'offline_sync.reason.contained_mar_administration':
+          'MAR మందుల నిర్వహణకు సమీక్ష అవసరం',
+      'offline_sync.reason.contained_specimen_collection':
+          'నమూనా సేకరణకు సమీక్ష అవసరం',
+      'offline_sync.reason.contained_transfusion_verification':
+          'రక్తమార్పిడి ధృవీకరణకు సమీక్ష అవసరం',
+      'offline_sync.reason.contained_authoritative_note':
+          'అధికారిక క్లినికల్ నోట్‌కు సమీక్ష అవసరం',
+      'offline_sync.reason.unknown_action': 'తెలియని ఆఫ్‌లైన్ చర్య',
+      'offline_sync.reason.unknown_tenant': 'టెనెంట్‌ను ధృవీకరించలేకపోయాము',
+      'offline_sync.reason.unknown_owner':
+          'నమోదు చేసిన వ్యక్తిని ధృవీకరించలేకపోయాము',
+      'offline_sync.reason.unknown_encryption_version':
+          'ఎన్‌క్రిప్షన్ వెర్షన్‌ను ధృవీకరించలేకపోయాము',
+      'offline_sync.reason.decrypt_failed':
+          'ఎన్‌క్రిప్ట్ చేసిన డేటాను చదవలేకపోయాము',
+      'offline_sync.reason.retry_exhausted':
+          'మళ్లీ ప్రయత్నించే పరిమితి చేరుకుంది',
+      'offline_sync.blocker.none': 'ఏదీ లేదు',
+      'offline_sync.blocker.partition_waiting':
+          'ఈ చర్య సమూహంలోని తర్వాతి అంశాలు వేచి ఉన్నాయి',
+      'offline_sync.blocker.earlier_item':
+          'ఈ చర్య సమూహంలోని ముందు అంశానికి ({id}) శ్రద్ధ అవసరం',
+      'offline_sync.family.prescription_create': 'ప్రిస్క్రిప్షన్',
+      'offline_sync.family.drug_chart_order': 'డ్రగ్-చార్ట్ ఆర్డర్',
+      'offline_sync.family.mar_administration': 'MAR మందుల నిర్వహణ',
+      'offline_sync.family.specimen_collection': 'నమూనా సేకరణ',
+      'offline_sync.family.transfusion_verification': 'రక్తమార్పిడి ధృవీకరణ',
+      'offline_sync.family.authoritative_note': 'క్లినికల్ నోట్',
+      'offline_sync.family.vitals': 'వైటల్స్',
+      'offline_sync.family.note_draft': 'నోట్ డ్రాఫ్ట్',
+      'offline_sync.family.unknown': 'తెలియని చర్య',
+      'logout.blocked_title':
+          'సైన్ అవుట్ నిరోధించబడింది — ఆఫ్‌లైన్ క్లినికల్ పనికి సమీక్ష అవసరం',
+      'logout.blocked_body':
+          'మీ వద్ద {count} పరిష్కరించని ఆఫ్‌లైన్ క్లినికల్ అంశాలు ఉన్నాయి. డేటా నష్టం లేదా తప్పు సిబ్బంది ఖాతాలో నమోదు కావడాన్ని నివారించడానికి, మీరు ఇప్పుడు సైన్ అవుట్ చేయలేరు. సింక్ స్థితిని తెరిచి సమన్వయ అప్పగింతను అనుసరించండి.',
+      'logout.stay_signed_in': 'సైన్ ఇన్‌గా ఉండండి',
+      'logout.review_offline_work': 'ఆఫ్‌లైన్ పనిని సమీక్షించండి',
+      'session_revocation.preserved_items':
+          'తర్వాత సమన్వయం చేయడానికి {count} పరిష్కరించని ఆఫ్‌లైన్ క్లినికల్ అంశాలు ఈ పరికరంలో ఎన్‌క్రిప్ట్ అయి ఉన్నాయి.',
       'dashboard.greeting.morning': 'శుభోదయం',
       'dashboard.greeting.afternoon': 'శుభ మధ్యాహ్నం',
       'dashboard.greeting.evening': 'శుభ సాయంత్రం',
@@ -22312,7 +22971,7 @@ class AppStrings {
           'సెషన్ {seconds}sలో ముగుస్తుంది. సైన్ ఇన్‌గా ఉండటానికి మీరు ఇంకా ఇక్కడే ఉన్నారని నిర్ధారించండి.',
       'session_timeout.still_here': 'నేను ఇంకా ఇక్కడే ఉన్నాను',
       'session_timeout.preserved_queue':
-          'ఈ వినియోగదారుడి కోసం {count} క్యూ చేసిన అంశం(లు) ఈ పరికరంలో భద్రపరచబడ్డాయి మరియు మీ తదుపరి లాగిన్ తర్వాత సింక్ అవుతాయి.',
+          'ఈ వినియోగదారుడి {count} పరిష్కరించని ఆఫ్‌లైన్ అంశాలు ఈ పరికరంలో భద్రపరచబడ్డాయి. వాటిని సమీక్షించడానికి అదే సిబ్బంది సభ్యుడిగా సైన్ ఇన్ చేయండి; సమీక్ష అవసరమైన అంశాలు ఆటోమేటిక్‌గా పంపబడవు.',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'ఉద్యోగి సంఖ్య అవసరం',
       'login.employee_id_numbers_only': 'సంఖ్యలు మాత్రమే (1–6 అంకెలు)',
@@ -28934,6 +29593,144 @@ class AppStrings {
       'label.optional': 'ഓപ്ഷണൽ',
       'label.required': 'നിർബന്ധം',
       'offline.recorded_pending_sync': 'രേഖപ്പെടുത്തി — സിങ്ക് ബാക്കി',
+      // C0A അടിയന്തര സുരക്ഷാ നിയന്ത്രണം
+      'c0a.offline_fallback.title':
+          'ഓഫ്‌ലൈൻ ക്ലിനിക്കൽ നടപടി സേവ് ചെയ്തിട്ടില്ല',
+      'c0a.offline_fallback.message':
+          'ഈ നടപടി സ്വയമേവ സിങ്ക് ചെയ്യുന്നതിനായി സേവ് ചെയ്തിട്ടില്ല. വിഭാഗത്തിന്റെ {paperFormSet} ഉപയോഗിച്ച് ഡൗൺടൈം റീകൺസിലിയേഷൻ നടപടിക്രമം പിന്തുടരുക. നൽകിയ വിവരങ്ങൾ പേപ്പറിലേക്ക് മാറ്റുന്നതുവരെ ഫോം തുറന്നുവയ്ക്കുക.',
+      'c0a.offline_fallback.keep_open': 'ഫോം തുറന്നുവയ്ക്കുക',
+      'c0a.offline_fallback.paper_set.opd_prescription_pads':
+          'OPD പ്രിസ്ക്രിപ്ഷൻ പാഡുകൾ',
+      'c0a.offline_fallback.paper_set.inpatient_drug_charts':
+          'ഇൻപേഷ്യന്റ് ഡ്രഗ് ചാർട്ടുകൾ',
+      'c0a.offline_fallback.paper_set.mar_sheets': 'MAR ഷീറ്റുകൾ',
+      'c0a.offline_fallback.paper_set.laboratory_requisition_forms':
+          'ലബോറട്ടറി റിക്വിസിഷൻ ഫോമുകൾ',
+      'c0a.offline_fallback.paper_set.blood_bank_verification_slips':
+          'ബ്ലഡ് ബാങ്ക് വെരിഫിക്കേഷൻ സ്ലിപ്പുകൾ',
+      'c0a.offline_fallback.paper_set.nursing_note_forms':
+          'നഴ്സിംഗ് നോട്ട് ഫോമുകൾ',
+      'offline_sync.title': 'സിങ്ക് നില',
+      'offline_sync.section.unresolved': 'പരിഹരിക്കാത്ത ഓഫ്‌ലൈൻ ജോലി',
+      'offline_sync.pending_count': '{count} ബാക്കിയുള്ള ഇനങ്ങൾ',
+      'offline_sync.review_count': '{count} ഇനങ്ങൾ അവലോകനം ചെയ്യണം',
+      'offline_sync.conflict_count': '{count} വൈരുദ്ധ്യങ്ങൾ',
+      'offline_sync.offline_queued': '{count} ഓഫ്‌ലൈൻ ഇനങ്ങൾ',
+      'offline_sync.syncing': '{count} ഇനങ്ങൾ സിങ്ക് ചെയ്യുന്നു…',
+      'offline_sync.sync_in_progress': 'സിങ്ക് പുരോഗമിക്കുന്നു',
+      'offline_sync.sync_now': 'ഇപ്പോൾ സിങ്ക് ചെയ്യുക',
+      'offline_sync.empty': 'ഈ ഉപയോക്താവിന് പരിഹരിക്കാത്ത ഓഫ്‌ലൈൻ ജോലിയില്ല',
+      'offline_sync.status.online': 'ഓൺലൈൻ',
+      'offline_sync.status.offline': 'ഓഫ്‌ലൈൻ',
+      'offline_sync.field.family': 'നടപടി',
+      'offline_sync.field.context': 'സന്ദർഭം',
+      'offline_sync.field.captured': 'രേഖപ്പെടുത്തിയ സമയം',
+      'offline_sync.field.endpoint': 'എൻഡ്‌പോയിന്റ്',
+      'offline_sync.field.status': 'നില',
+      'offline_sync.field.reason': 'കാരണം',
+      'offline_sync.field.blocker': 'തടസ്സം',
+      'offline_sync.field.retry_count': 'വീണ്ടും ശ്രമിച്ച എണ്ണം',
+      'offline_sync.field.capture_owner': 'രേഖപ്പെടുത്തിയ വ്യക്തി',
+      'offline_sync.field.reconciliation_owner': 'റീകൺസിലിയേഷൻ ഉത്തരവാദി',
+      'offline_sync.field.paper_form_set': 'പേപ്പർ ഫോം സെറ്റ്',
+      'offline_sync.field.attestation': 'ഹാൻഡോഫ് സാക്ഷ്യപ്പെടുത്തൽ',
+      'offline_sync.state.pending': 'ബാക്കിയാണ്',
+      'offline_sync.state.conflict': 'വൈരുദ്ധ്യം',
+      'offline_sync.state.needs_review': 'അവലോകനം വേണം',
+      'offline_sync.state.skipped': 'ഈ തവണ ഒഴിവാക്കി',
+      'offline_sync.state.attested': 'അവലോകനം വേണം · ഹാൻഡോഫ് സാക്ഷ്യപ്പെടുത്തി',
+      'offline_sync.action.retry': 'വീണ്ടും ശ്രമിക്കുക',
+      'offline_sync.action.discard': 'ഉപേക്ഷിക്കുക',
+      'offline_sync.action.attest': 'ഹാൻഡോഫ് രേഖപ്പെടുത്തുക',
+      'offline_sync.action.cancel': 'റദ്ദാക്കുക',
+      'offline_sync.attestation.title':
+          'സാക്ഷ്യപ്പെടുത്തിയ ഹാൻഡോഫ് രേഖപ്പെടുത്തണോ?',
+      'offline_sync.attestation.body':
+          'ഈ ഇനം അവലോകനം ചെയ്തു — പേപ്പറിലേക്ക് മാറ്റി / റീകൺസിലിയേഷൻ ഉത്തരവാദിക്ക് കൈമാറി എന്ന് സ്ഥിരീകരിക്കുക. ഈ സാക്ഷ്യപ്പെടുത്തൽ മാറ്റാനാവില്ല.',
+      'offline_sync.attestation.confirm': 'ഹാൻഡോഫ് സാക്ഷ്യപ്പെടുത്തുക',
+      'offline_sync.attestation.success':
+          'ഹാൻഡോഫ് സാക്ഷ്യപ്പെടുത്തൽ രേഖപ്പെടുത്തി',
+      'offline_sync.attestation.recorded':
+          '{actor} {time}-ന് സാക്ഷ്യപ്പെടുത്തി — അവലോകനം ചെയ്തു — പേപ്പറിലേക്ക് മാറ്റി / റീകൺസിലിയേഷൻ ഉത്തരവാദിക്ക് കൈമാറി',
+      'offline_sync.discard.title': 'ഓഫ്‌ലൈൻ ക്ലിനിക്കൽ തെളിവ് ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.generic_title': 'ഓഫ്‌ലൈൻ ഇനം ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.generic_body':
+          'ഈ ഇനം സർവറുമായി റീകൺസൈൽ ചെയ്തിട്ടില്ല. ഉപേക്ഷിക്കുന്നതിന് മുമ്പ് അവലോകനം ചെയ്യുക.',
+      'offline_sync.discard.prescription_title':
+          'റീകൺസൈൽ ചെയ്യാത്ത പ്രിസ്ക്രിപ്ഷൻ ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.prescription_body':
+          'പ്രിസ്ക്രിപ്ഷൻ സർവറിൽ രേഖപ്പെടുത്തിയിട്ടില്ല — അവലോകനം വേണം. ഉപേക്ഷിക്കുന്നതിന് മുമ്പ് രോഗിയുടെ മരുന്ന് പദ്ധതി പരിശോധിക്കുക.',
+      'offline_sync.discard.order_title':
+          'റീകൺസൈൽ ചെയ്യാത്ത ഡ്രഗ് ചാർട്ട് ഓർഡർ ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.order_body':
+          'ഡ്രഗ് ചാർട്ട് ഓർഡർ സർവറിൽ രേഖപ്പെടുത്തിയിട്ടില്ല — അവലോകനം വേണം. ഉപേക്ഷിക്കുന്നതിന് മുമ്പ് മരുന്ന് ചാർട്ട് പരിശോധിക്കുക.',
+      'offline_sync.discard.mar_title':
+          'റീകൺസൈൽ ചെയ്യാത്ത MAR മരുന്ന് നൽകൽ ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.mar_body':
+          'മരുന്ന് നൽകിയത് സർവറിൽ രേഖപ്പെടുത്തിയിട്ടില്ല — അവലോകനം വേണം. മരുന്ന് ഓഫ്‌ലൈനിൽ നൽകിയിരിക്കാം.',
+      'offline_sync.discard.specimen_title':
+          'റീകൺസൈൽ ചെയ്യാത്ത സാമ്പിൾ ശേഖരണം ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.specimen_body':
+          'സാമ്പിൾ ശേഖരണം സർവറിൽ രേഖപ്പെടുത്തിയിട്ടില്ല — അവലോകനം വേണം. ഉപേക്ഷിക്കുന്നതിന് മുമ്പ് ലബോറട്ടറി പ്രവർത്തനക്രമം പരിശോധിക്കുക.',
+      'offline_sync.discard.transfusion_title':
+          'റീകൺസൈൽ ചെയ്യാത്ത ട്രാൻസ്ഫ്യൂഷൻ വെരിഫിക്കേഷൻ ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.transfusion_body':
+          'ബെഡ്‌സൈഡ് ട്രാൻസ്ഫ്യൂഷൻ വെരിഫിക്കേഷൻ സർവറിൽ രേഖപ്പെടുത്തിയിട്ടില്ല — അവലോകനം വേണം. ഉപേക്ഷിക്കുന്നതിന് മുമ്പ് ട്രാൻസ്ഫ്യൂഷൻ രേഖ പരിശോധിക്കുക.',
+      'offline_sync.discard.notes_title':
+          'റീകൺസൈൽ ചെയ്യാത്ത നോട്ട് ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.notes_body':
+          'ഈ ഉപകരണത്തിലെ നോട്ട് ഡാറ്റ സർവറുമായി റീകൺസൈൽ ചെയ്തിട്ടില്ല. ഉപേക്ഷിക്കുന്നതിന് മുമ്പ് അവലോകനം ചെയ്യുക.',
+      'offline_sync.discard.vitals_title':
+          'റീകൺസൈൽ ചെയ്യാത്ത വൈറ്റൽസ് ഉപേക്ഷിക്കണോ?',
+      'offline_sync.discard.vitals_body':
+          'വൈറ്റൽസ് സർവറിൽ രേഖപ്പെടുത്തിയിട്ടില്ല — അവലോകനം വേണം. ഉപേക്ഷിക്കുന്നതിന് മുമ്പ് രോഗിയുടെ ചാർട്ട് പരിശോധിക്കുക.',
+      'offline_sync.discard.confirm': 'റീകൺസിലിയേഷനുശേഷം ഉപേക്ഷിക്കുക',
+      'offline_sync.role.clinical_safety_lead': 'ക്ലിനിക്കൽ സുരക്ഷാ മേധാവി',
+      'offline_sync.reason.contained_prescription_create':
+          'പ്രിസ്ക്രിപ്ഷൻ സൃഷ്ടിക്കൽ അവലോകനം ചെയ്യണം',
+      'offline_sync.reason.contained_drug_chart_order':
+          'ഡ്രഗ് ചാർട്ട് ഓർഡർ അവലോകനം ചെയ്യണം',
+      'offline_sync.reason.contained_mar_administration':
+          'MAR മരുന്ന് നൽകൽ അവലോകനം ചെയ്യണം',
+      'offline_sync.reason.contained_specimen_collection':
+          'സാമ്പിൾ ശേഖരണം അവലോകനം ചെയ്യണം',
+      'offline_sync.reason.contained_transfusion_verification':
+          'ട്രാൻസ്ഫ്യൂഷൻ വെരിഫിക്കേഷൻ അവലോകനം ചെയ്യണം',
+      'offline_sync.reason.contained_authoritative_note':
+          'ആധികാരിക ക്ലിനിക്കൽ നോട്ട് അവലോകനം ചെയ്യണം',
+      'offline_sync.reason.unknown_action': 'അജ്ഞാത ഓഫ്‌ലൈൻ നടപടി',
+      'offline_sync.reason.unknown_tenant': 'ടെനന്റ് സ്ഥിരീകരിക്കാനായില്ല',
+      'offline_sync.reason.unknown_owner':
+          'രേഖപ്പെടുത്തിയ വ്യക്തിയെ സ്ഥിരീകരിക്കാനായില്ല',
+      'offline_sync.reason.unknown_encryption_version':
+          'എൻക്രിപ്ഷൻ പതിപ്പ് സ്ഥിരീകരിക്കാനായില്ല',
+      'offline_sync.reason.decrypt_failed':
+          'എൻക്രിപ്റ്റ് ചെയ്ത ഡാറ്റ വായിക്കാനായില്ല',
+      'offline_sync.reason.retry_exhausted':
+          'വീണ്ടും ശ്രമിക്കാനുള്ള പരിധി എത്തി',
+      'offline_sync.blocker.none': 'ഒന്നുമില്ല',
+      'offline_sync.blocker.partition_waiting':
+          'ഈ നടപടിഗ്രൂപ്പിലെ പിന്നീടുള്ള ഇനങ്ങൾ കാത്തിരിക്കുന്നു',
+      'offline_sync.blocker.earlier_item':
+          'ഈ നടപടിഗ്രൂപ്പിലെ മുമ്പത്തെ ഇനത്തിന് ({id}) ശ്രദ്ധ വേണം',
+      'offline_sync.family.prescription_create': 'പ്രിസ്ക്രിപ്ഷൻ',
+      'offline_sync.family.drug_chart_order': 'ഡ്രഗ് ചാർട്ട് ഓർഡർ',
+      'offline_sync.family.mar_administration': 'MAR മരുന്ന് നൽകൽ',
+      'offline_sync.family.specimen_collection': 'സാമ്പിൾ ശേഖരണം',
+      'offline_sync.family.transfusion_verification':
+          'ട്രാൻസ്ഫ്യൂഷൻ വെരിഫിക്കേഷൻ',
+      'offline_sync.family.authoritative_note': 'ക്ലിനിക്കൽ നോട്ട്',
+      'offline_sync.family.vitals': 'വൈറ്റൽസ്',
+      'offline_sync.family.note_draft': 'നോട്ട് ഡ്രാഫ്റ്റ്',
+      'offline_sync.family.unknown': 'അജ്ഞാത നടപടി',
+      'logout.blocked_title':
+          'സൈൻ ഔട്ട് തടഞ്ഞു — ഓഫ്‌ലൈൻ ക്ലിനിക്കൽ ജോലി അവലോകനം ചെയ്യണം',
+      'logout.blocked_body':
+          'നിങ്ങൾക്ക് {count} പരിഹരിക്കാത്ത ഓഫ്‌ലൈൻ ക്ലിനിക്കൽ ഇനങ്ങളുണ്ട്. ഡാറ്റ നഷ്ടപ്പെടുന്നതോ തെറ്റായ സ്റ്റാഫ് അക്കൗണ്ടിൽ രേഖപ്പെടുത്തുന്നതോ തടയാൻ ഇപ്പോൾ സൈൻ ഔട്ട് ചെയ്യാനാവില്ല. സിങ്ക് നില തുറന്ന് റീകൺസിലിയേഷൻ ഹാൻഡോഫ് പിന്തുടരുക.',
+      'logout.stay_signed_in': 'സൈൻ ഇൻ ചെയ്തുതന്നെ തുടരുക',
+      'logout.review_offline_work': 'ഓഫ്‌ലൈൻ ജോലി അവലോകനം ചെയ്യുക',
+      'session_revocation.preserved_items':
+          'പിന്നീട് റീകൺസൈൽ ചെയ്യുന്നതിനായി {count} പരിഹരിക്കാത്ത ഓഫ്‌ലൈൻ ക്ലിനിക്കൽ ഇനങ്ങൾ ഈ ഉപകരണത്തിൽ എൻക്രിപ്റ്റ് ചെയ്ത നിലയിൽ തുടരുന്നു.',
       'role.feature.oncology': 'ഓങ്കോളജി',
       'role.feature.ophthalmology': 'കണ്ണ് ചികിത്സ',
       'role.display.physiotherapist': 'ഫിസിയോതെറാപ്പിസ്റ്റ്',
@@ -29380,7 +30177,7 @@ class AppStrings {
           'സെഷൻ {seconds}s-ൽ അവസാനിക്കും. സൈൻ ഇൻ നിലനിർത്താൻ നിങ്ങൾ ഇപ്പോഴും ഇവിടെയുണ്ടെന്ന് സ്ഥിരീകരിക്കുക.',
       'session_timeout.still_here': 'ഞാൻ ഇപ്പോഴും ഇവിടെയുണ്ട്',
       'session_timeout.preserved_queue':
-          'ഈ ഉപയോക്താവിനുള്ള {count} ക്യൂ ചെയ്ത ഇനം(കൾ) ഈ ഉപകരണത്തിൽ സൂക്ഷിച്ചിട്ടുണ്ട്; അടുത്ത ലോഗിനിന് ശേഷം സിങ്ക് ചെയ്യും.',
+          'ഈ ഉപയോക്താവിന്റെ {count} പരിഹരിക്കാത്ത ഓഫ്‌ലൈൻ ഇനങ്ങൾ ഈ ഉപകരണത്തിൽ സൂക്ഷിച്ചിരിക്കുന്നു. അവ അവലോകനം ചെയ്യാൻ അതേ സ്റ്റാഫ് അംഗമായി സൈൻ ഇൻ ചെയ്യുക; അവലോകനം വേണ്ട ഇനങ്ങൾ സ്വയമേവ അയയ്ക്കില്ല.',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'എംപ്ലോയീ നമ്പർ നിർബന്ധമാണ്',
       'login.employee_id_numbers_only': 'അക്കങ്ങൾ മാത്രം (1–6 അക്കം)',

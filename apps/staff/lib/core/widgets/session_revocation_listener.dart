@@ -11,17 +11,27 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 
+import '../navigation/app_router.dart' show appRouter;
 import '../providers/session_timeout_provider.dart';
 import '../services/auth_service.dart';
 import '../../l10n/app_strings.dart';
+import 'logout_flow.dart';
 
 class SessionRevocationListener extends StatefulWidget {
-  const SessionRevocationListener({super.key, required this.child});
+  const SessionRevocationListener({
+    super.key,
+    required this.child,
+    @visibleForTesting this.revocationEvents,
+    @visibleForTesting this.forcedLogout,
+    @visibleForTesting this.navigateToLogin,
+  });
   final Widget child;
+  final Stream<dynamic>? revocationEvents;
+  final Future<int> Function()? forcedLogout;
+  final VoidCallback? navigateToLogin;
 
   @override
   State<SessionRevocationListener> createState() =>
@@ -30,6 +40,7 @@ class SessionRevocationListener extends StatefulWidget {
 
 class _SessionRevocationListenerState extends State<SessionRevocationListener> {
   StreamSubscription? _sub;
+  bool _handlingRevocation = false;
 
   @override
   void initState() {
@@ -38,51 +49,51 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
     // scope (the listener may be mounted before the provider tree settles).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final realtime = context.read<RealtimeProvider>();
-      // `broadcastChannel: false` — sendToUser targets the per-user socket
-      // bucket directly, no server-side subscribe handshake is needed.
-      _sub = realtime
-          .events('session:revoked', broadcastChannel: false)
-          .listen(_onRevoked);
+      final events =
+          widget.revocationEvents ??
+          context.read<RealtimeProvider>().events(
+            'session:revoked',
+            broadcastChannel: false,
+          );
+      _sub = events.listen(_onRevoked);
     });
   }
 
   Future<void> _onRevoked(dynamic event) async {
-    if (!mounted) return;
-    final data = event is Map<String, dynamic>
-        ? event
-        : (event.data is Map<String, dynamic>
-              ? event.data as Map<String, dynamic>
-              : <String, dynamic>{});
-    final reason = data['reason']?.toString();
+    if (!mounted || _handlingRevocation) return;
+    _handlingRevocation = true;
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final goRouter = GoRouter.of(context);
     final strings = AppStrings.of(context);
 
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text(
-          reason == 'new_login_elsewhere'
-              ? strings.lookup(
-                  's4.lib.session_revocation_listener.signed_out_new_login',
-                )
-              : strings.lookup(
-                  's4.lib.session_revocation_listener.session_revoked',
-                ),
-        ),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-
-    // Best-effort backend logout (the JWT is already blacklisted server-side;
-    // this just unregisters the device + tidies up local state). Local
-    // credentials are cleared regardless.
-    await AuthService.logout();
-    if (mounted) {
-      context.read<SessionTimeoutProvider>().stopTracking();
+    try {
+      await ForcedLogoutFlow.run(
+        forcedLogout:
+            widget.forcedLogout ?? AuthService.forceLogoutForRevocation,
+        stopSessionTracking: () {
+          if (mounted) {
+            context.read<SessionTimeoutProvider>().stopTracking();
+          }
+        },
+        navigateToLogin: () {
+          if (mounted) {
+            (widget.navigateToLogin ?? () => appRouter.go('/login'))();
+          }
+        },
+        reportPreservedItems: (count) {
+          if (!mounted) return;
+          messenger
+            ?..clearSnackBars()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(strings.sessionRevocationPreservedItems(count)),
+                duration: const Duration(seconds: 6),
+              ),
+            );
+        },
+      );
+    } finally {
+      _handlingRevocation = false;
     }
-    if (!mounted) return;
-    goRouter.go('/login');
   }
 
   @override

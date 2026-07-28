@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -91,13 +90,13 @@ void main() {
         return;
       }
 
-      await const FlutterSecureStorage().deleteAll();
+      await ApiConfig.clearSessionIdentity();
       await RealtimeClient.instance.disconnect();
       final previousErrorWidgetBuilder = ErrorWidget.builder;
       addTearDown(() async {
         ErrorWidget.builder = previousErrorWidgetBuilder;
         await RealtimeClient.instance.disconnect();
-        await const FlutterSecureStorage().deleteAll();
+        await ApiConfig.clearSessionIdentity();
       });
 
       app.main();
@@ -130,7 +129,7 @@ void main() {
         expect(await ApiConfig.getEmployeeId(), account.employeeId);
         expect(await ApiConfig.getRole(), account.expectedRole);
 
-        await ApiConfig.clearAll();
+        await ApiConfig.clearSessionIdentity();
         await RealtimeClient.instance.disconnect();
         GoRouter.of(tester.element(find.byType(Scaffold).first)).go('/login');
         await pumpFor(tester, const Duration(seconds: 2));

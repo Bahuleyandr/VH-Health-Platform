@@ -51,10 +51,13 @@ void main() {
     ) async {
       await _pumpRow(tester, conflict: marConflict);
 
-      // Clinical framing: the administration was NOT recorded on the server,
-      // the drug WAS given offline, and the server reason is shown.
-      expect(find.textContaining('not recorded on the server'), findsOneWidget);
-      expect(find.textContaining('given offline'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Administration not recorded on the server — review needed. '
+          'The medication may have been given offline.',
+        ),
+        findsOneWidget,
+      );
       expect(find.textContaining('Order discontinued'), findsOneWidget);
     });
 
@@ -73,7 +76,7 @@ void main() {
 
         // A confirmation dialog must appear for a MAR conflict.
         expect(
-          find.textContaining('Discard this administration record?'),
+          find.textContaining('Discard administration record?'),
           findsOneWidget,
         );
 
@@ -97,8 +100,9 @@ void main() {
       await tester.tap(find.text('Discard'));
       await tester.pumpAndSettle();
 
-      // Tap the destructive Discard inside the dialog (the second 'Discard').
-      await tester.tap(find.widgetWithText(TextButton, 'Discard').last);
+      await tester.tap(
+        find.widgetWithText(TextButton, 'Discard after reconciliation'),
+      );
       await tester.pumpAndSettle();
 
       expect(discardCount, 1);
@@ -120,7 +124,7 @@ void main() {
       expect(retried, isTrue);
       // No confirmation dialog for retry.
       expect(
-        find.textContaining('Discard this administration record?'),
+        find.textContaining('Discard administration record?'),
         findsNothing,
       );
     });
@@ -154,7 +158,7 @@ void main() {
 
       expect(discarded, isTrue);
       expect(
-        find.textContaining('Discard this administration record?'),
+        find.textContaining('Discard administration record?'),
         findsNothing,
       );
     });

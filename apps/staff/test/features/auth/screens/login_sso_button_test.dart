@@ -99,7 +99,7 @@ void main() {
     VHHttpClient.resetClientForTesting();
     VHHttpClient.onSessionExpired = null;
     VHHttpClient.deviceTypeProvider = null;
-    await core_auth.AuthService.clearAll();
+    await core_auth.AuthService.clearSessionIdentity();
   });
 
   testWidgets('hides SSO button when staff discovery has no active provider', (

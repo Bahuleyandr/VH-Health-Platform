@@ -114,10 +114,6 @@ class ApiConfig {
     }
   }
 
-  static Future<void> clearAll() async {
-    await _storage.deleteAll();
-  }
-
   static Future<bool> isLoggedIn() async {
     try {
       final jwt =

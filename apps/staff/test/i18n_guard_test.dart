@@ -1,8 +1,116 @@
 import 'dart:io';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
+  test('C0A safety copy has five-locale parity and binding placeholders', () {
+    final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+    final localeKeys = {
+      for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+        locale: _mapKeysForLocale(source, locale),
+    };
+    final c0aKeys = localeKeys['en']!
+        .where(
+          (key) =>
+              key.startsWith('c0a.') ||
+              key.startsWith('offline_sync.') ||
+              const {
+                'logout.blocked_title',
+                'logout.blocked_body',
+                'logout.stay_signed_in',
+                'logout.review_offline_work',
+                'session_revocation.preserved_items',
+                'session_timeout.preserved_queue',
+              }.contains(key),
+        )
+        .toSet();
+
+    expect(c0aKeys, contains('offline_sync.reason.retry_exhausted'));
+    expect(c0aKeys, contains('offline_sync.family.authoritative_note'));
+    expect(c0aKeys, contains('offline_sync.field.paper_form_set'));
+    expect(c0aKeys, contains('offline_sync.discard.vitals_body'));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final missing = c0aKeys.difference(localeKeys[locale]!);
+      expect(
+        missing,
+        isEmpty,
+        reason: 'C0A keys missing from $locale: ${missing.toList()..sort()}',
+      );
+    }
+
+    final en = AppStrings.forLocale(const Locale('en'));
+    expect(en.offlineSyncFieldPaperFormSet, 'Paper form set');
+    expect(
+      en.offlineClinicalFallbackMessage('MAR sheets'),
+      "This action was not saved for automatic sync. Use the department's "
+      'MAR sheets and follow the downtime reconciliation procedure. Keep the '
+      'entered information open until it has been transferred to paper.',
+    );
+    expect(
+      en.logoutBlockedTitle,
+      'Sign out blocked — offline clinical work needs review',
+    );
+    expect(
+      en.logoutBlockedBody(7),
+      'You have 7 unresolved offline clinical item(s). To prevent loss or '
+      'recording under the wrong staff account, you cannot sign out yet. Open '
+      'Sync status and follow the reconciliation handoff.',
+    );
+    expect(
+      en.sessionRevocationPreservedItems(7),
+      '7 unresolved offline clinical item(s) remain encrypted on this device '
+      'for later reconciliation.',
+    );
+    expect(
+      en.sessionTimeoutPreservedQueue(7),
+      '7 unresolved offline item(s) for this user are preserved on this '
+      'device. Sign in as the same staff member to review them; '
+      'review-required items will not send automatically.',
+    );
+    expect(
+      en.offlineSyncDiscardMarBody,
+      'Administration not recorded on the server — review needed. The '
+      'medication may have been given offline.',
+    );
+    expect(
+      en.offlineSyncDiscardNotesBody,
+      'Note data on this device is not reconciled with the server. Review '
+      'before discarding.',
+    );
+    expect(
+      en.offlineSyncDiscardVitalsBody,
+      'Vitals not recorded on the server — review needed. Review the patient '
+      'chart before discarding.',
+    );
+    expect(en.offlineSyncDiscardConfirm, 'Discard after reconciliation');
+
+    for (final locale in const ['en', 'hi', 'ta', 'te', 'ml']) {
+      final strings = AppStrings.forLocale(Locale(locale));
+      expect(
+        strings.offlineClinicalFallbackMessage('__PAPER_SET__'),
+        contains('__PAPER_SET__'),
+      );
+      expect(strings.offlineSyncFieldPaperFormSet, isNotEmpty);
+      expect(strings.logoutBlockedBody(937), contains('937'));
+      expect(strings.sessionRevocationPreservedItems(937), contains('937'));
+      expect(strings.sessionTimeoutPreservedQueue(937), contains('937'));
+      expect(strings.offlineSyncPendingCount(937), contains('937'));
+      expect(strings.offlineSyncReviewCount(937), contains('937'));
+      expect(strings.offlineSyncConflictCount(937), contains('937'));
+      expect(strings.offlineSyncOfflineQueued(937), contains('937'));
+      expect(strings.offlineSyncSyncing(937), contains('937'));
+      expect(strings.offlineSyncBlockerEarlierItem(937), contains('937'));
+      final attestation = strings.offlineSyncAttestationRecorded(
+        '__ACTOR__',
+        '__TIME__',
+      );
+      expect(attestation, contains('__ACTOR__'));
+      expect(attestation, contains('__TIME__'));
+    }
+  });
+
   test('staff feature UI copy uses AppStrings instead of raw literals', () {
     final hits = <String>[];
     for (final file in _guardedFiles()) {
@@ -1551,4 +1659,27 @@ List<String> _missingLocaleEntries(
 
 bool _setEquals(Set<String> a, Set<String> b) {
   return a.length == b.length && a.containsAll(b);
+}
+
+Set<String> _mapKeysForLocale(String source, String locale) {
+  const locales = ['en', 'hi', 'ta', 'te', 'ml'];
+  final localeIndex = locales.indexOf(locale);
+  if (localeIndex < 0) return const {};
+
+  final marker = "'$locale': {";
+  final start = source.indexOf(marker);
+  if (start < 0) return const {};
+  final nextStart = localeIndex + 1 < locales.length
+      ? source.indexOf(
+          "'${locales[localeIndex + 1]}': {",
+          start + marker.length,
+        )
+      : source.indexOf('\n  };', start + marker.length);
+  if (nextStart < 0) return const {};
+
+  final section = source.substring(start + marker.length, nextStart);
+  return RegExp(
+    r"^\s*'([^']+)'\s*:",
+    multiLine: true,
+  ).allMatches(section).map((match) => match.group(1)!).toSet();
 }

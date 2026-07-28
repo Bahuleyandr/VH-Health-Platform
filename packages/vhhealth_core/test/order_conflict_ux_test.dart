@@ -71,7 +71,9 @@ void main() {
 
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, 'Discard').last);
+    await tester.tap(
+      find.widgetWithText(TextButton, 'Discard after reconciliation'),
+    );
     await tester.pumpAndSettle();
     expect(discardCount, 1);
   });

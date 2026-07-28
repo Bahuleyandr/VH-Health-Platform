@@ -3,12 +3,12 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/providers/locale_provider.dart';
-import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/utils/font_scale.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/logout_flow.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -219,32 +219,11 @@ class SettingsScreen extends StatelessWidget {
 
   Future<void> _logout(BuildContext context) async {
     final s = AppStrings.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(s.settingsLogoutDialogTitle),
-        content: Text(s.settingsLogoutDialogBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(s.actionCancel),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(s.actionLogout),
-          ),
-        ],
-      ),
+    await LogoutFlow.start(
+      context,
+      confirmationTitle: s.settingsLogoutDialogTitle,
+      confirmationBody: s.settingsLogoutDialogBody,
     );
-
-    if (confirmed == true) {
-      await AuthService.logout();
-      if (context.mounted) {
-        context.read<SessionTimeoutProvider>().stopTracking();
-        context.go('/login');
-      }
-    }
   }
 
   String _themeModeLabel(BuildContext context, ThemeMode mode) {
