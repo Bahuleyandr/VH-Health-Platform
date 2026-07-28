@@ -31,6 +31,7 @@ import {
   cleanupJourney,
   uidForUserId,
   CANONICAL_EVENTS,
+  DEFAULT_TENANT,
   prisma,
 } from './_journeyHarness.js';
 
@@ -74,6 +75,30 @@ describeJourney('Journey: emergency-walk-in', () => {
     receptionist = roleClient('RECEPTIONIST', { uid: RECEPTIONIST_UID, id: recepRow.id });
     nurse = roleClient('NURSING_STAFF', { uid: NURSE_UID, id: nurseRow.id, phone: NURSE_PHONE });
     doctor = roleClient('DOCTOR', { uid: DOCTOR_UID, id: doctorRow.id, phone: DOCTOR_PHONE });
+
+    // Step 2's triage writes require an ACTIVE tenant ED triage policy
+    // (assertActiveTriageScale → 400 ED_TRIAGE_POLICY_REQUIRED without one).
+    // Seed it here instead of relying on another suite (dynamic-acute-abdomen)
+    // having run first in the same chunked-runner DB — shard repartitioning
+    // separated the two and this journey 400'd on its own.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenant_ed_policies
+         (tenant_id, canonical_triage_scale, active, reviewer_uid, reviewed_at,
+          activated_by, activated_at, policy_version)
+       VALUES ($1::uuid, 'esi', true, $2::uuid, NOW(), $2::uuid, NOW(), $3)
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         canonical_triage_scale = EXCLUDED.canonical_triage_scale,
+         active = EXCLUDED.active,
+         reviewer_uid = EXCLUDED.reviewer_uid,
+         reviewed_at = EXCLUDED.reviewed_at,
+         activated_by = EXCLUDED.activated_by,
+         activated_at = EXCLUDED.activated_at,
+         policy_version = EXCLUDED.policy_version,
+         updated_at = NOW()`,
+      DEFAULT_TENANT,
+      NURSE_UID,
+      `journey-ed-triage-${RUN}`,
+    );
   });
 
   afterAll(async () => {
