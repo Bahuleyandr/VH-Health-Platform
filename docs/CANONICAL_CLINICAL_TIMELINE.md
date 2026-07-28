@@ -1,6 +1,6 @@
 # Canonical Clinical Timeline
 
-Last updated: 2026-06-08.
+Last updated: 2026-07-28.
 
 This document is a durable engineering note for future Codex, Claude, Cursor,
 and human contributors. VH Health now has a canonical clinical event layer. Do
@@ -93,6 +93,40 @@ must write all required records in the same transaction:
 
 If any one of these writes fails, the workflow should roll back rather than
 leaving the detail table and timeline/audit layer out of sync.
+
+## Database-Level Append-Only Enforcement
+
+Both canonical event tables are append-only at the database layer, enforced
+by the shared `audit_append_only_guard()` BEFORE UPDATE OR DELETE trigger:
+
+- `clinical_audit_events` — since migration 324 (audit-table hardening,
+  platform audit 2026-06-18 §3).
+- `clinical_timeline_events` — since migration 599 (2026-07-28
+  canonical-timeline review; previously the timeline half was only protected
+  indirectly by downstream ON DELETE RESTRICT composite FKs and the
+  row-scoped guards from migrations 581/584/595).
+
+The guard blocks UPDATE and DELETE for every role unless one of two escape
+hatches applies:
+
+1. `SET LOCAL app.audit_bypass = 'on'` — an explicit, transaction-local
+   maintenance opt-in (equivalently
+   `set_config('app.audit_bypass','on',true)`). The audit retention purge
+   (`auditRetentionService`) uses this for the audit tables; **no production
+   code path mutates `clinical_timeline_events` today** — the retention sink
+   list deliberately excludes the timeline because it is clinical record,
+   not an audit log. Any future timeline maintenance job must set this GUC
+   inside its own transaction and be documented here.
+2. The effective role is a superuser — the accepted threat boundary (a
+   superuser can drop the trigger anyway). The prod app role is NOSUPERUSER
+   NOBYPASSRLS, so app-level DB write cannot bypass. This branch is what
+   keeps superuser-connected test-fixture cleanup working; non-superuser
+   test paths use `src/tests/helpers/auditBypass.js`.
+
+Corrections to timeline history are therefore compensating events or new
+revisions under the idempotency-key discipline below — never in-place edits
+or deletes. Pinned by `src/tests/canonical-timeline-append-only.deep.test.js`
+and `src/tests/audit-append-only.deep.test.js`.
 
 ## Idempotency-Key Discipline
 
