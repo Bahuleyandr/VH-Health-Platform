@@ -1,6 +1,6 @@
 # C0.4 Clinical Service Continuity Owner Decision Dossier
 
-**Status:** owner-input draft — no decision or approval is recorded
+**Status:** C-D3 and C-D7 owner statements recorded by engineering from the owner's 2026-07-28 statement; countersignature pending — all other decisions remain open
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
@@ -18,7 +18,8 @@ authority; they are not approvals.
 Engineering must not complete, infer, preselect, or narrow any owner-input
 field. A decision is complete only when every required role has supplied
 traceable approval and the decision record contains the approved policy or
-values.
+values. Verbatim, attributed scribing of an owner-supplied statement does not
+constitute engineering completion or countersignature.
 
 ## 2. Decision records
 
@@ -68,11 +69,11 @@ departmental owner.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | The registry was approved as-is covering all eight surfaces. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Approved values or policy | the design §5.4 conservative registry plus the C0.2 §6 proposed default-deny rows are the approved classification, covering all eight census surfaces (five physical/final actions, authoritative `/emr/notes` creates for every note category, vitals, note-draft autosave). — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Owner names and roles | clinical governance + each affected departmental owner; names at countersignature. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Decision date | 2026-07-28 — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Approval or signature references | recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 
 ### C-D4 — offline authentication and revocation risk
 
@@ -139,11 +140,11 @@ workforce/UX owner.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | BLOCK ordinary logout while the signed-in user has unresolved offline clinical rows; forced/server-pushed revocation PRESERVES rows encrypted and owner-bound (no wipe) for later reconciliation. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Approved values or policy | BLOCK ordinary logout while the signed-in user has unresolved offline clinical rows; forced/server-pushed revocation PRESERVES rows encrypted and owner-bound (no wipe) for later reconciliation. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Owner names and roles | clinical governance + each affected departmental owner; names at countersignature. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Decision date | 2026-07-28 — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Approval or signature references | recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 
 ### C-D8 — external interface stop/restart
 
@@ -256,7 +257,20 @@ product/release.
 | Decision date | OWNER INPUT — engineering must not fill |
 | Approval or signature references | OWNER INPUT — engineering must not fill |
 
-## 3. Dossier closure
+## 3. C0A gate evidence freeze
+
+This is an attributed scribing record. It does not edit, reorder, or authorize
+the C0A gate language.
+
+| Freeze field | Recorded value |
+|---|---|
+| Recorded main SHA | `a84635b529aae6bbe7f8dac53bd237412eeb357b` — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Confirmed departmental fallback | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Frozen C0.2 and C0.3 evidence | C0.2 (the full §2 inventory and the §8 six-family quarantine list) and the C0A-affected C0.3 rows (OPD, wards/inpatient, laboratory, blood bank — their fallback/action-procedure cells filled with decision 3 above, attributed) are FROZEN for C0A at the recorded main SHA `a84635b529aae6bbe7f8dac53bd237412eeb357b`. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Remaining C0.3 owner input | All other C0.3 owner-input cells remain open for later slices. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| C0A scope boundary | vitals remains OUTSIDE the C0A scope per C0.2 §8. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+
+## 4. Dossier closure
 
 | Owner-input field | Value |
 |---|---|
