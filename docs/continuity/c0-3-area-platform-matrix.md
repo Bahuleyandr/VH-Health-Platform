@@ -1,10 +1,12 @@
 # C0.3 Hospital-Area and Client-Platform Matrix
 
-**Status:** repository-fact draft — all clinical and support decisions remain blank
+**Status:** four C0A-affected fallback/action-procedure rows recorded by engineering from the owner's 2026-07-28 statement; countersignature pending — all other clinical and support decisions remain blank
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
 **Baseline commit time:** `2026-07-28T13:56:41+05:30`
+
+**C0A freeze baseline:** `a84635b529aae6bbe7f8dac53bd237412eeb357b` — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending
 
 **Authority:** [implementation plan C0.3](../superpowers/plans/2026-07-28-clinical-service-continuity.md#c03-hospital-area-and-client-platform-impact-matrix), [clinical service continuity design](../superpowers/specs/2026-07-28-clinical-service-continuity-design.md), and [current ward downtime procedure](../DOWNTIME_PROCEDURE.md)
 
@@ -15,9 +17,10 @@ dependencies. They do not decide the minimum safe read pack, clinical action
 procedure, paper form, identity method, recovery ownership, integration
 dependency, drill, or whether an area/platform is included.
 
-Every such cell is deliberately blank. Engineering must not infer coverage
-from the presence of a module, a ward bed, a mobile project, or a build
-workflow.
+Except for the attributed C0A Action procedure and Paper form values in Ward,
+OPD, Laboratory, and Blood bank, every such cell is deliberately blank.
+Engineering must not infer coverage from the presence of a module, a ward bed,
+a mobile project, or a build workflow.
 
 The current repository procedure is explicitly a ward-pack procedure and says
 ED and OPD are not packaged (`docs/DOWNTIME_PROCEDURE.md:1-6,62-67`).
@@ -44,8 +47,8 @@ an implemented client feed (`docs/DOWNTIME_PROCEDURE.md:21-25`).
 | Required owner-input field | Decision/value |
 |---|---|
 | Minimum read pack | OWNER INPUT — intentionally blank; engineering must not fill |
-| Action procedure | OWNER INPUT — intentionally blank; engineering must not fill |
-| Paper form | OWNER INPUT — intentionally blank; engineering must not fill |
+| Action procedure | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Paper form | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 | Identity method | OWNER INPUT — intentionally blank; engineering must not fill |
 | Recovery owner | OWNER INPUT — intentionally blank; engineering must not fill |
 | Integration dependency | OWNER INPUT — intentionally blank; engineering must not fill |
@@ -84,8 +87,8 @@ an implemented client feed (`docs/DOWNTIME_PROCEDURE.md:21-25`).
 | Required owner-input field | Decision/value |
 |---|---|
 | Minimum read pack | OWNER INPUT — intentionally blank; engineering must not fill |
-| Action procedure | OWNER INPUT — intentionally blank; engineering must not fill |
-| Paper form | OWNER INPUT — intentionally blank; engineering must not fill |
+| Action procedure | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Paper form | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 | Identity method | OWNER INPUT — intentionally blank; engineering must not fill |
 | Recovery owner | OWNER INPUT — intentionally blank; engineering must not fill |
 | Integration dependency | OWNER INPUT — intentionally blank; engineering must not fill |
@@ -223,8 +226,8 @@ an implemented client feed (`docs/DOWNTIME_PROCEDURE.md:21-25`).
 | Required owner-input field | Decision/value |
 |---|---|
 | Minimum read pack | OWNER INPUT — intentionally blank; engineering must not fill |
-| Action procedure | OWNER INPUT — intentionally blank; engineering must not fill |
-| Paper form | OWNER INPUT — intentionally blank; engineering must not fill |
+| Action procedure | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Paper form | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 | Identity method | OWNER INPUT — intentionally blank; engineering must not fill |
 | Recovery owner | OWNER INPUT — intentionally blank; engineering must not fill |
 | Integration dependency | OWNER INPUT — intentionally blank; engineering must not fill |
@@ -243,8 +246,8 @@ an implemented client feed (`docs/DOWNTIME_PROCEDURE.md:21-25`).
 | Required owner-input field | Decision/value |
 |---|---|
 | Minimum read pack | OWNER INPUT — intentionally blank; engineering must not fill |
-| Action procedure | OWNER INPUT — intentionally blank; engineering must not fill |
-| Paper form | OWNER INPUT — intentionally blank; engineering must not fill |
+| Action procedure | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Paper form | department-specific paper form sets are confirmed in place per affected department — OPD prescription pads, inpatient drug charts, MAR sheets, laboratory requisition forms, blood-bank verification slips, nursing note forms. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 | Identity method | OWNER INPUT — intentionally blank; engineering must not fill |
 | Recovery owner | OWNER INPUT — intentionally blank; engineering must not fill |
 | Integration dependency | OWNER INPUT — intentionally blank; engineering must not fill |
