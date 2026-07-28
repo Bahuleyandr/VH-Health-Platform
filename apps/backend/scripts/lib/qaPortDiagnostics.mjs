@@ -88,6 +88,7 @@ export function classifyStartFailure({
         `Use it as-is: VHHEALTH_TEST_DB_PORT=${postmaster.port} node apps/backend/scripts/qa-cluster-up.mjs`,
         `(point jest at it via DATABASE_URL / TEST_DATABASE_URL), or move it back to ${p}:`,
         `  pg_ctl -D "${postmaster.dataDir}" stop -m fast    # then re-run this script`,
+        `If nothing answers on port ${postmaster.port} either, postmaster.pid may be stale (recycled PID) — verify with Get-Process postgres before trusting this.`,
       ],
     };
   }

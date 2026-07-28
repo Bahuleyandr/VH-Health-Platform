@@ -120,6 +120,10 @@ describe('parsePostmasterPid', () => {
     expect(parsePostmasterPid(null)).toBeNull();
     expect(parsePostmasterPid('not-a-pid\n')).toBeNull();
   });
+
+  it('returns null for a truncated early-startup file (pid line only)', () => {
+    expect(parsePostmasterPid('209080\n')).toBeNull();
+  });
 });
 
 describe('classifyStartFailure', () => {
@@ -139,6 +143,9 @@ describe('classifyStartFailure', () => {
     expect(text).toMatch(/VHHEALTH_TEST_DB_PORT=15432/);
     expect(text).toMatch(/pg_ctl/);
     expect(text).toMatch(/stop/);
+    // Recycled-PID escape hatch: process.kill(pid, 0) cannot distinguish a
+    // live postmaster from an unrelated process that inherited its PID.
+    expect(text).toMatch(/postmaster\.pid may be stale/i);
   });
 
   it('reports lock-file-held when the lock is present but no live other-port postmaster is known', () => {

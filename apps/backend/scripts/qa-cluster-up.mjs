@@ -100,7 +100,10 @@ function pgIsReady() {
 // Bounds both pg_ctl -w and the wait on an already-starting postmaster.
 // Post-crash fsync/redo recovery on this PGDATA is ~60-75s post-prune but
 // grew to 10-20+ min when scratch DBs accumulated — hence overridable.
-const START_TIMEOUT_S = Number(process.env.VHHEALTH_TEST_DB_START_TIMEOUT_S || 300);
+const START_TIMEOUT_S = (() => {
+  const n = Number(process.env.VHHEALTH_TEST_DB_START_TIMEOUT_S || 300);
+  return Number.isFinite(n) && n > 0 ? n : 300;
+})();
 
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -136,6 +139,40 @@ function readPostmaster() {
   } catch {
     return { postmaster: null, alive: false };
   }
+}
+
+// Wait out a postmaster that is already starting from this PGDATA (crash
+// recovery). Returns true once it accepts connections; false if it exited
+// mid-start (caller should then attempt a fresh start).
+function waitForExistingStart(postmaster) {
+  log(
+    `postmaster PID ${postmaster.pid} is already starting on ${PORT} — ` +
+      `waiting up to ${START_TIMEOUT_S}s (crash recovery is slow but IS progress)`
+  );
+  const deadline = Date.now() + START_TIMEOUT_S * 1000;
+  let lastNote = Date.now();
+  while (Date.now() < deadline) {
+    if (pgIsReady()) {
+      log('cluster finished starting');
+      return true;
+    }
+    if (!readPostmaster().alive) {
+      log(`postmaster PID ${postmaster.pid} exited mid-start — attempting a fresh start`);
+      return false;
+    }
+    if (Date.now() - lastNote >= 30000) {
+      log('still starting (crash recovery in progress)...');
+      lastNote = Date.now();
+    }
+    sleepMs(5000);
+  }
+  const tail = readLogTail();
+  fatal(
+    `cluster did not accept connections within ${START_TIMEOUT_S}s — raise ` +
+      `VHHEALTH_TEST_DB_START_TIMEOUT_S (if postmaster.pid is stale/recycled, ` +
+      `verify with Get-Process postgres).\n` +
+      `--- last log lines ---\n${tail ?? '<logfile unreadable — locked by another process>'}`
+  );
 }
 
 // The logfile is frequently exclusively held right after a failed start
@@ -217,27 +254,8 @@ function startCluster() {
     }
     // Same port but the socket is not answering yet: it is starting up
     // (first start after an unclean shutdown does a slow fsync/redo pass).
-    log(
-      `postmaster PID ${postmaster.pid} is already starting on ${PORT} — ` +
-        `waiting up to ${START_TIMEOUT_S}s (crash recovery is slow but IS progress)`
-    );
-    const deadline = Date.now() + START_TIMEOUT_S * 1000;
-    let lastNote = Date.now();
-    while (Date.now() < deadline) {
-      if (pgIsReady()) {
-        log('cluster finished starting');
-        return;
-      }
-      if (Date.now() - lastNote >= 30000) {
-        log('still starting (crash recovery in progress)...');
-        lastNote = Date.now();
-      }
-      sleepMs(5000);
-    }
-    fatal(
-      `cluster did not accept connections within ${START_TIMEOUT_S}s — ` +
-        `raise VHHEALTH_TEST_DB_START_TIMEOUT_S or tail ${LOG_FILE}`
-    );
+    if (waitForExistingStart(postmaster)) return;
+    // It exited mid-start — fall through and attempt a fresh start below.
   }
 
   // Pre-flight 2: don't attempt pg_ctl into a WinNAT-excluded port — the
@@ -263,6 +281,11 @@ function startCluster() {
     ],
     { encoding: 'utf8', stdio: 'inherit' }
   );
+  if (r.error) {
+    // spawnSync itself failed (e.g. bad PG_BIN) — postgres never ran, so the
+    // logfile only holds a PREVIOUS incident; don't classify stale lines.
+    fatal(`could not spawn pg_ctl (${r.error.message}) — check PG_BIN (${PG_BIN})`);
+  }
   if (r.status !== 0) {
     const tail = readLogTail();
     const after = readPostmaster();
