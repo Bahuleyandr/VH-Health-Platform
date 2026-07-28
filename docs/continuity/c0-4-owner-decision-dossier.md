@@ -1,6 +1,6 @@
 # C0.4 Clinical Service Continuity Owner Decision Dossier
 
-**Status:** C-D3 and C-D7 owner statements recorded by engineering from the owner's 2026-07-28 statement; countersignature pending — all other decisions remain open
+**Status:** C-D3 and C-D7 owner statements, plus the C-D6 partial record and C-D7 addendum, recorded by engineering from the owner's 2026-07-28 statement; countersignature pending — all other decisions remain open
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
@@ -129,6 +129,17 @@ leadership, IT/security.
 | Decision date | OWNER INPUT — engineering must not fill |
 | Approval or signature references | OWNER INPUT — engineering must not fill |
 
+#### Partial record (2026-07-28) — fallback reconciliation principal (C0A)
+
+Offline rows whose capture owner is unknown (deleted account, null legacy owner)
+are assigned to the clinical-safety-lead role as the fallback reconciliation
+principal. Stored as the stable role code `role:clinical_safety_lead`, supplied
+through the tenant-specific C0A configuration with no production default; the
+localized role label is displayed; no staff name is persisted; the named
+individual is resolved at reconciliation time. This is not a new backend RBAC
+role. All other C-D6 fields remain OWNER INPUT. — recorded by engineering from
+the owner's 2026-07-28 statement; countersignature pending
+
 ### C-D7 — logout, user switching, and unresolved work
 
 > **Recommendation:** never silently delete pending clinical work. Preserve it
@@ -145,6 +156,17 @@ workforce/UX owner.
 | Owner names and roles | clinical governance + each affected departmental owner; names at countersignature. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 | Decision date | 2026-07-28 — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 | Approval or signature references | recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+
+#### Addendum (2026-07-28) — needs_review release semantics
+
+Pending and conflict rows always block ordinary sign-out. A needs_review row
+blocks sign-out until the signed-in user records a per-row attested handoff
+('reviewed — transferred to paper / handed to the reconciliation owner'),
+storing the attestation actor UID and timestamp on the row. Attested rows stop
+counting toward the sign-out block but remain preserved, visible, undeletable,
+and undrainable; attestation is immutable once set. Forced/server revocation
+and idle timeout are unchanged by attestation and preserve all rows. — recorded
+by engineering from the owner's 2026-07-28 statement; countersignature pending
 
 ### C-D8 — external interface stop/restart
 
