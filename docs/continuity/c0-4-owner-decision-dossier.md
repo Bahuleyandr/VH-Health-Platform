@@ -1,6 +1,6 @@
 # C0.4 Clinical Service Continuity Owner Decision Dossier
 
-**Status:** C-D3 and C-D7 owner statements, plus the C-D6 partial record and C-D7 addendum, recorded by engineering from the owner's 2026-07-28 statement; countersignature pending — all other decisions remain open
+**Status:** C-D2, C-D3, and C-D7 owner statements, plus the C-D6 partial record and C-D7 addendum, recorded by engineering from the owner's 2026-07-28 statement; countersignature pending — all other decisions remain open
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
@@ -51,11 +51,11 @@ bank, privacy.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | The C-D2 minimum cached dataset and freshness policy below is approved. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Approved values or policy | **TIERS —** Safety-critical (must be present; fail closed to an explicit spoken unknown when stale or unrecorded; never silently defaulted): patient identity for the two-identifier bedside check (name + MRN/UID + date of birth); allergies; code status; medications due; active medication orders; recently administered medications (12-hour lookback — engineering-proposed, mirrors the existing `MAR_WINDOW_HOURS` system value applied backward) — engineering-proposed under the owner's 2026-07-28 delegation; ratified at countersignature; unresolved critical results. Context tier (always timestamped, never blocking): bed/location; attending doctor; diagnosis/chief complaint; latest vitals + NEWS2 with recorded-at; recent released results; care team.<br><br>**UNKNOWN-STATE WORDING —** Unknown is always spoken: "Allergy status UNKNOWN — not recorded" (never NKDA); "Code status NOT RECORDED — confirm per hospital policy" (never silently full code). Display parity rule: an unknown safety field must never render less prominently than a known positive finding.<br><br>**FRESHNESS —** Packs regenerate every 15 minutes (existing cron); every screen and printout shows generation DATE + time in the facility's LOCAL timezone with the zone named (correcting the current UTC rendering); every safety-critical field carries its own recorded/last-reviewed timestamp (the vitals principle applied uniformly); between 15 minutes and 24 hours data shows a visible age badge and nothing pretends to be live; at 24 hours (existing `PACK_EXPIRY_HOURS`) the pack is EXPIRED — the app refuses to present it as current and directs staff to paper and phone. Owner rationale recorded: the program's recovery objective keeps any outage under 24 hours; no historical-reference display mode is approved. Printed packs are self-invalidating: each carries "Generated &lt;date time TZ&gt; — NOT VALID AFTER &lt;date time TZ&gt;, then use paper and phone."<br><br>**DELIBERATE EXCLUSION —** Blood group is excluded from all packs: transfusion decisions must never be made from cached data; the blood-bank verification process owns that truth.<br><br>**PER-AREA FLOORS —** Wards: the full set above. Paediatric/NICU/PICU: additionally latest weight + recorded date in the safety tier. Isolation precautions: included where a structured field exists; free text is never scraped into the safety tier (engineering-proposed under delegation) — engineering-proposed under the owner's 2026-07-28 delegation; ratified at countersignature. ED: the per-patient safety fields plus the arrival/triage board including triage category, arrival time, and time-in-department. OPD: today's appointment list plus allergies and active medications, including patient phone numbers for outage communications, with a "destroy after clinic day" handling line on the printed sheet (engineering-proposed under delegation; privacy owner countersigns) — engineering-proposed under the owner's 2026-07-28 delegation; ratified at countersignature. Exact ED/OPD producer shapes are confirmed when C3 builds them; this decision sets the floor. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Owner names and roles | clinical specialties, nursing, pharmacy, lab/blood bank, privacy — names at countersignature. — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Decision date | 2026-07-28 — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-28 statement; countersignature pending |
 
 ### C-D3 — offline action matrix
 
