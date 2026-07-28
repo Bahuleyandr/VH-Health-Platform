@@ -18,6 +18,13 @@
 // other dev cluster (port 5433) is unaffected — only port 55432 hits
 // the reservation. See CLAUDE.md "Database Access" for the long form.
 //
+// WinNAT dynamic exclusions (2026-07-01, recurred 2026-07-28): after a
+// WinNAT service restart or reboot, random high-port TCP ranges become
+// unbindable (netsh int ipv4 show excludedportrange protocol=tcp) and
+// 55432 can land inside one. startCluster() pre-flights this and prints
+// the exact remediation; VHHEALTH_TEST_DB_PORT overrides the port
+// (15432 is the documented low-port fallback).
+//
 // Usage:
 //   node apps/backend/scripts/qa-cluster-up.mjs
 
@@ -30,6 +37,15 @@ import { fileURLToPath } from 'node:url';
 // Single source for the non-owner RLS test roles, shared with the docker CI
 // path (run-db-guardrails-docker.mjs) so the two cannot drift.
 import { provisionRlsTestRoles } from './provision-rls-test-roles.mjs';
+// Pure parse/classify helpers for port + bind-failure diagnostics
+// (WinNAT exclusions, postmaster-on-another-port, crash recovery).
+import {
+  buildWinnatRemediation,
+  classifyStartFailure,
+  findExclusionRange,
+  parseExcludedPortRanges,
+  parsePostmasterPid,
+} from './lib/qaPortDiagnostics.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendDir = path.resolve(__dirname, '..');
@@ -81,6 +97,61 @@ function pgIsReady() {
   return r.status === 0;
 }
 
+// Bounds both pg_ctl -w and the wait on an already-starting postmaster.
+// Post-crash fsync/redo recovery on this PGDATA is ~60-75s post-prune but
+// grew to 10-20+ min when scratch DBs accumulated — hence overridable.
+const START_TIMEOUT_S = Number(process.env.VHHEALTH_TEST_DB_START_TIMEOUT_S || 300);
+
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function readExcludedPortRanges() {
+  if (process.platform !== 'win32') return [];
+  try {
+    const r = spawnSync('netsh', ['int', 'ipv4', 'show', 'excludedportrange', 'protocol=tcp'], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+    return r.status === 0 ? parseExcludedPortRanges(r.stdout || '') : [];
+  } catch {
+    return [];
+  }
+}
+
+function readPostmaster() {
+  try {
+    const postmaster = parsePostmasterPid(
+      fs.readFileSync(path.join(PGDATA, 'postmaster.pid'), 'utf8')
+    );
+    if (!postmaster) return { postmaster: null, alive: false };
+    let alive = false;
+    try {
+      process.kill(postmaster.pid, 0);
+      alive = true;
+    } catch (err) {
+      alive = Boolean(err) && err.code === 'EPERM';
+    }
+    return { postmaster, alive };
+  } catch {
+    return { postmaster: null, alive: false };
+  }
+}
+
+// The logfile is frequently exclusively held right after a failed start
+// (a postmaster that DID come up keeps it open as stderr) — retry briefly
+// instead of giving up with "<could not read logfile>".
+function readLogTail(lines = 15, attempts = 3) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return fs.readFileSync(LOG_FILE, 'utf8').split('\n').slice(-lines).join('\n');
+    } catch {
+      if (i < attempts - 1) sleepMs(500);
+    }
+  }
+  return null;
+}
+
 function ensureListenAddressesIpv4Only() {
   // Defensive: rewrite the listen_addresses line in postgresql.conf so
   // future `pg_ctl start` invocations without `-o "-h 127.0.0.1"` also
@@ -128,7 +199,58 @@ function startCluster() {
         `Run scripts/ensure-test-db.mjs first (it initdb's the cluster).`
     );
   }
-  log(`starting cluster from ${PGDATA} on ${HOST}:${PORT}`);
+  // Pre-flight 1: a postmaster already running from this PGDATA? Starting a
+  // second one can only fail on the postmaster.pid lock — and if it sits on
+  // a DIFFERENT port (e.g. WinNAT stole ours and someone restarted it on a
+  // low port), say exactly that instead of colliding with the lock.
+  const { postmaster, alive } = readPostmaster();
+  if (alive && postmaster) {
+    if (Number(postmaster.port) !== Number(PORT)) {
+      const diag = classifyStartFailure({
+        port: PORT,
+        logTail: '',
+        excludedRanges: [],
+        postmaster,
+        postmasterAlive: alive,
+      });
+      fatal(`refusing to start on ${HOST}:${PORT} — ${diag.kind}\n${diag.remediation.join('\n')}`);
+    }
+    // Same port but the socket is not answering yet: it is starting up
+    // (first start after an unclean shutdown does a slow fsync/redo pass).
+    log(
+      `postmaster PID ${postmaster.pid} is already starting on ${PORT} — ` +
+        `waiting up to ${START_TIMEOUT_S}s (crash recovery is slow but IS progress)`
+    );
+    const deadline = Date.now() + START_TIMEOUT_S * 1000;
+    let lastNote = Date.now();
+    while (Date.now() < deadline) {
+      if (pgIsReady()) {
+        log('cluster finished starting');
+        return;
+      }
+      if (Date.now() - lastNote >= 30000) {
+        log('still starting (crash recovery in progress)...');
+        lastNote = Date.now();
+      }
+      sleepMs(5000);
+    }
+    fatal(
+      `cluster did not accept connections within ${START_TIMEOUT_S}s — ` +
+        `raise VHHEALTH_TEST_DB_START_TIMEOUT_S or tail ${LOG_FILE}`
+    );
+  }
+
+  // Pre-flight 2: don't attempt pg_ctl into a WinNAT-excluded port — the
+  // bind failure it produces is cryptic and contends for the logfile.
+  const preHit = findExclusionRange(PORT, readExcludedPortRanges());
+  if (preHit) {
+    fatal(
+      `pre-flight: ${HOST}:${PORT} is not bindable — winnat-exclusion\n` +
+        buildWinnatRemediation(Number(PORT), preHit).join('\n')
+    );
+  }
+
+  log(`starting cluster from ${PGDATA} on ${HOST}:${PORT} (override via VHHEALTH_TEST_DB_PORT)`);
   const r = spawnSync(
     bin('pg_ctl'),
     [
@@ -136,27 +258,26 @@ function startCluster() {
       '-l', LOG_FILE,
       '-o', `-p ${PORT} -h ${HOST}`,
       '-w',
-      '-t', '60',
+      '-t', String(START_TIMEOUT_S),
       'start',
     ],
     { encoding: 'utf8', stdio: 'inherit' }
   );
   if (r.status !== 0) {
-    let tail = '';
-    try {
-      tail = fs.readFileSync(LOG_FILE, 'utf8').split('\n').slice(-15).join('\n');
-    } catch {
-      tail = '<could not read logfile>';
-    }
-    if (tail.includes('Permission denied')) {
-      fatal(
-        `pg_ctl start failed with "Permission denied" on bind. ` +
-          `Even with -h 127.0.0.1 this should not happen on this host. ` +
-          `Steps to recover: 1) Get-Process postgres (kill any non-service zombie). ` +
-          `2) wsl --shutdown. 3) re-run. Last log:\n${tail}`
-      );
-    }
-    fatal(`pg_ctl start failed (exit ${r.status}). Last log:\n${tail}`);
+    const tail = readLogTail();
+    const after = readPostmaster();
+    const diag = classifyStartFailure({
+      port: PORT,
+      logTail: tail,
+      excludedRanges: readExcludedPortRanges(),
+      postmaster: after.postmaster,
+      postmasterAlive: after.alive,
+    });
+    fatal(
+      `pg_ctl start failed (exit ${r.status}) — ${diag.kind}\n` +
+        `${diag.remediation.join('\n')}\n` +
+        `--- last log lines ---\n${tail ?? '<logfile unreadable — locked by another process>'}`
+    );
   }
   log('cluster started');
 }

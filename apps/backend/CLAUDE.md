@@ -331,6 +331,25 @@ mode is silent (cluster comes partway up then exits, refuses
 connections, no other diagnostic beyond the log line `could not bind
 IPv6 address "::1": Permission denied`).
 
+**WinNAT dynamic exclusion ranges (2026-07-01, recurred 2026-07-28).**
+Distinct from the IPv6 caveat: after a WinNAT service restart or a
+reboot, Windows reserves random high-port TCP ranges (inspect with
+`netsh int ipv4 show excludedportrange protocol=tcp`) and 55432 can
+land inside one — `pg_ctl` then fails with `could not bind IPv4
+address "127.0.0.1": Permission denied` with nothing listening.
+`qa-cluster-up.mjs` pre-flights this (plus "a postmaster from this
+PGDATA is already running on another port" and "cluster is mid
+crash-recovery") via `scripts/lib/qaPortDiagnostics.mjs` and prints
+the exact remediation: elevated `net stop winnat && net start winnat`,
+reboot, or the no-admin low-port fallback
+`VHHEALTH_TEST_DB_PORT=15432 node apps/backend/scripts/qa-cluster-up.mjs`
+(ports below 47001 stay outside the dynamic pool; point jest at the
+same port via `DATABASE_URL`/`TEST_DATABASE_URL`). A slow first start
+after an unclean shutdown is a real fsync/redo pass — progress, not a
+hang; `VHHEALTH_TEST_DB_START_TIMEOUT_S` (default 300) bounds the
+wait. Classification behaviour is pinned by
+`src/tests/unit/qaPortDiagnostics.test.js`.
+
 ## Sibling apps (same monorepo)
 
 See the [root `CLAUDE.md`](../../CLAUDE.md) for the cross-stack layout. Other apps in the same repo:
