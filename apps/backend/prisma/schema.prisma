@@ -5176,6 +5176,7 @@ model facilities {
   service_catalog        service_catalog[]
 
   @@unique([tenant_id, facility_code])
+  @@unique([tenant_id, id], map: "ux_facilities_tenant_id")
   @@index([tenant_id, facility_kind, status], map: "idx_facilities_tenant_kind")
   @@index([tenant_id, status, display_name], map: "idx_facilities_tenant_status")
 }
@@ -5199,10 +5200,10 @@ model facility_locations {
   updated_at               DateTime             @default(now()) @db.Timestamptz(6)
   cold_chain_units         cold_chain_units[]
   device_registry          device_registry[]
-  facilities               facilities           @relation(fields: [facility_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   facility_locations       facility_locations?  @relation("facility_locationsTofacility_locations", fields: [parent_id], references: [id], onUpdate: NoAction)
   other_facility_locations facility_locations[] @relation("facility_locationsTofacility_locations")
   tenants                  tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facilities               facilities           @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_facility_locations_facility_tenant")
   facility_rooms           facility_rooms[]
   lab_analyzers            lab_analyzers[]
   mortuary_slots           mortuary_slots[]
@@ -5228,9 +5229,9 @@ model facility_rooms {
   metadata           Json               @default("{}")
   created_at         DateTime           @default(now()) @db.Timestamptz(6)
   updated_at         DateTime           @default(now()) @db.Timestamptz(6)
-  facilities         facilities         @relation(fields: [facility_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   facility_locations facility_locations @relation(fields: [location_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facilities         facilities         @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_facility_rooms_facility_tenant")
 
   @@unique([facility_id, room_code])
   @@index([tenant_id, room_kind, status], map: "idx_facility_rooms_kind")
@@ -8819,7 +8820,7 @@ model service_catalog {
   created_by               String?     @db.Uuid
   created_at               DateTime    @default(now()) @db.Timestamptz(6)
   updated_at               DateTime    @default(now()) @db.Timestamptz(6)
-  facilities               facilities? @relation(fields: [facility_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facilities               facilities? @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_catalog_facility_tenant")
   tenants                  tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, service_code])
@@ -15235,8 +15236,8 @@ model appointment_queues {
   created_at                       DateTime                           @default(now()) @db.Timestamptz(6)
   updated_at                       DateTime                           @default(now()) @db.Timestamptz(6)
   appointment_queue_status_history appointment_queue_status_history[]
-  facilities                       facilities?                        @relation(fields: [facility_id], references: [id], onUpdate: NoAction)
   tenants                          tenants                            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facilities                       facilities?                        @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_appointment_queues_facility_tenant")
   appointments                     appointments[]
   patient_flow_checkins            patient_flow_checkins[]
 
@@ -15420,7 +15421,7 @@ model lab_analyzers {
   updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
   lab_analyzer_qc_runs        lab_analyzer_qc_runs[]
   lab_analyzer_status_history lab_analyzer_status_history[]
-  facilities                  facilities?                   @relation(fields: [facility_id], references: [id], onUpdate: NoAction)
+  facilities                  facilities?                   @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_lab_analyzers_facility_tenant")
   facility_locations          facility_locations?           @relation(fields: [location_id], references: [id], onUpdate: NoAction)
   tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   lab_interface_messages      lab_interface_messages[]
@@ -20096,8 +20097,8 @@ model queue_display_profiles {
   updated_by                  String?      @db.Uuid
   created_at                  DateTime     @default(now()) @db.Timestamptz(6)
   updated_at                  DateTime     @default(now()) @db.Timestamptz(6)
+  facilities                  facilities?  @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_queue_display_profiles_facility_tenant")
   departments                 departments? @relation(fields: [department_id], references: [id], onUpdate: NoAction)
-  facilities                  facilities?  @relation(fields: [facility_id], references: [id], onUpdate: NoAction)
   tenants                     tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, profile_key], map: "ux_queue_display_profiles_key")
