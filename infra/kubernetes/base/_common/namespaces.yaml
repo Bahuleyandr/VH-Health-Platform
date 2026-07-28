@@ -1,6 +1,6 @@
 # namespaces.yaml — VH Health platform namespaces
 #
-# All five namespaces carry Pod Security Standards "restricted" enforcement:
+# All six namespaces carry Pod Security Standards "restricted" enforcement:
 # no privileged containers, no host namespaces, no hostPath volumes (other than
 # what the kubelet injects), runAsNonRoot required, seccomp=RuntimeDefault.
 # See https://kubernetes.io/docs/concepts/security/pod-security-admission/
@@ -44,6 +44,23 @@ metadata:
     pod-security.kubernetes.io/warn-version: latest
   annotations:
     vhhealth.app/description: "Platform data-plane services — CNPG Postgres, Redis Sentinel, MinIO, Harbor."
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-restore-proof
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    vhhealth.app/purpose: database-restore-proof
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "Restricted namespace for suspended, disposable CNPG restore proofs."
 ---
 apiVersion: v1
 kind: Namespace

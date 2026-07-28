@@ -5,8 +5,8 @@
 > for kubeconfig setup.
 
 **Severity:** P0
-**RPO target:** ≤ 1 hour
-**RTO target:** ≤ 30 minutes
+**RPO target:** ≤ 5 minutes
+**RTO target:** ≤ 60 minutes
 
 Companion to [`../DISASTER-RECOVERY.md`](../DISASTER-RECOVERY.md) — that
 doc has the full scenario tree; this runbook is the hot-path "restore
@@ -26,9 +26,15 @@ via CloudNativePG PITR" step-by-step.
 - kubeconfig for `vhhealth-prod` cluster context.
 - `kubectl cnpg` plugin installed locally
   (`kubectl krew install cnpg`).
-- Read access to the `pgbackrest-cipher` sealed secret (its decrypted
-  form lives inside the cluster as Secret `pgbackrest-cipher`; CNPG
-  pods mount it automatically).
+- The pinned Barman Cloud Plugin is healthy and
+  `objectstores.barmancloud.cnpg.io` is established. A plugin outage can leave
+  the database serving while WAL/base-backup and recovery jobs stop.
+- A sealed `cnpg-dr-reader-credentials` Secret in the recovery namespace.
+  Recovery uses this Object Read-only identity only; the CNPG producer Secret
+  is prohibited.
+- The recovery image matches the backup's PostgreSQL major and qualified source
+  image. Production remains on PostgreSQL 17 until the C1.2 Kubernetes 1.34+
+  and PostgreSQL 18 qualification gates pass.
 - 2–5 minutes of accepted read-only mode — the app will fail at the
   circuit breaker anyway, so the UX degrades regardless.
 
@@ -70,33 +76,48 @@ kubectl -n vhhealth-platform get backups
 For PITR to a specific timestamp, pick the exact wall-clock second you
 want to land on (all timestamps in ISO 8601 with IST offset).
 
-### 4. Bring up a recovery Cluster via `kubectl cnpg restore`
+### 4. Bring up a recovery Cluster through the Barman plugin
 
 This creates a NEW `Cluster` CR alongside the broken one — it doesn't
-destroy the broken one, so you retain rollback.
+destroy the broken one, so you retain rollback. The committed reference is
+`infra/kubernetes/base/cnpg/dr-restore-drill.yaml`: its recovery source uses
+`externalClusters[].plugin` with plugin
+`barman-cloud.cloudnative-pg.io`, ObjectStore `vhhealth-pg18-reader`, and
+archive server identity `vhhealth-pg18`.
+
+That committed template is only for the post-qualification PostgreSQL 18
+archive. While production remains on PostgreSQL 17, recover from the exact
+qualified PG17 image/archive and the reader-only recovery procedure recorded by
+the mandatory pre-upgrade rehearsal. Never use the PG18 template to open a
+PG17 backup or retarget the PG17 archive.
 
 ```bash
-# Point-in-time recovery to a specific timestamp:
-kubectl cnpg restore \
-  --cluster vhhealth-pg-recovery \
-  --source vhhealth-pg \
-  --target-time "2026-04-22T14:05:00+05:30"
-
-# Or, latest available WAL (full recover to most recent archived segment):
-kubectl cnpg restore \
-  --cluster vhhealth-pg-recovery \
-  --source vhhealth-pg
+# First prove the committed reader-only path in the restricted proof namespace.
+# The script removes only its labeled disposable Cluster and ObjectStore.
+bash infra/kubernetes/base/cnpg/dr-restore-drill.sh
 ```
 
-Watch it bootstrap:
+For a real incident, create a reviewed incident copy of that plugin
+`ObjectStore` + `Cluster` pair. Change only the namespace, recovery-cluster
+name, qualified image for the backup's major version, recovery target time, and
+the archive identity selected for the source backup. A PostgreSQL 18 copy keeps
+`vhhealth-pg18`; a current or historical PostgreSQL 17 recovery intentionally
+sets and records the qualified PostgreSQL 17 archive identity. Preserve that
+selected identity throughout recovery: never retarget or overwrite its archive.
+Keep the read-only Secret, plugin name, endpoint, and source binding unchanged.
+Store the exact rendered YAML and checksum in the incident evidence bundle
+before applying it.
+
+Watch the incident recovery cluster bootstrap:
 ```bash
 kubectl -n vhhealth-platform get cluster vhhealth-pg-recovery -w
 # Phase transitions: Creating cluster -> Bootstrapping -> Cluster in healthy state
 ```
 
-Bootstrap pulls the base backup from MinIO (`repo1`) and replays WAL
-segments. Time depends on WAL volume since the base backup: typically
-2–10 minutes for a single day's worth of WAL.
+Bootstrap reads the R2 base backup and WAL through the reader-only Barman
+`ObjectStore`. It never needs or mounts `cnpg-backup-producer-credentials`.
+Record the selected `Backup` custom resource, object metadata, archive identity,
+replayed target time, and elapsed recovery time.
 
 ### 5. Verify recovered data
 
@@ -118,44 +139,58 @@ daily Prometheus scrape of `vhhealth_table_rows` gets you this).
 
 ### 6. Cut the backend over to the recovered cluster
 
-Update the `vhhealth-db-url` sealed secret to point at the new primary:
+Rotate the actual broad `vhhealth-backend-env` SealedSecret. Start from the
+approved complete plaintext source used for the currently deployed Secret,
+preserve every reviewed key, and change only the database bindings:
+
+- `DATABASE_URL` uses the `vhhealth_runtime` role and the recovered read/write
+  Service.
+- `DATABASE_READ_URL`, when enabled, uses the recovered read-only Service.
+- `DATABASE_SUPERUSER_URL` uses the owner role and recovered read/write Service
+  for the PreSync migration hook.
+
+Never create a two- or three-key replacement Secret: updating the broad Secret
+with only database keys would remove JWT, API, encryption, integration, and
+monitoring credentials.
 
 ```bash
-cat > /tmp/db-url-secret.yaml <<EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vhhealth-db-url
-  namespace: vhhealth
-stringData:
-  DATABASE_URL: "postgresql://vhhealth:<DB_PASSWORD>@vhhealth-pg-recovery-rw.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require"
-  DATABASE_READ_URL: "postgresql://vhhealth:<DB_PASSWORD>@vhhealth-pg-recovery-ro.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require"
-EOF
+# /secure/operator-work/vhhealth-backend-env.yaml is a complete Secret named
+# vhhealth-backend-env in namespace vhhealth, sourced outside the repository.
+kubeseal \
+  --controller-namespace sealed-secrets \
+  --controller-name sealed-secrets-controller \
+  --scope strict \
+  -f /secure/operator-work/vhhealth-backend-env.yaml \
+  -w infra/kubernetes/apps/backend/sealed-secret.yaml
 
-kubeseal < /tmp/db-url-secret.yaml \
-  > infra/kubernetes/apps/backend/vhhealth-db-url.sealed-secret.yaml
-rm /tmp/db-url-secret.yaml
-
-git commit -am "incident: point backend at vhhealth-pg-recovery (restore)"
+# The real sealed file must be a Kustomize resource. On first activation, add
+# `- sealed-secret.yaml` under resources in the backend kustomization and stage
+# that reviewed resource entry in the same commit.
+git add infra/kubernetes/apps/backend/sealed-secret.yaml \
+  infra/kubernetes/apps/backend/kustomization.yaml
+git diff --cached -- \
+  infra/kubernetes/apps/backend/sealed-secret.yaml \
+  infra/kubernetes/apps/backend/kustomization.yaml
+git commit -m "incident: point backend at vhhealth-pg-recovery (restore)"
 git push
-argocd app sync vhhealth-backend
+approved_sha="$(git rev-parse HEAD)"
+argocd app sync vhhealth-apps --revision "${approved_sha}"
+kubectl -n vhhealth wait --for=condition=complete \
+  job/vhhealth-backend-migrate --timeout=900s
+kubectl -n vhhealth logs job/vhhealth-backend-migrate
 kubectl -n vhhealth rollout restart deployment/vhhealth-backend
 kubectl -n vhhealth rollout status deployment/vhhealth-backend
 ```
 
 ### 7. Apply any post-backup migrations
 
-If new migrations landed between the backup and the incident:
-
-```bash
-kubectl -n vhhealth apply -f infra/kubernetes/apps/backend/jobs/migrate.yaml
-kubectl -n vhhealth wait --for=condition=complete job/vhhealth-migrate --timeout=600s
-kubectl -n vhhealth logs job/vhhealth-migrate
-```
-
-Phase 0.5 note: Prisma only has ~69 of the ~170 tables; the rest live
-in `migrations/*.sql` and must be re-applied. The `migrate.yaml` Job
-wraps `scripts/ci-setup-db.mjs` which handles both paths.
+The manual `vhhealth-apps` sync above runs the repository's actual
+`infra/kubernetes/apps/backend/migration-job.yaml` as the
+`Job/vhhealth-backend-migrate` PreSync hook. It reads
+`DATABASE_SUPERUSER_URL` from `vhhealth-backend-env`, ensures pgvector is
+available, and runs the tracker-driven `scripts/ci-setup-db.mjs`. Hook failure
+aborts the app sync. Do not manually apply a second migration manifest or
+continue the rollout after a failed hook.
 
 ### 8. Take the API out of maintenance mode
 
@@ -183,17 +218,14 @@ curl -s -H "x-api-key: $API_KEY" https://api.vhhealth.app/api/v1/appointments/li
 - Close the Sentry issue with a `db-restore-completed-YYYYMMDD` tag.
 - Post a resolution message to `#vhhealth-ops`.
 
-### 11. Rename the recovery cluster to the primary (follow-up)
+### 11. Preserve recovery evidence and plan consolidation
 
-Once confirmed stable for 24+ hours, consolidate:
-
-1. Delete the old `vhhealth-pg` Cluster CR (preserves PV retention per
-   storageClass policy).
-2. Create a new `vhhealth-pg` that bootstraps from `vhhealth-pg-recovery`.
-3. Point the `vhhealth-db-url` secret back at `vhhealth-pg-rw`.
-
-This is a planned maintenance step; open a follow-up ticket rather than
-doing it under incident pressure.
+Do not delete or rename the original cluster under incident pressure. After at
+least 24 hours of verified service, open a separately approved maintenance
+change for the long-term cluster name and service wiring. Preserve the broken
+cluster, source image reference, `Backup` custom resources, R2 objects,
+checksums, plugin/ObjectStore status, and recovery logs until the evidence owner
+signs off. Cleanup may remove only resources explicitly labeled disposable.
 
 ## Scenario — Circuit-breaker flap
 
@@ -215,11 +247,14 @@ If CNPG shows Healthy but the app still shows circuit-open:
 ## Post-incident
 
 - [ ] Note the RPO actually achieved (time between last WAL archive and
-      incident) — if > 1hr, raise a separate ticket to tighten
-      `archive_timeout` below 60s or check pgBackRest / MinIO latency.
+      incident) — if > 5 minutes, treat the RPO target as breached and raise a
+      separate remediation item to tighten
+      `archive_timeout` or investigate Barman-plugin/R2 latency.
 - [ ] Confirm `kubectl -n vhhealth-platform get backups` is resuming
       on-schedule after the recovery.
 - [ ] Post the timeline to `#vhhealth-postmortem`.
-- [ ] If the `pgbackrest-cipher` secret was accessed by anyone other than
-      the on-call, rotate it via [`cert-rotation.md`](./cert-rotation.md)
-      §pgBackRest.
+- [ ] Confirm the verifier and restore paths still reference only
+      `cnpg-dr-reader-credentials`; rotate the reader generation if it was
+      exposed, without deleting the last known-good generation.
+- [ ] Never delete R2 objects, `Backup` custom resources, checksums, drill
+      evidence, or the only recoverable backup generation.

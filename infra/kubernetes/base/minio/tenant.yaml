@@ -25,8 +25,12 @@
 #
 # Console + admin ingress: only on `nginx-internal`, LAN-only host
 # `minio.vhhealth.hospital.local`. The S3 API is reached at
-# `minio.vhhealth-platform.svc.cluster.local:443` from inside the
-# cluster; no ingress exposes the S3 endpoint.
+# `minio.vhhealth-platform.svc.cluster.local:443` from inside the cluster
+# through the operator-created `minio` Service, whose DNS name is covered by
+# requestAutoCert. The custom `minio-api` alias below is retained
+# for existing clients, but backup jobs must not use it for TLS because it is
+# not covered by the operator-managed certificate. No ingress exposes the S3
+# endpoint.
 ---
 apiVersion: v1
 kind: Service
@@ -64,7 +68,7 @@ metadata:
     prometheus.io/port: "9000"
     prometheus.io/scrape: "true"
 spec:
-  image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
+  image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332
   imagePullPolicy: IfNotPresent
   # Root creds for the tenant — referenced by the operator at bootstrap.
   configuration:

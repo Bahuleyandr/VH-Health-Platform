@@ -1,7 +1,8 @@
 # cnpg/kustomization.yaml — CloudNativePG operator + VH Health cluster
 #
-# The CNPG operator is installed from the upstream pinned release:
-#   https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.24.1/cnpg-1.24.1.yaml
+# The CNPG operator and Barman plugin are installed out-of-band from the
+# digest-qualified 1.30.0 / 0.13.0 release manifests. This kustomization
+# carries only the inert marker and resources that depend on their CRDs.
 #
 # The URL is NOT listed in `resources:` below because:
 #   (a) Remote resources break offline builds and add ~9k lines to every
@@ -23,10 +24,24 @@ metadata:
   name: vhhealth-cnpg
 resources:
   - operator.yaml
+  - barman-cloud-object-store.yaml
   - cluster.yaml
   - poolers.yaml
   - scheduled-backup.yaml
-  # REL-2 / B2.2: DR drill template (not applied by ArgoCD — operator uses
-  # this file as a copy-paste template for drills and real incidents).
-  # The CronJob for WAL archive verification IS applied continuously.
   - r2-backup-hardening.yaml
+  - scheduled-restore-proof.yaml
+  - backup-network-policy.yaml
+
+# DR drill and PG18 upgrade rehearsal manifests remain operator-owned,
+# synthetic templates and are intentionally excluded from this render.
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: cnpg-backup-verification-scripts
+    namespace: vhhealth-platform
+    files:
+      - verify-cnpg-backup.sh
+  - name: cnpg-restore-proof-scripts
+    namespace: vhhealth-restore-proof
+    files:
+      - scheduled-restore-proof.sh

@@ -1,306 +1,154 @@
 #!/usr/bin/env bash
-# dr-restore-drill.sh — Executable DR restore drill (REL-2 / B2.2)
-#
-# Restores the latest CNPG backup from Cloudflare R2 into a scratch namespace,
-# verifies clinical invariants, measures RPO and RTO, records results, and
-# tears down. EVERY step is copy-pasteable or automated.
-#
-# Usage:
-#   export CF_R2_ACCOUNT_ID=<your-r2-account-id>
-#   export DRILL_DATE=$(date +%Y-%m-%d)
-#   bash infra/kubernetes/base/cnpg/dr-restore-drill.sh
-#
-# The script is safe to run on the real ops workstation (it uses a scratch
-# namespace and never touches the production cluster or its namespace).
-# It creates PHI-containing data in vhhealth-drill — tear-down is automated
-# and enforced.
-#
-# Targets:
-#   RPO: ≤ 5 minutes (WAL archiving lag from last WAL segment to R2)
-#   RTO: ≤ 60 minutes (from decision to declare DR to service restored)
-#
-# Prerequisites:
-#   - kubectl in PATH, authenticated to the prod cluster (read-only for drill)
-#   - kubectl cnpg plugin: https://cloudnative-pg.io/documentation/
-#   - cnpg-backup-credentials secret accessible in vhhealth-platform
-#   - CF_R2_ACCOUNT_ID environment variable set
-#   - envsubst (gettext-base package) in PATH
-#   - jq in PATH (for result parsing)
 set -euo pipefail
 
-# ── Config ────────────────────────────────────────────────────────────────────
-DRILL_NS="vhhealth-drill"
+DRILL_NS="vhhealth-restore-proof"
 DRILL_CLUSTER="vhhealth-pg-drill"
-PROD_NS="vhhealth-platform"
-PROD_CLUSTER="vhhealth-pg"
-DRILL_DATE="${DRILL_DATE:-$(date +%Y-%m-%d)}"
-RESULTS_DIR="docs/qa-findings"
-RESULTS_FILE="${RESULTS_DIR}/${DRILL_DATE}-dr-drill.md"
+READER_STORE="vhhealth-pg18-reader"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFEST="${SCRIPT_DIR}/dr-restore-drill.yaml"
+EXPECTED_IMAGE="ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8"
+created_store=false
+created_cluster=false
+cluster_uid=""
+store_uid=""
+proxy_pid=""
+proxy_log=""
 
-# RPO/RTO targets (seconds)
-RPO_TARGET_SECONDS=300    # 5 minutes
-RTO_TARGET_SECONDS=3600   # 60 minutes
+log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+fail() { log "ERROR: $*" >&2; exit 1; }
 
-# ── Timing ────────────────────────────────────────────────────────────────────
-DRILL_START=$(date +%s)
-DRILL_START_HM=$(date '+%Y-%m-%dT%H:%M:%S%z')
-
-log() { echo "[$(date '+%H:%M:%S')] $*"; }
-err() { echo "[$(date '+%H:%M:%S')] ERROR: $*" >&2; }
-
-# ── Preflight checks ─────────────────────────────────────────────────────────
-log "=== VH Health DR Restore Drill — ${DRILL_DATE} ==="
-log "Pre-flight checks..."
-
-if [[ -z "${CF_R2_ACCOUNT_ID:-}" ]]; then
-  err "CF_R2_ACCOUNT_ID is not set. Export it before running this script."
-  exit 1
-fi
-
-for cmd in kubectl envsubst jq; do
-  if ! command -v "${cmd}" &>/dev/null; then
-    err "Required command '${cmd}' not found in PATH."
+cleanup() {
+  original_status=$?
+  trap - EXIT INT TERM
+  cleanup_failed=false
+  cluster_absent=true
+  if [[ "${created_cluster}" == "true" || "${created_store}" == "true" ]]; then
+    proxy_log="$(mktemp)"
+    kubectl proxy --port=0 >"${proxy_log}" 2>&1 &
+    proxy_pid=$!
+    for _ in $(seq 1 50); do
+      proxy_address="$(grep -Eo '127\.0\.0\.1:[0-9]+' "${proxy_log}" | head -1 || true)"
+      [[ -n "${proxy_address}" ]] && break
+      kill -0 "${proxy_pid}" 2>/dev/null || break
+      sleep 0.1
+    done
+    if [[ -z "${proxy_address:-}" ]]; then
+      log "ERROR: could not start a UID-preconditioned cleanup API proxy"
+      cleanup_failed=true
+      [[ "${created_cluster}" != "true" ]] || cluster_absent=false
+    elif [[ "${created_cluster}" == "true" &&
+      "$(kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" \
+      -o jsonpath='{.metadata.labels.vhhealth\.app/disposable-restore-proof}:{.metadata.uid}' 2>/dev/null || true)" == "true:${cluster_uid}" ]]; then
+      curl --fail --silent --show-error -X DELETE \
+        -H "Content-Type: application/json" \
+        --data-binary "{\"apiVersion\":\"v1\",\"kind\":\"DeleteOptions\",\"preconditions\":{\"uid\":\"${cluster_uid}\"}}" \
+        "http://${proxy_address}/apis/postgresql.cnpg.io/v1/namespaces/${DRILL_NS}/clusters/${DRILL_CLUSTER}" >/dev/null ||
+        cleanup_failed=true
+      if ! kubectl wait --for=delete "cluster/${DRILL_CLUSTER}" -n "${DRILL_NS}" --timeout=10m; then
+        cleanup_failed=true
+        cluster_absent=false
+      fi
+    elif [[ "${created_cluster}" == "true" ]]; then
+      log "ERROR: refusing to delete Cluster; disposable label or created UID changed"
+      cleanup_failed=true
+      cluster_absent=false
+    else
+      cluster_absent=true
+    fi
+    if [[ "${created_store}" == "true" && "${cluster_absent}" != "true" ]]; then
+      log "ERROR: refusing to delete ObjectStore before Cluster deletion is confirmed"
+      cleanup_failed=true
+    elif [[ "${created_store}" == "true" && -n "${proxy_address:-}" &&
+      "$(kubectl get objectstore "${READER_STORE}" -n "${DRILL_NS}" \
+      -o jsonpath='{.metadata.labels.vhhealth\.app/disposable-restore-proof}:{.metadata.uid}' 2>/dev/null || true)" == "true:${store_uid}" ]]; then
+      curl --fail --silent --show-error -X DELETE \
+        -H "Content-Type: application/json" \
+        --data-binary "{\"apiVersion\":\"v1\",\"kind\":\"DeleteOptions\",\"preconditions\":{\"uid\":\"${store_uid}\"}}" \
+        "http://${proxy_address}/apis/barmancloud.cnpg.io/v1/namespaces/${DRILL_NS}/objectstores/${READER_STORE}" >/dev/null ||
+        cleanup_failed=true
+    elif [[ "${created_store}" == "true" ]]; then
+      log "ERROR: refusing to delete ObjectStore; disposable label or created UID changed"
+      cleanup_failed=true
+    fi
+  fi
+  [[ -z "${proxy_pid}" ]] || kill "${proxy_pid}" 2>/dev/null || true
+  [[ -z "${proxy_log}" ]] || rm -f -- "${proxy_log}"
+  if [[ "${original_status}" -eq 0 && "${cleanup_failed}" == "true" ]]; then
     exit 1
   fi
+  exit "${original_status}"
+}
+trap cleanup EXIT INT TERM
+
+for cmd in kubectl curl grep head seq mktemp awk; do
+  command -v "${cmd}" >/dev/null || fail "Required command '${cmd}' is unavailable"
 done
 
-if ! kubectl cnpg version &>/dev/null; then
-  err "kubectl cnpg plugin not found. Install: https://cloudnative-pg.io/documentation/"
-  exit 1
+kubectl get namespace "${DRILL_NS}" >/dev/null ||
+  fail "Restricted namespace ${DRILL_NS} is not installed"
+kubectl get secret cnpg-dr-reader-credentials -n "${DRILL_NS}" >/dev/null ||
+  fail "Read-only DR credential is not sealed in ${DRILL_NS}"
+if kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" >/dev/null 2>&1; then
+  fail "Refusing to overwrite existing Cluster/${DRILL_CLUSTER}"
+fi
+if kubectl get objectstore "${READER_STORE}" -n "${DRILL_NS}" >/dev/null 2>&1; then
+  fail "Refusing to overwrite existing ObjectStore/${READER_STORE}"
 fi
 
-log "Pre-flight OK."
+log "Creating reader-only ObjectStore"
+awk 'BEGIN { doc=0 } /^---[[:space:]]*$/ { doc++; next } doc == 1 { print }' \
+  "${MANIFEST}" | kubectl create -f -
+created_store=true
+store_uid="$(kubectl get objectstore "${READER_STORE}" -n "${DRILL_NS}" -o jsonpath='{.metadata.uid}')"
+[[ -n "${store_uid}" ]] || fail "Created ObjectStore did not expose a stable UID"
 
-# ── Determine recovery target time (T) ───────────────────────────────────────
-# Default: 10 minutes ago (tests WAL replay + PITR accuracy).
-# For a real incident, set RECOVERY_TARGET_TIME explicitly before calling.
-if [[ -z "${RECOVERY_TARGET_TIME:-}" ]]; then
-  RECOVERY_TARGET_TIME=$(date -u -d "10 minutes ago" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
-    || date -u -v-10M '+%Y-%m-%dT%H:%M:%SZ')  # macOS fallback
-  log "Recovery target time (auto): ${RECOVERY_TARGET_TIME}"
-else
-  log "Recovery target time (manual): ${RECOVERY_TARGET_TIME}"
-fi
+log "Creating disposable restore Cluster"
+awk 'BEGIN { doc=0 } /^---[[:space:]]*$/ { doc++; next } doc == 2 { print }' \
+  "${MANIFEST}" | kubectl create -f -
+created_cluster=true
+cluster_uid="$(kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" -o jsonpath='{.metadata.uid}')"
+[[ -n "${cluster_uid}" ]] || fail "Created Cluster did not expose a stable UID"
 
-# Get current max(clinical_timeline_events.created_at) from PROD for RPO calc.
-log "Sampling production DB for RPO baseline..."
-PROD_PRIMARY=$(kubectl get pods -n "${PROD_NS}" \
-  -l postgresql="${PROD_CLUSTER}",role=primary \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-
-PROD_MAX_EVENT=""
-if [[ -n "${PROD_PRIMARY}" ]]; then
-  PROD_MAX_EVENT=$(kubectl exec -n "${PROD_NS}" "${PROD_PRIMARY}" \
-    -c postgres -- psql -U postgres vhhealth -tAc \
-    "SELECT max(created_at) FROM clinical_timeline_events;" 2>/dev/null || echo "UNAVAILABLE")
-  log "Prod max(clinical_timeline_events.created_at): ${PROD_MAX_EVENT}"
-else
-  log "WARNING: Could not reach production primary — RPO calc will be approximate."
-fi
-
-# ── Prepare scratch namespace ─────────────────────────────────────────────────
-log "Creating scratch namespace ${DRILL_NS}..."
-kubectl create namespace "${DRILL_NS}" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Ensure namespace is labeled for auditing.
-kubectl label namespace "${DRILL_NS}" \
-  vhhealth.app/purpose=dr-drill \
-  vhhealth.app/phi-present=true \
-  vhhealth.app/created-by=dr-restore-drill.sh \
-  vhhealth.app/drill-date="${DRILL_DATE}" \
-  --overwrite
-
-log "Copying backup credentials to ${DRILL_NS}..."
-kubectl get secret cnpg-backup-credentials -n "${PROD_NS}" -o yaml \
-  | sed "s/namespace: ${PROD_NS}/namespace: ${DRILL_NS}/" \
-  | kubectl apply -f -
-
-# ── Apply drill cluster ───────────────────────────────────────────────────────
-log "Rendering drill cluster manifest..."
-RECOVERY_START=$(date +%s)
-
-export CF_R2_ACCOUNT_ID RECOVERY_TARGET_TIME DRILL_DATE
-envsubst < "$(dirname "$0")/dr-restore-drill.yaml" > /tmp/drill-cluster.yaml
-
-log "Applying drill cluster..."
-kubectl apply -f /tmp/drill-cluster.yaml
-rm -f /tmp/drill-cluster.yaml
-
-# ── Wait for cluster to become healthy ───────────────────────────────────────
-log "Waiting for drill cluster to reach Ready state (max 50 min)..."
-WAIT_DEADLINE=$(( $(date +%s) + 3000 ))  # 50 minutes
-
-while true; do
-  NOW=$(date +%s)
-  if (( NOW > WAIT_DEADLINE )); then
-    err "Timed out waiting for drill cluster after 50 minutes."
-    err "Cluster status:"
-    kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" -o wide || true
-    kubectl get pods -n "${DRILL_NS}" || true
-    log "Tearing down (timeout) to avoid PHI leak..."
-    kubectl delete namespace "${DRILL_NS}" --wait=false 2>/dev/null || true
-    exit 1
-  fi
-
-  PHASE=$(kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" \
-    -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
-  log "Cluster phase: ${PHASE} (elapsed: $(( NOW - RECOVERY_START ))s)"
-
-  if [[ "${PHASE}" == "Cluster in healthy state" ]]; then
-    break
-  fi
+deadline=$(( $(date +%s) + 3000 ))
+while (( $(date +%s) < deadline )); do
+  phase="$(kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+  [[ "${phase}" == "Cluster in healthy state" ]] && break
   sleep 20
 done
+[[ "${phase:-}" == "Cluster in healthy state" ]] ||
+  fail "Restore did not become healthy within 50 minutes"
 
-RECOVERY_END=$(date +%s)
-RECOVERY_ELAPSED=$(( RECOVERY_END - RECOVERY_START ))
-log "Cluster Ready in ${RECOVERY_ELAPSED}s."
+actual_image="$(kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" \
+  -o jsonpath='{.spec.imageName}')"
+[[ "${actual_image}" == "${EXPECTED_IMAGE}" ]] ||
+  fail "Restored Cluster image differs from the qualified PG18 image"
+status_image="$(kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" \
+  -o jsonpath='{.status.pgDataImageInfo.image}')"
+status_major="$(kubectl get cluster "${DRILL_CLUSTER}" -n "${DRILL_NS}" \
+  -o jsonpath='{.status.pgDataImageInfo.majorVersion}')"
+[[ "${status_image}" == "${EXPECTED_IMAGE}" && "${status_major}" == "18" ]] ||
+  fail "Restored Cluster status does not report the qualified PostgreSQL 18 image"
 
-# ── Verify clinical invariants ────────────────────────────────────────────────
-log "=== Clinical Invariant Verification ==="
-
-DRILL_PRIMARY=$(kubectl get pods -n "${DRILL_NS}" \
-  -l postgresql="${DRILL_CLUSTER}",role=primary \
-  -o jsonpath='{.items[0].metadata.name}')
-
+primary="$(kubectl get pod -n "${DRILL_NS}" \
+  -l "cnpg.io/cluster=${DRILL_CLUSTER},role=primary" \
+  -o jsonpath='{.items[0].metadata.name}')"
 run_sql() {
-  kubectl exec -n "${DRILL_NS}" "${DRILL_PRIMARY}" \
-    -c postgres -- psql -U postgres vhhealth -tAc "$1" 2>&1
+  kubectl exec -n "${DRILL_NS}" "${primary}" -c postgres -- \
+    psql -U postgres -d vhhealth -v ON_ERROR_STOP=1 -qAtc "$1"
 }
 
-log "INV-1: admissions count (status='admitted')..."
-ADMISSIONS=$(run_sql "SELECT count(*) FROM admissions WHERE status = 'admitted';")
-log "  admissions (admitted): ${ADMISSIONS}"
+log "Checking roles, schema, checksums, and pgvector after recovery"
+run_sql "SELECT count(*) = 4 FROM pg_roles WHERE rolname IN ('vhhealth','vhhealth_app','vhhealth_runtime','vhhealth_readonly');" | grep -qx t
+schema_checksum="$(run_sql "SELECT md5(string_agg(table_schema || '.' || table_name || '.' || ordinal_position || ':' || column_name || ':' || data_type || ':' || is_nullable || ':' || COALESCE(column_default,''), ',' ORDER BY table_schema, table_name, ordinal_position)) FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog','information_schema');")"
+[[ -n "${schema_checksum}" ]] || fail "Restored schema checksum is empty"
+run_sql "SHOW data_checksums;" | grep -qx on
+run_sql "SELECT installed_version IS NOT NULL AND installed_version = default_version FROM pg_available_extensions WHERE name='vector';" | grep -qx t
+vector_distance="$(run_sql "SELECT '[1,2,3]'::vector <-> '[1,2,4]'::vector;")"
+run_sql "SET ROLE vhhealth_runtime; SELECT current_user = 'vhhealth_runtime';" | grep -qx t
+application_read="$(run_sql "SET ROLE vhhealth_runtime; ${APPLICATION_READ_SQL:-SELECT count(*) FROM users;}")"
+roles_checksum="$(run_sql "SELECT md5(string_agg(rolname || ':' || rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text, ',' ORDER BY rolname)) FROM pg_roles WHERE rolname IN ('vhhealth','vhhealth_app','vhhealth_runtime','vhhealth_readonly');")"
+printf 'schema_checksum=%s\nroles_checksum=%s\nvector_distance=%s\napplication_read=%s\n' \
+  "${schema_checksum}" "${roles_checksum}" "${vector_distance}" "${application_read}"
 
-log "INV-2: max(clinical_timeline_events.created_at)..."
-MAX_EVENT=$(run_sql "SELECT max(created_at) FROM clinical_timeline_events;")
-log "  max(clinical_timeline_events.created_at): ${MAX_EVENT}"
-
-log "INV-3: migration count..."
-MIGRATION_COUNT=$(run_sql "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL;" 2>/dev/null \
-  || run_sql "SELECT count(*) FROM _migrations;" 2>/dev/null \
-  || echo "UNKNOWN")
-log "  migration count: ${MIGRATION_COUNT}"
-
-log "INV-4: users count..."
-USERS_COUNT=$(run_sql "SELECT count(*) FROM users;")
-log "  users count: ${USERS_COUNT}"
-
-log "INV-5: tenants present..."
-TENANTS=$(run_sql "SELECT count(*) FROM tenants;" 2>/dev/null || echo "N/A")
-log "  tenants: ${TENANTS}"
-
-# ── RPO calculation ───────────────────────────────────────────────────────────
-RPO_SECONDS="UNKNOWN"
-if [[ "${PROD_MAX_EVENT}" != "UNAVAILABLE" && "${MAX_EVENT}" != "" ]]; then
-  PROD_TS=$(date -d "${PROD_MAX_EVENT}" +%s 2>/dev/null || echo 0)
-  DRILL_TS=$(date -d "${MAX_EVENT}" +%s 2>/dev/null || echo 0)
-  if (( PROD_TS > 0 && DRILL_TS > 0 )); then
-    RPO_SECONDS=$(( PROD_TS - DRILL_TS ))
-    log "RPO: ${RPO_SECONDS}s (target ≤ ${RPO_TARGET_SECONDS}s)"
-  fi
-fi
-
-DRILL_END=$(date +%s)
-RTO_SECONDS=$(( DRILL_END - DRILL_START ))
-log "RTO so far: ${RTO_SECONDS}s (target ≤ ${RTO_TARGET_SECONDS}s)"
-
-# ── Results assessment ────────────────────────────────────────────────────────
-RPO_STATUS="UNKNOWN"
-RTO_STATUS="UNKNOWN"
-
-if [[ "${RPO_SECONDS}" != "UNKNOWN" ]]; then
-  if (( RPO_SECONDS <= RPO_TARGET_SECONDS )); then
-    RPO_STATUS="PASS"
-  else
-    RPO_STATUS="FAIL"
-  fi
-fi
-
-if (( RTO_SECONDS <= RTO_TARGET_SECONDS )); then
-  RTO_STATUS="PASS"
-else
-  RTO_STATUS="FAIL"
-fi
-
-# ── Write results file ────────────────────────────────────────────────────────
-mkdir -p "${RESULTS_DIR}"
-cat > "${RESULTS_FILE}" <<EOF
-# DR Restore Drill Results — ${DRILL_DATE}
-
-> Automated by \`infra/kubernetes/base/cnpg/dr-restore-drill.sh\`
-
-## Drill metadata
-
-| Field | Value |
-|---|---|
-| Drill date | ${DRILL_DATE} |
-| Drill start | ${DRILL_START_HM} |
-| Recovery target time | ${RECOVERY_TARGET_TIME} |
-| Operator | <!-- fill in --> |
-| Drill cluster namespace | ${DRILL_NS} |
-
-## Timing
-
-| Metric | Measured | Target | Status |
-|---|---|---|---|
-| Cluster ready (recovery elapsed) | ${RECOVERY_ELAPSED}s ($(( RECOVERY_ELAPSED / 60 ))m) | N/A | — |
-| RPO (max event lag) | ${RPO_SECONDS}s | ≤ ${RPO_TARGET_SECONDS}s (5m) | **${RPO_STATUS}** |
-| RTO (total drill time) | ${RTO_SECONDS}s ($(( RTO_SECONDS / 60 ))m) | ≤ ${RTO_TARGET_SECONDS}s (60m) | **${RTO_STATUS}** |
-
-## Clinical invariants
-
-| Check | Value | Assessment |
-|---|---|---|
-| admissions (admitted) | ${ADMISSIONS} | <!-- PASS/FAIL/note --> |
-| max(clinical_timeline_events.created_at) | ${MAX_EVENT} | <!-- close to T? --> |
-| migration count | ${MIGRATION_COUNT} | <!-- matches prod? --> |
-| users count | ${USERS_COUNT} | <!-- plausible? --> |
-| tenants | ${TENANTS} | <!-- expected? --> |
-
-## Backend smoke test
-
-<!-- Operator: point a local backend at the drill cluster and record: -->
-- [ ] \`GET /health/deep\` → 200
-- [ ] One chart read (e.g. GET /api/patients/{id}/timeline) → data matches T
-- [ ] OPD admission count endpoint → matches invariant above
-
-## Findings
-
-<!-- Any deviations, issues, or observations. -->
-<!-- RTO/RPO breach → high-severity finding. Log it here and file a ticket. -->
-
-## Actions
-
-<!-- Next steps, ticket references, runbook updates. -->
-
-## Teardown confirmation
-
-<!-- Operator: confirm the drill namespace was deleted after the drill. -->
-- [ ] \`kubectl delete namespace ${DRILL_NS}\` completed
-- [ ] No drill pods remain: \`kubectl get pods -n ${DRILL_NS}\` → 0 results
-EOF
-
-log "Results written to: ${RESULTS_FILE}"
-
-# ── Tear down ─────────────────────────────────────────────────────────────────
-log "=== Tearing down drill namespace (PHI data) ==="
-kubectl delete namespace "${DRILL_NS}" --wait=true
-log "Namespace ${DRILL_NS} deleted."
-
-# ── Summary ───────────────────────────────────────────────────────────────────
-log ""
-log "=== DR DRILL SUMMARY ==="
-log "  RPO: ${RPO_SECONDS}s — ${RPO_STATUS} (target ≤ ${RPO_TARGET_SECONDS}s)"
-log "  RTO: ${RTO_SECONDS}s — ${RTO_STATUS} (target ≤ ${RTO_TARGET_SECONDS}s)"
-log "  Clinical invariants: see ${RESULTS_FILE}"
-log ""
-
-if [[ "${RTO_STATUS}" == "FAIL" || "${RPO_STATUS}" == "FAIL" ]]; then
-  err "TARGET BREACH DETECTED. File a high-severity finding and update this runbook."
-  exit 1
-fi
-
-log "Drill complete. Results at ${RESULTS_FILE}."
-log "Commit the results file: git add ${RESULTS_FILE} && git commit -m 'ops: DR drill ${DRILL_DATE} results'"
+log "DR restore drill passed; cleanup will remove only labeled disposable resources"

@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const thisFile = fileURLToPath(import.meta.url);
+const repoRoot = resolve(dirname(thisFile), '..');
 
 const targets = [
   'infra/kubernetes/apps',
@@ -14,6 +15,28 @@ const targets = [
   'infra/kubernetes/overlays/dev',
   'infra/kubernetes/overlays/staging',
   'infra/kubernetes/overlays/prod',
+];
+
+// kubeconform's default schema catalog does not contain these repository-owned
+// or operator-provided CRDs. Keep this as a full-GVK allowlist: a new or
+// misspelled custom resource must fail validation instead of being hidden by
+// -ignore-missing-schemas. ObjectStore's essential C1.1 fields are checked
+// below because the Barman Cloud Plugin CRD is installed operator-side.
+const knownExternalGvks = [
+  'apiextensions.k8s.io/v1/CustomResourceDefinition',
+  'argoproj.io/v1alpha1/Application',
+  'argoproj.io/v1alpha1/AppProject',
+  'barmancloud.cnpg.io/v1/ObjectStore',
+  'bitnami.com/v1alpha1/SealedSecret',
+  'cert-manager.io/v1/Certificate',
+  'cert-manager.io/v1/ClusterIssuer',
+  'kyverno.io/v1/ClusterPolicy',
+  'minio.min.io/v2/Tenant',
+  'monitoring.coreos.com/v1/PrometheusRule',
+  'monitoring.coreos.com/v1/ServiceMonitor',
+  'postgresql.cnpg.io/v1/Cluster',
+  'postgresql.cnpg.io/v1/Pooler',
+  'postgresql.cnpg.io/v1/ScheduledBackup',
 ];
 
 function candidateNames(name) {
@@ -75,10 +98,78 @@ function requireInRendered(target, rendered, checks) {
   }
 }
 
+function rejectInRendered(target, rendered, checks) {
+  const present = checks.filter(({ pattern }) => pattern.test(rendered));
+  if (present.length > 0) {
+    const labels = present.map(({ label }) => `- ${label}`).join('\n');
+    throw new Error(`${target} contains forbidden manifest constructs:\n${labels}`);
+  }
+}
+
+function renderedDocuments(rendered) {
+  return rendered
+    .split(/^---\s*$/m)
+    .map((document) => document.trim())
+    .filter(Boolean);
+}
+
+export function assertNoIngressClassParameters(rendered, target = 'render') {
+  const ingressClasses = renderedDocuments(rendered).filter(
+    (document) =>
+      /^apiVersion:\s+networking\.k8s\.io\/v1\s*$/m.test(document) &&
+      /^kind:\s+IngressClass\s*$/m.test(document),
+  );
+  const withParameters = ingressClasses.filter((document) =>
+    /^\s{2}parameters:\s*(?:.*)$/m.test(document),
+  );
+  if (withParameters.length > 0) {
+    throw new Error(
+      `${target} contains IngressClass spec.parameters, but this repository defines no ` +
+        'IngressClassParameters resource/controller contract.',
+    );
+  }
+}
+
+function requireObjectStoreContract(target, rendered) {
+  if (target !== 'infra/kubernetes/overlays/prod') return;
+
+  const objectStores = renderedDocuments(rendered).filter(
+    (document) =>
+      /^apiVersion:\s+barmancloud\.cnpg\.io\/v1\s*$/m.test(document) &&
+      /^kind:\s+ObjectStore\s*$/m.test(document),
+  );
+
+  if (objectStores.length !== 1) {
+    throw new Error(
+      `${target} must render exactly one barmancloud.cnpg.io/v1 ObjectStore; found ${objectStores.length}.`,
+    );
+  }
+
+  requireInRendered(target, objectStores[0], [
+    { label: 'ObjectStore metadata.name', pattern: /^metadata:\s*$[\s\S]*?^\s{2}name:\s+\S+/m },
+    {
+      label: 'ObjectStore spec.configuration',
+      pattern: /^spec:\s*$[\s\S]*?^\s{2}configuration:\s*$/m,
+    },
+    { label: 'ObjectStore destinationPath', pattern: /^\s{4}destinationPath:\s+s3:\/\/\S+/m },
+    { label: 'ObjectStore HTTPS endpointURL', pattern: /^\s{4}endpointURL:\s+https:\/\/\S+/m },
+    { label: 'ObjectStore s3Credentials', pattern: /^\s{4}s3Credentials:\s*$/m },
+  ]);
+}
+
 function validateTarget(kustomize, kubeconform, target, tmpDir) {
   const rendered = run(kustomize, ['build', target]).stdout;
   const outputFile = join(tmpDir, `${target.replace(/[\\/]/g, '__')}.yaml`);
   writeFileSync(outputFile, rendered, 'utf8');
+
+  rejectInRendered(target, rendered, [
+    {
+      label: 'unsupported/dangling IngressClassParameters reference',
+      pattern: /^\s*kind:\s+IngressClassParameters\s*$/m,
+    },
+  ]);
+  assertNoIngressClassParameters(rendered, target);
+  requireObjectStoreContract(target, rendered);
 
   if (target === 'infra/kubernetes/apps') {
     requireInRendered(target, rendered, [
@@ -98,7 +189,8 @@ function validateTarget(kustomize, kubeconform, target, tmpDir) {
 
   const kubeconformResult = run(kubeconform, [
     '-strict',
-    '-ignore-missing-schemas',
+    '-skip',
+    knownExternalGvks.join(','),
     '-summary',
     outputFile,
   ]);
@@ -122,4 +214,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && resolve(process.argv[1]) === thisFile) {
+  main();
+}

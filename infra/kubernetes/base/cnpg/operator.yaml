@@ -2,11 +2,12 @@
 #
 # The CNPG operator is installed via the upstream release manifest rather
 # than an inline fork, so we stay on the supported distribution channel.
-# The manifest is referenced from `kustomization.yaml` as a remote
-# resource — this file is a marker for humans and a place for any local
-# operator overrides.
+# This file is only an Argo-rendered version marker. The operator and Barman
+# Cloud Plugin are deliberately not Argo-managed: an operator must advance the
+# sequential qualification ladder and install both release manifests before the
+# next manual platform sync.
 #
-# Version: CNPG 1.24.1 (released 2024-11; LTS channel through mid-2026).
+# Target: CNPG 1.30.0 and Barman Cloud Plugin 0.13.0.
 # Upgrade path: https://cloudnative-pg.io/documentation/current/installation_upgrade/
 #
 # The operator creates its own namespace (`cnpg-system`) and deploys a
@@ -50,7 +51,15 @@ metadata:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 data:
-  # Tracked here so Renovate / Argo CD image updaters can bump us.
-  operatorVersion: "1.24.1"
-  manifestUrl: "https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.24.1/cnpg-1.24.1.yaml"
-  postgresImage: "ghcr.io/cloudnative-pg/postgresql:17.2-1"
+  managedByArgoCD: "false"
+  operatorVersion: "1.30.0"
+  operatorManifestUrl: "https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.0/cnpg-1.30.0.yaml"
+  operatorManifestSha256: "f8bede43fe4ee0d478c2355b204a36876b2ae4faac60f2a9452280b293da3b88"
+  operatorImage: "ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0@sha256:a2701eb97cdd2a34b1fdb2cb51987f544b706e40bec72ae7146cd8580efefebb"
+  postgresImage: "ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8"
+  barmanPluginVersion: "0.13.0"
+  barmanPluginName: "barman-cloud.cloudnative-pg.io"
+  barmanPluginManifestUrl: "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.13.0/manifest.yaml"
+  barmanPluginManifestSha256: "d2e71e7b06822448f1a421f05781846cfdb9cc621e7ef32eef5e20c5133213b0"
+  barmanPluginImage: "ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.13.0@sha256:71589dbac582333442812b07b31f7ea4d00324a8358aac7ca507dabf9f4b6c96"
+  barmanSidecarImage: "ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.13.0@sha256:990361af3319f9e23aafa0f6d7981f99bf1f69b4e6a85cf1bc7d71d6f09bb288"

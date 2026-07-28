@@ -1,0 +1,33 @@
+# Barman Cloud Plugin ObjectStores. The producer has Object Read/Write
+# authority because Barman retention requires deletion; readers are separate
+# Object Read-only identities and never participate in backup production.
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: vhhealth-pg18-producer
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: database-backup
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  retentionPolicy: "30d"
+  configuration:
+    destinationPath: "s3://vhhealth-db-backups/cluster/"
+    endpointURL: "https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com"
+    s3Credentials:
+      accessKeyId:
+        name: cnpg-backup-producer-credentials
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: cnpg-backup-producer-credentials
+        key: SECRET_ACCESS_KEY
+    wal:
+      compression: gzip
+      maxParallel: 8
+    data:
+      compression: gzip
+      immediateCheckpoint: false
+      jobs: 2

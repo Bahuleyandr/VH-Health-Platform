@@ -117,6 +117,15 @@ spec:
               value: "5000"
             - name: CLUSTER_WORKERS
               value: "2"
+            # validateEnv.js still treats this legacy deploy/backup variable as
+            # mandatory at backend startup. Keep it explicit and isolated while
+            # the archive jobs also use the same dedicated crypto generation;
+            # never put it back into the broad backend Secret.
+            - name: BACKUP_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backup-crypto
+                  key: BACKUP_ENCRYPTION_KEY
           envFrom:
             - configMapRef:
                 name: vhhealth-backend-config

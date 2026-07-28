@@ -12,6 +12,8 @@
 >   compliance, ABDM/DPDP/CERT-In, and go-live evidence gates
 > - [`../apps/backend/docs/DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md) — DR scenarios
 > - [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md) — CNPG data cutover runbook
+> - [`CNPG_POSTGRES_18_QUALIFICATION.md`](CNPG_POSTGRES_18_QUALIFICATION.md) —
+>   binding CNPG 1.30 / PostgreSQL 18.4 activation and rollback gates
 > - [`../apps/backend/docs/RUNBOOKS/`](../apps/backend/docs/RUNBOOKS/) — day-2 runbooks
 
 ---
@@ -43,7 +45,8 @@ Key properties:
 - Zero inbound ports on the hospital firewall. All external traffic
   arrives via Cloudflare Tunnel.
 - PHI data stays in-hospital. Only encrypted backups leave (to R2).
-- GitOps-driven: every change to infra is a commit; ArgoCD reconciles.
+- GitOps-driven: every change to infra is a commit; ArgoCD reports drift and
+  an operator explicitly syncs each production Application.
 - Self-healing: k8s restarts failed pods; CNPG promotes replicas; etcd
   tolerates 1 node loss.
 
@@ -123,8 +126,9 @@ via `ssh vhhealth@vhh-k8s-0N` with no password prompt.
 ## 3. Ansible bootstrap
 
 The Ansible project at `infra/ansible/` is what turns 3 bare Ubuntu
-nodes into a healthy RKE2 cluster with the platform operators
-pre-installed.
+nodes into a healthy RKE2 cluster. It does not install CNPG, Barman,
+sealed-secrets, ingress, cloudflared, or ArgoCD; those operator and GitOps
+steps are explicit later in this guide.
 
 ### 3.1 Configure inventory
 
@@ -182,12 +186,12 @@ ansible-playbook \
    journald persistent logs, `vhhealth` sudoers).
 2. Install RKE2 server on node 1 → wait until API ready.
 3. Join RKE2 server on nodes 2 + 3 → wait until all 3 are Ready.
-4. Install CNPG operator (`cnpg-system` namespace).
-5. Install sealed-secrets controller (`sealed-secrets` namespace).
-6. Install ingress-nginx as DaemonSet (`ingress-nginx` namespace).
-7. Install `cloudflared` Deployment (`ingress-nginx` namespace).
-8. Copy `kubeconfig` back to the Ansible control machine at
-   `./artifacts/kubeconfig`.
+4. Install post-bootstrap tooling and write the admin kubeconfig to
+   `~vhhealth/.kube/config` on the nodes.
+
+Install the CNPG operator and Barman plugin through the qualified external
+sequence in §4.3. Bootstrap the remaining controllers and workloads through
+their reviewed manifests; `site.yml` does not do that work implicitly.
 
 Total runtime: **20–40 minutes** on fast hardware.
 
@@ -196,7 +200,8 @@ Total runtime: **20–40 minutes** on fast hardware.
 On your ops workstation:
 
 ```bash
-export KUBECONFIG=$(pwd)/artifacts/kubeconfig
+scp vhhealth@vhh-k8s-01:.kube/config ~/.kube/vhhealth-prod.yaml
+export KUBECONFIG=~/.kube/vhhealth-prod.yaml
 
 kubectl get nodes
 # Expected:
@@ -207,9 +212,6 @@ kubectl get nodes
 
 kubectl get pods -A
 # Every pod should be Running or Completed.
-
-kubectl get crd | grep -E "cnpg|sealed"
-# Expected: clusters.postgresql.cnpg.io, sealedsecrets.bitnami.com, etc.
 ```
 
 If any pod is `CrashLoopBackOff`, read its logs and check the
@@ -222,18 +224,24 @@ Ansible role for missing config.
 The platform baseline (Redis, MinIO, Harbor, ArgoCD itself,
 monitoring) is committed under `infra/kubernetes/`. Two-step bootstrap:
 
-### 4.1 First-run: `kustomize build | kubectl apply`
+> **C1.1 activation boundary:** the current production overlay declares the
+> digest-pinned PostgreSQL 18.4 target and Barman `ObjectStore` resources. Do
+> not apply it to the live PostgreSQL 17 cluster, imperatively or through
+> ArgoCD, until C1.2 has upgraded RKE2 to Kubernetes 1.34 or newer and
+> [the qualification gates](CNPG_POSTGRES_18_QUALIFICATION.md) plus the
+> pre-sync checklist in §4.3 are complete. The current RKE2 version is 1.31.4.
 
-```bash
-kustomize build infra/kubernetes/overlays/prod | kubectl apply -f -
+### 4.1 Bootstrap controllers, not the production overlay
 
-kubectl -n vhhealth-platform wait --for=condition=Ready pod -l app=minio --timeout=300s
-kubectl -n vhhealth-platform wait --for=condition=Ready pod -l app=redis --timeout=300s
-kubectl -n argocd wait --for=condition=Ready pod -l app.kubernetes.io/name=argocd-server --timeout=300s
-```
+Install the sealed-secrets controller and ArgoCD itself through their pinned
+bootstrap instructions in `infra/kubernetes/base/sealed-secrets/README.md` and
+`infra/kubernetes/base/argocd/README.md`. Install CNPG and the Barman plugin
+through §4.3.
 
-This drops Kustomize-rendered manifests on the cluster imperatively —
-a one-time bootstrap. From here on, everything flows through ArgoCD.
+Do **not** use `kustomize build infra/kubernetes/overlays/prod | kubectl apply`
+as a bootstrap shortcut. It bypasses the manual Argo gate and, in C1.1, would
+submit the PostgreSQL 18 and `ObjectStore` resources before their activation
+evidence exists.
 
 ### 4.2 Bootstrap ArgoCD to manage itself and the rest
 
@@ -241,129 +249,284 @@ Apply the ArgoCD `AppProject` + `Application` manifests that point
 ArgoCD at this repo:
 
 ```bash
-kubectl apply -f infra/kubernetes/overlays/prod/argocd-bootstrap.yaml
+kubectl apply -k infra/kubernetes/base/argocd
 ```
 
 This creates:
 
-- `AppProject/vhhealth-platform` — scoping for platform namespaces
+- `AppProject/vhhealth` — scoping for approved platform namespaces
 - `Application/vhhealth-platform` — points at `infra/kubernetes/overlays/prod/`
-- `Application/vhhealth-backend` — points at `infra/kubernetes/apps/backend/`
-- `Application/vhhealth-admin` — points at `infra/kubernetes/apps/admin/`
-- `Application/cnpg-cluster` — points at `infra/kubernetes/base/cnpg/`
+- `Application/vhhealth-apps` — points at `infra/kubernetes/apps/`
+- `Application/vhhealth-kube-prometheus` — pinned kube-prometheus-stack chart
+- `Application/vhhealth-loki` — pinned Loki chart
 
-After ~3 minutes, ArgoCD reconciles and all Applications show Synced +
-Healthy in the ArgoCD UI:
+After ~3 minutes, ArgoCD discovers desired state. All four Applications are
+manual-sync: a merge or poll can make an Application `OutOfSync`, but it cannot
+apply or prune production resources. After an approved operator sync, each
+Application should show Synced + Healthy in the ArgoCD UI:
 
 ```bash
 kubectl port-forward -n argocd svc/argocd-server 8080:443
 # Open https://localhost:8080 — password in `argocd admin initial-password -n argocd`
 ```
 
-From now on, **any change committed to `main` reconciles automatically**
-within ~3 minutes (ArgoCD default poll).
+From now on, ArgoCD polls `main` and reports drift within roughly three
+minutes. The operator must review the target revision and start each production
+sync explicitly.
+
+### 4.3 Required pre-sync operator sequence
+
+Complete these steps in order **before the next manual ArgoCD sync** (or an
+equivalent imperative apply):
+
+First preserve the retired `vhhealth-pg-nightly` schedule's evidence. That
+resource used `backupOwnerReference: self`, so pruning it can cascade-delete
+its owned `Backup` custom resources. Export the schedule and all Backups, list
+the Backups it owns, then remove **only** that ScheduledBackup owner reference
+from each owned Backup before allowing Argo prune:
+
+```bash
+EVIDENCE_DIR="docs/qa-findings/$(date -u +%Y-%m-%d)-c1-1-nightly-retirement"
+mkdir -p "${EVIDENCE_DIR}"
+kubectl -n vhhealth-platform get scheduledbackup vhhealth-pg-nightly -o yaml \
+  > "${EVIDENCE_DIR}/vhhealth-pg-nightly.yaml"
+kubectl -n vhhealth-platform get backup -o yaml \
+  > "${EVIDENCE_DIR}/backups-before-owner-detach.yaml"
+
+kubectl -n vhhealth-platform get backup -o json \
+  | jq -r '.items[]
+      | select(any(.metadata.ownerReferences[]?;
+          .kind == "ScheduledBackup" and .name == "vhhealth-pg-nightly"))
+      | .metadata.name' \
+  > "${EVIDENCE_DIR}/nightly-owned-backups.txt"
+
+while IFS= read -r backup; do
+  [ -n "${backup}" ] || continue
+  owner_refs="$(
+    kubectl -n vhhealth-platform get backup "${backup}" -o json \
+      | jq -c '[.metadata.ownerReferences[]?
+          | select(.kind != "ScheduledBackup"
+              or .name != "vhhealth-pg-nightly")]'
+  )"
+  kubectl -n vhhealth-platform patch backup "${backup}" --type=merge \
+    -p "{\"metadata\":{\"ownerReferences\":${owner_refs}}}"
+done < "${EVIDENCE_DIR}/nightly-owned-backups.txt"
+
+kubectl -n vhhealth-platform get backup -o yaml \
+  > "${EVIDENCE_DIR}/backups-after-owner-detach.yaml"
+```
+
+Review and retain the before/after evidence. Abort the sync if any listed
+Backup still carries the retired schedule's owner reference. Never delete those
+Backup custom resources or their R2 objects as part of schedule retirement.
+
+1. Interleave the C1.2 Kubernetes upgrades with the CNPG operator ladder so
+   every move stays inside a documented support overlap:
+   - On the current Kubernetes 1.31, advance CNPG
+     `1.24.1 → 1.24.4 → 1.25.4 → 1.26.3 → 1.27.4`.
+   - With CNPG 1.27.4 healthy, advance Kubernetes to 1.32; then advance CNPG
+     to 1.28.4.
+   - With CNPG 1.28.4 healthy, advance Kubernetes to 1.33; then advance CNPG
+     to 1.29.2.
+   - With CNPG 1.29.2 healthy, advance Kubernetes to 1.34; only then advance
+     CNPG to 1.30.0.
+
+   Before each Kubernetes or CNPG transition, capture the published support
+   matrix proving that exact pair is supported. After each transition, retain
+   operator, Cluster, instance, replication, and existing-backup health
+   evidence before proceeding. Stop at the last qualified pair if any rung
+   fails; never leapfrog versions. Production activation remains blocked until
+   the final state is Kubernetes 1.34 or newer with CNPG 1.30.0 qualified.
+2. Install the pinned Barman Cloud Plugin `0.13.0` outside ArgoCD, verify its
+   release-manifest and image digests, wait for its controller, and confirm
+   `objectstores.barmancloud.cnpg.io` is established.
+3. Seal the bucket-scoped producer, separate bucket-scoped read-only
+   verifier/DR reader, and archive-crypto Secrets from the committed examples.
+   The configured destination prefix is workload routing, not token scope. In
+   particular, seal `cnpg-backup-producer-credentials`,
+   `cnpg-dr-reader-credentials`, `minio-backup-source-reader`,
+   `offsite-backup-producer`, `offsite-backup-reader`, and `backup-crypto` in
+   every namespace declared by those examples. Never put a producer identity
+   in a verifier or restore workload. `backup-crypto` must contain independently
+   generated high-entropy `BACKUP_ENCRYPTION_KEY` and `BACKUP_HMAC_KEY` values;
+   confirm they differ. Encryption provides confidentiality, while the separate
+   HMAC key authenticates archive metadata, identity, and ciphertext.
+4. Render both production trees locally and confirm that `R2_ENDPOINT` is
+   exactly
+   `https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com`
+   in `vhhealth-env`, `vhhealth-backend-config`, the production Barman
+   `ObjectStore`, `cnpg-backup-verify`, the suspended
+   `cnpg-scheduled-restore-proof`, and both backend backup jobs. Native
+   Kustomize replacements are the contract; ArgoCD has no `envsubst`, SOPS, or
+   config-management-plugin pass.
+
+Skipping the operator ladder can leave the existing `Cluster` rejected or
+unreconciled. Syncing `vhhealth-platform` before the Barman plugin installs its
+CRD makes the Application unsyncable on the unknown `ObjectStore` kind.
+Missing credentials stop backup, verification, and restore-proof jobs; a
+missing or wrong endpoint stops them from reaching the production R2 target.
+If the plugin controller later fails, PostgreSQL may continue serving while
+WAL/base-backup and recovery work stops; database health alone is not backup
+health.
+Do not work around any of these failures by reusing writer credentials,
+restoring placeholders, or importing the broad backend Secret.
 
 ---
 
 ## 5. Create secrets
 
-Each application Secret lives in-repo as a **sealed** form
+Each GitOps-managed application Secret lives in-repo as a **sealed** form
 (`*.sealed-secret.yaml`). The plain form is never committed — you build
 it locally, seal it with `kubeseal`, and commit only the sealed output.
 
-For each `*.sealed-secret.yaml.example` file that Agent E has committed:
+The `.example` files are schemas only and are excluded from Kustomize renders.
+Real encrypted files omit `.example`, must be referenced by their owning
+Kustomization, and are committed only after review. The backend does not use
+separate JWT, API-key, database-URL, Firebase, or R2 application Secrets:
+those keys live together in `Secret/vhhealth-backend-env`.
 
 ### 5.1 Identify the required secrets
 
 ```bash
 find infra/kubernetes -name '*.sealed-secret.yaml.example'
-# Example output:
-# infra/kubernetes/apps/backend/vhhealth-jwt.sealed-secret.yaml.example
-# infra/kubernetes/apps/backend/vhhealth-api-keys.sealed-secret.yaml.example
-# infra/kubernetes/apps/backend/vhhealth-r2.sealed-secret.yaml.example
-# infra/kubernetes/apps/backend/vhhealth-firebase.sealed-secret.yaml.example
-# infra/kubernetes/apps/backend/vhhealth-chatbot.sealed-secret.yaml.example
-# infra/kubernetes/apps/backend/vhhealth-clinical-ai.sealed-secret.yaml.example
-# infra/kubernetes/apps/backend/vhhealth-db-url.sealed-secret.yaml.example
-# infra/kubernetes/apps/admin/admin-env.sealed-secret.yaml.example
+# Relevant output:
+# infra/kubernetes/apps/backend/sealed-secret.yaml.example
+# infra/kubernetes/apps/backend/minio-backup-source-reader.sealed-secret.yaml.example
+# infra/kubernetes/apps/backend/offsite-backup-producer.sealed-secret.yaml.example
+# infra/kubernetes/apps/backend/offsite-backup-reader.sealed-secret.yaml.example
+# infra/kubernetes/apps/backend/backup-crypto.sealed-secret.yaml.example
+# infra/kubernetes/apps/admin/sealed-secret.yaml.example
+# infra/kubernetes/base/cnpg/cnpg-backup-producer-credentials.sealed-secret.yaml.example
+# infra/kubernetes/base/cnpg/cnpg-dr-reader-credentials.sealed-secret.yaml.example
 # infra/kubernetes/base/cnpg/readonly-credentials.sealed-secret.yaml.example
-# infra/kubernetes/base/cloudflared/cloudflared-token.sealed-secret.yaml.example
+# infra/kubernetes/base/cnpg/runtime-credentials.sealed-secret.yaml.example
 ```
 
 ### 5.2 For each secret, build and seal
 
-```bash
-# 1. Write the plain Secret locally (NEVER COMMIT THIS FILE)
-cat > /tmp/vhhealth-jwt.yaml <<EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vhhealth-jwt
-  namespace: vhhealth
-stringData:
-  JWT_SECRET: "$(openssl rand -base64 64 | tr -d '\n')"
-  FIELD_ENCRYPTION_KEY: "$(openssl rand -hex 32)"
-  TOTP_ENCRYPTION_KEY: "$(openssl rand -hex 32)"
-EOF
+Use the matching example as the required key/metadata schema and source every
+plaintext value from the approved secret manager. In particular,
+`infra/kubernetes/apps/backend/sealed-secret.yaml.example` describes the
+complete broad `vhhealth-backend-env` Secret. Preserve all reviewed keys when
+rotating one value; a partial replacement would remove unrelated runtime
+credentials.
 
-# 2. Seal it
+```bash
+# Build this complete plaintext Secret outside the repository:
+# /secure/operator-work/vhhealth-backend-env.yaml
+# metadata.name: vhhealth-backend-env
+# metadata.namespace: vhhealth
 kubeseal \
   --controller-namespace sealed-secrets \
   --controller-name sealed-secrets-controller \
-  < /tmp/vhhealth-jwt.yaml \
-  > infra/kubernetes/apps/backend/vhhealth-jwt.sealed-secret.yaml
-
-# 3. Remove the plain copy
-rm /tmp/vhhealth-jwt.yaml
+  --scope strict \
+  -f /secure/operator-work/vhhealth-backend-env.yaml \
+  -w infra/kubernetes/apps/backend/sealed-secret.yaml
 ```
 
 ### 5.3 Commit the sealed form
 
+Keep every `.example` schema. Before staging a real sealed file, confirm its
+owning `kustomization.yaml` lists that non-example file under `resources`; for a
+first activation, add and stage the resource entry in the same reviewed change.
+
 ```bash
-rm infra/kubernetes/apps/backend/vhhealth-jwt.sealed-secret.yaml.example
-git add infra/kubernetes/apps/backend/vhhealth-jwt.sealed-secret.yaml
-git commit -m "feat(secrets): seal JWT + encryption keys for prod"
+git add infra/kubernetes/apps/backend/sealed-secret.yaml \
+  infra/kubernetes/apps/backend/kustomization.yaml
+git diff --cached -- \
+  infra/kubernetes/apps/backend/sealed-secret.yaml \
+  infra/kubernetes/apps/backend/kustomization.yaml
+git commit -m "feat(secrets): seal backend runtime credentials for prod"
 git push
 ```
 
-ArgoCD picks up the change within ~3 minutes, the sealed-secrets
-controller materializes it into a real `Secret`, and the next
-`Deployment` rollout picks up the new env vars.
+ArgoCD reports the committed change within roughly three minutes. After the
+operator reviews and manually syncs the relevant Application, the
+sealed-secrets controller materializes it into a real `Secret`, and the next
+approved `Deployment` rollout picks up the new environment variables.
 
 ### 5.4 Repeat for every secret
 
 Minimum required before backend will start:
 
-- `vhhealth-jwt` (JWT_SECRET + encryption keys)
-- `vhhealth-api-keys` (API_KEY_PATIENT/STAFF/ADMIN)
-- `vhhealth-db-url` (set **after** CNPG is up — step 6)
-- `vhhealth-firebase` (service account JSON + FIREBASE_PROJECT_ID)
-- `vhhealth-r2` (R2 access keys + bucket)
-- `vhhealth-pg-readonly` (password for the `vhhealth_readonly` role — audit H10)
-- `cloudflared-token` (Cloudflare Tunnel credentials JSON)
+- `vhhealth-backend-env`, produced from
+  `infra/kubernetes/apps/backend/sealed-secret.yaml.example`, contains the
+  complete backend runtime and migration inputs, including
+  JWT, API, encryption, and integration keys; `DATABASE_URL`, `DATABASE_READ_URL`,
+  `DATABASE_SUPERUSER_URL`, Firebase, and application R2 credentials. Non-secret
+  R2 endpoint/account/bucket values stay in the ConfigMap as declared by the
+  example.
+- `vhhealth-pg-runtime` and `vhhealth-pg-readonly`, produced from the CNPG
+  runtime/readonly examples for their corresponding managed roles.
+- `cnpg-backup-producer-credentials` (R2 Object Read & Write, restricted to the
+  database backup bucket; deletion is required for Barman retention, while the
+  ObjectStore prefix is workload routing rather than credential scope)
+- `cnpg-dr-reader-credentials` (separate R2 Object Read-only identity in the
+  platform and restore-proof namespaces)
+- `minio-backup-source-reader`, `offsite-backup-producer`,
+  `offsite-backup-reader`, and `backup-crypto` (disjoint backend archive
+  identities; no backup pod imports the broad backend Secret).
+  `backup-crypto` contains independently generated, unequal
+  `BACKUP_ENCRYPTION_KEY` and `BACKUP_HMAC_KEY` values. Rotate them as a
+  reviewed generation used by both producer and verifier, retain the prior pair
+  in the approved secret manager while its archives remain required, and do not
+  retire that pair until a new archive is produced, HMAC-verified, decrypted,
+  and restore-tested.
 
 Optional but recommended:
 
-- `vhhealth-chatbot` (LLM provider config)
-- `vhhealth-clinical-ai` (clinical AI provider config)
-- `admin-env` (BACKEND_API_KEY, NEXT_PUBLIC_ALLOWED_ORIGIN, etc.)
+- Provider credentials such as chatbot and clinical-AI keys stay in
+  `vhhealth-backend-env` when those integrations are enabled.
+- `vhhealth-admin-env`, produced from
+  `infra/kubernetes/apps/admin/sealed-secret.yaml.example` (JWT, backend API,
+  Sentry, and Firebase credentials).
+
+### 5.5 Application-upload public URL gate
+
+The committed `CF_R2_URL: ""` is an intentional fail-closed activation blocker:
+Joi rejects the empty value as an invalid URI, so the backend cannot start.
+`CF_R2_URL` is the public or custom-domain base returned in application-upload
+object URLs. It is not the S3 API endpoint and must never be populated with
+`R2_ENDPOINT`.
+
+Before manually syncing `vhhealth-apps`, prove the intended R2 public/custom
+domain, set that literal non-secret base in a reviewed apps Kustomize patch, and
+inspect the rendered `vhhealth-backend-config`. Keep the backend blocked until
+an upload probe lands in the intended bucket and the URL returned by the
+application uses that exact base and successfully retrieves the object under
+the approved access policy. This gate does not change §4.3 step 4:
+`R2_ENDPOINT` remains the separately confirmed S3 API endpoint used by the
+backup/ObjectStore paths.
 
 ---
 
 ## 6. Data migration to CNPG Postgres
 
 See [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md)
-for the full step-by-step. Treat this as a controlled cutover, not a schema
-rebuild from a static dump. Summary:
+for the original cutover steps and
+[`CNPG_POSTGRES_18_QUALIFICATION.md`](CNPG_POSTGRES_18_QUALIFICATION.md) for the
+binding major-upgrade procedure. The running production cluster remains
+PostgreSQL 17; the committed PostgreSQL 18.4 image is an inert target, not
+permission to sync it.
 
-1. Apply the CNPG `Cluster` manifest → 3-replica Postgres 17 healthy.
-2. Take a final logical backup from the source DB and record checksums.
-3. Restore into the CNPG primary using the reviewed dump/restore path.
-4. Update `vhhealth-db-url` sealed secret to point at `vhhealth-pg-rw`.
-5. `kubectl -n vhhealth rollout restart deployment/vhhealth-backend`.
-6. Run the DB guardrails, smoke journeys, and backup/restore evidence checks.
-7. Keep the source DB read-only in standby for 30 days; then decommission only
-   after documented row-count parity and owner sign-off.
+Before any major change, re-derive and install the current secure PostgreSQL 17
+minor (17.10 as of 2026-07-28), prove a PG17 backup and reader-only restore, and
+rehearse the entire CNPG operator ladder without changing the database major
+version. Align the source image to Bookworm before a physical `pg_upgrade`.
+If the operating-system/library assumptions cannot be aligned safely, use a
+rehearsed logical dump/restore or logical-replication cutover instead; never
+silently force a physical upgrade.
+
+The synthetic qualification must prove roles, schema, row counts, checksums,
+pgvector files/extension/casts/distance queries, representative application
+reads, `ANALYZE`, a run-unique synthetic PG18 archive identity distinct from
+the fixed production `vhhealth-pg18` identity, and a fresh PostgreSQL 18
+Backup plus reader-only restore selected by the exact Backup CR
+`status.backupId` through `recoveryTarget.backupID`. Only then may an operator
+update the three database bindings in the complete `vhhealth-backend-env`
+SealedSecret, manually sync `vhhealth-apps`, require the
+`Job/vhhealth-backend-migrate` PreSync hook to pass, and run the application
+guardrails and smoke journeys.
 
 ---
 
@@ -436,12 +599,20 @@ After steps 3–7 are complete:
 - [ ] `kubectl -n argocd get application` — all Applications Synced + Healthy
 - [ ] `curl https://api.vhhealth.app/health/deep` — all checks `ok: true`
 - [ ] `curl https://admin.vhhealth.app/` — returns admin portal HTML
-- [ ] `kubectl cnpg backup vhhealth-pg` — succeeds; backup appears in MinIO + R2
+- [ ] **Post-C1.2/qualification only:** `ScheduledBackup/vhhealth-pg-daily`
+      succeeds with `method: plugin`; its `Backup` is complete under the
+      distinct `vhhealth-pg18` R2 archive identity. Until then, production
+      remains on its qualified PostgreSQL 17 backup path
 - [ ] Grafana dashboards (port-forward `monitoring/grafana`) — all panels populated, no "No data"
-- [ ] Alertmanager (`kubectl -n monitoring port-forward svc/alertmanager 9093:9093`) — reachable, no firing alerts that shouldn't be firing
+- [ ] A merge leaves the C1.1 `PrometheusRule` definitions inert. After the
+      approved `vhhealth-platform` manual sync, confirm Prometheus loads and
+      evaluates them; C1.3 separately owns Alertmanager receiver/delivery
+      wiring and proof
 - [ ] A test OTP login via the patient app succeeds end-to-end
 - [ ] A test admin login via `https://admin.vhhealth.app` succeeds
-- [ ] A file upload via the uploads endpoint lands in R2 (`wrangler r2 object list vh-health-records`)
+- [ ] A file upload via the uploads endpoint lands in R2, and the application
+      returns a working object URL under the proven `CF_R2_URL` public/custom
+      domain (`CF_R2_URL` is not `R2_ENDPOINT`)
 
 ### First SUPER_ADMIN login
 
@@ -481,16 +652,22 @@ Links to live runbooks under `apps/backend/docs/RUNBOOKS/`:
 | Clinical AI provider switch                  | [`clinical-ai-provider-switch.md`](../apps/backend/docs/RUNBOOKS/clinical-ai-provider-switch.md)   |
 | DR scenarios (node/quorum/full-cluster loss) | [`DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md)                                |
 
-**Rolling upgrade (every image build on `main`):**
-Automatic via ArgoCD image updater (planned) or manual bump in
-`infra/kubernetes/apps/<app>/kustomization.yaml`:
+**Rolling upgrade (approved image release):**
+Use the release build's `image-ref.txt` evidence. The update command
+cross-checks the tag against that build-emitted digest, verifies the image
+signature with cosign, and writes an immutable `@sha256` pin to
+`infra/kubernetes/apps/kustomization.yaml`. Never commit a tag-only production
+image:
 
 ```bash
-# Manual tag bump for backend
-kustomize edit set image ghcr.io/bahuleyandr/vh-health-platform-backend=ghcr.io/bahuleyandr/vh-health-platform-backend:backend-v1.5.2
-git commit -am "deploy: backend v1.5.2"
+COSIGN_PUBLIC_KEY=<public-key> node scripts/update-prod-digests.mjs \
+  --tag backend-v1.5.2 \
+  --expected-digest-file <release-artifact-directory>/image-ref.txt
+git diff -- infra/kubernetes/apps/kustomization.yaml
+git add infra/kubernetes/apps/kustomization.yaml
+git commit -m "deploy: backend v1.5.2 digest"
 git push
-# ArgoCD syncs within 3 minutes; rolling update is zero-downtime.
+# ArgoCD reports OutOfSync; an operator reviews and manually syncs vhhealth-apps.
 ```
 
 **Node replacement:**
@@ -517,16 +694,20 @@ reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
 ### In place
 
 - **DPDP Act (India, 2023):**
-  - Data-in-India: all PHI stored on cluster storage + R2 (Asia-Pac
-    region pinned). No cross-border data transfer in the default path.
+  - Data residency: primary PHI remains on cluster storage. The confirmed R2
+    S3 endpoint has no jurisdiction suffix and is not, by itself, evidence of
+    an India or Asia-Pacific placement; verify and record the bucket's approved
+    location/residency configuration separately before go-live.
   - Audit logs: `audit_log` + `file_access_logs` tables capture every
     PHI access with actor, timestamp, resource.
-  - Encryption at rest: CNPG uses PG17 with `data_checksums`; off-site
-    backups request SSE (AES-256) via `barmanObjectStore.encryption` in
-    cluster.yaml (audit finding M13 — the previous "pgBackRest encrypts
-    with AES-256" claim was aspirational; CNPG uses barman-cloud, and no
-    `pgbackrest-cipher` secret ever existed); R2 additionally encrypts
-    all objects at rest with provider-held keys.
+  - Encryption at rest: the running CNPG PostgreSQL 17 cluster uses
+    `data_checksums`. Cloudflare R2 automatically encrypts database backup
+    objects and metadata at rest with provider-managed AES-256-GCM; the Barman
+    `ObjectStore` must not force the unsupported S3 server-side-encryption
+    header. Backend upload archives use separate encryption and HMAC keys from
+    `backup-crypto`: encryption provides confidentiality, and HMAC-SHA256
+    authenticates the canonical metadata, archive key, and ciphertext before
+    decryption. No pgBackRest cipher Secret exists.
   - Access controls: RBAC on both the application layer
     (`wrapAutoRBAC`) and k8s namespace layer (NetworkPolicy + RBAC).
 
@@ -535,7 +716,9 @@ reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
     (`FIELD_ENCRYPTION_KEY`).
   - TOTP secrets encrypted with a distinct key
     (`TOTP_ENCRYPTION_KEY`).
-  - Backup encryption with customer-managed keys.
+  - Client-side backend upload-archive encryption plus independent HMAC-SHA256
+    authenticity with separately managed `backup-crypto` material; CNPG R2
+    objects use provider-managed encryption.
   - Audit log preservation (Loki 180-day retention + SQL audit tables
     permanent).
   - PHI access middleware (`phiAccessLogger`) on every medical data

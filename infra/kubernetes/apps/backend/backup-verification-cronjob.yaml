@@ -1,23 +1,16 @@
-# Backup verification — outage-critical CronJob (REL-3 / WS2 B2.3)
+# Verifies every encrypted MinIO off-site archive window independently of the
+# backend Deployment and independently of the write-capable producer identity.
 #
-# Problem this solves: `verifyLatestBackup()` ran in-process in scheduler.js
-# immediately after the nightly backup step. When the backend is down during
-# a critical outage, no one knows whether the last backup is intact.
-# This CronJob verifies the latest CNPG-managed Postgres backup and the
-# off-cluster R2 sync independently of the backend Deployment.
+# The R2 reader init phase lists/heads/downloads with the dedicated read-only
+# identity. The crypto-only main container then validates metadata and age,
+# compares size and SHA-256, authenticates the canonical metadata, archive key,
+# and ciphertext with an independent HMAC key, decrypts, checks the tar stream,
+# and reconciles the decrypted object count. It does not query CNPG: database
+# backup verification belongs to the Barman plugin workloads in base/cnpg.
 #
-# What it does: queries the CNPG backup metadata via the in-cluster Postgres
-# connection (reads the pg_catalog + CNPG operator tables) and confirms that
-# an offsite R2 object younger than 26 hours exists. Exits non-zero on
-# verification failure; Alertmanager fires CNPGBackupNotRecent if the CronJob
-# fails repeatedly.
-#
-# Schedule: daily at 02:30 IST (21:00 UTC previous day).  This is 30 minutes
-# after the CNPG scheduled-backup window (see base/cnpg/scheduled-backup.yaml)
-# so the latest physical backup should already be complete.
-#
-# Image: amazon/aws-cli — already used by backup-cronjob.yaml for R2 sync.
-# Has aws, openssl, and sh. Pinned to the same tag used in backup-cronjob.yaml.
+# The download work volume is capped at 10Gi. Production activation is blocked
+# unless the observed encrypted archive plus safety margin fits; the reader
+# checks ContentLength and fails before download when the limit would be crossed.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -26,12 +19,14 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
   labels:
     app.kubernetes.io/name: backup-verification
-    app.kubernetes.io/component: outage-critical-job
+    app.kubernetes.io/component: backup-archive-verifier
     app.kubernetes.io/part-of: vhhealth
 spec:
-  # 21:00 UTC = 02:30 IST — after the CNPG backup window.
-  schedule: "0 21 * * *"
-  timeZone: "UTC"
+  # Producer starts at minute 0 every six hours and has a one-hour deadline.
+  # Verify 105 minutes later so a delayed producer can finish, while the
+  # three-hour freshness bound still rejects the preceding six-hour window.
+  schedule: "45 1,7,13,19 * * *"
+  timeZone: "Asia/Kolkata"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5
@@ -45,12 +40,13 @@ spec:
         metadata:
           labels:
             app.kubernetes.io/name: backup-verification
-            app.kubernetes.io/component: outage-critical-job
+            app.kubernetes.io/component: backup-archive-verifier
             app.kubernetes.io/part-of: vhhealth
         spec:
+          serviceAccountName: vhhealth-backup-verifier
+          automountServiceAccountToken: false
           restartPolicy: OnFailure
           terminationGracePeriodSeconds: 30
-          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -58,68 +54,46 @@ spec:
             fsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: backup-verification
-              # Same image and tag as backup-cronjob.yaml; pinned at the
-              # operator level via the upstream upstream release cadence.
-              # This image ships aws, openssl, and sh; no backend code
-              # required — verification is a pure R2 + CNPG metadata check.
-              image: amazon/aws-cli:2.34.53
+          initContainers:
+            - name: archive-reader
+              image: docker.io/amazon/aws-cli:2.34.53@sha256:cf53765c0de54ad3a8ea21818f1c4c845a8cf7ca87831c078a00fef244031493
               imagePullPolicy: IfNotPresent
-              command: ["/bin/sh", "-c"]
-              args:
-                - |
-                  set -euo pipefail
-                  NOW_TS=$(date -u +%s)
-                  MAX_AGE_SECONDS=93600    # 26 hours — window for nightly backup
-
-                  echo "[backup-verification] Checking offsite R2 backup recency..."
-
-                  # List the 5 most-recent objects in R2 offsite/ prefix.
-                  LATEST=$(aws \
-                    --endpoint-url "https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-                    --region auto \
-                    s3 ls "s3://${CF_R2_BUCKET}/offsite/" \
-                    --recursive \
-                    | sort \
-                    | tail -1)
-
-                  if [ -z "${LATEST}" ]; then
-                    echo "[backup-verification] FAIL: no offsite objects found in R2"
-                    exit 1
-                  fi
-
-                  echo "[backup-verification] Latest R2 offsite object: ${LATEST}"
-
-                  # Parse the date from the listing line (format: YYYY-MM-DD HH:MM:SS ...)
-                  OBJECT_DATE=$(echo "${LATEST}" | awk '{print $1 "T" $2 "Z"}')
-                  OBJECT_TS=$(date -u -d "${OBJECT_DATE}" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "${OBJECT_DATE}" +%s)
-                  AGE_SECONDS=$(( NOW_TS - OBJECT_TS ))
-
-                  echo "[backup-verification] Backup age: ${AGE_SECONDS}s (max allowed: ${MAX_AGE_SECONDS}s)"
-
-                  if [ "${AGE_SECONDS}" -gt "${MAX_AGE_SECONDS}" ]; then
-                    echo "[backup-verification] FAIL: latest offsite backup is too old (${AGE_SECONDS}s > ${MAX_AGE_SECONDS}s)"
-                    exit 1
-                  fi
-
-                  echo "[backup-verification] OK — offsite backup is recent (${AGE_SECONDS}s old)"
+              command:
+                - /bin/bash
+                - /opt/vhhealth/backup/verify-upload-archive.sh
+                - fetch
               env:
-                - name: AWS_ACCESS_KEY_ID
+                - name: HOME
+                  value: /home/aws
+                - name: AWS_EC2_METADATA_DISABLED
+                  value: "true"
+                - name: R2_ENDPOINT
+                  value: https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com
+                - name: R2_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: CF_R2_BUCKET
+                - name: R2_PREFIX
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: OFFSITE_BACKUP_PREFIX
+                - name: R2_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
-                      name: vhhealth-backend-env
-                      key: CF_R2_ACCESS_KEY_ID
-                - name: AWS_SECRET_ACCESS_KEY
+                      name: offsite-backup-reader
+                      key: ACCESS_KEY_ID
+                - name: R2_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
-                      name: vhhealth-backend-env
-                      key: CF_R2_SECRET_ACCESS_KEY
-              envFrom:
-                - configMapRef:
-                    name: vhhealth-backend-config
-                - secretRef:
-                    name: vhhealth-backend-env
+                      name: offsite-backup-reader
+                      key: SECRET_ACCESS_KEY
+                - name: BACKUP_WORK_LIMIT_BYTES
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: BACKUP_WORK_LIMIT_BYTES
               resources:
                 requests:
                   cpu: "100m"
@@ -137,14 +111,72 @@ spec:
                   drop:
                     - ALL
               volumeMounts:
-                - name: tmp
-                  mountPath: /tmp
+                - name: scripts
+                  mountPath: /opt/vhhealth/backup
+                  readOnly: true
+                - name: work
+                  mountPath: /work
                 - name: aws-home
-                  mountPath: /home/nobody
+                  mountPath: /home/aws
+          containers:
+            - name: backup-verification
+              image: docker.io/alpine/openssl:3.5.7@sha256:045a40a53b8e283cff95052e0c39f256b7467d48c7445260d4f180fc0e767999
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - /opt/vhhealth/backup/verify-upload-archive.sh
+                - verify
+              env:
+                - name: BACKUP_ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-crypto
+                      key: BACKUP_ENCRYPTION_KEY
+                - name: BACKUP_HMAC_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-crypto
+                      key: BACKUP_HMAC_KEY
+                - name: EXPECTED_SOURCE_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: MINIO_BACKUP_BUCKET
+                - name: BACKUP_MAX_AGE_SECONDS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vhhealth-backend-config
+                      key: BACKUP_MAX_AGE_SECONDS
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: scripts
+                  mountPath: /opt/vhhealth/backup
+                  readOnly: true
+                - name: work
+                  mountPath: /work
           volumes:
-            - name: tmp
+            - name: scripts
+              configMap:
+                name: vhhealth-backup-scripts
+                defaultMode: 0555
+            - name: work
               emptyDir:
-                sizeLimit: 256Mi
+                sizeLimit: 10Gi
             - name: aws-home
               emptyDir:
                 sizeLimit: 16Mi

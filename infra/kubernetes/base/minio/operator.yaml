@@ -32,4 +32,4 @@ data:
   operatorVersion: "5.0.15"
   operatorManifestUrl: "https://raw.githubusercontent.com/minio/operator/v5.0.15/resources/base/operator.yaml"
   # MinIO server image used by tenants we create.
-  minioImage: "quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z"
+  minioImage: "quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332"

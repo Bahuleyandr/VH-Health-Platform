@@ -22,7 +22,7 @@ at outage start means the generator itself was already degraded — escalate.
 | Manual generation | `POST /api/v1/downtime/generate` | ADMIN only — run before planned maintenance |
 | List latest per ward | `GET /api/v1/downtime/wards` | clinical roles |
 | One ward, printable | `GET /api/v1/downtime/wards/:wardId/latest?format=html` | bookmark on ward PCs; print at shift start during outage risk |
-| One ward, JSON | `GET /api/v1/downtime/wards/:wardId/latest` | staff-app offline cache feed |
+| One ward, JSON | `GET /api/v1/downtime/wards/:wardId/latest` | API exists; there is no current Staff-app consumer |
 
 ## Ward procedure (outage)
 
@@ -62,6 +62,8 @@ action (see EPIC_LEVEL_ROADMAP.md Phase 1 exit criteria).
 - Packs cover wards with occupied beds only (OPD/ED flow boards are not
   packaged yet — extend `wardDowntimePackService` when ED goes live).
 - Pack HTML is served by the backend; a true network-partition scenario
-  relies on the **printed** copies or the browser's last-loaded page. A
-  read-only static mirror on a ward-local machine is the Phase-2 hardening
-  step (sync the HTML files to a LAN share via a tiny cron on the ops box).
+  relies on the **printed** copies or the browser's last-loaded page. The
+  shared mirror volume and ops-box LAN sync remain operator work tracked as
+  H1 and H2 in
+  [`GO_LIVE_ACTIVATION_CHECKLIST.md`](GO_LIVE_ACTIVATION_CHECKLIST.md); C3 owns
+  that follow-up.
