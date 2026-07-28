@@ -451,8 +451,8 @@ Minimum required before backend will start:
 
 - `vhhealth-backend-env`, produced from
   `infra/kubernetes/apps/backend/sealed-secret.yaml.example`, contains the
-  complete backend runtime and migration credential set:
-  JWT/API/encryption/integration keys, `DATABASE_URL`, `DATABASE_READ_URL`,
+  complete backend runtime and migration inputs, including
+  JWT, API, encryption, and integration keys; `DATABASE_URL`, `DATABASE_READ_URL`,
   `DATABASE_SUPERUSER_URL`, Firebase, and application R2 credentials. Non-secret
   R2 endpoint/account/bucket values stay in the ConfigMap as declared by the
   example.
