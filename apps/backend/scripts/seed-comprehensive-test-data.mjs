@@ -7,6 +7,7 @@ import {
   INPATIENT_ADMISSION_TO_RECOVERY_DEFINITION,
   compileInpatientAdmissionToRecoveryDefinition
 } from '../src/services/pathways/inpatientPathwayDefinition.js';
+import { CLINICAL_CONTINUITY_SEED_FIXTURE } from './lib/clinicalContinuitySeedFixture.mjs';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
@@ -28,6 +29,12 @@ const MANUAL_SEED_TABLES = new Set([
   'care_pathway_transition_events',
   'care_handoff_instances',
   'care_pathway_reconciliation_checks',
+  // C3.1 continuity governance must not be synthesized by the generic FK
+  // walker. Seed one cryptographically valid draft under a suspended,
+  // non-default test tenant and one legacy snapshot; never create an active
+  // policy or a clinical_continuity_pack publication.
+  'clinical_continuity_policy_versions',
+  'downtime_snapshots',
   // S5 ED closure/recovery rows require the exact visit/patient/encounter/
   // clinician graph plus canonical timeline and audit receipts.
   'ed_closure_evidence',
@@ -5157,6 +5164,126 @@ async function seedIcuChartDepthTables() {
   }]);
 }
 
+async function seedClinicalContinuityTables() {
+  const hasPolicies = await tableExists('clinical_continuity_policy_versions');
+  const hasSnapshots = await tableExists('downtime_snapshots');
+  if (!hasPolicies && !hasSnapshots) return;
+
+  if (hasPolicies) {
+    const fixture = CLINICAL_CONTINUITY_SEED_FIXTURE;
+    await client.query(
+      `INSERT INTO tenants (id, slug, name, status, settings)
+       VALUES ($1::uuid, $2::text, 'Continuity seed tenant (inert)', 'suspended',
+               '{"seed":true,"activation":"disabled"}'::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+      [fixture.tenantId, fixture.tenantSlug],
+    );
+    await client.query(
+      `INSERT INTO facilities
+         (id, tenant_id, facility_code, display_name, timezone, status, is_default, metadata)
+       VALUES
+         ($1::integer, $2::uuid, $3::text, 'Continuity seed facility (inert)',
+          'Asia/Kolkata', 'inactive', FALSE,
+          '{"seed":true,"activation":"disabled"}'::jsonb)
+       ON CONFLICT (tenant_id, facility_code) DO NOTHING`,
+      [fixture.facilityId, fixture.tenantId, fixture.facilityCode],
+    );
+
+    for (const key of [
+      {
+        keyId: fixture.policySigningKeyId,
+        purpose: 'clinical_continuity_policy_signing',
+        publicKey: fixture.policySigningPublicKey,
+      },
+      {
+        keyId: fixture.currentPackSigningKeyId,
+        purpose: 'clinical_continuity_pack_signing',
+        publicKey: fixture.currentPackSigningPublicKey,
+      },
+    ]) {
+      await client.query(
+        `INSERT INTO encryption_keys
+           (tenant_id, key_id, provider, provider_reference, algorithm, status, metadata)
+         VALUES
+           ($1::uuid, $2::text, 'test_fixture', 'public-only:test-fixture',
+            'ed25519', 'active', $3::jsonb)
+         ON CONFLICT (tenant_id, key_id) DO NOTHING`,
+        [
+          fixture.tenantId,
+          key.keyId,
+          JSON.stringify({
+            seed: true,
+            purpose: key.purpose,
+            public_key_spki_pem: key.publicKey,
+            private_key_material_present: false,
+          }),
+        ],
+      );
+    }
+
+    const existingPolicy = await first(
+      'clinical_continuity_policy_versions',
+      'id',
+      'id = $1::uuid AND tenant_id = $2::uuid AND facility_id = $3::integer',
+      [fixture.policyId, fixture.tenantId, fixture.facilityId],
+    );
+    if (!existingPolicy) {
+      await client.query(
+        `INSERT INTO clinical_continuity_policy_versions
+           (id, tenant_id, facility_id, policy_version, policy_schema_version,
+            lifecycle_state, policy_document, policy_checksum, canonicalization,
+            signature_algorithm, policy_signing_key_id,
+            policy_signing_public_key_sha256, current_pack_signing_key_id,
+            current_pack_signing_public_key_sha256, policy_signature,
+            revocation_epoch, revoked_key_ids, effective_from)
+         VALUES
+           ($1::uuid, $2::uuid, $3::integer, 1, 1, 'draft', $4::jsonb,
+            $5::text, 'rfc8785-jcs', 'ed25519', $6::text, $7::text,
+            $8::text, $9::text, $10::bytea, 0, '[]'::jsonb, $11::timestamptz)`,
+        [
+          fixture.policyId,
+          fixture.tenantId,
+          fixture.facilityId,
+          JSON.stringify(fixture.policyDocument),
+          fixture.policyChecksum,
+          fixture.policySigningKeyId,
+          fixture.policySigningPublicKeySha256,
+          fixture.currentPackSigningKeyId,
+          fixture.currentPackSigningPublicKeySha256,
+          Buffer.from(fixture.policySignature, 'base64'),
+          fixture.effectiveFrom,
+        ],
+      );
+    }
+  }
+
+  if (hasSnapshots) {
+    const defaultTenantPatient = await first(
+      'users',
+      'uid',
+      "tenant_id = $1::uuid AND role = 'PATIENT'",
+      [DEFAULT_TENANT_ID],
+    );
+    if (!defaultTenantPatient?.uid) {
+      throw new Error(
+        'Clinical continuity legacy snapshot seed requires a default-tenant patient fixture',
+      );
+    }
+    await insertIfEmpty('downtime_snapshots', [{
+      tenant_id: DEFAULT_TENANT_ID,
+      patient_uid: defaultTenantPatient.uid,
+      scope: 'patient_chart',
+      label: 'Seed legacy downtime snapshot',
+      payload: JSON.stringify({
+        seed: true,
+        source: 'seed-comprehensive-test-data',
+        governedContinuityPublication: false,
+      }),
+      expires_at: new Date('2026-07-30T00:00:00.000Z'),
+    }]);
+  }
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -5188,6 +5315,7 @@ try {
   await seedResuscitationTables();
   await seedNicuPicuChartTables();
   await seedMergedMainCoverageTables();
+  await seedClinicalContinuityTables();
   await assertNoActiveSyntheticWorkflowDefinitions();
   await client.query('COMMIT');
   const summary = await summarize(failed);

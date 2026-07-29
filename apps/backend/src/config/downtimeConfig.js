@@ -22,6 +22,7 @@ import path from 'path';
 // Subdirectory name under the OS temp dir used for the dev/test default. Kept
 // vendor-prefixed so it can't collide with another tool's temp artifacts.
 export const DEFAULT_MIRROR_SUBDIR = 'vhhealth-downtime-mirror';
+export const CLINICAL_CONTINUITY_PACKS_FLAG = 'CLINICAL_CONTINUITY_PACKS_ENABLED';
 
 /**
  * Resolve the directory the downtime mirror reads from / writes to.
@@ -40,4 +41,32 @@ export function getDowntimeMirrorDir(env = process.env) {
   return path.join(os.tmpdir(), DEFAULT_MIRROR_SUBDIR);
 }
 
-export default { getDowntimeMirrorDir, DEFAULT_MIRROR_SUBDIR };
+export function clinicalContinuityPacksEnabled(env = process.env) {
+  return String(env[CLINICAL_CONTINUITY_PACKS_FLAG] || '').trim().toLowerCase() === 'true';
+}
+
+/**
+ * C3 pack-set publication never falls back to the OS temp directory. The
+ * operator-owned durable volume is provisioned outside C3.1; until both the
+ * feature flag and explicit root exist, the writer remains inert.
+ */
+export function getClinicalContinuityPublicationRoot(env = process.env) {
+  if (!clinicalContinuityPacksEnabled(env)) return null;
+  const configured = typeof env.DOWNTIME_MIRROR_DIR === 'string'
+    ? env.DOWNTIME_MIRROR_DIR.trim()
+    : '';
+  if (!configured) {
+    throw new Error(
+      'DOWNTIME_MIRROR_DIR is required when CLINICAL_CONTINUITY_PACKS_ENABLED=true',
+    );
+  }
+  return configured;
+}
+
+export default {
+  getDowntimeMirrorDir,
+  getClinicalContinuityPublicationRoot,
+  clinicalContinuityPacksEnabled,
+  DEFAULT_MIRROR_SUBDIR,
+  CLINICAL_CONTINUITY_PACKS_FLAG,
+};

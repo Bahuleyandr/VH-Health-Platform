@@ -925,36 +925,37 @@ model appointments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model approvals {
-  id                                 Int                                  @id @default(autoincrement())
-  tenant_id                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  workflow_run_id                    Int?
-  task_id                            Int?
-  approval_kind                      String                               @db.VarChar(80)
-  subject_resource_type              String?                              @db.VarChar(60)
-  subject_resource_id                String?                              @db.VarChar(120)
-  required_approvers                 Int                                  @default(1)
-  required_role                      String?                              @db.VarChar(80)
-  status                             String                               @default("pending") @db.VarChar(20)
-  approved_by                        Json                                 @default("[]")
-  rejection_reason                   String?
-  expires_at                         DateTime?                            @db.Timestamptz(6)
-  decided_at                         DateTime?                            @db.Timestamptz(6)
-  metadata                           Json                                 @default("{}")
-  created_at                         DateTime                             @default(now()) @db.Timestamptz(6)
-  updated_at                         DateTime                             @default(now()) @db.Timestamptz(6)
-  workflow_step_id                   Int?
-  created_by                         String?                              @db.Uuid
-  decided_by                         String?                              @db.Uuid
-  materialization_key                String?                              @db.VarChar(200)
-  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  created_by_user                    users?                               @relation("approvals_created_by", fields: [tenant_id, created_by], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_created_by_tenant")
-  decided_by_user                    users?                               @relation("approvals_decided_by", fields: [tenant_id, decided_by], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_decided_by_tenant")
-  task_same_run                      tasks?                               @relation("approvals_task_same_run", fields: [tenant_id, task_id, workflow_run_id], references: [tenant_id, id, workflow_run_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_task_same_run")
-  tasks                              tasks?                               @relation("approvals_task_tenant", fields: [tenant_id, task_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_task_tenant")
-  workflow_runs                      workflow_runs?                       @relation(fields: [tenant_id, workflow_run_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_workflow_run_tenant")
-  workflow_step_same_run             workflow_steps?                      @relation("approvals_workflow_step_same_run", fields: [tenant_id, workflow_step_id, workflow_run_id], references: [tenant_id, id, workflow_run_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_workflow_step_same_run")
-  workflow_step                      workflow_steps?                      @relation("approvals_workflow_step_tenant", fields: [tenant_id, workflow_step_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_workflow_step_tenant")
-  care_pathway_definition_governance care_pathway_definition_governance[]
+  id                                  Int                                   @id @default(autoincrement())
+  tenant_id                           String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  workflow_run_id                     Int?
+  task_id                             Int?
+  approval_kind                       String                                @db.VarChar(80)
+  subject_resource_type               String?                               @db.VarChar(60)
+  subject_resource_id                 String?                               @db.VarChar(120)
+  required_approvers                  Int                                   @default(1)
+  required_role                       String?                               @db.VarChar(80)
+  status                              String                                @default("pending") @db.VarChar(20)
+  approved_by                         Json                                  @default("[]")
+  rejection_reason                    String?
+  expires_at                          DateTime?                             @db.Timestamptz(6)
+  decided_at                          DateTime?                             @db.Timestamptz(6)
+  metadata                            Json                                  @default("{}")
+  created_at                          DateTime                              @default(now()) @db.Timestamptz(6)
+  updated_at                          DateTime                              @default(now()) @db.Timestamptz(6)
+  workflow_step_id                    Int?
+  created_by                          String?                               @db.Uuid
+  decided_by                          String?                               @db.Uuid
+  materialization_key                 String?                               @db.VarChar(200)
+  tenants                             tenants                               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  created_by_user                     users?                                @relation("approvals_created_by", fields: [tenant_id, created_by], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_created_by_tenant")
+  decided_by_user                     users?                                @relation("approvals_decided_by", fields: [tenant_id, decided_by], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_decided_by_tenant")
+  task_same_run                       tasks?                                @relation("approvals_task_same_run", fields: [tenant_id, task_id, workflow_run_id], references: [tenant_id, id, workflow_run_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_task_same_run")
+  tasks                               tasks?                                @relation("approvals_task_tenant", fields: [tenant_id, task_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_task_tenant")
+  workflow_runs                       workflow_runs?                        @relation(fields: [tenant_id, workflow_run_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_workflow_run_tenant")
+  workflow_step_same_run              workflow_steps?                       @relation("approvals_workflow_step_same_run", fields: [tenant_id, workflow_step_id, workflow_run_id], references: [tenant_id, id, workflow_run_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_workflow_step_same_run")
+  workflow_step                       workflow_steps?                       @relation("approvals_workflow_step_tenant", fields: [tenant_id, workflow_step_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_approvals_workflow_step_tenant")
+  care_pathway_definition_governance  care_pathway_definition_governance[]
+  clinical_continuity_policy_versions clinical_continuity_policy_versions[]
 
   @@unique([tenant_id, approval_kind, subject_resource_type, subject_resource_id], map: "uq_pending_credential_privilege_approval", where: raw("(((approval_kind)::text = 'credential_privilege_grant'::text) AND ((status)::text = 'pending'::text) AND (subject_resource_id IS NOT NULL))"))
   @@unique([tenant_id, id], map: "ux_approvals_tenant_id")
@@ -4661,22 +4662,52 @@ model doctors {
 }
 
 model downtime_snapshots {
-  id           Int       @id @default(autoincrement())
-  patient_uid  String?   @db.Uuid
-  scope        String    @default("patient_chart") @db.VarChar(80)
-  generated_by String?   @db.Uuid
-  payload      Json      @default("{}")
-  expires_at   DateTime? @db.Timestamptz(6)
-  created_at   DateTime  @default(now()) @db.Timestamptz(6)
-  tenant_id    String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  ward_id      Int?
-  label        String?   @db.VarChar(160)
-  wards        wards?    @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
-  tenants      tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_downtime_snapshots_tenant")
+  id                                                            Int                                  @id @default(autoincrement())
+  patient_uid                                                   String?                              @db.Uuid
+  scope                                                         String                               @default("patient_chart") @db.VarChar(80)
+  generated_by                                                  String?                              @db.Uuid
+  payload                                                       Json                                 @default("{}")
+  expires_at                                                    DateTime?                            @db.Timestamptz(6)
+  created_at                                                    DateTime                             @default(now()) @db.Timestamptz(6)
+  tenant_id                                                     String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ward_id                                                       Int?
+  label                                                         String?                              @db.VarChar(160)
+  facility_id                                                   Int?
+  location_type                                                 String?                              @db.VarChar(32)
+  location_identifier                                           String?                              @db.VarChar(160)
+  pack_schema_version                                           Int?
+  policy_version_id                                             String?                              @db.Uuid
+  policy_version                                                BigInt?
+  publication_set_id                                            String?                              @db.Uuid
+  manifest_version                                              BigInt?
+  source_watermark                                              Json?
+  content_hash                                                  String?                              @db.Char(64)
+  rendered_content_hash                                         String?                              @db.Char(64)
+  signature_algorithm                                           String?                              @db.VarChar(24)
+  signing_key_id                                                String?                              @db.VarChar(64)
+  signature                                                     Bytes?
+  generated_at                                                  DateTime?                            @db.Timestamptz(6)
+  published_at                                                  DateTime?                            @db.Timestamptz(6)
+  fresh_until                                                   DateTime?                            @db.Timestamptz(6)
+  freshness_metadata                                            Json?
+  retention_until                                               DateTime?                            @db.Timestamptz(6)
+  payload_purged_at                                             DateTime?                            @db.Timestamptz(6)
+  payload_purge_reason                                          String?
+  wards                                                         wards?                               @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
+  clinical_continuity_policy_versions                           clinical_continuity_policy_versions? @relation(fields: [tenant_id, facility_id, policy_version_id, policy_version], references: [tenant_id, facility_id, id, policy_version], onUpdate: NoAction, map: "fk_downtime_snapshots_cc_policy_pin")
+  encryption_keys                                               encryption_keys?                     @relation(fields: [tenant_id, signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "fk_downtime_snapshots_cc_signing_key")
+  facilities                                                    facilities?                          @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_downtime_snapshots_facility_tenant")
+  tenants                                                       tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_downtime_snapshots_tenant")
+  wards_downtime_snapshots_tenant_id_facility_id_ward_idTowards wards?                               @relation("downtime_snapshots_tenant_id_facility_id_ward_idTowards", fields: [tenant_id, facility_id, ward_id], references: [tenant_id, facility_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_downtime_snapshots_ward_facility_tenant")
 
+  @@unique([tenant_id, facility_id, manifest_version, location_type, location_identifier], map: "ux_downtime_cc_manifest_location", where: raw("((scope)::text = 'clinical_continuity_pack'::text)"))
+  @@unique([tenant_id, facility_id, publication_set_id, location_type, location_identifier], map: "ux_downtime_cc_set_location", where: raw("((scope)::text = 'clinical_continuity_pack'::text)"))
+  @@unique([tenant_id, id], map: "ux_downtime_snapshots_tenant_id")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_downtime_snapshots_patient_created")
   @@index([tenant_id], map: "idx_downtime_snapshots_tenant_id")
   @@index([ward_id, scope, created_at(sort: Desc)], map: "idx_downtime_snapshots_ward_latest", where: raw("(ward_id IS NOT NULL)"))
+  @@index([tenant_id, facility_id, location_type, location_identifier, published_at(sort: Desc), id(sort: Desc)], map: "idx_downtime_cc_latest", where: raw("((scope)::text = 'clinical_continuity_pack'::text)"))
+  @@index([tenant_id, retention_until, id], map: "idx_downtime_cc_retention", where: raw("(((scope)::text = 'clinical_continuity_pack'::text) AND (payload_purged_at IS NULL))"))
 }
 
 model drug_interactions {
@@ -5010,6 +5041,7 @@ model emergency_visits {
   ed_injury_diagram_attachments ed_injury_diagram_attachments[]
   ed_recovery_contact_events    ed_recovery_contact_events[]
   tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facilities                    facilities?                     @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_emergency_visits_facility_tenant")
   mlc_completeness_reviews      mlc_completeness_reviews[]
   mlc_records                   mlc_records[]
   prehospital_handovers         prehospital_handovers[]
@@ -5027,29 +5059,34 @@ model emergency_visits {
   @@index([tenant_id, arrival_at(sort: Desc)], map: "idx_ed_visits_open", where: raw("((status)::text <> ALL (ARRAY[('discharged'::character varying)::text, ('transferred'::character varying)::text, ('left_against_advice'::character varying)::text, ('lwbs'::character varying)::text, ('expired'::character varying)::text, ('archived'::character varying)::text]))"))
   @@index([tenant_id, patient_uid, arrival_at(sort: Desc)], map: "idx_ed_visits_patient", where: raw("(patient_uid IS NOT NULL)"))
   @@index([tenant_id, triage_priority, status], map: "idx_ed_visits_priority", where: raw("(triage_priority IS NOT NULL)"))
+  @@index([tenant_id, facility_id, status, arrival_at(sort: Desc)], map: "idx_ed_visits_tenant_facility_status", where: raw("(facility_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model encryption_keys {
-  id                    Int               @id @default(autoincrement())
-  tenant_id             String?           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  key_id                String            @db.VarChar(64)
-  provider              String            @default("env") @db.VarChar(40)
-  provider_reference    String?           @db.VarChar(512)
-  algorithm             String            @default("aes-256-gcm") @db.VarChar(40)
-  status                String            @default("active") @db.VarChar(20)
-  rotated_from          Int?
-  activated_at          DateTime          @default(now()) @db.Timestamptz(6)
-  retiring_at           DateTime?         @db.Timestamptz(6)
-  retired_at            DateTime?         @db.Timestamptz(6)
-  metadata              Json              @default("{}")
-  created_by            String?           @db.Uuid
-  created_at            DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime          @default(now()) @db.Timestamptz(6)
-  wrapped_key_material  String?
-  encryption_keys       encryption_keys?  @relation("encryption_keysToencryption_keys", fields: [rotated_from], references: [id], onUpdate: NoAction)
-  other_encryption_keys encryption_keys[] @relation("encryption_keysToencryption_keys")
-  tenants               tenants?          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                                                             Int                                   @id @default(autoincrement())
+  tenant_id                                                                                                                      String?                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  key_id                                                                                                                         String                                @db.VarChar(64)
+  provider                                                                                                                       String                                @default("env") @db.VarChar(40)
+  provider_reference                                                                                                             String?                               @db.VarChar(512)
+  algorithm                                                                                                                      String                                @default("aes-256-gcm") @db.VarChar(40)
+  status                                                                                                                         String                                @default("active") @db.VarChar(20)
+  rotated_from                                                                                                                   Int?
+  activated_at                                                                                                                   DateTime                              @default(now()) @db.Timestamptz(6)
+  retiring_at                                                                                                                    DateTime?                             @db.Timestamptz(6)
+  retired_at                                                                                                                     DateTime?                             @db.Timestamptz(6)
+  metadata                                                                                                                       Json                                  @default("{}")
+  created_by                                                                                                                     String?                               @db.Uuid
+  created_at                                                                                                                     DateTime                              @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                                     DateTime                              @default(now()) @db.Timestamptz(6)
+  wrapped_key_material                                                                                                           String?
+  clinical_continuity_policy_versions_clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys clinical_continuity_policy_versions[] @relation("clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys")
+  clinical_continuity_policy_versions_clinical_continuity_policy_versions_tenant_id_next_pack_signing_key_idToencryption_keys    clinical_continuity_policy_versions[] @relation("clinical_continuity_policy_versions_tenant_id_next_pack_signing_key_idToencryption_keys")
+  clinical_continuity_policy_versions_clinical_continuity_policy_versions_tenant_id_policy_signing_key_idToencryption_keys       clinical_continuity_policy_versions[] @relation("clinical_continuity_policy_versions_tenant_id_policy_signing_key_idToencryption_keys")
+  downtime_snapshots                                                                                                             downtime_snapshots[]
+  encryption_keys                                                                                                                encryption_keys?                      @relation("encryption_keysToencryption_keys", fields: [rotated_from], references: [id], onUpdate: NoAction)
+  other_encryption_keys                                                                                                          encryption_keys[]                     @relation("encryption_keysToencryption_keys")
+  tenants                                                                                                                        tenants?                              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, key_id])
   @@index([tenant_id, status, activated_at(sort: Desc)], map: "idx_enc_keys_active", where: raw("((status)::text = 'active'::text)"))
@@ -5143,37 +5180,41 @@ model external_system_mappings {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model facilities {
-  id                     Int                      @id @default(autoincrement())
-  tenant_id              String                   @unique(map: "uq_facility_default", where: raw("(is_default = true)")) @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  facility_code          String                   @db.VarChar(80)
-  display_name           String                   @db.VarChar(255)
-  facility_kind          String                   @default("hospital") @db.VarChar(40)
-  legal_entity_name      String?                  @db.VarChar(255)
-  registration_number    String?                  @db.VarChar(120)
-  address_line1          String?                  @db.VarChar(255)
-  address_line2          String?                  @db.VarChar(255)
-  city                   String?                  @db.VarChar(120)
-  state                  String?                  @db.VarChar(120)
-  country                String                   @default("IN") @db.VarChar(80)
-  postal_code            String?                  @db.VarChar(20)
-  timezone               String                   @default("Asia/Kolkata") @db.VarChar(60)
-  phone                  String?                  @db.VarChar(40)
-  email                  String?                  @db.VarChar(255)
-  status                 String                   @default("active") @db.VarChar(20)
-  is_default             Boolean                  @default(false)
-  geo_lat                Decimal?                 @db.Decimal(10, 6)
-  geo_lng                Decimal?                 @db.Decimal(10, 6)
-  metadata               Json                     @default("{}")
-  created_by             String?                  @db.Uuid
-  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
-  appointment_queues     appointment_queues[]
-  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  facility_locations     facility_locations[]
-  facility_rooms         facility_rooms[]
-  lab_analyzers          lab_analyzers[]
-  queue_display_profiles queue_display_profiles[]
-  service_catalog        service_catalog[]
+  id                                  Int                                   @id @default(autoincrement())
+  tenant_id                           String                                @unique(map: "uq_facility_default", where: raw("(is_default = true)")) @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_code                       String                                @db.VarChar(80)
+  display_name                        String                                @db.VarChar(255)
+  facility_kind                       String                                @default("hospital") @db.VarChar(40)
+  legal_entity_name                   String?                               @db.VarChar(255)
+  registration_number                 String?                               @db.VarChar(120)
+  address_line1                       String?                               @db.VarChar(255)
+  address_line2                       String?                               @db.VarChar(255)
+  city                                String?                               @db.VarChar(120)
+  state                               String?                               @db.VarChar(120)
+  country                             String                                @default("IN") @db.VarChar(80)
+  postal_code                         String?                               @db.VarChar(20)
+  timezone                            String                                @default("Asia/Kolkata") @db.VarChar(60)
+  phone                               String?                               @db.VarChar(40)
+  email                               String?                               @db.VarChar(255)
+  status                              String                                @default("active") @db.VarChar(20)
+  is_default                          Boolean                               @default(false)
+  geo_lat                             Decimal?                              @db.Decimal(10, 6)
+  geo_lng                             Decimal?                              @db.Decimal(10, 6)
+  metadata                            Json                                  @default("{}")
+  created_by                          String?                               @db.Uuid
+  created_at                          DateTime                              @default(now()) @db.Timestamptz(6)
+  updated_at                          DateTime                              @default(now()) @db.Timestamptz(6)
+  appointment_queues                  appointment_queues[]
+  clinical_continuity_policy_versions clinical_continuity_policy_versions[]
+  downtime_snapshots                  downtime_snapshots[]
+  emergency_visits                    emergency_visits[]
+  tenants                             tenants                               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facility_locations                  facility_locations[]
+  facility_rooms                      facility_rooms[]
+  lab_analyzers                       lab_analyzers[]
+  queue_display_profiles              queue_display_profiles[]
+  service_catalog                     service_catalog[]
+  wards                               wards[]
 
   @@unique([tenant_id, facility_code])
   @@unique([tenant_id, id], map: "ux_facilities_tenant_id")
@@ -10042,6 +10083,7 @@ model tenants {
   clinical_ai_workflow_runs                  clinical_ai_workflow_runs[]
   clinical_alerts                            clinical_alerts[]
   clinical_ambient_encounters                clinical_ambient_encounters[]
+  clinical_continuity_policy_versions        clinical_continuity_policy_versions[]
   clinical_document_extraction_events        clinical_document_extraction_events[]
   clinical_document_intake                   clinical_document_intake[]
   clinical_document_signatures               clinical_document_signatures[]
@@ -11009,6 +11051,8 @@ model users {
   cath_procedure_reports                                                                                           cath_procedure_reports[]
   cath_report_addenda                                                                                              cath_report_addenda[]
   chair_bookings                                                                                                   chair_bookings[]
+  clinical_continuity_policy_versions_clinical_continuity_policy_versions_tenant_id_approved_byTousers             clinical_continuity_policy_versions[]     @relation("clinical_continuity_policy_versions_tenant_id_approved_byTousers")
+  clinical_continuity_policy_versions_clinical_continuity_policy_versions_tenant_id_retired_byTousers              clinical_continuity_policy_versions[]     @relation("clinical_continuity_policy_versions_tenant_id_retired_byTousers")
   ctvs_case_overlays_ctvs_case_overlays_created_byTousers                                                          ctvs_case_overlays[]                      @relation("ctvs_case_overlays_created_byTousers")
   ctvs_case_overlays_ctvs_case_overlays_evidence_owner_uidTousers                                                  ctvs_case_overlays[]                      @relation("ctvs_case_overlays_evidence_owner_uidTousers")
   ctvs_case_overlays_ctvs_case_overlays_patient_uidTousers                                                         ctvs_case_overlays[]                      @relation("ctvs_case_overlays_patient_uidTousers")
@@ -11385,25 +11429,31 @@ model vitals_chart {
 }
 
 model wards {
-  id                             Int                     @id @default(autoincrement())
-  name                           String                  @db.VarChar(100)
-  floor                          Int?                    @default(1)
-  department_id                  Int?
-  total_beds                     Int?                    @default(0)
-  attendant_pass_color           String?                 @db.VarChar(20)
-  attendant_pass_screening_level String?                 @default("standard") @db.VarChar(20)
-  created_at                     DateTime?               @default(now()) @db.Timestamptz(6)
-  updated_at                     DateTime?               @default(now()) @db.Timestamptz(6)
-  tenant_id                      String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  beds                           beds[]
-  downtime_snapshots             downtime_snapshots[]
-  linen_laundry_cycles           linen_laundry_cycles[]
-  linen_ward_par_levels          linen_ward_par_levels[]
-  ward_indents                   ward_indents[]
-  tenants                        tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_wards_tenant")
-  departments                    departments?            @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                                                                         Int                     @id @default(autoincrement())
+  name                                                                       String                  @db.VarChar(100)
+  floor                                                                      Int?                    @default(1)
+  department_id                                                              Int?
+  total_beds                                                                 Int?                    @default(0)
+  attendant_pass_color                                                       String?                 @db.VarChar(20)
+  attendant_pass_screening_level                                             String?                 @default("standard") @db.VarChar(20)
+  created_at                                                                 DateTime?               @default(now()) @db.Timestamptz(6)
+  updated_at                                                                 DateTime?               @default(now()) @db.Timestamptz(6)
+  tenant_id                                                                  String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id                                                                Int?
+  beds                                                                       beds[]
+  downtime_snapshots                                                         downtime_snapshots[]
+  downtime_snapshots_downtime_snapshots_tenant_id_facility_id_ward_idTowards downtime_snapshots[]    @relation("downtime_snapshots_tenant_id_facility_id_ward_idTowards")
+  linen_laundry_cycles                                                       linen_laundry_cycles[]
+  linen_ward_par_levels                                                      linen_ward_par_levels[]
+  ward_indents                                                               ward_indents[]
+  facilities                                                                 facilities?             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_wards_facility_tenant")
+  tenants                                                                    tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_wards_tenant")
+  departments                                                                departments?            @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([tenant_id, facility_id, id], map: "ux_wards_tenant_facility_id")
+  @@unique([tenant_id, id], map: "ux_wards_tenant_id")
   @@index([tenant_id], map: "idx_wards_tenant_id")
+  @@index([tenant_id, facility_id, id], map: "idx_wards_tenant_facility", where: raw("(facility_id IS NOT NULL)"))
 }
 
 model advance_deposits {
@@ -25073,6 +25123,61 @@ model ed_recovery_contact_events {
   @@unique([tenant_id, id], map: "ux_ed_recovery_contact_events_tenant_id")
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_ed_recovery_contact_events_patient")
   @@index([tenant_id, emergency_visit_id, occurred_at(sort: Desc), id(sort: Desc)], map: "idx_ed_recovery_contact_events_visit")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_policy_versions {
+  id                                                                                                         String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                  String                                @db.Uuid
+  facility_id                                                                                                Int
+  policy_version                                                                                             BigInt
+  policy_schema_version                                                                                      Int
+  lifecycle_state                                                                                            String                                @default("draft") @db.VarChar(20)
+  policy_document                                                                                            Json
+  policy_checksum                                                                                            String                                @db.Char(64)
+  canonicalization                                                                                           String                                @default("rfc8785-jcs") @db.VarChar(32)
+  signature_algorithm                                                                                        String                                @default("ed25519") @db.VarChar(24)
+  policy_signing_key_id                                                                                      String                                @db.VarChar(64)
+  policy_signing_public_key_sha256                                                                           String                                @db.Char(64)
+  current_pack_signing_key_id                                                                                String                                @db.VarChar(64)
+  current_pack_signing_public_key_sha256                                                                     String                                @db.Char(64)
+  next_pack_signing_key_id                                                                                   String?                               @db.VarChar(64)
+  next_pack_signing_public_key_sha256                                                                        String?                               @db.Char(64)
+  policy_signature                                                                                           Bytes
+  revocation_epoch                                                                                           BigInt                                @default(0)
+  revoked_key_ids                                                                                            Json                                  @default("[]")
+  approval_id                                                                                                Int?
+  approved_by                                                                                                String?                               @db.Uuid
+  approved_at                                                                                                DateTime?                             @db.Timestamptz(6)
+  effective_from                                                                                             DateTime                              @db.Timestamptz(6)
+  effective_until                                                                                            DateTime?                             @db.Timestamptz(6)
+  supersedes_policy_id                                                                                       String?                               @db.Uuid
+  retired_by                                                                                                 String?                               @db.Uuid
+  retired_at                                                                                                 DateTime?                             @db.Timestamptz(6)
+  retirement_reason                                                                                          String?
+  created_at                                                                                                 DateTime                              @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                 DateTime                              @default(now()) @db.Timestamptz(6)
+  approvals                                                                                                  approvals?                            @relation(fields: [tenant_id, approval_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_policy_approval_tenant_fk")
+  users_clinical_continuity_policy_versions_tenant_id_approved_byTousers                                     users?                                @relation("clinical_continuity_policy_versions_tenant_id_approved_byTousers", fields: [tenant_id, approved_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_policy_approved_by_tenant_fk")
+  encryption_keys_clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys encryption_keys                       @relation("clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys", fields: [tenant_id, current_pack_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_current_key_tenant_fk")
+  facilities                                                                                                 facilities                            @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_policy_facility_tenant_fk")
+  encryption_keys_clinical_continuity_policy_versions_tenant_id_next_pack_signing_key_idToencryption_keys    encryption_keys?                      @relation("clinical_continuity_policy_versions_tenant_id_next_pack_signing_key_idToencryption_keys", fields: [tenant_id, next_pack_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_next_key_tenant_fk")
+  encryption_keys_clinical_continuity_policy_versions_tenant_id_policy_signing_key_idToencryption_keys       encryption_keys                       @relation("clinical_continuity_policy_versions_tenant_id_policy_signing_key_idToencryption_keys", fields: [tenant_id, policy_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_policy_key_tenant_fk")
+  users_clinical_continuity_policy_versions_tenant_id_retired_byTousers                                      users?                                @relation("clinical_continuity_policy_versions_tenant_id_retired_byTousers", fields: [tenant_id, retired_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_policy_retired_by_tenant_fk")
+  clinical_continuity_policy_versions                                                                        clinical_continuity_policy_versions?  @relation("clinical_continuity_policy_versionsToclinical_continuity_policy_versions", fields: [tenant_id, facility_id, supersedes_policy_id], references: [tenant_id, facility_id, id], onUpdate: NoAction, map: "cc_policy_supersedes_tenant_facility_fk")
+  other_clinical_continuity_policy_versions                                                                  clinical_continuity_policy_versions[] @relation("clinical_continuity_policy_versionsToclinical_continuity_policy_versions")
+  tenants                                                                                                    tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "cc_policy_tenant_fk")
+  downtime_snapshots                                                                                         downtime_snapshots[]
+
+  @@unique([tenant_id, facility_id, lifecycle_state], map: "ux_cc_policy_active", where: raw("((lifecycle_state)::text = 'active'::text)"))
+  @@unique([tenant_id, facility_id, id, policy_version], map: "ux_cc_policy_snapshot_pin")
+  @@unique([tenant_id, facility_id, id], map: "ux_cc_policy_tenant_facility_id")
+  @@unique([tenant_id, facility_id, policy_version], map: "ux_cc_policy_tenant_facility_version")
+  @@index([tenant_id, approval_id], map: "idx_cc_policy_approval", where: raw("(approval_id IS NOT NULL)"))
+  @@index([tenant_id, current_pack_signing_key_id], map: "idx_cc_policy_current_key")
+  @@index([tenant_id, facility_id, lifecycle_state, effective_from(sort: Desc), policy_version(sort: Desc)], map: "idx_cc_policy_effective")
+  @@index([tenant_id, next_pack_signing_key_id], map: "idx_cc_policy_next_key", where: raw("(next_pack_signing_key_id IS NOT NULL)"))
 }
 
 enum transplant_organ_type {

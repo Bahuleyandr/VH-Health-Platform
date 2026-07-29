@@ -144,13 +144,18 @@ export const envSchema = Joi.object({
   // Monitoring — optional but warn if missing
   SENTRY_DSN: Joi.string().allow('').optional().label('SENTRY_DSN'),
 
-  // Static downtime mirror directory (WS2 / REL-5). OPTIONAL — has a safe
-  // default under the OS temp dir (see src/config/downtimeConfig.js), so the
-  // app NEVER crashes when unset. Warn-tier: in production an unset value means
-  // packs are written to ephemeral pod-local temp and won't survive a
-  // pod/outage or be LAN-synced; point it at a shared hostPath/Longhorn volume
-  // (see docs/DOWNTIME_PROCEDURE.md).
-  DOWNTIME_MIRROR_DIR: Joi.string().allow('').optional().label('DOWNTIME_MIRROR_DIR'),
+  // C3.1 signed continuity generation is disabled by default. Legacy static
+  // ward packs retain their temp fallback, but the signed writer requires an
+  // explicit operator-owned root whenever it is enabled.
+  CLINICAL_CONTINUITY_PACKS_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('CLINICAL_CONTINUITY_PACKS_ENABLED'),
+  DOWNTIME_MIRROR_DIR: Joi.when('CLINICAL_CONTINUITY_PACKS_ENABLED', {
+    is: 'true',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('DOWNTIME_MIRROR_DIR'),
 
   // PACS / imaging viewer (roadmap B4) — optional until the optional/pacs
   // module is enabled. When unset, /api/v1/pacs/config reports enabled=false
@@ -459,7 +464,7 @@ if (envVars.FIREBASE_AUTH_ENABLED === 'true') {
 if (!envVars.SENTRY_DSN) {
   optionalWarnings.push('SENTRY_DSN is not set — error monitoring is disabled');
 }
-if (!envVars.DOWNTIME_MIRROR_DIR) {
+if (!envVars.DOWNTIME_MIRROR_DIR && envVars.CLINICAL_CONTINUITY_PACKS_ENABLED !== 'true') {
   optionalWarnings.push('DOWNTIME_MIRROR_DIR is not set — static downtime ward-pack mirror falls back to an OS-temp directory; packs will not survive a pod restart/outage or be LAN-synced (point it at a shared hostPath/Longhorn volume — see docs/DOWNTIME_PROCEDURE.md)');
 }
 const sttProvider = String(envVars.STT_PROVIDER || '').trim().toLowerCase().replace(/_/g, '-');
