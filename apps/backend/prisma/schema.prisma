@@ -25139,8 +25139,11 @@ model clinical_continuity_policy_versions {
   canonicalization                                                                                           String                                @default("rfc8785-jcs") @db.VarChar(32)
   signature_algorithm                                                                                        String                                @default("ed25519") @db.VarChar(24)
   policy_signing_key_id                                                                                      String                                @db.VarChar(64)
+  policy_signing_public_key_sha256                                                                           String                                @db.Char(64)
   current_pack_signing_key_id                                                                                String                                @db.VarChar(64)
+  current_pack_signing_public_key_sha256                                                                     String                                @db.Char(64)
   next_pack_signing_key_id                                                                                   String?                               @db.VarChar(64)
+  next_pack_signing_public_key_sha256                                                                        String?                               @db.Char(64)
   policy_signature                                                                                           Bytes
   revocation_epoch                                                                                           BigInt                                @default(0)
   revoked_key_ids                                                                                            Json                                  @default("[]")
@@ -25155,9 +25158,6 @@ model clinical_continuity_policy_versions {
   retirement_reason                                                                                          String?
   created_at                                                                                                 DateTime                              @default(now()) @db.Timestamptz(6)
   updated_at                                                                                                 DateTime                              @default(now()) @db.Timestamptz(6)
-  policy_signing_public_key_sha256                                                                           String                                @db.Char(64)
-  current_pack_signing_public_key_sha256                                                                     String                                @db.Char(64)
-  next_pack_signing_public_key_sha256                                                                        String?                               @db.Char(64)
   approvals                                                                                                  approvals?                            @relation(fields: [tenant_id, approval_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_policy_approval_tenant_fk")
   users_clinical_continuity_policy_versions_tenant_id_approved_byTousers                                     users?                                @relation("clinical_continuity_policy_versions_tenant_id_approved_byTousers", fields: [tenant_id, approved_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_policy_approved_by_tenant_fk")
   encryption_keys_clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys encryption_keys                       @relation("clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys", fields: [tenant_id, current_pack_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_current_key_tenant_fk")
