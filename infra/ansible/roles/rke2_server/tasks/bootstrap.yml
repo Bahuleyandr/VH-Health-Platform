@@ -10,6 +10,10 @@
     daemon_reload: true
   tags: [rke2, bootstrap]
 
+- name: Apply notified configuration changes before readiness checks
+  ansible.builtin.meta: flush_handlers
+  tags: [rke2, bootstrap]
+
 - name: Start rke2-server (bootstrap node)
   ansible.builtin.systemd:
     name: rke2-server
@@ -17,37 +21,54 @@
   tags: [rke2, bootstrap]
 
 - name: Wait for API server readiness on bootstrap node (5 min budget)
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: 6443
-    timeout: 300
-    delay: 5
+  ansible.builtin.uri:
+    url: https://127.0.0.1:6443/readyz
+    method: GET
+    validate_certs: false
+    return_content: false
+    status_code: 200
+    timeout: 3
+  register: rke2_bootstrap_ready
+  retries: 60
+  delay: 5
+  until: rke2_bootstrap_ready.status | default(0) == 200
   tags: [rke2, bootstrap]
 
 - name: Wait for kubeconfig to exist
   ansible.builtin.wait_for:
-    path: "{{ rke2_data_dir }}/../../rancher/rke2/rke2.yaml"
+    path: "{{ rke2_config_dir }}/rke2.yaml"
     state: present
     timeout: 60
-  failed_when: false
   tags: [rke2, bootstrap]
 
-- name: Re-read cluster token after bootstrap (for join.yml on other hosts)
-  ansible.builtin.slurp:
-    src: "{{ rke2_data_dir }}/server/node-token"
-  register: bootstrap_token_blob_post
+- name: Wait for local etcd endpoint health
+  ansible.builtin.command:
+    argv:
+      - "{{ rke2_data_dir }}/bin/etcdctl"
+      - "--endpoints=https://127.0.0.1:2379"
+      - "--cacert={{ rke2_data_dir }}/server/tls/etcd/server-ca.crt"
+      - "--cert={{ rke2_data_dir }}/server/tls/etcd/server-client.crt"
+      - "--key={{ rke2_data_dir }}/server/tls/etcd/server-client.key"
+      - endpoint
+      - health
+  environment:
+    ETCDCTL_API: "3"
+  register: rke2_bootstrap_etcd_health
+  changed_when: false
+  retries: 30
+  delay: 10
+  until: rke2_bootstrap_etcd_health.rc == 0
   tags: [rke2, bootstrap]
 
-- name: Expose token to other hosts as hostvar
-  ansible.builtin.set_fact:
-    rke2_cluster_token: "{{ bootstrap_token_blob_post['content'] | b64decode | trim }}"
-  tags: [rke2, bootstrap]
-
-- name: Broadcast cluster token to all rke2_servers hostvars
-  ansible.builtin.set_fact:
-    rke2_cluster_token: "{{ hostvars[inventory_hostname].rke2_cluster_token }}"
-  delegate_to: "{{ item }}"
-  delegate_facts: true
-  loop: "{{ groups['rke2_servers'] }}"
-  when: item != inventory_hostname
+- name: Wait for both control-plane VIP services before joiners start
+  ansible.builtin.wait_for:
+    host: "{{ control_plane_vip_address }}"
+    port: "{{ item }}"
+    connect_timeout: 3
+    delay: 2
+    timeout: 300
+  loop:
+    - 6443
+    - 9345
+  when: control_plane_vip_enabled | bool
   tags: [rke2, bootstrap]

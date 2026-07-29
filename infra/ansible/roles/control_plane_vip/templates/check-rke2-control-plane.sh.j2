@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+{{ ansible_managed | comment }}
+set -euo pipefail
+
+curl --insecure --fail --silent --show-error \
+  --connect-timeout 2 \
+  --max-time 3 \
+  https://127.0.0.1:6443/readyz \
+  >/dev/null
+
+timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/9345'

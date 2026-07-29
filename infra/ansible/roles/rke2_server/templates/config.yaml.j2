@@ -6,7 +6,8 @@
 node-name: "{{ inventory_hostname }}"
 node-label:
   - "kubernetes.io/role=server"
-  - "topology.kubernetes.io/zone={{ inventory_zone | default('default') }}"
+  - "topology.kubernetes.io/region={{ inventory_region }}"
+  - "topology.kubernetes.io/zone={{ inventory_zone }}"
   - "vhhealth.io/tier=primary"
 {% if taint_server_nodes | bool %}
 node-taint:
@@ -16,14 +17,17 @@ node-taint:
 {% endif %}
 
 # --- Cluster membership ----------------------------------------------------
+token-file: "{{ rke2_token_input_file }}"
 {% if rke2_bootstrap | default(false) | bool %}
-# This node is the cluster bootstrap server — it creates the cluster.
+# This node creates a new cluster and therefore has no server entry.
 {% else %}
-server: "https://{{ hostvars[groups['rke2_servers'] | first].ansible_host }}:9345"
-token: "{{ rke2_cluster_token }}"
+server: "https://{{ control_plane_vip_address }}:9345"
 {% endif %}
 
 write-kubeconfig-mode: "0640"
+{% if rke2_install_artifact_url | string | trim | length > 0 %}
+system-default-registry: "{{ rke2_system_default_registry }}"
+{% endif %}
 
 # --- CNI / profile ---------------------------------------------------------
 cni: "{{ rke2_cni }}"
@@ -37,6 +41,12 @@ disable:
 
 # --- TLS SANs --------------------------------------------------------------
 tls-san:
+{% if control_plane_vip_enabled | bool %}
+  - "{{ control_plane_vip_address }}"
+{% endif %}
+{% if control_plane_api_dns_name | default('') | string | trim | length > 0 %}
+  - "{{ control_plane_api_dns_name }}"
+{% endif %}
 {% for san in cluster_dns_san | default([]) %}
   - "{{ san }}"
 {% endfor %}
@@ -52,8 +62,6 @@ etcd-snapshot-retention: {{ rke2_etcd_snapshot_retention }}
 etcd-s3: true
 etcd-s3-endpoint: "{{ etcd_s3_endpoint }}"
 etcd-s3-bucket: "{{ etcd_s3_bucket }}"
-etcd-s3-access-key: "{{ etcd_s3_access_key }}"
-etcd-s3-secret-key: "{{ etcd_s3_secret_key }}"
 etcd-s3-region: "{{ etcd_s3_region | default('auto') }}"
 etcd-s3-folder: "{{ etcd_s3_folder | default('etcd-snapshots/' ~ inventory_hostname) }}"
 {% endif %}

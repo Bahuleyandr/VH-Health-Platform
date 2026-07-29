@@ -1,14 +1,26 @@
 ---
 # Join a non-bootstrap server to the existing cluster.
-# By this point configure.yml has written config.yaml with server: + token:
-# populated from the bootstrap node.
+# By this point configure.yml has written config.yaml with the pre-shared
+# token and the control-plane VIP registration endpoint.
 
 - name: Assert we have a cluster token
   ansible.builtin.assert:
     that:
       - rke2_cluster_token is defined
       - rke2_cluster_token | length > 0
-    fail_msg: "Cannot join without rke2_cluster_token from bootstrap node."
+    fail_msg: "Cannot join without the pre-shared rke2_cluster_token."
+  tags: [rke2, join]
+
+- name: Wait for the control-plane VIP before starting a joiner
+  ansible.builtin.wait_for:
+    host: "{{ control_plane_vip_address }}"
+    port: "{{ item }}"
+    connect_timeout: 3
+    delay: 2
+    timeout: 300
+  loop:
+    - 6443
+    - 9345
   tags: [rke2, join]
 
 - name: Ensure rke2-server service is enabled
@@ -18,10 +30,54 @@
     daemon_reload: true
   tags: [rke2, join]
 
+- name: Apply notified configuration changes before starting the joiner
+  ansible.builtin.meta: flush_handlers
+  tags: [rke2, join]
+
 - name: Start rke2-server (join node)
   ansible.builtin.systemd:
     name: rke2-server
     state: started
+  tags: [rke2, join]
+
+- name: Wait for local API readiness on the joiner
+  ansible.builtin.uri:
+    url: https://127.0.0.1:6443/readyz
+    method: GET
+    validate_certs: false
+    return_content: false
+    status_code: 200
+    timeout: 3
+  register: rke2_joiner_api_ready
+  retries: 60
+  delay: 5
+  until: rke2_joiner_api_ready.status | default(0) == 200
+  tags: [rke2, join]
+
+- name: Wait for the joiner kubeconfig
+  ansible.builtin.wait_for:
+    path: "{{ rke2_config_dir }}/rke2.yaml"
+    state: present
+    timeout: 300
+  tags: [rke2, join]
+
+- name: Wait for the joiner's local etcd endpoint health
+  ansible.builtin.command:
+    argv:
+      - "{{ rke2_data_dir }}/bin/etcdctl"
+      - "--endpoints=https://127.0.0.1:2379"
+      - "--cacert={{ rke2_data_dir }}/server/tls/etcd/server-ca.crt"
+      - "--cert={{ rke2_data_dir }}/server/tls/etcd/server-client.crt"
+      - "--key={{ rke2_data_dir }}/server/tls/etcd/server-client.key"
+      - endpoint
+      - health
+  environment:
+    ETCDCTL_API: "3"
+  register: rke2_joiner_etcd_health
+  changed_when: false
+  retries: 30
+  delay: 10
+  until: rke2_joiner_etcd_health.rc == 0
   tags: [rke2, join]
 
 - name: Wait for local kubelet API (10250) ready
@@ -30,4 +86,22 @@
     port: 10250
     timeout: 600
     delay: 10
+  tags: [rke2, join]
+
+- name: Wait for VIP-backed node Ready convergence
+  ansible.builtin.command:
+    argv:
+      - "{{ rke2_data_dir }}/bin/kubectl"
+      - "--kubeconfig={{ rke2_config_dir }}/rke2.yaml"
+      - "--server=https://{{ control_plane_vip_address }}:6443"
+      - get
+      - node
+      - "{{ inventory_hostname }}"
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+  register: rke2_joiner_node_ready
+  changed_when: false
+  retries: 60
+  delay: 10
+  until: rke2_joiner_node_ready.stdout | default('') == 'True'
   tags: [rke2, join]

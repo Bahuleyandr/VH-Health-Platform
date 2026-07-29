@@ -1,36 +1,785 @@
 ---
-# RKE2 agent role — worker-only nodes joining an existing cluster.
-# DELIBERATELY a no-op when inventory has no 'rke2_agents' group: we only
-# touch the host if the operator has opted in explicitly by defining
-# rke2_agent_server_url + rke2_agent_token.
+# RKE2 agent role — worker-only nodes joining through the control-plane VIP.
 
-- name: Skip if agent activation vars not provided
-  ansible.builtin.meta: end_host
+- name: Validate agent registration contract
+  ansible.builtin.assert:
+    that:
+      - control_plane_vip_enabled | bool
+      - control_plane_vip_address | string | trim | length > 0
+      - rke2_agent_server_url == 'https://' ~ control_plane_vip_address ~ ':9345'
+      - rke2_agent_token | string | trim | length > 0
+      - rke2_agent_token | string == (rke2_agent_token | string | trim)
+      - not (rke2_agent_token | string | regex_search('\s'))
+      - "'REPLACE' not in (rke2_agent_token | string | upper)"
+      - "'CHANGEME' not in (rke2_agent_token | string | upper)"
+      - "'PLACEHOLDER' not in (rke2_agent_token | string | upper)"
+      - "'FILL_ME' not in (rke2_agent_token | string | upper)"
+      - >-
+        rke2_cluster_token_mode | default('steady_state_exact')
+        == 'steady_state_exact'
+      - >-
+        (
+          rke2_agent_token
+          | string
+          | regex_search('^K10[0-9a-fA-F]{64}::server:\S+$')
+        ) is not none
+      - rke2_install_method == 'curl'
+      - rke2_channel == 'stable'
+      - >-
+        rke2_install_artifact_url | string | length == 0
+      - >-
+        rke2_version not in [
+          'v1.31.14+rke2r2',
+          'v1.32.13+rke2r2'
+        ]
+      - inventory_region is defined
+      - inventory_region | string | trim | length > 0
+      - inventory_zone is defined
+      - inventory_zone | string | trim | length > 0
+    fail_msg: >-
+      RKE2 agents require an enabled control-plane VIP, exact pre-shared token,
+      truthful region/zone labels, and the implemented stable curl installer.
+      Normal installation requires an empty Prime artifact URL. Install or
+      move through v1.31.14+rke2r2 and v1.32.13+rke2r2 only with
+      playbooks/upgrade-k8s.yml, which uses Vault-pinned local staging.
+    quiet: true
+  tags: [rke2-agent, preflight]
+
+- name: Check for an existing agent configuration
+  ansible.builtin.stat:
+    path: "{{ rke2_config_file }}"
+  register: rke2_agent_existing_config_file
+  tags: [rke2-agent, preflight, token]
+
+- name: Check for an existing protected agent token
+  ansible.builtin.stat:
+    path: "{{ rke2_agent_token_file }}"
+  register: rke2_agent_existing_token_file
+  tags: [rke2-agent, preflight, token]
+
+- name: Read the existing protected agent token
+  ansible.builtin.slurp:
+    src: "{{ rke2_agent_token_file }}"
+  register: rke2_agent_existing_token_blob
+  when: rke2_agent_existing_token_file.stat.exists | bool
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Read the existing agent configuration
+  ansible.builtin.slurp:
+    src: "{{ rke2_config_file }}"
+  register: rke2_agent_existing_config_blob
+  when: rke2_agent_existing_config_file.stat.exists | bool
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Parse the existing agent configuration
+  ansible.builtin.set_fact:
+    rke2_agent_existing_config: >-
+      {{
+        rke2_agent_existing_config_blob.content
+        | b64decode
+        | from_yaml
+      }}
+  when: rke2_agent_existing_config_file.stat.exists | bool
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Resolve the existing agent token without normalization
+  ansible.builtin.set_fact:
+    rke2_agent_existing_token_value: >-
+      {%- if rke2_agent_existing_token_file.stat.exists | bool -%}
+      {{
+        rke2_agent_existing_token_blob.content
+        | b64decode
+        | regex_replace('[\r\n]+$', '')
+      }}
+      {%- elif rke2_agent_existing_config_file.stat.exists | bool -%}
+      {{ rke2_agent_existing_config.token | default('') | string }}
+      {%- else -%}
+      {{ '' }}
+      {%- endif -%}
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Guard existing agent token replacement
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (
+          (rke2_agent_existing_config_file.stat.exists | bool)
+          or (rke2_agent_existing_token_file.stat.exists | bool)
+        )
+        or rke2_agent_existing_token_value | length > 0
+      - >-
+        rke2_agent_existing_token_value | length == 0
+        or rke2_agent_existing_token_value == (rke2_agent_token | string)
+        or rke2_agent_allow_token_rotation | bool
+    fail_msg: >-
+      The existing agent token differs from the declared secure cluster token.
+      A controlled cluster-wide token rotation must explicitly set
+      rke2_agent_allow_token_rotation; silent replacement is refused.
+    quiet: true
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Reject externally supplied agent provenance state
+  ansible.builtin.assert:
+    that:
+      - >-
+        vars.keys()
+        | select('match', '^rke2_agent_provenance_')
+        | list
+        | length == 0
+    fail_msg: >-
+      rke2_agent_provenance_* is reserved for fixed-Vault artifact
+      authentication inside the agent role.
+    quiet: true
+  no_log: true
+  tags: [rke2-agent, install]
+
+- name: Require the gathered agent architecture and exact version pin
+  ansible.builtin.assert:
+    that:
+      - ansible_facts is mapping
+      - "'architecture' in ansible_facts"
+      - ansible_architecture is defined
+      - ansible_architecture == ansible_facts['architecture']
+      - rke2_version is string
+      - >-
+        rke2_version
+        is match('^v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+$')
+    fail_msg: >-
+      The agent role requires an unmodified gathered architecture and an exact
+      RKE2 version pin before selecting protected artifacts.
+    quiet: true
+  no_log: true
+  tags: [rke2-agent, install]
+
+- name: Bind the fixed tagged agent installer identity
+  ansible.builtin.set_fact:
+    rke2_agent_provenance_install_script_sha256: >-
+      {{
+        {
+          'v1.31.4+rke2r1':
+            '8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492',
+          'v1.31.14+rke2r2':
+            '8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492',
+          'v1.32.13+rke2r2':
+            '81640ec027dea1950f152f795a7234ca78d4b86528a9e2a909a8456338923e34',
+          'v1.33.13+rke2r1':
+            'bfbd978d603b7070f5748c934326db509bf1470c97d3f61a3aaa6e2eed6bd054',
+          'v1.34.9+rke2r1':
+            '2d24db2184dd6b1a5e281fa45cc9a8234c889394721746f89b5fe953fdaaf40a'
+        }.get(rke2_version, '')
+      }}
+    rke2_agent_provenance_install_script_url: >-
+      {{
+        'https://raw.githubusercontent.com/rancher/rke2/'
+        ~ (rke2_version | urlencode)
+        ~ '/install.sh'
+      }}
+  no_log: true
+  tags: [rke2-agent, install]
+
+- name: Reject an unavailable or malformed agent installer identity
+  ansible.builtin.assert:
+    that:
+      - rke2_agent_provenance_install_script_sha256 is string
+      - >-
+        rke2_agent_provenance_install_script_sha256
+        is match('^[0-9a-f]{64}$')
+      - rke2_agent_provenance_install_script_sha256 != ('0' * 64)
+    fail_msg: >-
+      The exact tagged agent installer digest is unavailable, malformed, or
+      zero for the requested RKE2 version.
+    quiet: true
+  no_log: true
+  tags: [rke2-agent, install]
+
+- name: Load fixed protected agent binary identities
+  ansible.builtin.include_vars:
+    file: "{{ inventory_dir }}/group_vars/all/vault.yml"
+    name: rke2_agent_provenance_vault
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2-agent, install]
+
+- name: Bind the fixed protected agent binary map
+  ansible.builtin.set_fact:
+    rke2_agent_provenance_binary_sha256_by_architecture: >-
+      {{
+        rke2_agent_provenance_vault
+        .vault_rke2_binary_sha256_by_architecture
+        | default({})
+      }}
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2-agent, install]
+
+- name: Require the fixed protected agent architecture map
+  ansible.builtin.assert:
+    that:
+      - rke2_agent_provenance_binary_sha256_by_architecture is mapping
+      - >-
+        ansible_architecture
+        in rke2_agent_provenance_binary_sha256_by_architecture
+      - >-
+        rke2_agent_provenance_binary_sha256_by_architecture[
+          ansible_architecture
+        ] is mapping
+    fail_msg: >-
+      The fixed Vault has no version-to-SHA-256 map for the gathered agent
+      architecture.
+    quiet: true
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2-agent, install]
+
+- name: Select the fixed protected agent binary identity
+  ansible.builtin.set_fact:
+    rke2_agent_provenance_expected_binary_sha256: >-
+      {{
+        rke2_agent_provenance_binary_sha256_by_architecture[
+          ansible_architecture
+        ].get(rke2_version, '')
+      }}
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2-agent, install]
+
+- name: Reject an unavailable or malformed agent binary identity
+  ansible.builtin.assert:
+    that:
+      - rke2_agent_provenance_expected_binary_sha256 is string
+      - >-
+        rke2_agent_provenance_expected_binary_sha256
+        is match('^[0-9a-f]{64}$')
+      - >-
+        rke2_agent_provenance_expected_binary_sha256 != ('0' * 64)
+      - >-
+        'PLACEHOLDER'
+        not in (rke2_agent_provenance_expected_binary_sha256 | upper)
+      - >-
+        'CHANGEME'
+        not in (rke2_agent_provenance_expected_binary_sha256 | upper)
+      - >-
+        'REPLACE'
+        not in (rke2_agent_provenance_expected_binary_sha256 | upper)
+    fail_msg: >-
+      The exact production agent architecture/version binary digest is
+      unavailable, malformed, zero, or a placeholder.
+    quiet: true
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2-agent, install]
+
+- name: Inspect existing agent binary trust-path ancestors
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /
+    - /usr
+    - /usr/local
+    - /usr/local/bin
+  register: rke2_agent_provenance_existing_binary_ancestors
+  tags: [rke2-agent, install]
+
+- name: Require protected existing agent binary ancestors
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - item.stat.isdir | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | default(-1) | int == 0
+      - item.stat.gid | default(-1) | int == 0
+      - item.stat.mode | default('') == '0755'
+    fail_msg: >-
+      The existing agent binary trust path is absent, linked, non-root-owned,
+      or not mode 0755: {{ item.item }}
+    quiet: true
+  loop: "{{ rke2_agent_provenance_existing_binary_ancestors.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  tags: [rke2-agent, install]
+
+- name: Inspect the canonical existing agent binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/rke2
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: rke2_agent_provenance_existing_binary
+  tags: [rke2-agent, install]
+
+- name: Authenticate the canonical existing agent binary before execution
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+        or (
+          rke2_agent_provenance_existing_binary.stat.isreg | default(false)
+          and not (
+            rke2_agent_provenance_existing_binary.stat.islnk
+            | default(false)
+          )
+          and (
+            rke2_agent_provenance_existing_binary.stat.uid
+            | default(-1) | int
+          ) == 0
+          and (
+            rke2_agent_provenance_existing_binary.stat.gid
+            | default(-1) | int
+          ) == 0
+          and (
+            rke2_agent_provenance_existing_binary.stat.mode
+            | default('')
+          ) == '0755'
+          and (
+            rke2_agent_provenance_existing_binary.stat.executable
+            | default(false)
+          )
+          and (
+            not (control_plane_vip_enabled | bool)
+            or (
+              (
+                rke2_agent_provenance_existing_binary.stat.checksum
+                | default('')
+              )
+              == (
+                rke2_agent_provenance_expected_binary_sha256
+                | default('')
+              )
+            )
+          )
+        )
+    fail_msg: >-
+      /usr/local/bin/rke2 exists but is not the protected root-owned,
+      executable, mode-0755 binary for the exact agent architecture and pin.
+    quiet: true
+  no_log: true
+  tags: [rke2-agent, install]
+
+- name: Read the installed RKE2 agent version
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/rke2
+      - --version
+  register: rke2_agent_provenance_existing_version_output
+  changed_when: false
+  check_mode: false
   when:
-    - rke2_agent_server_url | length == 0
-    - rke2_agent_token | length == 0
-  tags: [rke2-agent]
+    - rke2_agent_provenance_existing_binary.stat.exists | default(false)
+  tags: [rke2-agent, install]
 
-- name: Download RKE2 install script (agent mode)
+- name: Parse the installed RKE2 agent version exactly
+  ansible.builtin.set_fact:
+    rke2_agent_provenance_existing_version: >-
+      {{
+        rke2_agent_provenance_existing_version_output.stdout
+        | default('')
+        | regex_findall(
+            '(?m)^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)(?:[ \t].*)?$'
+          )
+        | first
+        | default('')
+      }}
+  tags: [rke2-agent, install]
+
+- name: Reject agent version changes outside the qualified upgrade playbook
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+        or rke2_agent_provenance_existing_version | length > 0
+      - >-
+        not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+        or rke2_agent_provenance_existing_version == rke2_version
+    fail_msg: >-
+      site.yml cannot change an installed RKE2 agent version. Use the
+      approved upgrade playbook after all servers pass the rung.
+  tags: [rke2-agent, install]
+
+- name: Inspect agent installer trust-path ancestors
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /
+    - /usr
+    - /usr/local
+    - /usr/local/sbin
+  register: rke2_agent_provenance_installer_ancestors_before_download
+  when:
+    - not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2-agent, install]
+
+- name: Require protected agent installer ancestors before download
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - item.stat.isdir | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | default(-1) | int == 0
+      - item.stat.gid | default(-1) | int == 0
+      - item.stat.mode | default('') == '0755'
+    fail_msg: >-
+      The agent installer trust path is absent, linked, non-root-owned, or not
+      mode 0755: {{ item.item }}
+    quiet: true
+  loop: >-
+    {{
+      rke2_agent_provenance_installer_ancestors_before_download.results
+      | default([])
+    }}
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2-agent, install]
+
+- name: Inspect any existing agent installer leaf
+  ansible.builtin.stat:
+    path: /usr/local/sbin/rke2-install.sh
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: rke2_agent_provenance_installer_before_download
+  when:
+    - not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2-agent, install]
+
+- name: Reject an unsafe existing agent installer leaf
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (
+          rke2_agent_provenance_installer_before_download.stat.exists
+          | default(false)
+        )
+        or (
+          rke2_agent_provenance_installer_before_download.stat.isreg
+          | default(false)
+          and not (
+            rke2_agent_provenance_installer_before_download.stat.islnk
+            | default(false)
+          )
+          and (
+            rke2_agent_provenance_installer_before_download.stat.uid
+            | default(-1) | int
+          ) == 0
+          and (
+            rke2_agent_provenance_installer_before_download.stat.gid
+            | default(-1) | int
+          ) == 0
+          and (
+            rke2_agent_provenance_installer_before_download.stat.mode
+            | default('')
+          ) == '0750'
+        )
+    fail_msg: >-
+      Refusing to overwrite an unsafe /usr/local/sbin/rke2-install.sh.
+    quiet: true
+  when:
+    - not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2-agent, install]
+
+- name: Download the exact tagged RKE2 agent install script
   ansible.builtin.get_url:
-    url: https://get.rke2.io
+    url: "{{ rke2_agent_provenance_install_script_url }}"
     dest: /usr/local/sbin/rke2-install.sh
+    checksum: >-
+      sha256:{{ rke2_agent_provenance_install_script_sha256 }}
     mode: "0750"
     owner: root
     group: root
-  when: rke2_install_method == 'curl'
+    force: true
+  when:
+    - not ansible_check_mode
+    - not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2-agent, install]
+
+- name: Reinspect agent installer provenance immediately before execution
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: "{{ item.file | bool }}"
+    checksum_algorithm: sha256
+  loop:
+    - { path: /, file: false }
+    - { path: /usr, file: false }
+    - { path: /usr/local, file: false }
+    - { path: /usr/local/sbin, file: false }
+    - { path: /usr/local/sbin/rke2-install.sh, file: true }
+  register: rke2_agent_provenance_installer_before_execution
+  when:
+    - not ansible_check_mode
+    - not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2-agent, install]
+
+- name: Authenticate agent installer provenance immediately before execution
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | default(-1) | int == 0
+      - item.stat.gid | default(-1) | int == 0
+      - >-
+        (
+          not (item.item.file | bool)
+          and (item.stat.isdir | default(false))
+          and (item.stat.mode | default('') == '0755')
+        )
+        or
+        (
+          item.item.file | bool
+          and (item.stat.isreg | default(false))
+          and (item.stat.executable | default(false))
+          and (item.stat.mode | default('') == '0750')
+          and (
+            item.stat.checksum | default('')
+            == rke2_agent_provenance_install_script_sha256
+          )
+        )
+    fail_msg: >-
+      The tagged agent installer or its trust path changed before execution:
+      {{ item.item.path }}
+    quiet: true
+  no_log: true
+  loop: >-
+    {{
+      rke2_agent_provenance_installer_before_execution.results
+      | default([])
+    }}
+  loop_control:
+    label: "{{ item.item.path }}"
+  when:
+    - not ansible_check_mode
+    - not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
   tags: [rke2-agent, install]
 
 - name: Run RKE2 install script (agent, pinned {{ rke2_version }})
   ansible.builtin.command:
-    cmd: /usr/local/sbin/rke2-install.sh
-  environment:
-    INSTALL_RKE2_VERSION: "{{ rke2_version }}"
-    INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
-    INSTALL_RKE2_TYPE: "agent"
-  register: rke2_agent_install
-  changed_when: rke2_agent_install.rc == 0
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import os
+        import re
+
+        protected_version = os.environ.get(
+            "RKE2_ROLE_PROTECTED_VERSION", ""
+        )
+        protected_artifact_url = os.environ.get(
+            "RKE2_ROLE_PROTECTED_ARTIFACT_URL", ""
+        )
+        if protected_artifact_url:
+            raise SystemExit(
+                "normal RKE2 installation requires an empty artifact URL; "
+                "use playbooks/upgrade-k8s.yml"
+            )
+        if re.fullmatch(
+            r"v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+",
+            protected_version,
+        ) is None:
+            raise SystemExit("protected RKE2 installer version is invalid")
+
+        expected = {
+            "INSTALL_RKE2_VERSION": protected_version,
+            "INSTALL_RKE2_CHANNEL": "stable",
+            "INSTALL_RKE2_TYPE": "agent",
+            "INSTALL_RKE2_METHOD": "tar",
+            "INSTALL_RKE2_TAR_PREFIX": "/usr/local",
+            "INSTALL_RKE2_SKIP_RELOAD": "true",
+        }
+
+        unexpected = sorted(
+            name
+            for name in os.environ
+            if name.startswith("INSTALL_RKE2_") and name not in expected
+        )
+        if unexpected:
+            raise SystemExit(
+                "unapproved RKE2 installer inputs: " + ",".join(unexpected)
+            )
+        for name, value in expected.items():
+            if os.environ.get(name) != value:
+                raise SystemExit(
+                    "RKE2 installer input differs from protected value: "
+                    + name
+                )
+
+        exec_environment = {
+            "HOME": "/root",
+            "PATH": (
+                "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:"
+                "/sbin:/bin"
+            ),
+            **expected,
+        }
+        installer = "/usr/local/sbin/rke2-install.sh"
+        os.execve(installer, [installer], exec_environment)
+  environment: >-
+    {{
+      {
+        'HOME': '/root',
+        'PATH':
+          '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        'RKE2_ROLE_PROTECTED_VERSION': rke2_version,
+        'RKE2_ROLE_PROTECTED_ARTIFACT_URL':
+          rke2_install_artifact_url | string,
+        'INSTALL_RKE2_VERSION': rke2_version,
+        'INSTALL_RKE2_CHANNEL': 'stable',
+        'INSTALL_RKE2_TYPE': 'agent',
+        'INSTALL_RKE2_METHOD': 'tar',
+        'INSTALL_RKE2_TAR_PREFIX': '/usr/local',
+        'INSTALL_RKE2_SKIP_RELOAD': 'true'
+      }
+    }}
+  when:
+    - not ansible_check_mode
+    - not (rke2_agent_provenance_existing_binary.stat.exists | default(false))
+  changed_when: true
+  no_log: "{{ rke2_install_artifact_url | string | trim | length > 0 }}"
   notify: reload systemd
+  tags: [rke2-agent, install]
+
+- name: Reinspect post-install agent binary trust-path ancestors
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /
+    - /usr
+    - /usr/local
+    - /usr/local/bin
+  register: rke2_agent_provenance_post_install_binary_ancestors
+  tags: [rke2-agent, install]
+
+- name: Require protected post-install agent binary ancestors
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - item.stat.isdir | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | default(-1) | int == 0
+      - item.stat.gid | default(-1) | int == 0
+      - item.stat.mode | default('') == '0755'
+    fail_msg: >-
+      The post-install agent binary trust path is absent, linked,
+      non-root-owned, or not mode 0755: {{ item.item }}
+    quiet: true
+  loop: "{{ rke2_agent_provenance_post_install_binary_ancestors.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - >-
+      not ansible_check_mode
+      or (
+        rke2_agent_provenance_existing_binary.stat.exists
+        | default(false)
+      )
+  tags: [rke2-agent, install]
+
+- name: Inspect the canonical post-install agent binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/rke2
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: rke2_agent_provenance_post_install_binary
+  tags: [rke2-agent, install]
+
+- name: Authenticate the canonical post-install agent binary before execution
+  ansible.builtin.assert:
+    that:
+      - rke2_agent_provenance_post_install_binary.stat.exists | default(false)
+      - rke2_agent_provenance_post_install_binary.stat.isreg | default(false)
+      - >-
+        not (
+          rke2_agent_provenance_post_install_binary.stat.islnk
+          | default(false)
+        )
+      - >-
+        rke2_agent_provenance_post_install_binary.stat.uid
+        | default(-1) | int == 0
+      - >-
+        rke2_agent_provenance_post_install_binary.stat.gid
+        | default(-1) | int == 0
+      - >-
+        rke2_agent_provenance_post_install_binary.stat.mode
+        | default('') == '0755'
+      - >-
+        rke2_agent_provenance_post_install_binary.stat.executable
+        | default(false)
+      - >-
+        not (control_plane_vip_enabled | bool)
+        or (
+          (
+            rke2_agent_provenance_post_install_binary.stat.checksum
+            | default('')
+          )
+          == (
+            rke2_agent_provenance_expected_binary_sha256
+            | default('')
+          )
+        )
+    fail_msg: >-
+      The installer did not produce the protected root-owned, executable,
+      mode-0755 /usr/local/bin/rke2 for the exact agent architecture and pin.
+    quiet: true
+  no_log: true
+  when:
+    - >-
+      not ansible_check_mode
+      or (
+        rke2_agent_provenance_existing_binary.stat.exists
+        | default(false)
+      )
+  tags: [rke2-agent, install]
+
+- name: Read the post-install RKE2 agent version
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/rke2
+      - --version
+  register: rke2_agent_provenance_post_install_version_output
+  changed_when: false
+  check_mode: false
+  when:
+    - rke2_agent_provenance_post_install_binary.stat.exists | default(false)
+  tags: [rke2-agent, install]
+
+- name: Parse the post-install RKE2 agent version exactly
+  ansible.builtin.set_fact:
+    rke2_agent_provenance_post_install_version: >-
+      {{
+        rke2_agent_provenance_post_install_version_output.stdout
+        | default('')
+        | regex_findall(
+            '(?m)^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)(?:[ \t].*)?$'
+          )
+        | first
+        | default('')
+      }}
+  tags: [rke2-agent, install]
+
+- name: Verify the exact post-install RKE2 agent pin
+  ansible.builtin.assert:
+    that:
+      - rke2_agent_provenance_post_install_binary.stat.exists | default(false)
+      - rke2_agent_provenance_post_install_version == rke2_version
+    fail_msg: >-
+      The RKE2 installer did not produce the exact requested agent version at
+      /usr/local/bin/rke2.
+  when:
+    - >-
+      not ansible_check_mode
+      or (
+        rke2_agent_provenance_existing_binary.stat.exists
+        | default(false)
+      )
   tags: [rke2-agent, install]
 
 - name: Ensure config directory
@@ -42,6 +791,19 @@
     mode: "0750"
   tags: [rke2-agent, config]
 
+- name: Write the protected agent token file
+  ansible.builtin.copy:
+    content: "{{ rke2_agent_token }}\n"
+    dest: "{{ rke2_agent_token_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+    backup: false
+  diff: false
+  no_log: true
+  notify: restart rke2-agent
+  tags: [rke2-agent, config, token]
+
 - name: Render agent config.yaml
   ansible.builtin.template:
     src: config.yaml.j2
@@ -49,16 +811,36 @@
     owner: root
     group: root
     mode: "0640"
-    backup: true
+    backup: false
+  diff: false
+  no_log: true
   notify: restart rke2-agent
   tags: [rke2-agent, config]
 
-- name: Ensure rke2-agent enabled + started
+- name: Wait for the control-plane VIP before starting the agent
+  ansible.builtin.wait_for:
+    host: "{{ control_plane_vip_address }}"
+    port: 9345
+    connect_timeout: 3
+    delay: 2
+    timeout: 300
+  tags: [rke2-agent]
+
+- name: Ensure rke2-agent service is enabled
   ansible.builtin.systemd:
     name: rke2-agent
     enabled: true
-    state: started
     daemon_reload: true
+  tags: [rke2-agent]
+
+- name: Apply notified agent configuration changes before readiness checks
+  ansible.builtin.meta: flush_handlers
+  tags: [rke2-agent]
+
+- name: Ensure rke2-agent is started
+  ansible.builtin.systemd:
+    name: rke2-agent
+    state: started
   tags: [rke2-agent]
 
 - name: Wait for kubelet to come up

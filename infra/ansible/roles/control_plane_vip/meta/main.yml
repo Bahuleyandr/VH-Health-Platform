@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  role_name: control_plane_vip
+  author: VH Health Platform SRE
+  description: Provides a health-gated unicast keepalived VIP for RKE2
+  license: Proprietary
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - rke2
+    - keepalived
+    - highavailability
+dependencies: []

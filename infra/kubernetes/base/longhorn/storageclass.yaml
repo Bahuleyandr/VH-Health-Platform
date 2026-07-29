@@ -6,19 +6,16 @@
 #                      local-path is unavailable (e.g. single-node staging)
 #
 # The `longhorn` class is NOT the Kubernetes default (defaultClass: false in
-# the ArgoCD Application values). Each StatefulSet PVC that migrates from
-# local-path explicitly names `storageClassName: longhorn`. This avoids
-# accidentally migrating workloads before the operator data-move is complete.
+# the ArgoCD Application values). Any later, independently approved placement
+# must explicitly name `storageClassName: longhorn`; no workload selects it in
+# this slice.
 #
-# reclaimPolicy: Retain — on PVC deletion the PV is kept (Longhorn volume
-# goes to "detached" state). The operator must manually run:
-#   kubectl delete pv <pv-name>   # or use the Longhorn UI
-# before a fresh PVC can bind a new volume. This is intentional for PHI
-# data: no accidental erasure.
+# reclaimPolicy: Retain — a released volume remains retained for an explicit,
+# separately reviewed disposition. This is intentional for PHI data.
 #
 # volumeBindingMode: WaitForFirstConsumer — the PV is only provisioned when
-# a pod is scheduled, ensuring the Longhorn replica lands on the same zone
-# as the pod. Important for 3-node clusters with zone labels.
+# a pod is scheduled. Longhorn's three replicas are storage copies on eligible
+# nodes, not proof of independent facility failure domains.
 ---
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -36,10 +33,10 @@ allowVolumeExpansion: true
 reclaimPolicy: Retain
 volumeBindingMode: WaitForFirstConsumer
 parameters:
-  # Number of data replicas. With 3 nodes this means one replica per node.
+  # Three node-level copies; this does not establish rack/power/network
+  # independence.
   numberOfReplicas: "3"
-  # Tolerate degraded state (1 replica missing) for up to 10 minutes before
-  # failing. Gives time for a node to come back.
+  # A stale replica is eligible for cleanup after 30 minutes.
   staleReplicaTimeout: "30"
   # Filesystem for block volumes.
   fsType: ext4

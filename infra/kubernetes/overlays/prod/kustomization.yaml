@@ -26,13 +26,11 @@ resources:
 # (written by scripts/update-prod-digests.mjs via release-pin-digests.yml).
 
 patches:
-  # ── INF-5 / B2.6: Longhorn PVC migration ──────────────────────────────────
-  # Switches stateful PVCs from local-path → longhorn (3-replica block storage).
-  # OPERATOR-GATED: do NOT activate until the Longhorn operator pre-install
-  # checklist in base/longhorn/longhorn-app.yaml is complete AND all
-  # StatefulSet data-move procedures have been executed per
-  # longhorn-pvc-patch.yaml's header comment. Each service requires a
-  # maintenance window. Activate by un-commenting the line below.
+  # ── INF-5 / B2.6: held Longhorn placement candidate ───────────────────────
+  # C1.2 selects no storage migration. CNPG data/WAL remain on local-path and
+  # the Longhorn 1.7.2 repository target is unqualified. Keep this candidate
+  # commented until docs/C1_2_STORAGE_PLACEMENT_GATE.md is complete and an
+  # independently reviewed service-by-service plan is approved.
   # - longhorn-pvc-patch.yaml
 
   # ── INF-6 / B2.7: Vault Transit auto-unseal ──────────────────────────────
@@ -69,7 +67,8 @@ patches:
         path: /spec/postgresql/parameters/effective_cache_size
         value: "6GB"
 
-  # Cloudflared replicas bumped to 4 (one per zone + 1 spare).
+  # Four Cloudflared replicas provide capacity and node-level redundancy;
+  # inventory zones are not treated as independent facility domains.
   - target:
       kind: Deployment
       name: cloudflared

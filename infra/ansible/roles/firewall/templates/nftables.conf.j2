@@ -5,12 +5,13 @@
 #
 # Policy:
 #   input   = drop (explicit allow list below)
-#   forward = drop (kube-proxy inserts its own FORWARD chain via iptables;
-#             nftables-iptables compat is enabled, so this is safe)
 #   output  = accept (egress unrestricted — Cloudflare Tunnel is our only
 #             public ingress, so egress filtering is future work)
 
-flush ruleset
+# Replace only the table owned by this role. `destroy` is idempotent when the
+# table does not exist, and nft applies this destroy/create batch atomically.
+# Never flush the global ruleset: kube-proxy and the CNI own other tables.
+destroy table inet vhhealth
 
 table inet vhhealth {
 
@@ -53,6 +54,14 @@ table inet vhhealth {
         # --- SSH from management CIDRs only ---------------------------------
         ip saddr @mgmt_v4 tcp dport 22 accept
 
+        # --- Kubernetes API from management CIDRs ---------------------------
+        ip saddr @mgmt_v4 tcp dport { {{ firewall_management_tcp_ports | join(', ') }} } accept
+
+        # --- Unicast VRRP only from cluster CIDRs on the declared LAN --------
+{% if control_plane_vip_enabled | bool %}
+        iifname "{{ control_plane_vip_interface }}" ip saddr @cluster_v4 ip protocol {{ firewall_vrrp_protocol }} accept
+{% endif %}
+
         # --- RKE2 cluster-internal traffic ----------------------------------
         ip saddr @cluster_v4 tcp dport { {{ firewall_cluster_tcp_ports | join(', ') }} } accept
         ip saddr @cluster_v4 udp dport { {{ firewall_cluster_udp_ports | join(', ') }} } accept
@@ -71,15 +80,6 @@ table inet vhhealth {
 {% endif %}
 
         # Implicit drop by chain policy.
-    }
-
-    # --- Forward chain ------------------------------------------------------
-    chain forward {
-        type filter hook forward priority 0; policy drop;
-        # kube-proxy / flannel manage pod-to-pod forwarding via iptables
-        # compatibility layer. Host-level forwarding for anything else stays
-        # dropped.
-        ct state established,related accept
     }
 
     # --- Output chain -------------------------------------------------------

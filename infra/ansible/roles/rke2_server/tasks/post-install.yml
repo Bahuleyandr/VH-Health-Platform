@@ -54,6 +54,16 @@
     timeout: 300
   tags: [rke2, post, kubeconfig]
 
+- name: Rewrite RKE2 admin kubeconfig to the control-plane VIP
+  ansible.builtin.replace:
+    path: "{{ rke2_config_dir }}/rke2.yaml"
+    regexp: '(?m)^(\s*server:\s*)https://[^:\s]+:6443\s*$'
+    replace: '\1https://{{ control_plane_vip_address }}:6443'
+  diff: false
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2, post, kubeconfig]
+
 - name: Copy rke2.yaml to admin ~/.kube/config
   ansible.builtin.copy:
     src: "{{ rke2_config_dir }}/rke2.yaml"
@@ -62,31 +72,53 @@
     owner: "{{ hardening_admin_user | default('vhhealth') }}"
     group: "{{ hardening_admin_user | default('vhhealth') }}"
     mode: "0600"
+    backup: false
+  diff: false
+  no_log: true
   tags: [rke2, post, kubeconfig]
 
-- name: Rewrite kubeconfig server URL from 127.0.0.1 to first server
+- name: Rewrite admin kubeconfig to the control-plane VIP
   ansible.builtin.replace:
     path: "{{ hardening_admin_home | default('/home/' ~ (hardening_admin_user | default('vhhealth'))) }}/.kube/config"
-    regexp: 'https://127\.0\.0\.1:6443'
-    replace: "https://{{ hostvars[groups['rke2_servers'] | first].ansible_host }}:6443"
+    regexp: '(?m)^(\s*server:\s*)https://[^:\s]+:6443\s*$'
+    replace: '\1https://{{ control_plane_vip_address }}:6443'
+  diff: false
+  no_log: true
+  when: control_plane_vip_enabled | bool
   tags: [rke2, post, kubeconfig]
 
-# --- Node labels ----------------------------------------------------------
-# Labels are already in config.yaml's node-label list, so they're applied
-# on kubelet registration. This block is a safety net: if an operator
-# edits labels post-join, the role re-asserts them.
+- name: Read kubeconfig endpoints without exposing credentials
+  ansible.builtin.command:
+    argv:
+      - "{{ rke2_data_dir }}/bin/kubectl"
+      - "--kubeconfig={{ item }}"
+      - config
+      - view
+      - --minify
+      - -o
+      - 'jsonpath={.clusters[0].cluster.server}'
+  loop:
+    - "{{ rke2_config_dir }}/rke2.yaml"
+    - "{{ hardening_admin_home | default('/home/' ~ (hardening_admin_user | default('vhhealth'))) }}/.kube/config"
+  register: rke2_kubeconfig_endpoints
+  changed_when: false
+  when: control_plane_vip_enabled | bool
+  tags: [rke2, post, kubeconfig]
 
-- name: Re-assert node labels via kubectl (safety net)
-  ansible.builtin.shell: |
-    set -o pipefail
-    kubectl --kubeconfig={{ rke2_config_dir }}/rke2.yaml label node {{ inventory_hostname }} \
-      kubernetes.io/role=server \
-      topology.kubernetes.io/zone={{ inventory_zone | default('default') }} \
-      vhhealth.io/tier=primary \
-      --overwrite
-  args:
-    executable: /bin/bash
-  when: rke2_bootstrap | default(false) | bool  # run once from bootstrap
-  changed_when: true
-  failed_when: false
-  tags: [rke2, post, labels]
+- name: Prove every admin kubeconfig uses the control-plane VIP
+  ansible.builtin.assert:
+    that:
+      - >-
+        rke2_kubeconfig_endpoints.results
+        | map(attribute='stdout')
+        | unique
+        | list
+        == ['https://' ~ control_plane_vip_address ~ ':6443']
+    fail_msg: >-
+      A generated admin kubeconfig does not use the control-plane VIP.
+  when: control_plane_vip_enabled | bool
+  tags: [rke2, post, kubeconfig]
+
+# RKE2 node-label is registration-time configuration. Existing live nodes are
+# deliberately relabelled only by the operator procedure in the C1.2 HA
+# runbook, after comparing live labels with these inventory values.

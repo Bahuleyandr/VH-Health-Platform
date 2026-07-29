@@ -1,48 +1,139 @@
 ---
-# Reads the RKE2 bootstrap token from the first server and broadcasts it to
-# all other servers as `rke2_cluster_token`. Runs ONLY if the bootstrap node
-# already has RKE2 installed (i.e. second/third-server onboarding, or
-# re-runs). On a very first-ever run this block is a no-op and
-# configure.yml writes `config.yaml` without a token — the bootstrap node
-# then generates one, and the second/third nodes pick it up on the next
-# play pass.
+# The cluster token is inventory/Vault input. Existing hosts are checked
+# locally; no host is selected as a token source and no token is broadcast.
 
-- name: Resolve which host is the cluster bootstrap node
-  ansible.builtin.set_fact:
-    rke2_bootstrap_host: >-
-      {{ (groups['rke2_servers']
-          | selectattr('rke2_bootstrap', 'defined')
-          | selectattr('rke2_bootstrap', 'equalto', true)
-          | list
-          | first
-         ) | default(groups['rke2_servers'] | first) }}
-  run_once: true
+- name: Validate the declared cluster-token mode
+  ansible.builtin.assert:
+    that:
+      - >-
+        rke2_cluster_token_mode
+        in ['steady_state_exact', 'fresh_short', 'development_short']
+      - >-
+        rke2_cluster_token_mode != 'development_short'
+        or not (control_plane_vip_enabled | bool)
+      - >-
+        rke2_cluster_token_mode != 'development_short'
+        or (groups['rke2_servers'] | default([]) | length == 1)
+    fail_msg: >-
+      rke2_cluster_token_mode must be steady_state_exact, fresh_short, or
+      development_short. Development equivalence is restricted to a
+      single-node inventory with the control-plane VIP disabled.
   tags: [rke2, token]
 
-- name: Check token file on bootstrap node
+- name: Require an exact non-placeholder pre-shared cluster token
+  ansible.builtin.assert:
+    that:
+      - rke2_cluster_token is defined
+      - rke2_cluster_token | string | trim | length > 0
+      - rke2_cluster_token | string == (rke2_cluster_token | string | trim)
+      - not (rke2_cluster_token | string | regex_search('\s'))
+      - "'REPLACE' not in (rke2_cluster_token | string | upper)"
+      - "'CHANGEME' not in (rke2_cluster_token | string | upper)"
+      - "'PLACEHOLDER' not in (rke2_cluster_token | string | upper)"
+      - "'FILL_ME' not in (rke2_cluster_token | string | upper)"
+      - >-
+        rke2_cluster_token_mode != 'steady_state_exact'
+        or (
+          (
+            rke2_cluster_token
+            | string
+            | regex_search('^K10[0-9a-fA-F]{64}::server:\S+$')
+          ) is not none
+        )
+    fail_msg: >-
+      rke2_cluster_token must be an explicit pre-shared value. Production
+      must source the exact live token from encrypted Vault input; leading,
+      trailing, or embedded whitespace is rejected rather than normalized.
+    quiet: true
+  tags: [rke2, token]
+
+- name: Preserve the exact configured token for protected file rendering
+  ansible.builtin.set_fact:
+    rke2_cluster_token_canonical: "{{ rke2_cluster_token | string }}"
+  no_log: true
+  tags: [rke2, token]
+
+- name: Check for existing RKE2 server state
   ansible.builtin.stat:
-    path: "{{ rke2_data_dir }}/server/node-token"
-  register: bootstrap_token_stat
-  delegate_to: "{{ rke2_bootstrap_host }}"
-  run_once: true
-  become: true
+    path: "{{ rke2_data_dir }}/server"
+  register: rke2_existing_server_state
   tags: [rke2, token]
 
-- name: Read bootstrap node token (if present)
+- name: Check the local existing cluster token
+  ansible.builtin.stat:
+    path: "{{ rke2_token_file }}"
+    follow: true
+  register: rke2_existing_token_file
+  tags: [rke2, token]
+
+- name: Reject existing server state without a preserved token
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (rke2_existing_server_state.stat.exists | bool)
+        or (rke2_existing_token_file.stat.exists | bool)
+    fail_msg: >-
+      Existing RKE2 server state has no readable server token. Stop and recover
+      the exact cluster token before any apply.
+  tags: [rke2, token]
+
+- name: Read the local existing cluster token
   ansible.builtin.slurp:
-    src: "{{ rke2_data_dir }}/server/node-token"
-  register: bootstrap_token_blob
-  delegate_to: "{{ rke2_bootstrap_host }}"
-  run_once: true
-  become: true
-  when: bootstrap_token_stat.stat.exists
+    src: "{{ rke2_token_file }}"
+  register: rke2_existing_token_blob
+  when: rke2_existing_token_file.stat.exists | bool
+  no_log: true
   tags: [rke2, token]
 
-- name: Propagate cluster token to every host
+- name: Preserve the existing token without whitespace normalization
   ansible.builtin.set_fact:
-    rke2_cluster_token: "{{ bootstrap_token_blob['content'] | b64decode | trim }}"
-  when:
-    - bootstrap_token_stat.stat.exists
-    - bootstrap_token_blob is defined
-    - bootstrap_token_blob.content is defined
+    rke2_existing_token_value: >-
+      {{
+        rke2_existing_token_blob.content
+        | b64decode
+        | regex_replace('[\r\n]+$', '')
+      }}
+  when: rke2_existing_token_file.stat.exists | bool
+  no_log: true
+  tags: [rke2, token]
+
+- name: Compare the local token with the pre-shared value
+  ansible.builtin.set_fact:
+    rke2_existing_token_matches_vault: >-
+      {{ not (rke2_existing_token_file.stat.exists | bool)
+         or (rke2_existing_token_value == rke2_cluster_token_canonical)
+         or (
+           rke2_cluster_token_mode == 'development_short'
+           and rke2_existing_token_value.endswith(
+             '::server:' ~ rke2_cluster_token_canonical
+           )
+         ) }}
+  no_log: true
+  tags: [rke2, token]
+
+- name: Enforce fresh-short bootstrap as a one-run state
+  ansible.builtin.assert:
+    that:
+      - >-
+        rke2_cluster_token_mode != 'fresh_short'
+        or not (rke2_existing_server_state.stat.exists | bool)
+      - >-
+        rke2_cluster_token_mode not in ['fresh_short', 'development_short']
+        or not rke2_cluster_token_canonical.startswith('K10')
+    fail_msg: >-
+      fresh_short is valid only before any server datastore exists and must
+      use a short token. After bootstrap, capture the exact persisted secure
+      token into Vault and switch to steady_state_exact.
+  tags: [rke2, token]
+
+- name: Hard stop on an existing cluster token mismatch
+  ansible.builtin.assert:
+    that:
+      - rke2_existing_token_matches_vault | bool
+    fail_msg: >-
+      The Vault-backed RKE2 token does not match this existing server.
+      Stop before configuration or service changes and reconcile the exact
+      live token across all servers. Only a single-node development_short
+      inventory accepts RKE2's secure wrapper around the declared short token.
+    quiet: true
   tags: [rke2, token]

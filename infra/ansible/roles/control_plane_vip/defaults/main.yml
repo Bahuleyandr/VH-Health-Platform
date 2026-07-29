@@ -1,0 +1,24 @@
+---
+control_plane_vip_enabled: false
+control_plane_vip_address: ""
+control_plane_vip_interface: ""
+# Dedicated unicast source on the selected cluster interface. This may differ
+# from ansible_host on hosts managed over a separate administration network.
+control_plane_vip_unicast_address: "{{ ansible_host | default('') }}"
+control_plane_vip_prefix_length: 24
+control_plane_vip_virtual_router_id: 51
+
+# All peers start BACKUP. Stable hostname ordering determines priority while
+# nopreempt keeps a recovered higher-priority peer from causing an avoidable
+# second failover.
+control_plane_vip_priority_base: 150
+control_plane_vip_priority_step: 10
+control_plane_vip_advert_interval: 1
+
+control_plane_vip_health_interval: 2
+control_plane_vip_health_timeout: 4
+control_plane_vip_health_fall: 3
+control_plane_vip_health_rise: 2
+
+control_plane_vip_config_path: /etc/keepalived/keepalived.conf
+control_plane_vip_health_script_path: /usr/local/sbin/check-rke2-control-plane

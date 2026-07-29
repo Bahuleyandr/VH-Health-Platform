@@ -44,8 +44,11 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
-      # Spread pods across zones/nodes so a single failure doesn't drop us
-      # below PDB minAvailable=2.
+      # Keep backend replicas balanced across eligible node hostnames. Zone
+      # labels remain a best-effort placement hint; they do not prove separate
+      # rack, power, or network failure domains. HPA replicas stay balanced,
+      # while replacements after a node loss may share surviving hosts. The
+      # PDB and readiness gates remain authoritative for availability.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -70,7 +73,8 @@ spec:
               app.kubernetes.io/name: vhhealth-backend
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
           labelSelector:
             matchLabels:
               app.kubernetes.io/name: vhhealth-backend

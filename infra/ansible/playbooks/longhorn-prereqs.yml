@@ -1,103 +1,113 @@
 ---
-# longhorn-prereqs.yml — Longhorn node prerequisites (INF-5 / B2.6)
+# Operator-executed Longhorn host prerequisites.
 #
-# Run BEFORE applying the Longhorn ArgoCD Application to the cluster.
-# Idempotent — safe to re-run.
+# This playbook only installs and verifies node-local packages, kernel modules,
+# and services. It does not install/sync Longhorn, create or change a
+# StorageClass, patch a PVC, move data, or select a storage migration.
 #
 # Usage:
-#   ansible-playbook -i inventories/prod/hosts.yml playbooks/longhorn-prereqs.yml
-#   ansible-playbook -i inventories/prod/hosts.yml playbooks/longhorn-prereqs.yml --check
+#   ansible-playbook -i inventories/prod.yml \
+#     playbooks/longhorn-prereqs.yml \
+#     -e longhorn_prereqs_authorized=true --ask-vault-pass
 #
-# What it does:
-#   1. Installs open-iscsi and loads iscsi_tcp kernel module (required by
-#      Longhorn's iSCSI transport layer on RKE2/containerd nodes).
-#   2. Installs cryptsetup (optional; needed for LUKS encryption of Longhorn
-#      volumes — not enabled by default but required if activated later).
-#   3. Persists iscsi_tcp across reboots via /etc/modules-load.d/.
-#   4. Starts + enables the iscsid daemon.
-#   5. Verifies the module is loaded and reports.
-#
-# References:
-#   https://longhorn.io/docs/1.7.x/deploy/install/#installation-requirements
+# Longhorn 1.7.2 remains an unqualified repository target. Complete
+# docs/C1_2_STORAGE_PLACEMENT_GATE.md before any separately approved migration.
 
-- name: Longhorn node prerequisites
-  hosts: k8s_nodes
+- name: Install Longhorn host prerequisites one node at a time
+  hosts: rke2_servers:rke2_agents
   become: true
   gather_facts: true
-
-  vars:
-    longhorn_packages:
-      - open-iscsi
-      - cryptsetup
-      - nfs-common      # Required if NFS-backed volumes are ever used.
-      - util-linux      # Provides blkid, lsblk.
-    longhorn_kernel_modules:
-      - iscsi_tcp
+  any_errors_fatal: true
+  serial: 1
+  max_fail_percentage: 0
+  pre_tasks:
+    - name: Require explicit authorization and the supported node OS
+      ansible.builtin.assert:
+        that:
+          - longhorn_prereqs_authorized | default(false) | bool
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_version'] == '24.04'
+        fail_msg: >-
+          Hard stop: pass -e longhorn_prereqs_authorized=true and run only
+          against the supported Ubuntu 24.04 RKE2 inventory.
 
   tasks:
-    - name: Install Longhorn prerequisite packages (apt)
+    - name: Install Longhorn prerequisite packages
       ansible.builtin.apt:
-        name: "{{ longhorn_packages }}"
+        name:
+          - cryptsetup
+          - dmsetup
+          - nfs-common
+          - open-iscsi
+          - util-linux
         state: present
         update_cache: true
         cache_valid_time: 3600
-      when: ansible_os_family == "Debian"
 
-    - name: Install Longhorn prerequisite packages (dnf/rpm)
-      ansible.builtin.dnf:
-        name: "{{ longhorn_packages | difference(['nfs-common']) + ['nfs-utils'] }}"
-        state: present
-      when: ansible_os_family == "RedHat"
-
-    - name: Ensure /etc/modules-load.d/ exists
-      ansible.builtin.file:
-        path: /etc/modules-load.d
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Persist iscsi_tcp across reboots
+    - name: Persist the iSCSI TCP kernel module
       ansible.builtin.copy:
-        dest: /etc/modules-load.d/iscsi.conf
+        dest: /etc/modules-load.d/90-longhorn.conf
         content: |
-          # Longhorn requires iscsi_tcp — managed by Ansible longhorn-prereqs.yml
+          # Managed by Ansible: Longhorn host prerequisite.
           iscsi_tcp
         owner: root
         group: root
         mode: "0644"
 
-    - name: Load iscsi_tcp kernel module now
+    - name: Load the iSCSI TCP kernel module
       community.general.modprobe:
         name: iscsi_tcp
         state: present
 
-    - name: Enable and start iscsid service
+    - name: Enable and start the iSCSI daemon
       ansible.builtin.systemd:
         name: iscsid
         enabled: true
         state: started
+        daemon_reload: true
 
-    - name: Verify iscsi_tcp is loaded
-      ansible.builtin.command: lsmod
-      register: lsmod_out
+    - name: Verify the iSCSI TCP kernel module
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/lsmod
+      register: longhorn_loaded_modules
       changed_when: false
+      check_mode: false
 
-    - name: Assert iscsi_tcp appears in lsmod
+    - name: Verify the iSCSI userspace client
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/iscsiadm
+          - --version
+      register: longhorn_iscsiadm_version
+      changed_when: false
+      check_mode: false
+
+    - name: Verify Longhorn mount and block-device helpers
+      ansible.builtin.command:
+        argv:
+          - "{{ item }}"
+          - --version
+      loop:
+        - /usr/bin/findmnt
+        - /usr/bin/lsblk
+      loop_control:
+        label: "{{ item }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Reject an incomplete node prerequisite state
       ansible.builtin.assert:
         that:
-          - "'iscsi_tcp' in lsmod_out.stdout"
-        fail_msg: >
-          iscsi_tcp kernel module is NOT loaded on {{ inventory_hostname }}.
-          Longhorn will fail to provision volumes. Check dmesg for errors.
-        success_msg: "iscsi_tcp module confirmed loaded on {{ inventory_hostname }}"
+          - "'iscsi_tcp' in longhorn_loaded_modules.stdout"
+          - longhorn_iscsiadm_version.rc == 0
+        fail_msg: >-
+          Hard stop: iscsi_tcp or iscsiadm is unavailable on
+          {{ inventory_hostname }}. Do not sync the Longhorn child Application.
 
-    - name: Report open-iscsi version
-      ansible.builtin.command: iscsiadm --version
-      register: iscsi_ver
-      changed_when: false
-      failed_when: false
-
-    - name: Print open-iscsi version
+    - name: Report the non-migration boundary
       ansible.builtin.debug:
-        msg: "{{ inventory_hostname }}: {{ iscsi_ver.stdout | default('iscsiadm not found') }}"
+        msg: >-
+          {{ inventory_hostname }} has node-local Longhorn prerequisites only.
+          No Longhorn deployment, StorageClass activation, PVC change, data
+          migration, or production qualification was performed.

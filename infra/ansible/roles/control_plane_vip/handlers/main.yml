@@ -1,0 +1,12 @@
+---
+- name: Validate control-plane keepalived configuration
+  ansible.builtin.command:
+    cmd: "keepalived -t -f {{ control_plane_vip_config_path }}"
+  changed_when: false
+  listen: reload control-plane keepalived
+
+- name: Reload control-plane keepalived
+  ansible.builtin.systemd:
+    name: keepalived
+    state: reloaded
+  listen: reload control-plane keepalived

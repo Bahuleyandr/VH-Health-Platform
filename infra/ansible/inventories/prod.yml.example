@@ -21,6 +21,14 @@ all:
     # --- RKE2 version pin (update for controlled upgrades) -----------------
     rke2_version: "v1.31.4+rke2r1"
     rke2_channel: stable
+    # Required pre-shared token. Before the first C1.2 apply to the existing
+    # cluster, capture the exact live token into the encrypted Vault file.
+    rke2_cluster_token: "{{ vault_rke2_cluster_token }}"
+    rke2_cluster_token_mode: steady_state_exact
+    # The normal site role pins the public final objective. The upgrade
+    # playbook reads and stages legacy Prime artifacts directly from Vault.
+    rke2_install_artifact_url: ""
+    rke2_system_default_registry: "registry.rancher.com"
 
     # --- Network scopes ----------------------------------------------------
     # REPLACE with hospital IT LAN CIDR(s). Used by firewall + fail2ban
@@ -32,6 +40,17 @@ all:
     # firewall for cluster-internal port allowlist.
     cluster_cidrs:
       - "10.10.0.0/24"
+
+    # --- RKE2 control-plane VIP --------------------------------------------
+    # REPLACE the interface with the cluster-LAN interface on every server
+    # (for example eno1). keepalived uses unicast VRRP between ansible_host
+    # addresses and advertises this VIP only from a locally healthy server.
+    control_plane_vip_enabled: true
+    control_plane_vip_address: "10.10.0.10"
+    control_plane_vip_interface: "REPLACE_WITH_CLUSTER_INTERFACE"
+    control_plane_vip_prefix_length: 24
+    control_plane_vip_virtual_router_id: 51
+    control_plane_api_dns_name: "rke2-api.vhhealth.hospital.local"
 
     # --- TLS SANs appended to API-server certificate ----------------------
     cluster_dns_san:
@@ -59,16 +78,24 @@ all:
         # --- Node 1 --- Bootstrap (creates the cluster) -------------------
         vhh-node-1:
           ansible_host: 10.10.0.11       # REPLACE
-          inventory_zone: rack-a         # CNPG uses this for replica spread
+          control_plane_vip_unicast_address: 10.10.0.11  # REPLACE
+          inventory_region: hospital-primary
+          # All nodes use the same truthful zone until facilities evidence
+          # proves independent rack, power, and network failure domains.
+          inventory_zone: hospital-shared
           rke2_bootstrap: true
-        # --- Node 2 --- Joins via the bootstrap node -----------------------
+        # --- Node 2 --- Joins via the control-plane VIP --------------------
         vhh-node-2:
           ansible_host: 10.10.0.12       # REPLACE
-          inventory_zone: rack-b
-        # --- Node 3 --- Joins via the bootstrap node -----------------------
+          control_plane_vip_unicast_address: 10.10.0.12  # REPLACE
+          inventory_region: hospital-primary
+          inventory_zone: hospital-shared
+        # --- Node 3 --- Joins via the control-plane VIP --------------------
         vhh-node-3:
           ansible_host: 10.10.0.13       # REPLACE
-          inventory_zone: rack-c
+          control_plane_vip_unicast_address: 10.10.0.13  # REPLACE
+          inventory_region: hospital-primary
+          inventory_zone: hospital-shared
 
     # Not populated on day one. Add dedicated workers here when the cluster
     # grows past 5 total nodes and you want to taint servers.
