@@ -11,6 +11,7 @@ import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { generateWardDowntimePacks, WARD_PACK_SCOPE } from '../services/downtime/wardDowntimePackService.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { generateToken } from '../utils/jwtUtils.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
@@ -81,7 +82,10 @@ d('Ward downtime packs — deep round-trip (roadmap A3)', () => {
   });
 
   it('generates a pack for the seeded ward with allergy + MAR content', async () => {
-    const results = await generateWardDowntimePacks({ generatedBy: null });
+    const results = await generateWardDowntimePacks({
+      tenantId: DEFAULT_TENANT_ID,
+      generatedBy: null,
+    });
     const mine = results.find((r) => r.ward_id === wardId);
     expect(mine).toBeTruthy();
     expect(mine.beds).toBe(1);

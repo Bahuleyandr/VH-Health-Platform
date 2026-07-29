@@ -1142,6 +1142,91 @@ BEGIN
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role};
       GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role};
       GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${role};
+      IF pg_catalog.to_regclass('public.clinical_continuity_policy_versions') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.clinical_continuity_policy_versions
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.downtime_snapshots') IS NOT NULL THEN
+        REVOKE UPDATE, TRUNCATE
+          ON TABLE public.downtime_snapshots
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.downtime_snapshots_id_seq') IS NOT NULL THEN
+        REVOKE UPDATE
+          ON SEQUENCE public.downtime_snapshots_id_seq
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_manifest_version_seq') IS NOT NULL THEN
+        REVOKE UPDATE
+          ON SEQUENCE public.clinical_continuity_manifest_version_seq
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_parse_timestamp(text)'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_parse_timestamp(text)
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_policy_guard_version()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_policy_guard_version()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_assert_policy_approval(uuid,uuid)'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_assert_policy_approval(uuid, uuid)
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_policy_approval_constraint()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_policy_approval_constraint()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_policy_guard_lifecycle()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_policy_guard_lifecycle()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_block_approval_mutation()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_block_approval_mutation()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_assert_snapshot_governance()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_assert_snapshot_governance()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_snapshot_guard_mutation()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_snapshot_guard_mutation()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.clinical_continuity_purge_snapshot_payload(uuid,integer,integer,text)'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_purge_snapshot_payload(
+            uuid, integer, integer, text
+          )
+          FROM ${role};
+      END IF;
     EXCEPTION WHEN insufficient_privilege THEN
       RAISE NOTICE 'object grants for ${role} skipped (executing role lacks privilege on some objects)';
     END;

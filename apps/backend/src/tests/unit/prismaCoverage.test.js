@@ -1072,6 +1072,24 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(grantSql).toContain(
         'REVOKE ALL PRIVILEGES\n          ON FUNCTION public.pathway_projector_enqueue_new_event()\n          FROM vhhealth_app',
       );
+      expect(grantSql).toContain(
+        "pg_catalog.to_regclass('public.clinical_continuity_policy_versions')",
+      );
+      expect(grantSql).toContain(
+        'REVOKE INSERT, UPDATE, DELETE, TRUNCATE\n          ON TABLE public.clinical_continuity_policy_versions\n          FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'REVOKE UPDATE, TRUNCATE\n          ON TABLE public.downtime_snapshots\n          FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        "'public.clinical_continuity_purge_snapshot_payload(uuid,integer,integer,text)'",
+      );
+      expect(grantSql).toContain(
+        "'public.clinical_continuity_assert_snapshot_governance()'",
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON FUNCTION public.clinical_continuity_assert_snapshot_governance()\n          FROM vhhealth_app',
+      );
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Tenant RLS runtime role grants ensured',
         { role: 'vhhealth_app' },

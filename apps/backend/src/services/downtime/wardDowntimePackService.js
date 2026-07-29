@@ -267,10 +267,29 @@ async function collectBedEntry(bed, { tenantId } = {}) {
 
 /**
  * Generate (and persist) one downtime pack per ward that currently has
- * occupied beds. Returns summaries of the packs written. Per-ward failures
- * are logged and skipped — generation never throws.
+ * occupied beds. The true no-argument call is the strict governed C3 sweep;
+ * explicit tenant options preserve the legacy per-ward best-effort behavior.
  */
-export async function generateWardDowntimePacks({ tenantId, generatedBy = null } = {}) {
+export async function generateWardDowntimePacks(options) {
+  if (arguments.length === 0) {
+    const { generateClinicalContinuityPackSets } = await import(
+      './clinicalContinuityPackOrchestrationService.js'
+    );
+    return generateClinicalContinuityPackSets();
+  }
+  if (
+    !options
+    || typeof options !== 'object'
+    || Array.isArray(options)
+    || !Object.hasOwn(options, 'tenantId')
+    || typeof options.tenantId !== 'string'
+    || options.tenantId.trim().length === 0
+  ) {
+    throw new TypeError(
+      'Explicit ward downtime-pack generation requires a tenantId',
+    );
+  }
+  const { tenantId, generatedBy = null } = options;
   const tid = tenantOr(tenantId);
   let wards;
   try {

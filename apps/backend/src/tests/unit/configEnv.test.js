@@ -39,3 +39,28 @@ describe('validateEnv MIN_PATIENT_VERSION_CODE', () => {
     );
   });
 });
+
+describe('validateEnv clinical continuity publication gate', () => {
+  it('defaults the C3.1 writer to inert without requiring a mirror root', () => {
+    const { error, value } = validate();
+
+    expect(error).toBeUndefined();
+    expect(value.CLINICAL_CONTINUITY_PACKS_ENABLED).toBe('false');
+  });
+
+  it('requires an explicit publication root only when the C3.1 writer is enabled', () => {
+    const missing = validate({
+      CLINICAL_CONTINUITY_PACKS_ENABLED: 'true',
+      DOWNTIME_MIRROR_DIR: '',
+    });
+    const configured = validate({
+      CLINICAL_CONTINUITY_PACKS_ENABLED: 'true',
+      DOWNTIME_MIRROR_DIR: 'D:\\continuity-packs',
+    });
+
+    expect(missing.error?.details.some(
+      (detail) => detail.context?.label === 'DOWNTIME_MIRROR_DIR',
+    )).toBe(true);
+    expect(configured.error).toBeUndefined();
+  });
+});
