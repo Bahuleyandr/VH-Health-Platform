@@ -20,6 +20,7 @@
   hosts: localhost
   connection: local
   gather_facts: true
+  tags: [always]
   tasks:
     - name: Reject external use of the reserved internal variable namespace
       ansible.builtin.assert:
@@ -53,6 +54,12 @@
             c1_2_protected_vault.vault_rke2_cluster_token
             | default('')
           }}
+        c1_2_replacement_binary_sha256_by_architecture: >-
+          {{
+            c1_2_protected_vault
+            .vault_rke2_binary_sha256_by_architecture
+            | default({})
+          }}
         c1_2_maintenance_host: "{{ rke2_maintenance_host | default('') }}"
         c1_2_node_replace_evidence_dir: >-
           {{ rke2_node_replace_evidence_dir | default('') }}
@@ -62,6 +69,80 @@
           {{ rke2_node_replace_evidence_max_age_hours | default(24) | int }}
       no_log: true
 
+    - name: Reject replacement at Prime transit-only pins or with artifact overrides
+      ansible.builtin.assert:
+        that:
+          - >-
+            c1_2_replacement_version not in [
+              'v1.31.14+rke2r2',
+              'v1.32.13+rke2r2'
+            ]
+          - >-
+            rke2_install_artifact_url
+            | default('')
+            | string
+            | length == 0
+          - c1_2_replacement_artifact_url | string | length == 0
+        fail_msg: >-
+          Hard stop: no node replacement is permitted at the transit-only
+          v1.31.14+rke2r2 or v1.32.13+rke2r2 pins because those tagged
+          installers ignore INSTALL_RKE2_ARTIFACT_URL. Stop the transit
+          campaign and use the matching pre-rung snapshot with binary and
+          datastore rollback, or repair and rejoin the existing node. For all
+          replacement-capable pins, both inventory rke2_install_artifact_url
+          and the protected replacement artifact URL must be empty.
+        quiet: true
+
+    - name: Validate the complete protected RKE2 binary digest matrix
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - |
+            import json
+            import os
+            import re
+            import sys
+
+            expected_versions = {
+                "v1.31.4+rke2r1",
+                "v1.31.14+rke2r2",
+                "v1.32.13+rke2r2",
+                "v1.33.13+rke2r1",
+                "v1.34.9+rke2r1",
+            }
+            allowed_architectures = {"x86_64", "aarch64", "s390x"}
+            matrix = json.loads(os.environ["C1_2_PROTECTED_DIGEST_MATRIX"])
+            if not isinstance(matrix, dict) or not matrix:
+                sys.exit("protected digest matrix is not a non-empty mapping")
+
+            seen = {}
+            for architecture, ladder in matrix.items():
+                if architecture not in allowed_architectures:
+                    sys.exit(f"unsupported architecture key: {architecture}")
+                if not isinstance(ladder, dict):
+                    sys.exit(f"digest ladder is not a mapping: {architecture}")
+                if set(ladder) != expected_versions:
+                    sys.exit(f"digest ladder keys are not exact: {architecture}")
+                for version, digest in ladder.items():
+                    if not isinstance(digest, str):
+                        sys.exit(f"digest is not a string: {architecture}/{version}")
+                    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                        sys.exit(f"digest is not lowercase SHA-256: {architecture}/{version}")
+                    if digest == "0" * 64:
+                        sys.exit(f"digest is all-zero: {architecture}/{version}")
+                    if digest in seen:
+                        sys.exit(
+                            "digest reused across architecture ladders: "
+                            f"{seen[digest]} and {architecture}/{version}"
+                        )
+                    seen[digest] = f"{architecture}/{version}"
+      environment:
+        C1_2_PROTECTED_DIGEST_MATRIX: >-
+          {{ c1_2_replacement_binary_sha256_by_architecture | to_json }}
+      changed_when: false
+      no_log: true
+
     - name: Reject ambiguous or unauthorized replacement inputs
       ansible.builtin.assert:
         that:
@@ -69,6 +150,8 @@
           - rke2_replacement_host_fresh | default(false) | bool
           - rke2_bootstrap is not defined
           - rke2_replacement_artifact_url is not defined
+          - c1_2_replacement_binary_sha256_by_architecture is mapping
+          - c1_2_replacement_binary_sha256_by_architecture | length > 0
           - c1_2_replacement_cluster_token | length > 0
           - >-
             c1_2_replacement_cluster_token
@@ -89,33 +172,16 @@
               'v1.33.13+rke2r1',
               'v1.34.9+rke2r1'
             ]
-          - >-
-            rke2_install_artifact_url | default('') | string
-            == c1_2_replacement_artifact_url
-          - >-
-            (
-              c1_2_replacement_version in [
-                'v1.31.14+rke2r2',
-                'v1.32.13+rke2r2'
-              ]
-            )
-            ==
-            (c1_2_replacement_artifact_url | length > 0)
-          - >-
-            c1_2_replacement_artifact_url | length == 0
-            or c1_2_replacement_artifact_url
-            is match('^https://.+/rke2/?$')
           - c1_2_node_replace_evidence_dir is match('^/')
           - c1_2_node_replace_evidence_max_age_hours > 0
         fail_msg: >-
           Hard stop: authorize the replacement, name the confirmed-lost server,
           name a different healthy maintenance server, provide the exact
           qualified RKE2 pin and an absolute evidence directory, and attest
-          that the replacement host is freshly imaged. Prime-only pins require
-          the encrypted group_vars/all/vault.yml
-          vault_rke2_prime_artifact_url ending in /rke2, and inventory
-          rke2_install_artifact_url must resolve to that exact protected value;
-          rke2_replacement_artifact_url is forbidden.
+          that the replacement host is freshly imaged.
+          rke2_replacement_artifact_url is forbidden. The named Vault file must
+          contain the protected architecture-and-version RKE2 binary SHA-256
+          map; only its reserved c1_2_* copy is trusted.
           rke2_bootstrap is forbidden on this command line because a
           replacement must never initialize a new datastore.
       no_log: true
@@ -163,6 +229,7 @@
   gather_facts: false
   any_errors_fatal: true
   serial: 1
+  tags: [always]
   tasks:
     - name: Reject inventory use of the reserved internal variable namespace
       ansible.builtin.assert:
@@ -182,10 +249,12 @@
   gather_facts: true
   any_errors_fatal: true
   serial: 1
+  tags: [always]
   pre_tasks:
     - name: End this play for non-replacement servers
       ansible.builtin.meta: end_host
       when: inventory_hostname != hostvars['localhost'].c1_2_replacement_node
+      tags: [always]
   tasks:
     - name: Require freshly imaged Ubuntu 24.04 replacement hardware
       ansible.builtin.assert:
@@ -202,6 +271,149 @@
           Hard stop: the replacement must be Ubuntu 24.04 with truthful
           non-empty region/zone labels and the vault-backed cluster token.
       no_log: true
+
+    - name: Prove service and runtime provenance is absent before mutation
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          export LC_ALL=C
+
+          fail() {
+            printf '%s\n' "$1" >&2
+            exit 64
+          }
+
+          assert_protected_directory() {
+            local path="$1"
+            local metadata uid gid mode_bits mode_value
+            [[ -d "$path" && ! -L "$path" ]] ||
+              fail "unsafe replacement trust-path directory: ${path}"
+            metadata=$(/usr/bin/stat --format='%u %g %a' -- "$path")
+            read -r uid gid mode_bits <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 &&
+               "$mode_bits" =~ ^[0-7]{3,4}$ ]] ||
+              fail "replacement trust path is not root:root: ${path}"
+            mode_value=$((8#$mode_bits))
+            (( (mode_value & 07022) == 0 )) ||
+              fail "replacement trust path has unsafe mode: ${path}"
+          }
+
+          assert_merged_usr_link() {
+            local path="$1"
+            local literal_target="$2"
+            local canonical_target="$3"
+            local metadata uid gid
+            [[ -L "$path" && "$(/usr/bin/readlink -- "$path")" == "$literal_target" ]] ||
+              fail "replacement merged-usr link is not canonical: ${path}"
+            metadata=$(
+              /usr/bin/stat --no-dereference --format='%u %g' -- "$path"
+            )
+            read -r uid gid <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 ]] ||
+              fail "replacement merged-usr link is not root:root: ${path}"
+            [[ "$(
+              /usr/bin/readlink --canonicalize-existing -- "$path"
+            )" == "$canonical_target" ]] ||
+              fail "replacement merged-usr target is not canonical: ${path}"
+            assert_protected_directory "$canonical_target"
+          }
+
+          for required_parent in \
+            / /usr /usr/bin /usr/sbin /usr/lib /usr/lib/systemd \
+            /usr/lib/systemd/system /usr/local /usr/local/bin \
+            /usr/local/sbin /usr/local/lib /etc /etc/systemd \
+            /etc/systemd/system /run /run/systemd /run/systemd/system; do
+            assert_protected_directory "$required_parent"
+          done
+          assert_merged_usr_link /bin usr/bin /usr/bin
+          assert_merged_usr_link /sbin usr/sbin /usr/sbin
+          assert_merged_usr_link /lib usr/lib /usr/lib
+          for optional_parent in \
+            /usr/local/lib/systemd /usr/local/lib/systemd/system \
+            /etc/default /etc/sysconfig /etc/systemd/system.control \
+            /run/systemd/system.control /run/systemd/transient \
+            /run/systemd/generator /run/systemd/generator.early \
+            /run/systemd/generator.late; do
+            if [[ -e "$optional_parent" || -L "$optional_parent" ]]; then
+              assert_protected_directory "$optional_parent"
+            fi
+          done
+
+          for forbidden_path in \
+            /usr/local/bin/rke2 \
+            /usr/local/lib/systemd/system/rke2-server.service \
+            /usr/local/lib/systemd/system/rke2-agent.service \
+            /usr/local/lib/systemd/system/rke2-server.env \
+            /usr/local/lib/systemd/system/rke2-agent.env \
+            /etc/default/rke2-server /etc/default/rke2-agent \
+            /etc/sysconfig/rke2-server /etc/sysconfig/rke2-agent \
+            /etc/systemd/system/rke2-server.service \
+            /etc/systemd/system/rke2-agent.service \
+            /run/systemd/system/rke2-server.service \
+            /run/systemd/system/rke2-agent.service \
+            /usr/lib/systemd/system/rke2-server.service \
+            /usr/lib/systemd/system/rke2-agent.service \
+            /lib/systemd/system/rke2-server.service \
+            /lib/systemd/system/rke2-agent.service \
+            /etc/systemd/system/rke2-server.service.d \
+            /etc/systemd/system/rke2-agent.service.d \
+            /run/systemd/system/rke2-server.service.d \
+            /run/systemd/system/rke2-agent.service.d \
+            /usr/local/lib/systemd/system/rke2-server.service.d \
+            /usr/local/lib/systemd/system/rke2-agent.service.d \
+            /usr/lib/systemd/system/rke2-server.service.d \
+            /usr/lib/systemd/system/rke2-agent.service.d \
+            /etc/systemd/system.control/rke2-server.service \
+            /etc/systemd/system.control/rke2-agent.service \
+            /run/systemd/system.control/rke2-server.service \
+            /run/systemd/system.control/rke2-agent.service \
+            /run/systemd/transient/rke2-server.service \
+            /run/systemd/transient/rke2-agent.service \
+            /run/systemd/generator/rke2-server.service \
+            /run/systemd/generator/rke2-agent.service \
+            /run/systemd/generator.early/rke2-server.service \
+            /run/systemd/generator.early/rke2-agent.service \
+            /run/systemd/generator.late/rke2-server.service \
+            /run/systemd/generator.late/rke2-agent.service; do
+            [[ ! -e "$forbidden_path" && ! -L "$forbidden_path" ]] ||
+              fail "pre-existing RKE2 service/runtime state: ${forbidden_path}"
+          done
+          for search_root in \
+            /etc/systemd/system /etc/systemd/system.control \
+            /run/systemd/system /run/systemd/system.control \
+            /run/systemd/transient /run/systemd/generator \
+            /run/systemd/generator.early /run/systemd/generator.late \
+            /usr/lib/systemd/system /usr/local/lib/systemd/system; do
+            for relation_stem in \
+              rke2-server.service rke2-agent.service rke2-.service service; do
+              for relation_suffix in .d .wants .requires .upholds; do
+                relation_path="${search_root}/${relation_stem}${relation_suffix}"
+                [[ ! -e "$relation_path" && ! -L "$relation_path" ]] ||
+                  fail "pre-existing RKE2 relationship path: ${relation_path}"
+              done
+            done
+          done
+
+          for unit in rke2-server.service rke2-agent.service; do
+            load_state=$(
+              /usr/bin/systemctl show "$unit" \
+                --property=LoadState --value
+            )
+            fragment=$(
+              /usr/bin/systemctl show "$unit" \
+                --property=FragmentPath --value
+            )
+            dropins=$(
+              /usr/bin/systemctl show "$unit" \
+                --property=DropInPaths --value
+            )
+            [[ "$load_state" == not-found &&
+               -z "$fragment" && -z "$dropins" ]] ||
+              fail "pre-existing cached RKE2 unit state: ${unit}"
+          done
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Inspect the replacement RKE2 data directory
       ansible.builtin.stat:
@@ -227,14 +439,115 @@
 - name: Prove every surviving server has the exact token and RKE2 pin
   hosts: rke2_servers
   become: true
-  gather_facts: false
+  gather_facts: true
   any_errors_fatal: true
   serial: 1
+  tags: [always]
   pre_tasks:
     - name: End this play for the fresh replacement server
       ansible.builtin.meta: end_host
       when: inventory_hostname == hostvars['localhost'].c1_2_replacement_node
   tasks:
+    - name: Select the protected survivor architecture digest map
+      ansible.builtin.set_fact:
+        c1_2_survivor_binary_sha256_by_version: >-
+          {{
+            hostvars['localhost']
+            .c1_2_replacement_binary_sha256_by_architecture
+            .get(ansible_facts['architecture'], {})
+          }}
+      no_log: true
+
+    - name: Reject a malformed survivor architecture digest map
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture == ansible_facts['architecture']
+          - c1_2_survivor_binary_sha256_by_version is mapping
+        fail_msg: >-
+          Hard stop: gathered ansible_architecture is overridden or the
+          protected Vault entry for survivor {{ inventory_hostname }} is not a
+          version-to-SHA-256 mapping.
+        quiet: true
+      no_log: true
+
+    - name: Select the protected survivor RKE2 binary identity
+      ansible.builtin.set_fact:
+        c1_2_expected_replacement_rke2_sha256: >-
+          {{
+            c1_2_survivor_binary_sha256_by_version
+            .get(hostvars['localhost'].c1_2_replacement_version, '')
+          }}
+      no_log: true
+
+    - name: Reject a missing or placeholder survivor RKE2 binary identity
+      ansible.builtin.assert:
+        that:
+          - c1_2_expected_replacement_rke2_sha256 is string
+          - >-
+            c1_2_expected_replacement_rke2_sha256
+            is match('^[0-9a-f]{64}$')
+          - c1_2_expected_replacement_rke2_sha256 != ('0' * 64)
+          - >-
+            'PLACEHOLDER'
+            not in (c1_2_expected_replacement_rke2_sha256 | upper)
+          - >-
+            'CHANGEME'
+            not in (c1_2_expected_replacement_rke2_sha256 | upper)
+          - >-
+            'REPLACE'
+            not in (c1_2_expected_replacement_rke2_sha256 | upper)
+        fail_msg: >-
+          Hard stop: the named Vault file has no exact lowercase SHA-256 for
+          survivor architecture {{ ansible_facts['architecture'] }} and pin
+          {{ hostvars['localhost'].c1_2_replacement_version }}.
+        quiet: true
+      no_log: true
+
+    - name: Authenticate the survivor RKE2 binary before first execution
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export LC_ALL=C
+        binary='/usr/local/bin/rke2'
+        expected_sha256={{
+          c1_2_expected_replacement_rke2_sha256 | quote
+        }}
+
+        fail() {
+          printf '%s\n' "$1" >&2
+          exit 64
+        }
+
+        assert_root_directory() {
+          local path="$1"
+          local metadata uid gid mode_bits
+          [[ ! -L "$path" && -d "$path" ]] ||
+            fail "untrusted survivor directory: ${path}"
+          metadata=$(/usr/bin/stat -c '%u %g %a' -- "$path")
+          read -r uid gid mode_bits <<<"$metadata"
+          [[ "$uid" == 0 && "$gid" == 0 ]] ||
+            fail "survivor directory is not root-owned: ${path}"
+          (( (8#${mode_bits} & 07022) == 0 )) ||
+            fail "survivor directory has unsafe mode bits: ${path}"
+        }
+
+        for directory in / /usr /usr/local /usr/local/bin; do
+          assert_root_directory "$directory"
+        done
+
+        [[ ! -L "$binary" && -f "$binary" ]] ||
+          fail 'survivor RKE2 binary is missing, a symlink, or not regular'
+        metadata=$(/usr/bin/stat -c '%u %g %a' -- "$binary")
+        read -r uid gid mode_bits <<<"$metadata"
+        [[ "$uid" == 0 && "$gid" == 0 && "$mode_bits" == 755 ]] ||
+          fail 'survivor RKE2 binary must be root:root mode 0755'
+        actual_sha256=$(/usr/bin/sha256sum -- "$binary")
+        actual_sha256="${actual_sha256%% *}"
+        [[ "$actual_sha256" == "$expected_sha256" ]] ||
+          fail 'survivor RKE2 binary does not match the protected Vault digest'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
     - name: Read the installed survivor RKE2 version
       ansible.builtin.command:
         argv:
@@ -317,10 +630,10 @@
         quiet: true
       no_log: true
 
-- name: Prove the explicit maintenance server and surviving quorum
+- name: Prove every survivor service, explicit maintenance server, and quorum
   hosts: rke2_servers
   become: true
-  gather_facts: false
+  gather_facts: true
   any_errors_fatal: true
   serial: 1
   vars:
@@ -330,10 +643,848 @@
     c1_2_etcd_cert: /var/lib/rancher/rke2/server/tls/etcd/server-client.crt
     c1_2_etcd_key: /var/lib/rancher/rke2/server/tls/etcd/server-client.key
   pre_tasks:
-    - name: End this play for servers other than the maintenance host
+    - name: End this play for the fresh replacement server
       ansible.builtin.meta: end_host
-      when: inventory_hostname != hostvars['localhost'].c1_2_maintenance_host
+      when: inventory_hostname == hostvars['localhost'].c1_2_replacement_node
+      tags: [always]
   tasks:
+    - name: Re-select the protected maintenance-server binary identity
+      ansible.builtin.set_fact:
+        c1_2_maintenance_binary_sha256_by_version: >-
+          {{
+            hostvars['localhost']
+            .c1_2_replacement_binary_sha256_by_architecture
+            .get(ansible_facts['architecture'], {})
+          }}
+      no_log: true
+      tags: [always]
+
+    - name: Reject a malformed maintenance-server architecture map
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture == ansible_facts['architecture']
+          - c1_2_maintenance_binary_sha256_by_version is mapping
+        fail_msg: >-
+          Hard stop: gathered ansible_architecture is overridden or the
+          maintenance server has no protected architecture digest map.
+        quiet: true
+      no_log: true
+      tags: [always]
+
+    - name: Re-select the protected maintenance-server RKE2 digest
+      ansible.builtin.set_fact:
+        c1_2_expected_maintenance_rke2_sha256: >-
+          {{
+            c1_2_maintenance_binary_sha256_by_version
+            .get(hostvars['localhost'].c1_2_replacement_version, '')
+          }}
+      no_log: true
+      tags: [always]
+
+    - name: Reject an invalid maintenance-server RKE2 digest
+      ansible.builtin.assert:
+        that:
+          - c1_2_expected_maintenance_rke2_sha256 is string
+          - >-
+            c1_2_expected_maintenance_rke2_sha256
+            is match('^[0-9a-f]{64}$')
+          - c1_2_expected_maintenance_rke2_sha256 != ('0' * 64)
+          - >-
+            c1_2_expected_maintenance_rke2_sha256
+            == c1_2_expected_replacement_rke2_sha256
+        fail_msg: >-
+          Hard stop: the maintenance-server digest is missing, malformed, or
+          differs from the protected survivor digest selected earlier.
+        quiet: true
+      no_log: true
+      tags: [always]
+
+    - name: Authenticate the maintenance service and live process
+      ansible.builtin.shell:
+        cmd: &c1_2_maintenance_service_live_provenance_gate |
+          set -euo pipefail
+          export LC_ALL=C
+          unit='rke2-server.service'
+          unit_base='rke2-server'
+          unit_object=
+          unit_object+='/org/freedesktop/systemd1/unit/'
+          unit_object+='rke2_2dserver_2eservice'
+          binary='/usr/local/bin/rke2'
+          fragment='/usr/local/lib/systemd/system/rke2-server.service'
+          bundled_env='/usr/local/lib/systemd/system/rke2-server.env'
+          expected_version={{
+            hostvars['localhost'].c1_2_replacement_version | quote
+          }}
+          expected_binary_sha256={{
+            hostvars[
+              c1_2_provenance_target_host | default(inventory_hostname)
+            ].c1_2_expected_maintenance_rke2_sha256 | quote
+          }}
+
+          fail() {
+            printf '%s\n' "$1" >&2
+            exit 64
+          }
+
+          assert_protected() {
+            local path="$1"
+            local kind="$2"
+            local exact_mode="${3:-}"
+            local metadata uid gid mode_bits mode_value
+            [[ ! -L "$path" ]] ||
+              fail "symlink is forbidden in maintenance trust path: ${path}"
+            case "$kind" in
+              directory)
+                [[ -d "$path" ]] ||
+                  fail "maintenance trust directory is absent: ${path}"
+                ;;
+              file)
+                [[ -f "$path" && -r "$path" ]] ||
+                  fail "maintenance trust file is absent: ${path}"
+                ;;
+              *)
+                fail "invalid maintenance trust-path type: ${path}"
+                ;;
+            esac
+            metadata=$(/usr/bin/stat --format='%u %g %a' -- "$path")
+            read -r uid gid mode_bits <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 ]] ||
+              fail "maintenance trust path is not root:root: ${path}"
+            [[ "$mode_bits" =~ ^[0-7]{3,4}$ ]] ||
+              fail "maintenance trust path mode is invalid: ${path}"
+            mode_value=$((8#$mode_bits))
+            (( (mode_value & 07022) == 0 )) ||
+              fail "maintenance trust path has unsafe mode bits: ${path}"
+            [[ -z "$exact_mode" || "$mode_bits" == "$exact_mode" ]] ||
+              fail "maintenance trust path mode is not ${exact_mode}: ${path}"
+          }
+
+          assert_merged_usr_link() {
+            local path="$1"
+            local expected_literal="$2"
+            local expected_target="$3"
+            local metadata uid gid literal_target actual_target
+            [[ -L "$path" ]] ||
+              fail "required merged-usr path is not a symlink: ${path}"
+            metadata=$(
+              /usr/bin/stat --no-dereference --format='%u %g' -- "$path"
+            )
+            read -r uid gid <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 ]] ||
+              fail "merged-usr symlink is not root:root: ${path}"
+            literal_target=$(/usr/bin/readlink -- "$path")
+            [[ "$literal_target" == "$expected_literal" ]] ||
+              fail "merged-usr symlink payload is not canonical: ${path}"
+            actual_target=$(/usr/bin/readlink --canonicalize-existing -- "$path")
+            [[ "$actual_target" == "$expected_target" ]] ||
+              fail "merged-usr symlink target is not canonical: ${path}"
+            assert_protected "$actual_target" directory
+          }
+
+          validate_standard_path() {
+            case "$1" in
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          validate_locale() {
+            [[ "$1" =~ ^(C|POSIX|C\.UTF-8|[A-Za-z]{2,16}(_[A-Za-z0-9]{2,16})?(\.[A-Za-z0-9_-]{1,16})?(@[A-Za-z0-9_-]{1,16})?)$ ]]
+          }
+
+          read_proc_start_time() {
+            local pid="$1"
+            local stat_record stat_after_comm start_time
+            local -a stat_fields
+            IFS= read -r stat_record <"/proc/${pid}/stat"
+            [[ "$stat_record" == *") "* ]] ||
+              fail "maintenance RKE2 proc stat is malformed"
+            stat_after_comm="${stat_record##*) }"
+            read -r -a stat_fields <<<"$stat_after_comm"
+            start_time="${stat_fields[19]:-}"
+            [[ "$start_time" =~ ^[1-9][0-9]*$ ]] ||
+              fail "maintenance RKE2 proc start time is invalid"
+            printf '%s\n' "$start_time"
+          }
+
+          [[ "$expected_binary_sha256" =~ ^[0-9a-f]{64}$ &&
+             "$expected_binary_sha256" != "$(printf '0%.0s' {1..64})" ]] ||
+            fail 'protected maintenance RKE2 SHA-256 is invalid'
+
+          for trust_directory in \
+            / /usr /usr/bin /usr/sbin /usr/lib /usr/lib/systemd \
+            /usr/lib/systemd/system /usr/local /usr/local/bin \
+            /usr/local/sbin /usr/local/lib /usr/local/lib/systemd \
+            /usr/local/lib/systemd/system /etc /etc/systemd \
+            /etc/systemd/system /run /run/systemd /run/systemd/system; do
+            assert_protected "$trust_directory" directory
+          done
+          for optional_snap_directory in /snap /snap/bin; do
+            if [[ -e "$optional_snap_directory" ||
+                  -L "$optional_snap_directory" ]]; then
+              assert_protected "$optional_snap_directory" directory
+            fi
+          done
+          assert_merged_usr_link /bin usr/bin /usr/bin
+          assert_merged_usr_link /sbin usr/sbin /usr/sbin
+          assert_merged_usr_link /lib usr/lib /usr/lib
+          for optional_parent in \
+            /etc/default /etc/sysconfig /etc/systemd/system.control \
+            /run/systemd/system.control /run/systemd/transient \
+            /run/systemd/generator /run/systemd/generator.early \
+            /run/systemd/generator.late; do
+            if [[ -e "$optional_parent" || -L "$optional_parent" ]]; then
+              assert_protected "$optional_parent" directory
+            fi
+          done
+          for search_root in \
+            /etc/systemd/system /etc/systemd/system.control \
+            /run/systemd/system /run/systemd/system.control \
+            /run/systemd/transient /run/systemd/generator \
+            /run/systemd/generator.early /run/systemd/generator.late \
+            /usr/lib/systemd/system /usr/local/lib/systemd/system; do
+            for relation_stem in "$unit" rke2-.service service; do
+              for relation_suffix in .d .wants .requires .upholds; do
+                relation_path="${search_root}/${relation_stem}${relation_suffix}"
+                [[ ! -e "$relation_path" && ! -L "$relation_path" ]] ||
+                  fail "maintenance relationship path is forbidden: ${relation_path}"
+              done
+            done
+            alternate_fragment="${search_root}/${unit}"
+            if [[ "$alternate_fragment" != "$fragment" ]]; then
+              [[ ! -e "$alternate_fragment" && ! -L "$alternate_fragment" ]] ||
+                fail "maintenance alternate fragment is forbidden: ${alternate_fragment}"
+            fi
+          done
+
+          assert_protected "$binary" file 755
+          [[ -x "$binary" ]] ||
+            fail 'maintenance RKE2 binary is not executable'
+          read -r binary_sha256 _ < <(/usr/bin/sha256sum -- "$binary")
+          [[ "$binary_sha256" == "$expected_binary_sha256" ]] ||
+            fail 'maintenance RKE2 binary differs from the protected digest'
+
+          version_output=$("$binary" --version)
+          mapfile -t version_matches < <(
+            /usr/bin/sed -nE \
+              's/^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)([[:space:]].*)?$/\1/p' \
+              <<<"$version_output"
+          )
+          version_match_count=$(
+            printf '%s\n' "${version_matches[@]}" | /usr/bin/wc --lines
+          )
+          [[ "$version_match_count" == 1 &&
+             "${version_matches[0]}" == "$expected_version" ]] ||
+            fail 'authenticated maintenance RKE2 pin is not exact'
+
+          assert_protected "$fragment" file 644
+          case "$expected_version" in
+            v1.31.4+rke2r1|v1.31.14+rke2r2)
+              expected_fragment_sha256=
+              expected_fragment_sha256+='caf5e4ff923c968d15494d984320b9ab'
+              expected_fragment_sha256+='4be13504fe9d37b968ca52ecd8e4ffcb'
+              ;;
+            v1.32.13+rke2r2|v1.33.13+rke2r1|v1.34.9+rke2r1)
+              expected_fragment_sha256=
+              expected_fragment_sha256+='30cb868bfbc40d69b3c3b7553493c50'
+              expected_fragment_sha256+='c17538f3a550c89ff2300d13bb66a61b1'
+              ;;
+            *)
+              fail 'maintenance RKE2 pin is outside the approved ladder'
+              ;;
+          esac
+          read -r fragment_sha256 _ < <(
+            /usr/bin/sha256sum -- "$fragment"
+          )
+          [[ "$fragment_sha256" == "$expected_fragment_sha256" ]] ||
+            fail 'maintenance RKE2 unit is not the stock qualified fragment'
+
+          fragment_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Unit FragmentPath
+          )
+          /usr/bin/jq -e --arg expected "$fragment" '
+            .type == "s" and .data == $expected
+          ' <<<"$fragment_property" >/dev/null ||
+            fail 'maintenance cached fragment is not canonical'
+
+          dropins_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Unit DropInPaths
+          )
+          /usr/bin/jq -e '
+            .type == "as" and .data == []
+          ' <<<"$dropins_property" >/dev/null ||
+            fail 'maintenance cached drop-ins are not empty'
+
+          need_daemon_reload_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Unit NeedDaemonReload
+          )
+          /usr/bin/jq -e '
+            .type == "b" and .data == false
+          ' <<<"$need_daemon_reload_property" >/dev/null ||
+            fail 'maintenance RKE2 manager cache is stale'
+
+          exec_start_ex_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service ExecStartEx
+          )
+          /usr/bin/jq -e --arg binary "$binary" '
+            .type == "a(sasasttttuii)"
+            and (.data | type == "array")
+            and (.data | length == 1)
+            and (.data[0] | length == 10)
+            and .data[0][0] == $binary
+            and .data[0][1] == [$binary, "server"]
+            and .data[0][2] == []
+          ' <<<"$exec_start_ex_property" >/dev/null ||
+            fail 'maintenance cached ExecStartEx is not canonical'
+
+          condition_command=
+          condition_command+='if systemctl is-active --quiet '
+          condition_command+='rke2-agent.service; then echo '
+          condition_command+='"Error: rke2-agent is running!"; exit 1; fi'
+          legacy_pre_command=
+          legacy_pre_command+='! /usr/bin/systemctl is-enabled --quiet '
+          legacy_pre_command+='nm-cloud-setup.service'
+          cleanup_command=
+          cleanup_command+='systemd-cgls /system.slice/rke2-server.service '
+          cleanup_command+="| grep -Eo '[0-9]+ (containerd|kubelet)' "
+          cleanup_command+="| awk '{print \$1}' | xargs -r kill"
+
+          exec_condition_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service ExecConditionEx
+          )
+          /usr/bin/jq -e \
+            --arg version "$expected_version" \
+            --arg condition "$condition_command" '
+              def record($path; $argv; $flags):
+                type == "array"
+                and length == 10
+                and .[0] == $path
+                and .[1] == $argv
+                and .[2] == $flags;
+              .type == "a(sasasttttuii)"
+              and
+              if $version == "v1.31.4+rke2r1"
+                 or $version == "v1.31.14+rke2r2"
+              then .data == []
+              else
+                (.data | length == 1)
+                and (
+                  .data[0]
+                  | record(
+                      "/bin/sh";
+                      ["/bin/sh", "-c", $condition];
+                      []
+                    )
+                )
+              end
+            ' <<<"$exec_condition_property" >/dev/null ||
+            fail 'maintenance cached ExecConditionEx is not stock'
+
+          exec_start_pre_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service ExecStartPreEx
+          )
+          /usr/bin/jq -e \
+            --arg version "$expected_version" \
+            --arg legacy_pre "$legacy_pre_command" '
+              def record($path; $argv; $flags):
+                type == "array"
+                and length == 10
+                and .[0] == $path
+                and .[1] == $argv
+                and .[2] == $flags;
+              .type == "a(sasasttttuii)"
+              and
+              if $version == "v1.31.4+rke2r1"
+                 or $version == "v1.31.14+rke2r2"
+              then
+                (.data | length == 3)
+                and (
+                  .data[0]
+                  | record(
+                      "/bin/sh";
+                      ["/bin/sh", "-xc", $legacy_pre];
+                      []
+                    )
+                )
+                and (
+                  .data[1]
+                  | record(
+                      "/sbin/modprobe";
+                      ["/sbin/modprobe", "br_netfilter"];
+                      ["ignore-failure"]
+                    )
+                )
+                and (
+                  .data[2]
+                  | record(
+                      "/sbin/modprobe";
+                      ["/sbin/modprobe", "overlay"];
+                      ["ignore-failure"]
+                    )
+                )
+              else
+                (.data | length == 2)
+                and (
+                  .data[0]
+                  | record(
+                      "/sbin/modprobe";
+                      ["/sbin/modprobe", "br_netfilter"];
+                      ["ignore-failure"]
+                    )
+                )
+                and (
+                  .data[1]
+                  | record(
+                      "/sbin/modprobe";
+                      ["/sbin/modprobe", "overlay"];
+                      ["ignore-failure"]
+                    )
+                )
+              end
+            ' <<<"$exec_start_pre_property" >/dev/null ||
+            fail 'maintenance cached ExecStartPreEx is not stock'
+
+          exec_stop_post_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service ExecStopPostEx
+          )
+          /usr/bin/jq -e --arg cleanup "$cleanup_command" '
+            def record($path; $argv; $flags):
+              type == "array"
+              and length == 10
+              and .[0] == $path
+              and .[1] == $argv
+              and .[2] == $flags;
+            .type == "a(sasasttttuii)"
+            and (.data | length == 1)
+            and (
+              .data[0]
+              | record(
+                  "/bin/sh";
+                  ["/bin/sh", "-c", $cleanup];
+                  ["ignore-failure"]
+                )
+            )
+          ' <<<"$exec_stop_post_property" >/dev/null ||
+            fail 'maintenance cached ExecStopPostEx is not stock'
+
+          for empty_exec_property in \
+            ExecStartPostEx ExecReloadEx ExecStopEx; do
+            empty_exec_property_json=$(
+              /usr/bin/busctl --json=short get-property \
+                org.freedesktop.systemd1 "$unit_object" \
+                org.freedesktop.systemd1.Service "$empty_exec_property"
+            )
+            /usr/bin/jq -e '
+              .type == "a(sasasttttuii)" and .data == []
+            ' <<<"$empty_exec_property_json" >/dev/null ||
+              fail "maintenance cached ${empty_exec_property} is not empty"
+          done
+
+          assert_unit_array_property() {
+            local property="$1"
+            local expected_json="$2"
+            local property_json
+            property_json=$(
+              /usr/bin/busctl --json=short get-property \
+                org.freedesktop.systemd1 "$unit_object" \
+                org.freedesktop.systemd1.Unit "$property"
+            )
+            /usr/bin/jq -e --argjson expected "$expected_json" '
+              .type == "as"
+              and (.data | sort) == ($expected | sort)
+            ' <<<"$property_json" >/dev/null ||
+              fail "maintenance cached unit relation differs: ${property}"
+          }
+
+          assert_unit_string_property() {
+            local property="$1"
+            local expected="$2"
+            local property_json
+            property_json=$(
+              /usr/bin/busctl --json=short get-property \
+                org.freedesktop.systemd1 "$unit_object" \
+                org.freedesktop.systemd1.Unit "$property"
+            )
+            /usr/bin/jq -e --arg expected "$expected" '
+              .type == "s" and .data == $expected
+            ' <<<"$property_json" >/dev/null ||
+              fail "maintenance cached unit action differs: ${property}"
+          }
+
+          assert_unit_array_property Names '["rke2-server.service"]'
+          assert_unit_array_property Wants '["network-online.target"]'
+          assert_unit_array_property \
+            Requires '["system.slice","sysinit.target"]'
+          if [[ "$expected_version" == v1.31.* ]]; then
+            assert_unit_array_property \
+              Conflicts '["rke2-agent.service","shutdown.target"]'
+          else
+            assert_unit_array_property Conflicts '["shutdown.target"]'
+          fi
+          for empty_relation in \
+            Requisite BindsTo PartOf Upholds OnSuccess OnFailure \
+            PropagatesReloadTo PropagatesStopTo RequiresMountsFor; do
+            assert_unit_array_property "$empty_relation" '[]'
+          done
+          assert_unit_string_property FailureAction none
+          assert_unit_string_property SuccessAction none
+          assert_unit_string_property JobTimeoutAction none
+          assert_unit_string_property StartLimitAction none
+          assert_unit_string_property OnFailureJobMode replace
+          assert_unit_string_property OnSuccessJobMode fail
+
+          for empty_property in \
+            Environment PassEnvironment UnsetEnvironment; do
+            empty_property_json=$(
+              /usr/bin/busctl --json=short get-property \
+                org.freedesktop.systemd1 "$unit_object" \
+                org.freedesktop.systemd1.Service "$empty_property"
+            )
+            /usr/bin/jq -e '
+              .type == "as" and .data == []
+            ' <<<"$empty_property_json" >/dev/null ||
+              fail "maintenance cached ${empty_property} is not empty"
+          done
+
+          environment_files_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service EnvironmentFiles
+          )
+          /usr/bin/jq -e '
+            .type == "a(sb)"
+            and .data == [
+              ["/etc/default/rke2-server", true],
+              ["/etc/sysconfig/rke2-server", true],
+              [
+                "/usr/local/lib/systemd/system/rke2-server.env",
+                true
+              ]
+            ]
+          ' <<<"$environment_files_property" >/dev/null ||
+            fail 'maintenance cached EnvironmentFiles are not canonical'
+
+          manager_environment=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 \
+              /org/freedesktop/systemd1 \
+              org.freedesktop.systemd1.Manager \
+              Environment
+          )
+          /usr/bin/jq -e '
+            .type == "as"
+            and (.data | type == "array")
+            and all(.data[]; type == "string")
+          ' <<<"$manager_environment" >/dev/null ||
+            fail 'maintenance manager environment is malformed'
+          mapfile -t manager_entries < <(
+            /usr/bin/jq -r '.data[] | @base64' <<<"$manager_environment"
+          )
+          declare -A manager_names=()
+          for manager_entry_encoded in "${manager_entries[@]}"; do
+            manager_entry=$(
+              printf '%s' "$manager_entry_encoded" |
+                /usr/bin/base64 --decode
+            )
+            [[ "$manager_entry" == *=* ]] ||
+              fail 'maintenance manager environment entry is malformed'
+            manager_name="${manager_entry%%=*}"
+            manager_value="${manager_entry#*=}"
+            [[ "$manager_name" =~ ^[A-Z_][A-Z0-9_]*$ ]] ||
+              fail 'maintenance manager variable name is invalid'
+            [[ -z "${manager_names[$manager_name]+present}" ]] ||
+              fail "duplicate maintenance manager variable: ${manager_name}"
+            manager_names["$manager_name"]=1
+            case "$manager_name" in
+              LANG)
+                validate_locale "$manager_value" ||
+                  fail 'maintenance manager LANG is invalid'
+                ;;
+              LC_ALL|LC_ADDRESS|LC_COLLATE|LC_CTYPE|LC_IDENTIFICATION|\
+              LC_MEASUREMENT|LC_MESSAGES|LC_MONETARY|LC_NAME|LC_NUMERIC|\
+              LC_PAPER|LC_TELEPHONE|LC_TIME)
+                validate_locale "$manager_value" ||
+                  fail "maintenance manager locale is invalid: ${manager_name}"
+                ;;
+              PATH)
+                validate_standard_path "$manager_value" ||
+                  fail 'maintenance manager PATH is not canonical'
+                ;;
+              *)
+                fail "forbidden maintenance manager variable: ${manager_name}"
+                ;;
+            esac
+          done
+
+          for optional_env in \
+            "/etc/default/${unit_base}" \
+            "/etc/sysconfig/${unit_base}"; do
+            if [[ -e "$optional_env" || -L "$optional_env" ]]; then
+              assert_protected "$optional_env" file
+              if /usr/bin/od -An -v -tx1 -- "$optional_env" |
+                /usr/bin/grep -Eq '(^|[[:space:]])00([[:space:]]|$)'; then
+                fail "maintenance optional env contains NUL: ${optional_env}"
+              fi
+              optional_mode=$(/usr/bin/stat --format='%a' -- "$optional_env")
+              case "$optional_mode" in
+                400|440|444|600|640|644)
+                  ;;
+                *)
+                  fail "maintenance optional env mode is unsafe: ${optional_env}"
+                  ;;
+              esac
+              if /usr/bin/awk '
+                /^[[:space:]]*$/ { next }
+                /^[[:space:]]*[#;]/ { next }
+                { active = 1 }
+                END { exit(active ? 0 : 1) }
+              ' "$optional_env"; then
+                fail "maintenance optional env has active data: ${optional_env}"
+              fi
+            fi
+          done
+          assert_protected "$bundled_env" file 644
+          read -r bundled_env_sha256 _ < <(
+            /usr/bin/sha256sum -- "$bundled_env"
+          )
+          [[ "$bundled_env_sha256" == \
+            2584cb4fcddb07782af3e50f2ee4200d0b84e64856f3db458bc0b1da53a70b79 ]] ||
+            fail 'maintenance bundled env bytes are not stock'
+          bundled_active=$(
+            /usr/bin/awk '
+              /^[[:space:]]*$/ { next }
+              /^[[:space:]]*[#;]/ { next }
+              { print }
+            ' "$bundled_env"
+          )
+          [[ "$bundled_active" == 'HOME=/root' ]] ||
+            fail 'maintenance bundled env is not exact'
+
+          /usr/bin/systemctl is-active --quiet "$unit" ||
+            fail 'maintenance RKE2 service is not active'
+          main_pid=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=MainPID --value
+          )
+          [[ "$main_pid" =~ ^[1-9][0-9]*$ &&
+             -r "/proc/${main_pid}/environ" &&
+             -r "/proc/${main_pid}/cmdline" &&
+             -L "/proc/${main_pid}/exe" ]] ||
+            fail 'maintenance RKE2 MainPID cannot be inspected'
+          invocation_id=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=InvocationID --value
+          )
+          exec_start_monotonic=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=ExecMainStartTimestampMonotonic --value
+          )
+          [[ "$invocation_id" =~ ^[0-9a-f]{32}$ &&
+             "$exec_start_monotonic" =~ ^[1-9][0-9]*$ ]] ||
+            fail 'maintenance RKE2 invocation identity is invalid'
+
+          proc_inode=$(/usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}")
+          proc_start_time=$(read_proc_start_time "$main_pid")
+          live_executable=$(/usr/bin/readlink -f "/proc/${main_pid}/exe")
+          [[ "$live_executable" == "$binary" ]] ||
+            fail 'maintenance live RKE2 executable path is not canonical'
+          live_executable_inode=$(
+            /usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}/exe"
+          )
+          disk_binary_inode=$(/usr/bin/stat -Lc '%d:%i' -- "$binary")
+          [[ "$live_executable_inode" == "$disk_binary_inode" ]] ||
+            fail 'maintenance live and disk RKE2 inodes differ'
+          read -r live_binary_sha256 _ < <(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/exe"
+          )
+          [[ "$live_binary_sha256" == "$expected_binary_sha256" ]] ||
+            fail 'maintenance live RKE2 digest is not protected'
+
+          mapfile -d '' -t argv <"/proc/${main_pid}/cmdline"
+          cmdline_sha256=$(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/cmdline"
+          )
+          cmdline_sha256="${cmdline_sha256%% *}"
+          cmdline_terminator=$(
+            /usr/bin/tail -c 1 "/proc/${main_pid}/cmdline" |
+              /usr/bin/od -An -tu1 |
+              /usr/bin/tr -d '[:space:]'
+          )
+          argv_count=$(
+            printf '%s\n' "${argv[@]}" | /usr/bin/wc --lines
+          )
+          [[ "$cmdline_terminator" == 0 &&
+             "$argv_count" == 2 &&
+             "${argv[0]:-}" == "$binary" &&
+             "${argv[1]:-}" == server ]] ||
+            fail 'maintenance live RKE2 argv is not canonical'
+
+          mapfile -d '' -t live_environment <"/proc/${main_pid}/environ"
+          environment_sha256=$(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/environ"
+          )
+          environment_sha256="${environment_sha256%% *}"
+          environment_terminator=$(
+            /usr/bin/tail -c 1 "/proc/${main_pid}/environ" |
+              /usr/bin/od -An -tu1 |
+              /usr/bin/tr -d '[:space:]'
+          )
+          [[ "$environment_terminator" == 0 ]] ||
+            fail 'maintenance live RKE2 environment is not NUL-terminated'
+          control_group=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=ControlGroup --value
+          )
+          [[ "$control_group" =~ ^/[^[:space:]]+$ ]] ||
+            fail 'maintenance RKE2 control group is invalid'
+          expected_memory_pressure_watch=
+          expected_memory_pressure_watch+="/sys/fs/cgroup${control_group}"
+          expected_memory_pressure_watch+='/memory.pressure'
+
+          declare -A live_names=()
+          for live_entry in "${live_environment[@]}"; do
+            [[ "$live_entry" == *=* ]] ||
+              fail 'maintenance live environment entry is malformed'
+            live_name="${live_entry%%=*}"
+            live_value="${live_entry#*=}"
+            [[ "$live_name" =~ ^[A-Z_][A-Z0-9_]*$ ]] ||
+              fail 'maintenance live variable name is invalid'
+            [[ -z "${live_names[$live_name]+present}" ]] ||
+              fail "duplicate maintenance live variable: ${live_name}"
+            live_names["$live_name"]=1
+            case "$live_name" in
+              HOME)
+                [[ "$live_value" == /root ]] ||
+                  fail 'maintenance live HOME is not /root'
+                ;;
+              USER|LOGNAME)
+                [[ "$live_value" == root ]] ||
+                  fail "maintenance live ${live_name} is not root"
+                ;;
+              SHELL)
+                [[ "$live_value" == /bin/sh ||
+                   "$live_value" == /bin/bash ]] ||
+                  fail 'maintenance live SHELL is not canonical'
+                ;;
+              LANG)
+                validate_locale "$live_value" ||
+                  fail 'maintenance live LANG is invalid'
+                ;;
+              LC_ALL|LC_ADDRESS|LC_COLLATE|LC_CTYPE|LC_IDENTIFICATION|\
+              LC_MEASUREMENT|LC_MESSAGES|LC_MONETARY|LC_NAME|LC_NUMERIC|\
+              LC_PAPER|LC_TELEPHONE|LC_TIME)
+                validate_locale "$live_value" ||
+                  fail "maintenance live locale is invalid: ${live_name}"
+                ;;
+              PATH)
+                validate_standard_path "$live_value" ||
+                  fail 'maintenance live PATH is not canonical'
+                ;;
+              INVOCATION_ID)
+                [[ "$live_value" == "$invocation_id" ]] ||
+                  fail 'maintenance live InvocationID differs from systemd'
+                ;;
+              JOURNAL_STREAM)
+                fd2_identity=$(
+                  /usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}/fd/2"
+                )
+                [[ "$live_value" == "$fd2_identity" ]] ||
+                  fail 'maintenance JOURNAL_STREAM differs from stderr'
+                ;;
+              NOTIFY_SOCKET)
+                [[ "$live_value" == /run/systemd/notify ]] ||
+                  fail 'maintenance live NOTIFY_SOCKET is not canonical'
+                ;;
+              SYSTEMD_EXEC_PID)
+                [[ "$live_value" == "$main_pid" ]] ||
+                  fail 'maintenance live SYSTEMD_EXEC_PID differs from MainPID'
+                ;;
+              MEMORY_PRESSURE_WATCH)
+                [[ "$live_value" == "$expected_memory_pressure_watch" ]] ||
+                  fail 'maintenance live memory-pressure path is invalid'
+                ;;
+              MEMORY_PRESSURE_WRITE)
+                [[ "$live_value" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] ||
+                  fail 'maintenance live memory-pressure value is invalid'
+                ;;
+              *)
+                fail "forbidden maintenance live variable: ${live_name}"
+                ;;
+            esac
+          done
+          for required_live_name in \
+            HOME PATH INVOCATION_ID JOURNAL_STREAM NOTIFY_SOCKET \
+            SYSTEMD_EXEC_PID; do
+            [[ -n "${live_names[$required_live_name]+present}" ]] ||
+              fail "required maintenance live variable absent: ${required_live_name}"
+          done
+          [[ "${live_names[MEMORY_PRESSURE_WATCH]+present}" == \
+             "${live_names[MEMORY_PRESSURE_WRITE]+present}" ]] ||
+            fail 'maintenance memory-pressure environment is incomplete'
+
+          verified_pid=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=MainPID --value
+          )
+          verified_invocation_id=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=InvocationID --value
+          )
+          verified_exec_start_monotonic=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=ExecMainStartTimestampMonotonic --value
+          )
+          verified_proc_inode=$(
+            /usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}"
+          )
+          verified_proc_start_time=$(read_proc_start_time "$main_pid")
+          verified_executable_inode=$(
+            /usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}/exe"
+          )
+          verified_cmdline_sha256=$(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/cmdline"
+          )
+          verified_cmdline_sha256="${verified_cmdline_sha256%% *}"
+          verified_environment_sha256=$(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/environ"
+          )
+          verified_environment_sha256="${verified_environment_sha256%% *}"
+          [[ "$verified_pid" == "$main_pid" &&
+             "$verified_invocation_id" == "$invocation_id" &&
+             "$verified_exec_start_monotonic" == "$exec_start_monotonic" &&
+             "$verified_proc_inode" == "$proc_inode" &&
+             "$verified_proc_start_time" == "$proc_start_time" &&
+             "$verified_executable_inode" == "$live_executable_inode" &&
+             "$verified_cmdline_sha256" == "$cmdline_sha256" &&
+             "$verified_environment_sha256" == "$environment_sha256" ]] &&
+            /usr/bin/systemctl is-active --quiet "$unit" ||
+            fail 'maintenance RKE2 process changed during provenance proof'
+      args: &c1_2_maintenance_service_live_provenance_gate_args
+        executable: /bin/bash
+      changed_when: false
+      tags: [always]
+
     - name: Verify the maintenance server runs the replacement pin
       ansible.builtin.command:
         argv:
@@ -341,6 +1492,7 @@
           - --version
       register: c1_2_maintenance_rke2_version
       changed_when: false
+      tags: [always]
 
     - name: Extract the exact maintenance-server RKE2 pin
       ansible.builtin.set_fact:
@@ -348,8 +1500,9 @@
           {{
             c1_2_maintenance_rke2_version.stdout
             | regex_search('v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+')
-            | default('')
+              | default('')
           }}
+      tags: [always]
 
     - name: Reject a replacement version that differs from the live cluster
       ansible.builtin.assert:
@@ -360,6 +1513,7 @@
         fail_msg: >-
           Hard stop: the explicit maintenance server does not run the requested
           replacement pin. Align the exact pin before joining new hardware.
+      tags: [always]
 
     - name: Verify the maintenance kubeconfig uses the control-plane VIP
       ansible.builtin.command:
@@ -373,6 +1527,7 @@
           - "jsonpath={.clusters[0].cluster.server}"
       register: c1_2_maintenance_kubeconfig_endpoint
       changed_when: false
+      tags: [always]
 
     - name: Reject a per-node or non-VIP maintenance endpoint
       ansible.builtin.assert:
@@ -383,6 +1538,12 @@
         fail_msg: >-
           Hard stop: maintenance kubeconfig is not using
           {{ hostvars['localhost'].c1_2_control_plane_endpoint }}.
+      tags: [always]
+
+    - name: End proof-only survivors before maintenance operations
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != hostvars['localhost'].c1_2_maintenance_host
+      tags: [always]
 
     - name: Prove VIP-backed API readiness
       ansible.builtin.command:
@@ -393,12 +1554,14 @@
           - --raw=/readyz
       register: c1_2_api_ready
       changed_when: false
+      tags: [always]
 
     - name: Reject an unready VIP-backed API
       ansible.builtin.assert:
         that:
           - c1_2_api_ready.stdout | trim == 'ok'
         fail_msg: "Hard stop: the control-plane VIP /readyz check failed."
+      tags: [always]
 
     - name: Prove the local surviving etcd member is healthy
       ansible.builtin.command:
@@ -413,6 +1576,7 @@
       environment:
         ETCDCTL_API: "3"
       changed_when: false
+      tags: [always]
 
     - name: Inspect etcd membership
       ansible.builtin.command:
@@ -429,6 +1593,7 @@
         ETCDCTL_API: "3"
       register: c1_2_etcd_members_before
       changed_when: false
+      tags: [always]
 
     - name: Record exact declared and live etcd member names
       ansible.builtin.set_fact:
@@ -448,6 +1613,7 @@
             | list
             | sort
           }}
+      tags: [always]
 
     - name: Require exact declared etcd membership before membership change
       ansible.builtin.assert:
@@ -466,6 +1632,7 @@
           with the lost member absent, or the exact three declared servers
           with one uniquely removable lost member. Extra, stale, renamed, or
           missing voters require a separately approved recovery procedure.
+      tags: [always]
 
     - name: Inspect CloudNativePG survivor health
       ansible.builtin.command:
@@ -480,6 +1647,7 @@
           - json
       register: c1_2_cnpg_survivors_output
       changed_when: false
+      tags: [always]
 
     - name: Require a primary and two ready CloudNativePG survivors
       ansible.builtin.assert:
@@ -495,6 +1663,7 @@
             | default(0) | int >= 2
         fail_msg: >-
           Hard stop: CloudNativePG lacks a primary or two ready survivors.
+      tags: [always]
 
     - name: Prove survivor synchronous standby protection
       ansible.builtin.command:
@@ -524,6 +1693,7 @@
             AND sync_state IN ('sync', 'quorum');
       register: c1_2_survivor_sync_standbys
       changed_when: false
+      tags: [always]
 
     - name: Reject replacement without a streaming synchronous standby
       ansible.builtin.assert:
@@ -532,6 +1702,7 @@
         fail_msg: >-
           Hard stop: the CNPG primary has no streaming synchronous standby.
           No etcd membership or Kubernetes node object may be changed.
+      tags: [always]
 
     - name: Inspect the lost node object
       ansible.builtin.command:
@@ -546,6 +1717,7 @@
           - --ignore-not-found=true
       register: c1_2_lost_node_object
       changed_when: false
+      tags: [always]
 
     - name: Reject replacement of a node that still reports Ready
       ansible.builtin.assert:
@@ -565,6 +1737,7 @@
         fail_msg: >-
           Hard stop: {{ hostvars['localhost'].c1_2_replacement_node }} still
           reports Ready. This playbook is only for a confirmed-lost server.
+      tags: [always]
 
     - name: Cordon the lost node object when it still exists
       ansible.builtin.command:
@@ -767,6 +1940,22 @@
       when: c1_2_lost_node_object.stdout | trim | length > 0
       changed_when: true
 
+- name: Reconcile surviving VIP peers before the replacement can advertise
+  hosts: rke2_servers
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  serial: 1
+  max_fail_percentage: 0
+  pre_tasks:
+    - name: Keep the stopped replacement out of survivor peer reconciliation
+      ansible.builtin.meta: end_host
+      when: inventory_hostname == hostvars['localhost'].c1_2_replacement_node
+      tags: [always]
+  roles:
+    - role: control_plane_vip
+      tags: [control_plane_vip]
+
 - name: Configure and join only the fresh replacement server
   hosts: rke2_servers
   become: true
@@ -787,6 +1976,70 @@
     - name: End this play for non-replacement servers
       ansible.builtin.meta: end_host
       when: inventory_hostname != hostvars['localhost'].c1_2_replacement_node
+      tags: [always]
+
+    - name: Select the protected replacement architecture digest map
+      ansible.builtin.set_fact:
+        c1_2_replacement_architecture: "{{ ansible_facts['architecture'] }}"
+        c1_2_replacement_binary_sha256_by_version: >-
+          {{
+            hostvars['localhost']
+            .c1_2_replacement_binary_sha256_by_architecture
+            .get(ansible_facts['architecture'], {})
+          }}
+      no_log: true
+      tags: [always]
+
+    - name: Reject a malformed replacement architecture digest map
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture == ansible_facts['architecture']
+          - c1_2_replacement_binary_sha256_by_version is mapping
+        fail_msg: >-
+          Hard stop: gathered ansible_architecture is overridden or its fixed
+          Vault entry is not a version-to-SHA-256 mapping.
+        quiet: true
+      no_log: true
+      tags: [always]
+
+    - name: Select the protected replacement RKE2 binary identity
+      ansible.builtin.set_fact:
+        c1_2_expected_replacement_rke2_sha256: >-
+          {{
+            c1_2_replacement_binary_sha256_by_version
+            .get(hostvars['localhost'].c1_2_replacement_version, '')
+          }}
+      no_log: true
+      tags: [always]
+
+    - name: Reject a missing or placeholder replacement RKE2 binary identity
+      ansible.builtin.assert:
+        that:
+          - c1_2_expected_replacement_rke2_sha256 is string
+          - >-
+            c1_2_expected_replacement_rke2_sha256
+            is match('^[0-9a-f]{64}$')
+          - >-
+            c1_2_expected_replacement_rke2_sha256
+            != ('0' * 64)
+          - >-
+            'PLACEHOLDER'
+            not in (c1_2_expected_replacement_rke2_sha256 | upper)
+          - >-
+            'CHANGEME'
+            not in (c1_2_expected_replacement_rke2_sha256 | upper)
+          - >-
+            'REPLACE'
+            not in (c1_2_expected_replacement_rke2_sha256 | upper)
+        fail_msg: >-
+          Hard stop: the fixed Vault file has no canonical non-placeholder
+          RKE2 binary SHA-256 for architecture
+          {{ c1_2_replacement_architecture }} and
+          exact pin {{ hostvars['localhost'].c1_2_replacement_version }}.
+        quiet: true
+      no_log: true
+      tags: [always]
+
     - name: Require immutable join-only and registration-fence inputs
       ansible.builtin.assert:
         that:
@@ -805,6 +2058,7 @@
           Hard stop: replacement role inputs were overridden. The server must
           join the VIP with bootstrap=false and the exact temporary
           registration-time NoSchedule fence.
+      tags: [always]
   roles:
     - role: common
       tags: [common]
@@ -844,6 +2098,9 @@
         name: control_plane_vip
       tags: [control_plane_vip]
 
+    - name: Apply pending VIP changes before RKE2 installation
+      ansible.builtin.meta: flush_handlers
+
     - name: Run replacement RKE2 preflight
       ansible.builtin.include_role:
         name: rke2_server
@@ -854,135 +2111,960 @@
         name: rke2_server
         tasks_from: token.yml
 
-    - name: Install the exact replacement RKE2 pin
-      ansible.builtin.include_role:
-        name: rke2_server
-        tasks_from: install.yml
+    - name: Require the canonical replacement token before installation
+      ansible.builtin.assert:
+        that:
+          - rke2_cluster_token_canonical is defined
+          - rke2_cluster_token_canonical | length > 0
+        fail_msg: >-
+          Hard stop: token validation did not produce the protected canonical
+          replacement token.
+        quiet: true
+      no_log: true
+
+    - name: Select the qualified tagged RKE2 installer identity
+      ansible.builtin.set_fact:
+        c1_2_expected_rke2_installer_sha256: >-
+          {{
+            {
+              'v1.31.4+rke2r1':
+                '8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492',
+              'v1.31.14+rke2r2':
+                '8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492',
+              'v1.32.13+rke2r2':
+                '81640ec027dea1950f152f795a7234ca78d4b86528a9e2a909a8456338923e34',
+              'v1.33.13+rke2r1':
+                'bfbd978d603b7070f5748c934326db509bf1470c97d3f61a3aaa6e2eed6bd054',
+              'v1.34.9+rke2r1':
+                '2d24db2184dd6b1a5e281fa45cc9a8234c889394721746f89b5fe953fdaaf40a'
+            }.get(rke2_version, '')
+          }}
+
+    - name: Reject an unqualified tagged RKE2 installer identity
+      ansible.builtin.assert:
+        that:
+          - c1_2_expected_rke2_installer_sha256 is string
+          - >-
+            c1_2_expected_rke2_installer_sha256
+            is match('^[0-9a-f]{64}$')
+          - c1_2_expected_rke2_installer_sha256 != ('0' * 64)
+        fail_msg: >-
+          Hard stop: the replacement pin has no qualified tagged installer
+          SHA-256.
+
+    - name: Download the exact tagged RKE2 installer
+      ansible.builtin.get_url:
+        url: >-
+          https://raw.githubusercontent.com/rancher/rke2/{{
+            rke2_version | urlencode
+          }}/install.sh
+        dest: /usr/local/sbin/rke2-install.sh
+        owner: root
+        group: root
+        mode: "0750"
+        checksum: >-
+          sha256:{{ c1_2_expected_rke2_installer_sha256 }}
+
+    - name: Re-authenticate and execute the exact tagged RKE2 installer
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          export LC_ALL=C
+          installer='/usr/local/sbin/rke2-install.sh'
+          expected_sha256={{
+            c1_2_expected_rke2_installer_sha256 | quote
+          }}
+
+          fail() {
+            printf '%s\n' "$1" >&2
+            exit 64
+          }
+
+          for directory in \
+            / /usr /usr/local /usr/local/sbin; do
+            [[ -d "$directory" && ! -L "$directory" ]] ||
+              fail "installer parent is not a protected directory: ${directory}"
+            metadata=$(/usr/bin/stat --format='%u %g %a' -- "$directory")
+            read -r uid gid mode_bits <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 &&
+               "$mode_bits" =~ ^[0-7]{3,4}$ ]] ||
+              fail "installer parent is not root:root: ${directory}"
+            mode_value=$((8#$mode_bits))
+            (( (mode_value & 07022) == 0 )) ||
+              fail "installer parent has unsafe mode bits: ${directory}"
+          done
+          [[ -f "$installer" && ! -L "$installer" ]] ||
+            fail 'tagged RKE2 installer is missing, non-regular, or a symlink'
+          metadata=$(/usr/bin/stat --format='%u %g %a' -- "$installer")
+          read -r uid gid mode_bits <<<"$metadata"
+          [[ "$uid" == 0 && "$gid" == 0 && "$mode_bits" == 750 ]] ||
+            fail 'tagged RKE2 installer is not root:root mode 0750'
+          read -r actual_sha256 _ < <(/usr/bin/sha256sum -- "$installer")
+          [[ "$actual_sha256" == "$expected_sha256" ]] ||
+            fail 'tagged RKE2 installer digest changed before execution'
+          exec /usr/bin/python3 - "$installer" <<'PY'
+          import os
+          import re
+          import sys
+
+          installer = sys.argv[1]
+          protected_version = os.environ.get(
+              "C1_2_PROTECTED_RKE2_VERSION", ""
+          )
+          if re.fullmatch(
+              r"v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+",
+              protected_version,
+          ) is None:
+              raise SystemExit("protected RKE2 installer version is invalid")
+
+          expected = {
+              "INSTALL_RKE2_VERSION": protected_version,
+              "INSTALL_RKE2_CHANNEL": "stable",
+              "INSTALL_RKE2_TYPE": "server",
+              "INSTALL_RKE2_METHOD": "tar",
+              "INSTALL_RKE2_TAR_PREFIX": "/usr/local",
+              "INSTALL_RKE2_SKIP_RELOAD": "true",
+          }
+
+          unexpected = sorted(
+              name
+              for name in os.environ
+              if name.startswith("INSTALL_RKE2_") and name not in expected
+          )
+          if unexpected:
+              raise SystemExit(
+                  "unapproved RKE2 installer inputs: " + ",".join(unexpected)
+              )
+          for name, value in expected.items():
+              if os.environ.get(name) != value:
+                  raise SystemExit(
+                      "RKE2 installer input differs from protected value: "
+                      + name
+                  )
+
+          exec_environment = {
+              "HOME": "/root",
+              "PATH": (
+                  "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:"
+                  "/sbin:/bin"
+              ),
+              **expected,
+          }
+          os.execve(installer, [installer], exec_environment)
+          PY
+      args:
+        executable: /bin/bash
+      environment:
+        C1_2_PROTECTED_RKE2_VERSION: "{{ rke2_version }}"
+        INSTALL_RKE2_VERSION: "{{ rke2_version }}"
+        INSTALL_RKE2_CHANNEL: "{{ rke2_channel | default('stable') }}"
+        INSTALL_RKE2_TYPE: server
+        INSTALL_RKE2_METHOD: tar
+        INSTALL_RKE2_TAR_PREFIX: /usr/local
+        INSTALL_RKE2_SKIP_RELOAD: "true"
+      changed_when: true
+
+    - name: Ensure protected replacement configuration directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+      loop:
+        - /etc/rancher/rke2
+        - /etc/rancher/rke2/config.yaml.d
+
+    - name: Write the protected replacement cluster-token input file
+      ansible.builtin.copy:
+        content: "{{ rke2_cluster_token_canonical }}\n"
+        dest: /etc/rancher/rke2/cluster-token
+        owner: root
+        group: root
+        mode: "0600"
+        backup: false
+      diff: false
+      no_log: true
+
+    - name: Write protected replacement etcd S3 credentials
+      ansible.builtin.copy:
+        content: |
+          etcd-s3-access-key: {{ etcd_s3_access_key | to_json }}
+          etcd-s3-secret-key: {{ etcd_s3_secret_key | to_json }}
+        dest: /etc/rancher/rke2/config.yaml.d/90-etcd-s3-secrets.yaml
+        owner: root
+        group: root
+        mode: "0600"
+        backup: false
+      diff: false
+      no_log: true
+      when: rke2_etcd_s3_enabled | default(true) | bool
+
+    - name: Remove stale replacement etcd S3 credentials when disabled
+      ansible.builtin.file:
+        path: /etc/rancher/rke2/config.yaml.d/90-etcd-s3-secrets.yaml
+        state: absent
+      diff: false
+      no_log: true
+      when: not (rke2_etcd_s3_enabled | default(true) | bool)
 
     - name: Render the fenced replacement configuration
       ansible.builtin.include_role:
         name: rke2_server
         tasks_from: configure.yml
 
+    - name: Protect replacement trust paths before loading unit metadata
+      ansible.builtin.shell:
+        cmd: &c1_2_replacement_pre_reload_path_gate |
+          set -euo pipefail
+          export LC_ALL=C
+          unit='rke2-server.service'
+          binary='/usr/local/bin/rke2'
+          fragment='/usr/local/lib/systemd/system/rke2-server.service'
+          bundled_env='/usr/local/lib/systemd/system/rke2-server.env'
+          expected_binary_sha256={{
+            c1_2_expected_replacement_rke2_sha256 | quote
+          }}
+          expected_version={{
+            hostvars['localhost'].c1_2_replacement_version | quote
+          }}
+
+          fail() {
+            printf '%s\n' "$1" >&2
+            exit 64
+          }
+
+          assert_protected() {
+            local path="$1"
+            local kind="$2"
+            local exact_mode="${3:-}"
+            local metadata uid gid mode_bits mode_value
+            [[ ! -L "$path" ]] ||
+              fail "symlink is forbidden before daemon-reload: ${path}"
+            case "$kind" in
+              directory)
+                [[ -d "$path" ]] ||
+                  fail "required pre-reload directory is absent: ${path}"
+                ;;
+              file)
+                [[ -f "$path" && -r "$path" ]] ||
+                  fail "required pre-reload file is absent: ${path}"
+                ;;
+              *)
+                fail "invalid pre-reload trust-path type: ${path}"
+                ;;
+            esac
+            metadata=$(/usr/bin/stat --format='%u %g %a' -- "$path")
+            read -r uid gid mode_bits <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 &&
+               "$mode_bits" =~ ^[0-7]{3,4}$ ]] ||
+              fail "pre-reload trust path is not root:root: ${path}"
+            mode_value=$((8#$mode_bits))
+            (( (mode_value & 07022) == 0 )) ||
+              fail "pre-reload trust path has unsafe mode bits: ${path}"
+            [[ -z "$exact_mode" || "$mode_bits" == "$exact_mode" ]] ||
+              fail "pre-reload trust path mode is not ${exact_mode}: ${path}"
+          }
+
+          assert_merged_usr_link() {
+            local path="$1"
+            local literal_target="$2"
+            local canonical_target="$3"
+            local metadata uid gid
+            [[ -L "$path" && "$(/usr/bin/readlink -- "$path")" == "$literal_target" ]] ||
+              fail "pre-reload merged-usr link is not canonical: ${path}"
+            metadata=$(
+              /usr/bin/stat --no-dereference --format='%u %g' -- "$path"
+            )
+            read -r uid gid <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 ]] ||
+              fail "pre-reload merged-usr link is not root:root: ${path}"
+            [[ "$(
+              /usr/bin/readlink --canonicalize-existing -- "$path"
+            )" == "$canonical_target" ]] ||
+              fail "pre-reload merged-usr target is not canonical: ${path}"
+            assert_protected "$canonical_target" directory
+          }
+
+          for trust_directory in \
+            / /usr /usr/bin /usr/sbin /usr/lib /usr/lib/systemd \
+            /usr/lib/systemd/system /usr/local /usr/local/bin \
+            /usr/local/sbin /usr/local/lib /usr/local/lib/systemd \
+            /usr/local/lib/systemd/system /etc /etc/systemd \
+            /etc/systemd/system /run /run/systemd /run/systemd/system; do
+            assert_protected "$trust_directory" directory
+          done
+          assert_merged_usr_link /bin usr/bin /usr/bin
+          assert_merged_usr_link /sbin usr/sbin /usr/sbin
+          assert_merged_usr_link /lib usr/lib /usr/lib
+          for optional_parent in \
+            /etc/default /etc/sysconfig /etc/systemd/system.control \
+            /run/systemd/system.control /run/systemd/transient \
+            /run/systemd/generator /run/systemd/generator.early \
+            /run/systemd/generator.late; do
+            if [[ -e "$optional_parent" || -L "$optional_parent" ]]; then
+              assert_protected "$optional_parent" directory
+            fi
+          done
+
+          for search_root in \
+            /etc/systemd/system /etc/systemd/system.control \
+            /run/systemd/system /run/systemd/system.control \
+            /run/systemd/transient /run/systemd/generator \
+            /run/systemd/generator.early /run/systemd/generator.late \
+            /usr/lib/systemd/system /usr/local/lib/systemd/system; do
+            for relation_stem in "$unit" rke2-.service service; do
+              for relation_suffix in .d .wants .requires .upholds; do
+                relation_path="${search_root}/${relation_stem}${relation_suffix}"
+                [[ ! -e "$relation_path" && ! -L "$relation_path" ]] ||
+                  fail "RKE2 relationship directory is forbidden: ${relation_path}"
+              done
+            done
+            alternate_fragment="${search_root}/${unit}"
+            if [[ "$alternate_fragment" != "$fragment" ]]; then
+              [[ ! -e "$alternate_fragment" && ! -L "$alternate_fragment" ]] ||
+                fail "alternate RKE2 fragment is forbidden: ${alternate_fragment}"
+            fi
+          done
+
+          assert_protected "$binary" file 755
+          [[ -x "$binary" ]] ||
+            fail 'pre-reload RKE2 binary is not executable'
+          read -r binary_sha256 _ < <(/usr/bin/sha256sum -- "$binary")
+          [[ "$binary_sha256" == "$expected_binary_sha256" ]] ||
+            fail 'pre-reload RKE2 binary digest is not protected'
+
+          assert_protected "$fragment" file 644
+          case "$expected_version" in
+            v1.31.4+rke2r1|v1.31.14+rke2r2)
+              expected_fragment_sha256=
+              expected_fragment_sha256+='caf5e4ff923c968d15494d984320b9ab'
+              expected_fragment_sha256+='4be13504fe9d37b968ca52ecd8e4ffcb'
+              ;;
+            v1.32.13+rke2r2|v1.33.13+rke2r1|v1.34.9+rke2r1)
+              expected_fragment_sha256=
+              expected_fragment_sha256+='30cb868bfbc40d69b3c3b7553493c50'
+              expected_fragment_sha256+='c17538f3a550c89ff2300d13bb66a61b1'
+              ;;
+            *)
+              fail 'pre-reload RKE2 pin is outside the approved ladder'
+              ;;
+          esac
+          read -r fragment_sha256 _ < <(
+            /usr/bin/sha256sum -- "$fragment"
+          )
+          [[ "$fragment_sha256" == "$expected_fragment_sha256" ]] ||
+            fail 'pre-reload RKE2 unit is not the stock qualified fragment'
+
+          assert_protected "$bundled_env" file 644
+          read -r bundled_env_sha256 _ < <(
+            /usr/bin/sha256sum -- "$bundled_env"
+          )
+          [[ "$bundled_env_sha256" == \
+            2584cb4fcddb07782af3e50f2ee4200d0b84e64856f3db458bc0b1da53a70b79 ]] ||
+            fail 'pre-reload bundled RKE2 env bytes are not stock'
+      args: &c1_2_replacement_pre_reload_path_gate_args
+        executable: /bin/bash
+      changed_when: false
+
     - name: Reload the installed replacement RKE2 unit metadata
       ansible.builtin.systemd:
         daemon_reload: true
 
     - name: Reject alternate replacement RKE2 service configuration inputs
-      ansible.builtin.shell: &c1_2_replacement_service_input_gate |2
+      ansible.builtin.shell:
+        cmd: &c1_2_replacement_service_input_gate |
           set -euo pipefail
-        unit='rke2-server.service'
-        unit_base="${unit%.service}"
-        mode="${unit_base#rke2-}"
-        expected_fragment="/usr/local/lib/systemd/system/${unit}"
+          export LC_ALL=C
+          unit='rke2-server.service'
+          unit_base="${unit%.service}"
+          mode="${unit_base#rke2-}"
+          unit_object=
+          unit_object+='/org/freedesktop/systemd1/unit/'
+          unit_object+='rke2_2dserver_2eservice'
+          binary='/usr/local/bin/rke2'
+          expected_fragment="/usr/local/lib/systemd/system/${unit}"
+          bundled_env="/usr/local/lib/systemd/system/${unit_base}.env"
+          expected_version={{
+            hostvars['localhost'].c1_2_replacement_version | quote
+          }}
+          expected_binary_sha256={{
+            c1_2_expected_replacement_rke2_sha256 | quote
+          }}
 
-        fragment=$(
-          /usr/bin/systemctl show "$unit" \
-            --property=FragmentPath --value
-        )
-        if [[ "$fragment" != "$expected_fragment" ||
-              ! -f "$fragment" || -L "$fragment" ]]; then
-          printf 'unexpected RKE2 unit fragment: %s\n' "$fragment" >&2
-          exit 64
-        fi
-
-        unit_version=$(
-          /usr/local/bin/rke2 --version |
-            /usr/bin/sed -nE \
-              's/^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)([[:space:]].*)?$/\1/p' |
-            /usr/bin/head -n 1
-        )
-        case "${unit_version}:${mode}" in
-          v1.31.4+rke2r1:server|v1.31.14+rke2r2:server)
-            expected_fragment_sha256='caf5e4ff923c968d15494d984320b9ab4be13504fe9d37b968ca52ecd8e4ffcb'
-            ;;
-          v1.32.13+rke2r2:server|v1.33.13+rke2r1:server|v1.34.9+rke2r1:server)
-            expected_fragment_sha256='30cb868bfbc40d69b3c3b7553493c50c17538f3a550c89ff2300d13bb66a61b1'
-            ;;
-          *)
-            printf 'RKE2 unit version is outside the approved ladder: %s\n' \
-              "$unit_version" >&2
+          fail() {
+            printf '%s\n' "$1" >&2
             exit 64
-            ;;
-        esac
-        read -r fragment_sha256 _ < <(
-          /usr/bin/sha256sum "$fragment"
-        )
-        if [[ "$fragment_sha256" != "$expected_fragment_sha256" ]]; then
-          printf 'RKE2 unit fragment hash is not stock for %s\n' \
-            "$unit_version" >&2
-          exit 64
-        fi
+          }
 
-        dropins=$(
-          /usr/bin/systemctl show "$unit" \
-            --property=DropInPaths --value
-        )
-        if [[ -n "$dropins" ]]; then
-          printf 'RKE2 unit drop-ins are not accepted: %s\n' "$unit" >&2
-          exit 64
-        fi
+          assert_root_protected() {
+            local path="$1"
+            local kind="$2"
+            local expected_mode="${3:-}"
+            local metadata uid gid mode_bits mode_value
 
-        unit_text=$(/usr/bin/systemctl cat --no-pager "$unit")
-        environment_files=$(
-          printf '%s\n' "$unit_text" |
-            /usr/bin/sed -nE \
-              's/^[[:space:]]*EnvironmentFile[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p'
-        )
-        expected_environment_files=$'-/etc/default/%N\n-/etc/sysconfig/%N\n-/usr/local/lib/systemd/system/%N.env'
-        if [[ "$environment_files" != "$expected_environment_files" ]]; then
-          printf 'unexpected RKE2 EnvironmentFile directives: %s\n' \
-            "$unit" >&2
-          exit 64
-        fi
+            [[ ! -L "$path" ]] ||
+              fail "symlink is forbidden in RKE2 trust path: ${path}"
+            case "$kind" in
+              directory)
+                [[ -d "$path" ]] ||
+                  fail "required RKE2 trust directory is absent: ${path}"
+                ;;
+              file)
+                [[ -f "$path" && -r "$path" ]] ||
+                  fail "required RKE2 trust file is absent: ${path}"
+                ;;
+              *)
+                fail "internal RKE2 trust-path type error: ${path}"
+                ;;
+            esac
 
-        exec_start=$(
-          printf '%s\n' "$unit_text" |
-            /usr/bin/sed -nE \
-              's/^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p'
-        )
-        if [[ "$exec_start" != "/usr/local/bin/rke2 ${mode}" ]]; then
-          printf 'unexpected RKE2 ExecStart: %s\n' "$unit" >&2
-          exit 64
-        fi
+            metadata=$(/usr/bin/stat --format='%u %g %a' -- "$path")
+            read -r uid gid mode_bits <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 ]] ||
+              fail "RKE2 trust path is not root:root: ${path}"
+            [[ "$mode_bits" =~ ^[0-7]{3,4}$ ]] ||
+              fail "RKE2 trust path has an unreadable mode: ${path}"
+            mode_value=$((8#$mode_bits))
+            (( (mode_value & 07022) == 0 )) ||
+              fail "RKE2 trust path has special or group/world-write bits: ${path}"
+            [[ -z "$expected_mode" || "$mode_bits" == "$expected_mode" ]] ||
+              fail "RKE2 trust path mode is not ${expected_mode}: ${path}"
+          }
 
-        if printf '%s\n' "$unit_text" |
-          /usr/bin/grep -E \
-            '^[[:space:]]*(Environment|PassEnvironment|UnsetEnvironment)[[:space:]]*=' \
-            >/dev/null; then
-          printf 'direct RKE2 unit environment directives are forbidden: %s\n' \
-            "$unit" >&2
-          exit 64
-        fi
-
-        if /usr/bin/systemctl show-environment |
-          /usr/bin/grep -E '^RKE2_[A-Z0-9_]*=' >/dev/null; then
-          printf 'RKE2 manager-level environment overrides are forbidden\n' >&2
-          exit 64
-        fi
-
-        for env_file in \
-          "/etc/default/${unit_base}" \
-          "/etc/sysconfig/${unit_base}" \
-          "/usr/local/lib/systemd/system/${unit_base}.env"; do
-          if [[ -e "$env_file" || -L "$env_file" ]]; then
-            if [[ ! -f "$env_file" || -L "$env_file" ]]; then
-              printf 'unsafe RKE2 environment file: %s\n' "$env_file" >&2
-              exit 64
-            fi
-            active_env_content=$(
-              /usr/bin/sed '/^[[:space:]]*#/d' "$env_file"
+          assert_merged_usr_link() {
+            local path="$1"
+            local expected_literal="$2"
+            local expected_target="$3"
+            local metadata uid gid literal_target actual_target
+            [[ -L "$path" ]] ||
+              fail "required merged-usr path is not a symlink: ${path}"
+            metadata=$(
+              /usr/bin/stat --no-dereference --format='%u %g' -- "$path"
             )
-            backslash=$(/usr/bin/printf '\134')
-            if [[ "$active_env_content" == *RKE2_* ||
-                  "$active_env_content" == *"$backslash"* ]]; then
-              printf 'RKE2 environment override found in: %s\n' \
-                "$env_file" >&2
-              exit 64
+            read -r uid gid <<<"$metadata"
+            [[ "$uid" == 0 && "$gid" == 0 ]] ||
+              fail "merged-usr symlink is not root:root: ${path}"
+            literal_target=$(/usr/bin/readlink -- "$path")
+            [[ "$literal_target" == "$expected_literal" ]] ||
+              fail "merged-usr symlink payload is not canonical: ${path}"
+            actual_target=$(/usr/bin/readlink --canonicalize-existing -- "$path")
+            [[ "$actual_target" == "$expected_target" ]] ||
+              fail "merged-usr symlink target is not canonical: ${path}"
+            assert_root_protected "$actual_target" directory
+          }
+
+          validate_standard_path() {
+            case "$1" in
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          validate_locale() {
+            [[ "$1" =~ ^(C|POSIX|C\.UTF-8|[A-Za-z]{2,16}(_[A-Za-z0-9]{2,16})?(\.[A-Za-z0-9_-]{1,16})?(@[A-Za-z0-9_-]{1,16})?)$ ]]
+          }
+
+          [[ "$expected_binary_sha256" =~ ^[0-9a-f]{64}$ &&
+             "$expected_binary_sha256" != "$(printf '0%.0s' {1..64})" ]] ||
+            fail 'protected RKE2 binary SHA-256 is invalid'
+
+          for trust_directory in \
+            / /usr /usr/bin /usr/sbin /usr/lib /usr/lib/systemd \
+            /usr/lib/systemd/system /usr/local /usr/local/bin \
+            /usr/local/sbin /usr/local/lib /usr/local/lib/systemd \
+            /usr/local/lib/systemd/system /etc /etc/systemd \
+            /etc/systemd/system /run /run/systemd /run/systemd/system; do
+            assert_root_protected "$trust_directory" directory
+          done
+          for optional_snap_directory in /snap /snap/bin; do
+            if [[ -e "$optional_snap_directory" ||
+                  -L "$optional_snap_directory" ]]; then
+              assert_root_protected "$optional_snap_directory" directory
             fi
+          done
+          assert_merged_usr_link /bin usr/bin /usr/bin
+          assert_merged_usr_link /sbin usr/sbin /usr/sbin
+          assert_merged_usr_link /lib usr/lib /usr/lib
+          for optional_parent in \
+            /etc/default /etc/sysconfig /etc/systemd/system.control \
+            /run/systemd/system.control /run/systemd/transient \
+            /run/systemd/generator /run/systemd/generator.early \
+            /run/systemd/generator.late; do
+            if [[ -e "$optional_parent" || -L "$optional_parent" ]]; then
+              assert_root_protected "$optional_parent" directory
+            fi
+          done
+          for search_root in \
+            /etc/systemd/system /etc/systemd/system.control \
+            /run/systemd/system /run/systemd/system.control \
+            /run/systemd/transient /run/systemd/generator \
+            /run/systemd/generator.early /run/systemd/generator.late \
+            /usr/lib/systemd/system /usr/local/lib/systemd/system; do
+            for relation_stem in "$unit" rke2-.service service; do
+              for relation_suffix in .d .wants .requires .upholds; do
+                relation_path="${search_root}/${relation_stem}${relation_suffix}"
+                [[ ! -e "$relation_path" && ! -L "$relation_path" ]] ||
+                  fail "RKE2 relationship path is forbidden: ${relation_path}"
+              done
+            done
+            alternate_fragment="${search_root}/${unit}"
+            if [[ "$alternate_fragment" != "$expected_fragment" ]]; then
+              [[ ! -e "$alternate_fragment" && ! -L "$alternate_fragment" ]] ||
+                fail "alternate RKE2 fragment is forbidden: ${alternate_fragment}"
+            fi
+          done
+
+          assert_root_protected "$binary" file 755
+          [[ -x "$binary" ]] ||
+            fail "RKE2 binary is not executable: ${binary}"
+          read -r binary_sha256 _ < <(/usr/bin/sha256sum -- "$binary")
+          [[ "$binary_sha256" == "$expected_binary_sha256" ]] ||
+            fail 'installed RKE2 binary does not match the protected digest'
+
+          version_output=$("$binary" --version)
+          mapfile -t version_matches < <(
+            /usr/bin/sed -nE \
+              's/^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)([[:space:]].*)?$/\1/p' \
+              <<<"$version_output"
+          )
+          version_match_count=$(
+            printf '%s\n' "${version_matches[@]}" | /usr/bin/wc --lines
+          )
+          [[ "$version_match_count" == 1 &&
+             "${version_matches[0]}" == "$expected_version" ]] ||
+            fail 'authenticated RKE2 binary does not report the exact pin'
+          unit_version="${version_matches[0]}"
+
+          fragment_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Unit FragmentPath
+          )
+          /usr/bin/jq -e --arg expected "$expected_fragment" '
+            .type == "s" and .data == $expected
+          ' <<<"$fragment_property" >/dev/null ||
+            fail 'cached RKE2 fragment is not canonical'
+          fragment="$expected_fragment"
+          assert_root_protected "$fragment" file 644
+
+          case "${unit_version}:${mode}" in
+            v1.31.4+rke2r1:server|v1.31.14+rke2r2:server)
+              expected_fragment_sha256='caf5e4ff923c968d15494d984320b9ab4be13504fe9d37b968ca52ecd8e4ffcb'
+              ;;
+            v1.32.13+rke2r2:server|v1.33.13+rke2r1:server|v1.34.9+rke2r1:server)
+              expected_fragment_sha256='30cb868bfbc40d69b3c3b7553493c50c17538f3a550c89ff2300d13bb66a61b1'
+              ;;
+            *)
+              fail "RKE2 unit version is outside the approved ladder: ${unit_version}"
+              ;;
+          esac
+          read -r fragment_sha256 _ < <(
+            /usr/bin/sha256sum -- "$fragment"
+          )
+          [[ "$fragment_sha256" == "$expected_fragment_sha256" ]] ||
+            fail "RKE2 unit fragment hash is not stock for ${unit_version}"
+
+          dropins_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Unit DropInPaths
+          )
+          /usr/bin/jq -e '
+            .type == "as" and .data == []
+          ' <<<"$dropins_property" >/dev/null ||
+            fail "cached RKE2 drop-ins are not empty: ${unit}"
+
+          need_daemon_reload_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Unit NeedDaemonReload
+          )
+          /usr/bin/jq -e '
+            .type == "b" and .data == false
+          ' <<<"$need_daemon_reload_property" >/dev/null ||
+            fail "RKE2 manager cache is stale: ${unit}"
+
+          exec_start_ex_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service ExecStartEx
+          )
+          /usr/bin/jq -e --arg binary "$binary" '
+            .type == "a(sasasttttuii)"
+            and (.data | type == "array")
+            and (.data | length == 1)
+            and (.data[0] | length == 10)
+            and .data[0][0] == $binary
+            and .data[0][1] == [$binary, "server"]
+            and .data[0][2] == []
+          ' <<<"$exec_start_ex_property" >/dev/null ||
+            fail "cached RKE2 ExecStartEx is not canonical: ${unit}"
+
+          condition_command=
+          condition_command+='if systemctl is-active --quiet '
+          condition_command+='rke2-agent.service; then echo '
+          condition_command+='"Error: rke2-agent is running!"; exit 1; fi'
+          legacy_pre_command=
+          legacy_pre_command+='! /usr/bin/systemctl is-enabled --quiet '
+          legacy_pre_command+='nm-cloud-setup.service'
+          cleanup_command=
+          cleanup_command+='systemd-cgls /system.slice/rke2-server.service '
+          cleanup_command+="| grep -Eo '[0-9]+ (containerd|kubelet)' "
+          cleanup_command+="| awk '{print \$1}' | xargs -r kill"
+
+          exec_condition_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service ExecConditionEx
+          )
+          /usr/bin/jq -e \
+            --arg version "$unit_version" \
+            --arg condition "$condition_command" '
+              def record($path; $argv; $flags):
+                type == "array"
+                and length == 10
+                and .[0] == $path
+                and .[1] == $argv
+                and .[2] == $flags;
+              .type == "a(sasasttttuii)"
+              and
+              if $version == "v1.31.4+rke2r1"
+                 or $version == "v1.31.14+rke2r2"
+              then .data == []
+              else
+                (.data | length == 1)
+                and (
+                  .data[0]
+                  | record(
+                      "/bin/sh";
+                      ["/bin/sh", "-c", $condition];
+                      []
+                    )
+                )
+              end
+            ' <<<"$exec_condition_property" >/dev/null ||
+            fail "cached RKE2 ExecConditionEx is not stock: ${unit}"
+
+          exec_start_pre_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service ExecStartPreEx
+          )
+          /usr/bin/jq -e \
+            --arg version "$unit_version" \
+            --arg legacy_pre "$legacy_pre_command" '
+              def record($path; $argv; $flags):
+                type == "array"
+                and length == 10
+                and .[0] == $path
+                and .[1] == $argv
+                and .[2] == $flags;
+              .type == "a(sasasttttuii)"
+              and
+              if $version == "v1.31.4+rke2r1"
+                 or $version == "v1.31.14+rke2r2"
+              then
+                (.data | length == 3)
+                and (
+                  .data[0]
+                  | record(
+                      "/bin/sh";
+                      ["/bin/sh", "-xc", $legacy_pre];
+                      []
+                    )
+                )
+                and (
+                  .data[1]
+                  | record(
+                      "/sbin/modprobe";
+                      ["/sbin/modprobe", "br_netfilter"];
+                      ["ignore-failure"]
+                    )
+                )
+                and (
+                  .data[2]
+                  | record(
+                      "/sbin/modprobe";
+                      ["/sbin/modprobe", "overlay"];
+                      ["ignore-failure"]
+                    )
+                )
+              else
+                (.data | length == 2)
+                and (
+                  .data[0]
+                  | record(
+                      "/sbin/modprobe";
+                      ["/sbin/modprobe", "br_netfilter"];
+                      ["ignore-failure"]
+                    )
+                )
+                and (
+                  .data[1]
+                  | record(
+                      "/sbin/modprobe";
+                      ["/sbin/modprobe", "overlay"];
+                      ["ignore-failure"]
+                    )
+                )
+              end
+            ' <<<"$exec_start_pre_property" >/dev/null ||
+            fail "cached RKE2 ExecStartPreEx is not stock: ${unit}"
+
+          exec_stop_post_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service ExecStopPostEx
+          )
+          /usr/bin/jq -e --arg cleanup "$cleanup_command" '
+            def record($path; $argv; $flags):
+              type == "array"
+              and length == 10
+              and .[0] == $path
+              and .[1] == $argv
+              and .[2] == $flags;
+            .type == "a(sasasttttuii)"
+            and (.data | length == 1)
+            and (
+              .data[0]
+              | record(
+                  "/bin/sh";
+                  ["/bin/sh", "-c", $cleanup];
+                  ["ignore-failure"]
+                )
+            )
+          ' <<<"$exec_stop_post_property" >/dev/null ||
+            fail "cached RKE2 ExecStopPostEx is not stock: ${unit}"
+
+          for empty_exec_property in \
+            ExecStartPostEx ExecReloadEx ExecStopEx; do
+            empty_exec_property_json=$(
+              /usr/bin/busctl --json=short get-property \
+                org.freedesktop.systemd1 "$unit_object" \
+                org.freedesktop.systemd1.Service "$empty_exec_property"
+            )
+            /usr/bin/jq -e '
+              .type == "a(sasasttttuii)" and .data == []
+            ' <<<"$empty_exec_property_json" >/dev/null ||
+              fail "cached RKE2 ${empty_exec_property} is not empty: ${unit}"
+          done
+
+          assert_unit_array_property() {
+            local property="$1"
+            local expected_json="$2"
+            local property_json
+            property_json=$(
+              /usr/bin/busctl --json=short get-property \
+                org.freedesktop.systemd1 "$unit_object" \
+                org.freedesktop.systemd1.Unit "$property"
+            )
+            /usr/bin/jq -e --argjson expected "$expected_json" '
+              .type == "as"
+              and (.data | sort) == ($expected | sort)
+            ' <<<"$property_json" >/dev/null ||
+              fail "cached RKE2 unit relation differs: ${property}"
+          }
+
+          assert_unit_string_property() {
+            local property="$1"
+            local expected="$2"
+            local property_json
+            property_json=$(
+              /usr/bin/busctl --json=short get-property \
+                org.freedesktop.systemd1 "$unit_object" \
+                org.freedesktop.systemd1.Unit "$property"
+            )
+            /usr/bin/jq -e --arg expected "$expected" '
+              .type == "s" and .data == $expected
+            ' <<<"$property_json" >/dev/null ||
+              fail "cached RKE2 unit action differs: ${property}"
+          }
+
+          assert_unit_array_property Names '["rke2-server.service"]'
+          assert_unit_array_property Wants '["network-online.target"]'
+          assert_unit_array_property \
+            Requires '["system.slice","sysinit.target"]'
+          if [[ "$unit_version" == v1.31.* ]]; then
+            assert_unit_array_property \
+              Conflicts '["rke2-agent.service","shutdown.target"]'
+          else
+            assert_unit_array_property Conflicts '["shutdown.target"]'
           fi
-        done
-      args:
+          for empty_relation in \
+            Requisite BindsTo PartOf Upholds OnSuccess OnFailure \
+            PropagatesReloadTo PropagatesStopTo RequiresMountsFor; do
+            assert_unit_array_property "$empty_relation" '[]'
+          done
+          assert_unit_string_property FailureAction none
+          assert_unit_string_property SuccessAction none
+          assert_unit_string_property JobTimeoutAction none
+          assert_unit_string_property StartLimitAction none
+          assert_unit_string_property OnFailureJobMode replace
+          assert_unit_string_property OnSuccessJobMode fail
+
+          for empty_property in \
+            Environment PassEnvironment UnsetEnvironment; do
+            empty_property_json=$(
+              /usr/bin/busctl --json=short get-property \
+                org.freedesktop.systemd1 "$unit_object" \
+                org.freedesktop.systemd1.Service "$empty_property"
+            )
+            /usr/bin/jq -e '
+              .type == "as" and .data == []
+            ' <<<"$empty_property_json" >/dev/null ||
+              fail "cached RKE2 ${empty_property} is not empty: ${unit}"
+          done
+
+          environment_files_property=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 "$unit_object" \
+              org.freedesktop.systemd1.Service EnvironmentFiles
+          )
+          /usr/bin/jq -e '
+            .type == "a(sb)"
+            and .data == [
+              ["/etc/default/rke2-server", true],
+              ["/etc/sysconfig/rke2-server", true],
+              [
+                "/usr/local/lib/systemd/system/rke2-server.env",
+                true
+              ]
+            ]
+          ' <<<"$environment_files_property" >/dev/null ||
+            fail "cached RKE2 EnvironmentFiles are not canonical: ${unit}"
+
+          unit_text=$(/usr/bin/systemctl cat --no-pager "$unit")
+          environment_files=$(
+            printf '%s\n' "$unit_text" |
+              /usr/bin/sed -nE \
+                's/^[[:space:]]*EnvironmentFile[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p'
+          )
+          expected_environment_files=$'-/etc/default/%N\n-/etc/sysconfig/%N\n-/usr/local/lib/systemd/system/%N.env'
+          [[ "$environment_files" == "$expected_environment_files" ]] ||
+            fail "unexpected RKE2 EnvironmentFile directives: ${unit}"
+
+          exec_start=$(
+            printf '%s\n' "$unit_text" |
+              /usr/bin/sed -nE \
+                's/^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p'
+          )
+          [[ "$exec_start" == "/usr/local/bin/rke2 ${mode}" ]] ||
+            fail "unexpected RKE2 ExecStart: ${unit}"
+
+          if printf '%s\n' "$unit_text" |
+            /usr/bin/grep -E \
+              '^[[:space:]]*(Environment|PassEnvironment|UnsetEnvironment)[[:space:]]*=' \
+              >/dev/null; then
+            fail "direct RKE2 unit environment directives are forbidden: ${unit}"
+          fi
+
+          manager_environment=$(
+            /usr/bin/busctl --json=short get-property \
+              org.freedesktop.systemd1 \
+              /org/freedesktop/systemd1 \
+              org.freedesktop.systemd1.Manager \
+              Environment
+          )
+          /usr/bin/jq -e '
+            .type == "as"
+            and (.data | type == "array")
+            and all(.data[]; type == "string")
+          ' <<<"$manager_environment" >/dev/null ||
+            fail 'systemd manager environment property is malformed'
+          mapfile -t manager_entries < <(
+            /usr/bin/jq -r '.data[] | @base64' <<<"$manager_environment"
+          )
+          declare -A manager_names=()
+          for manager_entry_encoded in "${manager_entries[@]}"; do
+            manager_entry=$(
+              printf '%s' "$manager_entry_encoded" |
+                /usr/bin/base64 --decode
+            )
+            [[ "$manager_entry" == *=* ]] ||
+              fail 'systemd manager environment contains a malformed entry'
+            manager_name="${manager_entry%%=*}"
+            manager_value="${manager_entry#*=}"
+            [[ "$manager_name" =~ ^[A-Z_][A-Z0-9_]*$ ]] ||
+              fail 'systemd manager environment name is invalid'
+            [[ -z "${manager_names[$manager_name]+present}" ]] ||
+              fail "duplicate systemd manager environment name: ${manager_name}"
+            manager_names["$manager_name"]=1
+            case "$manager_name" in
+              LANG)
+                validate_locale "$manager_value" ||
+                  fail 'systemd manager LANG is not a canonical locale'
+                ;;
+              LC_ALL|LC_ADDRESS|LC_COLLATE|LC_CTYPE|LC_IDENTIFICATION|\
+              LC_MEASUREMENT|LC_MESSAGES|LC_MONETARY|LC_NAME|LC_NUMERIC|\
+              LC_PAPER|LC_TELEPHONE|LC_TIME)
+                validate_locale "$manager_value" ||
+                  fail "invalid locale manager environment: ${manager_name}"
+                ;;
+              PATH)
+                validate_standard_path "$manager_value" ||
+                  fail 'systemd manager PATH is not a standard absolute path'
+                ;;
+              *)
+                fail "forbidden systemd manager environment: ${manager_name}"
+                ;;
+            esac
+          done
+
+          for optional_env in \
+            "/etc/default/${unit_base}" \
+            "/etc/sysconfig/${unit_base}"; do
+            if [[ -e "$optional_env" || -L "$optional_env" ]]; then
+              assert_root_protected "$optional_env" file
+              if /usr/bin/od -An -v -tx1 -- "$optional_env" |
+                /usr/bin/grep -Eq '(^|[[:space:]])00([[:space:]]|$)'; then
+                fail "optional RKE2 environment contains NUL: ${optional_env}"
+              fi
+              optional_env_mode=$(
+                /usr/bin/stat --format='%a' -- "$optional_env"
+              )
+              case "$optional_env_mode" in
+                400|440|444|600|640|644)
+                  ;;
+                *)
+                  fail "optional RKE2 environment mode is unsafe: ${optional_env}"
+                  ;;
+              esac
+              if /usr/bin/awk '
+                /^[[:space:]]*$/ { next }
+                /^[[:space:]]*[#;]/ { next }
+                { active = 1 }
+                END { exit(active ? 0 : 1) }
+              ' "$optional_env"; then
+                fail "active assignments are forbidden in: ${optional_env}"
+              fi
+            fi
+          done
+
+          assert_root_protected "$bundled_env" file 644
+          read -r bundled_env_sha256 _ < <(
+            /usr/bin/sha256sum -- "$bundled_env"
+          )
+          [[ "$bundled_env_sha256" == \
+            2584cb4fcddb07782af3e50f2ee4200d0b84e64856f3db458bc0b1da53a70b79 ]] ||
+            fail "bundled RKE2 environment bytes are not stock: ${bundled_env}"
+          bundled_active=$(
+            /usr/bin/awk '
+              /^[[:space:]]*$/ { next }
+              /^[[:space:]]*[#;]/ { next }
+              { print }
+            ' "$bundled_env"
+          )
+          [[ "$bundled_active" == 'HOME=/root' ]] ||
+            fail "bundled RKE2 environment is not exact: ${bundled_env}"
+      args: &c1_2_replacement_service_input_gate_args
         executable: /bin/bash
       changed_when: false
 
@@ -1257,17 +3339,109 @@
         quiet: true
       no_log: true
 
+    - name: Require the protected token before the fenced join
+      ansible.builtin.assert:
+        that:
+          - rke2_cluster_token is defined
+          - rke2_cluster_token | length > 0
+        fail_msg: "Hard stop: the fenced join has no protected cluster token."
+        quiet: true
+      no_log: true
+
+    - name: Wait for the control-plane VIP before the fenced join
+      ansible.builtin.wait_for:
+        host: "{{ control_plane_vip_address }}"
+        port: "{{ item }}"
+        connect_timeout: 3
+        delay: 2
+        timeout: 300
+      loop:
+        - 6443
+        - 9345
+
+    - name: Enable the statically authenticated replacement service
+      ansible.builtin.systemd:
+        name: rke2-server
+        enabled: true
+        daemon_reload: false
+
+    - name: Re-protect replacement paths before the final daemon reload
+      ansible.builtin.shell:
+        cmd: *c1_2_replacement_pre_reload_path_gate
+      args: *c1_2_replacement_pre_reload_path_gate_args
+      changed_when: false
+
+    - name: Reload replacement RKE2 metadata at the first-start boundary
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Revalidate replacement service provenance before first start
+      ansible.builtin.shell:
+        cmd: *c1_2_replacement_service_input_gate
+      args: *c1_2_replacement_service_input_gate_args
+      changed_when: false
+
     - name: Join the fenced replacement server
-      ansible.builtin.include_role:
-        name: rke2_server
-        tasks_from: join.yml
+      ansible.builtin.meta: flush_handlers
+
+    - name: Start the statically authenticated fenced replacement service
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: started
 
     - name: Reject alternate inputs in the live replacement RKE2 process
       ansible.builtin.shell:
-        cmd: |
+        cmd: &c1_2_replacement_live_provenance_gate |
           set -euo pipefail
+          export LC_ALL=C
           unit='rke2-server.service'
           mode='server'
+          binary='/usr/local/bin/rke2'
+          expected_binary_sha256={{
+            c1_2_expected_replacement_rke2_sha256 | quote
+          }}
+
+          fail() {
+            printf '%s\n' "$1" >&2
+            exit 64
+          }
+
+          validate_standard_path() {
+            case "$1" in
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin|\
+              /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          validate_locale() {
+            [[ "$1" =~ ^(C|POSIX|C\.UTF-8|[A-Za-z]{2,16}(_[A-Za-z0-9]{2,16})?(\.[A-Za-z0-9_-]{1,16})?(@[A-Za-z0-9_-]{1,16})?)$ ]]
+          }
+
+          read_proc_start_time() {
+            local pid="$1"
+            local stat_record stat_after_comm start_time
+            local -a stat_fields
+            IFS= read -r stat_record <"/proc/${pid}/stat"
+            [[ "$stat_record" == *") "* ]] ||
+              fail "RKE2 process stat record is malformed: ${unit}"
+            stat_after_comm="${stat_record##*) }"
+            read -r -a stat_fields <<<"$stat_after_comm"
+            start_time="${stat_fields[19]:-}"
+            [[ "$start_time" =~ ^[1-9][0-9]*$ ]] ||
+              fail "RKE2 process start time is invalid: ${unit}"
+            printf '%s\n' "$start_time"
+          }
+
+          [[ "$expected_binary_sha256" =~ ^[0-9a-f]{64}$ &&
+             "$expected_binary_sha256" != "$(printf '0%.0s' {1..64})" ]] ||
+            fail 'protected live RKE2 SHA-256 is invalid'
 
           /usr/bin/systemctl is-active --quiet "$unit"
           main_pid=$(
@@ -1278,63 +3452,269 @@
                 ! -r "/proc/${main_pid}/environ" ||
                 ! -r "/proc/${main_pid}/cmdline" ||
                 ! -L "/proc/${main_pid}/exe" ]]; then
-            printf 'RKE2 MainPID cannot be inspected: %s\n' "$unit" >&2
-            exit 64
+            fail "RKE2 MainPID cannot be inspected: ${unit}"
           fi
 
+          invocation_id=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=InvocationID --value
+          )
+          exec_start_monotonic=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=ExecMainStartTimestampMonotonic --value
+          )
+          [[ "$invocation_id" =~ ^[0-9a-f]{32}$ &&
+             "$exec_start_monotonic" =~ ^[1-9][0-9]*$ ]] ||
+            fail "RKE2 systemd invocation identity is invalid: ${unit}"
+
+          proc_inode=$(/usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}")
+          proc_start_time=$(read_proc_start_time "$main_pid")
           live_executable=$(
             /usr/bin/readlink -f "/proc/${main_pid}/exe"
           )
-          if [[ "$live_executable" != '/usr/local/bin/rke2' ]]; then
-            printf 'live RKE2 executable is not canonical: %s\n' \
-              "$unit" >&2
-            exit 64
-          fi
-
-          if /usr/bin/tr '\0' '\n' <"/proc/${main_pid}/environ" |
-            /usr/bin/grep -E '^RKE2_[A-Z0-9_]*=' >/dev/null; then
-            printf 'live RKE2 environment override found: %s\n' "$unit" >&2
-            exit 64
-          fi
+          [[ "$live_executable" == "$binary" ]] ||
+            fail "live RKE2 executable is not canonical: ${unit}"
+          live_executable_inode=$(
+            /usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}/exe"
+          )
+          disk_binary_inode=$(/usr/bin/stat -Lc '%d:%i' -- "$binary")
+          [[ "$live_executable_inode" == "$disk_binary_inode" ]] ||
+            fail "live and installed RKE2 executable inodes differ: ${unit}"
+          read -r live_binary_sha256 _ < <(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/exe"
+          )
+          [[ "$expected_binary_sha256" =~ ^[0-9a-f]{64}$ &&
+             "$live_binary_sha256" == "$expected_binary_sha256" ]] ||
+            fail "live RKE2 executable digest is not protected: ${unit}"
 
           mapfile -d '' -t argv <"/proc/${main_pid}/cmdline"
-          if [[ "${argv[0]:-}" != '/usr/local/bin/rke2' ||
-                "${argv[1]:-}" != "$mode" ||
-                -v 'argv[2]' ]]; then
-            printf 'live RKE2 command line is not canonical: %s\n' \
-              "$unit" >&2
-            exit 64
-          fi
+          cmdline_sha256=$(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/cmdline"
+          )
+          cmdline_sha256="${cmdline_sha256%% *}"
+          cmdline_terminator=$(
+            /usr/bin/tail -c 1 "/proc/${main_pid}/cmdline" |
+              /usr/bin/od -An -tu1 |
+              /usr/bin/tr -d '[:space:]'
+          )
+          argv_count=$(
+            printf '%s\n' "${argv[@]}" | /usr/bin/wc --lines
+          )
+          [[ "$cmdline_terminator" == 0 &&
+             "$argv_count" == 2 &&
+             "${argv[0]:-}" == "$binary" &&
+             "${argv[1]:-}" == "$mode" ]] ||
+            fail "live RKE2 command line is not canonical: ${unit}"
+
+          mapfile -d '' -t live_environment <"/proc/${main_pid}/environ"
+          environment_sha256=$(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/environ"
+          )
+          environment_sha256="${environment_sha256%% *}"
+          environment_terminator=$(
+            /usr/bin/tail -c 1 "/proc/${main_pid}/environ" |
+              /usr/bin/od -An -tu1 |
+              /usr/bin/tr -d '[:space:]'
+          )
+          [[ "$environment_terminator" == 0 ]] ||
+            fail "live RKE2 environment is not NUL-terminated: ${unit}"
+
+          declare -A live_names=()
+          control_group=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=ControlGroup --value
+          )
+          [[ "$control_group" =~ ^/[^[:space:]]+$ ]] ||
+            fail "RKE2 systemd control group is invalid: ${unit}"
+          expected_memory_pressure_watch=
+          expected_memory_pressure_watch+="/sys/fs/cgroup${control_group}"
+          expected_memory_pressure_watch+='/memory.pressure'
+          for live_entry in "${live_environment[@]}"; do
+            [[ "$live_entry" == *=* ]] ||
+              fail 'live RKE2 environment contains a malformed entry'
+            live_name="${live_entry%%=*}"
+            live_value="${live_entry#*=}"
+            [[ "$live_name" =~ ^[A-Z_][A-Z0-9_]*$ ]] ||
+              fail 'live RKE2 environment name is invalid'
+            [[ -z "${live_names[$live_name]+present}" ]] ||
+              fail "duplicate live RKE2 environment name: ${live_name}"
+            live_names["$live_name"]=1
+            case "$live_name" in
+              HOME)
+                [[ "$live_value" == /root ]] ||
+                  fail 'live RKE2 HOME is not /root'
+                ;;
+              USER|LOGNAME)
+                [[ "$live_value" == root ]] ||
+                  fail "live RKE2 ${live_name} is not root"
+                ;;
+              SHELL)
+                [[ "$live_value" == /bin/sh ||
+                   "$live_value" == /bin/bash ]] ||
+                  fail 'live RKE2 SHELL is not canonical'
+                ;;
+              LANG)
+                validate_locale "$live_value" ||
+                  fail 'live RKE2 LANG is not a canonical locale'
+                ;;
+              LC_ALL|LC_ADDRESS|LC_COLLATE|LC_CTYPE|LC_IDENTIFICATION|\
+              LC_MEASUREMENT|LC_MESSAGES|LC_MONETARY|LC_NAME|LC_NUMERIC|\
+              LC_PAPER|LC_TELEPHONE|LC_TIME)
+                validate_locale "$live_value" ||
+                  fail "invalid live RKE2 locale: ${live_name}"
+                ;;
+              PATH)
+                validate_standard_path "$live_value" ||
+                  fail 'live RKE2 PATH is not a standard absolute path'
+                ;;
+              INVOCATION_ID)
+                [[ "$live_value" == "$invocation_id" ]] ||
+                  fail 'live RKE2 INVOCATION_ID differs from systemd'
+                ;;
+              JOURNAL_STREAM)
+                fd2_identity=$(
+                  /usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}/fd/2"
+                )
+                [[ "$live_value" == "$fd2_identity" ]] ||
+                  fail 'live RKE2 JOURNAL_STREAM differs from stderr'
+                ;;
+              NOTIFY_SOCKET)
+                [[ "$live_value" == /run/systemd/notify ]] ||
+                  fail 'live RKE2 NOTIFY_SOCKET is not canonical'
+                ;;
+              SYSTEMD_EXEC_PID)
+                [[ "$live_value" == "$main_pid" ]] ||
+                  fail 'live RKE2 SYSTEMD_EXEC_PID differs from MainPID'
+                ;;
+              MEMORY_PRESSURE_WATCH)
+                [[ "$live_value" == "$expected_memory_pressure_watch" ]] ||
+                  fail 'live RKE2 memory-pressure watch path is invalid'
+                ;;
+              MEMORY_PRESSURE_WRITE)
+                [[ "$live_value" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] ||
+                  fail 'live RKE2 memory-pressure write value is invalid'
+                ;;
+              *)
+                fail "forbidden live RKE2 environment: ${live_name}"
+                ;;
+            esac
+          done
+          for required_live_name in \
+            HOME PATH INVOCATION_ID JOURNAL_STREAM NOTIFY_SOCKET \
+            SYSTEMD_EXEC_PID; do
+            [[ -n "${live_names[$required_live_name]+present}" ]] ||
+              fail "required live RKE2 environment is absent: ${required_live_name}"
+          done
+          [[ "${live_names[MEMORY_PRESSURE_WATCH]+present}" == \
+             "${live_names[MEMORY_PRESSURE_WRITE]+present}" ]] ||
+            fail 'live RKE2 memory-pressure environment is incomplete'
 
           verified_pid=$(
             /usr/bin/systemctl show "$unit" \
               --property=MainPID --value
           )
-          if [[ "$verified_pid" != "$main_pid" ]] ||
-            ! /usr/bin/systemctl is-active --quiet "$unit"; then
-            printf 'RKE2 MainPID changed during validation: %s\n' \
-              "$unit" >&2
-            exit 64
-          fi
-      args:
+          verified_invocation_id=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=InvocationID --value
+          )
+          verified_exec_start_monotonic=$(
+            /usr/bin/systemctl show "$unit" \
+              --property=ExecMainStartTimestampMonotonic --value
+          )
+          verified_proc_inode=$(
+            /usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}"
+          )
+          verified_proc_start_time=$(read_proc_start_time "$main_pid")
+          verified_executable_inode=$(
+            /usr/bin/stat -Lc '%d:%i' -- "/proc/${main_pid}/exe"
+          )
+          verified_cmdline_sha256=$(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/cmdline"
+          )
+          verified_cmdline_sha256="${verified_cmdline_sha256%% *}"
+          verified_environment_sha256=$(
+            /usr/bin/sha256sum -- "/proc/${main_pid}/environ"
+          )
+          verified_environment_sha256="${verified_environment_sha256%% *}"
+          [[ "$verified_pid" == "$main_pid" &&
+             "$verified_invocation_id" == "$invocation_id" &&
+             "$verified_exec_start_monotonic" == "$exec_start_monotonic" &&
+             "$verified_proc_inode" == "$proc_inode" &&
+             "$verified_proc_start_time" == "$proc_start_time" &&
+             "$verified_executable_inode" == "$live_executable_inode" &&
+             "$verified_cmdline_sha256" == "$cmdline_sha256" &&
+             "$verified_environment_sha256" == "$environment_sha256" ]] &&
+            /usr/bin/systemctl is-active --quiet "$unit" ||
+            fail "RKE2 process identity changed during validation: ${unit}"
+      args: &c1_2_replacement_live_provenance_gate_args
         executable: /bin/bash
       changed_when: false
+
+    - name: Wait for local API readiness on the authenticated joiner
+      ansible.builtin.uri:
+        url: https://127.0.0.1:6443/readyz
+        method: GET
+        validate_certs: false
+        return_content: false
+        status_code: 200
+        timeout: 3
+      register: c1_2_authenticated_joiner_api_ready
+      retries: 60
+      delay: 5
+      until: c1_2_authenticated_joiner_api_ready.status | default(0) == 200
+
+    - name: Wait for the authenticated joiner kubeconfig
+      ansible.builtin.wait_for:
+        path: /etc/rancher/rke2/rke2.yaml
+        state: present
+        timeout: 300
+
+    - name: Wait for authenticated joiner etcd health
+      ansible.builtin.command:
+        argv:
+          - /var/lib/rancher/rke2/bin/etcdctl
+          - "--endpoints=https://127.0.0.1:2379"
+          - "--cacert=/var/lib/rancher/rke2/server/tls/etcd/server-ca.crt"
+          - "--cert=/var/lib/rancher/rke2/server/tls/etcd/server-client.crt"
+          - "--key=/var/lib/rancher/rke2/server/tls/etcd/server-client.key"
+          - endpoint
+          - health
+      environment:
+        ETCDCTL_API: "3"
+      register: c1_2_authenticated_joiner_etcd_health
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: c1_2_authenticated_joiner_etcd_health.rc == 0
+
+    - name: Wait for the authenticated joiner kubelet API
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 10250
+        timeout: 600
+        delay: 10
+
+    - name: Wait for VIP-backed authenticated node readiness
+      ansible.builtin.command:
+        argv:
+          - /var/lib/rancher/rke2/bin/kubectl
+          - "--kubeconfig=/etc/rancher/rke2/rke2.yaml"
+          - "--server=https://{{ control_plane_vip_address }}:6443"
+          - get
+          - node
+          - "{{ inventory_hostname }}"
+          - -o
+          - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+      register: c1_2_authenticated_joiner_node_ready
+      changed_when: false
+      retries: 60
+      delay: 10
+      until: c1_2_authenticated_joiner_node_ready.stdout | default('') == 'True'
 
     - name: Install tooling and rewrite replacement kubeconfigs to the VIP
       ansible.builtin.include_role:
         name: rke2_server
         tasks_from: post-install.yml
-
-- name: Reconcile the control-plane VIP unicast peers serially
-  hosts: rke2_servers
-  become: true
-  gather_facts: true
-  any_errors_fatal: true
-  serial: 1
-  max_fail_percentage: 0
-  roles:
-    - role: control_plane_vip
-      tags: [control_plane_vip]
 
 - name: Verify and uncordon the joined replacement
   hosts: rke2_servers
@@ -1352,9 +3732,65 @@
     - name: End this play for non-replacement servers
       ansible.builtin.meta: end_host
       when: inventory_hostname != hostvars['localhost'].c1_2_replacement_node
+      tags: [always]
   tasks:
     - name: Verify the fenced replacement before controlled uncordon
       block:
+        - name: Re-gather replacement architecture at the final boundary
+          ansible.builtin.setup:
+            filter:
+              - ansible_architecture
+
+        - name: Re-select the protected final architecture digest map
+          ansible.builtin.set_fact:
+            c1_2_final_binary_sha256_by_version: >-
+              {{
+                hostvars['localhost']
+                .c1_2_replacement_binary_sha256_by_architecture
+                .get(ansible_facts['architecture'], {})
+              }}
+          no_log: true
+
+        - name: Re-select the protected final RKE2 binary identity
+          ansible.builtin.set_fact:
+            c1_2_final_expected_rke2_sha256: >-
+              {{
+                c1_2_final_binary_sha256_by_version
+                .get(hostvars['localhost'].c1_2_replacement_version, '')
+                if c1_2_final_binary_sha256_by_version is mapping
+                else ''
+              }}
+          no_log: true
+
+        - name: Reject final digest drift before local RKE2 execution
+          ansible.builtin.assert:
+            that:
+              - ansible_architecture == ansible_facts['architecture']
+              - c1_2_final_binary_sha256_by_version is mapping
+              - c1_2_final_expected_rke2_sha256 is string
+              - c1_2_final_expected_rke2_sha256 is match('^[0-9a-f]{64}$')
+              - c1_2_final_expected_rke2_sha256 != ('0' * 64)
+              - >-
+                c1_2_final_expected_rke2_sha256
+                == c1_2_expected_replacement_rke2_sha256
+            fail_msg: >-
+              Hard stop: the protected final architecture-and-version digest
+              cannot be re-derived exactly or differs from the initial value.
+            quiet: true
+          no_log: true
+
+        - name: Revalidate static replacement provenance at the final boundary
+          ansible.builtin.shell:
+            cmd: *c1_2_replacement_service_input_gate
+          args: *c1_2_replacement_service_input_gate_args
+          changed_when: false
+
+        - name: Revalidate live replacement provenance at the final boundary
+          ansible.builtin.shell:
+            cmd: *c1_2_replacement_live_provenance_gate
+          args: *c1_2_replacement_live_provenance_gate_args
+          changed_when: false
+
         - name: Read the installed replacement RKE2 version
           ansible.builtin.command:
             argv:
@@ -1852,6 +4288,114 @@
           changed_when: false
           when: c1_2_replacement_longhorn_crd.rc == 0
 
+        - name: Re-derive the protected digest before fence removal
+          ansible.builtin.set_fact:
+            c1_2_boundary_expected_rke2_sha256: >-
+              {{
+                hostvars['localhost']
+                .c1_2_replacement_binary_sha256_by_architecture
+                .get(ansible_facts['architecture'], {})
+                .get(hostvars['localhost'].c1_2_replacement_version, '')
+              }}
+          no_log: true
+
+        - name: Reject protected digest drift before fence removal
+          ansible.builtin.assert:
+            that:
+              - c1_2_boundary_expected_rke2_sha256 is string
+              - >-
+                c1_2_boundary_expected_rke2_sha256
+                is match('^[0-9a-f]{64}$')
+              - >-
+                c1_2_boundary_expected_rke2_sha256
+                == c1_2_expected_replacement_rke2_sha256
+            fail_msg: >-
+              Hard stop: the protected replacement digest drifted before a
+              scheduling fence could be removed.
+            quiet: true
+          no_log: true
+
+        - name: Revalidate static replacement provenance before fence removal
+          ansible.builtin.shell:
+            cmd: *c1_2_replacement_service_input_gate
+          args: *c1_2_replacement_service_input_gate_args
+          changed_when: false
+
+        - name: Revalidate live replacement provenance before fence removal
+          ansible.builtin.shell:
+            cmd: *c1_2_replacement_live_provenance_gate
+          args: *c1_2_replacement_live_provenance_gate_args
+          changed_when: false
+
+        - name: Revalidate every survivor provenance before fence removal
+          ansible.builtin.shell:
+            cmd: *c1_2_maintenance_service_live_provenance_gate
+          args: *c1_2_maintenance_service_live_provenance_gate_args
+          delegate_to: "{{ item }}"
+          loop: >-
+            {{
+              groups['rke2_servers']
+              | reject(
+                  'equalto',
+                  hostvars['localhost'].c1_2_replacement_node
+                )
+              | list
+              | sort
+            }}
+          loop_control:
+            label: "{{ item }}"
+          vars:
+            c1_2_provenance_target_host: "{{ item }}"
+          changed_when: false
+
+        - name: Revalidate every survivor kubeconfig endpoint
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/kubectl
+              - "--kubeconfig={{ c1_2_kubeconfig_path }}"
+              - config
+              - view
+              - --minify
+              - -o
+              - "jsonpath={.clusters[0].cluster.server}"
+          delegate_to: "{{ item }}"
+          loop: >-
+            {{
+              groups['rke2_servers']
+              | reject(
+                  'equalto',
+                  hostvars['localhost'].c1_2_replacement_node
+                )
+              | list
+              | sort
+            }}
+          loop_control:
+            label: "{{ item }}"
+          register: c1_2_rescue_delegate_endpoints
+          changed_when: false
+
+        - name: Require every survivor kubeconfig to retain the VIP
+          ansible.builtin.assert:
+            that:
+              - >-
+                c1_2_rescue_delegate_endpoints.results
+                | rejectattr('stdout', 'defined')
+                | list
+                | length == 0
+              - >-
+                c1_2_rescue_delegate_endpoints.results
+                | map(attribute='stdout')
+                | map('trim')
+                | reject(
+                    'equalto',
+                    hostvars['localhost'].c1_2_control_plane_endpoint
+                  )
+                | list
+                | length == 0
+            fail_msg: >-
+              Hard stop: every declared survivor must retain the exact
+              VIP-backed kubeconfig before a replacement fence is removed.
+
         - name: Re-prove the maintenance server before removing live fences
           ansible.builtin.command:
             argv:
@@ -2346,6 +4890,71 @@
             fail_msg: >-
               Hard stop: final etcd health could not be proved through the
               maintenance path.
+
+        - name: Re-derive the protected digest before final success
+          ansible.builtin.set_fact:
+            c1_2_boundary_expected_rke2_sha256: >-
+              {{
+                hostvars['localhost']
+                .c1_2_replacement_binary_sha256_by_architecture
+                .get(ansible_facts['architecture'], {})
+                .get(hostvars['localhost'].c1_2_replacement_version, '')
+              }}
+          no_log: true
+
+        - name: Reject protected digest drift before final success
+          ansible.builtin.assert:
+            that:
+              - c1_2_boundary_expected_rke2_sha256 is string
+              - >-
+                c1_2_boundary_expected_rke2_sha256
+                is match('^[0-9a-f]{64}$')
+              - >-
+                c1_2_boundary_expected_rke2_sha256
+                == c1_2_expected_replacement_rke2_sha256
+            fail_msg: >-
+              Hard stop: the protected replacement digest drifted before the
+              replacement could be reported successful.
+            quiet: true
+          no_log: true
+
+        - name: Revalidate final static replacement provenance
+          ansible.builtin.shell:
+            cmd: *c1_2_replacement_service_input_gate
+          args: *c1_2_replacement_service_input_gate_args
+          changed_when: false
+          register: c1_2_final_static_provenance
+          ignore_unreachable: true
+
+        - name: Route an unreachable final static provenance check through rescue
+          ansible.builtin.assert:
+            that:
+              - not (c1_2_final_static_provenance.unreachable | default(false) | bool)
+              - c1_2_final_static_provenance.rc | default(1) | int == 0
+            fail_msg: >-
+              The replacement became unreachable while revalidating final static
+              provenance after uncordon. Rescue will re-fence it through a
+              validated surviving control-plane delegate.
+            quiet: true
+
+        - name: Revalidate final live replacement provenance
+          ansible.builtin.shell:
+            cmd: *c1_2_replacement_live_provenance_gate
+          args: *c1_2_replacement_live_provenance_gate_args
+          changed_when: false
+          register: c1_2_final_live_provenance
+          ignore_unreachable: true
+
+        - name: Route an unreachable final live provenance check through rescue
+          ansible.builtin.assert:
+            that:
+              - not (c1_2_final_live_provenance.unreachable | default(false) | bool)
+              - c1_2_final_live_provenance.rc | default(1) | int == 0
+            fail_msg: >-
+              The replacement became unreachable while revalidating final live
+              provenance after uncordon. Rescue will re-fence it through a
+              validated surviving control-plane delegate.
+            quiet: true
 
         - name: Report the remaining manual evidence boundary
           ansible.builtin.debug:

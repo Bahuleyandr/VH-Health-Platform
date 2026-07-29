@@ -21,11 +21,47 @@
 # secure token into Vault and switch to steady_state_exact.
 vault_rke2_cluster_token: "REPLACE_WITH_EXACT_LIVE_RKE2_TOKEN"
 
-# Authenticated artifact URL prefix for SUSE Prime-only RKE2 pins. Leave empty
-# for public rungs. The installer appends the URL-encoded version and artifact
-# filename. The official Prime prefix must be HTTPS and end in `/rke2` (an
-# optional trailing slash is accepted); do not include a version suffix.
+# Authenticated artifact URL prefix for the two SUSE Prime-only RKE2 ladder
+# pins. The upgrade playbook appends the URL-encoded version and exact artifact
+# filename, but never gives this URL to the legacy tagged installers because
+# those installer revisions do not consume INSTALL_RKE2_ARTIFACT_URL. The
+# official Prime prefix must be HTTPS and end in `/rke2` (an optional trailing
+# slash is accepted); do not include a version suffix. Clear this URL before
+# the first public rung; retain the fixed artifact hashes below as evidence.
 vault_rke2_prime_artifact_url: ""
+
+# Exact SHA-256 values for the two files staged for each Prime-only pin. Obtain
+# both files through the authenticated Prime URL above, validate their
+# provenance independently, then record their hashes here. The manifest itself
+# and the release tarball are both fixed Vault identities; the playbook also
+# requires the manifest to contain exactly the recorded tarball digest. Add
+# another architecture only with its own authenticated files and the installer
+# filename mapping implemented by the qualification playbook.
+vault_rke2_prime_artifact_sha256_by_architecture:
+  x86_64:
+    "v1.31.14+rke2r2":
+      checksum_manifest_sha256: "REPLACE_WITH_64_HEX_SHA256"
+      tarball_sha256: "REPLACE_WITH_64_HEX_SHA256"
+    "v1.32.13+rke2r2":
+      checksum_manifest_sha256: "REPLACE_WITH_64_HEX_SHA256"
+      tarball_sha256: "REPLACE_WITH_64_HEX_SHA256"
+
+# Exact SHA-256 of the installed /usr/local/bin/rke2 binary, keyed first by
+# Ansible's architecture fact and then by the approved exact pin. Every listed
+# architecture must contain the complete five-pin C1.2 ladder. Hash each
+# extracted binary only after its release archive has passed the official
+# checksum, or use the equivalently authenticated Prime artifact, before
+# authorizing an upgrade or replacement.
+# Placeholders, all-zero values, missing pins, and unverified cross-architecture
+# reuse are hard stops. Add another architecture only with its own verified
+# per-pin mapping.
+vault_rke2_binary_sha256_by_architecture:
+  x86_64:
+    "v1.31.4+rke2r1": "REPLACE_WITH_64_HEX_SHA256"
+    "v1.31.14+rke2r2": "REPLACE_WITH_64_HEX_SHA256"
+    "v1.32.13+rke2r2": "REPLACE_WITH_64_HEX_SHA256"
+    "v1.33.13+rke2r1": "REPLACE_WITH_64_HEX_SHA256"
+    "v1.34.9+rke2r1": "REPLACE_WITH_64_HEX_SHA256"
 
 # --- etcd offsite snapshot destination (Cloudflare R2) ---------------------
 # R2 bucket configured in the VH Health Cloudflare account, India region.

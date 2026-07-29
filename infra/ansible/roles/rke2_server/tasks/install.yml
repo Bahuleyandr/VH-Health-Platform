@@ -12,43 +12,262 @@
       the protected cluster-token input before install.yml.
   tags: [rke2, install]
 
-- name: Locate an installed RKE2 binary
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  loop:
-    - /usr/local/bin/rke2
-    - /opt/rke2/bin/rke2
-  register: rke2_binary_candidates
+- name: Reject externally supplied server provenance state
+  ansible.builtin.assert:
+    that:
+      - >-
+        vars.keys()
+        | select('match', '^rke2_server_provenance_')
+        | list
+        | length == 0
+    fail_msg: >-
+      rke2_server_provenance_* is reserved for fixed-Vault artifact
+      authentication inside the server role.
+    quiet: true
+  no_log: true
   tags: [rke2, install]
 
-- name: Select the installed RKE2 binary
+- name: Require the gathered server architecture and exact version pin
+  ansible.builtin.assert:
+    that:
+      - ansible_facts is mapping
+      - "'architecture' in ansible_facts"
+      - ansible_architecture is defined
+      - ansible_architecture == ansible_facts['architecture']
+      - rke2_version is string
+      - >-
+        rke2_version
+        is match('^v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+$')
+    fail_msg: >-
+      The server role requires an unmodified gathered architecture and an
+      exact RKE2 version pin before selecting protected artifacts.
+    quiet: true
+  no_log: true
+  tags: [rke2, install]
+
+- name: Bind the fixed tagged server installer identity
   ansible.builtin.set_fact:
-    rke2_binary_path: >-
+    rke2_server_provenance_install_script_sha256: >-
       {{
-        rke2_binary_candidates.results
-        | selectattr('stat.exists')
-        | map(attribute='item')
-        | first
-        | default('')
+        {
+          'v1.31.4+rke2r1':
+            '8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492',
+          'v1.31.14+rke2r2':
+            '8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492',
+          'v1.32.13+rke2r2':
+            '81640ec027dea1950f152f795a7234ca78d4b86528a9e2a909a8456338923e34',
+          'v1.33.13+rke2r1':
+            'bfbd978d603b7070f5748c934326db509bf1470c97d3f61a3aaa6e2eed6bd054',
+          'v1.34.9+rke2r1':
+            '2d24db2184dd6b1a5e281fa45cc9a8234c889394721746f89b5fe953fdaaf40a'
+        }.get(rke2_version, '')
       }}
+    rke2_server_provenance_install_script_url: >-
+      {{
+        'https://raw.githubusercontent.com/rancher/rke2/'
+        ~ (rke2_version | urlencode)
+        ~ '/install.sh'
+      }}
+  no_log: true
+  tags: [rke2, install]
+
+- name: Reject an unavailable or malformed server installer identity
+  ansible.builtin.assert:
+    that:
+      - rke2_server_provenance_install_script_sha256 is string
+      - >-
+        rke2_server_provenance_install_script_sha256
+        is match('^[0-9a-f]{64}$')
+      - >-
+        rke2_server_provenance_install_script_sha256 != ('0' * 64)
+    fail_msg: >-
+      The exact tagged server installer digest is unavailable, malformed, or
+      zero for the requested RKE2 version.
+    quiet: true
+  no_log: true
+  tags: [rke2, install]
+
+- name: Load fixed protected server binary identities
+  ansible.builtin.include_vars:
+    file: "{{ inventory_dir }}/group_vars/all/vault.yml"
+    name: rke2_server_provenance_vault
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2, install]
+
+- name: Bind the fixed protected server binary map
+  ansible.builtin.set_fact:
+    rke2_server_provenance_binary_sha256_by_architecture: >-
+      {{
+        rke2_server_provenance_vault
+        .vault_rke2_binary_sha256_by_architecture
+        | default({})
+      }}
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2, install]
+
+- name: Require the fixed protected server architecture map
+  ansible.builtin.assert:
+    that:
+      - rke2_server_provenance_binary_sha256_by_architecture is mapping
+      - >-
+        ansible_architecture
+        in rke2_server_provenance_binary_sha256_by_architecture
+      - >-
+        rke2_server_provenance_binary_sha256_by_architecture[
+          ansible_architecture
+        ] is mapping
+    fail_msg: >-
+      The fixed Vault has no version-to-SHA-256 map for the gathered server
+      architecture.
+    quiet: true
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2, install]
+
+- name: Select the fixed protected server binary identity
+  ansible.builtin.set_fact:
+    rke2_server_provenance_expected_binary_sha256: >-
+      {{
+        rke2_server_provenance_binary_sha256_by_architecture[
+          ansible_architecture
+        ].get(rke2_version, '')
+      }}
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2, install]
+
+- name: Reject an unavailable or malformed server binary identity
+  ansible.builtin.assert:
+    that:
+      - rke2_server_provenance_expected_binary_sha256 is string
+      - >-
+        rke2_server_provenance_expected_binary_sha256
+        is match('^[0-9a-f]{64}$')
+      - >-
+        rke2_server_provenance_expected_binary_sha256 != ('0' * 64)
+      - >-
+        'PLACEHOLDER'
+        not in (rke2_server_provenance_expected_binary_sha256 | upper)
+      - >-
+        'CHANGEME'
+        not in (rke2_server_provenance_expected_binary_sha256 | upper)
+      - >-
+        'REPLACE'
+        not in (rke2_server_provenance_expected_binary_sha256 | upper)
+    fail_msg: >-
+      The exact production server architecture/version binary digest is
+      unavailable, malformed, zero, or a placeholder.
+    quiet: true
+  no_log: true
+  when: control_plane_vip_enabled | bool
+  tags: [rke2, install]
+
+- name: Inspect existing server binary trust-path ancestors
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /
+    - /usr
+    - /usr/local
+    - /usr/local/bin
+  register: rke2_server_provenance_existing_binary_ancestors
+  tags: [rke2, install]
+
+- name: Require protected existing server binary ancestors
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - item.stat.isdir | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | default(-1) | int == 0
+      - item.stat.gid | default(-1) | int == 0
+      - item.stat.mode | default('') == '0755'
+    fail_msg: >-
+      The existing server binary trust path is absent, linked, non-root-owned,
+      or not mode 0755: {{ item.item }}
+    quiet: true
+  loop: "{{ rke2_server_provenance_existing_binary_ancestors.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  tags: [rke2, install]
+
+- name: Inspect the canonical existing server binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/rke2
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: rke2_server_provenance_existing_binary
+  tags: [rke2, install]
+
+- name: Authenticate the canonical existing server binary before execution
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+        or (
+          rke2_server_provenance_existing_binary.stat.isreg | default(false)
+          and not (
+            rke2_server_provenance_existing_binary.stat.islnk
+            | default(false)
+          )
+          and (
+            rke2_server_provenance_existing_binary.stat.uid
+            | default(-1) | int
+          ) == 0
+          and (
+            rke2_server_provenance_existing_binary.stat.gid
+            | default(-1) | int
+          ) == 0
+          and (
+            rke2_server_provenance_existing_binary.stat.mode
+            | default('')
+          ) == '0755'
+          and (
+            rke2_server_provenance_existing_binary.stat.executable
+            | default(false)
+          )
+          and (
+            not (control_plane_vip_enabled | bool)
+            or (
+              (
+                rke2_server_provenance_existing_binary.stat.checksum
+                | default('')
+              )
+              == (
+                rke2_server_provenance_expected_binary_sha256
+                | default('')
+              )
+            )
+          )
+        )
+    fail_msg: >-
+      /usr/local/bin/rke2 exists but is not the protected root-owned,
+      executable, mode-0755 binary for the exact server architecture and pin.
+    quiet: true
+  no_log: true
   tags: [rke2, install]
 
 - name: Read the installed RKE2 version
   ansible.builtin.command:
     argv:
-      - "{{ rke2_binary_path }}"
+      - /usr/local/bin/rke2
       - --version
-  register: rke2_installed
+  register: rke2_server_provenance_existing_version_output
   changed_when: false
   check_mode: false
-  when: rke2_binary_path | length > 0
+  when:
+    - rke2_server_provenance_existing_binary.stat.exists | default(false)
   tags: [rke2, install]
 
 - name: Parse the installed RKE2 version exactly
   ansible.builtin.set_fact:
-    rke2_installed_version: >-
+    rke2_server_provenance_existing_version: >-
       {{
-        rke2_installed.stdout
+        rke2_server_provenance_existing_version_output.stdout
         | default('')
         | regex_findall(
             '(?m)^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)(?:[ \t].*)?$'
@@ -61,42 +280,256 @@
 - name: Reject version changes outside the qualified upgrade playbook
   ansible.builtin.assert:
     that:
-      - rke2_binary_path | length == 0 or rke2_installed_version | length > 0
-      - rke2_binary_path | length == 0 or rke2_installed_version == rke2_version
+      - >-
+        not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+        or rke2_server_provenance_existing_version | length > 0
+      - >-
+        not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+        or rke2_server_provenance_existing_version == rke2_version
     fail_msg: >-
       site.yml cannot change an installed RKE2 version. Use
       playbooks/upgrade-k8s.yml and cross exactly one approved ladder rung.
   tags: [rke2, install]
 
-- name: Download RKE2 install script
+- name: Inspect server installer trust-path ancestors
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /
+    - /usr
+    - /usr/local
+    - /usr/local/sbin
+  register: rke2_server_provenance_installer_ancestors_before_download
+  when:
+    - not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2, install]
+
+- name: Require protected server installer ancestors before download
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - item.stat.isdir | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | default(-1) | int == 0
+      - item.stat.gid | default(-1) | int == 0
+      - item.stat.mode | default('') == '0755'
+    fail_msg: >-
+      The server installer trust path is absent, linked, non-root-owned, or
+      not mode 0755: {{ item.item }}
+    quiet: true
+  loop: >-
+    {{
+      rke2_server_provenance_installer_ancestors_before_download.results
+      | default([])
+    }}
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2, install]
+
+- name: Inspect any existing server installer leaf
+  ansible.builtin.stat:
+    path: /usr/local/sbin/rke2-install.sh
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: rke2_server_provenance_installer_before_download
+  when:
+    - not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2, install]
+
+- name: Reject an unsafe existing server installer leaf
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (
+          rke2_server_provenance_installer_before_download.stat.exists
+          | default(false)
+        )
+        or (
+          rke2_server_provenance_installer_before_download.stat.isreg
+          | default(false)
+          and not (
+            rke2_server_provenance_installer_before_download.stat.islnk
+            | default(false)
+          )
+          and (
+            rke2_server_provenance_installer_before_download.stat.uid
+            | default(-1) | int
+          ) == 0
+          and (
+            rke2_server_provenance_installer_before_download.stat.gid
+            | default(-1) | int
+          ) == 0
+          and (
+            rke2_server_provenance_installer_before_download.stat.mode
+            | default('')
+          ) == '0750'
+        )
+    fail_msg: >-
+      Refusing to overwrite an unsafe /usr/local/sbin/rke2-install.sh.
+    quiet: true
+  when:
+    - not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2, install]
+
+- name: Download the exact tagged RKE2 server install script
   ansible.builtin.get_url:
-    url: https://get.rke2.io
+    url: "{{ rke2_server_provenance_install_script_url }}"
     dest: /usr/local/sbin/rke2-install.sh
+    checksum: >-
+      sha256:{{ rke2_server_provenance_install_script_sha256 }}
     mode: "0750"
     owner: root
     group: root
+    force: true
   when:
-    - rke2_binary_path | length == 0
+    - not ansible_check_mode
+    - not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2, install]
+
+- name: Reinspect server installer provenance immediately before execution
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: "{{ item.file | bool }}"
+    checksum_algorithm: sha256
+  loop:
+    - { path: /, file: false }
+    - { path: /usr, file: false }
+    - { path: /usr/local, file: false }
+    - { path: /usr/local/sbin, file: false }
+    - { path: /usr/local/sbin/rke2-install.sh, file: true }
+  register: rke2_server_provenance_installer_before_execution
+  when:
+    - not ansible_check_mode
+    - not (rke2_server_provenance_existing_binary.stat.exists | default(false))
+  tags: [rke2, install]
+
+- name: Authenticate server installer provenance immediately before execution
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | default(-1) | int == 0
+      - item.stat.gid | default(-1) | int == 0
+      - >-
+        (
+          not (item.item.file | bool)
+          and (item.stat.isdir | default(false))
+          and (item.stat.mode | default('') == '0755')
+        )
+        or
+        (
+          item.item.file | bool
+          and (item.stat.isreg | default(false))
+          and (item.stat.executable | default(false))
+          and (item.stat.mode | default('') == '0750')
+          and (
+            item.stat.checksum | default('')
+            == rke2_server_provenance_install_script_sha256
+          )
+        )
+    fail_msg: >-
+      The tagged server installer or its trust path changed before execution:
+      {{ item.item.path }}
+    quiet: true
+  no_log: true
+  loop: >-
+    {{
+      rke2_server_provenance_installer_before_execution.results
+      | default([])
+    }}
+  loop_control:
+    label: "{{ item.item.path }}"
+  when:
+    - not ansible_check_mode
+    - not (rke2_server_provenance_existing_binary.stat.exists | default(false))
   tags: [rke2, install]
 
 - name: Run RKE2 install script (pinned to {{ rke2_version }})
   ansible.builtin.command:
-    cmd: /usr/local/sbin/rke2-install.sh
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import os
+        import re
+
+        protected_version = os.environ.get(
+            "RKE2_ROLE_PROTECTED_VERSION", ""
+        )
+        protected_artifact_url = os.environ.get(
+            "RKE2_ROLE_PROTECTED_ARTIFACT_URL", ""
+        )
+        if protected_artifact_url:
+            raise SystemExit(
+                "normal RKE2 installation requires an empty artifact URL; "
+                "use playbooks/upgrade-k8s.yml"
+            )
+        if re.fullmatch(
+            r"v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+",
+            protected_version,
+        ) is None:
+            raise SystemExit("protected RKE2 installer version is invalid")
+
+        expected = {
+            "INSTALL_RKE2_VERSION": protected_version,
+            "INSTALL_RKE2_CHANNEL": "stable",
+            "INSTALL_RKE2_TYPE": "server",
+            "INSTALL_RKE2_METHOD": "tar",
+            "INSTALL_RKE2_TAR_PREFIX": "/usr/local",
+            "INSTALL_RKE2_SKIP_RELOAD": "true",
+        }
+
+        unexpected = sorted(
+            name
+            for name in os.environ
+            if name.startswith("INSTALL_RKE2_") and name not in expected
+        )
+        if unexpected:
+            raise SystemExit(
+                "unapproved RKE2 installer inputs: " + ",".join(unexpected)
+            )
+        for name, value in expected.items():
+            if os.environ.get(name) != value:
+                raise SystemExit(
+                    "RKE2 installer input differs from protected value: "
+                    + name
+                )
+
+        exec_environment = {
+            "HOME": "/root",
+            "PATH": (
+                "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:"
+                "/sbin:/bin"
+            ),
+            **expected,
+        }
+        installer = "/usr/local/sbin/rke2-install.sh"
+        os.execve(installer, [installer], exec_environment)
   environment: >-
     {{
       {
+        'HOME': '/root',
+        'PATH':
+          '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        'RKE2_ROLE_PROTECTED_VERSION': rke2_version,
+        'RKE2_ROLE_PROTECTED_ARTIFACT_URL':
+          rke2_install_artifact_url | string,
         'INSTALL_RKE2_VERSION': rke2_version,
-        'INSTALL_RKE2_CHANNEL': rke2_channel,
-        'INSTALL_RKE2_TYPE': 'server'
+        'INSTALL_RKE2_CHANNEL': 'stable',
+        'INSTALL_RKE2_TYPE': 'server',
+        'INSTALL_RKE2_METHOD': 'tar',
+        'INSTALL_RKE2_TAR_PREFIX': '/usr/local',
+        'INSTALL_RKE2_SKIP_RELOAD': 'true'
       }
-      | combine(
-          {'INSTALL_RKE2_ARTIFACT_URL': rke2_install_artifact_url}
-          if (rke2_install_artifact_url | string | trim | length > 0)
-          else {}
-        )
     }}
   when:
-    - rke2_binary_path | length == 0
+    - not ansible_check_mode
+    - not (rke2_server_provenance_existing_binary.stat.exists | default(false))
   changed_when: true
   no_log: "{{ rke2_install_artifact_url | string | trim | length > 0 }}"
   notify: reload systemd
@@ -153,43 +586,117 @@
   when: not (rke2_etcd_s3_enabled | bool)
   tags: [rke2, install, config]
 
-- name: Locate the installed binary after installation
+- name: Reinspect post-install server binary trust-path ancestors
   ansible.builtin.stat:
     path: "{{ item }}"
+    follow: false
   loop:
-    - /usr/local/bin/rke2
-    - /opt/rke2/bin/rke2
-  register: rke2_post_install_binary_candidates
+    - /
+    - /usr
+    - /usr/local
+    - /usr/local/bin
+  register: rke2_server_provenance_post_install_binary_ancestors
   tags: [rke2, install]
 
-- name: Select the post-install RKE2 binary
-  ansible.builtin.set_fact:
-    rke2_post_install_binary_path: >-
-      {{
-        rke2_post_install_binary_candidates.results
-        | selectattr('stat.exists')
-        | map(attribute='item')
-        | first
-        | default('')
-      }}
+- name: Require protected post-install server binary ancestors
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - item.stat.isdir | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | default(-1) | int == 0
+      - item.stat.gid | default(-1) | int == 0
+      - item.stat.mode | default('') == '0755'
+    fail_msg: >-
+      The post-install server binary trust path is absent, linked,
+      non-root-owned, or not mode 0755: {{ item.item }}
+    quiet: true
+  loop: "{{ rke2_server_provenance_post_install_binary_ancestors.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - >-
+      not ansible_check_mode
+      or (
+        rke2_server_provenance_existing_binary.stat.exists
+        | default(false)
+      )
+  tags: [rke2, install]
+
+- name: Inspect the canonical post-install server binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/rke2
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: rke2_server_provenance_post_install_binary
+  tags: [rke2, install]
+
+- name: Authenticate the canonical post-install server binary before execution
+  ansible.builtin.assert:
+    that:
+      - rke2_server_provenance_post_install_binary.stat.exists | default(false)
+      - rke2_server_provenance_post_install_binary.stat.isreg | default(false)
+      - >-
+        not (
+          rke2_server_provenance_post_install_binary.stat.islnk
+          | default(false)
+        )
+      - >-
+        rke2_server_provenance_post_install_binary.stat.uid
+        | default(-1) | int == 0
+      - >-
+        rke2_server_provenance_post_install_binary.stat.gid
+        | default(-1) | int == 0
+      - >-
+        rke2_server_provenance_post_install_binary.stat.mode
+        | default('') == '0755'
+      - >-
+        rke2_server_provenance_post_install_binary.stat.executable
+        | default(false)
+      - >-
+        not (control_plane_vip_enabled | bool)
+        or (
+          (
+            rke2_server_provenance_post_install_binary.stat.checksum
+            | default('')
+          )
+          == (
+            rke2_server_provenance_expected_binary_sha256
+            | default('')
+          )
+        )
+    fail_msg: >-
+      The installer did not produce the protected root-owned, executable,
+      mode-0755 /usr/local/bin/rke2 for the exact server architecture and pin.
+    quiet: true
+  no_log: true
+  when:
+    - >-
+      not ansible_check_mode
+      or (
+        rke2_server_provenance_existing_binary.stat.exists
+        | default(false)
+      )
   tags: [rke2, install]
 
 - name: Read the post-install RKE2 version
   ansible.builtin.command:
     argv:
-      - "{{ rke2_post_install_binary_path }}"
+      - /usr/local/bin/rke2
       - --version
-  register: rke2_post_install_version_output
+  register: rke2_server_provenance_post_install_version_output
   changed_when: false
   check_mode: false
-  when: rke2_post_install_binary_path | length > 0
+  when:
+    - rke2_server_provenance_post_install_binary.stat.exists | default(false)
   tags: [rke2, install]
 
 - name: Parse the post-install RKE2 version exactly
   ansible.builtin.set_fact:
-    rke2_post_install_version: >-
+    rke2_server_provenance_post_install_version: >-
       {{
-        rke2_post_install_version_output.stdout
+        rke2_server_provenance_post_install_version_output.stdout
         | default('')
         | regex_findall(
             '(?m)^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)(?:[ \t].*)?$'
@@ -202,10 +709,16 @@
 - name: Verify the exact post-install RKE2 pin
   ansible.builtin.assert:
     that:
-      - rke2_post_install_binary_path | length > 0
-      - rke2_post_install_version == rke2_version
+      - rke2_server_provenance_post_install_binary.stat.exists | default(false)
+      - rke2_server_provenance_post_install_version == rke2_version
     fail_msg: >-
       The RKE2 installer did not produce the exact requested version at
-      /usr/local/bin/rke2 or /opt/rke2/bin/rke2.
-  when: not ansible_check_mode or rke2_binary_path | length > 0
+      /usr/local/bin/rke2.
+  when:
+    - >-
+      not ansible_check_mode
+      or (
+        rke2_server_provenance_existing_binary.stat.exists
+        | default(false)
+      )
   tags: [rke2, install]

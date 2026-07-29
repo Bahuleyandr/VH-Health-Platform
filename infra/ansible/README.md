@@ -83,8 +83,8 @@ infra/ansible/
 | Collections               | `ansible.posix`, `community.general`, `ansible.utils` |
 | Target OS                 | Ubuntu 24.04 LTS Server (Noble)                       |
 | SSH                       | Key-based, bootstrap user with sudo                  |
-| Control-node access       | Outbound 443 to `get.rke2.io`, `github.com`          |
-| Target-node access        | Outbound 443 to `get.rke2.io`, `registry-1.docker.io`, R2 endpoint |
+| Control-node access       | Outbound 443 to `github.com`                         |
+| Target-node access        | Outbound 443 to `raw.githubusercontent.com`, `github.com` and its release-asset CDN redirects, `registry.rancher.com`, `registry-1.docker.io`, the configured Prime artifact host, and R2 endpoint |
 | Upgrade entitlement       | Rancher Prime access for the mandatory 1.31.14 and 1.32.13 rungs |
 
 Install collections:
@@ -165,8 +165,14 @@ $EDITOR inventories/group_vars/all/vault.yml
 #     to fresh_short and use one approved high-entropy short token for the
 #     first run
 #   - before a Prime-only rung, set vault_rke2_prime_artifact_url to the
-#     authenticated SUSE Prime Artifacts URL ending in /rke2; leave it empty
-#     for public-release installs
+#     authenticated SUSE Prime Artifacts URL ending in /rke2 and record the
+#     exact manifest/tarball hashes for both legacy pins in
+#     vault_rke2_prime_artifact_sha256_by_architecture
+#   - for every production architecture, authenticate the baseline release
+#     archive, hash its extracted /usr/local/bin/rke2 binary, and replace the
+#     matching baseline digest in vault_rke2_binary_sha256_by_architecture
+#   - before upgrade or replacement, populate and authenticate the complete
+#     five-pin ladder for every architecture listed in that map
 ansible-vault encrypt inventories/group_vars/all/vault.yml
 
 # 3. For the EXISTING cluster's first C1.2 apply, securely read the live
@@ -249,9 +255,10 @@ changes.
 ## Idempotency notes
 
 * Every task uses Ansible modules (not `shell`) wherever a module exists.
-* The one `command:` call that runs `rke2-install.sh` is gated on a
-  version comparison — it only fires if `rke2 --version` differs from
-  the pinned `rke2_version`.
+* The server and agent installer calls run only when the canonical
+  `/usr/local/bin/rke2` is absent. An installed binary must match the
+  Vault-bound SHA-256 and exact `rke2_version`; version changes are refused
+  here and belong exclusively to `playbooks/upgrade-k8s.yml`.
 * Handlers are used for all service restarts; re-running after no config
   changes triggers zero restarts.
 * Server plays and keepalived reloads are serial, so a template change cannot
@@ -328,14 +335,42 @@ ansible-playbook -i inventories/prod.yml playbooks/upgrade-k8s.yml \
   --ask-vault-pass
 ```
 
-The authenticated Prime URL comes from `vault_rke2_prime_artifact_url`,
-mapped to `rke2_install_artifact_url`; never put it on the command line or in
-an evidence receipt. The Prime-only rungs hard-stop when the protected URL is
-missing or `system-default-registry` is not exactly `registry.rancher.com`.
-They also hard-stop on RKE2 unit drop-ins, a non-stock `ExecStart`, unexpected
-environment-file directives, any inherited `RKE2_*` variable, or extra live
-process arguments. Remove and review that drift before continuing; environment
-or CLI values must never outrank the Vault-bound token and rendered config.
+The authenticated Prime URL comes from `vault_rke2_prime_artifact_url`; never
+put it on the command line or in an evidence receipt. The tagged installers
+for the two Prime-only rungs do not consume `INSTALL_RKE2_ARTIFACT_URL`.
+Instead, the upgrade playbook downloads the exact manifest and tarball into a
+root-only temporary directory, validates both against
+`vault_rke2_prime_artifact_sha256_by_architecture`, requires the manifest to
+name the tarball digest exactly once, and invokes the installer with only
+`INSTALL_RKE2_ARTIFACT_PATH`. The directory is removed on success or failure.
+Clear `vault_rke2_prime_artifact_url` before the first public rung; public
+rungs receive no Prime source or artifact path. The normal server and agent
+roles reject both Prime-only pins and every non-empty artifact URL, so they
+cannot bypass the qualified ladder staging path. A missing protected URL,
+incomplete artifact hash map, or `system-default-registry` value other than
+exactly `registry.rancher.com` is a hard stop.
+Before authorizing a campaign, populate
+`vault_rke2_binary_sha256_by_architecture` with the authenticated binary
+SHA-256 for every architecture and exact approved pin. For public pins, verify
+the release archive against its official checksum before hashing the extracted
+binary; use the equivalently authenticated artifact for Prime-only pins.
+Missing, placeholder, all-zero, malformed, or cross-architecture checksum
+values are hard stops.
+The installer is not trusted merely because it already exists: each operator
+path fetches the exact tagged `install.sh` with the code-pinned SHA-256,
+installs it as root mode `0750`, and rechecks its checksum immediately before
+execution. It then rejects inherited `INSTALL_RKE2_*` controls and executes
+with a newly constructed allowlist containing only the exact protected
+installer inputs. The qualification record carries the tagged URLs and
+hashes.
+The playbook also verifies protected ancestor paths, the exact binary and
+stock unit, no drop-ins, the reviewed environment-file contract, an explicit
+systemd manager and live-process environment allowlist, the cached executable
+phases and flags, the unit dependency/action closure, manager cache freshness,
+and the complete process command line before mutation, immediately before
+start, and during final validation. Remove and review any drift before
+continuing; environment or CLI values must never outrank the Vault-bound token
+and rendered config.
 Choose the snapshot receipt age limit to fit the approved owner window;
 presence alone is not freshness.
 
@@ -456,10 +491,23 @@ ansible-playbook -i inventories/prod.yml playbooks/node-replace.yml \
 The inventory entry must already point to freshly imaged Ubuntu 24.04
 replacement hardware. Existing RKE2 state, missing evidence, ambiguous
 authority, or an off-ladder replacement pin is a hard stop.
-The pre-start fence also rejects stale systemd units, drop-ins, RKE2
-environment overrides, and extra command-line arguments outside the rendered
-config. The live process is rechecked after registration before the
-replacement can progress.
+`node-replace.yml` also rejects the two Prime transit-only pins and every
+artifact URL. If a node is lost while crossing either transit state, stop the
+campaign and use the matching pre-rung snapshot with binary and datastore
+rollback, or repair and rejoin the existing node; do not bootstrap replacement
+hardware from a legacy installer that cannot consume the protected source.
+The same architecture-and-pin Vault checksum map is required for the
+replacement binary. The pre-start and final fences verify its protected path,
+the exact binary and stock unit, absence of drop-ins or unapproved environment
+assignments, every cached executable phase and flag, the unit
+dependency/action closure, manager cache freshness, and the complete live
+process environment and command line. The replacement cannot progress if any
+provenance check fails after registration.
+Before the fresh replacement can become healthy enough to advertise the VIP,
+the two explicit survivors reconcile the replacement's declared unicast
+address serially. Both survivors must also prove the exact VIP kubeconfig and
+live service identity before membership mutation and again before they may act
+as rescue delegates.
 
 ### Align existing node labels
 

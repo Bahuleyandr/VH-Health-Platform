@@ -25,9 +25,9 @@ all:
     # cluster, capture the exact live token into the encrypted Vault file.
     rke2_cluster_token: "{{ vault_rke2_cluster_token }}"
     rke2_cluster_token_mode: steady_state_exact
-    # Empty for public pins. The qualification playbook requires this
-    # Vault-backed prefix only for approved Prime-only ladder rungs.
-    rke2_install_artifact_url: "{{ vault_rke2_prime_artifact_url | default('') }}"
+    # The normal site role pins the public final objective. The upgrade
+    # playbook reads and stages legacy Prime artifacts directly from Vault.
+    rke2_install_artifact_url: ""
     rke2_system_default_registry: "registry.rancher.com"
 
     # --- Network scopes ----------------------------------------------------

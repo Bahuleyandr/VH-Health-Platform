@@ -57,6 +57,33 @@
             c1_2_upgrade_vault_file.vault_rke2_cluster_token
             | default('')
           }}
+        c1_2_upgrade_binary_sha256_by_architecture: >-
+          {{
+            c1_2_upgrade_vault_file
+            .vault_rke2_binary_sha256_by_architecture
+            | default({})
+          }}
+        c1_2_upgrade_prime_artifact_sha256_by_architecture: >-
+          {{
+            c1_2_upgrade_vault_file
+            .vault_rke2_prime_artifact_sha256_by_architecture
+            | default({})
+          }}
+        c1_2_upgrade_approved_rke2_ladder:
+          - v1.31.4+rke2r1
+          - v1.31.14+rke2r2
+          - v1.32.13+rke2r2
+          - v1.33.13+rke2r1
+          - v1.34.9+rke2r1
+        c1_2_upgrade_prime_rke2_versions:
+          - v1.31.14+rke2r2
+          - v1.32.13+rke2r2
+        c1_2_upgrade_installer_sha256_by_version:
+          v1.31.4+rke2r1: 8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492
+          v1.31.14+rke2r2: 8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492
+          v1.32.13+rke2r2: 81640ec027dea1950f152f795a7234ca78d4b86528a9e2a909a8456338923e34
+          v1.33.13+rke2r1: bfbd978d603b7070f5748c934326db509bf1470c97d3f61a3aaa6e2eed6bd054
+          v1.34.9+rke2r1: 2d24db2184dd6b1a5e281fa45cc9a8234c889394721746f89b5fe953fdaaf40a
         c1_2_control_plane_endpoint: >-
           https://{{ control_plane_vip_address | default('') }}:6443
         c1_2_evidence_max_age_hours: >-
@@ -81,6 +108,31 @@
           - >-
             rke2_cluster_token | default('')
             == c1_2_upgrade_protected_token
+          - rke2_binary_sha256_by_architecture is not defined
+          - rke2_prime_artifact_sha256_by_architecture is not defined
+          - c1_2_upgrade_binary_sha256_by_architecture is mapping
+          - c1_2_upgrade_binary_sha256_by_architecture | length > 0
+          - c1_2_upgrade_prime_artifact_sha256_by_architecture is mapping
+          - >-
+            c1_2_upgrade_to_version
+            not in c1_2_upgrade_prime_rke2_versions
+            or
+            c1_2_upgrade_prime_artifact_sha256_by_architecture | length > 0
+          - >-
+            c1_2_upgrade_installer_sha256_by_version.keys()
+            | list | sort
+            == c1_2_upgrade_approved_rke2_ladder | sort
+          - >-
+            c1_2_upgrade_installer_sha256_by_version.values()
+            | select('match', '^[0-9a-f]{64}$')
+            | list | length
+            == c1_2_upgrade_approved_rke2_ladder | length
+          - >-
+            vault_rke2_binary_sha256_by_architecture | default({})
+            == c1_2_upgrade_binary_sha256_by_architecture
+          - >-
+            vault_rke2_prime_artifact_sha256_by_architecture | default({})
+            == c1_2_upgrade_prime_artifact_sha256_by_architecture
           - control_plane_vip_address | default('') | length > 0
           - >-
             c1_2_upgrade_from_version in [
@@ -122,8 +174,7 @@
             vault_rke2_prime_artifact_url | default('') | string
             == c1_2_upgrade_artifact_url
           - >-
-            rke2_install_artifact_url | default('') | string
-            == c1_2_upgrade_artifact_url
+            rke2_install_artifact_url | default('') | string | length == 0
           - >-
             (
               c1_2_upgrade_to_version in [
@@ -144,33 +195,92 @@
           six hours are not supported. The two Prime-only targets require an
           authenticated value loaded directly from
           inventories/group_vars/all/vault.yml as
-          vault_rke2_prime_artifact_url ending in /rke2, and the inventory
-          rke2_install_artifact_url must resolve to that exact protected value.
+          vault_rke2_prime_artifact_url ending in /rke2. The normal inventory
+          rke2_install_artifact_url must remain empty because this operator
+          stages legacy Prime artifacts directly from the named Vault source.
+          The architecture/version binary SHA-256 map must likewise load
+          directly from the named Vault file; an inventory or command-line
+          rke2_binary_sha256_by_architecture override is forbidden. Prime-only
+          rungs additionally require the named Vault file's architecture/pin
+          checksum-manifest and tarball SHA-256 map; an inventory or command-line
+          rke2_prime_artifact_sha256_by_architecture override is forbidden.
           rke2_upgrade_artifact_url is forbidden because a command-line
           override must not replace the inventory-owned artifact identity.
       no_log: true
 
-    - name: Build the protected installer environment
-      ansible.builtin.set_fact:
-        c1_2_upgrade_install_environment: >-
-          {{
-            {
-              'INSTALL_RKE2_VERSION': c1_2_upgrade_to_version,
-              'INSTALL_RKE2_CHANNEL': 'stable'
-            }
-            | combine(
-                (
-                  c1_2_upgrade_artifact_url | length > 0
-                )
-                | ternary(
-                    {
-                      'INSTALL_RKE2_ARTIFACT_URL':
-                        c1_2_upgrade_artifact_url
-                    },
-                    {}
-                  )
-              )
-          }}
+    - name: Require every protected architecture entry to be a digest mapping
+      ansible.builtin.assert:
+        that:
+          - item.key is string
+          - item.key is match('^[A-Za-z0-9_.-]+$')
+          - item.value is mapping
+        fail_msg: >-
+          Hard stop: every architecture in the protected RKE2 binary identity
+          map must name a non-empty per-version digest mapping.
+        quiet: true
+      loop: >-
+        {{ c1_2_upgrade_binary_sha256_by_architecture | dict2items }}
+      loop_control:
+        label: protected architecture entry
+      no_log: true
+
+    - name: Validate every protected architecture ladder and digest
+      ansible.builtin.assert:
+        that:
+          - >-
+            item.value.keys() | list | sort
+            == c1_2_upgrade_approved_rke2_ladder | sort
+          - >-
+            item.value.values()
+            | select('string')
+            | list
+            | length
+            == c1_2_upgrade_approved_rke2_ladder | length
+          - >-
+            item.value.values()
+            | map('string')
+            | select('match', '^[0-9a-f]{64}$')
+            | list
+            | length
+            == c1_2_upgrade_approved_rke2_ladder | length
+          - >-
+            '0000000000000000000000000000000000000000000000000000000000000000'
+            not in item.value.values()
+        fail_msg: >-
+          Hard stop: every protected architecture must contain exactly the
+          approved RKE2 ladder with lowercase, nonzero SHA-256 digests.
+        quiet: true
+      loop: >-
+        {{ c1_2_upgrade_binary_sha256_by_architecture | dict2items }}
+      loop_control:
+        label: protected architecture ladder
+      no_log: true
+
+    - name: Reject protected binary digests reused across architectures
+      ansible.builtin.assert:
+        that:
+          - >-
+            item.0.value.values()
+            | intersect(item.1.value.values())
+            | length == 0
+        fail_msg: >-
+          Hard stop: a protected RKE2 binary SHA-256 is reused across
+          architectures. Each architecture requires independently verified
+          artifacts.
+        quiet: true
+      loop: >-
+        {{
+          (
+            c1_2_upgrade_binary_sha256_by_architecture | dict2items
+          )
+          | product(
+              c1_2_upgrade_binary_sha256_by_architecture | dict2items
+            )
+          | list
+        }}
+      loop_control:
+        label: protected cross-architecture digest pair
+      when: item.0.key < item.1.key
       no_log: true
 
     - name: Inspect required pre-rung evidence receipts on the control node
@@ -557,6 +667,194 @@
         quiet: true
       no_log: true
 
+    - name: Authenticate the installed RKE2 binary before executing it
+      block: &c1_2_rke2_binary_identity_gate
+        - name: Gather the managed-node architecture
+          ansible.builtin.setup:
+            gather_subset:
+              - min
+            filter:
+              - ansible_architecture
+
+        - name: Select the protected architecture digest map
+          ansible.builtin.set_fact:
+            c1_2_approved_rke2_ladder:
+              - v1.31.4+rke2r1
+              - v1.31.14+rke2r2
+              - v1.32.13+rke2r2
+              - v1.33.13+rke2r1
+              - v1.34.9+rke2r1
+            c1_2_rke2_binary_sha256_by_version: >-
+              {{
+                hostvars['localhost']
+                .c1_2_upgrade_binary_sha256_by_architecture
+                .get(ansible_architecture | default(''), {})
+              }}
+            c1_2_rke2_prime_artifact_sha256_by_version: >-
+              {{
+                hostvars['localhost']
+                .c1_2_upgrade_prime_artifact_sha256_by_architecture
+                .get(ansible_architecture | default(''), {})
+              }}
+            c1_2_rke2_artifact_architecture: >-
+              {{
+                {
+                  'x86_64': 'amd64',
+                  'aarch64': 'arm64',
+                  's390x': 's390x'
+                }.get(ansible_architecture | default(''), '')
+              }}
+          no_log: true
+
+        - name: Require the complete protected ladder for this architecture
+          ansible.builtin.assert:
+            that:
+              - ansible_architecture | default('') | length > 0
+              - c1_2_rke2_binary_sha256_by_version is mapping
+              - >-
+                c1_2_rke2_binary_sha256_by_version.keys()
+                | list | sort
+                ==
+                c1_2_approved_rke2_ladder | sort
+            fail_msg: >-
+              Hard stop: the named Vault file does not contain the complete
+              exact RKE2 ladder digest map for {{ ansible_architecture
+              | default('unknown architecture') }}.
+            quiet: true
+          no_log: true
+
+        - name: Reject missing, placeholder, or unsafe protected binary digests
+          ansible.builtin.assert:
+            that:
+              - >-
+                c1_2_rke2_binary_sha256_by_version[item]
+                is match('^[0-9a-f]{64}$')
+              - >-
+                c1_2_rke2_binary_sha256_by_version[item]
+                != '0000000000000000000000000000000000000000000000000000000000000000'
+            fail_msg: >-
+              Hard stop: the named Vault file has no usable lowercase SHA-256
+              for this architecture and approved RKE2 ladder pin.
+            quiet: true
+          loop: "{{ c1_2_approved_rke2_ladder }}"
+          loop_control:
+            label: "{{ item }}"
+          no_log: true
+
+        - name: Select the protected Prime artifact identity for this rung
+          ansible.builtin.set_fact:
+            c1_2_rke2_prime_artifact_identity: >-
+              {{
+                c1_2_rke2_prime_artifact_sha256_by_version.get(
+                  hostvars['localhost'].c1_2_upgrade_to_version,
+                  {}
+                )
+              }}
+          no_log: true
+
+        - name: Authenticate the legacy Prime artifact identity for this host
+          ansible.builtin.assert:
+            that:
+              - c1_2_rke2_artifact_architecture | length > 0
+              - c1_2_rke2_prime_artifact_sha256_by_version is mapping
+              - >-
+                c1_2_rke2_prime_artifact_sha256_by_version.keys()
+                | list | sort
+                ==
+                hostvars['localhost'].c1_2_upgrade_prime_rke2_versions | sort
+              - c1_2_rke2_prime_artifact_identity is mapping
+              - >-
+                c1_2_rke2_prime_artifact_identity.keys() | list | sort
+                ==
+                ['checksum_manifest_sha256', 'tarball_sha256'] | sort
+              - >-
+                c1_2_rke2_prime_artifact_identity.values()
+                | select('string')
+                | list
+                | length == 2
+              - >-
+                c1_2_rke2_prime_artifact_identity.values()
+                | select('match', '^[0-9a-f]{64}$')
+                | list
+                | length == 2
+              - >-
+                '0000000000000000000000000000000000000000000000000000000000000000'
+                not in c1_2_rke2_prime_artifact_identity.values()
+            fail_msg: >-
+              Hard stop: this legacy Prime rung has no exact lower-case,
+              nonzero checksum-manifest and tarball SHA-256 identity for the
+              managed-node architecture in the named Vault file.
+            quiet: true
+          when:
+            - >-
+              hostvars['localhost'].c1_2_upgrade_to_version
+              in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+          no_log: true
+
+        - name: Inspect the full RKE2 binary ancestor chain without following links
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            follow: false
+          loop:
+            - /
+            - /usr
+            - /usr/local
+            - /usr/local/bin
+          register: c1_2_rke2_binary_ancestor_stats
+
+        - name: Reject an unsafe RKE2 binary ancestor
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists | default(false)
+              - item.stat.isdir | default(false)
+              - not (item.stat.islnk | default(false))
+              - item.stat.uid | default(-1) | int == 0
+              - item.stat.gid | default(-1) | int == 0
+              - >-
+                item.stat.mode | default('')
+                is match('^[0-7][0-7][0145][0145]$')
+            fail_msg: >-
+              Hard stop: an RKE2 binary ancestor is not a root-owned,
+              non-symlink, non-group/world-writable directory.
+            quiet: true
+          loop: "{{ c1_2_rke2_binary_ancestor_stats.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+        - name: Inspect the installed RKE2 binary without executing it
+          ansible.builtin.stat:
+            path: /usr/local/bin/rke2
+            follow: false
+            get_checksum: true
+            checksum_algorithm: sha256
+          register: c1_2_rke2_binary_stat
+
+        - name: Authenticate the installed binary against this exact rung
+          ansible.builtin.assert:
+            that:
+              - c1_2_rke2_binary_stat.stat.exists | default(false)
+              - c1_2_rke2_binary_stat.stat.isreg | default(false)
+              - not (c1_2_rke2_binary_stat.stat.islnk | default(false))
+              - c1_2_rke2_binary_stat.stat.uid | default(-1) | int == 0
+              - c1_2_rke2_binary_stat.stat.gid | default(-1) | int == 0
+              - c1_2_rke2_binary_stat.stat.mode | default('') == '0755'
+              - >-
+                c1_2_rke2_binary_stat.stat.checksum | default('')
+                in [
+                  c1_2_rke2_binary_sha256_by_version[
+                    hostvars['localhost'].c1_2_upgrade_from_version
+                  ],
+                  c1_2_rke2_binary_sha256_by_version[
+                    hostvars['localhost'].c1_2_upgrade_to_version
+                  ]
+                ]
+            fail_msg: >-
+              Hard stop: /usr/local/bin/rke2 is unsafe or its SHA-256 is not
+              the protected source/target identity for this exact rung. The
+              binary will not be executed.
+            quiet: true
+          no_log: true
+
     - name: Inspect the installed RKE2 version
       ansible.builtin.command:
         argv:
@@ -589,20 +887,112 @@
           {{ c1_2_installed_rke2_version | default('an unparseable version') }}.
           A resumable rung may contain only the declared source and target.
 
-    - name: Inspect the pinned RKE2 installer
-      ansible.builtin.stat:
-        path: /usr/local/sbin/rke2-install.sh
-      register: c1_2_rke2_installer
+    - name: Reject an unsafe RKE2 installer destination before fetch
+      ansible.builtin.shell:
+        cmd: &c1_2_installer_identity_gate |
+          set -euo pipefail
+          installer='/usr/local/sbin/rke2-install.sh'
+          exact_identity_required={{
+            c1_2_installer_exact_identity_required
+            | bool | ternary('true', 'false') | quote
+          }}
+          expected_sha256={{
+            hostvars['localhost']
+            .c1_2_upgrade_installer_sha256_by_version[
+              hostvars['localhost'].c1_2_upgrade_to_version
+            ]
+            | quote
+          }}
 
-    - name: Reject a missing or non-executable installer before cordon
-      ansible.builtin.assert:
-        that:
-          - c1_2_rke2_installer.stat.exists | default(false)
-          - c1_2_rke2_installer.stat.isreg | default(false)
-          - c1_2_rke2_installer.stat.executable | default(false)
-        fail_msg: >-
-          Hard stop: /usr/local/sbin/rke2-install.sh is unavailable or not
-          executable on {{ inventory_hostname }}.
+          fail() {
+            printf 'rke2 installer: %s\n' "$1" >&2
+            exit 64
+          }
+
+          require_secure_directory() {
+            local path=$1
+            local uid
+            local gid
+            local permissions
+            local permission_value
+
+            [[ -d "$path" && ! -L "$path" ]] ||
+              fail "unsafe directory in installer path: $path"
+            read -r uid gid permissions < <(
+              /usr/bin/stat -c '%u %g %a' -- "$path"
+            )
+            [[ "$uid" == '0' && "$gid" == '0' ]] ||
+              fail "non-root-owned directory in installer path: $path"
+            permission_value=$((8#${permissions}))
+            (( (permission_value & 0022) == 0 )) ||
+              fail "group/world-writable directory in installer path: $path"
+          }
+
+          require_secure_directory /
+          require_secure_directory /usr
+          require_secure_directory /usr/local
+          require_secure_directory /usr/local/sbin
+
+          if [[ -e "$installer" || -L "$installer" ]]; then
+            [[ -f "$installer" && ! -L "$installer" ]] ||
+              fail "installer destination is a symlink or non-regular entry"
+            read -r uid gid permissions < <(
+              /usr/bin/stat -c '%u %g %a' -- "$installer"
+            )
+            [[ "$uid" == '0' && "$gid" == '0' ]] ||
+              fail "installer destination is not root-owned"
+            permission_value=$((8#${permissions}))
+            (( (permission_value & 0022) == 0 )) ||
+              fail "installer destination is group/world writable"
+          elif [[ "$exact_identity_required" == 'true' ]]; then
+            fail "installer is absent after the authenticated fetch"
+          fi
+
+          if [[ "$exact_identity_required" == 'true' ]]; then
+            [[ "$permissions" == '750' ]] ||
+              fail "installer mode is not exactly 0750"
+            read -r installer_sha256 _ < <(
+              /usr/bin/sha256sum -- "$installer"
+            )
+            [[ "$installer_sha256" == "$expected_sha256" ]] ||
+              fail "installer SHA-256 differs from the exact target-pin source"
+          elif [[ "$exact_identity_required" != 'false' ]]; then
+            fail "invalid installer identity-gate mode"
+          fi
+      args: &c1_2_installer_identity_gate_args
+        executable: /bin/bash
+      vars:
+        c1_2_installer_exact_identity_required: false
+      changed_when: false
+
+    - name: Fetch the exact tagged RKE2 installer with its code-pinned digest
+      ansible.builtin.get_url:
+        url: >-
+          https://raw.githubusercontent.com/rancher/rke2/{{
+            hostvars['localhost'].c1_2_upgrade_to_version | urlencode
+          }}/install.sh
+        dest: /usr/local/sbin/rke2-install.sh
+        owner: root
+        group: root
+        mode: "0750"
+        checksum: >-
+          sha256:{{
+            hostvars['localhost']
+            .c1_2_upgrade_installer_sha256_by_version[
+              hostvars['localhost'].c1_2_upgrade_to_version
+            ]
+          }}
+        force: true
+        timeout: 30
+        validate_certs: true
+
+    - name: Authenticate the fetched RKE2 installer
+      ansible.builtin.shell:
+        cmd: *c1_2_installer_identity_gate
+      args: *c1_2_installer_identity_gate_args
+      vars:
+        c1_2_installer_exact_identity_required: true
+      changed_when: false
 
     - name: Verify the local admin kubeconfig uses the control-plane VIP
       ansible.builtin.command:
@@ -1024,6 +1414,9 @@
         quiet: true
       no_log: true
 
+    - name: Authenticate the installed agent binary before executing it
+      block: *c1_2_rke2_binary_identity_gate
+
     - name: Inspect the installed agent version
       ansible.builtin.command:
         argv:
@@ -1041,12 +1434,7 @@
             | default('')
           }}
 
-    - name: Inspect the pinned RKE2 installer
-      ansible.builtin.stat:
-        path: /usr/local/sbin/rke2-install.sh
-      register: c1_2_agent_installer
-
-    - name: Reject an unexpected agent or missing installer
+    - name: Reject an unexpected agent version
       ansible.builtin.assert:
         that:
           - >-
@@ -1055,12 +1443,45 @@
               hostvars['localhost'].c1_2_upgrade_from_version,
               hostvars['localhost'].c1_2_upgrade_to_version
             ]
-          - c1_2_agent_installer.stat.exists | default(false)
-          - c1_2_agent_installer.stat.isreg | default(false)
-          - c1_2_agent_installer.stat.executable | default(false)
         fail_msg: >-
-          Hard stop: {{ inventory_hostname }} has an unexpected RKE2 version
-          or lacks an executable pinned installer.
+          Hard stop: {{ inventory_hostname }} has an unexpected RKE2 version.
+
+    - name: Reject an unsafe agent installer destination before fetch
+      ansible.builtin.shell:
+        cmd: *c1_2_installer_identity_gate
+      args: *c1_2_installer_identity_gate_args
+      vars:
+        c1_2_installer_exact_identity_required: false
+      changed_when: false
+
+    - name: Fetch the exact tagged RKE2 agent installer with its pinned digest
+      ansible.builtin.get_url:
+        url: >-
+          https://raw.githubusercontent.com/rancher/rke2/{{
+            hostvars['localhost'].c1_2_upgrade_to_version | urlencode
+          }}/install.sh
+        dest: /usr/local/sbin/rke2-install.sh
+        owner: root
+        group: root
+        mode: "0750"
+        checksum: >-
+          sha256:{{
+            hostvars['localhost']
+            .c1_2_upgrade_installer_sha256_by_version[
+              hostvars['localhost'].c1_2_upgrade_to_version
+            ]
+          }}
+        force: true
+        timeout: 30
+        validate_certs: true
+
+    - name: Authenticate the fetched RKE2 agent installer
+      ansible.builtin.shell:
+        cmd: *c1_2_installer_identity_gate
+      args: *c1_2_installer_identity_gate_args
+      vars:
+        c1_2_installer_exact_identity_required: true
+      changed_when: false
 
 - name: Validate the etcd upgrade order
   hosts: localhost
@@ -1192,6 +1613,9 @@
           Hard stop: the independent maintenance server
           {{ c1_2_target_maintenance_host }} is not Ready, schedulable,
           pressure-free, and VIP-backed.
+
+    - name: Select the protected RKE2 binary identity for this architecture
+      block: *c1_2_rke2_binary_identity_gate
 
     - name: Prove protected RKE2 configuration path integrity
       block: &c1_2_rke2_config_integrity_gate
@@ -1328,126 +1752,581 @@
         cmd: &c1_2_service_input_gate |
           set -euo pipefail
           unit={{ c1_2_rke2_service_unit | quote }}
+          expected_version={{ c1_2_rke2_expected_binary_version | quote }}
+          validate_cached_service={{
+            c1_2_rke2_validate_cached_service
+            | default(true) | bool | ternary('true', 'false') | quote
+          }}
           unit_base="${unit%.service}"
           mode="${unit_base#rke2-}"
+          binary='/usr/local/bin/rke2'
           expected_fragment="/usr/local/lib/systemd/system/${unit}"
+          bundled_env="/usr/local/lib/systemd/system/${unit_base}.env"
+          merged_usr_path='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin'
+          merged_usr_snap_path="${merged_usr_path}:/snap/bin"
+          legacy_path="${merged_usr_path}:/sbin:/bin"
+          legacy_snap_path="${legacy_path}:/snap/bin"
 
-          fragment=$(
-          /usr/bin/systemctl show "$unit" \
-            --property=FragmentPath --value
-          )
-          if [[ "$fragment" != "$expected_fragment" ||
-              ! -f "$fragment" || -L "$fragment" ]]; then
-          printf 'unexpected RKE2 unit fragment: %s\n' "$fragment" >&2
-          exit 64
-          fi
-
-          unit_version=$(
-          /usr/local/bin/rke2 --version |
-            /usr/bin/sed -nE \
-              's/^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)([[:space:]].*)?$/\1/p' |
-            /usr/bin/head -n 1
-          )
-          case "${unit_version}:${mode}" in
-          v1.31.4+rke2r1:server|v1.31.14+rke2r2:server)
-            expected_fragment_sha256='caf5e4ff923c968d15494d984320b9ab4be13504fe9d37b968ca52ecd8e4ffcb'
-            ;;
-          v1.31.4+rke2r1:agent|v1.31.14+rke2r2:agent)
-            expected_fragment_sha256='ce3962d986a360e11d175de9fa8d9ae0a55cb227f41ed576e93fcbc817d8a103'
-            ;;
-          v1.32.13+rke2r2:server|v1.33.13+rke2r1:server|v1.34.9+rke2r1:server)
-            expected_fragment_sha256='30cb868bfbc40d69b3c3b7553493c50c17538f3a550c89ff2300d13bb66a61b1'
-            ;;
-          v1.32.13+rke2r2:agent|v1.33.13+rke2r1:agent|v1.34.9+rke2r1:agent)
-            expected_fragment_sha256='7c574199fc688205f313c451255fffcc139b8092326de8c706d50e2d3058c608'
-            ;;
-          *)
-            printf 'RKE2 unit version is outside the approved ladder: %s\n' \
-              "$unit_version" >&2
+          fail() {
+            printf '%s: %s\n' "$unit" "$1" >&2
             exit 64
-            ;;
+          }
+
+          require_secure_directory() {
+            local path=$1
+            local uid
+            local gid
+            local permissions
+            local permission_value
+
+            [[ -d "$path" && ! -L "$path" ]] ||
+              fail "unsafe directory in executable/unit/env ancestor chain: $path"
+            read -r uid gid permissions < <(
+              /usr/bin/stat -c '%u %g %a' -- "$path"
+            )
+            [[ "$uid" == '0' && "$gid" == '0' ]] ||
+              fail "non-root-owned directory in executable/unit/env chain: $path"
+            permission_value=$((8#${permissions}))
+            (( (permission_value & 0022) == 0 )) ||
+              fail "group/world-writable directory in executable/unit/env chain: $path"
+          }
+
+          require_secure_file() {
+            local path=$1
+            local exact_mode=${2:-}
+            local uid
+            local gid
+            local permissions
+            local permission_value
+
+            [[ -f "$path" && ! -L "$path" ]] ||
+              fail "unsafe executable/unit/environment file: $path"
+            read -r uid gid permissions < <(
+              /usr/bin/stat -c '%u %g %a' -- "$path"
+            )
+            [[ "$uid" == '0' && "$gid" == '0' ]] ||
+              fail "non-root-owned executable/unit/environment file: $path"
+            permission_value=$((8#${permissions}))
+            (( (permission_value & 0022) == 0 )) ||
+              fail "group/world-writable executable/unit/environment file: $path"
+            [[ -z "$exact_mode" || "$permissions" == "$exact_mode" ]] ||
+              fail "unexpected protected mode on: $path"
+          }
+
+          require_merged_usr_link() {
+            local path=$1
+            local expected_target=$2
+            local expected_resolved=$3
+            local target
+            local resolved
+            local uid
+            local gid
+
+            [[ -L "$path" ]] ||
+              fail "required merged-usr compatibility link is absent: $path"
+            target=$(/usr/bin/readlink -- "$path")
+            [[ "$target" == "$expected_target" ]] ||
+              fail "merged-usr compatibility link has an unsafe target: $path"
+            resolved=$(/usr/bin/readlink -f -- "$path")
+            [[ "$resolved" == "$expected_resolved" ]] ||
+              fail "merged-usr compatibility link resolves outside its target"
+            read -r uid gid < <(
+              /usr/bin/stat -c '%u %g' -- "$path"
+            )
+            [[ "$uid" == '0' && "$gid" == '0' ]] ||
+              fail "merged-usr compatibility link is not root-owned: $path"
+          }
+
+          require_snap_path_safety() {
+            if [[ -e /snap || -L /snap ]]; then
+              require_secure_directory /snap
+            fi
+            if [[ -e /snap/bin || -L /snap/bin ]]; then
+              require_secure_directory /snap/bin
+            fi
+          }
+
+          require_approved_path() {
+            local path_value=$1
+
+            case "$path_value" in
+              "$merged_usr_path"|"$legacy_path")
+                ;;
+              "$merged_usr_snap_path"|"$legacy_snap_path")
+                require_snap_path_safety
+                ;;
+              *)
+                fail "systemd PATH is outside the protected Ubuntu variants"
+                ;;
+            esac
+          }
+
+          case "$mode" in
+            server) opposite='agent' ;;
+            agent) opposite='server' ;;
+            *) fail "unexpected RKE2 unit name" ;;
+          esac
+          case "$validate_cached_service" in
+            true|false) ;;
+            *) fail "invalid cached-service validation mode" ;;
+          esac
+
+          for directory in \
+            / \
+            /usr \
+            /usr/local \
+            /usr/local/sbin \
+            /usr/local/bin \
+            /usr/sbin \
+            /usr/bin \
+            /usr/lib \
+            /usr/lib/systemd \
+            /usr/lib/systemd/system \
+            /usr/local/lib \
+            /usr/local/lib/systemd \
+            /usr/local/lib/systemd/system \
+            /etc \
+            /etc/systemd \
+            /etc/systemd/system \
+            /run \
+            /run/systemd \
+            /run/systemd/system; do
+            require_secure_directory "$directory"
+          done
+          for optional_directory in /etc/default /etc/sysconfig; do
+            if [[ -e "$optional_directory" || -L "$optional_directory" ]]; then
+              require_secure_directory "$optional_directory"
+            fi
+          done
+          require_merged_usr_link /bin usr/bin /usr/bin
+          require_merged_usr_link /sbin usr/sbin /usr/sbin
+          require_merged_usr_link /lib usr/lib /usr/lib
+
+          systemd_unit_search_directories=(
+            /etc/systemd/system
+            /etc/systemd/system.control
+            /etc/systemd/system.attached
+            /run/systemd/system
+            /run/systemd/system.control
+            /run/systemd/system.attached
+            /run/systemd/transient
+            /run/systemd/generator.early
+            /run/systemd/generator
+            /run/systemd/generator.late
+            /usr/local/lib/systemd/system
+            /usr/lib/systemd/system
+          )
+          unit_search_names=(
+            "$unit"
+            'rke2-.service'
+            'service'
+          )
+          for search_directory in "${systemd_unit_search_directories[@]}"; do
+            if [[ -e "$search_directory" || -L "$search_directory" ]]; then
+              require_secure_directory "$search_directory"
+            fi
+            for unit_search_name in "${unit_search_names[@]}"; do
+              for unit_directory_suffix in .wants .requires .upholds .d; do
+                unit_extension_directory="${search_directory}/${unit_search_name}${unit_directory_suffix}"
+                if [[ -e "$unit_extension_directory" ||
+                      -L "$unit_extension_directory" ]]; then
+                  require_secure_directory "$unit_extension_directory"
+                  if /usr/bin/find "$unit_extension_directory" \
+                    -mindepth 1 -maxdepth 1 -print -quit |
+                    /usr/bin/grep -q .; then
+                    fail "unit dependency/drop-in directory is not empty: $unit_extension_directory"
+                  fi
+                fi
+              done
+            done
+          done
+
+          require_secure_file "$binary" '755'
+          require_secure_file "$expected_fragment" '644'
+          require_secure_file "$bundled_env" '644'
+
+          case "$expected_version" in
+            v1.31.4+rke2r1)
+              expected_binary_sha256={{
+                c1_2_rke2_binary_sha256_by_version['v1.31.4+rke2r1']
+                | quote
+              }}
+              ;;
+            v1.31.14+rke2r2)
+              expected_binary_sha256={{
+                c1_2_rke2_binary_sha256_by_version['v1.31.14+rke2r2']
+                | quote
+              }}
+              ;;
+            v1.32.13+rke2r2)
+              expected_binary_sha256={{
+                c1_2_rke2_binary_sha256_by_version['v1.32.13+rke2r2']
+                | quote
+              }}
+              ;;
+            v1.33.13+rke2r1)
+              expected_binary_sha256={{
+                c1_2_rke2_binary_sha256_by_version['v1.33.13+rke2r1']
+                | quote
+              }}
+              ;;
+            v1.34.9+rke2r1)
+              expected_binary_sha256={{
+                c1_2_rke2_binary_sha256_by_version['v1.34.9+rke2r1']
+                | quote
+              }}
+              ;;
+            *) fail "expected RKE2 version is outside the approved ladder" ;;
+          esac
+          read -r binary_sha256 _ < <(
+            /usr/bin/sha256sum -- "$binary"
+          )
+          [[ "$binary_sha256" == "$expected_binary_sha256" ]] ||
+            fail "RKE2 binary SHA-256 differs from protected Vault identity"
+
+          case "${expected_version}:${mode}" in
+            v1.31.4+rke2r1:server|v1.31.14+rke2r2:server)
+              expected_fragment_sha256='caf5e4ff923c968d15494d984320b9ab4be13504fe9d37b968ca52ecd8e4ffcb'
+              ;;
+            v1.31.4+rke2r1:agent|v1.31.14+rke2r2:agent)
+              expected_fragment_sha256='ce3962d986a360e11d175de9fa8d9ae0a55cb227f41ed576e93fcbc817d8a103'
+              ;;
+            v1.32.13+rke2r2:server|v1.33.13+rke2r1:server|v1.34.9+rke2r1:server)
+              expected_fragment_sha256='30cb868bfbc40d69b3c3b7553493c50c17538f3a550c89ff2300d13bb66a61b1'
+              ;;
+            v1.32.13+rke2r2:agent|v1.33.13+rke2r1:agent|v1.34.9+rke2r1:agent)
+              expected_fragment_sha256='7c574199fc688205f313c451255fffcc139b8092326de8c706d50e2d3058c608'
+              ;;
+            *) fail "RKE2 unit version/mode is outside the approved ladder" ;;
           esac
           read -r fragment_sha256 _ < <(
-          /usr/bin/sha256sum "$fragment"
+            /usr/bin/sha256sum -- "$expected_fragment"
           )
-          if [[ "$fragment_sha256" != "$expected_fragment_sha256" ]]; then
-          printf 'RKE2 unit fragment hash is not stock for %s\n' \
-            "$unit_version" >&2
-          exit 64
+          [[ "$fragment_sha256" == "$expected_fragment_sha256" ]] ||
+            fail "RKE2 unit fragment hash is not stock for the exact pin"
+
+          if [[ "$validate_cached_service" == 'true' ]]; then
+            normalize_exec_property() {
+              local property=$1
+              local raw
+              local record
+              local normalized_record
+
+              raw=$(
+                /usr/bin/systemctl show "$unit" \
+                  --property="$property" --value
+              ) || fail "cannot read cached $property"
+              [[ "$raw" != *$'\r'* ]] ||
+                fail "cached $property contains a carriage return"
+              [[ -n "$raw" ]] || return 0
+              typed_exec_record_pattern='^\{ path=.+ ; argv\[\]=.+ ; '
+              typed_exec_record_pattern+='(ignore_errors=(yes|no)|flags=[a-z-]*) ; '
+              typed_exec_record_pattern+='start_time=\[[^]]*\] ; stop_time=\[[^]]*\] ; '
+              typed_exec_record_pattern+='pid=[0-9]+ ; code=[^[:space:]]+ ; '
+              typed_exec_record_pattern+='status=[^[:space:]]+ \}$'
+              while IFS= read -r record; do
+                [[ "$record" =~ $typed_exec_record_pattern ]] ||
+                  fail "cached $property has an unrecognized typed record"
+                normalized_record=$(
+                  printf '%s\n' "$record" |
+                    /usr/bin/sed -E \
+                      's/ ; start_time=\[[^]]*\] ; stop_time=\[[^]]*\] ; pid=[0-9]+ ; code=[^ ]+ ; status=[^ ]+ \}$/ ; }/'
+                ) || fail "cannot normalize cached $property"
+                [[ "$normalized_record" != "$record" ]] ||
+                  fail "cached $property metadata normalization failed"
+                printf '%s\n' "$normalized_record"
+              done <<<"$raw"
+            }
+
+            require_exec_property() {
+              local property=$1
+              local expected=$2
+              local actual
+
+              actual=$(normalize_exec_property "$property") ||
+                fail "cannot normalize cached $property"
+              [[ "$actual" == "$expected" ]] ||
+                fail "cached $property is not the exact stock typed command set"
+            }
+
+            normalize_word_set() {
+              local raw=$1
+
+              [[ "$raw" != *$'\r'* ]] ||
+                fail "cached unit dependency set contains a carriage return"
+              if [[ -n "$raw" &&
+                    ! "$raw" =~ ^[A-Za-z0-9_.@:/-]+([[:space:]]+[A-Za-z0-9_.@:/-]+)*$ ]]; then
+                fail "cached unit dependency set contains an unsafe token"
+              fi
+              printf '%s\n' "$raw" |
+                /usr/bin/tr ' \t\n' '\n' |
+                /usr/bin/sed '/^$/d' |
+                LC_ALL=C /usr/bin/sort -u
+            }
+
+            require_word_set_property() {
+              local property=$1
+              local expected=$2
+              local actual_raw
+              local actual
+              local normalized_expected
+
+              actual_raw=$(
+                /usr/bin/systemctl show "$unit" \
+                  --property="$property" --value
+              ) || fail "cannot read cached $property"
+              actual=$(normalize_word_set "$actual_raw") ||
+                fail "cannot normalize cached $property"
+              normalized_expected=$(normalize_word_set "$expected") ||
+                fail "cannot normalize expected $property"
+              [[ "$actual" == "$normalized_expected" ]] ||
+                fail "cached $property dependency set is not canonical"
+            }
+
+            require_scalar_property() {
+              local property=$1
+              local expected=$2
+              local actual
+
+              actual=$(
+                /usr/bin/systemctl show "$unit" \
+                  --property="$property" --value
+              ) || fail "cannot read cached $property"
+              [[ "$actual" != *$'\n'* && "$actual" != *$'\r'* ]] ||
+                fail "cached $property is not a scalar"
+              [[ "$actual" == "$expected" ]] ||
+                fail "cached $property is not canonical"
+            }
+
+            modprobe_br='{ path=/sbin/modprobe ; argv[]=/sbin/modprobe br_netfilter'
+            modprobe_overlay='{ path=/sbin/modprobe ; argv[]=/sbin/modprobe overlay'
+            expected_exec_start_pre="${modprobe_br} ; ignore_errors=yes ; }"
+            expected_exec_start_pre+=$'\n'
+            expected_exec_start_pre+="${modprobe_overlay} ; ignore_errors=yes ; }"
+            expected_exec_start_pre_ex="${modprobe_br} ; flags=ignore-failure ; }"
+            expected_exec_start_pre_ex+=$'\n'
+            expected_exec_start_pre_ex+="${modprobe_overlay} ; flags=ignore-failure ; }"
+            expected_exec_condition=''
+            expected_exec_condition_ex=''
+            expected_conflicts='shutdown.target'
+            case "$expected_version" in
+              v1.31.4+rke2r1|v1.31.14+rke2r2)
+                nm_cloud_argv='/bin/sh -xc ! /usr/bin/systemctl is-enabled'
+                nm_cloud_argv+=' --quiet nm-cloud-setup.service'
+                old_exec_start_pre="{ path=/bin/sh ; argv[]=${nm_cloud_argv}"
+                expected_exec_start_pre="${old_exec_start_pre} ; ignore_errors=no ; }"
+                expected_exec_start_pre+=$'\n'"${modprobe_br} ; ignore_errors=yes ; }"
+                expected_exec_start_pre+=$'\n'"${modprobe_overlay} ; ignore_errors=yes ; }"
+                expected_exec_start_pre_ex="${old_exec_start_pre} ; flags= ; }"
+                expected_exec_start_pre_ex+=$'\n'"${modprobe_br} ; flags=ignore-failure ; }"
+                expected_exec_start_pre_ex+=$'\n'"${modprobe_overlay} ; flags=ignore-failure ; }"
+                expected_conflicts+=" rke2-${opposite}.service"
+                ;;
+              v1.32.13+rke2r2|v1.33.13+rke2r1|v1.34.9+rke2r1)
+                condition_argv="/bin/sh -c if systemctl is-active --quiet"
+                condition_argv+=" rke2-${opposite}.service; then echo"
+                condition_argv+=" \"Error: rke2-${opposite} is running!\";"
+                condition_argv+=' exit 1; fi'
+                expected_exec_condition="{ path=/bin/sh ; argv[]=${condition_argv}"
+                expected_exec_condition+=' ; ignore_errors=no ; }'
+                expected_exec_condition_ex="{ path=/bin/sh ; argv[]=${condition_argv}"
+                expected_exec_condition_ex+=' ; flags= ; }'
+                ;;
+              *) fail "RKE2 executable layout is outside the approved ladder" ;;
+            esac
+
+            expected_exec_start="{ path=/usr/local/bin/rke2 ; argv[]=/usr/local/bin/rke2 ${mode} ; ignore_errors=no ; }"
+            expected_exec_start_ex="{ path=/usr/local/bin/rke2 ; argv[]=/usr/local/bin/rke2 ${mode} ; flags= ; }"
+            stop_post_argv="/bin/sh -c systemd-cgls /system.slice/${unit} | grep -Eo '[0-9]+ (containerd|kubelet)' | awk '{print \$1}' | xargs -r kill"
+            expected_exec_stop_post="{ path=/bin/sh ; argv[]=${stop_post_argv} ; ignore_errors=yes ; }"
+            expected_exec_stop_post_ex="{ path=/bin/sh ; argv[]=${stop_post_argv} ; flags=ignore-failure ; }"
+
+            require_scalar_property NeedDaemonReload no
+            require_scalar_property FragmentPath "$expected_fragment"
+            require_scalar_property SourcePath ''
+            require_scalar_property DropInPaths ''
+
+            require_exec_property ExecCondition "$expected_exec_condition"
+            require_exec_property ExecConditionEx "$expected_exec_condition_ex"
+            require_exec_property ExecStartPre "$expected_exec_start_pre"
+            require_exec_property ExecStartPreEx "$expected_exec_start_pre_ex"
+            require_exec_property ExecStart "$expected_exec_start"
+            require_exec_property ExecStartEx "$expected_exec_start_ex"
+            require_exec_property ExecStartPost ''
+            require_exec_property ExecStartPostEx ''
+            require_exec_property ExecReload ''
+            require_exec_property ExecReloadEx ''
+            require_exec_property ExecStop ''
+            require_exec_property ExecStopEx ''
+            require_exec_property ExecStopPost "$expected_exec_stop_post"
+            require_exec_property ExecStopPostEx "$expected_exec_stop_post_ex"
+
+            require_word_set_property Names "$unit"
+            require_word_set_property Wants network-online.target
+            require_word_set_property Requires 'sysinit.target system.slice'
+            require_word_set_property Requisite ''
+            require_word_set_property BindsTo ''
+            require_word_set_property PartOf ''
+            require_word_set_property Upholds ''
+            require_word_set_property OnSuccess ''
+            require_word_set_property OnFailure ''
+            require_word_set_property Conflicts "$expected_conflicts"
+            require_word_set_property RequiresMountsFor ''
+            require_word_set_property PropagatesReloadTo ''
+            require_word_set_property ReloadPropagatedFrom ''
+            require_word_set_property PropagatesStopTo ''
+            require_word_set_property StopPropagatedFrom ''
+            require_word_set_property JoinsNamespaceOf ''
+
+            require_scalar_property JobTimeoutAction none
+            require_scalar_property StartLimitAction none
+            require_scalar_property FailureAction none
+            require_scalar_property SuccessAction none
+            require_scalar_property OnFailureJobMode replace
+            require_scalar_property OnSuccessJobMode fail
+
+            cached_environment=$(
+              /usr/bin/systemctl show "$unit" \
+                --property=Environment --value
+            )
+            cached_pass_environment=$(
+              /usr/bin/systemctl show "$unit" \
+                --property=PassEnvironment --value
+            )
+            cached_unset_environment=$(
+              /usr/bin/systemctl show "$unit" \
+                --property=UnsetEnvironment --value
+            )
+            if [[ -n "$cached_environment" ||
+                  -n "$cached_pass_environment" ||
+                  -n "$cached_unset_environment" ]]; then
+              fail "cached RKE2 unit environment directives are not empty"
+            fi
+
+            cached_environment_files=$(
+              /usr/bin/systemctl show "$unit" \
+                --property=EnvironmentFiles --value
+            )
+            expected_cached_environment_files="/etc/default/${unit_base} (ignore_errors=yes)"
+            expected_cached_environment_files+=$'\n'"/etc/sysconfig/${unit_base} (ignore_errors=yes)"
+            expected_cached_environment_files+=$'\n'"/usr/local/lib/systemd/system/${unit_base}.env (ignore_errors=yes)"
+            [[ "$cached_environment_files" == "$expected_cached_environment_files" ]] ||
+              fail "cached RKE2 EnvironmentFiles are not canonical"
           fi
 
-          dropins=$(
-          /usr/bin/systemctl show "$unit" \
-            --property=DropInPaths --value
-          )
-          if [[ -n "$dropins" ]]; then
-          printf 'RKE2 unit drop-ins are not accepted: %s\n' "$unit" >&2
-          exit 64
-          fi
-
-          unit_text=$(/usr/bin/systemctl cat --no-pager "$unit")
+          unit_text=$(<"$expected_fragment")
           environment_files=$(
-          printf '%s\n' "$unit_text" |
-            /usr/bin/sed -nE \
-              's/^[[:space:]]*EnvironmentFile[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p'
+            printf '%s\n' "$unit_text" |
+              /usr/bin/sed -nE \
+                's/^[[:space:]]*EnvironmentFile[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p'
           )
           expected_environment_files=$'-/etc/default/%N\n-/etc/sysconfig/%N\n-/usr/local/lib/systemd/system/%N.env'
-          if [[ "$environment_files" != "$expected_environment_files" ]]; then
-          printf 'unexpected RKE2 EnvironmentFile directives: %s\n' \
-            "$unit" >&2
-          exit 64
-          fi
+          [[ "$environment_files" == "$expected_environment_files" ]] ||
+            fail "unexpected RKE2 EnvironmentFile directives"
 
           exec_start=$(
-          printf '%s\n' "$unit_text" |
-            /usr/bin/sed -nE \
-              's/^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p'
+            printf '%s\n' "$unit_text" |
+              /usr/bin/sed -nE \
+                's/^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p'
           )
-          if [[ "$exec_start" != "/usr/local/bin/rke2 ${mode}" ]]; then
-          printf 'unexpected RKE2 ExecStart: %s\n' "$unit" >&2
-          exit 64
-          fi
+          [[ "$exec_start" == "/usr/local/bin/rke2 ${mode}" ]] ||
+            fail "on-disk RKE2 ExecStart is not canonical"
 
           if printf '%s\n' "$unit_text" |
-          /usr/bin/grep -E \
-            '^[[:space:]]*(Environment|PassEnvironment|UnsetEnvironment)[[:space:]]*=' \
-            >/dev/null; then
-          printf 'direct RKE2 unit environment directives are forbidden: %s\n' \
-            "$unit" >&2
-          exit 64
+            /usr/bin/grep -E \
+              '^[[:space:]]*(Environment|PassEnvironment|UnsetEnvironment)[[:space:]]*=' \
+              >/dev/null; then
+            fail "direct RKE2 unit environment directives are forbidden"
           fi
 
-          if /usr/bin/systemctl show-environment |
-          /usr/bin/grep -E '^RKE2_[A-Z0-9_]*=' >/dev/null; then
-          printf 'RKE2 manager-level environment overrides are forbidden\n' >&2
-          exit 64
-          fi
-
-          for env_file in \
-          "/etc/default/${unit_base}" \
-          "/etc/sysconfig/${unit_base}" \
-          "/usr/local/lib/systemd/system/${unit_base}.env"; do
-          if [[ -e "$env_file" || -L "$env_file" ]]; then
-            if [[ ! -f "$env_file" || -L "$env_file" ]]; then
-              printf 'unsafe RKE2 environment file: %s\n' "$env_file" >&2
-              exit 64
+          for optional_env in \
+            "/etc/default/${unit_base}" \
+            "/etc/sysconfig/${unit_base}"; do
+            if [[ -e "$optional_env" || -L "$optional_env" ]]; then
+              require_secure_file "$optional_env"
+              optional_env_mode=$(
+                /usr/bin/stat -c '%a' -- "$optional_env"
+              )
+              case "$optional_env_mode" in
+                400|440|444|600|640|644) ;;
+                *)
+                  fail "optional RKE2 environment file has an unsafe mode"
+                  ;;
+              esac
+              if ! /usr/bin/cmp --silent -- "$optional_env" <(
+                /usr/bin/tr -d '\000' <"$optional_env"
+              ); then
+                fail "optional RKE2 environment file contains a NUL byte"
+              fi
+              if /usr/bin/grep -Ev \
+                '^[[:space:]]*(#.*)?$' "$optional_env" |
+                /usr/bin/grep -q .; then
+                fail "optional RKE2 environment file has an active assignment"
+              fi
             fi
-            active_env_content=$(
-              /usr/bin/sed '/^[[:space:]]*#/d' "$env_file"
-            )
-            backslash=$(/usr/bin/printf '\134')
-            if [[ "$active_env_content" == *RKE2_* ||
-                  "$active_env_content" == *"$backslash"* ]]; then
-              printf 'RKE2 environment override found in: %s\n' \
-                "$env_file" >&2
-              exit 64
-            fi
-          fi
           done
+
+          read -r bundled_env_sha256 _ < <(
+            /usr/bin/sha256sum -- "$bundled_env"
+          )
+          [[ "$bundled_env_sha256" == '2584cb4fcddb07782af3e50f2ee4200d0b84e64856f3db458bc0b1da53a70b79' ]] ||
+            fail "bundled RKE2 environment hash is not exact HOME=/root"
+          mapfile -t bundled_active_lines < <(
+            /usr/bin/grep -Ev '^[[:space:]]*(#.*)?$' "$bundled_env"
+          )
+          if [[ "${bundled_active_lines[0]:-}" != 'HOME=/root' ||
+                -v 'bundled_active_lines[1]' ]]; then
+            fail "bundled RKE2 environment must contain only HOME=/root"
+          fi
+
+          manager_environment_capture=$(
+            /usr/bin/systemctl show-environment &&
+              /usr/bin/printf '\036'
+          ) || fail "cannot read the systemd manager environment"
+          if [[ "$manager_environment_capture" != $'\036' &&
+                "$manager_environment_capture" != *$'\n\036' ]]; then
+            fail "systemd manager environment has an unterminated final entry"
+          fi
+          manager_environment=${manager_environment_capture%$'\036'}
+          [[ "$manager_environment" != *$'\r'* ]] ||
+            fail "systemd manager environment contains a carriage return"
+
+          declare -A seen_manager_environment=()
+          while IFS= read -r manager_entry; do
+            [[ -z "$manager_entry" ]] && continue
+            [[ "$manager_entry" == *=* ]] ||
+              fail "malformed systemd manager environment entry"
+            manager_key=${manager_entry%%=*}
+            manager_value=${manager_entry#*=}
+            [[ "$manager_key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] ||
+              fail "unsafe systemd manager environment key"
+            [[ ! -v "seen_manager_environment[$manager_key]" ]] ||
+              fail "duplicate systemd manager environment variable"
+            seen_manager_environment["$manager_key"]=1
+            case "$manager_key" in
+              LANG)
+                [[ "$manager_value" =~ ^[A-Za-z0-9_.@-]+$ ]] ||
+                  fail "unsafe locale in systemd manager environment"
+                ;;
+              LC_*)
+                [[ "$manager_key" =~ ^LC_[A-Z0-9_]+$ ]] ||
+                  fail "unsafe locale name in systemd manager environment"
+                [[ "$manager_value" =~ ^[A-Za-z0-9_.@-]+$ ]] ||
+                  fail "unsafe locale in systemd manager environment"
+                ;;
+              PATH)
+                require_approved_path "$manager_value"
+                ;;
+              *)
+                fail "systemd manager environment contains a non-allowlisted variable"
+                ;;
+            esac
+          done <<<"$manager_environment"
       args: &c1_2_service_input_gate_args
         executable: /bin/bash
       vars:
         c1_2_rke2_service_unit: rke2-server.service
+        c1_2_rke2_expected_binary_version: "{{ c1_2_installed_rke2_version }}"
       changed_when: false
 
     - &c1_2_find_server_configuration_fragments
@@ -1460,6 +2339,7 @@
         recurse: false
         hidden: true
       register: c1_2_server_config_fragments
+      when: c1_2_server_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_reject_unsafe_server_fragment_types
       name: Reject unsafe server configuration fragment file types
@@ -1474,8 +2354,10 @@
       loop: "{{ c1_2_server_config_fragments.files }}"
       loop_control:
         label: "{{ item.path }}"
+      when: c1_2_server_registry_reconciliation_authorized | default(false) | bool
 
-    - name: Remove every active server registry override
+    - &c1_2_remove_server_registry_overrides
+      name: Remove every active server registry override
       ansible.builtin.replace:
         path: "{{ item }}"
         regexp: >-
@@ -1494,8 +2376,10 @@
         }}
       loop_control:
         label: "{{ item }}"
+      when: c1_2_server_registry_reconciliation_authorized | default(false) | bool
 
-    - name: Install the one canonical Prime server registry override
+    - &c1_2_install_prime_server_registry_override
+      name: Install the one canonical Prime server registry override
       ansible.builtin.lineinfile:
         path: /etc/rancher/rke2/config.yaml
         line: 'system-default-registry: "registry.rancher.com"'
@@ -1503,6 +2387,7 @@
         insertafter: EOF
         backup: false
       when:
+        - c1_2_server_registry_reconciliation_authorized | default(false) | bool
         - >-
           hostvars['localhost'].c1_2_upgrade_to_version in
           ['v1.31.14+rke2r2', 'v1.32.13+rke2r2']
@@ -1525,6 +2410,7 @@
         label: "{{ item }}"
       register: c1_2_server_registry_documents
       no_log: true
+      when: c1_2_server_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_require_server_configuration_mappings
       name: Require loaded server configuration documents to be YAML mappings
@@ -1541,6 +2427,7 @@
       loop_control:
         label: "{{ item.source | default('unknown') }}"
       no_log: true
+      when: c1_2_server_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_require_semantic_server_registry_state
       name: Require semantic server registry state to match the protected target
@@ -1590,6 +2477,7 @@
       loop_control:
         label: "{{ item.source | default('unknown') }}"
       no_log: true
+      when: c1_2_server_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_count_server_registry_overrides
       name: Count active and exact server registry overrides
@@ -1624,6 +2512,7 @@
         executable: /bin/bash
       register: c1_2_server_registry_cardinality
       changed_when: false
+      when: c1_2_server_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_reject_noncanonical_server_registry
       name: Reject a non-canonical server registry state
@@ -1644,9 +2533,13 @@
         fail_msg: >-
           Hard stop: the server registry override does not have exact
           Prime/public cardinality for the immutable target classification.
+      when: c1_2_server_registry_reconciliation_authorized | default(false) | bool
 
     - name: Upgrade or recover this server on the declared target rung
       block:
+        - name: Re-authenticate the server binary immediately before recovery query
+          block: *c1_2_rke2_binary_identity_gate
+
         - name: Re-query the exact server pin immediately before recovery
           ansible.builtin.command:
             argv:
@@ -1655,18 +2548,22 @@
           register: c1_2_fresh_server_version_output
           changed_when: false
 
+        - name: Record the fresh server pin that controls recovery
+          ansible.builtin.set_fact:
+            c1_2_fresh_server_version_pin: >-
+              {{
+                c1_2_fresh_server_version_output.stdout
+                | regex_search(
+                    'v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+'
+                  )
+                | default('')
+              }}
+
         - name: Require the fresh server query to remain on this rung
           ansible.builtin.assert:
             that:
               - >-
-                (
-                  c1_2_fresh_server_version_output.stdout
-                  | regex_search(
-                      'v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+'
-                  )
-                  | default('')
-                )
-                in [
+                c1_2_fresh_server_version_pin in [
                   hostvars['localhost'].c1_2_upgrade_from_version,
                   hostvars['localhost'].c1_2_upgrade_to_version
                 ]
@@ -1704,6 +2601,22 @@
               Hard stop: etcd leadership changed after classification. Re-run
               the playbook so followers are still upgraded before the leader.
 
+        - name: Authorize target registry reconciliation after fresh proofs
+          ansible.builtin.set_fact:
+            c1_2_server_registry_reconciliation_authorized: true
+
+        - name: Reconcile and prove the target server registry state
+          block:
+            - *c1_2_find_server_configuration_fragments
+            - *c1_2_reject_unsafe_server_fragment_types
+            - *c1_2_remove_server_registry_overrides
+            - *c1_2_install_prime_server_registry_override
+            - *c1_2_read_server_configuration_documents
+            - *c1_2_require_server_configuration_mappings
+            - *c1_2_require_semantic_server_registry_state
+            - *c1_2_count_server_registry_overrides
+            - *c1_2_reject_noncanonical_server_registry
+
         - name: Cordon the server through the VIP-backed kubeconfig
           ansible.builtin.command:
             argv:
@@ -1735,22 +2648,281 @@
             name: rke2-server
             state: stopped
 
-        - name: Install the exact approved target pin
-          ansible.builtin.command:
-            argv:
-              - /usr/local/sbin/rke2-install.sh
-          environment: >-
-            {{
-              hostvars['localhost'].c1_2_upgrade_install_environment
-              | combine({'INSTALL_RKE2_TYPE': 'server'})
-            }}
-          no_log: >-
-            {{ hostvars['localhost'].c1_2_upgrade_artifact_url | length > 0 }}
-          changed_when: true
+        - name: Install this server from the authenticated target source
           when:
             - >-
-              c1_2_installed_rke2_version
+              c1_2_fresh_server_version_pin
               == hostvars['localhost'].c1_2_upgrade_from_version
+          block:
+            - name: Create the root-only Prime artifact staging directory
+              ansible.builtin.tempfile:
+                state: directory
+                path: /var/tmp
+                prefix: c1-2-rke2-prime-
+              register: c1_2_prime_artifact_stage
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Protect the Prime artifact staging directory
+              ansible.builtin.file:
+                path: "{{ c1_2_prime_artifact_stage.path }}"
+                state: directory
+                owner: root
+                group: root
+                mode: "0700"
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Fetch the authenticated Prime checksum manifest
+              ansible.builtin.get_url:
+                url: >-
+                  {{ hostvars['localhost'].c1_2_upgrade_artifact_url
+                  | regex_replace('/$', '') }}/{{
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  | urlencode }}/sha256sum-{{
+                  c1_2_rke2_artifact_architecture }}.txt
+                dest: >-
+                  {{ c1_2_prime_artifact_stage.path }}/sha256sum-{{
+                  c1_2_rke2_artifact_architecture }}.txt
+                owner: root
+                group: root
+                mode: "0600"
+                checksum: >-
+                  sha256:{{ c1_2_rke2_prime_artifact_identity.checksum_manifest_sha256 }}
+                force: true
+                timeout: 60
+                validate_certs: true
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Fetch the authenticated Prime RKE2 tarball
+              ansible.builtin.get_url:
+                url: >-
+                  {{ hostvars['localhost'].c1_2_upgrade_artifact_url
+                  | regex_replace('/$', '') }}/{{
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  | urlencode }}/rke2.linux-{{
+                  c1_2_rke2_artifact_architecture }}.tar.gz
+                dest: >-
+                  {{ c1_2_prime_artifact_stage.path }}/rke2.linux-{{
+                  c1_2_rke2_artifact_architecture }}.tar.gz
+                owner: root
+                group: root
+                mode: "0600"
+                checksum: >-
+                  sha256:{{
+                  c1_2_rke2_prime_artifact_identity.tarball_sha256 }}
+                force: true
+                timeout: 600
+                validate_certs: true
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Reinspect the staged Prime artifact identities
+              ansible.builtin.stat:
+                path: "{{ item.path }}"
+                follow: false
+                get_checksum: true
+                checksum_algorithm: sha256
+              loop:
+                - path: >-
+                    {{ c1_2_prime_artifact_stage.path }}/sha256sum-{{
+                    c1_2_rke2_artifact_architecture }}.txt
+                  sha256: >-
+                    {{ c1_2_rke2_prime_artifact_identity.checksum_manifest_sha256 }}
+                - path: >-
+                    {{ c1_2_prime_artifact_stage.path }}/rke2.linux-{{
+                    c1_2_rke2_artifact_architecture }}.tar.gz
+                  sha256: >-
+                    {{ c1_2_rke2_prime_artifact_identity.tarball_sha256 }}
+              register: c1_2_staged_prime_artifact_stats
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Authenticate the staged Prime artifact files
+              ansible.builtin.assert:
+                that:
+                  - item.stat.exists | default(false)
+                  - item.stat.isreg | default(false)
+                  - not (item.stat.islnk | default(false))
+                  - item.stat.uid | default(-1) | int == 0
+                  - item.stat.gid | default(-1) | int == 0
+                  - item.stat.mode | default('') == '0600'
+                  - item.stat.checksum | default('') == item.item.sha256
+                fail_msg: >-
+                  Hard stop: a staged legacy Prime artifact lost its exact
+                  root-only Vault-pinned identity before installer execution.
+                quiet: true
+              loop: "{{ c1_2_staged_prime_artifact_stats.results }}"
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Bind the Prime checksum manifest to the staged tarball
+              ansible.builtin.shell:
+                cmd: |
+                  set -euo pipefail
+                  manifest={{ c1_2_staged_prime_manifest | quote }}
+                  tarball_name={{ c1_2_staged_prime_tarball_name | quote }}
+                  expected_sha256={{
+                    c1_2_rke2_prime_artifact_identity.tarball_sha256 | quote
+                  }}
+                  mapfile -t matching_digests < <(
+                    /usr/bin/awk -v name="$tarball_name" \
+                      '$2 == name { print $1 }' "$manifest"
+                  )
+                  [[ -v 'matching_digests[0]' ]]
+                  [[ ! -v 'matching_digests[1]' ]]
+                  [[ "${matching_digests[0]}" =~ ^[0-9a-f]{64}$ ]]
+                  [[ "${matching_digests[0]}" == "$expected_sha256" ]]
+              args:
+                executable: /bin/bash
+              vars:
+                c1_2_staged_prime_manifest: >-
+                  {{ c1_2_prime_artifact_stage.path }}/sha256sum-{{
+                  c1_2_rke2_artifact_architecture }}.txt
+                c1_2_staged_prime_tarball_name: >-
+                  rke2.linux-{{ c1_2_rke2_artifact_architecture }}.tar.gz
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              changed_when: false
+              no_log: true
+
+            - name: Replay the installer identity gate immediately before server install
+              ansible.builtin.shell:
+                cmd: *c1_2_installer_identity_gate
+              args: *c1_2_installer_identity_gate_args
+              vars:
+                c1_2_installer_exact_identity_required: true
+              changed_when: false
+
+            - name: Install the exact approved target pin
+              ansible.builtin.command:
+                argv:
+                  - /usr/bin/python3
+                  - -I
+                  - -S
+                  - -c
+                  - &c1_2_clean_installer_exec |
+                    import os
+                    import re
+                    import sys
+
+                    alternate = sorted(
+                        key for key in os.environ
+                        if key.startswith("INSTALL_RKE2_")
+                    )
+                    if alternate:
+                        print(
+                            "rke2 installer: inherited INSTALL_RKE2_* controls are forbidden",
+                            file=sys.stderr,
+                        )
+                        raise SystemExit(64)
+
+                    version = os.environ.get("C1_2_PROTECTED_RKE2_VERSION", "")
+                    install_type = os.environ.get("C1_2_PROTECTED_RKE2_TYPE", "")
+                    artifact_path = os.environ.get(
+                        "C1_2_PROTECTED_RKE2_ARTIFACT_PATH",
+                        "",
+                    )
+                    if not re.fullmatch(
+                        r"v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+",
+                        version,
+                    ):
+                        print("rke2 installer: protected version is malformed", file=sys.stderr)
+                        raise SystemExit(64)
+                    if install_type not in {"server", "agent"}:
+                        print("rke2 installer: protected install type is invalid", file=sys.stderr)
+                        raise SystemExit(64)
+                    prime_versions = {
+                        "v1.31.14+rke2r2",
+                        "v1.32.13+rke2r2",
+                    }
+                    if bool(artifact_path) != (version in prime_versions):
+                        print(
+                            "rke2 installer: protected artifact path disagrees with the pin",
+                            file=sys.stderr,
+                        )
+                        raise SystemExit(64)
+                    if artifact_path and (
+                        not artifact_path.startswith("/var/tmp/c1-2-rke2-prime-")
+                        or os.path.realpath(artifact_path) != artifact_path
+                    ):
+                        print(
+                            "rke2 installer: protected artifact path is invalid",
+                            file=sys.stderr,
+                        )
+                        raise SystemExit(64)
+
+                    clean_environment = {
+                        "HOME": "/root",
+                        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin",
+                        "INSTALL_RKE2_VERSION": version,
+                        "INSTALL_RKE2_CHANNEL": "stable",
+                        "INSTALL_RKE2_TYPE": install_type,
+                        "INSTALL_RKE2_METHOD": "tar",
+                        "INSTALL_RKE2_TAR_PREFIX": "/usr/local",
+                        "INSTALL_RKE2_SKIP_RELOAD": "true",
+                    }
+                    if artifact_path:
+                        clean_environment["INSTALL_RKE2_ARTIFACT_PATH"] = artifact_path
+                    installer = sys.argv[1]
+                    if installer != "/usr/local/sbin/rke2-install.sh":
+                        print("rke2 installer: installer path is not canonical", file=sys.stderr)
+                        raise SystemExit(64)
+                    os.execve(installer, [installer], clean_environment)
+                  - /usr/local/sbin/rke2-install.sh
+              environment:
+                C1_2_PROTECTED_RKE2_VERSION: >-
+                  {{ hostvars['localhost'].c1_2_upgrade_to_version }}
+                C1_2_PROTECTED_RKE2_TYPE: server
+                C1_2_PROTECTED_RKE2_ARTIFACT_PATH: >-
+                  {{ c1_2_prime_artifact_stage.path | default('') }}
+              no_log: >-
+                {{
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+                }}
+              changed_when: true
+          always:
+            - name: Remove the staged server Prime artifacts
+              ansible.builtin.file:
+                path: "{{ c1_2_prime_artifact_stage.path }}"
+                state: absent
+              when:
+                - c1_2_prime_artifact_stage is defined
+                - c1_2_prime_artifact_stage.path is defined
+              no_log: true
+
+        - name: Prove installed server paths before daemon reload
+          ansible.builtin.shell:
+            cmd: *c1_2_service_input_gate
+          args: *c1_2_service_input_gate_args
+          vars:
+            c1_2_rke2_service_unit: rke2-server.service
+            c1_2_rke2_expected_binary_version: >-
+              {{ hostvars['localhost'].c1_2_upgrade_to_version }}
+            c1_2_rke2_validate_cached_service: false
+          changed_when: false
 
         - name: Reload the installed RKE2 server unit metadata
           ansible.builtin.systemd:
@@ -1775,6 +2947,8 @@
           args: *c1_2_service_input_gate_args
           vars:
             c1_2_rke2_service_unit: rke2-server.service
+            c1_2_rke2_expected_binary_version: >-
+              {{ hostvars['localhost'].c1_2_upgrade_to_version }}
           changed_when: false
 
         - name: Start this RKE2 server
@@ -1815,8 +2989,18 @@
             cmd: &c1_2_live_process_input_gate |
               set -euo pipefail
               unit={{ c1_2_rke2_service_unit | quote }}
+              expected_version={{ c1_2_rke2_expected_binary_version | quote }}
               unit_base="${unit%.service}"
               mode="${unit_base#rke2-}"
+              merged_usr_path='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin'
+              merged_usr_snap_path="${merged_usr_path}:/snap/bin"
+              legacy_path="${merged_usr_path}:/sbin:/bin"
+              legacy_snap_path="${legacy_path}:/snap/bin"
+
+              fail() {
+                printf '%s: %s\n' "$unit" "$1" >&2
+                exit 64
+              }
 
               /usr/bin/systemctl is-active --quiet "$unit"
               main_pid=$(
@@ -1827,48 +3011,188 @@
                     ! -r "/proc/${main_pid}/environ" ||
                     ! -r "/proc/${main_pid}/cmdline" ||
                     ! -L "/proc/${main_pid}/exe" ]]; then
-                printf 'RKE2 MainPID cannot be inspected: %s\n' "$unit" >&2
-                exit 64
+                fail "RKE2 MainPID cannot be inspected"
               fi
 
               live_executable=$(
                 /usr/bin/readlink -f "/proc/${main_pid}/exe"
               )
-              if [[ "$live_executable" != '/usr/local/bin/rke2' ]]; then
-                printf 'live RKE2 executable is not canonical: %s\n' \
-                  "$unit" >&2
-                exit 64
-              fi
-
-              if /usr/bin/tr '\0' '\n' <"/proc/${main_pid}/environ" |
-                /usr/bin/grep -E '^RKE2_[A-Z0-9_]*=' >/dev/null; then
-                printf 'live RKE2 environment override found: %s\n' "$unit" >&2
-                exit 64
-              fi
+              [[ "$live_executable" == '/usr/local/bin/rke2' ]] ||
+                fail "live RKE2 executable is not canonical"
 
               mapfile -d '' -t argv <"/proc/${main_pid}/cmdline"
               if [[ "${argv[0]:-}" != '/usr/local/bin/rke2' ||
                     "${argv[1]:-}" != "$mode" ||
                     -v 'argv[2]' ]]; then
-                printf 'live RKE2 command line is not canonical: %s\n' \
-                  "$unit" >&2
-                exit 64
+                fail "live RKE2 command line is not canonical"
+              fi
+
+              case "$expected_version" in
+                v1.31.4+rke2r1)
+                  expected_binary_sha256={{
+                    c1_2_rke2_binary_sha256_by_version['v1.31.4+rke2r1']
+                    | quote
+                  }}
+                  ;;
+                v1.31.14+rke2r2)
+                  expected_binary_sha256={{
+                    c1_2_rke2_binary_sha256_by_version['v1.31.14+rke2r2']
+                    | quote
+                  }}
+                  ;;
+                v1.32.13+rke2r2)
+                  expected_binary_sha256={{
+                    c1_2_rke2_binary_sha256_by_version['v1.32.13+rke2r2']
+                    | quote
+                  }}
+                  ;;
+                v1.33.13+rke2r1)
+                  expected_binary_sha256={{
+                    c1_2_rke2_binary_sha256_by_version['v1.33.13+rke2r1']
+                    | quote
+                  }}
+                  ;;
+                v1.34.9+rke2r1)
+                  expected_binary_sha256={{
+                    c1_2_rke2_binary_sha256_by_version['v1.34.9+rke2r1']
+                    | quote
+                  }}
+                  ;;
+                *) fail "expected RKE2 version is outside the approved ladder" ;;
+              esac
+              read -r live_binary_sha256 _ < <(
+                /usr/bin/sha256sum -- "/proc/${main_pid}/exe"
+              )
+              [[ "$live_binary_sha256" == "$expected_binary_sha256" ]] ||
+                fail "live RKE2 executable differs from protected Vault identity"
+
+              # Only the stock HOME, approved manager locale/PATH, and
+              # constrained systemd runtime metadata may reach RKE2.
+              declare -A seen_environment=()
+              mapfile -d '' -t live_environment <"/proc/${main_pid}/environ"
+              for environment_entry in "${live_environment[@]}"; do
+                [[ "$environment_entry" == *=* ]] ||
+                  fail "malformed live RKE2 environment entry"
+                environment_key=${environment_entry%%=*}
+                environment_value=${environment_entry#*=}
+                [[ "$environment_key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] ||
+                  fail "unsafe live RKE2 environment key"
+                [[ ! -v "seen_environment[$environment_key]" ]] ||
+                  fail "duplicate live RKE2 environment variable"
+                seen_environment["$environment_key"]=1
+                case "$environment_key" in
+                  HOME)
+                    [[ "$environment_value" == '/root' ]] ||
+                      fail "live RKE2 HOME is not /root"
+                    ;;
+                  PATH)
+                    case "$environment_value" in
+                      "$merged_usr_path"|"$merged_usr_snap_path"|"$legacy_path"|"$legacy_snap_path")
+                        ;;
+                      *)
+                        fail "live RKE2 PATH is outside the protected Ubuntu variants"
+                        ;;
+                    esac
+                    ;;
+                  USER)
+                    [[ "$environment_value" == 'root' ]] ||
+                      fail "live RKE2 USER is not root"
+                    ;;
+                  LANG|LC_*)
+                    if [[ "$environment_key" == LC_* &&
+                          ! "$environment_key" =~ ^LC_[A-Z0-9_]+$ ]]; then
+                      fail "unsafe live RKE2 locale name"
+                    fi
+                    [[ "$environment_value" =~ ^[A-Za-z0-9_.@-]+$ ]] ||
+                      fail "unsafe live RKE2 locale"
+                    ;;
+                  INVOCATION_ID)
+                    [[ "$environment_value" =~ ^[0-9a-f]{32}$ ]] ||
+                      fail "unsafe live systemd invocation identity"
+                    ;;
+                  JOURNAL_STREAM)
+                    [[ "$environment_value" =~ ^[0-9]+:[0-9]+$ ]] ||
+                      fail "unsafe live systemd journal identity"
+                    ;;
+                  NOTIFY_SOCKET)
+                    [[ "$environment_value" == '/run/systemd/notify' ]] ||
+                      fail "unsafe live systemd notify socket"
+                    ;;
+                  SYSTEMD_EXEC_PID|WATCHDOG_PID)
+                    [[ "$environment_value" == "$main_pid" ]] ||
+                      fail "live systemd PID metadata does not match MainPID"
+                    ;;
+                  WATCHDOG_USEC)
+                    [[ "$environment_value" =~ ^[1-9][0-9]*$ ]] ||
+                      fail "unsafe live systemd watchdog interval"
+                    ;;
+                  MEMORY_PRESSURE_WATCH)
+                    [[ "$environment_value" =~ ^/sys/fs/cgroup/[A-Za-z0-9_./@:-]+/memory\.pressure$ ]] ||
+                      fail "unsafe live systemd memory-pressure path"
+                    ;;
+                  MEMORY_PRESSURE_WRITE)
+                    [[ "$environment_value" =~ ^[A-Za-z0-9+/=]+$ ]] ||
+                      fail "unsafe live systemd memory-pressure token"
+                    ;;
+                  *)
+                    fail "live RKE2 environment contains a non-allowlisted variable"
+                    ;;
+                esac
+              done
+              [[ -v 'seen_environment[HOME]' ]] ||
+                fail "live RKE2 environment lacks HOME"
+              [[ -v 'seen_environment[PATH]' ]] ||
+                fail "live RKE2 environment lacks PATH"
+              [[ -v 'seen_environment[USER]' ]] ||
+                fail "live RKE2 environment lacks USER"
+              if [[ -v 'seen_environment[MEMORY_PRESSURE_WATCH]' ||
+                    -v 'seen_environment[MEMORY_PRESSURE_WRITE]' ]]; then
+                [[ -v 'seen_environment[MEMORY_PRESSURE_WATCH]' &&
+                    -v 'seen_environment[MEMORY_PRESSURE_WRITE]' ]] ||
+                  fail "live systemd memory-pressure metadata is incomplete"
+                control_group=$(
+                  /usr/bin/systemctl show "$unit" \
+                    --property=ControlGroup --value
+                )
+                [[ "$control_group" == "/system.slice/${unit}" ]] ||
+                  fail "live RKE2 control group is not canonical"
+                [[ "${seen_environment[MEMORY_PRESSURE_WATCH]}" == 1 ]] ||
+                  fail "live RKE2 memory-pressure watch was not parsed"
+                expected_memory_pressure_watch="/sys/fs/cgroup${control_group}/memory.pressure"
+                for environment_entry in "${live_environment[@]}"; do
+                  if [[ "$environment_entry" == MEMORY_PRESSURE_WATCH=* ]]; then
+                    [[ "${environment_entry#*=}" == "$expected_memory_pressure_watch" ]] ||
+                      fail "live systemd memory-pressure path is not bound to the unit cgroup"
+                  fi
+                done
               fi
 
               verified_pid=$(
                 /usr/bin/systemctl show "$unit" \
                   --property=MainPID --value
               )
+              verified_executable=$(
+                /usr/bin/readlink -f "/proc/${main_pid}/exe"
+              )
+              read -r verified_live_binary_sha256 _ < <(
+                /usr/bin/sha256sum -- "/proc/${main_pid}/exe"
+              )
+              mapfile -d '' -t verified_argv <"/proc/${main_pid}/cmdline"
               if [[ "$verified_pid" != "$main_pid" ]] ||
+                [[ "$verified_executable" != "$live_executable" ]] ||
+                [[ "$verified_live_binary_sha256" != "$live_binary_sha256" ]] ||
+                [[ "${verified_argv[0]:-}" != '/usr/local/bin/rke2' ]] ||
+                [[ "${verified_argv[1]:-}" != "$mode" ]] ||
+                [[ -v 'verified_argv[2]' ]] ||
                 ! /usr/bin/systemctl is-active --quiet "$unit"; then
-                printf 'RKE2 MainPID changed during validation: %s\n' \
-                  "$unit" >&2
-                exit 64
+                fail "RKE2 process identity changed during validation"
               fi
           args: &c1_2_live_process_input_gate_args
             executable: /bin/bash
           vars:
             c1_2_rke2_service_unit: rke2-server.service
+            c1_2_rke2_expected_binary_version: >-
+              {{ hostvars['localhost'].c1_2_upgrade_to_version }}
           changed_when: false
 
         - name: Rewrite the regenerated kubeconfig to the control-plane VIP
@@ -2581,6 +3905,9 @@
     c1_2_etcd_cert: /var/lib/rancher/rke2/server/tls/etcd/server-client.crt
     c1_2_etcd_key: /var/lib/rancher/rke2/server/tls/etcd/server-client.key
   tasks:
+    - name: Re-authenticate the agent binary before executing it
+      block: *c1_2_rke2_binary_identity_gate
+
     - name: Inspect the installed agent version
       ansible.builtin.command:
         argv:
@@ -2691,6 +4018,9 @@
           {{ c1_2_target_maintenance_host }} is not Ready, schedulable,
           pressure-free, and VIP-backed.
 
+    - name: Select the protected RKE2 agent binary identity
+      block: *c1_2_rke2_binary_identity_gate
+
     - name: Prove protected RKE2 agent configuration path integrity
       block: *c1_2_rke2_config_integrity_gate
 
@@ -2700,6 +4030,7 @@
       args: *c1_2_service_input_gate_args
       vars:
         c1_2_rke2_service_unit: rke2-agent.service
+        c1_2_rke2_expected_binary_version: "{{ c1_2_installed_agent_version }}"
       changed_when: false
 
     - &c1_2_find_agent_configuration_fragments
@@ -2712,6 +4043,7 @@
         recurse: false
         hidden: true
       register: c1_2_agent_config_fragments
+      when: c1_2_agent_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_reject_unsafe_agent_fragment_types
       name: Reject unsafe agent configuration fragment file types
@@ -2726,8 +4058,10 @@
       loop: "{{ c1_2_agent_config_fragments.files }}"
       loop_control:
         label: "{{ item.path }}"
+      when: c1_2_agent_registry_reconciliation_authorized | default(false) | bool
 
-    - name: Remove every active agent registry override
+    - &c1_2_remove_agent_registry_overrides
+      name: Remove every active agent registry override
       ansible.builtin.replace:
         path: "{{ item }}"
         regexp: >-
@@ -2746,8 +4080,10 @@
         }}
       loop_control:
         label: "{{ item }}"
+      when: c1_2_agent_registry_reconciliation_authorized | default(false) | bool
 
-    - name: Install the one canonical Prime agent registry override
+    - &c1_2_install_prime_agent_registry_override
+      name: Install the one canonical Prime agent registry override
       ansible.builtin.lineinfile:
         path: /etc/rancher/rke2/config.yaml
         line: 'system-default-registry: "registry.rancher.com"'
@@ -2755,6 +4091,7 @@
         insertafter: EOF
         backup: false
       when:
+        - c1_2_agent_registry_reconciliation_authorized | default(false) | bool
         - >-
           hostvars['localhost'].c1_2_upgrade_to_version in
           ['v1.31.14+rke2r2', 'v1.32.13+rke2r2']
@@ -2777,6 +4114,7 @@
         label: "{{ item }}"
       register: c1_2_agent_registry_documents
       no_log: true
+      when: c1_2_agent_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_require_agent_configuration_mappings
       name: Require loaded agent configuration documents to be YAML mappings
@@ -2793,6 +4131,7 @@
       loop_control:
         label: "{{ item.source | default('unknown') }}"
       no_log: true
+      when: c1_2_agent_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_require_semantic_agent_registry_state
       name: Require semantic agent registry state to match the protected target
@@ -2842,6 +4181,7 @@
       loop_control:
         label: "{{ item.source | default('unknown') }}"
       no_log: true
+      when: c1_2_agent_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_count_agent_registry_overrides
       name: Count active and exact agent registry overrides
@@ -2876,6 +4216,7 @@
         executable: /bin/bash
       register: c1_2_agent_registry_cardinality
       changed_when: false
+      when: c1_2_agent_registry_reconciliation_authorized | default(false) | bool
 
     - &c1_2_reject_noncanonical_agent_registry
       name: Reject a non-canonical agent registry state
@@ -2896,9 +4237,13 @@
         fail_msg: >-
           Hard stop: the agent registry override does not have exact
           Prime/public cardinality for the immutable target classification.
+      when: c1_2_agent_registry_reconciliation_authorized | default(false) | bool
 
     - name: Upgrade or recover this agent on the declared target rung
       block:
+        - name: Re-authenticate the agent binary immediately before recovery query
+          block: *c1_2_rke2_binary_identity_gate
+
         - name: Re-query the exact agent pin immediately before recovery
           ansible.builtin.command:
             argv:
@@ -2907,24 +4252,60 @@
           register: c1_2_fresh_agent_version_output
           changed_when: false
 
+        - name: Record the fresh agent pin that controls recovery
+          ansible.builtin.set_fact:
+            c1_2_fresh_agent_version_pin: >-
+              {{
+                c1_2_fresh_agent_version_output.stdout
+                | regex_search(
+                    'v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+'
+                  )
+                | default('')
+              }}
+
         - name: Require the fresh agent query to remain on this rung
           ansible.builtin.assert:
             that:
               - >-
-                (
-                  c1_2_fresh_agent_version_output.stdout
-                  | regex_search(
-                      'v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+'
-                    )
-                  | default('')
-                )
-                in [
+                c1_2_fresh_agent_version_pin in [
                   hostvars['localhost'].c1_2_upgrade_from_version,
                   hostvars['localhost'].c1_2_upgrade_to_version
                 ]
             fail_msg: >-
               Hard stop: {{ inventory_hostname }} no longer runs the declared
               source or target pin immediately before recovery.
+
+        - name: Prove etcd health before agent mutation
+          ansible.builtin.command:
+            argv:
+              - "{{ c1_2_etcdctl_path }}"
+              - "--cacert={{ c1_2_etcd_ca }}"
+              - "--cert={{ c1_2_etcd_cert }}"
+              - "--key={{ c1_2_etcd_key }}"
+              - "--endpoints=https://127.0.0.1:2379"
+              - endpoint
+              - health
+              - --cluster
+          environment:
+            ETCDCTL_API: "3"
+          delegate_to: "{{ c1_2_target_maintenance_host }}"
+          changed_when: false
+
+        - name: Authorize target agent registry reconciliation after fresh proofs
+          ansible.builtin.set_fact:
+            c1_2_agent_registry_reconciliation_authorized: true
+
+        - name: Reconcile and prove the target agent registry state
+          block:
+            - *c1_2_find_agent_configuration_fragments
+            - *c1_2_reject_unsafe_agent_fragment_types
+            - *c1_2_remove_agent_registry_overrides
+            - *c1_2_install_prime_agent_registry_override
+            - *c1_2_read_agent_configuration_documents
+            - *c1_2_require_agent_configuration_mappings
+            - *c1_2_require_semantic_agent_registry_state
+            - *c1_2_count_agent_registry_overrides
+            - *c1_2_reject_noncanonical_agent_registry
 
         - name: Cordon the agent through the VIP-backed kubeconfig
           ansible.builtin.command:
@@ -2957,22 +4338,215 @@
             name: rke2-agent
             state: stopped
 
-        - name: Install the exact approved agent target pin
-          ansible.builtin.command:
-            argv:
-              - /usr/local/sbin/rke2-install.sh
-          environment: >-
-            {{
-              hostvars['localhost'].c1_2_upgrade_install_environment
-              | combine({'INSTALL_RKE2_TYPE': 'agent'})
-            }}
-          no_log: >-
-            {{ hostvars['localhost'].c1_2_upgrade_artifact_url | length > 0 }}
-          changed_when: true
+        - name: Install this agent from the authenticated target source
           when:
             - >-
-              c1_2_installed_agent_version
+              c1_2_fresh_agent_version_pin
               == hostvars['localhost'].c1_2_upgrade_from_version
+          block:
+            - name: Create the root-only agent Prime artifact staging directory
+              ansible.builtin.tempfile:
+                state: directory
+                path: /var/tmp
+                prefix: c1-2-rke2-prime-
+              register: c1_2_prime_artifact_stage
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Protect the agent Prime artifact staging directory
+              ansible.builtin.file:
+                path: "{{ c1_2_prime_artifact_stage.path }}"
+                state: directory
+                owner: root
+                group: root
+                mode: "0700"
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Fetch the authenticated agent Prime checksum manifest
+              ansible.builtin.get_url:
+                url: >-
+                  {{ hostvars['localhost'].c1_2_upgrade_artifact_url
+                  | regex_replace('/$', '') }}/{{
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  | urlencode }}/sha256sum-{{
+                  c1_2_rke2_artifact_architecture }}.txt
+                dest: >-
+                  {{ c1_2_prime_artifact_stage.path }}/sha256sum-{{
+                  c1_2_rke2_artifact_architecture }}.txt
+                owner: root
+                group: root
+                mode: "0600"
+                checksum: >-
+                  sha256:{{ c1_2_rke2_prime_artifact_identity.checksum_manifest_sha256 }}
+                force: true
+                timeout: 60
+                validate_certs: true
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Fetch the authenticated agent Prime RKE2 tarball
+              ansible.builtin.get_url:
+                url: >-
+                  {{ hostvars['localhost'].c1_2_upgrade_artifact_url
+                  | regex_replace('/$', '') }}/{{
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  | urlencode }}/rke2.linux-{{
+                  c1_2_rke2_artifact_architecture }}.tar.gz
+                dest: >-
+                  {{ c1_2_prime_artifact_stage.path }}/rke2.linux-{{
+                  c1_2_rke2_artifact_architecture }}.tar.gz
+                owner: root
+                group: root
+                mode: "0600"
+                checksum: >-
+                  sha256:{{
+                  c1_2_rke2_prime_artifact_identity.tarball_sha256 }}
+                force: true
+                timeout: 600
+                validate_certs: true
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Reinspect the staged agent Prime artifact identities
+              ansible.builtin.stat:
+                path: "{{ item.path }}"
+                follow: false
+                get_checksum: true
+                checksum_algorithm: sha256
+              loop:
+                - path: >-
+                    {{ c1_2_prime_artifact_stage.path }}/sha256sum-{{
+                    c1_2_rke2_artifact_architecture }}.txt
+                  sha256: >-
+                    {{ c1_2_rke2_prime_artifact_identity.checksum_manifest_sha256 }}
+                - path: >-
+                    {{ c1_2_prime_artifact_stage.path }}/rke2.linux-{{
+                    c1_2_rke2_artifact_architecture }}.tar.gz
+                  sha256: >-
+                    {{ c1_2_rke2_prime_artifact_identity.tarball_sha256 }}
+              register: c1_2_staged_prime_artifact_stats
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Authenticate the staged agent Prime artifact files
+              ansible.builtin.assert:
+                that:
+                  - item.stat.exists | default(false)
+                  - item.stat.isreg | default(false)
+                  - not (item.stat.islnk | default(false))
+                  - item.stat.uid | default(-1) | int == 0
+                  - item.stat.gid | default(-1) | int == 0
+                  - item.stat.mode | default('') == '0600'
+                  - item.stat.checksum | default('') == item.item.sha256
+                fail_msg: >-
+                  Hard stop: a staged legacy Prime artifact lost its exact
+                  root-only Vault-pinned identity before agent installer
+                  execution.
+                quiet: true
+              loop: "{{ c1_2_staged_prime_artifact_stats.results }}"
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              no_log: true
+
+            - name: Bind the agent Prime checksum manifest to the staged tarball
+              ansible.builtin.shell:
+                cmd: |
+                  set -euo pipefail
+                  manifest={{ c1_2_staged_prime_manifest | quote }}
+                  tarball_name={{ c1_2_staged_prime_tarball_name | quote }}
+                  expected_sha256={{
+                    c1_2_rke2_prime_artifact_identity.tarball_sha256 | quote
+                  }}
+                  mapfile -t matching_digests < <(
+                    /usr/bin/awk -v name="$tarball_name" \
+                      '$2 == name { print $1 }' "$manifest"
+                  )
+                  [[ -v 'matching_digests[0]' ]]
+                  [[ ! -v 'matching_digests[1]' ]]
+                  [[ "${matching_digests[0]}" =~ ^[0-9a-f]{64}$ ]]
+                  [[ "${matching_digests[0]}" == "$expected_sha256" ]]
+              args:
+                executable: /bin/bash
+              vars:
+                c1_2_staged_prime_manifest: >-
+                  {{ c1_2_prime_artifact_stage.path }}/sha256sum-{{
+                  c1_2_rke2_artifact_architecture }}.txt
+                c1_2_staged_prime_tarball_name: >-
+                  rke2.linux-{{ c1_2_rke2_artifact_architecture }}.tar.gz
+              when:
+                - >-
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+              changed_when: false
+              no_log: true
+
+            - name: Replay the installer identity gate immediately before agent install
+              ansible.builtin.shell:
+                cmd: *c1_2_installer_identity_gate
+              args: *c1_2_installer_identity_gate_args
+              vars:
+                c1_2_installer_exact_identity_required: true
+              changed_when: false
+
+            - name: Install the exact approved agent target pin
+              ansible.builtin.command:
+                argv:
+                  - /usr/bin/python3
+                  - -I
+                  - -S
+                  - -c
+                  - *c1_2_clean_installer_exec
+                  - /usr/local/sbin/rke2-install.sh
+              environment:
+                C1_2_PROTECTED_RKE2_VERSION: >-
+                  {{ hostvars['localhost'].c1_2_upgrade_to_version }}
+                C1_2_PROTECTED_RKE2_TYPE: agent
+                C1_2_PROTECTED_RKE2_ARTIFACT_PATH: >-
+                  {{ c1_2_prime_artifact_stage.path | default('') }}
+              no_log: >-
+                {{
+                  hostvars['localhost'].c1_2_upgrade_to_version
+                  in hostvars['localhost'].c1_2_upgrade_prime_rke2_versions
+                }}
+              changed_when: true
+          always:
+            - name: Remove the staged agent Prime artifacts
+              ansible.builtin.file:
+                path: "{{ c1_2_prime_artifact_stage.path }}"
+                state: absent
+              when:
+                - c1_2_prime_artifact_stage is defined
+                - c1_2_prime_artifact_stage.path is defined
+              no_log: true
+
+        - name: Prove installed agent paths before daemon reload
+          ansible.builtin.shell:
+            cmd: *c1_2_service_input_gate
+          args: *c1_2_service_input_gate_args
+          vars:
+            c1_2_rke2_service_unit: rke2-agent.service
+            c1_2_rke2_expected_binary_version: >-
+              {{ hostvars['localhost'].c1_2_upgrade_to_version }}
+            c1_2_rke2_validate_cached_service: false
+          changed_when: false
 
         - name: Reload the installed RKE2 agent unit metadata
           ansible.builtin.systemd:
@@ -2997,6 +4571,8 @@
           args: *c1_2_service_input_gate_args
           vars:
             c1_2_rke2_service_unit: rke2-agent.service
+            c1_2_rke2_expected_binary_version: >-
+              {{ hostvars['localhost'].c1_2_upgrade_to_version }}
           changed_when: false
 
         - name: Start this RKE2 agent
@@ -3017,6 +4593,8 @@
           args: *c1_2_live_process_input_gate_args
           vars:
             c1_2_rke2_service_unit: rke2-agent.service
+            c1_2_rke2_expected_binary_version: >-
+              {{ hostvars['localhost'].c1_2_upgrade_to_version }}
           changed_when: false
 
         - name: Verify the exact installed agent target pin
@@ -3348,6 +4926,39 @@
                 | default('') | trim | length == 0
             fail_msg: >-
               Hard stop: post-agent PVC or node convergence failed.
+
+        - name: Re-prove etcd health after agent convergence
+          ansible.builtin.command:
+            argv:
+              - "{{ c1_2_etcdctl_path }}"
+              - "--cacert={{ c1_2_etcd_ca }}"
+              - "--cert={{ c1_2_etcd_cert }}"
+              - "--key={{ c1_2_etcd_key }}"
+              - "--endpoints=https://127.0.0.1:2379"
+              - endpoint
+              - health
+              - --cluster
+          environment:
+            ETCDCTL_API: "3"
+          delegate_to: "{{ c1_2_target_maintenance_host }}"
+          register: c1_2_post_agent_etcd_health
+          ignore_unreachable: true
+          failed_when: false
+          changed_when: false
+
+        - name: Reject degraded etcd after agent convergence
+          ansible.builtin.assert:
+            that:
+              - >-
+                not (
+                  c1_2_post_agent_etcd_health.unreachable
+                  | default(false)
+                  | bool
+                )
+              - c1_2_post_agent_etcd_health.rc | default(1) | int == 0
+            fail_msg: >-
+              Hard stop: etcd degraded after upgrading
+              {{ inventory_hostname }}. The agent is re-cordoned.
       rescue:
         - name: Re-cordon the agent through every declared server
           ansible.builtin.command:
@@ -3400,6 +5011,9 @@
   any_errors_fatal: true
   serial: 1
   tasks:
+    - name: Re-select the protected RKE2 binary identity in final validation
+      block: *c1_2_rke2_binary_identity_gate
+
     - name: Re-prove protected RKE2 paths in final per-node validation
       block: *c1_2_rke2_config_integrity_gate
 
@@ -3415,6 +5029,8 @@
             )
             | ternary('rke2-server.service', 'rke2-agent.service')
           }}
+        c1_2_rke2_expected_binary_version: >-
+          {{ hostvars['localhost'].c1_2_upgrade_to_version }}
       changed_when: false
 
     - name: Reject alternate inputs in every final live RKE2 process
@@ -3429,6 +5045,8 @@
             )
             | ternary('rke2-server.service', 'rke2-agent.service')
           }}
+        c1_2_rke2_expected_binary_version: >-
+          {{ hostvars['localhost'].c1_2_upgrade_to_version }}
       changed_when: false
 
     - name: Re-query the final installed RKE2 version
@@ -3660,6 +5278,23 @@
         fail_msg: >-
           Hard stop: final etcd member names do not exactly match the declared
           RKE2 server inventory.
+
+    - name: Prove every final etcd endpoint is healthy
+      ansible.builtin.command:
+        argv:
+          - "{{ c1_2_etcdctl_path }}"
+          - "--cacert={{ c1_2_etcd_ca }}"
+          - "--cert={{ c1_2_etcd_cert }}"
+          - "--key={{ c1_2_etcd_key }}"
+          - "--endpoints=https://127.0.0.1:2379"
+          - endpoint
+          - health
+          - --cluster
+      environment:
+        ETCDCTL_API: "3"
+      delegate_to: "{{ c1_2_final_maintenance_host }}"
+      register: c1_2_final_etcd_health
+      changed_when: false
 
     - name: Find every final node convergence or version violation
       ansible.builtin.shell: |

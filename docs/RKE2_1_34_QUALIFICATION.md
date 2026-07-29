@@ -44,22 +44,35 @@ artifact, or an unverifiable artifact is a hard stop. Do not substitute a
 different patch, use an untrusted mirror, or skip either rung.
 
 Store the authenticated Prime Artifacts URL only as
-`vault_rke2_prime_artifact_url`; production maps it to the protected
-`rke2_install_artifact_url` installer input. Never pass the URL on the command
-line, print it, or retain it in evidence. Leave it empty for a public-release
-install. A Prime-only target with an empty protected URL is a hard stop. The
-same gate renders and verifies
+`vault_rke2_prime_artifact_url`; never pass it on the command line, print it,
+or retain it in evidence. The tagged installers for the two mandatory legacy
+rungs predate `INSTALL_RKE2_ARTIFACT_URL`, so the upgrade playbook downloads
+the exact checksum manifest and release tarball itself, validates both against
+`vault_rke2_prime_artifact_sha256_by_architecture`, stages them in a
+root-only temporary directory, and gives the installer only
+`INSTALL_RKE2_ARTIFACT_PATH`. The directory is removed on success or failure.
+A Prime-only target with an empty protected URL or incomplete artifact hash
+map is a hard stop. Public rungs receive no Prime source or local artifact
+path; clear `vault_rke2_prime_artifact_url` before the first public rung while
+retaining the fixed hash map as campaign evidence. The normal server and agent
+roles reject both Prime-only pins and every non-empty artifact URL; the
+qualified upgrade playbook is the sole supported installer path through those
+transit states. `node-replace.yml` likewise rejects replacement at either
+transit pin. A node loss there stops the campaign: use the matching pre-rung
+snapshot with binary and datastore rollback, or repair and rejoin the existing
+node. The same gate renders and verifies
 `system-default-registry: registry.rancher.com` before a Prime node restarts;
 an absent or different registry is also a hard stop.
 
-The YAML files are authoritative only when the stock RKE2 systemd unit invokes
-`/usr/local/bin/rke2 server` or `agent` without alternate inputs. Before a
-restart and again against the live process, the playbook rejects unit
-drop-ins, a non-stock fragment or `ExecStart`, unexpected `EnvironmentFile`
-directives, any `RKE2_*` manager or service environment override, and any
-additional live command-line argument. This prevents `RKE2_CONFIG_FILE`,
-`RKE2_SYSTEM_DEFAULT_REGISTRY`, CLI flags, or an equivalent token, URL, label,
-or taint environment value from silently outranking the reviewed YAML.
+The YAML files are authoritative only when the authenticated
+`/usr/local/bin/rke2` binary is started by the protected stock systemd unit as
+exactly `server` or `agent`, without alternate inputs. Before mutation,
+immediately before each start, and during final validation, the playbooks
+verify the non-symlink root-owned ancestor chains, exact binary checksum, unit
+owner/mode/content, absence of drop-ins, environment-file contract, cached
+executable phases and flags, unit dependency/action closure, manager cache
+freshness, manager environment, live process environment, and complete live
+command line. Any drift is a hard stop.
 
 The pre-start gate pins the complete stock systemd fragment, not selected
 lines. The following SHA-256 values were independently re-fetched from the
@@ -69,6 +82,54 @@ official tagged RKE2 source on 2026-07-29:
 | --- | --- | --- | --- |
 | `v1.31.4+rke2r1`, `v1.31.14+rke2r2` | `caf5e4ff923c968d15494d984320b9ab4be13504fe9d37b968ca52ecd8e4ffcb` | `ce3962d986a360e11d175de9fa8d9ae0a55cb227f41ed576e93fcbc817d8a103` | [`v1.31.4`](https://github.com/rancher/rke2/tree/v1.31.4%2Brke2r1/bundle/lib/systemd/system), [`v1.31.14`](https://github.com/rancher/rke2/tree/v1.31.14%2Brke2r2/bundle/lib/systemd/system) |
 | `v1.32.13+rke2r2`, `v1.33.13+rke2r1`, `v1.34.9+rke2r1` | `30cb868bfbc40d69b3c3b7553493c50c17538f3a550c89ff2300d13bb66a61b1` | `7c574199fc688205f313c451255fffcc139b8092326de8c706d50e2d3058c608` | [`v1.32.13`](https://github.com/rancher/rke2/tree/v1.32.13%2Brke2r2/bundle/lib/systemd/system), [`v1.33.13`](https://github.com/rancher/rke2/tree/v1.33.13%2Brke2r1/bundle/lib/systemd/system), [`v1.34.9`](https://github.com/rancher/rke2/tree/v1.34.9%2Brke2r1/bundle/lib/systemd/system) |
+
+The installer itself is also exact-tag authority. The playbooks and normal
+roles fetch the matching tagged `install.sh`, validate its pinned SHA-256, set
+root ownership and mode `0750`, and replay the leaf checksum immediately before
+execution. Each root execution rejects inherited `INSTALL_RKE2_*` controls and
+uses a newly constructed allowlist containing only the exact pin, stable
+channel, node type, tar method and prefix, reload fence, fixed system
+environment, and the validated local artifact path only for a Prime rung.
+These values were independently re-fetched from the official tags on
+2026-07-29:
+
+| RKE2 pin | Tagged `install.sh` SHA-256 | Official source |
+| --- | --- | --- |
+| `v1.31.4+rke2r1` | `8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492` | [`install.sh`](https://raw.githubusercontent.com/rancher/rke2/v1.31.4%2Brke2r1/install.sh) |
+| `v1.31.14+rke2r2` | `8d57ffcda9974639891af35a01e9c3c2b8f97ac71075a805d60060064b054492` | [`install.sh`](https://raw.githubusercontent.com/rancher/rke2/v1.31.14%2Brke2r2/install.sh) |
+| `v1.32.13+rke2r2` | `81640ec027dea1950f152f795a7234ca78d4b86528a9e2a909a8456338923e34` | [`install.sh`](https://raw.githubusercontent.com/rancher/rke2/v1.32.13%2Brke2r2/install.sh) |
+| `v1.33.13+rke2r1` | `bfbd978d603b7070f5748c934326db509bf1470c97d3f61a3aaa6e2eed6bd054` | [`install.sh`](https://raw.githubusercontent.com/rancher/rke2/v1.33.13%2Brke2r1/install.sh) |
+| `v1.34.9+rke2r1` | `2d24db2184dd6b1a5e281fa45cc9a8234c889394721746f89b5fe953fdaaf40a` | [`install.sh`](https://raw.githubusercontent.com/rancher/rke2/v1.34.9%2Brke2r1/install.sh) |
+
+The operator must populate
+`vault_rke2_binary_sha256_by_architecture[ansible_architecture][pin]` with the
+exact SHA-256 of the authenticated artifact for every architecture and rung in
+the campaign. For public pins, validate the release archive against the
+official checksum first and then hash its extracted `rke2` binary; for
+Prime-only pins, use the equivalently authenticated Prime artifact. A missing,
+malformed, placeholder, all-zero, or cross-architecture value is never
+inferred and stops the playbook. The gate compares that value with the
+installed `/usr/local/bin/rke2` before and after mutation.
+
+For each production architecture, the operator must also populate both
+`checksum_manifest_sha256` and `tarball_sha256` under
+`vault_rke2_prime_artifact_sha256_by_architecture[architecture][pin]` for
+`v1.31.14+rke2r2` and `v1.32.13+rke2r2`. These values must come from the
+authenticated Prime artifacts, not from the zero-asset public release pages.
+Before invoking the installer, the playbook re-hashes both staged files and
+requires the manifest to name the exact tarball digest once. Placeholder,
+missing, malformed, all-zero, or cross-architecture values are hard stops.
+
+The stock unit may read only the bundled
+`/usr/local/lib/systemd/system/rke2-{server,agent}.env`, whose sole active
+assignment is `HOME=/root`. Optional `/etc/default/rke2-*` and
+`/etc/sysconfig/rke2-*` files must be absent or protected and contain no active
+assignments. The systemd manager environment permits only locale variables and
+the approved standard absolute `PATH`; the live process permits only the
+reviewed systemd runtime variables. Proxy, trust, cloud credential,
+`LD_*`, alternate path, and `RKE2_*` injection are rejected. After
+`daemon-reload`, every cached executable phase, flag, dependency, and action
+must still match the reviewed stock service contract before a node can start.
 
 The Kubernetes ladder is interleaved with the already-cleared C1.1
 CloudNativePG operator ladder. These release records make the bridge pins
@@ -106,8 +167,10 @@ rungs.
   identify `v1.32.13+rke2r2` as Prime-only.
 - [SUSE Rancher Prime RKE2 quickstart](https://documentation.suse.com/external-tree/en-us/cloudnative/rke2/latest/en/install/quickstart.html)
   documents the authenticated Prime Artifacts URL and exact-version
-  installer input. Release-page visibility is not a substitute for this
-  authenticated access.
+  installer input used by current installers. The two legacy tagged installers
+  in this ladder do not consume that URL variable, which is why C1.2 stages
+  their authenticated files through `INSTALL_RKE2_ARTIFACT_PATH` instead.
+  Release-page visibility is not a substitute for authenticated access.
 
 ## Mandatory campaign order
 
@@ -130,7 +193,10 @@ Each RKE2 target must be the immediate next exact pin. The operator-run
 `infra/ansible/playbooks/upgrade-k8s.yml` rejects skipped minors, downgrades,
 off-ladder targets, missing pre-rung snapshot evidence, and degraded etcd,
 CNPG, or storage state. Declaring source and target variables does not
-override those gates.
+override those gates. The exact authenticated pin and server leadership are
+rechecked before target-registry reconciliation; fresh pin facts alone control
+install-versus-recovery decisions. Etcd endpoint health is rechecked before
+and after every agent and in the final fleet gate.
 
 Before each RKE2 rung, identify the current etcd leader. Upgrade servers one
 at a time: etcd followers first and the leader last. Do not begin the next

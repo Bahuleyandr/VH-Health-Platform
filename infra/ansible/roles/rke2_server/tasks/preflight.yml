@@ -49,28 +49,17 @@
       - rke2_install_method == 'curl'
       - rke2_channel == 'stable'
       - >-
-        rke2_install_artifact_url | string
-        == (rke2_install_artifact_url | string | trim)
-      - >-
-        rke2_install_artifact_url | string
-        ==
-        (vault_rke2_prime_artifact_url | default('') | string)
-      - >-
         rke2_install_artifact_url | string | length == 0
-        or (
-          (
-            rke2_install_artifact_url
-            | regex_search('^https://\S+/rke2/?$')
-          ) is not none
-        )
       - >-
-        rke2_install_artifact_url | string | length == 0
-        or rke2_system_default_registry == 'registry.rancher.com'
+        rke2_version not in [
+          'v1.31.14+rke2r2',
+          'v1.32.13+rke2r2'
+        ]
     fail_msg: >-
-      This role supports only the stable-channel official curl installer.
-      Prime artifact URLs must come from vault_rke2_prime_artifact_url, use
-      HTTPS, end in /rke2 (optional trailing slash), and pair with
-      system-default-registry registry.rancher.com.
+      Normal server installation supports only the stable official curl
+      installer without a Prime artifact URL. Install or move through
+      v1.31.14+rke2r2 and v1.32.13+rke2r2 only with
+      playbooks/upgrade-k8s.yml, which uses Vault-pinned local staging.
   tags: [rke2, preflight, install]
 
 - name: Assert joining servers use an enabled control-plane VIP
