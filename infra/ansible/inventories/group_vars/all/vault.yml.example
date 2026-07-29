@@ -11,6 +11,22 @@
 #
 # All values here are dummy placeholders.
 
+# --- RKE2 cluster identity -------------------------------------------------
+# Before the first C1.2 apply to an existing cluster, copy the exact live
+# server token into this value. The role compares every existing
+# server's token with this Vault value and stops before making changes if any
+# value is absent or differs. Production uses steady_state_exact and never
+# accepts short-to-secure token equivalence. A brand-new cluster may explicitly
+# use fresh_short for its first run only; immediately capture the resulting
+# secure token into Vault and switch to steady_state_exact.
+vault_rke2_cluster_token: "REPLACE_WITH_EXACT_LIVE_RKE2_TOKEN"
+
+# Authenticated artifact URL prefix for SUSE Prime-only RKE2 pins. Leave empty
+# for public rungs. The installer appends the URL-encoded version and artifact
+# filename. The official Prime prefix must be HTTPS and end in `/rke2` (an
+# optional trailing slash is accepted); do not include a version suffix.
+vault_rke2_prime_artifact_url: ""
+
 # --- etcd offsite snapshot destination (Cloudflare R2) ---------------------
 # R2 bucket configured in the VH Health Cloudflare account, India region.
 # Access key is scoped to Object:Read/Write on the etcd-snapshots bucket

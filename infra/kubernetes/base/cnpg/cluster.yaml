@@ -1,7 +1,7 @@
 # cnpg/cluster.yaml — VH Health production PostgreSQL cluster
 #
 # PostgreSQL 18.4, 3 instances (1 primary + 2 replicas), synchronous
-# replication with 1 sync standby, anti-affinity across zones,
+# replication with 1 sync standby, required anti-affinity across hosts,
 # continuous WAL archiving to Cloudflare R2 through the Barman Cloud
 # Plugin, and one daily base backup retained for 30 days.
 #
@@ -10,9 +10,9 @@
 # minSync=1 we tolerate one failed replica without blocking writes, and
 # any committed write has been flushed to at least 2 of 3 nodes.
 #
-# Anti-affinity: preferredDuringScheduling across `topology.kubernetes.io/zone`
-# (the Ansible bootstrap labels each node with its rack/zone so the
-# scheduler spreads pods).
+# Anti-affinity: required across `kubernetes.io/hostname`, so at most one
+# instance runs on each eligible host. On a node loss the third instance stays
+# Pending; the two surviving instances preserve quorum and one sync standby.
 #
 # Backup: the Barman Cloud Plugin references ObjectStore
 # `vhhealth-pg18-producer`. Credentials are a producer-only SealedSecret;
@@ -305,8 +305,8 @@ spec:
 
   affinity:
     enablePodAntiAffinity: true
-    topologyKey: "topology.kubernetes.io/zone"
-    podAntiAffinityType: preferred
+    topologyKey: "kubernetes.io/hostname"
+    podAntiAffinityType: required
 
   # Per-pod disruption budget: at most 1 instance may be voluntarily
   # disrupted at a time (operator drain during node upgrade, etc.).

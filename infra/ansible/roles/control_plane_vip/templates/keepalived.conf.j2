@@ -1,0 +1,44 @@
+{{ ansible_managed | comment }}
+# RKE2 control-plane VIP. All peers deliberately start BACKUP and use
+# nopreempt so recovery does not cause a second avoidable failover.
+
+global_defs {
+    enable_script_security
+    script_user root
+}
+
+vrrp_script check_rke2_control_plane {
+    script "{{ control_plane_vip_health_script_path }}"
+    interval {{ control_plane_vip_health_interval }}
+    timeout {{ control_plane_vip_health_timeout }}
+    fall {{ control_plane_vip_health_fall }}
+    rise {{ control_plane_vip_health_rise }}
+    init_fail
+}
+
+vrrp_instance VI_RKE2_CONTROL_PLANE {
+    state BACKUP
+    interface {{ control_plane_vip_interface }}
+    virtual_router_id {{ control_plane_vip_virtual_router_id }}
+    priority {{ control_plane_vip_effective_priority }}
+    advert_int {{ control_plane_vip_advert_interval }}
+    vrrp_version 3
+    nopreempt
+    check_unicast_src
+    track_src_ip
+
+    unicast_src_ip {{ control_plane_vip_unicast_address }}
+    unicast_peer {
+{% for host in control_plane_vip_server_hosts if host != inventory_hostname %}
+        {{ hostvars[host].control_plane_vip_unicast_address | default(hostvars[host].ansible_host) }}
+{% endfor %}
+    }
+
+    virtual_ipaddress {
+        {{ control_plane_vip_address }}/{{ control_plane_vip_prefix_length }} dev {{ control_plane_vip_interface }}
+    }
+
+    track_script {
+        check_rke2_control_plane
+    }
+}

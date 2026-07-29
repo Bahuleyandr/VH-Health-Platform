@@ -1,9 +1,20 @@
-# overlays/prod/longhorn-pvc-patch.yaml — INF-5 / B2.6
+# overlays/prod/longhorn-pvc-patch.yaml — held placement candidate
 #
-# Switches all production stateful PVCs from local-path to the longhorn
-# StorageClass (3-replica block replication across all 3 nodes).
+# This file is intentionally NOT referenced by the production kustomization.
+# C1.2 selects no storage migration. The current CNPG data/WAL placement is
+# local-path and its durability contract is PostgreSQL streaming replication.
+# `longhorn` is the repository StorageClass name; no alternate class name is
+# defined. Longhorn's three replicas are three node copies, not proof of
+# separate rack, power, network, PDU, UPS, or switch failure domains.
 #
-# TRADEOFFS DOCUMENTED:
+# The blocks below only preserve the candidate manifests for a later,
+# service-by-service decision. Before any block is activated, the operator must
+# complete docs/C1_2_STORAGE_PLACEMENT_GATE.md, qualify the exact Longhorn
+# version, quantify write amplification, prove backup and disposable restore,
+# and approve a service-specific execution and abort plan. Longhorn upgrades
+# advance one minor at a time; downgrade is not an accepted rollback.
+#
+# PLACEMENT TRADEOFFS TO QUALIFY:
 # ┌─────────────────┬────────────────────────────────────────────────────────┐
 # │ Service         │ Tradeoff note                                          │
 # ├─────────────────┼────────────────────────────────────────────────────────┤
@@ -12,56 +23,26 @@
 # │                 │ gives storage-layer HA on top. Write amplification:     │
 # │                 │ each write goes to 3 PG nodes AND is mirrored 3× by    │
 # │                 │ Longhorn per node = ~9× total I/Os in the worst case.  │
-# │                 │ Accept: PHI loss on storage failure is unacceptable.   │
+# │                 │ This must be measured before a placement is selected.  │
 # │                 │ Monitor: Longhorn volume IOPS + Postgres replication    │
-# │                 │ lag. Tune if p99 write latency > 20ms.                 │
+# │                 │ lag; owner thresholds are required by the gate.        │
 # ├─────────────────┼────────────────────────────────────────────────────────┤
-# │ Redis           │ AOF ensures ≤1s data loss already. Longhorn adds       │
-# │                 │ storage-layer resilience for the JWT blacklist PVC.    │
+# │ Redis           │ AOF and storage placement have an owner-defined RPO.    │
+# │                 │ Measure replay, loss, latency, and failure behavior.    │
 # ├─────────────────┼────────────────────────────────────────────────────────┤
-# │ Vault           │ Raft consensus requires disk durability. Longhorn       │
-# │                 │ prevents data loss if a node's disk fails.             │
+# │ Vault           │ Raft requires durable storage. Prove node/disk-loss,    │
+# │                 │ quorum, recovery, and latency behavior before selection.│
 # ├─────────────────┼────────────────────────────────────────────────────────┤
-# │ MinIO           │ MinIO EC:4 provides its own erasure coding. Longhorn    │
-# │                 │ replica=3 is redundant but not harmful. Operators may   │
-# │                 │ choose longhorn-single for MinIO pool PVCs to avoid     │
-# │                 │ double-redundancy overhead (~1.5 TiB extra).           │
+# │ MinIO           │ MinIO erasure coding plus Longhorn replication would    │
+# │                 │ duplicate writes and capacity. Quantify both candidate  │
+# │                 │ layouts; C1.2 selects neither StorageClass.             │
 # ├─────────────────┼────────────────────────────────────────────────────────┤
 # │ Harbor          │ Image blobs in MinIO (S3). Harbor's own PVCs (registry │
 # │                 │ jobLog, trivy) are large but non-clinical. Replicated.  │
 # ├─────────────────┼────────────────────────────────────────────────────────┤
-# │ step-ca         │ CA key material. Single PVC (10 GiB) — Longhorn adds   │
-# │                 │ storage HA for the CA state (offline key never on PVC). │
+# │ step-ca         │ CA state needs an owner-approved durability and restore │
+# │                 │ result; the offline key remains outside the PVC.        │
 # └─────────────────┴────────────────────────────────────────────────────────┘
-#
-# MIGRATION: existing local-path PVCs CANNOT be migrated in-place.
-# Operator must follow the data-move procedure for each StatefulSet:
-#
-#   For each StatefulSet (redis, vault, step-ca):
-#   1. kubectl scale sts/<name> -n <ns> --replicas=0
-#   2. Take a backup:
-#      - Redis: BGSAVE + copy /data/dump.rdb from the pod before scaling
-#      - Vault: vault operator raft snapshot save vault-snapshot.snap
-#      - step-ca: kubectl cp vhhealth-security/step-ca-0:/home/step step-ca-data/
-#   3. kubectl delete pvc data-<name>-0 data-<name>-1 data-<name>-2 -n <ns>
-#      (If Retain policy, also: kubectl delete pv <pv-names>)
-#   4. Edit the StatefulSet volumeClaimTemplate or apply this kustomize patch.
-#   5. kubectl scale sts/<name> -n <ns> --replicas=3
-#      Longhorn provisions fresh PVs; restore data from backup.
-#
-#   For CNPG: the CNPG operator manages its own PVCs. Migrate by:
-#   1. kubectl cnpg backup vhhealth-pg -n vhhealth-platform --name pre-migration
-#   2. Confirm backup to R2 is complete.
-#   3. kubectl delete cluster vhhealth-pg -n vhhealth-platform
-#      (This also deletes CNPG-managed PVCs — BACKUP MUST BE CONFIRMED FIRST.)
-#   4. Apply this overlay with the patched storageClass.
-#   5. ArgoCD re-creates the Cluster CR; CNPG bootstraps from R2 backup.
-#   This is the most impactful operation — schedule a maintenance window
-#   (DOWNTIME_PROCEDURE.md) and test the full drill BEFORE doing this in prod.
-#
-#   For MinIO: patch pools[0].volumeClaimTemplate.spec.storageClassName.
-#   The MinIO Operator manages pool PVCs. Operator must drain each pool
-#   pod one at a time (rolling) after patching, allowing MinIO to rebalance.
 
 # ── CNPG data PVC ───────────────────────────────────────────────────────────
 - target:
@@ -108,9 +89,9 @@
       value: longhorn
 
 # ── MinIO pool-0 PVCs ────────────────────────────────────────────────────────
-# NOTE: If double-redundancy overhead (MinIO EC:4 + Longhorn 3×) is
-# unacceptable on the current hardware, change `longhorn` to `longhorn-single`
-# here. MinIO's own EC provides sufficient redundancy for object data.
+# NOTE: The placement gate must measure MinIO erasure coding with each held
+# Longhorn candidate, including capacity, write amplification, network loss,
+# and restore behavior. C1.2 chooses neither candidate.
 - target:
     kind: Tenant
     name: vhhealth-minio
@@ -122,14 +103,13 @@
       value: longhorn
 
 # ── Harbor Helm-managed PVCs ─────────────────────────────────────────────────
-# Harbor is deployed via ArgoCD Helm Application (not a StatefulSet in kustomize).
-# The patch below updates the harbor-values ConfigMap key that the ArgoCD
-# Application references. This propagates to the Helm chart on the next sync.
+# Harbor is deployed via ArgoCD Helm Application (not a StatefulSet in
+# kustomize). The candidate below would update the values ConfigMap read by
+# that child Application.
 # Image blobs live in MinIO — only the jobservice log PVC and trivy DB PVC
-# are node-local and need migration.
+# remain node-local placement candidates.
 #
-# OPERATOR ACTION: after applying this overlay, verify Harbor ArgoCD Application
-# shows the patched storageClass values before triggering a sync.
+# Any future use remains subject to the same placement gate and manual sync.
 - target:
     kind: ConfigMap
     name: harbor-values-override

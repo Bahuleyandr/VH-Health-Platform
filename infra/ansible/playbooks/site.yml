@@ -5,41 +5,920 @@
 #   1. common       — OS baseline (timezone, NTP, sysctls, kernel mods, swap)
 #   2. hardening    — CIS subset (SSH, auditd, fail2ban, aide, faillock)
 #   3. firewall     — nftables baseline (drop-by-default, cluster allowlist)
-#   4. rke2-server  — RKE2 binary + config + bootstrap/join
+#   4. control-plane-vip — health-gated unicast keepalived endpoint
+#   5. rke2-server  — RKE2 binary + config + bootstrap/join
 #
 # Safe to re-run on a healthy cluster — every task is idempotent.
-# Strategy 'linear' (default) is deliberate; RKE2 bootstrap ordering relies
-# on task-level delegation, not play-level serialisation.
+# Servers are deliberately processed one at a time. This keeps notified RKE2
+# restarts and keepalived reloads serial, and it starts the declared bootstrap
+# server before any joining server waits on the VIP.
 
-- name: Bootstrap RKE2 servers
+- name: Validate RKE2 identity and classify server roles
   hosts: rke2_servers
   become: true
   gather_facts: true
   any_errors_fatal: true
+  tasks:
+    - name: Require one declared bootstrap server
+      ansible.builtin.assert:
+        that:
+          - >-
+            groups['rke2_servers']
+            | map('extract', hostvars)
+            | selectattr('rke2_bootstrap', 'defined')
+            | selectattr('rke2_bootstrap', 'equalto', true)
+            | list
+            | length == 1
+        fail_msg: "Exactly one rke2_servers host must declare rke2_bootstrap: true."
+      run_once: true
+      tags: [always]
+
+    - name: Require truthful failure-domain labels
+      ansible.builtin.assert:
+        that:
+          - inventory_region is defined
+          - inventory_region | string | trim | length > 0
+          - inventory_zone is defined
+          - inventory_zone | string | trim | length > 0
+        fail_msg: >-
+          {{ inventory_hostname }} requires non-empty inventory_region and
+          inventory_zone values backed by facilities evidence.
+      tags: [always]
+
+    - name: Validate firewall network scopes
+      ansible.builtin.assert:
+        that:
+          - management_cidrs is sequence
+          - management_cidrs is not string
+          - management_cidrs | length > 0
+          - >-
+            management_cidrs | ansible.utils.ipaddr('net') | length
+            == management_cidrs | length
+          - cluster_cidrs is sequence
+          - cluster_cidrs is not string
+          - cluster_cidrs | length > 0
+          - >-
+            cluster_cidrs | ansible.utils.ipaddr('net') | length
+            == cluster_cidrs | length
+        fail_msg: >-
+          management_cidrs and cluster_cidrs must each contain at least one
+          valid IPv4 network before the host firewall can be changed.
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Resolve the active administration source
+      ansible.builtin.set_fact:
+        c1_2_controller_source_address: >-
+          {{ (ansible_env.SSH_CONNECTION | default('')).split()
+             | first | default('') }}
+        c1_2_controller_source_in_scope: false
+      when: ansible_connection | default('ssh') != 'local'
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Check the administration source against management CIDRs
+      ansible.builtin.set_fact:
+        c1_2_controller_source_in_scope: >-
+          {{ c1_2_controller_source_in_scope | bool
+             or (c1_2_controller_source_address
+                 | ansible.utils.ipaddr(item)) is not sameas false }}
+      loop: "{{ management_cidrs }}"
+      when: ansible_connection | default('ssh') != 'local'
+      no_log: true
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Refuse to lock out the active administration session
+      ansible.builtin.assert:
+        that:
+          - c1_2_controller_source_address | length > 0
+          - c1_2_controller_source_in_scope | bool
+        fail_msg: >-
+          The active SSH controller address is not covered by management_cidrs.
+          Correct the inventory before applying the host firewall.
+      when: ansible_connection | default('ssh') != 'local'
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Reject a VIP that is already a real local node address
+      ansible.builtin.assert:
+        that:
+          - >-
+            control_plane_vip_address
+            not in (ansible_facts['all_ipv4_addresses'] | default([]))
+          - >-
+            control_plane_vip_interface
+            in (ansible_facts['interfaces'] | default([]))
+          - >-
+            control_plane_vip_unicast_address
+            == ansible_facts[control_plane_vip_interface]['ipv4']['address']
+            or control_plane_vip_unicast_address
+            in (
+              ansible_facts[control_plane_vip_interface]['ipv4_secondaries']
+              | default([])
+              | map(attribute='address')
+              | list
+            )
+        fail_msg: >-
+          {{ inventory_hostname }} has a VIP collision or its declared unicast
+          source is not assigned to control_plane_vip_interface.
+      when: control_plane_vip_enabled | bool
+      tags: [always]
+
+    - name: Resolve the selected interface address and declared peer addresses
+      ansible.builtin.set_fact:
+        c1_2_control_plane_unicast_prefixes: >-
+          {%- set prefixes = [] -%}
+          {%- set interface_facts =
+            ansible_facts[control_plane_vip_interface] -%}
+          {%- set primary = interface_facts['ipv4'] | default({}) -%}
+          {%- if primary.address | default('')
+            == control_plane_vip_unicast_address -%}
+          {%- set _ = prefixes.append(primary.prefix | default(-1)) -%}
+          {%- endif -%}
+          {%- for secondary in
+            interface_facts['ipv4_secondaries'] | default([]) -%}
+          {%- if secondary.address | default('')
+            == control_plane_vip_unicast_address -%}
+          {%- set _ = prefixes.append(secondary.prefix | default(-1)) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ prefixes }}
+        c1_2_control_plane_peer_addresses: >-
+          {%- set addresses = [] -%}
+          {%- for host in groups['rke2_servers'] | default([]) -%}
+          {%- set _ = addresses.append(
+            hostvars[host].control_plane_vip_unicast_address
+            | default('')
+            | string
+          ) -%}
+          {%- endfor -%}
+          {{ addresses }}
+      when: control_plane_vip_enabled | bool
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Bind the declared VIP prefix to the selected interface address
+      ansible.builtin.assert:
+        that:
+          - c1_2_control_plane_unicast_prefixes | length == 1
+          - >-
+            c1_2_control_plane_unicast_prefixes | first | int
+            == control_plane_vip_prefix_length | int
+          - >-
+            c1_2_control_plane_peer_addresses
+            | reject('equalto', '')
+            | list
+            | length
+            == groups['rke2_servers'] | length
+          - >-
+            c1_2_control_plane_peer_addresses | unique | list | length
+            == c1_2_control_plane_peer_addresses | length
+        fail_msg: >-
+          Hard stop before firewall mutation: the selected unicast address must
+          resolve exactly once on control_plane_vip_interface with the declared
+          prefix, and every RKE2 server must declare one unique unicast peer.
+      when: control_plane_vip_enabled | bool
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Initialize local VIP firewall-scope proof
+      ansible.builtin.set_fact:
+        c1_2_vip_cluster_scope_matches: []
+        c1_2_unicast_cluster_scope_matches: []
+        c1_2_peer_cluster_scope_matches: []
+      when: control_plane_vip_enabled | bool
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Resolve local VIP addresses against cluster CIDRs
+      ansible.builtin.set_fact:
+        c1_2_vip_cluster_scope_matches: >-
+          {{
+            (
+              c1_2_vip_cluster_scope_matches
+              + (
+                  [control_plane_vip_address]
+                  | ansible.utils.ipaddr(item)
+                  | list
+                )
+            )
+            | unique
+            | list
+          }}
+        c1_2_unicast_cluster_scope_matches: >-
+          {{
+            (
+              c1_2_unicast_cluster_scope_matches
+              + (
+                  [control_plane_vip_unicast_address]
+                  | ansible.utils.ipaddr(item)
+                  | list
+                )
+            )
+            | unique
+            | list
+          }}
+        c1_2_peer_cluster_scope_matches: >-
+          {{
+            (
+              c1_2_peer_cluster_scope_matches
+              + (
+                  c1_2_control_plane_peer_addresses
+                  | ansible.utils.ipaddr(item)
+                  | list
+                )
+            )
+            | unique
+            | list
+          }}
+      loop: "{{ cluster_cidrs }}"
+      when: control_plane_vip_enabled | bool
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Require VIP and unicast source to share the allowed interface subnet
+      ansible.builtin.assert:
+        that:
+          - c1_2_vip_cluster_scope_matches | length == 1
+          - c1_2_unicast_cluster_scope_matches | length == 1
+          - >-
+            c1_2_control_plane_peer_addresses
+            | difference(c1_2_peer_cluster_scope_matches)
+            | length == 0
+          - >-
+            (
+              (
+                control_plane_vip_address
+                ~ '/'
+                ~ (
+                    c1_2_control_plane_unicast_prefixes
+                    | first
+                    | string
+                  )
+              )
+              | ansible.utils.ipaddr('network')
+            )
+            ==
+            (
+              (
+                control_plane_vip_unicast_address
+                ~ '/'
+                ~ (
+                    c1_2_control_plane_unicast_prefixes
+                    | first
+                    | string
+                  )
+              )
+              | ansible.utils.ipaddr('network')
+            )
+        fail_msg: >-
+          The control-plane VIP and local unicast source must share the
+          selected interface subnet and each must fall inside cluster_cidrs.
+          Otherwise the scoped VRRP firewall rule would reject advertisements.
+      when: control_plane_vip_enabled | bool
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Require every VRRP peer to share the real interface subnet
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              (
+                item
+                ~ '/'
+                ~ (
+                    c1_2_control_plane_unicast_prefixes
+                    | first
+                    | string
+                  )
+              )
+              | ansible.utils.ipaddr('network')
+            )
+            ==
+            (
+              (
+                control_plane_vip_unicast_address
+                ~ '/'
+                ~ (
+                    c1_2_control_plane_unicast_prefixes
+                    | first
+                    | string
+                  )
+              )
+              | ansible.utils.ipaddr('network')
+            )
+        fail_msg: >-
+          Hard stop before firewall mutation: VRRP peer {{ item }} does not
+          share the actual selected-interface subnet on {{ inventory_hostname }}.
+      loop: "{{ c1_2_control_plane_peer_addresses }}"
+      when: control_plane_vip_enabled | bool
+      tags: [always, firewall, control_plane_vip]
+
+    - name: Verify the pre-shared token before any host changes
+      ansible.builtin.include_role:
+        name: rke2_server
+        tasks_from: token.yml
+        apply:
+          tags: [always]
+      tags: [always, rke2, token]
+
+    - name: Record the protected fleet token state
+      ansible.builtin.set_fact:
+        c1_2_fleet_token_mode: "{{ rke2_cluster_token_mode }}"
+        c1_2_fleet_token_fingerprint: >-
+          {{ rke2_cluster_token_canonical | hash('sha256') }}
+        c1_2_fleet_existing_server_state: >-
+          {{
+            rke2_existing_server_state.stat.exists
+            | default(false)
+            | bool
+          }}
+      no_log: true
+      tags: [always, rke2, token]
+
+    - name: Require one coherent token and datastore phase across the fleet
+      ansible.builtin.assert:
+        that:
+          - >-
+            groups['rke2_servers']
+            | map('extract', hostvars, 'c1_2_fleet_token_mode')
+            | unique
+            | list
+            | length == 1
+          - >-
+            groups['rke2_servers']
+            | map('extract', hostvars, 'c1_2_fleet_token_fingerprint')
+            | unique
+            | list
+            | length == 1
+          - >-
+            (
+              groups['rke2_servers']
+              | map('extract', hostvars, 'c1_2_fleet_token_mode')
+              | first
+            ) != 'steady_state_exact'
+            or
+            (
+              groups['rke2_servers']
+              | map(
+                  'extract',
+                  hostvars,
+                  'c1_2_fleet_existing_server_state'
+                )
+              | select('equalto', true)
+              | list
+              | length
+              ==
+              groups['rke2_servers'] | length
+            )
+          - >-
+            (
+              groups['rke2_servers']
+              | map('extract', hostvars, 'c1_2_fleet_token_mode')
+              | first
+            ) != 'fresh_short'
+            or
+            (
+              groups['rke2_servers']
+              | map(
+                  'extract',
+                  hostvars,
+                  'c1_2_fleet_existing_server_state'
+                )
+              | select('equalto', false)
+              | list
+              | length
+              ==
+              groups['rke2_servers'] | length
+            )
+        fail_msg: >-
+          Hard stop: every server must declare the same token mode and exact
+          protected token. steady_state_exact requires existing datastore
+          state on every server; fresh_short requires an entirely fresh fleet.
+        quiet: true
+      run_once: true
+      no_log: true
+      tags: [always, rke2, token]
+
+    - name: Build bootstrap and joining-server groups
+      ansible.builtin.group_by:
+        key: >-
+          {{ (rke2_bootstrap | default(false) | bool)
+             | ternary('c1_2_rke2_bootstrap', 'c1_2_rke2_joiners') }}
+      changed_when: false
+      tags: [always]
+
+- name: Validate every existing RKE2 agent before host changes
+  hosts: rke2_agents
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  serial: 1
+  vars:
+    c1_2_agent_config_path: /etc/rancher/rke2/config.yaml
+    c1_2_agent_data_path: /var/lib/rancher/rke2
+    c1_2_agent_token_path: /etc/rancher/rke2/cluster-token
+  tasks:
+    - name: Validate the declared agent identity and registration inputs
+      ansible.builtin.assert:
+        that:
+          - control_plane_vip_enabled | bool
+          - control_plane_vip_address | string | trim | length > 0
+          - inventory_region | default('') | string | trim | length > 0
+          - inventory_zone | default('') | string | trim | length > 0
+          - rke2_cluster_token_mode == 'steady_state_exact'
+          - rke2_cluster_token | default('') | string | trim | length > 0
+          - >-
+            rke2_cluster_token | string
+            == (rke2_cluster_token | string | trim)
+          - not (rke2_cluster_token | string | regex_search('\s'))
+          - >-
+            (
+              rke2_cluster_token
+              | string
+              | regex_search('^K10[0-9a-fA-F]{64}::server:\S+$')
+            ) is not none
+          - >-
+            rke2_install_artifact_url | default('') | string
+            ==
+            (vault_rke2_prime_artifact_url | default('') | string)
+          - >-
+            groups['rke2_servers']
+            | map('extract', hostvars, 'c1_2_fleet_token_fingerprint')
+            | unique
+            | list
+            ==
+            [rke2_cluster_token | string | hash('sha256')]
+        fail_msg: >-
+          Hard stop: every agent needs truthful labels, the enabled VIP, the
+          exact secure server-fleet Vault token, and the Vault-owned Prime
+          artifact input before any host role may change it.
+        quiet: true
+      no_log: true
+      tags: [always, rke2_agent, token]
+
+    - name: Inspect existing agent state and protected inputs
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: true
+      loop:
+        - "{{ c1_2_agent_data_path }}"
+        - "{{ c1_2_agent_config_path }}"
+        - "{{ c1_2_agent_token_path }}"
+      register: c1_2_agent_preflight_paths
+      tags: [always, rke2_agent, token]
+
+    - name: Record existing agent path state
+      ansible.builtin.set_fact:
+        c1_2_agent_preflight_data_exists: >-
+          {{ c1_2_agent_preflight_paths.results[0].stat.exists | bool }}
+        c1_2_agent_preflight_config_exists: >-
+          {{ c1_2_agent_preflight_paths.results[1].stat.exists | bool }}
+        c1_2_agent_preflight_token_exists: >-
+          {{ c1_2_agent_preflight_paths.results[2].stat.exists | bool }}
+      tags: [always, rke2_agent, token]
+
+    - name: Reject agent data without recoverable registration identity
+      ansible.builtin.assert:
+        that:
+          - >-
+            not (c1_2_agent_preflight_data_exists | bool)
+            or
+            (
+              c1_2_agent_preflight_config_exists | bool
+              or c1_2_agent_preflight_token_exists | bool
+            )
+        fail_msg: >-
+          Hard stop: existing RKE2 agent data has neither a protected token
+          file nor a readable legacy config. Recover the exact identity before
+          any common, hardening, firewall, or RKE2 task changes this host.
+      tags: [always, rke2_agent, token]
+
+    - name: Read the existing protected agent token
+      ansible.builtin.slurp:
+        src: "{{ c1_2_agent_token_path }}"
+      register: c1_2_agent_preflight_token_blob
+      when: c1_2_agent_preflight_token_exists | bool
+      no_log: true
+      tags: [always, rke2_agent, token]
+
+    - name: Read the existing legacy agent config
+      ansible.builtin.slurp:
+        src: "{{ c1_2_agent_config_path }}"
+      register: c1_2_agent_preflight_config_blob
+      when: c1_2_agent_preflight_config_exists | bool
+      no_log: true
+      tags: [always, rke2_agent, token]
+
+    - name: Resolve the existing agent token without whitespace normalization
+      ansible.builtin.set_fact:
+        c1_2_agent_preflight_existing_token: >-
+          {%- if c1_2_agent_preflight_token_exists | bool -%}
+          {{
+            c1_2_agent_preflight_token_blob.content
+            | b64decode
+            | regex_replace('[\r\n]+$', '')
+          }}
+          {%- elif c1_2_agent_preflight_config_exists | bool -%}
+          {{
+            (
+              c1_2_agent_preflight_config_blob.content
+              | b64decode
+              | from_yaml
+            ).token
+            | default('')
+            | string
+          }}
+          {%- else -%}
+          {{ '' }}
+          {%- endif -%}
+      no_log: true
+      tags: [always, rke2_agent, token]
+
+    - name: Hard stop on existing agent token loss or mismatch
+      ansible.builtin.assert:
+        that:
+          - >-
+            not (
+              c1_2_agent_preflight_data_exists | bool
+              or c1_2_agent_preflight_config_exists | bool
+              or c1_2_agent_preflight_token_exists | bool
+            )
+            or c1_2_agent_preflight_existing_token | length > 0
+          - >-
+            c1_2_agent_preflight_existing_token | length == 0
+            or
+            c1_2_agent_preflight_existing_token
+            == (rke2_cluster_token | string)
+        fail_msg: >-
+          Hard stop: the existing agent registration token is absent or does
+          not exactly match Vault. No host role has been applied.
+        quiet: true
+      no_log: true
+      tags: [always, rke2_agent, token]
+
+- name: Configure the RKE2 bootstrap server
+  hosts: c1_2_rke2_bootstrap
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  serial: 1
   vars:
     ansible_python_interpreter: /usr/bin/python3
   pre_tasks:
-    - name: Announce target
+    - name: Announce bootstrap target
       ansible.builtin.debug:
         msg: >-
           Applying VH Health RKE2 baseline to {{ inventory_hostname }}
-          ({{ ansible_host }}, zone={{ inventory_zone | default('-') }},
-          bootstrap={{ rke2_bootstrap | default(false) }}).
+          ({{ ansible_host }}, region={{ inventory_region }},
+          zone={{ inventory_zone }}, bootstrap=true).
   roles:
     - role: common
       tags: [common]
     - role: hardening
       tags: [hardening]
     - role: firewall
-      tags: [firewall]
-    - role: rke2_server
+      tags: [firewall, control_plane_vip]
+  tasks:
+    - name: Apply firewall changes before keepalived
+      ansible.builtin.meta: flush_handlers
+      tags: [firewall, control_plane_vip]
+
+    - name: Read the active owned firewall table
+      ansible.builtin.command:
+        cmd: nft list table inet vhhealth
+      register: c1_2_firewall_table
+      changed_when: false
+      when: not ansible_check_mode
+      tags: [firewall, control_plane_vip]
+
+    - name: Verify API and unicast VRRP firewall rules
+      ansible.builtin.assert:
+        that:
+          - "'tcp dport 6443' in c1_2_firewall_table.stdout"
+          - >-
+            ('ip protocol vrrp' in c1_2_firewall_table.stdout)
+            or ('ip protocol 112' in c1_2_firewall_table.stdout)
+        fail_msg: >-
+          The active vhhealth nftables table is missing the API or unicast
+          VRRP rule. Keepalived will not be configured.
+      when: not ansible_check_mode
+      tags: [firewall, control_plane_vip]
+
+    - name: Configure the control-plane VIP
+      ansible.builtin.include_role:
+        name: control_plane_vip
+        apply:
+          tags: [control_plane_vip]
+      tags: [control_plane_vip]
+
+    - name: Configure the RKE2 bootstrap server
+      ansible.builtin.include_role:
+        name: rke2_server
       tags: [rke2]
+
+    - &c1_2_existing_server_convergence
+      name: Prove existing-cluster convergence before advancing
+      when:
+        - rke2_existing_server_state.stat.exists | default(false) | bool
+        - not ansible_check_mode
+      tags: [rke2, validation]
+      block:
+        - name: Apply this server's configuration and restart handlers
+          ansible.builtin.meta: flush_handlers
+
+        - name: Prove API readiness through the control-plane VIP
+          ansible.builtin.uri:
+            url: "https://{{ control_plane_vip_address }}:6443/readyz"
+            method: GET
+            validate_certs: false
+            return_content: true
+            status_code: 200
+            timeout: 5
+          register: c1_2_site_vip_api_ready
+          changed_when: false
+          retries: 60
+          delay: 10
+          until:
+            - c1_2_site_vip_api_ready.status == 200
+            - c1_2_site_vip_api_ready.content | trim == 'ok'
+
+        - name: Wait for this server node to report Ready
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/kubectl
+              - --kubeconfig=/etc/rancher/rke2/rke2.yaml
+              - get
+              - node
+              - "{{ inventory_hostname }}"
+              - -o
+              - json
+          register: c1_2_site_server_node
+          changed_when: false
+          retries: 60
+          delay: 10
+          until: >-
+            (
+              c1_2_site_server_node.stdout | from_json
+            ).status.conditions
+            | selectattr('type', 'equalto', 'Ready')
+            | map(attribute='status')
+            | list
+            | first
+            | default('Unknown') == 'True'
+
+        - name: Prove this server's local etcd endpoint is healthy
+          ansible.builtin.command:
+            argv:
+              - "{{ rke2_data_dir }}/bin/etcdctl"
+              - --endpoints=https://127.0.0.1:2379
+              - "--cacert={{ rke2_data_dir }}/server/tls/etcd/server-ca.crt"
+              - "--cert={{ rke2_data_dir }}/server/tls/etcd/server-client.crt"
+              - "--key={{ rke2_data_dir }}/server/tls/etcd/server-client.key"
+              - endpoint
+              - health
+          environment:
+            ETCDCTL_API: "3"
+          register: c1_2_site_local_etcd_health
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: c1_2_site_local_etcd_health.rc == 0
+
+        - name: Wait for CloudNativePG three-instance quorum
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/kubectl
+              - --kubeconfig=/etc/rancher/rke2/rke2.yaml
+              - -n
+              - vhhealth-platform
+              - get
+              - cluster.postgresql.cnpg.io/vhhealth-pg
+              - -o
+              - json
+          register: c1_2_site_cnpg
+          changed_when: false
+          retries: 60
+          delay: 10
+          until:
+            - >-
+              (c1_2_site_cnpg.stdout | from_json).spec.instances | int == 3
+            - >-
+              (c1_2_site_cnpg.stdout | from_json).status.currentPrimary
+              | default('') | length > 0
+            - >-
+              (c1_2_site_cnpg.stdout | from_json).status.readyInstances
+              | default(0) | int >= 2
+
+        - name: Prove a streaming synchronous CloudNativePG standby
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/kubectl
+              - --kubeconfig=/etc/rancher/rke2/rke2.yaml
+              - -n
+              - vhhealth-platform
+              - exec
+              - >-
+                {{
+                  (
+                    c1_2_site_cnpg.stdout
+                    | from_json
+                  ).status.currentPrimary
+                }}
+              - --
+              - psql
+              - -U
+              - postgres
+              - -d
+              - postgres
+              - -Atc
+              - >-
+                SELECT count(*) FROM pg_stat_replication
+                WHERE state = 'streaming'
+                AND sync_state IN ('sync', 'quorum');
+          register: c1_2_site_sync_standbys
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: c1_2_site_sync_standbys.stdout | trim | int >= 1
+
+        - name: Wait for every persistent volume claim to be Bound
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/kubectl
+              - --kubeconfig=/etc/rancher/rke2/rke2.yaml
+              - get
+              - pvc
+              - --all-namespaces
+              - -o
+              - >-
+                jsonpath={range .items[?(@.status.phase!="Bound")]}{.metadata.namespace}{"/"}{.metadata.name}{"="}{.status.phase}{"\n"}{end}
+          register: c1_2_site_unbound_pvcs
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: c1_2_site_unbound_pvcs.stdout | trim | length == 0
+
+        - name: Detect an installed Longhorn API
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/kubectl
+              - --kubeconfig=/etc/rancher/rke2/rke2.yaml
+              - get
+              - crd
+              - volumes.longhorn.io
+              - -o
+              - name
+          register: c1_2_site_longhorn_crd
+          changed_when: false
+          failed_when:
+            - c1_2_site_longhorn_crd.rc != 0
+            - "'NotFound' not in c1_2_site_longhorn_crd.stderr"
+
+        - name: Prove the installed Longhorn StorageClass identity
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/kubectl
+              - --kubeconfig=/etc/rancher/rke2/rke2.yaml
+              - get
+              - storageclass
+              - longhorn
+              - -o
+              - jsonpath={.provisioner}
+          register: c1_2_site_longhorn_storageclass
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: >-
+            c1_2_site_longhorn_storageclass.stdout | trim
+            == 'driver.longhorn.io'
+          when: c1_2_site_longhorn_crd.rc == 0
+
+        - name: Wait for every installed Longhorn volume to be healthy
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/kubectl
+              - --kubeconfig=/etc/rancher/rke2/rke2.yaml
+              - -n
+              - longhorn-system
+              - get
+              - volumes.longhorn.io
+              - -o
+              - >-
+                jsonpath={range .items[?(@.status.robustness!="healthy")]}{.metadata.name}{"="}{.status.robustness}{"\n"}{end}
+          register: c1_2_site_unhealthy_longhorn_volumes
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: >-
+            c1_2_site_unhealthy_longhorn_volumes.stdout | trim | length == 0
+          when: c1_2_site_longhorn_crd.rc == 0
+
+        - name: Wait for every installed Longhorn node to be schedulable and ready
+          ansible.builtin.shell: |
+            set -o pipefail
+            /usr/local/bin/kubectl \
+              --kubeconfig=/etc/rancher/rke2/rke2.yaml \
+              -n longhorn-system get nodes.longhorn.io -o json |
+              /usr/bin/jq -r '
+                .items[]
+                | select(
+                    .spec.allowScheduling != true
+                    or
+                    (
+                      [.status.conditions[]?
+                        | select(
+                            .type == "Ready"
+                            and .status == "True"
+                          )
+                      ]
+                      | length
+                    ) != 1
+                    or
+                    (
+                      [.status.conditions[]?
+                        | select(
+                            .type == "Schedulable"
+                            and .status == "True"
+                          )
+                      ]
+                      | length
+                    ) != 1
+                  )
+                | .metadata.name
+              '
+          args:
+            executable: /bin/bash
+          register: c1_2_site_unhealthy_longhorn_nodes
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: >-
+            c1_2_site_unhealthy_longhorn_nodes.stdout | trim | length == 0
+          when: c1_2_site_longhorn_crd.rc == 0
+
+- name: Configure joining RKE2 servers
+  hosts: c1_2_rke2_joiners
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  serial: 1
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  pre_tasks:
+    - name: Announce joining target
+      ansible.builtin.debug:
+        msg: >-
+          Applying VH Health RKE2 baseline to {{ inventory_hostname }}
+          ({{ ansible_host }}, region={{ inventory_region }},
+          zone={{ inventory_zone }}, bootstrap=false).
+  roles:
+    - role: common
+      tags: [common]
+    - role: hardening
+      tags: [hardening]
+    - role: firewall
+      tags: [firewall, control_plane_vip]
+  tasks:
+    - name: Apply firewall changes before keepalived
+      ansible.builtin.meta: flush_handlers
+      tags: [firewall, control_plane_vip]
+
+    - name: Read the active owned firewall table
+      ansible.builtin.command:
+        cmd: nft list table inet vhhealth
+      register: c1_2_firewall_table
+      changed_when: false
+      when: not ansible_check_mode
+      tags: [firewall, control_plane_vip]
+
+    - name: Verify API and unicast VRRP firewall rules
+      ansible.builtin.assert:
+        that:
+          - "'tcp dport 6443' in c1_2_firewall_table.stdout"
+          - >-
+            ('ip protocol vrrp' in c1_2_firewall_table.stdout)
+            or ('ip protocol 112' in c1_2_firewall_table.stdout)
+        fail_msg: >-
+          The active vhhealth nftables table is missing the API or unicast
+          VRRP rule. Keepalived will not be configured.
+      when: not ansible_check_mode
+      tags: [firewall, control_plane_vip]
+
+    - name: Configure the control-plane VIP
+      ansible.builtin.include_role:
+        name: control_plane_vip
+        apply:
+          tags: [control_plane_vip]
+      tags: [control_plane_vip]
+
+    - name: Configure the joining RKE2 server
+      ansible.builtin.include_role:
+        name: rke2_server
+      tags: [rke2]
+
+    - *c1_2_existing_server_convergence
 
 # Optional: activate later by moving workloads to dedicated agents.
 - name: Join RKE2 agents (no-op unless 'rke2_agents' group populated)
   hosts: rke2_agents
   become: true
   gather_facts: true
+  any_errors_fatal: true
+  serial: 1
   roles:
     - role: common
       tags: [common]

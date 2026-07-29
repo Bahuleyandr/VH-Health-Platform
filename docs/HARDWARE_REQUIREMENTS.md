@@ -37,13 +37,34 @@ RAID1 can be hardware RAID (Dell PERC / HPE Smart Array / LSI MegaRAID)
 or Linux `mdadm` on passthrough mode — hardware RAID is preferred for
 write-back cache with battery/capacitor.
 
+### C1.2 storage placement boundary
+
+The current CNPG data and WAL PVCs use `local-path`. Their replicated
+durability comes from PostgreSQL streaming replication across CNPG instances,
+not from a replicated StorageClass. The repository declares a StorageClass
+named `longhorn`, but Longhorn `1.7.2` is an unqualified repository target, not
+an installed or production-approved fact. The production PVC patch remains
+commented out, so C1.2 performs no storage migration.
+
+Three Longhorn replicas would mean three node copies. They do not establish
+independent racks, power paths, switches, rooms, or facilities. Procurement and
+placement evidence must pass
+[`C1_2_STORAGE_PLACEMENT_GATE.md`](C1_2_STORAGE_PLACEMENT_GATE.md) before any
+adoption proposal. Longhorn upgrades advance one supported minor at a time;
+downgrade is not an accepted recovery path.
+
+The control-plane prerequisite is the exact RKE2
+`v1.34.9+rke2r1` / Kubernetes `v1.34.9` objective reached through
+[`RKE2_1_34_QUALIFICATION.md`](RKE2_1_34_QUALIFICATION.md), not an arbitrary
+direct upgrade.
+
 ### Storage sizing breakdown (per node)
 
 | Tenant | Initial | 3-year projection | Notes |
 |--------|---------|-------------------|-------|
 | Etcd data + WAL | 2 GB | 100 GB reserved | Dedicated volume if possible |
-| Postgres (CNPG PV) | 100 GB | 500 GB | One replica per node; data replicated to peers via Postgres streaming, not a shared PV |
-| Postgres WAL (in MinIO) | — | 100 GB | Depends on archive retention (default 30d local + offsite R2) |
+| Postgres (CNPG data + WAL PVCs) | 100 GiB data + 20 GiB WAL | 500 GB data + 100 GB WAL planning allowance | One instance per node; both PVCs currently use `local-path`, with PostgreSQL streaming replication between instances |
+| PostgreSQL offsite archive | — | 100 GB planning allowance | Intended Barman Cloud Plugin/R2 contract is inert until operator qualification; size from measured WAL generation and approved retention |
 | MinIO data drives | 100 GB × 4 drives = 400 GB | 1.6 TB | Distributed erasure-coding across all 3 nodes; sizing is per-node |
 | Harbor registry | 50 GB | 200 GB | Grows with image tag retention; prune stale tags weekly |
 | Container image cache (containerd) | 20 GB | 50 GB | Set `containerd` garbage-collection retention to 168h |
@@ -73,11 +94,17 @@ write-back cache with battery/capacitor.
 | VLAN 102 — storage | Dedicated for future iSCSI / NFS (if added) | `10.10.2.0/24` |
 | VLAN 200 — hospital-LAN | Client traffic reaching ingress via internal DNS | Per hospital |
 
+Until facilities evidence proves otherwise, all three production nodes use the
+same truthful zone label. Distinct zone labels must never be used to imply
+independent rack, power, cooling, or switch paths that the as-built map does not
+show.
+
 ### Internet egress
 
 Outbound 443 / TCP only, through the hospital firewall. Used for:
 - Cloudflare Tunnel (inbound proxy) — dials out to Cloudflare edge.
-- Cloudflare R2 — backups, cold PHI storage.
+- Cloudflare R2 — intended offsite backup/archive traffic after operator
+  qualification.
 - Firebase — patient OTP + FCM push.
 - LLM backends (if external providers enabled) — `api.anthropic.com`, `api.openai.com`.
 - Container image pulls — `ghcr.io`, Docker Hub mirror via Harbor proxy-cache.
@@ -167,16 +194,24 @@ profile.
 
 ## Backup storage (offsite)
 
-**Cloudflare R2** already in use for PHI uploads — same account hosts:
+Treat offsite storage as a procurement and operator-qualification requirement,
+not a repository-proven live service. The inert C1.1 contract targets
+Cloudflare R2:
 
-- `vhhealth-pg-backups-cold` — 180-day retention on encrypted PG base
-  + WAL backups (AES-256 via pgBackRest, customer-managed cipher).
-- `vhhealth-etcd-backups` — 7-day rolling etcd snapshots.
-- `vh-health-records` — primary PHI object store (already in production).
+- CNPG PostgreSQL 18 WAL and base backups use the Barman Cloud Plugin and the
+  `s3://vhhealth-db-backups/cluster/` route after the plugin, bucket-scoped
+  producer, separate read-only recovery identity, backup, and disposable
+  restore are proven.
+- Backend upload archives use separate producer and reader identities and a
+  distinct encrypted, HMAC-authenticated archive contract.
+- Etcd snapshots require their own retention, offsite-copy, and restore
+  evidence; this document does not claim an R2 bucket is active for them.
 
-R2 egress is free up to bucket-bandwidth limits; storage cost ~$0.015 /
-GB-month. A year of backups for this cluster (~2 TB) = ~$30/month.
-Budget line in the TCO below.
+Cloudflare's provider-managed at-rest encryption is distinct from client-side
+archive encryption. The intended CNPG contract uses the Barman Cloud Plugin.
+Use the current vendor quote, measured data/WAL growth, approved retention, and
+restore-test traffic when budgeting; repository configuration does not prove a
+bucket, credential, backup, or restore exists.
 
 ---
 
@@ -190,11 +225,15 @@ Budget line in the TCO below.
 | Rack, PDUs, cabling, install | ₹1–2 lakh | — |
 | **Capex subtotal** | **₹37–53 lakh** | |
 | Electricity (1.5 kW × ₹8/kWh × 8760h) | — | ₹1–1.5 lakh |
-| Cloudflare (R2 + Tunnel) | — | ₹30–50 k |
+| Cloudflare (R2 + Tunnel) | — | Obtain a current quote from measured storage, retention, operations, and restore-test traffic |
 | ISP (1 Gbps symmetric business) | — | ₹3–5 lakh |
 | OEM warranty extensions (yr 4 / 5 if needed) | — | ₹2–3 lakh |
 | On-call / SRE retainer (partial FTE share) | — | Variable — ₹3–8 lakh if outsourced |
 | **Opex subtotal** | | **₹5–8 lakh/year** |
+
+Recalculate the Opex subtotal and three-year total with the current R2/Tunnel
+quote before procurement approval. These figures are planning ranges, not live
+usage or contract evidence.
 
 3-year total: **capex ₹37–53 lakh + opex ₹15–24 lakh = ₹50–75 lakh all-in**.
 
@@ -228,7 +267,8 @@ group in the inventory (`workers` vs `servers`).
 
 - Offsite standby cluster at a partner hospital site (DR scenario 6).
 - BGP dual-ISP multi-homing for internet egress.
-- Dedicated storage tier (Ceph / Longhorn-distributed beyond replica-1).
+- Facility-independent storage or a separate disaster-recovery site. The
+  repository's three-copy Longhorn target does not provide this by itself.
 - SOC 2 Type II formal audit + pentest.
 - On-prem LLM inference hardware (GPU sled — 1× A100 80 GB min) for
   Ollama / vLLM — currently optional CPU-only Ollama for draft

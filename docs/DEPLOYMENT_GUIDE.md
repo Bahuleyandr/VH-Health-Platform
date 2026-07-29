@@ -14,6 +14,10 @@
 > - [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md) — CNPG data cutover runbook
 > - [`CNPG_POSTGRES_18_QUALIFICATION.md`](CNPG_POSTGRES_18_QUALIFICATION.md) —
 >   binding CNPG 1.30 / PostgreSQL 18.4 activation and rollback gates
+> - [`RKE2_1_34_QUALIFICATION.md`](RKE2_1_34_QUALIFICATION.md) — exact RKE2
+>   ladder, evidence, and rollback gates
+> - [`C1_2_STORAGE_PLACEMENT_GATE.md`](C1_2_STORAGE_PLACEMENT_GATE.md) —
+>   evidence required before selecting any storage migration
 > - [`../apps/backend/docs/RUNBOOKS/`](../apps/backend/docs/RUNBOOKS/) — day-2 runbooks
 
 ---
@@ -47,8 +51,10 @@ Key properties:
 - PHI data stays in-hospital. Only encrypted backups leave (to R2).
 - GitOps-driven: every change to infra is a commit; ArgoCD reports drift and
   an operator explicitly syncs each production Application.
-- Self-healing: k8s restarts failed pods; CNPG promotes replicas; etcd
-  tolerates 1 node loss.
+- Quorum posture: etcd and the three-instance CNPG topology are designed to
+  tolerate one member loss. Service-level recovery remains unqualified until
+  the owner-threshold HA drills in
+  [`runbooks/C1_2_HA_DRILL.md`](runbooks/C1_2_HA_DRILL.md) pass.
 
 Namespace layout:
 
@@ -137,19 +143,28 @@ cd infra/ansible
 cp inventories/prod.yml.example inventories/prod.yml
 ```
 
-Edit `inventories/prod.yml` — fill in:
+Edit `inventories/prod.yml` and replace every documented placeholder:
 
-- `[servers]` — the 3 node IPs (cluster VLAN).
-- `ansible_user: vhhealth`
-- `ansible_ssh_private_key_file: ~/.ssh/vhhealth_prod_ed25519` (or wherever your key lives)
-- `group_vars/all.yml`:
-  - `cluster_cidr: 10.42.0.0/16` (RKE2 default)
-  - `service_cidr: 10.43.0.0/16` (RKE2 default)
-  - `cluster_vip: 10.10.0.10` (VIP shared by all 3 control-plane nodes for kubeconfig)
-  - `cloudflare_tunnel_id: <from Cloudflare dashboard>`
-  - `r2_account_id: <Cloudflare account id>`
-  - `ntp_servers: [10.0.0.5, time.cloudflare.com]`
-  - `storage_class: longhorn-nvme`
+- define all three RKE2 server addresses on the cluster VLAN;
+- set `ansible_user: vhhealth` and the reviewed SSH private-key path;
+- set non-empty `inventory_region` and `inventory_zone` on every server. The
+  production example deliberately gives all three servers the same zone until
+  facilities evidence proves independent rack, power, and network domains;
+- keep the RKE2 starting pin at the exact live version. Advance it only through
+  the qualified ladder in
+  [`RKE2_1_34_QUALIFICATION.md`](RKE2_1_34_QUALIFICATION.md);
+- set the control-plane endpoint contract:
+  - `control_plane_vip_enabled: true`;
+  - `control_plane_vip_address: 10.10.0.10`;
+  - the real `control_plane_vip_interface` and prefix length;
+  - a site-unique `control_plane_vip_virtual_router_id`; and
+  - optional `control_plane_api_dns_name`;
+- set `management_cidrs` to the networks allowed to reach SSH and API TCP 6443,
+  and `cluster_cidrs` to the peer network allowed to exchange VRRP protocol 112
+  and RKE2 cluster traffic; and
+- use `longhorn` when referring to the repository's Longhorn StorageClass.
+  CNPG data and WAL currently remain on `local-path`; the production Longhorn
+  PVC patch stays commented and no storage migration is selected by C1.2.
 
 ### 3.2 Create Ansible vault with secrets
 
@@ -158,36 +173,71 @@ cd infra/ansible
 ansible-vault create inventories/group_vars/all/vault.yml
 ```
 
-Put the bootstrap-time secrets here (not the application ones — those
-flow via sealed secrets later):
+Put the bootstrap-time secrets here (not the application ones — those flow via
+sealed secrets later). Production requires the exact pre-shared RKE2 cluster
+token in Vault; it is never generated or read from a preferred bootstrap host:
 
 ```yaml
-vault_rke2_token: <rke2-cluster-join-token, 64 chars>
-vault_cloudflare_tunnel_token: <from Cloudflare dashboard>
-vault_r2_access_key_id: <for etcd snapshot upload>
-vault_r2_secret_access_key: <for etcd snapshot upload>
-vault_sealed_secrets_bootstrap_key: <base64-encoded CA-like keypair for bootstrap>
+vault_rke2_cluster_token: <exact-live-rke2-server-token>
+vault_rke2_prime_artifact_url: "" # set the authenticated URL only for Prime-only rungs
+vault_etcd_s3_endpoint: <r2-s3-endpoint>
+vault_etcd_s3_bucket: <etcd-snapshot-bucket>
+vault_etcd_s3_access_key: <bucket-scoped-access-key>
+vault_etcd_s3_secret_key: <bucket-scoped-secret-key>
 ```
 
-Store the vault password in your team password manager.
+Before the first C1.2 apply to the existing cluster, copy the exact current
+server token into Vault through the approved secret-handling channel. The
+production inventory maps `rke2_cluster_token` to
+`vault_rke2_cluster_token`. The preflight compares the Vault value with every
+existing server and stops before configuration or service changes on any
+missing value, placeholder, mismatch, or inter-server disagreement. Store the
+Vault password in the team password manager; never paste either value into a
+ticket, PR, shell transcript, or drill receipt.
+
+The production example defaults to `rke2_cluster_token_mode:
+steady_state_exact`. For a brand-new self-signed cluster only, set that local
+inventory value to `fresh_short` for the first run and use one approved
+high-entropy short token. Immediately after bootstrap, compare the persisted
+secure token on every server without printing it, replace the Vault value with
+that exact token, and restore `steady_state_exact` before any reapply. The
+committed single-node development inventory alone uses `development_short`.
+
+The mandatory `v1.31.14+rke2r2` and `v1.32.13+rke2r2` releases have no public
+assets. Before either rung, put the authenticated SUSE Prime Artifacts URL in
+`vault_rke2_prime_artifact_url`; the production inventory maps it to the
+protected installer input. Missing entitlement, inaccessible artifacts, or an
+empty protected URL is a hard stop. Prime runs also require and verify
+`system-default-registry: registry.rancher.com` before restart. Never place the
+protected URL on the command line or in an evidence receipt.
 
 ### 3.3 Run the bootstrap playbook
 
 ```bash
+export ANSIBLE_STDOUT_CALLBACK=default
 ansible-playbook \
   -i inventories/prod.yml \
   playbooks/site.yml \
   --ask-vault-pass
 ```
 
-`site.yml` does:
+The environment override selects Ansible's supported built-in output callback;
+current `community.general` releases no longer ship the legacy `yaml` callback
+named by the repository's pre-existing controller configuration.
 
-1. Baseline OS hardening (unattended-security-updates, firewall rules,
-   journald persistent logs, `vhhealth` sudoers).
-2. Install RKE2 server on node 1 → wait until API ready.
-3. Join RKE2 server on nodes 2 + 3 → wait until all 3 are Ready.
-4. Install post-bootstrap tooling and write the admin kubeconfig to
-   `~vhhealth/.kube/config` on the nodes.
+`site.yml` processes the RKE2 servers serially and:
+
+1. applies baseline OS hardening, including the nftables management/cluster
+   allowlists;
+2. validates the Vault token and the complete unicast keepalived peer contract;
+3. configures the bootstrap server with the pre-shared token and no `server:`
+   entry, then waits for real local API readiness before the VIP is advertised;
+4. waits for both `https://10.10.0.10:6443` and
+   `https://10.10.0.10:9345` before starting joining servers;
+5. joins each remaining server through the VIP registration endpoint, one at a
+   time; and
+6. writes a VIP-backed admin kubeconfig to `~vhhealth/.kube/config` on every
+   server.
 
 Install the CNPG operator and Barman plugin through the qualified external
 sequence in §4.3. Bootstrap the remaining controllers and workloads through
@@ -197,13 +247,18 @@ Total runtime: **20–40 minutes** on fast hardware.
 
 ### 3.4 Validate the cluster
 
-On your ops workstation:
+On your ops workstation, fetch the same VIP-backed kubeconfig from any healthy
+server; no normal administration path depends on a preferred node:
 
 ```bash
-scp vhhealth@vhh-k8s-01:.kube/config ~/.kube/vhhealth-prod.yaml
+scp vhhealth@<any-healthy-rke2-server>:.kube/config \
+  ~/.kube/vhhealth-prod.yaml
 export KUBECONFIG=~/.kube/vhhealth-prod.yaml
 
+grep 'server: https://10.10.0.10:6443' "${KUBECONFIG}"
+curl --fail --insecure --max-time 3 https://10.10.0.10:6443/readyz
 kubectl get nodes
+kubectl get nodes -L topology.kubernetes.io/region,topology.kubernetes.io/zone
 # Expected:
 # NAME          STATUS   ROLES                       AGE
 # vhh-k8s-01    Ready    control-plane,etcd,master   20m
@@ -227,9 +282,12 @@ monitoring) is committed under `infra/kubernetes/`. Two-step bootstrap:
 > **C1.1 activation boundary:** the current production overlay declares the
 > digest-pinned PostgreSQL 18.4 target and Barman `ObjectStore` resources. Do
 > not apply it to the live PostgreSQL 17 cluster, imperatively or through
-> ArgoCD, until C1.2 has upgraded RKE2 to Kubernetes 1.34 or newer and
-> [the qualification gates](CNPG_POSTGRES_18_QUALIFICATION.md) plus the
-> pre-sync checklist in §4.3 are complete. The current RKE2 version is 1.31.4.
+> ArgoCD, until C1.2 has completed the exact RKE2 ladder to
+> `v1.34.9+rke2r1`/Kubernetes 1.34.9 and
+> [the database qualification gates](CNPG_POSTGRES_18_QUALIFICATION.md) plus
+> [the RKE2 qualification gates](RKE2_1_34_QUALIFICATION.md) and the pre-sync
+> checklist in §4.3 are complete. Production remains on RKE2
+> `v1.31.4+rke2r1`; this repository change performs no upgrade.
 
 ### 4.1 Bootstrap controllers, not the production overlay
 
@@ -260,10 +318,14 @@ This creates:
 - `Application/vhhealth-kube-prometheus` — pinned kube-prometheus-stack chart
 - `Application/vhhealth-loki` — pinned Loki chart
 
-After ~3 minutes, ArgoCD discovers desired state. All four Applications are
-manual-sync: a merge or poll can make an Application `OutOfSync`, but it cannot
-apply or prune production resources. After an approved operator sync, each
-Application should show Synced + Healthy in the ArgoCD UI:
+After ~3 minutes, ArgoCD discovers desired state. All four top-level
+Applications are manual-sync: a merge or poll can make an Application
+`OutOfSync`, but it cannot apply or prune production resources. The Longhorn
+child Application declared by the platform tree is also manual-sync after the
+C1.2 revision is applied. After an approved operator sync, each top-level
+Application should show Synced + Healthy in the ArgoCD UI; a deliberately
+unsynced Longhorn child may remain `OutOfSync` until it receives its own
+reviewed operator sync:
 
 ```bash
 kubectl port-forward -n argocd svc/argocd-server 8080:443
@@ -278,6 +340,25 @@ sync explicitly.
 
 Complete these steps in order **before the next manual ArgoCD sync** (or an
 equivalent imperative apply):
+
+> **C1.2 pre-sync impact and abort gate:** Syncing this revision is an operator
+> action, not a merge side effect. Syncing `vhhealth-platform` triggers a CNPG
+> rolling re-schedule under required hostname anti-affinity and changes the
+> Longhorn child Application to manual-sync. Syncing `vhhealth-apps` redeploys
+> the backend under hard hostname spread. Expect controlled pod movement and a
+> deliberately `OutOfSync` Longhorn child. Abort before either sync if the three
+> live nodes do not carry the reviewed region/zone labels, RKE2 config disagrees
+> with those labels, capacity cannot hold the rescheduled pods, CNPG quorum or
+> synchronous replication is degraded, backend readiness or its disruption
+> budget is unhealthy, or the Longhorn ownership and follow-up sync plan is not
+> recorded.
+
+Before applying either production tree, complete the live-node transition in
+[`runbooks/C1_2_HA_DRILL.md`](runbooks/C1_2_HA_DRILL.md): record the current
+labels, relabel all three existing nodes to the truthful region and zone, align
+the same values in the corresponding RKE2 host configurations, and prove the
+live/configured values agree. RKE2 `node-label` settings apply at registration;
+editing inventory alone does not relabel an existing node.
 
 First preserve the retired `vhhealth-pg-nightly` schedule's evidence. That
 resource used `backupOwnerReference: self`, so pruning it can cascade-delete
@@ -320,23 +401,33 @@ Review and retain the before/after evidence. Abort the sync if any listed
 Backup still carries the retired schedule's owner reference. Never delete those
 Backup custom resources or their R2 objects as part of schedule retirement.
 
-1. Interleave the C1.2 Kubernetes upgrades with the CNPG operator ladder so
-   every move stays inside a documented support overlap:
-   - On the current Kubernetes 1.31, advance CNPG
+1. Interleave the exact C1.2 RKE2 pins with the CNPG operator ladder so every
+   move stays inside a documented support overlap:
+   - On current RKE2 `v1.31.4+rke2r1`, advance CNPG
      `1.24.1 → 1.24.4 → 1.25.4 → 1.26.3 → 1.27.4`.
-   - With CNPG 1.27.4 healthy, advance Kubernetes to 1.32; then advance CNPG
-     to 1.28.4.
-   - With CNPG 1.28.4 healthy, advance Kubernetes to 1.33; then advance CNPG
-     to 1.29.2.
+   - Advance RKE2 to `v1.31.14+rke2r2`, then to
+     `v1.32.13+rke2r2` while CNPG 1.27.4 remains healthy.
+   - On Kubernetes 1.32, advance CNPG to 1.28.4.
+   - Advance RKE2 to `v1.33.13+rke2r1`, then CNPG to 1.29.2.
    - With CNPG 1.29.2 healthy, advance Kubernetes to 1.34; only then advance
-     CNPG to 1.30.0.
+     CNPG to 1.30.0. The exact RKE2 target for this transition is the objective
+     `v1.34.9+rke2r1`.
+
+   CNPG 1.27.4 and 1.28.4 are past-end-of-life, transit-only states crossed in
+   one controlled campaign. They are never parking states. The two SUSE
+   Prime-only RKE2 rungs require authenticated artifact access before their
+   pre-rung windows; an inaccessible package is a hard stop, not permission to
+   skip a minor.
 
    Before each Kubernetes or CNPG transition, capture the published support
-   matrix proving that exact pair is supported. After each transition, retain
-   operator, Cluster, instance, replication, and existing-backup health
+   matrix and the exact release provenance proving that pair is supported.
+   Follow [`RKE2_1_34_QUALIFICATION.md`](RKE2_1_34_QUALIFICATION.md) for the
+   synthetic-QA, pre-rung etcd snapshot, restore, VIP, etcd, storage, network,
+   DNS, metrics, alerts, and backend read/write receipts. After each transition,
+   retain operator, Cluster, instance, replication, and existing-backup health
    evidence before proceeding. Stop at the last qualified pair if any rung
    fails; never leapfrog versions. Production activation remains blocked until
-   the final state is Kubernetes 1.34 or newer with CNPG 1.30.0 qualified.
+   the final state is RKE2 `v1.34.9+rke2r1` with CNPG 1.30.0 qualified.
 2. Install the pinned Barman Cloud Plugin `0.13.0` outside ArgoCD, verify its
    release-manifest and image digests, wait for its controller, and confirm
    `objectstores.barmancloud.cnpg.io` is established.
@@ -370,6 +461,29 @@ WAL/base-backup and recovery work stops; database health alone is not backup
 health.
 Do not work around any of these failures by reusing writer credentials,
 restoring placeholders, or importing the broad backend Secret.
+
+The production CNPG data and WAL PVCs remain on `local-path`; their durability
+comes from PostgreSQL streaming replication across hosts. The repository
+StorageClass is named `longhorn`, but Longhorn 1.7.2 is an unqualified
+repository target rather than a production fact. Keep
+`overlays/prod/longhorn-pvc-patch.yaml` commented. Do not select or execute any
+storage migration until every item in
+[`C1_2_STORAGE_PLACEMENT_GATE.md`](C1_2_STORAGE_PLACEMENT_GATE.md) has
+operator-owned evidence and a service-by-service abort plan. Applying the C1.2
+revision only makes the Longhorn child manual-sync; it does not move a PVC.
+
+After the placement gate passes, an operator may separately run the inert host
+prerequisite template from `infra/ansible/`:
+
+```bash
+ansible-playbook -i inventories/prod.yml playbooks/longhorn-prereqs.yml \
+  -e longhorn_prereqs_authorized=true \
+  --ask-vault-pass
+```
+
+That playbook only installs and verifies node-local packages, services, and
+kernel modules. It does not install or sync Longhorn, change a StorageClass,
+touch a bound PVC, or authorize a migration.
 
 ---
 
@@ -650,6 +764,7 @@ Links to live runbooks under `apps/backend/docs/RUNBOOKS/`:
 | Code Blue mis-fire                           | [`code-blue-misfire.md`](../apps/backend/docs/RUNBOOKS/code-blue-misfire.md)                       |
 | Chatbot provider switch                      | [`chatbot-provider-switch.md`](../apps/backend/docs/RUNBOOKS/chatbot-provider-switch.md)           |
 | Clinical AI provider switch                  | [`clinical-ai-provider-switch.md`](../apps/backend/docs/RUNBOOKS/clinical-ai-provider-switch.md)   |
+| C1.2 node/control-plane/database/storage HA drill | [`runbooks/C1_2_HA_DRILL.md`](runbooks/C1_2_HA_DRILL.md)                                     |
 | DR scenarios (node/quorum/full-cluster loss) | [`DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md)                                |
 
 **Rolling upgrade (approved image release):**
@@ -672,10 +787,32 @@ git push
 
 **Node replacement:**
 
-1. `kubectl drain vhh-k8s-02 --ignore-daemonsets`
-2. Power off, swap server, reinstall Ubuntu 24.04.
-3. Re-run `ansible-playbook -l vhh-k8s-02` — role joins it back to RKE2.
-4. `kubectl uncordon vhh-k8s-02`.
+1. Confirm the VIP-backed kubeconfig reaches `https://10.10.0.10:6443`, capture
+   the failed member's etcd/CNPG/storage state, and select an explicit healthy
+   maintenance delegate. Do not infer a first inventory host.
+2. From `infra/ansible/`, run the gated playbook with the failed/replacement
+   hostname, exact current qualified pin, reviewed maintenance delegate, and
+   retained evidence:
+
+   ```bash
+   ansible-playbook -i inventories/prod.yml playbooks/node-replace.yml \
+     -e rke2_replacement_node=<lost-inventory-hostname> \
+     -e rke2_replacement_version=<current-qualified-rke2-pin> \
+     -e rke2_maintenance_host=<explicit-healthy-rke2-server> \
+     -e rke2_node_replace_evidence_dir=<absolute-evidence-directory> \
+     -e rke2_node_replace_authorized=true \
+     -e rke2_replacement_host_fresh=true \
+     --ask-vault-pass
+   ```
+
+   The playbook removes only the named lost member, preserves the pre-shared
+   cluster token, and rejoins the fresh replacement through
+   `https://10.10.0.10:9345`.
+3. Reinstall Ubuntu 24.04 on replacement hardware and keep its reviewed
+   `inventory_region` and `inventory_zone` aligned with the live node labels.
+4. Verify VIP access, etcd quorum, CNPG replication, storage convergence,
+   backend synthetic reads/writes, CNI, DNS, metrics, and alerts. Uncordon only
+   after those checks pass, and retain the before/after evidence.
 
 **Cert rotation (cluster-issued TLS):**
 Managed by cert-manager + CNPG operator — auto-rotated. Manual

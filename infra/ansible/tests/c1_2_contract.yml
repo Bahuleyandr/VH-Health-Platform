@@ -1,0 +1,3978 @@
+---
+# Offline contract only. Run from infra/ansible with:
+#   ansible-playbook -i localhost, -c local tests/c1_2_contract.yml
+
+- name: Build the C1.2 offline fixture inventory
+  hosts: localhost
+  gather_facts: false
+  vars:
+    c12_control_plane_vip: 10.10.0.10
+    c12_control_plane_interface: enp1s0
+    c12_control_plane_prefix_length: 24
+    c12_control_plane_virtual_router_id: 42
+    c12_control_plane_dns_name: api.c1-2.invalid
+    c12_cluster_token: >-
+      K10aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa::server:C12_OFFLINE_CONTRACT_TOKEN
+    c12_fixture_servers:
+      - name: c12-server-a
+        address: 10.10.0.11
+        bootstrap: true
+        expected_priority: 150
+      - name: c12-server-b
+        address: 10.10.0.12
+        bootstrap: false
+        expected_priority: 140
+      - name: c12-server-c
+        address: 10.10.0.13
+        bootstrap: false
+        expected_priority: 130
+  tasks:
+    - name: Add three control-plane fixture hosts
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups:
+          - rke2_servers
+          - c1_2_contract_servers
+        ansible_connection: local
+        ansible_host: "{{ item.address }}"
+        inventory_region: c12-hospital
+        inventory_zone: c12-shared-facility-zone
+        rke2_bootstrap: "{{ item.bootstrap }}"
+        rke2_cluster_token: "{{ c12_cluster_token }}"
+        control_plane_vip_enabled: true
+        control_plane_vip_address: "{{ c12_control_plane_vip }}"
+        control_plane_vip_interface: "{{ c12_control_plane_interface }}"
+        control_plane_vip_prefix_length: "{{ c12_control_plane_prefix_length }}"
+        control_plane_vip_virtual_router_id: "{{ c12_control_plane_virtual_router_id }}"
+        control_plane_api_dns_name: "{{ c12_control_plane_dns_name }}"
+        c12_expected_priority: "{{ item.expected_priority }}"
+      loop: "{{ c12_fixture_servers }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+    - name: Add one worker fixture host
+      ansible.builtin.add_host:
+        name: c12-agent-a
+        groups:
+          - rke2_agents
+          - c1_2_contract_agents
+        ansible_connection: local
+        ansible_host: 10.10.0.21
+        inventory_region: c12-hospital
+        inventory_zone: c12-shared-facility-zone
+        rke2_cluster_token: "{{ c12_cluster_token }}"
+        control_plane_vip_address: "{{ c12_control_plane_vip }}"
+      changed_when: false
+
+- name: Render and verify every control-plane peer
+  hosts: c1_2_contract_servers
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../roles/rke2_server/defaults/main.yml"
+    - "{{ playbook_dir }}/../roles/control_plane_vip/defaults/main.yml"
+  vars:
+    ansible_managed: C1.2 offline contract fixture
+    cluster_dns_san:
+      - c12-cluster-api.invalid
+    etcd_s3_endpoint: s3.c1-2.invalid
+    etcd_s3_bucket: c12-etcd
+    etcd_s3_access_key: C12_ACCESS_KEY
+    etcd_s3_secret_key: C12_SECRET_KEY
+  tasks:
+    - name: Apply the production-like VIP fixture over role defaults
+      ansible.builtin.set_fact:
+        control_plane_vip_enabled: true
+        control_plane_vip_address: 10.10.0.10
+        control_plane_vip_interface: enp1s0
+        control_plane_vip_prefix_length: 24
+        control_plane_vip_virtual_router_id: 42
+        control_plane_api_dns_name: api.c1-2.invalid
+        cluster_dns_san:
+          - c12-cluster-api.invalid
+        rke2_install_artifact_url: https://prime.c1-2.invalid/rke2
+        rke2_system_default_registry: registry.rancher.com
+
+    - name: Derive the same deterministic peer order as the VIP role
+      ansible.builtin.set_fact:
+        control_plane_vip_server_hosts: >-
+          {{ groups['rke2_servers'] | sort }}
+
+    - name: Derive this peer's deterministic priority
+      ansible.builtin.set_fact:
+        control_plane_vip_effective_priority: >-
+          {{
+            control_plane_vip_priority_base
+            - (
+              control_plane_vip_server_hosts.index(inventory_hostname)
+              * control_plane_vip_priority_step
+            )
+          }}
+
+    - name: Render the server, keepalived, and health-check templates
+      ansible.builtin.set_fact:
+        c12_server_config_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/rke2_server/templates/config.yaml.j2'
+            )
+          }}
+        c12_keepalived_config_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/control_plane_vip/templates/keepalived.conf.j2'
+            )
+          }}
+        c12_health_check_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/control_plane_vip/templates/check-rke2-control-plane.sh.j2'
+            )
+          }}
+
+    - name: Parse the rendered server configuration
+      ansible.builtin.set_fact:
+        c12_server_config: "{{ c12_server_config_text | from_yaml }}"
+        c12_expected_server_sans: >-
+          {{
+            [
+              control_plane_vip_address,
+              control_plane_api_dns_name,
+              'c12-cluster-api.invalid'
+            ]
+            + groups['rke2_servers']
+            + (
+              groups['rke2_servers']
+              | map('extract', hostvars, 'ansible_host')
+              | list
+            )
+          }}
+        c12_expected_peer_addresses: >-
+          {{
+            (
+              groups['rke2_servers']
+              | map('extract', hostvars, 'ansible_host')
+              | list
+            )
+            | difference([ansible_host])
+          }}
+
+    - name: Verify bootstrap and joiner registration contracts
+      ansible.builtin.assert:
+        that:
+          - "'token' not in c12_server_config"
+          - c12_server_config['token-file'] == rke2_token_input_file
+          - rke2_cluster_token not in c12_server_config_text
+          - >-
+            c12_server_config['system-default-registry']
+            == 'registry.rancher.com'
+          - >-
+            (
+              rke2_bootstrap | bool
+              and c12_server_config.get('server', '') == ''
+            )
+            or
+            (
+              not (rke2_bootstrap | bool)
+              and c12_server_config.get('server', '') == 'https://10.10.0.10:9345'
+            )
+          - >-
+            c12_expected_server_sans
+            | difference(c12_server_config.get('tls-san', []))
+            | length == 0
+          - >-
+            'topology.kubernetes.io/region=' ~ inventory_region
+            in c12_server_config.get('node-label', [])
+          - >-
+            'topology.kubernetes.io/zone=' ~ inventory_zone
+            in c12_server_config.get('node-label', [])
+          - >-
+            'topology.kubernetes.io/region=default'
+            not in c12_server_config.get('node-label', [])
+          - >-
+            'topology.kubernetes.io/zone=default'
+            not in c12_server_config.get('node-label', [])
+        fail_msg: >-
+          {{ inventory_hostname }} violates the pre-shared-token, VIP registration,
+          required failure-domain label, or complete TLS SAN contract.
+
+    - name: Verify keepalived peer and hysteresis contracts
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*state\\s+BACKUP\\s*$')
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*vrrp_version\\s+3\\s*$')
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*nopreempt\\s*$')
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search(
+                  '(?m)^\\s*priority\\s+'
+                  ~ (c12_expected_priority | string)
+                  ~ '\\s*$'
+                )
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search(
+                  '(?m)^\\s*unicast_src_ip\\s+'
+                  ~ ansible_host
+                  ~ '\\s*$'
+                )
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*unicast_peer\\s*\\{\\s*$')
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_findall(
+                  ansible_host | regex_escape
+                )
+              | length
+            ) == 1
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search(
+                  '(?m)^\\s*'
+                  ~ control_plane_vip_address
+                  ~ '/'
+                  ~ (control_plane_vip_prefix_length | string)
+                  ~ '\\s+dev\\s+'
+                  ~ control_plane_vip_interface
+                  ~ '\\s*$'
+                )
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*fall\\s+[2-9][0-9]*\\s*$')
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*rise\\s+[2-9][0-9]*\\s*$')
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*track_script\\s*\\{')
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*init_fail\\s*$')
+            ) is not none
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search('(?m)^\\s*track_src_ip\\s*$')
+            ) is not none
+        fail_msg: >-
+          {{ inventory_hostname }} violates the all-BACKUP, unicast, nopreempt,
+          deterministic-priority, VIP, source tracking, initial-failure, or
+          fail/rise keepalived contract.
+
+    - name: Verify every expected unicast peer is present
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              c12_keepalived_config_text
+              | regex_search(
+                  '(?m)^\\s*'
+                  ~ item
+                  ~ '\\s*$'
+                )
+            ) is not none
+        fail_msg: >-
+          {{ inventory_hostname }} is missing unicast peer {{ item }}.
+      loop: "{{ c12_expected_peer_addresses }}"
+
+    - name: Verify the local readiness gate
+      ansible.builtin.assert:
+        that:
+          - >-
+            'curl -kfsS' in c12_health_check_text
+            or
+            (
+              'curl --insecure --fail --silent --show-error'
+              in c12_health_check_text
+            )
+          - "'--connect-timeout' in c12_health_check_text"
+          - "'--max-time' in c12_health_check_text"
+          - "'https://127.0.0.1:6443/readyz' in c12_health_check_text"
+          - "'timeout ' in c12_health_check_text"
+          - "'/dev/tcp/127.0.0.1/9345' in c12_health_check_text"
+          - "'/dev/tcp/127.0.0.1/6443' not in c12_health_check_text"
+        fail_msg: >-
+          The VIP health check must use strict-timeout HTTPS /readyz plus local
+          TCP 9345; a bare API listener is not sufficient.
+
+- name: Render and verify the worker registration contract
+  hosts: c1_2_contract_agents
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../roles/rke2_agent/defaults/main.yml"
+  vars:
+    ansible_managed: C1.2 offline contract fixture
+  tasks:
+    - name: Apply the production-like registration fixture over role defaults
+      ansible.builtin.set_fact:
+        control_plane_vip_enabled: true
+        control_plane_vip_address: 10.10.0.10
+        rke2_cluster_token: >-
+          K10aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa::server:C12_OFFLINE_CONTRACT_TOKEN
+        rke2_cluster_token_mode: steady_state_exact
+        rke2_install_artifact_url: https://prime.c1-2.invalid/rke2
+        rke2_system_default_registry: registry.rancher.com
+
+    - name: Render the agent configuration
+      ansible.builtin.set_fact:
+        c12_agent_config_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/rke2_agent/templates/config.yaml.j2'
+            )
+          }}
+
+    - name: Parse the rendered agent configuration
+      ansible.builtin.set_fact:
+        c12_agent_config: "{{ c12_agent_config_text | from_yaml }}"
+
+    - name: Verify the agent uses the VIP and pre-shared token
+      ansible.builtin.assert:
+        that:
+          - c12_agent_config.server == 'https://10.10.0.10:9345'
+          - "'token' not in c12_agent_config"
+          - c12_agent_config['token-file'] == rke2_agent_token_file
+          - rke2_cluster_token not in c12_agent_config_text
+          - >-
+            c12_agent_config['system-default-registry']
+            == 'registry.rancher.com'
+          - >-
+            'topology.kubernetes.io/region=' ~ inventory_region
+            in c12_agent_config.get('node-label', [])
+          - >-
+            'topology.kubernetes.io/zone=' ~ inventory_zone
+            in c12_agent_config.get('node-label', [])
+          - >-
+            'topology.kubernetes.io/region=default'
+            not in c12_agent_config.get('node-label', [])
+          - >-
+            'topology.kubernetes.io/zone=default'
+            not in c12_agent_config.get('node-label', [])
+        fail_msg: >-
+          The agent default must use the VIP registration URL, vault-backed
+          pre-shared token, and required truthful failure-domain labels.
+
+- name: Verify repository-level C1.2 inertness and placement contracts
+  hosts: localhost
+  gather_facts: false
+  vars:
+    c12_repo_root: "{{ playbook_dir }}/../../.."
+    c12_platform_application_documents: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/base/argocd/applications/platform.yaml'
+        )
+        | from_yaml_all
+        | reject('equalto', none)
+        | selectattr('kind', 'equalto', 'Application')
+        | list
+      }}
+    c12_workload_application_documents: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/base/argocd/applications/apps.yaml'
+        )
+        | from_yaml_all
+        | reject('equalto', none)
+        | selectattr('kind', 'equalto', 'Application')
+        | list
+      }}
+    c12_monitoring_application_documents: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/base/argocd/applications/monitoring.yaml'
+        )
+        | from_yaml_all
+        | reject('equalto', none)
+        | selectattr('kind', 'equalto', 'Application')
+        | list
+      }}
+    c12_top_level_application_documents: >-
+      {{
+        c12_platform_application_documents
+        + c12_workload_application_documents
+        + c12_monitoring_application_documents
+      }}
+    c12_longhorn_application: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/base/longhorn/longhorn-app.yaml'
+        )
+        | from_yaml
+      }}
+    c12_cnpg_cluster_documents: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/base/cnpg/cluster.yaml'
+        )
+        | from_yaml_all
+        | reject('equalto', none)
+        | selectattr('kind', 'equalto', 'Cluster')
+        | list
+      }}
+    c12_cnpg_cluster: "{{ c12_cnpg_cluster_documents[0] }}"
+    c12_backend_deployment: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/apps/backend/deployment.yaml'
+        )
+        | from_yaml
+      }}
+    c12_backend_spread_constraints: >-
+      {{
+        c12_backend_deployment.spec.template.spec.topologySpreadConstraints
+      }}
+    c12_hostname_spread_constraints: >-
+      {{
+        c12_backend_spread_constraints
+        | selectattr('topologyKey', 'equalto', 'kubernetes.io/hostname')
+        | list
+      }}
+    c12_zone_spread_constraints: >-
+      {{
+        c12_backend_spread_constraints
+        | selectattr('topologyKey', 'equalto', 'topology.kubernetes.io/zone')
+        | list
+      }}
+    c12_longhorn_storage_classes: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/base/longhorn/storageclass.yaml'
+        )
+        | from_yaml_all
+        | reject('equalto', none)
+        | selectattr('kind', 'equalto', 'StorageClass')
+        | list
+      }}
+    c12_three_replica_longhorn_classes: >-
+      {{
+        c12_longhorn_storage_classes
+        | selectattr('metadata.name', 'equalto', 'longhorn')
+        | list
+      }}
+    c12_prod_kustomization: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/overlays/prod/kustomization.yaml'
+        )
+        | from_yaml
+      }}
+    c12_storage_truth_text: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/base/longhorn/longhorn-app.yaml'
+        )
+        ~ '\n'
+        ~ lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/base/longhorn/storageclass.yaml'
+        )
+        ~ '\n'
+        ~ lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/overlays/prod/longhorn-pvc-patch.yaml'
+        )
+        ~ '\n'
+        ~ lookup(
+          'ansible.builtin.file',
+          playbook_dir ~
+          '/../../kubernetes/overlays/prod/kustomization.yaml'
+        )
+      }}
+    c12_agent_defaults_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/rke2_agent/defaults/main.yml'
+        )
+      }}
+    c12_site_playbook_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../playbooks/site.yml'
+        )
+      }}
+    c12_control_plane_vip_tasks_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/control_plane_vip/tasks/main.yml'
+        )
+      }}
+    c12_post_install_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/rke2_server/tasks/post-install.yml'
+        )
+      }}
+    c12_firewall_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/firewall/templates/nftables.conf.j2'
+        )
+      }}
+    c12_server_preflight_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/rke2_server/tasks/preflight.yml'
+        )
+      }}
+    c12_server_token_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/rke2_server/tasks/token.yml'
+        )
+      }}
+    c12_server_install_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/rke2_server/tasks/install.yml'
+        )
+      }}
+    c12_server_install_tasks: "{{ c12_server_install_source | from_yaml }}"
+    c12_server_token_write_task: >-
+      {{
+        c12_server_install_tasks
+        | selectattr(
+            'name',
+            'equalto',
+            'Write the protected cluster-token input file'
+          )
+        | first
+      }}
+    c12_server_s3_write_task: >-
+      {{
+        c12_server_install_tasks
+        | selectattr('name', 'equalto', 'Write protected etcd S3 credentials')
+        | first
+      }}
+    c12_agent_tasks_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/rke2_agent/tasks/main.yml'
+        )
+      }}
+    c12_agent_tasks: "{{ c12_agent_tasks_source | from_yaml }}"
+    c12_agent_token_write_task: >-
+      {{
+        c12_agent_tasks
+        | selectattr('name', 'equalto', 'Write the protected agent token file')
+        | first
+      }}
+    c12_agent_config_render_task: >-
+      {{
+        c12_agent_tasks
+        | selectattr('name', 'equalto', 'Render agent config.yaml')
+        | first
+      }}
+    c12_dev_inventory_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../inventories/dev.yml'
+        )
+      }}
+    c12_dev_inventory: "{{ c12_dev_inventory_source | from_yaml }}"
+    c12_prod_inventory_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../inventories/prod.yml.example'
+        )
+      }}
+    c12_prod_inventory: "{{ c12_prod_inventory_source | from_yaml }}"
+    c12_upgrade_playbook_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../playbooks/upgrade-k8s.yml'
+        )
+      }}
+    c12_upgrade_playbook_raw: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../playbooks/upgrade-k8s.yml',
+          rstrip=false
+        )
+      }}
+    c12_expected_upgrade_playbook_sha256: >-
+      252E79E760A49EF06C62C18F742651E6E2DB3A4FE479D489CC08C284673A55CB
+    c12_node_replace_playbook_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../playbooks/node-replace.yml'
+        )
+      }}
+    c12_node_replace_playbook_raw: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../playbooks/node-replace.yml',
+          rstrip=false
+        )
+      }}
+    c12_expected_node_replace_playbook_sha256: >-
+      FC6FC00AB7CACC9459A0AD8D3AB84B9BBA6EEFA18F28FFBDDEF10B6D6AAA379E
+    c12_longhorn_prereqs_source: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../playbooks/longhorn-prereqs.yml'
+        )
+      }}
+    c12_operator_playbook_sources: >-
+      {{
+        c12_upgrade_playbook_source
+        ~ '\n'
+        ~ c12_node_replace_playbook_source
+        ~ '\n'
+        ~ c12_longhorn_prereqs_source
+      }}
+    c12_approved_rke2_ladder:
+      - v1.31.4+rke2r1
+      - v1.31.14+rke2r2
+      - v1.32.13+rke2r2
+      - v1.33.13+rke2r1
+      - v1.34.9+rke2r1
+    c12_upgrade_literal_pins: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall('v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+')
+        | unique
+        | list
+      }}
+    c12_node_replace_literal_pins: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall('v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+')
+        | unique
+        | list
+      }}
+    c12_upgrade_receipt_literals: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall('(?m)^\s{8}- ([a-z0-9-]+\.txt)\s*$')
+      }}
+    c12_node_replace_receipt_literals: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall('(?m)^\s{8}- ([a-z0-9-]+\.txt)\s*$')
+      }}
+    c12_longhorn_package_block: >-
+      {{
+        c12_longhorn_prereqs_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Install Longhorn prerequisite packages\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+        | default('', true)
+      }}
+    c12_longhorn_package_literals: >-
+      {{
+        c12_longhorn_package_block
+        | regex_findall('(?m)^\s{10}- ([a-z0-9-]+)\s*$')
+      }}
+    c12_node_lost_member_resolution_block: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Resolve the exact lost etcd member ID\s*$'
+            ~ '.*?(?=^[ \t]*- name: Reject ambiguous etcd membership)'
+          )
+        | default('', true)
+      }}
+    c12_node_fenced_cnpg_gate: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Require a primary and two ready instances'
+            ~ ' while fenced\s*$'
+            ~ '.*?(?=^[ \t]*- name: Prove a streaming synchronous standby)'
+          )
+        | default('', true)
+      }}
+    c12_upgrade_longhorn_detection_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Detect '
+            ~ '(?:an installed Longhorn API|the exact Longhorn volume CRD)\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_node_longhorn_detection_blocks: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Detect the Longhorn API'
+            ~ ' without hiding query failures\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_longhorn_detection_contract_source: >-
+      {{
+        (
+          c12_upgrade_longhorn_detection_blocks
+          + c12_node_longhorn_detection_blocks
+        )
+        | join('\n')
+      }}
+    c12_upgrade_registry_remove_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Remove every active '
+            ~ '(?:server|agent) registry override\s*$'
+            ~ '.*?(?=^[ \t]*-\s+(?:&[^\n]+\s+)?name:)'
+          )
+      }}
+    c12_upgrade_registry_install_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Install the one canonical Prime '
+            ~ '(?:server|agent) registry override\s*$'
+            ~ '.*?(?=^[ \t]*-\s+(?:&[^\n]+\s+)?name:)'
+          )
+      }}
+    c12_upgrade_registry_count_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*-\s+(?:&[^\n]+\s+)?name: Count '
+            ~ '(?:active and exact (?:server|agent)|final active and exact) '
+            ~ 'registry overrides\s*$'
+            ~ '.*?(?=^[ \t]*-\s+(?:&[^\n]+\s+)?name:)'
+          )
+      }}
+    c12_upgrade_registry_assertion_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*-\s+(?:&[^\n]+\s+)?name: '
+            ~ '(?:Reject a non-canonical (?:server|agent) registry state'
+            ~ '|Require the exact target pin and registry state on every managed node)'
+            ~ '\s*$'
+            ~ '.*?(?=^[ \t]*-\s+(?:&[^\n]+\s+)?name:)'
+          )
+      }}
+    c12_upgrade_registry_contract_source: >-
+      {{
+        (
+          c12_upgrade_registry_remove_blocks
+          + c12_upgrade_registry_install_blocks
+          + c12_upgrade_registry_count_blocks
+          + c12_upgrade_registry_assertion_blocks
+        )
+        | join('\n')
+      }}
+    c12_upgrade_server_post_uncordon_source: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Uncordon only after node, API, etcd, CNPG, '
+            ~ 'PVC, and storage health\s*$'
+            ~ '.*?(?=^[ \t]*rescue:\s*$)'
+          )
+        | default('', true)
+      }}
+    c12_upgrade_agent_post_uncordon_source: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Uncordon the healthy upgraded agent '
+            ~ 'after storage health\s*$'
+            ~ '.*?(?=^[ \t]*rescue:\s*$)'
+          )
+        | default('', true)
+      }}
+    c12_upgrade_longhorn_health_source: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Prove Longhorn health while this node '
+            ~ 'remains cordoned\s*$'
+            ~ '.*?(?=^[ \t]*- name: Uncordon only after)'
+          )
+        | default('', true)
+      }}
+    c12_node_post_uncordon_source: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Uncordon the validated replacement\s*$'
+            ~ '.*?(?=^[ \t]*rescue:\s*$)'
+          )
+        | default('', true)
+      }}
+    c12_node_fenced_longhorn_source: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Wait for Longhorn volumes and nodes '
+            ~ 'to be healthy while fenced\s*$'
+            ~ '.*?(?=^[ \t]*- name: Re-prove the maintenance server)'
+          )
+        | default('', true)
+      }}
+    c12_node_post_uncordon_longhorn_source: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_search(
+            '(?ms)^[ \t]*- name: Wait for post-uncordon Longhorn health\s*$'
+            ~ '.*?(?=^[ \t]*- name: Find final PVC or node degradation)'
+          )
+        | default('', true)
+      }}
+    c12_rescue_cordon_blocks: >-
+      {{
+        (
+          c12_upgrade_playbook_source
+          ~ '\n'
+          ~ c12_node_replace_playbook_source
+        )
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Re-cordon [^\n]+\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_rescue_cordon_contract_source: >-
+      {{ c12_rescue_cordon_blocks | join('\n') }}
+    c12_rescue_fence_assertion_blocks: >-
+      {{
+        (
+          c12_upgrade_playbook_source
+          ~ '\n'
+          ~ c12_node_replace_playbook_source
+        )
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Require at least one [^\n]+'
+            ~ 'restore [^\n]+fence\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_rescue_fence_assertion_source: >-
+      {{ c12_rescue_fence_assertion_blocks | join('\n') }}
+    c12_flow_style_registry_fragment: >-
+      {"system-default-registry+": "evil.example"}
+    c12_flow_style_registry_document: >-
+      {{ c12_flow_style_registry_fragment | from_yaml }}
+    c12_flow_style_registry_keys: >-
+      {{
+        c12_flow_style_registry_document
+        | dict2items
+        | selectattr('key', 'match', '^system-default-registry[+]?$')
+        | list
+      }}
+    c12_upgrade_semantic_registry_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*-\s+(?:&[^\n]+\s+)?name: Require '
+            ~ '(?:semantic (?:server|agent) registry state '
+            ~ 'to match the protected target'
+            ~ '|every final semantic registry state to match the target)'
+            ~ '\s*$'
+            ~ '.*?(?=^[ \t]*-\s+(?:&[^\n]+\s+)?name:)'
+          )
+      }}
+    c12_node_semantic_registry_blocks: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Require semantic replacement '
+            ~ 'registry state to match the target\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_semantic_registry_blocks: >-
+      {{
+        c12_upgrade_semantic_registry_blocks
+        + c12_node_semantic_registry_blocks
+      }}
+    c12_upgrade_fragment_find_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*-\s+(?:&[^\n]+\s+)?name: Find every '
+            ~ '(?:loaded (?:server|agent)|final loaded) '
+            ~ 'configuration fragment\s*$'
+            ~ '.*?(?=^[ \t]*-\s+(?:&[^\n]+\s+)?name:)'
+          )
+      }}
+    c12_node_fragment_find_blocks: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Find every loaded replacement '
+            ~ 'configuration fragment\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_fragment_find_blocks: >-
+      {{ c12_upgrade_fragment_find_blocks + c12_node_fragment_find_blocks }}
+    c12_upgrade_unsafe_fragment_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*-\s+(?:&[^\n]+\s+)?name: Reject unsafe '
+            ~ '(?:server|agent|final) configuration fragment file types\s*$'
+            ~ '.*?(?=^[ \t]*-\s+(?:&[^\n]+\s+)?name:)'
+          )
+      }}
+    c12_node_unsafe_fragment_blocks: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Reject unsafe replacement '
+            ~ 'configuration fragment file types\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_unsafe_fragment_blocks: >-
+      {{
+        c12_upgrade_unsafe_fragment_blocks
+        + c12_node_unsafe_fragment_blocks
+      }}
+    c12_node_registry_count_blocks: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Count effective replacement '
+            ~ 'registry overrides\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_all_registry_count_blocks: >-
+      {{
+        c12_upgrade_registry_count_blocks
+        + c12_node_registry_count_blocks
+      }}
+    c12_fragment_filename_fixtures:
+      - name: 10-lower.yaml
+        loaded: true
+      - name: 20-short.yml
+        loaded: true
+      - name: 30-upper.YAML
+        loaded: true
+      - name: 40-mixed.YmL
+        loaded: true
+      - name: .50-hidden.yml
+        loaded: true
+      - name: "60-newline\nname.YAML"
+        loaded: true
+      - name: 70-ignore.json
+        loaded: false
+      - name: 80-ignore.yaml.disabled
+        loaded: false
+    c12_upgrade_service_input_gate_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Reject alternate RKE2 server '
+            ~ 'service configuration inputs\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_upgrade_live_process_gate_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Reject alternate inputs in the live '
+            ~ 'RKE2 server process\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_node_service_input_gate_blocks: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Reject alternate replacement RKE2 '
+            ~ 'service configuration inputs\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_node_live_process_gate_blocks: >-
+      {{
+        c12_node_replace_playbook_source
+        | regex_findall(
+            '(?ms)^[ \t]*- name: Reject alternate inputs in the live '
+            ~ 'replacement RKE2 process\s*$'
+            ~ '.*?(?=^[ \t]*- name:)'
+          )
+      }}
+    c12_service_input_gate_blocks: >-
+      {{
+        c12_upgrade_service_input_gate_blocks
+        + c12_node_service_input_gate_blocks
+      }}
+    c12_live_process_gate_blocks: >-
+      {{
+        c12_upgrade_live_process_gate_blocks
+        + c12_node_live_process_gate_blocks
+      }}
+    c12_upgrade_config_integrity_gate_blocks: >-
+      {{
+        c12_upgrade_playbook_source
+        | regex_findall(
+            '(?ms)^    - name: Prove protected RKE2 '
+            ~ 'configuration path integrity\s*$'
+            ~ '.*?(?=^    - name:)'
+          )
+      }}
+    c12_upgrade_config_integrity_gate_source: >-
+      {{ c12_upgrade_config_integrity_gate_blocks | first | default('') }}
+    c12_integrity_ancestor_mode_fixtures:
+      - mode: "0755"
+        accepted: true
+      - mode: "0750"
+        accepted: true
+      - mode: "0700"
+        accepted: true
+      - mode: "0775"
+        accepted: false
+      - mode: "0752"
+        accepted: false
+      - mode: "0777"
+        accepted: false
+    c12_integrity_fragment_fixtures:
+      - mode: "0640"
+        uid: 0
+        gid: 0
+        isreg: true
+        islnk: false
+        accepted: true
+      - mode: "0600"
+        uid: 0
+        gid: 0
+        isreg: true
+        islnk: false
+        accepted: true
+      - mode: "0644"
+        uid: 0
+        gid: 0
+        isreg: true
+        islnk: false
+        accepted: false
+      - mode: "0640"
+        uid: 1000
+        gid: 0
+        isreg: true
+        islnk: false
+        accepted: false
+      - mode: "0640"
+        uid: 0
+        gid: 1000
+        isreg: true
+        islnk: false
+        accepted: false
+      - mode: "0640"
+        uid: 0
+        gid: 0
+        isreg: false
+        islnk: false
+        accepted: false
+      - mode: "0640"
+        uid: 0
+        gid: 0
+        isreg: true
+        islnk: true
+        accepted: false
+    c12_forbidden_rke2_environment_fixtures:
+      - RKE2_CONFIG_FILE=/tmp/hostile-config.yaml
+      - RKE2_SYSTEM_DEFAULT_REGISTRY=evil.example
+      - RKE2_TOKEN_FILE=/tmp/hostile-token
+    c12_hostile_rke2_argv_fixtures:
+      - - /usr/local/bin/rke2
+        - server
+        - --config=/tmp/hostile-config.yaml
+      - - /usr/local/bin/rke2
+        - agent
+        - --system-default-registry=evil.example
+      - - /usr/local/bin/rke2
+        - server
+        - --config
+        - /tmp/hostile-config.yaml
+  tasks:
+    - name: Pin the frozen operator playbook sources
+      ansible.builtin.assert:
+        that:
+          - >-
+            c12_upgrade_playbook_raw | hash('sha256') | upper
+            == c12_expected_upgrade_playbook_sha256
+          - >-
+            c12_node_replace_playbook_raw | hash('sha256') | upper
+            == c12_expected_node_replace_playbook_sha256
+        fail_msg: >-
+          The operator playbook sources changed after the final contract
+          freeze; remap every safety invariant and update the pinned hashes.
+
+    - name: Verify all four top-level Argo Applications remain manual-sync
+      ansible.builtin.assert:
+        that:
+          - >-
+            c12_top_level_application_documents
+            | map(attribute='metadata.name')
+            | sort
+            | list
+            ==
+            [
+              'vhhealth-apps',
+              'vhhealth-kube-prometheus',
+              'vhhealth-loki',
+              'vhhealth-platform'
+            ]
+          - item.spec.syncPolicy.automated is not defined
+        fail_msg: >-
+          The top-level Argo Application set must remain exactly four
+          manual-sync Applications.
+      loop: "{{ c12_top_level_application_documents }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Verify the Longhorn child Application remains manual-sync
+      ansible.builtin.assert:
+        that:
+          - c12_longhorn_application.kind == 'Application'
+          - c12_longhorn_application.metadata.name == 'longhorn'
+          - c12_longhorn_application.spec.syncPolicy.automated is not defined
+        fail_msg: >-
+          The Longhorn child Application must be present and manual-sync.
+
+    - name: Verify backend and CNPG placement contracts
+      ansible.builtin.assert:
+        that:
+          - c12_cnpg_cluster_documents | length == 1
+          - c12_hostname_spread_constraints | length == 1
+          - c12_hostname_spread_constraints[0].maxSkew == 1
+          - >-
+            c12_hostname_spread_constraints[0].whenUnsatisfiable
+            == 'DoNotSchedule'
+          - c12_hostname_spread_constraints[0].nodeTaintsPolicy == 'Honor'
+          - c12_zone_spread_constraints | length == 1
+          - c12_zone_spread_constraints[0].maxSkew == 1
+          - >-
+            c12_zone_spread_constraints[0].whenUnsatisfiable
+            == 'ScheduleAnyway'
+          - c12_cnpg_cluster.spec.affinity.enablePodAntiAffinity | bool
+          - >-
+            c12_cnpg_cluster.spec.affinity.topologyKey
+            == 'kubernetes.io/hostname'
+          - >-
+            c12_cnpg_cluster.spec.affinity.podAntiAffinityType
+            == 'required'
+        fail_msg: >-
+          Backend hostname spreading must be hard and zone spreading
+          best-effort; CNPG must require one instance per hostname.
+
+    - name: Verify storage remains inert and truthful
+      ansible.builtin.assert:
+        that:
+          - c12_cnpg_cluster.spec.storage.storageClass == 'local-path'
+          - c12_cnpg_cluster.spec.walStorage.storageClass == 'local-path'
+          - c12_three_replica_longhorn_classes | length == 1
+          - >-
+            c12_three_replica_longhorn_classes[0].parameters.numberOfReplicas
+            == '3'
+          - >-
+            'longhorn-pvc-patch.yaml'
+            not in (
+              c12_prod_kustomization.patches
+              | default([], true)
+              | to_json
+            )
+          - "'longhorn-nvme' not in c12_storage_truth_text"
+          - >-
+            (
+              c12_storage_truth_text
+              | regex_search('(?i)\\bdelete\\s+and\\s+restore\\b')
+            ) is none
+        fail_msg: >-
+          C1.2 must leave CNPG data and WAL on local-path, keep the Longhorn
+          migration patch inactive, and use only the real longhorn class name.
+
+    - name: Verify the firewall cannot erase or compete with Kubernetes rules
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              c12_firewall_source
+              | regex_search('(?im)^\\s*flush\\s+ruleset\\s*$')
+            ) is none
+          - >-
+            (
+              c12_firewall_source
+              | regex_search(
+                  '(?im)^\\s*type\\s+filter\\s+hook\\s+forward\\b'
+                )
+            ) is none
+          - >-
+            (
+              c12_firewall_source
+              | regex_search(
+                  '(?im)^\\s*destroy\\s+table\\s+inet\\s+vhhealth\\s*$'
+                )
+            ) is not none
+        fail_msg: >-
+          The host firewall must not globally flush nftables or install a
+          competing forward base chain beside kube-proxy and the CNI; it may
+          replace only its own inet vhhealth table.
+
+    - name: Verify real-interface VIP validation precedes firewall mutation
+      ansible.builtin.assert:
+        that:
+          - >-
+            '- name: Resolve the selected interface address and declared peer addresses'
+            in c12_site_playbook_source
+          - >-
+            "interface_facts['ipv4_secondaries'] | default([])"
+            in c12_site_playbook_source
+          - >-
+            'c1_2_control_plane_unicast_prefixes | length == 1'
+            in c12_site_playbook_source
+          - >-
+            'c1_2_control_plane_unicast_prefixes | first | int'
+            in c12_site_playbook_source
+          - >-
+            '== control_plane_vip_prefix_length | int'
+            in c12_site_playbook_source
+          - >-
+            'c1_2_vip_cluster_scope_matches | length == 1'
+            in c12_site_playbook_source
+          - >-
+            'c1_2_unicast_cluster_scope_matches | length == 1'
+            in c12_site_playbook_source
+          - >-
+            'difference(c1_2_peer_cluster_scope_matches)'
+            in c12_site_playbook_source
+          - >-
+            (
+              c12_site_playbook_source
+              | regex_findall("ansible\\.utils\\.ipaddr\\('network'\\)")
+              | length
+            ) >= 4
+          - >-
+            c12_site_playbook_source.find(
+              '- name: Bind the declared VIP prefix to the selected interface address'
+            )
+            <
+            c12_site_playbook_source.find(
+              '    - role: firewall'
+            )
+          - >-
+            c12_site_playbook_source.find(
+              '- name: Require every VRRP peer to share the real interface subnet'
+            )
+            <
+            c12_site_playbook_source.find(
+              '    - role: firewall'
+            )
+          - >-
+            '- name: Resolve addresses and prefixes on the selected interface'
+            in c12_control_plane_vip_tasks_source
+          - >-
+            "interface_facts['ipv4_secondaries'] | default([])"
+            in c12_control_plane_vip_tasks_source
+          - >-
+            'control_plane_vip_local_unicast_prefixes | length == 1'
+            in c12_control_plane_vip_tasks_source
+          - >-
+            '== control_plane_vip_prefix_length | int'
+            in c12_control_plane_vip_tasks_source
+          - >-
+            'difference(control_plane_vip_firewall_scoped_addresses)'
+            in c12_control_plane_vip_tasks_source
+          - >-
+            c12_control_plane_vip_tasks_source.find(
+              '- name: Reject ambiguous VIP and peer addressing'
+            )
+            <
+            c12_control_plane_vip_tasks_source.find(
+              '- name: Verify the required firewall table before keepalived'
+            )
+        fail_msg: >-
+          Site and control_plane_vip must bind the declared unicast source to
+          its actual primary-or-secondary interface prefix, prove VIP and every
+          peer share that real subnet and cluster CIDR scope, and hard-stop
+          before the firewall or keepalived can be changed.
+
+    - name: Verify tagged includes execute their tagged role tasks
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              c12_site_playbook_source
+              | regex_findall(
+                  '(?ms)- name: Verify the pre-shared token before any host changes'
+                  ~ '.*?tasks_from: token\\.yml'
+                  ~ '.*?apply:\\s*\\n\\s*tags: \\[always\\]'
+                  ~ '.*?tags: \\[always, rke2, token\\]'
+                )
+              | length
+            ) == 1
+          - >-
+            (
+              c12_site_playbook_source
+              | regex_findall(
+                  '(?ms)- name: Configure the control-plane VIP'
+                  ~ '.*?name: control_plane_vip'
+                  ~ '.*?apply:\\s*\\n\\s*tags: \\[control_plane_vip\\]'
+                  ~ '.*?tags: \\[control_plane_vip\\]'
+                )
+              | length
+            ) == 2
+          - >-
+            (
+              c12_site_playbook_source
+              | regex_findall('(?m)^  serial: 1\\s*$')
+              | length
+            ) >= 3
+        fail_msg: >-
+          Tagged token and VIP include_role calls must use apply.tags so
+          --tags executes the selected role tasks, and server mutation plays
+          must remain serialized.
+
+    - name: Verify fleet-wide server and agent token identity preflight
+      ansible.builtin.assert:
+        that:
+          - >-
+            'c1_2_fleet_token_mode:'
+            in c12_site_playbook_source
+          - >-
+            'rke2_cluster_token_mode'
+            in c12_site_playbook_source
+          - >-
+            "rke2_cluster_token_canonical | hash('sha256')"
+            in c12_site_playbook_source
+          - >-
+            'c1_2_fleet_existing_server_state'
+            in c12_site_playbook_source
+          - >-
+            "map('extract', hostvars, 'c1_2_fleet_token_fingerprint')"
+            in c12_site_playbook_source
+          - >-
+            "'c1_2_fleet_existing_server_state'"
+            in c12_site_playbook_source
+          - >-
+            "select('equalto', true)"
+            in c12_site_playbook_source
+          - >-
+            "select('equalto', false)"
+            in c12_site_playbook_source
+          - >-
+            "'steady_state_exact'" in c12_site_playbook_source
+          - >-
+            "'fresh_short'" in c12_site_playbook_source
+          - >-
+            '- name: Validate every existing RKE2 agent before host changes'
+            in c12_site_playbook_source
+          - >-
+            "[rke2_cluster_token | string | hash('sha256')]"
+            in c12_site_playbook_source
+          - >-
+            '- name: Reject agent data without recoverable registration identity'
+            in c12_site_playbook_source
+          - >-
+            "regex_replace('[\\r\\n]+$', '')"
+            in c12_site_playbook_source
+          - >-
+            'c1_2_agent_preflight_existing_token'
+            in c12_site_playbook_source
+          - >-
+            '== (rke2_cluster_token | string)'
+            in c12_site_playbook_source
+          - >-
+            (
+              c12_site_playbook_source
+              | regex_findall('(?m)^\\s+no_log:\\s+true\\s*$')
+              | length
+            ) >= 8
+        fail_msg: >-
+          Site preflight must bind one protected token fingerprint and
+          datastore phase across all servers, then prove every existing agent's
+          recoverable registration identity and exact token before host roles.
+
+    - name: Verify fixed protected Vault artifact sources
+      ansible.builtin.assert:
+        that:
+          - >-
+            'inventory_dir }}/group_vars/all/vault.yml'
+            in c12_upgrade_playbook_source
+          - >-
+            'name: c1_2_upgrade_vault_file'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_upgrade_vault_file.vault_rke2_prime_artifact_url'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_upgrade_vault_file.vault_rke2_cluster_token'
+            in c12_upgrade_playbook_source
+          - >-
+            "rke2_cluster_token | default('')"
+            in c12_upgrade_playbook_source
+          - >-
+            '== c1_2_upgrade_protected_token'
+            in c12_upgrade_playbook_source
+          - >-
+            'rke2_upgrade_artifact_url is not defined'
+            in c12_upgrade_playbook_source
+          - >-
+            "rke2_install_artifact_url | default('') | string"
+            in c12_upgrade_playbook_source
+          - >-
+            'playbook_dir }}/../inventories/group_vars/all/vault.yml'
+            in c12_node_replace_playbook_source
+          - >-
+            'name: c1_2_protected_vault'
+            in c12_node_replace_playbook_source
+          - >-
+            'c1_2_protected_vault.vault_rke2_prime_artifact_url'
+            in c12_node_replace_playbook_source
+          - >-
+            'c1_2_protected_vault.vault_rke2_cluster_token'
+            in c12_node_replace_playbook_source
+          - >-
+            'rke2_replacement_artifact_url is not defined'
+            in c12_node_replace_playbook_source
+          - >-
+            "rke2_install_artifact_url | default('') | string"
+            in c12_node_replace_playbook_source
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_search(
+                  '(?s)c1_2_upgrade_artifact_url:\\s*>-\\s*'
+                  ~ '\\{\\{\\s*rke2_upgrade_artifact_url'
+                )
+            ) is none
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_search(
+                  '(?s)c1_2_replacement_artifact_url:\\s*>-\\s*'
+                  ~ '\\{\\{\\s*rke2_replacement_artifact_url'
+                )
+            ) is none
+        fail_msg: >-
+          Upgrade and replacement must load artifact identity from the fixed
+          protected Vault file, require inventory to match it, and reject a
+          paired extra-var artifact replacement path.
+
+    - name: Verify protected secret files and explicit token modes
+      ansible.builtin.assert:
+        that:
+          - >-
+            c12_server_token_write_task['ansible.builtin.copy'].mode == '0600'
+          - >-
+            not (
+              c12_server_token_write_task['ansible.builtin.copy'].backup
+              | bool
+            )
+          - not (c12_server_token_write_task.diff | bool)
+          - c12_server_token_write_task.no_log | bool
+          - c12_server_s3_write_task['ansible.builtin.copy'].mode == '0600'
+          - >-
+            not (
+              c12_server_s3_write_task['ansible.builtin.copy'].backup
+              | bool
+            )
+          - not (c12_server_s3_write_task.diff | bool)
+          - c12_server_s3_write_task.no_log | bool
+          - >-
+            c12_agent_token_write_task['ansible.builtin.copy'].mode == '0600'
+          - >-
+            not (
+              c12_agent_token_write_task['ansible.builtin.copy'].backup
+              | bool
+            )
+          - not (c12_agent_token_write_task.diff | bool)
+          - c12_agent_token_write_task.no_log | bool
+          - >-
+            not (
+              c12_agent_config_render_task['ansible.builtin.template'].backup
+              | bool
+            )
+          - not (c12_agent_config_render_task.diff | bool)
+          - c12_agent_config_render_task.no_log | bool
+          - >-
+            'rke2_cluster_token | string == '
+            ~ '(rke2_cluster_token | string | trim)'
+            in c12_server_token_source
+          - >-
+            "regex_search('^K10[0-9a-fA-F]{64}::server:\\S+$')"
+            in c12_server_token_source
+          - >-
+            'rke2_existing_token_value == rke2_cluster_token_canonical'
+            in c12_server_token_source
+          - "'::server:' in c12_server_token_source"
+          - >-
+            (
+              c12_server_token_source
+              | regex_search(
+                  '(?s)rke2_existing_token_blob\\.content'
+                  ~ '.{0,240}?\\|\\s*trim\\b'
+                )
+            ) is none
+          - "'rke2_agent_allow_token_rotation' in c12_agent_tasks_source"
+          - >-
+            'rke2_agent_existing_token_value == '
+            ~ '(rke2_agent_token | string)'
+            in c12_agent_tasks_source
+          - >-
+            c12_dev_inventory.all.vars.rke2_cluster_token_mode
+            == 'development_short'
+          - >-
+            not (
+              c12_dev_inventory.all.vars.control_plane_vip_enabled
+              | bool
+            )
+          - >-
+            c12_dev_inventory.all.children.rke2_servers.hosts
+            | length == 1
+          - >-
+            c12_prod_inventory.all.vars.rke2_cluster_token_mode
+            == 'steady_state_exact'
+          - >-
+            (
+              c12_prod_inventory_source
+              | regex_search(
+                  '(?m)^\\s*rke2_cluster_token:\\s*'
+                  ~ '.*vault_rke2_cluster_token.*$'
+                )
+            ) is not none
+        fail_msg: >-
+          RKE2 secrets must use protected non-backed-up files, reject token
+          whitespace, preserve exact production equality, and permit short
+          token equivalence only in explicit single-node development mode.
+
+    - name: Verify curl-only installation and exact postconditions
+      ansible.builtin.assert:
+        that:
+          - >-
+            "rke2_install_method == 'curl'"
+            in c12_server_preflight_source
+          - >-
+            "rke2_install_method == 'curl'"
+            in c12_agent_tasks_source
+          - >-
+            '/usr/local/bin/rke2' in c12_server_install_source
+          - "'/opt/rke2/bin/rke2' in c12_server_install_source"
+          - >-
+            'rke2_post_install_version == rke2_version'
+            in c12_server_install_source
+          - "'/usr/local/bin/rke2' in c12_agent_tasks_source"
+          - "'/opt/rke2/bin/rke2' in c12_agent_tasks_source"
+          - >-
+            'rke2_agent_post_install_version == rke2_version'
+            in c12_agent_tasks_source
+          - >-
+            'rke2_config_dir }}/rke2.yaml'
+            in c12_post_install_source
+          - >-
+            '/.kube/config'
+            in c12_post_install_source
+          - >-
+            'rke2_kubeconfig_endpoints.results'
+            in c12_post_install_source
+          - >-
+            "map(attribute='stdout')"
+            in c12_post_install_source
+          - >-
+            "== ['https://' ~ control_plane_vip_address ~ ':6443']"
+            in c12_post_install_source
+          - >-
+            (
+              c12_post_install_source
+              | regex_findall('(?m)^\\s*diff:\\s*false\\s*$')
+              | length
+            ) >= 3
+          - >-
+            (
+              c12_post_install_source
+              | regex_findall('(?m)^\\s*no_log:\\s*true\\s*$')
+              | length
+            ) >= 3
+        fail_msg: >-
+          Server and agent roles must hard-stop unsupported installers, verify
+          exact post-install pins, and prove both generated kubeconfigs use
+          the VIP without exposing their credentials.
+
+    - name: Reject operator-overridable safety allowlists
+      ansible.builtin.assert:
+        that:
+          - item not in c12_operator_playbook_sources
+        fail_msg: >-
+          {{ item }} would make a coordinator-cleared safety allowlist
+          operator-overridable instead of immutable in the playbook.
+      loop:
+        - rke2_approved_ladder
+        - rke2_prime_only_targets
+        - rke2_required_evidence_receipts
+        - rke2_node_replace_required_receipts
+        - longhorn_prerequisite_packages
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Verify immutable ladder, evidence, and prerequisite literals
+      ansible.builtin.assert:
+        that:
+          - c12_upgrade_literal_pins == c12_approved_rke2_ladder
+          - c12_node_replace_literal_pins == c12_approved_rke2_ladder
+          - >-
+            c12_upgrade_receipt_literals
+            ==
+            [
+              'synthetic-qa.txt',
+              'pre-rung-etcd-snapshot.txt',
+              'backup-restore-proof.txt',
+              'release-note-review.txt',
+              'owner-window.txt',
+              'cnpg-replication.txt',
+              'storage-health.txt',
+              'cni-dns.txt',
+              'metrics-alerts.txt'
+            ]
+          - >-
+            c12_node_replace_receipt_literals
+            ==
+            [
+              'node-loss-diagnosis.txt',
+              'commander-window.txt',
+              'backup-restore-proof.txt',
+              'etcd-quorum.txt',
+              'cnpg-replication.txt',
+              'storage-health.txt'
+            ]
+          - >-
+            c12_longhorn_package_literals
+            ==
+            [
+              'cryptsetup',
+              'dmsetup',
+              'nfs-common',
+              'open-iscsi',
+              'util-linux'
+            ]
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  "(?s)\\[\\s*'v1\\.31\\.14\\+rke2r2',\\s*"
+                  ~ "'v1\\.32\\.13\\+rke2r2'\\s*\\]"
+                )
+              | length
+            ) == 12
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_findall(
+                  "(?s)\\[\\s*'v1\\.31\\.14\\+rke2r2',\\s*"
+                  ~ "'v1\\.32\\.13\\+rke2r2'\\s*\\]"
+                )
+              | length
+            ) == 1
+          - >-
+            (
+              c12_operator_playbook_sources
+              | regex_findall('registry\\.rancher\\.com')
+              | length
+            ) == 15
+        fail_msg: >-
+          The operator playbooks must retain the exact approved ladder,
+          Prime-only pins, evidence receipts, and Longhorn package allowlist.
+
+    - name: Verify canonical Prime registry reconciliation
+      ansible.builtin.assert:
+        that:
+          - c12_upgrade_registry_remove_blocks | length == 2
+          - c12_upgrade_registry_install_blocks | length == 2
+          - c12_upgrade_registry_count_blocks | length == 3
+          - c12_upgrade_registry_assertion_blocks | length == 3
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  '(?m)^\s+ansible\.builtin\.replace:\s*$'
+                )
+              | length
+            ) == 2
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  'system-default-registry'
+                )
+              | length
+            ) >= 9
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  '(?m)^\s+ansible\.builtin\.lineinfile:\s*$'
+                )
+              | length
+            ) == 2
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  'registry\\.rancher\\.com'
+                )
+              | length
+            ) == 5
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  '(?m)^\s+backup:\s+false\s*$'
+                )
+              | length
+            ) == 4
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  '(?m)^\s+BEGIN \{ active = 0; exact = 0 \}\s*$'
+                )
+              | length
+            ) == 3
+          - "'ansible.builtin.blockinfile:' not in c12_upgrade_playbook_source"
+          - >-
+            'VH HEALTH C1.2 PRIME DEFAULT REGISTRY'
+            not in c12_upgrade_playbook_source
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  "registry_cardinality\\.stdout \\| trim == '1 1'"
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  "registry_cardinality\\.stdout \\| trim == '0 0'"
+                )
+              | length
+            ) == 3
+          - >-
+            '- name: Require every server and agent to finish on the exact target pin'
+            in c12_upgrade_playbook_source
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Upgrade RKE2 agents after every server'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Require every server and agent to finish on the exact target pin'
+            )
+          - >-
+            '- name: Require the exact target pin and registry state on every managed node'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Reconcile the registry to the protected target classification'
+            in c12_node_replace_playbook_source
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_findall('system-default-registry')
+              | length
+            ) == 12
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_findall('registry\\.rancher\\.com')
+              | length
+            ) == 7
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_findall("ternary\\(1, 0\\)")
+              | length
+            ) == 3
+        fail_msg: >-
+          Server, agent, resumed-node, and replacement paths must remove every
+          active registry override and prove exactly one canonical Prime value
+          or zero public values, with no duplicate-key-producing path.
+
+    - name: Verify effective registry state includes every loaded drop-in
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  'name: Find every loaded '
+                  ~ '(?:server|agent) configuration fragment'
+                )
+              | length
+            ) == 2
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_search(
+                  '(?ms)^[ \t]*-\s+(?:&[^\n]+\s+)?'
+                  ~ 'name: Find every loaded agent '
+                  ~ 'configuration fragment\s+'
+                  ~ 'ansible\.builtin\.find:\s+'
+                  ~ 'paths: /etc/rancher/rke2/config\.yaml\.d'
+                  ~ '.*?register: c1_2_agent_config_fragments'
+                )
+            ) is not none
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  'paths: /etc/rancher/rke2/config\\.yaml\\.d'
+                )
+              | length
+            ) == 4
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  'files=\\(/etc/rancher/rke2/config\\.yaml\\)'
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_upgrade_registry_contract_source
+              | regex_findall(
+                  'if \\[\\[ -d /etc/rancher/rke2/config\\.yaml\\.d \\]\\]'
+                )
+              | length
+            ) == 3
+          - >-
+            '"system-default-registry\\+?"'
+            in c12_upgrade_registry_contract_source
+          - >-
+            "'system-default-registry\\+?'"
+            in c12_upgrade_registry_contract_source
+          - >-
+            'system-default-registry\\+?'
+            in c12_upgrade_registry_contract_source
+          - >-
+            'system-default-registry[+]?'
+            in c12_upgrade_registry_contract_source
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_findall(
+                  '- name: Find every loaded replacement '
+                  ~ 'configuration fragment'
+                )
+              | length
+            ) == 1
+          - >-
+            "['/etc/rancher/rke2/config.yaml']"
+            in c12_node_replace_playbook_source
+          - >-
+            'if [[ -d /etc/rancher/rke2/config.yaml.d ]]; then'
+            in c12_node_replace_playbook_source
+          - >-
+            '"system-default-registry\\+?"'
+            in c12_node_replace_playbook_source
+          - >-
+            "'system-default-registry\\+?'"
+            in c12_node_replace_playbook_source
+          - >-
+            'system-default-registry\\+?'
+            in c12_node_replace_playbook_source
+          - >-
+            'system-default-registry[+]?'
+            in c12_node_replace_playbook_source
+          - >-
+            'c1_2_agent_config_fragments.files'
+            in c12_upgrade_playbook_source
+        fail_msg: >-
+          Registry reconciliation must inspect config.yaml and every loaded
+          YAML drop-in, recognize quoted and unquoted keys, and safely treat an
+          absent agent drop-in directory as an empty ansible.builtin.find
+          result before proving exact Prime or public cardinality.
+
+    - name: Verify flow-style YAML registry overrides fail semantically
+      ansible.builtin.assert:
+        that:
+          - c12_flow_style_registry_document is mapping
+          - c12_flow_style_registry_keys | length == 1
+          - >-
+            c12_flow_style_registry_keys[0].key
+            == 'system-default-registry+'
+          - c12_flow_style_registry_keys[0].value == 'evil.example'
+          - >-
+            c12_flow_style_registry_keys
+            | rejectattr('key', 'equalto', 'system-default-registry')
+            | list
+            | length == 1
+          - c12_upgrade_semantic_registry_blocks | length == 3
+          - c12_node_semantic_registry_blocks | length == 1
+          - c12_semantic_registry_blocks | length == 4
+          - c12_upgrade_fragment_find_blocks | length == 3
+          - c12_node_fragment_find_blocks | length == 1
+          - c12_fragment_find_blocks | length == 4
+          - c12_upgrade_unsafe_fragment_blocks | length == 3
+          - c12_node_unsafe_fragment_blocks | length == 1
+          - c12_unsafe_fragment_blocks | length == 4
+          - c12_upgrade_registry_count_blocks | length == 3
+          - c12_node_registry_count_blocks | length == 1
+          - c12_all_registry_count_blocks | length == 4
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  'name: Read every '
+                  ~ '(?:reconciled (?:server|agent)|final loaded) '
+                  ~ 'configuration document'
+                )
+              | length
+            ) == 3
+          - >-
+            '- name: Read every reconciled replacement configuration document'
+            in c12_node_replace_playbook_source
+          - >-
+            (
+              c12_operator_playbook_sources
+              | regex_findall(
+                  '(?m)^\s+ansible\.builtin\.slurp:\s*$'
+                )
+              | length
+            ) >= 4
+          - >-
+            (
+              c12_operator_playbook_sources
+              | regex_findall(
+                  '\(item\.content \| b64decode \| from_yaml\) is none'
+                )
+              | length
+            ) == 4
+          - >-
+            (
+              c12_operator_playbook_sources
+              | regex_findall(
+                  '\(item\.content \| b64decode \| from_yaml\) is mapping'
+                )
+              | length
+            ) == 4
+        fail_msg: >-
+          A valid flow-style system-default-registry+ mapping must be parsed as
+          YAML and rejected across upgrade server, agent, final-fleet, and node
+          replacement paths instead of escaping line-oriented cardinality.
+
+    - name: Verify every semantic registry gate rejects the flow-style fixture
+      ansible.builtin.assert:
+        that:
+          - >-
+            "item.source == '/etc/rancher/rke2/config.yaml'"
+            in item
+          - "'| ternary(1, 0)' in item"
+          - "'| dict2items' in item"
+          - >-
+            "selectattr('key', 'match', "
+            ~ "'^system-default-registry\\\\+?$')"
+            in item
+          - >-
+            "rejectattr('key', 'equalto', "
+            ~ "'system-default-registry')"
+            in item
+          - >-
+            "rejectattr('value', 'equalto', "
+            ~ "'registry.rancher.com')"
+            in item
+          - "'| length == 0' in item"
+          - "'no_log: true' in item"
+        fail_msg: >-
+          Each semantic registry gate must allow the canonical base key only
+          in the main Prime config and reject registry or registry+ keys in
+          every drop-in, including the flow-style fixture.
+      loop: "{{ c12_semantic_registry_blocks }}"
+      loop_control:
+        label: semantic registry gate
+
+    - name: Verify the RKE2 fragment-name fixture matches loaded suffixes
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              item.name
+              is match('(?is)^.*\.ya?ml\Z')
+            ) == item.loaded
+        fail_msg: >-
+          The hostile fragment-name fixture no longer models RKE2's
+          case-insensitive .yaml/.yml end-of-name discovery contract.
+      loop: "{{ c12_fragment_filename_fixtures }}"
+      loop_control:
+        label: "{{ item.name | replace('\n', '<newline>') }}"
+
+    - name: Verify every Ansible discovery covers hostile fragment names
+      ansible.builtin.assert:
+        that:
+          - >-
+            "patterns: '(?is)^.*\\.ya?ml\\Z'"
+            in item
+          - "'use_regex: true' in item"
+          - "'file_type: any' in item"
+          - "'recurse: false' in item"
+          - "'hidden: true' in item"
+        fail_msg: >-
+          Server, agent, final-fleet, and replacement discovery must enumerate
+          lowercase, uppercase, .yaml, .yml, hidden, and newline-containing
+          RKE2 drop-in names, including unsafe entry types for hard-stop
+          validation.
+      loop: "{{ c12_fragment_find_blocks }}"
+      loop_control:
+        label: fragment discovery
+
+    - name: Verify every Ansible discovery rejects symlink and non-regular entries
+      ansible.builtin.assert:
+        that:
+          - "'item.isreg | default(false)' in item"
+          - "'not (item.islnk | default(false))' in item"
+          - >-
+            (
+              item
+              | regex_search(
+                  'loop:\s+"?\{\{\s*c1_2_'
+                  ~ '(?:server|agent|final|replacement)_'
+                  ~ 'config_fragments\.files\s*\}\}"?'
+                )
+            ) is not none
+          - "'or non-regular entry' in item"
+        fail_msg: >-
+          Every discovered RKE2 fragment entry must hard-stop unless it is a
+          regular, non-symlink file before mutation or semantic parsing.
+      loop: "{{ c12_unsafe_fragment_blocks }}"
+      loop_control:
+        label: fragment type gate
+
+    - name: Verify hostile entry-type fixtures exercise the hard-stop predicate
+      ansible.builtin.assert:
+        that:
+          - c12_regular_fragment_fixture.isreg
+          - not c12_regular_fragment_fixture.islnk
+          - >-
+            not (
+              c12_symlink_fragment_fixture.isreg
+              and not c12_symlink_fragment_fixture.islnk
+            )
+          - >-
+            not (
+              c12_directory_fragment_fixture.isreg
+              and not c12_directory_fragment_fixture.islnk
+            )
+      vars:
+        c12_regular_fragment_fixture:
+          isreg: true
+          islnk: false
+        c12_symlink_fragment_fixture:
+          isreg: false
+          islnk: true
+        c12_directory_fragment_fixture:
+          isreg: false
+          islnk: false
+
+    - name: Verify every shell rescan is NUL-safe and rejects unsafe entries
+      ansible.builtin.assert:
+        that:
+          - "'set -euo pipefail' in item"
+          - >-
+            "while IFS= read -r -d '' file; do"
+            in item
+          - >-
+            'if [[ -L "$file" || ! -f "$file" ]]; then'
+            in item
+          - "'exit 64' in item"
+          - "'-mindepth 1 -maxdepth 1' in item"
+          - >-
+            "\\( -iname '*.yaml' -o -iname '*.yml' \\) -print0"
+            in item
+          - "'/usr/bin/sort -z' in item"
+          - "'for file in $(' not in item"
+        fail_msg: >-
+          Every registry cardinality rescan must enumerate case-insensitive
+          .yaml/.yml names with NUL delimiters, retain hidden/newline names,
+          and hard-stop on symlinks or non-regular entries.
+      loop: "{{ c12_all_registry_count_blocks }}"
+      loop_control:
+        label: registry shell rescan
+
+    - name: Verify the reusable configuration integrity gate is source-anchored
+      ansible.builtin.assert:
+        that:
+          - c12_upgrade_config_integrity_gate_blocks | length == 1
+          - c12_upgrade_config_integrity_gate_source | length > 0
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  '&c1_2_rke2_config_integrity_gate(?:\s|$)'
+                )
+              | length
+            ) == 1
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  '\*c1_2_rke2_config_integrity_gate(?:\s|$)'
+                )
+              | length
+            ) == 4
+          - >-
+            '- name: Reject unsafe RKE2 configuration paths'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            '- name: Reject unsafe loaded RKE2 YAML fragments'
+            in c12_upgrade_config_integrity_gate_source
+        fail_msg: >-
+          The reusable protected-path gate changed shape or no longer replays
+          on the server, agent, pre-start, and final per-node paths.
+
+    - name: Verify every protected RKE2 path is inspected without link following
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              c12_upgrade_config_integrity_gate_source
+              | regex_search(
+                  '(?ms)ansible\.builtin\.stat:\s+path: '
+                  ~ (item.path | regex_escape)
+                  ~ '\s+follow: false\s+register: '
+                  ~ item.register
+                )
+            ) is not none
+        fail_msg: >-
+          {{ item.path }} must be lstat-like inspected and registered inside
+          the reusable integrity gate before any reconciliation or restart.
+      loop:
+        - path: /
+          register: c1_2_root_directory_stat
+        - path: /etc
+          register: c1_2_etc_directory_stat
+        - path: /etc/rancher
+          register: c1_2_rancher_directory_stat
+        - path: /etc/rancher/rke2
+          register: c1_2_config_directory_stat
+        - path: /etc/rancher/rke2/config.yaml
+          register: c1_2_main_config_stat
+        - path: /etc/rancher/rke2/config.yaml.d
+          register: c1_2_dropin_directory_stat
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Verify every configuration ancestor is protected
+      ansible.builtin.assert:
+        that:
+          - >-
+            (item ~ '.stat.exists | default(false)')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item ~ '.stat.isdir | default(false)')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item ~ '.stat.islnk | default(false)')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item ~ '.stat.uid | default(-1) | int == 0')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item ~ '.stat.gid | default(-1) | int == 0')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item ~ ".stat.mode | default('')")
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            c12_upgrade_config_integrity_gate_source.count(
+              "is match('^[0-7][0-7][0145][0145]$')"
+            ) == 3
+        fail_msg: >-
+          {{ item }} must require a present root-owned, root-group,
+          non-symlink directory with no group or world write bit.
+      loop:
+        - c1_2_root_directory_stat
+        - c1_2_etc_directory_stat
+        - c1_2_rancher_directory_stat
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Verify protected RKE2 directory and main-file constraints
+      ansible.builtin.assert:
+        that:
+          - >-
+            (item.stat ~ '.stat.exists | default(false)')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item.stat ~ '.stat.' ~ item.kind ~ ' | default(false)')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item.stat ~ '.stat.islnk | default(false)')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item.stat ~ '.stat.uid | default(-1) | int == 0')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (item.stat ~ '.stat.gid | default(-1) | int == 0')
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            (
+              item.stat
+              ~ ".stat.mode | default('') == '"
+              ~ item.mode
+              ~ "'"
+            )
+            in c12_upgrade_config_integrity_gate_source
+        fail_msg: >-
+          {{ item.stat }} must remain a root-owned, root-group, non-symlink
+          {{ item.kind }} with exact mode {{ item.mode }}.
+      loop:
+        - stat: c1_2_config_directory_stat
+          kind: isdir
+          mode: "0750"
+        - stat: c1_2_main_config_stat
+          kind: isreg
+          mode: "0640"
+      loop_control:
+        label: "{{ item.stat }}"
+
+    - name: Verify the optional drop-in directory has an absent-or-protected gate
+      ansible.builtin.assert:
+        that:
+          - >-
+            'not ('
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'c1_2_dropin_directory_stat.stat.exists | default(false)'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'c1_2_dropin_directory_stat.stat.isdir | default(false)'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'c1_2_dropin_directory_stat.stat.islnk | default(false)'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'c1_2_dropin_directory_stat.stat.uid | default(-1) | int == 0'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'c1_2_dropin_directory_stat.stat.gid | default(-1) | int == 0'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            "c1_2_dropin_directory_stat.stat.mode | default('') == '0750'"
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'config.yaml.d must be absent or the same'
+            in c12_upgrade_config_integrity_gate_source
+        fail_msg: >-
+          config.yaml.d must be absent or a root-owned, root-group,
+          non-symlink 0750 directory before its contents are discovered.
+
+    - name: Verify ancestor mode fixtures exercise group and world write rejection
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              item.mode is match('^[0-7][0-7][0145][0145]$')
+            ) == item.accepted
+        fail_msg: >-
+          The ancestor mode fixture no longer models the no-group/world-write
+          predicate enforced by the reusable integrity gate.
+      loop: "{{ c12_integrity_ancestor_mode_fixtures }}"
+      loop_control:
+        label: "{{ item.mode }}"
+
+    - name: Verify integrity discovery covers every RKE2-loaded fragment name
+      ansible.builtin.assert:
+        that:
+          - >-
+            '- name: Find every case-insensitive loaded RKE2 YAML fragment'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'paths: /etc/rancher/rke2/config.yaml.d'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            "patterns: '(?is)^.*\\.ya?ml\\Z'"
+            in c12_upgrade_config_integrity_gate_source
+          - "'use_regex: true' in c12_upgrade_config_integrity_gate_source"
+          - "'file_type: any' in c12_upgrade_config_integrity_gate_source"
+          - "'recurse: false' in c12_upgrade_config_integrity_gate_source"
+          - "'hidden: true' in c12_upgrade_config_integrity_gate_source"
+          - "'follow: false' in c12_upgrade_config_integrity_gate_source"
+          - >-
+            'when: c1_2_dropin_directory_stat.stat.exists | default(false)'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'c1_2_integrity_config_fragments.files | default([])'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'item.isreg | default(false)'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'not (item.islnk | default(false))'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'item.uid | default(-1) | int == 0'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'item.gid | default(-1) | int == 0'
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            "item.mode | default('') in ['0600', '0640']"
+            in c12_upgrade_config_integrity_gate_source
+          - >-
+            'item.path | to_json'
+            in c12_upgrade_config_integrity_gate_source
+        fail_msg: >-
+          The integrity replay must enumerate hidden, mixed-case, and
+          newline-containing YAML/YML names without following links, then
+          reject every non-root-owned, non-regular, symlink, or loose-mode
+          fragment.
+
+    - name: Verify fragment integrity fixtures exercise every hard-stop class
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              item.isreg
+              and not item.islnk
+              and item.uid == 0
+              and item.gid == 0
+              and item.mode in ['0600', '0640']
+            ) == item.accepted
+        fail_msg: >-
+          A hostile fragment owner, group, type, symlink, or mode fixture was
+          incorrectly accepted by the modeled integrity predicate.
+      loop: "{{ c12_integrity_fragment_fixtures }}"
+      loop_control:
+        label: >-
+          mode={{ item.mode }},uid={{ item.uid }},gid={{ item.gid }},
+          reg={{ item.isreg }},lnk={{ item.islnk }}
+
+    - name: Verify integrity replay ordering across every upgrade path
+      ansible.builtin.assert:
+        that:
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Prove protected RKE2 configuration path integrity'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Remove every active server registry override'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Prove protected RKE2 agent configuration path integrity'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Remove every active agent registry override'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Reload the installed RKE2 server unit metadata'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove protected RKE2 paths immediately '
+              ~ 'before server start'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove protected RKE2 paths immediately '
+              ~ 'before server start'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove semantic registry state immediately '
+              ~ 'before server start'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove semantic registry state immediately '
+              ~ 'before server start'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Revalidate RKE2 server service inputs before start'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Revalidate RKE2 server service inputs before start'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Start this RKE2 server'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Reload the installed RKE2 agent unit metadata'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove protected RKE2 paths immediately '
+              ~ 'before agent start'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove protected RKE2 paths immediately '
+              ~ 'before agent start'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove semantic registry state immediately '
+              ~ 'before agent start'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove semantic registry state immediately '
+              ~ 'before agent start'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Revalidate RKE2 agent service inputs before start'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Revalidate RKE2 agent service inputs before start'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Start this RKE2 agent'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Require every server and agent to finish '
+              ~ 'on the exact target pin'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove protected RKE2 paths in final '
+              ~ 'per-node validation'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Re-prove protected RKE2 paths in final '
+              ~ 'per-node validation'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Reject alternate final RKE2 service '
+              ~ 'configuration inputs'
+            )
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_search(
+                  '(?ms)^- name: Require every server and agent '
+                  ~ 'to finish on the exact target pin\s+'
+                  ~ 'hosts: rke2_servers:rke2_agents\s+'
+                  ~ '.*?serial: 1\s+'
+                  ~ '.*?- name: Re-prove protected RKE2 paths '
+                  ~ 'in final per-node validation'
+                )
+            ) is not none
+        fail_msg: >-
+          The reusable integrity gate must precede server and agent registry
+          reconciliation, replay after each installer and immediately before
+          each start, and replay serially on every node in final validation.
+
+    - name: Verify effective RKE2 input gate definitions remain extractable
+      ansible.builtin.assert:
+        that:
+          - c12_upgrade_service_input_gate_blocks | length == 1
+          - c12_node_service_input_gate_blocks | length == 1
+          - c12_service_input_gate_blocks | length == 2
+          - c12_upgrade_live_process_gate_blocks | length == 1
+          - c12_node_live_process_gate_blocks | length == 1
+          - c12_live_process_gate_blocks | length == 2
+        fail_msg: >-
+          The source-anchored RKE2 service or live-process gate changed shape;
+          remap its hostile-input contract before accepting the playbooks.
+
+    - name: Verify every RKE2 service gate rejects alternate effective inputs
+      ansible.builtin.assert:
+        that:
+          - "'set -euo pipefail' in item"
+          - >-
+            'expected_fragment="/usr/local/lib/systemd/system/${unit}"'
+            in item
+          - "'--property=FragmentPath --value' in item"
+          - "'! -f \"$fragment\" || -L \"$fragment\"' in item"
+          - "'/usr/local/bin/rke2 --version' in item"
+          - "'case \"${unit_version}:${mode}\" in' in item"
+          - "'expected_fragment_sha256=' in item"
+          - "'/usr/bin/sha256sum \"$fragment\"' in item"
+          - >-
+            'if [[ "$fragment_sha256" != "$expected_fragment_sha256" ]]'
+            in item
+          - "'--property=DropInPaths --value' in item"
+          - >-
+            'if [[ -n "$dropins" ]]'
+            in item
+          - "'/usr/bin/systemctl cat --no-pager \"$unit\"' in item"
+          - >-
+            "expected_environment_files=$'-/etc/default/%N\\n"
+            ~ "-/etc/sysconfig/%N\\n"
+            ~ "-/usr/local/lib/systemd/system/%N.env'"
+            in item
+          - >-
+            'if [[ "$environment_files" != "$expected_environment_files" ]]'
+            in item
+          - >-
+            'if [[ "$exec_start" != "/usr/local/bin/rke2 ${mode}" ]]'
+            in item
+          - >-
+            '(Environment|PassEnvironment|UnsetEnvironment)'
+            in item
+          - "'/usr/bin/systemctl show-environment' in item"
+          - "'^RKE2_[A-Z0-9_]*=' in item"
+          - "'\"/etc/default/${unit_base}\"' in item"
+          - "'\"/etc/sysconfig/${unit_base}\"' in item"
+          - >-
+            '"/usr/local/lib/systemd/system/${unit_base}.env"'
+            in item
+          - >-
+            'if [[ -e "$env_file" || -L "$env_file" ]]'
+            in item
+          - >-
+            'if [[ ! -f "$env_file" || -L "$env_file" ]]'
+            in item
+          - "'active_env_content=$(' in item"
+          - >-
+            "/usr/bin/sed '/^[[:space:]]*#/d' \"$env_file\""
+            in item
+          - >-
+            "backslash=$(/usr/bin/printf '\\134')"
+            in item
+          - >-
+            '"$active_env_content" == *RKE2_*'
+            in item
+          - >-
+            '"$active_env_content" == *"$backslash"*'
+            in item
+          - "'RKE2 environment override found in:' in item"
+          - "'exit 64' in item"
+          - "'executable: /bin/bash' in item"
+          - "'changed_when: false' in item"
+        fail_msg: >-
+          Every operator path must reject noncanonical unit fragments,
+          drop-ins, ExecStart arguments, manager environments, and RKE2
+          variables in every supported EnvironmentFile before RKE2 starts.
+      loop: "{{ c12_service_input_gate_blocks }}"
+      loop_control:
+        label: effective service input gate
+
+    - name: Verify the upgrade unit gate covers every ladder pin and mode
+      ansible.builtin.assert:
+        that:
+          - item in c12_upgrade_service_input_gate_blocks[0]
+        fail_msg: >-
+          The stock-unit hash gate no longer covers {{ item }} before an
+          upgrade server or agent is started.
+      loop:
+        - v1.31.4+rke2r1:server
+        - v1.31.4+rke2r1:agent
+        - v1.31.14+rke2r2:server
+        - v1.31.14+rke2r2:agent
+        - v1.32.13+rke2r2:server
+        - v1.32.13+rke2r2:agent
+        - v1.33.13+rke2r1:server
+        - v1.33.13+rke2r1:agent
+        - v1.34.9+rke2r1:server
+        - v1.34.9+rke2r1:agent
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Verify the replacement unit gate covers every server ladder pin
+      ansible.builtin.assert:
+        that:
+          - item in c12_node_service_input_gate_blocks[0]
+        fail_msg: >-
+          The replacement stock-unit hash gate no longer covers {{ item }}
+          before the fenced server can register.
+      loop:
+        - v1.31.4+rke2r1:server
+        - v1.31.14+rke2r2:server
+        - v1.32.13+rke2r2:server
+        - v1.33.13+rke2r1:server
+        - v1.34.9+rke2r1:server
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Verify the approved stock unit fragment hashes remain pinned
+      ansible.builtin.assert:
+        that:
+          - >-
+            'caf5e4ff923c968d15494d984320b9ab4be13504fe9d37b968ca52ecd8e4ffcb'
+            in item
+          - >-
+            '30cb868bfbc40d69b3c3b7553493c50c17538f3a550c89ff2300d13bb66a61b1'
+            in item
+        fail_msg: >-
+          The validated stock RKE2 server unit fragment hashes drifted from
+          the C1.2 ladder gate.
+      loop: "{{ c12_service_input_gate_blocks }}"
+      loop_control:
+        label: stock server unit hashes
+
+    - name: Verify the approved stock agent unit fragment hashes remain pinned
+      ansible.builtin.assert:
+        that:
+          - >-
+            'ce3962d986a360e11d175de9fa8d9ae0a55cb227f41ed576e93fcbc817d8a103'
+            in c12_upgrade_service_input_gate_blocks[0]
+          - >-
+            '7c574199fc688205f313c451255fffcc139b8092326de8c706d50e2d3058c608'
+            in c12_upgrade_service_input_gate_blocks[0]
+        fail_msg: >-
+          The validated stock RKE2 agent unit fragment hashes drifted from
+          the C1.2 upgrade ladder gate.
+
+    - name: Verify every live RKE2 process gate rejects alternate inputs
+      ansible.builtin.assert:
+        that:
+          - "'set -euo pipefail' in item"
+          - >-
+            '/usr/bin/systemctl is-active --quiet "$unit"'
+            in item
+          - "'--property=MainPID --value' in item"
+          - >-
+            '! -r "/proc/${main_pid}/environ"'
+            in item
+          - >-
+            '! -r "/proc/${main_pid}/cmdline"'
+            in item
+          - >-
+            '! -L "/proc/${main_pid}/exe"'
+            in item
+          - >-
+            '/usr/bin/readlink -f "/proc/${main_pid}/exe"'
+            in item
+          - >-
+            "if [[ \"$live_executable\" != '/usr/local/bin/rke2' ]]"
+            in item
+          - >-
+            "/usr/bin/tr '\\0' '\\n' <\"/proc/${main_pid}/environ\""
+            in item
+          - "'^RKE2_[A-Z0-9_]*=' in item"
+          - >-
+            "mapfile -d '' -t argv <\"/proc/${main_pid}/cmdline\""
+            in item
+          - >-
+            "\"${argv[0]:-}\" != '/usr/local/bin/rke2'"
+            in item
+          - >-
+            '"${argv[1]:-}" != "$mode"'
+            in item
+          - >-
+            "-v 'argv[2]'"
+            in item
+          - >-
+            'if [[ "$verified_pid" != "$main_pid" ]]'
+            in item
+          - >-
+            '! /usr/bin/systemctl is-active --quiet "$unit"'
+            in item
+          - "'exit 64' in item"
+          - "'executable: /bin/bash' in item"
+          - "'changed_when: false' in item"
+        fail_msg: >-
+          Every restarted or joined RKE2 process must expose a readable
+          MainPID, carry no RKE2 environment override, and run exactly the
+          canonical binary plus server or agent mode with no extra arguments.
+      loop: "{{ c12_live_process_gate_blocks }}"
+      loop_control:
+        label: effective live process gate
+
+    - name: Verify hostile RKE2 environment fixtures match the hard-stop class
+      ansible.builtin.assert:
+        that:
+          - item is match('^RKE2_[A-Z0-9_]*=')
+        fail_msg: >-
+          The hostile environment fixture no longer exercises the generic RKE2
+          override rejection used by the service and live-process gates.
+      loop: "{{ c12_forbidden_rke2_environment_fixtures }}"
+      loop_control:
+        label: "{{ item.split('=')[0] }}"
+
+    - name: Verify hostile RKE2 command lines fail the canonical argv predicate
+      ansible.builtin.assert:
+        that:
+          - >-
+            not (
+              item | length == 2
+              and item[0] == '/usr/local/bin/rke2'
+              and item[1] in ['server', 'agent']
+            )
+        fail_msg: >-
+          A hostile --config or --system-default-registry command line was
+          incorrectly accepted as the canonical two-argument RKE2 invocation.
+      loop: "{{ c12_hostile_rke2_argv_fixtures }}"
+      loop_control:
+        label: "{{ item | join(' ') }}"
+
+    - name: Verify service and process gates execute on every mutation path
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall('&c1_2_service_input_gate(?:\s|$)')
+              | length
+            ) == 1
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall('\*c1_2_service_input_gate(?:\s|$)')
+              | length
+            ) == 4
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall('&c1_2_live_process_input_gate(?:\s|$)')
+              | length
+            ) == 1
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall('\*c1_2_live_process_input_gate(?:\s|$)')
+              | length
+            ) == 2
+          - >-
+            '- name: Revalidate RKE2 server service inputs before start'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Revalidate RKE2 agent service inputs before start'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Reject alternate final RKE2 service configuration inputs'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Reject alternate inputs in every final live RKE2 process'
+            in c12_upgrade_playbook_source
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Revalidate RKE2 server service inputs before start'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Start this RKE2 server'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Start this RKE2 server'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Reject alternate inputs in the live RKE2 server process'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Revalidate RKE2 agent service inputs before start'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Start this RKE2 agent'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Start this RKE2 agent'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Reject alternate inputs in the live RKE2 agent process'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Reject alternate final RKE2 service configuration inputs'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Reject alternate inputs in every final live RKE2 process'
+            )
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Reload the installed replacement RKE2 unit metadata'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Reject alternate replacement RKE2 service '
+              ~ 'configuration inputs'
+            )
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Reject alternate replacement RKE2 service '
+              ~ 'configuration inputs'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Join the fenced replacement server'
+            )
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Join the fenced replacement server'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Reject alternate inputs in the live replacement '
+              ~ 'RKE2 process'
+            )
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Reject alternate inputs in the live replacement '
+              ~ 'RKE2 process'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Install tooling and rewrite replacement kubeconfigs '
+              ~ 'to the VIP'
+            )
+        fail_msg: >-
+          Effective-input gates must run before every server or agent start,
+          live-process gates must run immediately after restart, and a
+          replacement must pass its pre-start gate before it can register.
+
+    - name: Verify every structured snapshot receipt field is mandatory
+      ansible.builtin.assert:
+        that:
+          - ("'" ~ item ~ "'") in c12_upgrade_playbook_source
+        fail_msg: >-
+          The structured pre-rung snapshot receipt no longer requires
+          {{ item }}.
+      loop:
+        - cluster_id
+        - created_at_utc
+        - etcdutl
+        - offsite_status
+        - schema
+        - sha256
+        - snapshot_host
+        - snapshot_name
+        - snapshot_path
+        - source_version
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Verify structured snapshot proof is checked against reality
+      ansible.builtin.assert:
+        that:
+          - >-
+            'c1_2_snapshot_receipt_blob.content | b64decode | from_json'
+            in c12_upgrade_playbook_source
+          - >-
+            "== 'vhhealth.c1-2.rke2-snapshot/v1'"
+            in c12_upgrade_playbook_source
+          - "'offsite_status == ' ~ \"'verified'\" in c12_upgrade_playbook_source"
+          - "'checksum_algorithm: sha256' in c12_upgrade_playbook_source"
+          - >-
+            "== hostvars['localhost'].c1_2_snapshot_receipt.sha256"
+            in c12_upgrade_playbook_source
+          - >-
+            "== hostvars['localhost'].c1_2_snapshot_receipt.cluster_id"
+            in c12_upgrade_playbook_source
+          - "'/var/lib/rancher/rke2/bin/etcdutl' in c12_upgrade_playbook_source"
+          - >-
+            'c1_2_actual_snapshot_status.hash | string'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_actual_snapshot_status.revision | int'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_actual_snapshot_status.totalKey | int'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_snapshot_receipt.etcdutl.total_keys | int'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_snapshot_max_age_hours: 6'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_snapshot_clock_skew_seconds: 300'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_snapshot_receipt_delay_seconds: 900'
+            in c12_upgrade_playbook_source
+          - >-
+            "| to_datetime('%Y-%m-%dT%H:%M:%SZ')"
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_snapshot_receipt_mtime - c1_2_snapshot_created_epoch'
+            in c12_upgrade_playbook_source
+          - >-
+            '<= c1_2_snapshot_receipt_delay_seconds'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_actual_snapshot.stat.mtime | default(0) | int'
+            in c12_upgrade_playbook_source
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Bind the receipt timestamp to the fresh snapshot evidence window'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Cordon the server through the VIP-backed kubeconfig'
+            )
+        fail_msg: >-
+          The RKE2 ladder must parse a fixed-schema receipt, bind its creation
+          and file timestamps to fixed bounded windows, verify the actual
+          snapshot SHA-256 and source cluster, and compare live etcdutl status
+          before any node mutation.
+
+    - name: Verify the upgrade token gate precedes all server mutation
+      ansible.builtin.assert:
+        that:
+          - >-
+            "regex_replace('[\\r\\n]+$', '')"
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_upgrade_server_token == c1_2_upgrade_vault_token'
+            in c12_upgrade_playbook_source
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_search(
+                  '(?s)c1_2_upgrade_server_token_blob\.content'
+                  ~ '.{0,240}?\|\s*trim\b'
+                )
+            ) is none
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Reject a padded, placeholder, or mismatched Vault token'
+            ) >= 0
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Reject a padded, placeholder, or mismatched Vault token'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Cordon the server through the VIP-backed kubeconfig'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Reject a padded, placeholder, or mismatched Vault token'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Stop this RKE2 server'
+            )
+        fail_msg: >-
+          Every server must prove its exact Vault token after stripping only a
+          terminal line ending and before the first cordon or service restart.
+
+    - name: Verify upgrade ordering and exact post-upgrade gates
+      ansible.builtin.assert:
+        that:
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Upgrade etcd followers one at a time'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Upgrade the current etcd leader last'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Upgrade the current etcd leader last'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Upgrade RKE2 agents after every server'
+            )
+          - >-
+            'c1_2_post_upgrade_version_pin'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Reject a version that differs from the exact target pin'
+            in c12_upgrade_playbook_source
+          - >-
+            'https://127.0.0.1:6443/readyz'
+            in c12_upgrade_playbook_source
+          - "'port: 9345' in c12_upgrade_playbook_source"
+          - >-
+            '- name: Prove the VIP-backed RKE2 registration endpoint'
+            in c12_upgrade_playbook_source
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Prove the VIP-backed RKE2 registration endpoint'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Reject a rung without a streaming synchronous standby'
+            )
+          - >-
+            '- name: Reject a rung without a streaming synchronous standby'
+            in c12_upgrade_playbook_source
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Reject a rung without a streaming synchronous standby'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Cordon the server through the VIP-backed kubeconfig'
+            )
+          - >-
+            '- name: Rewrite the regenerated kubeconfig to the control-plane VIP'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Verify the rewritten kubeconfig endpoint'
+            in c12_upgrade_playbook_source
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Uncordon only after node, API, etcd, CNPG, PVC, and storage health'
+            )
+            >= 0
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Uncordon only after node, API, etcd, CNPG, PVC, and storage health'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Wait for full CloudNativePG convergence after uncordon'
+            )
+          - >-
+            c12_upgrade_playbook_source.find(
+              '- name: Uncordon the healthy upgraded agent'
+            )
+            <
+            c12_upgrade_playbook_source.find(
+              '- name: Wait for full CloudNativePG convergence after agent uncordon'
+            )
+          - >-
+            '- name: Require every server and agent to finish on the exact target pin'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_final_rke2_version_output.stdout'
+            in c12_upgrade_playbook_source
+        fail_msg: >-
+          Upgrades must retain follower/leader/agent order, exact versions,
+          real local readiness, VIP kubeconfig rewrites, pre-convergence
+          uncordon ordering, and an all-host final pin proof.
+
+    - name: Verify independent maintenance delegation and final fleet convergence
+      ansible.builtin.assert:
+        that:
+          - >-
+            '- name: Inspect exact pre-rung etcd membership'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Require exact declared etcd membership before the rung'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Inspect exact final etcd membership'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Require exact declared etcd membership after the rung'
+            in c12_upgrade_playbook_source
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  "== groups\\['rke2_servers'\\] \\| list \\| sort"
+                )
+              | length
+            ) >= 2
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall('(?m)^\s+- member\s*$')
+              | length
+            ) >= 2
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall('(?m)^\s+- list\s*$')
+              | length
+            ) >= 2
+          - >-
+            'c1_2_etcdctl_path: /var/lib/rancher/rke2/bin/etcdctl'
+            in c12_upgrade_playbook_source
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_search(
+                  'delegate_to:.*c1_2_final_maintenance_host'
+                )
+            ) is not none
+          - >-
+            '- name: Select an independent maintenance server for this target'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_ordered_server_hosts.index(inventory_hostname) + 1'
+            in c12_upgrade_playbook_source
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  'c1_2_target_maintenance_host != inventory_hostname'
+                )
+              | length
+            ) == 2
+          - >-
+            '- name: Verify the independent delegate is a healthy schedulable node'
+            in c12_upgrade_playbook_source
+          - >-
+            '- name: Verify the agent delegate is a healthy schedulable node'
+            in c12_upgrade_playbook_source
+          - >-
+            c12_upgrade_server_post_uncordon_source | length > 0
+          - >-
+            (
+              c12_upgrade_server_post_uncordon_source
+              | regex_findall('ansible\\.builtin\\.(?:command|shell):')
+              | length
+            )
+            ==
+            (
+              c12_upgrade_server_post_uncordon_source
+              | regex_findall('delegate_to:')
+              | length
+            )
+          - >-
+            (
+              c12_upgrade_server_post_uncordon_source
+              | regex_findall('c1_2_target_maintenance_host')
+              | length
+            )
+            >=
+            (
+              c12_upgrade_server_post_uncordon_source
+              | regex_findall('delegate_to:')
+              | length
+            )
+          - >-
+            c12_upgrade_agent_post_uncordon_source | length > 0
+          - >-
+            (
+              c12_upgrade_agent_post_uncordon_source
+              | regex_findall('ansible\\.builtin\\.(?:command|shell):')
+              | length
+            )
+            ==
+            (
+              c12_upgrade_agent_post_uncordon_source
+              | regex_findall('delegate_to:')
+              | length
+            )
+          - >-
+            (
+              c12_upgrade_agent_post_uncordon_source
+              | regex_findall('c1_2_target_maintenance_host')
+              | length
+            )
+            >=
+            (
+              c12_upgrade_agent_post_uncordon_source
+              | regex_findall('delegate_to:')
+              | length
+            )
+          - >-
+            'set -euo pipefail'
+            in c12_upgrade_agent_post_uncordon_source
+          - >-
+            '- name: Prove final cluster-wide node convergence through an independent server'
+            in c12_upgrade_playbook_source
+          - >-
+            "--argjson expected_names"
+            in c12_upgrade_playbook_source
+          - >-
+            "([.items[].metadata.name] | sort)"
+            in c12_upgrade_playbook_source
+          - >-
+            "($expected_names | sort)"
+            in c12_upgrade_playbook_source
+          - >-
+            '.status.nodeInfo.kubeletVersion != $version'
+            in c12_upgrade_playbook_source
+          - >-
+            '(.spec.unschedulable // false)'
+            in c12_upgrade_playbook_source
+          - >-
+            '.type == "NetworkUnavailable"'
+            in c12_upgrade_playbook_source
+          - >-
+            'delegate_to:'
+            in c12_upgrade_playbook_source
+          - >-
+            'c1_2_final_maintenance_host'
+            in c12_upgrade_playbook_source
+        fail_msg: >-
+          Every target must use a healthy non-target server for maintenance and
+          post-uncordon reads. The final independent gate must prove the exact
+          declared node-name set, Ready/no-pressure/uncordoned health, and exact
+          target kubelet version.
+
+    - name: Verify three-instance CNPG and synchronous-standby gates
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              c12_site_playbook_source
+              | regex_findall(
+                  '(?s)spec\\.instances.{0,120}?\\|\\s*int\\s*==\\s*3'
+                )
+              | length
+            ) == 1
+          - >-
+            (
+              c12_site_playbook_source
+              | regex_findall(
+                  "sync_state IN \\('sync', 'quorum'\\)"
+                )
+              | length
+            ) == 1
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  '(?s)spec\\.instances.{0,120}?\\|\\s*int\\s*==\\s*3'
+                )
+              | length
+            ) == 5
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  "sync_state IN \\('sync', 'quorum'\\)"
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_findall(
+                  '(?s)spec\\.instances.{0,120}?\\|\\s*int\\s*==\\s*3'
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_findall(
+                  "sync_state IN \\('sync', 'quorum'\\)"
+                )
+              | length
+            ) == 3
+        fail_msg: >-
+          Site convergence, every upgrade phase, and node replacement must
+          retain an explicit three-instance CNPG contract plus at least one
+          streaming synchronous or quorum standby at each protected gate.
+
+    - name: Verify strict Longhorn detection in upgrade and replacement paths
+      ansible.builtin.assert:
+        that:
+          - c12_upgrade_longhorn_detection_blocks | length == 2
+          - c12_node_longhorn_detection_blocks | length == 1
+          - >-
+            (
+              c12_longhorn_detection_contract_source
+              | regex_findall('(?m)^\s+failed_when:\s+false\s*$')
+              | length
+            ) == 3
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  '- name: Reject every '
+                  ~ '(?:pre-rung )?Longhorn detection error except exact absence'
+                )
+              | length
+            ) == 2
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_findall(
+                  '- name: Reject every Longhorn detection error except exact absence'
+                )
+              | length
+            ) == 1
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall(
+                  "c1_2_(?:gate_)?longhorn_crd\\.rc == 1"
+                )
+              | length
+            ) == 2
+          - >-
+            (
+              c12_upgrade_playbook_source
+              | regex_findall('Error from server \\(NotFound\\)')
+              | length
+            ) == 2
+          - >-
+            'c1_2_replacement_longhorn_crd.rc == 1'
+            in c12_node_replace_playbook_source
+          - >-
+            "'Error from server (NotFound)'"
+            in c12_node_replace_playbook_source
+          - >-
+            "'volumes.longhorn.io'"
+            in c12_node_replace_playbook_source
+          - >-
+            "'not found'"
+            in c12_node_replace_playbook_source
+          - >-
+            "c1_2_replacement_longhorn_crd.rc != 0"
+            in c12_node_replace_playbook_source
+        fail_msg: >-
+          Longhorn detection may defer command failure only to an immediate
+          assertion that accepts the exact CRD or the exact NotFound absence;
+          authentication, transport, authorization, and malformed results fail.
+
+    - name: Verify three-copy Longhorn health is strict before every uncordon
+      ansible.builtin.assert:
+        that:
+          - c12_upgrade_longhorn_health_source | length > 0
+          - >-
+            ").provisioner == 'driver.longhorn.io'"
+            in c12_upgrade_longhorn_health_source
+          - >-
+            ').parameters.numberOfReplicas'
+            in c12_upgrade_longhorn_health_source
+          - >-
+            ") == '3'"
+            in c12_upgrade_longhorn_health_source
+          - >-
+            'c1_2_gate_longhorn_volumes.rc == 0'
+            in c12_upgrade_longhorn_health_source
+          - >-
+            'c1_2_gate_longhorn_nodes.rc == 0'
+            in c12_upgrade_longhorn_health_source
+          - >-
+            'c1_2_gate_longhorn_volumes.stdout | trim | length == 0'
+            in c12_upgrade_longhorn_health_source
+          - >-
+            'c1_2_gate_longhorn_nodes.stdout | trim | length == 0'
+            in c12_upgrade_longhorn_health_source
+          - >-
+            '(.spec.numberOfReplicas // 0) != 3'
+            in c12_upgrade_longhorn_health_source
+          - >-
+            'if (.items | length) < 3 then'
+            in c12_upgrade_longhorn_health_source
+          - >-
+            (
+              c12_upgrade_longhorn_health_source
+              | regex_findall('failed_when: false')
+              | length
+            ) == 1
+          - c12_node_fenced_longhorn_source | length > 0
+          - >-
+            'set -euo pipefail'
+            in c12_node_fenced_longhorn_source
+          - >-
+            "jsonpath={.provisioner}"
+            in c12_node_fenced_longhorn_source
+          - >-
+            "jsonpath={.parameters.numberOfReplicas}"
+            in c12_node_fenced_longhorn_source
+          - >-
+            '= driver.longhorn.io'
+            in c12_node_fenced_longhorn_source
+          - >-
+            '= 3'
+            in c12_node_fenced_longhorn_source
+          - >-
+            'c1_2_replacement_longhorn_health.rc == 0'
+            in c12_node_fenced_longhorn_source
+          - >-
+            'c1_2_replacement_longhorn_health.stdout'
+            in c12_node_fenced_longhorn_source
+          - >-
+            '(.spec.numberOfReplicas // 0) != 3'
+            in c12_node_fenced_longhorn_source
+          - >-
+            'if (.items | length) < 3 then'
+            in c12_node_fenced_longhorn_source
+          - >-
+            'failed_when: false'
+            not in c12_node_fenced_longhorn_source
+          - c12_node_post_uncordon_longhorn_source | length > 0
+          - >-
+            'set -euo pipefail'
+            in c12_node_post_uncordon_longhorn_source
+          - >-
+            "jsonpath={.provisioner}"
+            in c12_node_post_uncordon_longhorn_source
+          - >-
+            "jsonpath={.parameters.numberOfReplicas}"
+            in c12_node_post_uncordon_longhorn_source
+          - >-
+            'c1_2_recovered_longhorn_health.rc == 0'
+            in c12_node_post_uncordon_longhorn_source
+          - >-
+            '(.spec.numberOfReplicas // 0) != 3'
+            in c12_node_post_uncordon_longhorn_source
+          - >-
+            'if (.items | length) < 3 then'
+            in c12_node_post_uncordon_longhorn_source
+          - >-
+            'failed_when: false'
+            not in c12_node_post_uncordon_longhorn_source
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Wait for Longhorn volumes and nodes to be healthy while fenced'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Uncordon the validated replacement'
+            )
+        fail_msg: >-
+          Upgrade and replacement must require the longhorn StorageClass to use
+          driver.longhorn.io with three replicas and prove healthy volumes and
+          Ready/Schedulable nodes with strict rc checks before uncordon.
+
+    - name: Verify alternate rescue delegates restore every failed fence
+      ansible.builtin.assert:
+        that:
+          - c12_rescue_cordon_blocks | length == 3
+          - c12_rescue_fence_assertion_blocks | length == 3
+          - >-
+            'register: c1_2_server_initial_cordon'
+            in c12_upgrade_playbook_source
+          - >-
+            'register: c1_2_agent_initial_cordon'
+            in c12_upgrade_playbook_source
+          - >-
+            'register: c1_2_replacement_cordon'
+            in c12_node_replace_playbook_source
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall('(?m)^\s+- cordon\s*$')
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall(
+                  '(?m)^\s+register:\s+'
+                  ~ 'c1_2_(?:server|agent|replacement)_'
+                  ~ 'rescue_cordon_attempts\s*$'
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall('(?m)^\s+when:\s*$')
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall(
+                  'c1_2_(?:server|agent)_initial_cordon is defined'
+                )
+              | length
+            ) == 2
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall(
+                  'c1_2_replacement_cordon is defined'
+                )
+              | length
+            ) == 1
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall(
+                  'or c1_2_(?:server|agent|replacement)_'
+                  ~ 'uncordon_result is defined'
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_search(
+                  'c1_2_(?:server|agent)_initial_cordon\.rc'
+                  ~ '|c1_2_replacement_cordon\.rc'
+                  ~ '|c1_2_(?:server|agent|replacement)_'
+                  ~ 'uncordon_result\.rc'
+                )
+            ) is none
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall(
+                  '(?m)^\s+delegate_to:\s+"?\{\{\s*item\s*\}\}"?\s*$'
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall(
+                  "groups\\['rke2_servers'\\]"
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall("\\|\\s*reject\\(")
+              | length
+            ) == 2
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall('(?m)^\s+ignore_unreachable:\s+true\s*$')
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_cordon_contract_source
+              | regex_findall('(?m)^\s+failed_when:\s+false\s*$')
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_fence_assertion_source
+              | regex_findall(
+                  'c1_2_(?:server|agent|replacement)_'
+                  ~ 'rescue_cordon_attempts\.results'
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_fence_assertion_source
+              | regex_findall(
+                  "selectattr\\('rc', 'defined'\\)"
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_fence_assertion_source
+              | regex_findall(
+                  "selectattr\\('rc', 'equalto', 0\\)"
+                )
+              | length
+            ) == 3
+          - >-
+            (
+              c12_rescue_fence_assertion_source
+              | regex_findall('length\s+>=\s+1')
+              | length
+            ) == 3
+        fail_msg: >-
+          Every initial cordon must be registered. Rescue must try every
+          independent surviving server, tolerate individual transport failure,
+          and then hard-stop unless at least one delegate returned rc zero
+          after either the initial cordon or an uncordon attempt.
+
+    - name: Verify node-replacement token and membership identity safety
+      ansible.builtin.assert:
+        that:
+          - >-
+            '- name: Inspect the replacement RKE2 configuration directory'
+            in c12_node_replace_playbook_source
+          - >-
+            'not c1_2_replacement_config_dir.stat.exists'
+            in c12_node_replace_playbook_source
+          - >-
+            'rke2_cluster_token'
+            in c12_node_replace_playbook_source
+          - >-
+            "== hostvars['localhost'].c1_2_replacement_cluster_token"
+            in c12_node_replace_playbook_source
+          - >-
+            "regex_replace('[\\r\\n]+$', '')"
+            in c12_node_replace_playbook_source
+          - >-
+            'c1_2_survivor_token_raw == c1_2_vault_token_raw'
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Reject replacement without a streaming synchronous standby'
+            in c12_node_replace_playbook_source
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Reject replacement without a streaming synchronous standby'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Cordon the lost node object when it still exists'
+            )
+          - >-
+            (
+              c12_node_replace_playbook_source
+              | regex_search(
+                  '(?s)c1_2_survivor_token_blob\.content'
+                  ~ '.{0,240}?\|\s*trim\b'
+                )
+            ) is none
+          - "'member list' in c12_node_lost_member_resolution_block"
+          - "'/usr/bin/awk' in c12_node_lost_member_resolution_block"
+          - "'--write-out=json' not in c12_node_lost_member_resolution_block"
+          - "'tostring' not in c12_node_lost_member_resolution_block"
+          - >-
+            "is match('^[0-9a-f]{1,16}$')"
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Revalidate the exact lost member name and ID immediately'
+            in c12_node_replace_playbook_source
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Revalidate the exact lost member name and ID immediately'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Remove the exact lost etcd member when still present'
+            )
+          - >-
+            '- name: Prove the removed member name and ID are both absent'
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Require exact declared etcd membership before membership change'
+            in c12_node_replace_playbook_source
+          - >-
+            'c1_2_etcd_member_names_before == c1_2_declared_survivor_names'
+            in c12_node_replace_playbook_source
+          - >-
+            'c1_2_etcd_member_names_before == c1_2_declared_server_names'
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Require exactly the two declared survivors after removal'
+            in c12_node_replace_playbook_source
+          - >-
+            '== c1_2_declared_survivor_names'
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Inspect exact etcd membership after replacement join'
+            in c12_node_replace_playbook_source
+          - >-
+            "== groups['rke2_servers'] | list | sort"
+            in c12_node_replace_playbook_source
+        fail_msg: >-
+          Node replacement must reject existing data or configuration state,
+          bind the live survivor token to the fixed Vault identity, preserve
+          and revalidate a lossless hexadecimal member ID, prove the exact
+          survivor set after removal, and prove the full declared set after
+          join.
+
+    - name: Verify the replacement remains fenced through degraded-safe gates
+      ansible.builtin.assert:
+        that:
+          - >-
+            'vhhealth.io/replacement-validation=true:NoSchedule'
+            in c12_node_replace_playbook_source
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Render the fenced replacement configuration'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Join the fenced replacement server'
+            )
+          - >-
+            '.spec.unschedulable'
+            in c12_node_replace_playbook_source
+          - c12_node_fenced_cnpg_gate | length > 0
+          - "'status.currentPrimary' in c12_node_fenced_cnpg_gate"
+          - "'status.readyInstances' in c12_node_fenced_cnpg_gate"
+          - "'status.phase' not in c12_node_fenced_cnpg_gate"
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Require a primary and two ready instances while fenced'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Remove the temporary registration taint from RKE2 config'
+            )
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Reject non-Bound PVCs while fenced'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Remove the temporary registration taint from RKE2 config'
+            )
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Wait for Longhorn volumes and nodes to be healthy while fenced'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Remove the temporary registration taint from RKE2 config'
+            )
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Remove the live temporary registration taint'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Uncordon the validated replacement'
+            )
+          - >-
+            c12_node_replace_playbook_source.find(
+              '- name: Uncordon the validated replacement'
+            )
+            <
+            c12_node_replace_playbook_source.find(
+              '- name: Wait for full healthy CloudNativePG convergence'
+            )
+        fail_msg: >-
+          A replacement must remain tainted and cordoned through exact pin,
+          VIP, etcd, degraded-safe CNPG, synchronous standby, PVC, and Longhorn
+          gates; full three-instance convergence occurs only after uncordon.
+
+    - name: Verify replacement exact pin, readiness, and VIP postconditions
+      ansible.builtin.assert:
+        that:
+          - >-
+            'c1_2_replacement_post_pin'
+            in c12_node_replace_playbook_source
+          - >-
+            "== hostvars['localhost'].c1_2_replacement_version"
+            in c12_node_replace_playbook_source
+          - >-
+            'https://127.0.0.1:6443/readyz'
+            in c12_node_replace_playbook_source
+          - "'port: 9345' in c12_node_replace_playbook_source"
+          - >-
+            '- name: Rewrite the active replacement kubeconfig to the VIP'
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Reject a non-VIP replacement kubeconfig'
+            in c12_node_replace_playbook_source
+          - >-
+            "sync_state IN ('sync', 'quorum')"
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Re-prove final VIP-backed API readiness'
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Re-prove final etcd cluster health'
+            in c12_node_replace_playbook_source
+          - >-
+            'c1_2_maintenance_host != c1_2_replacement_node'
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Prove the final Kubernetes node set matches the inventory'
+            in c12_node_replace_playbook_source
+          - >-
+            '- name: Require the exact final declared Kubernetes node set'
+            in c12_node_replace_playbook_source
+          - >-
+            "([.items[].metadata.name] | sort)"
+            in c12_node_post_uncordon_source
+          - >-
+            "== ($expected | sort)"
+            in c12_node_post_uncordon_source
+          - >-
+            'c1_2_replacement_final_node_set.rc | default(1) | int == 0'
+            in c12_node_post_uncordon_source
+          - c12_node_post_uncordon_source | length > 0
+          - >-
+            (
+              c12_node_post_uncordon_source
+              | regex_findall('ansible\\.builtin\\.(?:command|shell):')
+              | length
+            )
+            ==
+            (
+              c12_node_post_uncordon_source
+              | regex_findall('delegate_to:')
+              | length
+            )
+          - >-
+            (
+              c12_node_post_uncordon_source
+              | regex_findall(
+                  "hostvars\\['localhost'\\]\\.c1_2_maintenance_host"
+                )
+              | length
+            )
+            >=
+            (
+              c12_node_post_uncordon_source
+              | regex_findall('delegate_to:')
+              | length
+            )
+          - >-
+            '((.spec.unschedulable // false) == false)'
+            in c12_node_post_uncordon_source
+          - >-
+            (
+              c12_node_post_uncordon_source
+              | regex_findall('\\.type == "(?:MemoryPressure|DiskPressure|PIDPressure|NetworkUnavailable)"')
+              | unique
+              | length
+            ) == 4
+          - >-
+            '- name: Read the final replacement kubelet version'
+            in c12_node_post_uncordon_source
+          - >-
+            'jsonpath={.status.nodeInfo.kubeletVersion}'
+            in c12_node_post_uncordon_source
+          - >-
+            'c1_2_replacement_final_kubelet_version.stdout | trim'
+            in c12_node_post_uncordon_source
+          - >-
+            (
+              c12_node_post_uncordon_source
+              | regex_search(
+                  '(?s)c1_2_replacement_final_kubelet_version\.stdout'
+                  ~ '.{0,120}?==\s*hostvars'
+                  ~ "\\['localhost'\\]\\.c1_2_replacement_version"
+                )
+            ) is not none
+        fail_msg: >-
+          Replacement validation must use the explicit non-target maintenance
+          server for every post-uncordon read, then prove exact version,
+          uncordoned Ready/no-pressure health, storage, final VIP readiness, and
+          final etcd health.
+
+    # disaster-recover.yml is intentionally excluded: it is outside the
+    # coordinator-cleared C1.2 file ledger and is not a C1.2 runtime path.
+    - name: Find C1.2 role sources that could select a bootstrap host
+      ansible.builtin.find:
+        paths:
+          - "{{ playbook_dir }}/../roles/rke2_server"
+          - "{{ playbook_dir }}/../roles/rke2_agent"
+          - "{{ playbook_dir }}/../roles/control_plane_vip"
+        recurse: true
+        file_type: file
+        patterns:
+          - "*.yml"
+          - "*.yaml"
+          - "*.j2"
+      register: c12_runtime_role_source_files
+
+    - name: Define the coordinator-cleared C1.2 runtime source set
+      ansible.builtin.set_fact:
+        c12_runtime_source_paths: >-
+          {{
+            (
+              c12_runtime_role_source_files.files
+              | map(attribute='path')
+              | list
+            )
+            +
+            [
+              playbook_dir ~ '/../playbooks/site.yml',
+              playbook_dir ~ '/../playbooks/upgrade-k8s.yml',
+              playbook_dir ~ '/../playbooks/node-replace.yml',
+              playbook_dir ~ '/../playbooks/longhorn-prereqs.yml'
+            ]
+          }}
+
+    - name: Reject first-inventory-host and bootstrap-token-source dependencies
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+               lookup('ansible.builtin.file', item)
+               | regex_search(
+                   'groups\\s*\\[\\s*[''"]rke2_servers[''"]\\s*\\]'
+                   ~ '\\s*(?:\\|\\s*sort\\s*)?\\|\\s*first\\b'
+                 )
+             ) is none
+          - >-
+            (
+              lookup('ansible.builtin.file', item)
+              | regex_search(
+                  'groups\\s*\\[\\s*[''"]rke2_servers[''"]\\s*\\]'
+                  ~ '\\s*\\[\\s*0\\s*\\]'
+                )
+            ) is none
+          - >-
+            'rke2_bootstrap_host'
+            not in lookup('ansible.builtin.file', item)
+          - >-
+            (
+              lookup('ansible.builtin.file', item)
+              | regex_search('\\bbootstrap_token_(?:stat|blob)\\b')
+            ) is none
+        fail_msg: >-
+          {{ item }} still selects the first rke2_servers inventory
+          host or treats a bootstrap host as the cluster-token source.
+      loop: "{{ c12_runtime_source_paths }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Verify agent defaults and copied kubeconfigs name the VIP
+      ansible.builtin.assert:
+        that:
+          - "'control_plane_vip_address' in c12_agent_defaults_source"
+          - "':9345' in c12_agent_defaults_source"
+          - >-
+            (
+              c12_agent_defaults_source
+              | regex_search('(?i)(?:vhh-)?node-?1')
+            ) is none
+          - "'control_plane_vip_address' in c12_post_install_source"
+          - "':6443' in c12_post_install_source"
+        fail_msg: >-
+          Agent defaults and copied administrator kubeconfigs must use the VIP,
+          never a named first server.
+
+    - name: Report the offline contract result
+      ansible.builtin.debug:
+        msg: >-
+          C1.2 offline contract passed: bootstrap, joiners, agent, all three
+          unicast keepalived peers, readiness gate, manual-sync posture,
+          scheduling, and inert storage truth are internally consistent.

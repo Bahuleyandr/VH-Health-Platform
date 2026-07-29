@@ -2,12 +2,14 @@
 
 > **STATUS.** The C1.1 CNPG 1.30, PostgreSQL 18.4, Barman-plugin, and
 > reader-only restore manifests are repository-complete but inert. Production
-> remains on PostgreSQL 17. Activation is blocked on C1.2 moving RKE2 from
-> Kubernetes 1.31.4 to 1.34 or newer, the full operator/major-upgrade
-> qualification, and live backup/restore evidence. A merge deploys nothing
-> because all four top-level production ArgoCD Applications are manual-sync.
-> Child Applications may define their own policy, but they are not created or
-> updated until an operator manually syncs the platform Application.
+> remains on PostgreSQL 17. Activation is blocked on the approved C1.2 ladder
+> from RKE2 `v1.31.4+rke2r1` to the exact
+> `v1.34.9+rke2r1` / Kubernetes `v1.34.9` objective, the full
+> operator/major-upgrade qualification, and live backup/restore evidence. A
+> merge deploys nothing because all four top-level production Argo CD
+> Applications are manual-sync. The Longhorn child Application is manual-sync
+> too; no child is created or updated until an operator manually syncs its
+> parent platform Application.
 
 This is the operational gate before the VH Health database is trusted outside a
 test or pilot environment. The running baseline is CloudNativePG PostgreSQL 17
@@ -18,6 +20,43 @@ Plugin and Cloudflare R2; it is not active until the gates below pass.
 
 Dalekdefender should still be treated as pilot/test until the restore drill and
 monitoring checks below have been completed on a disposable namespace.
+
+## C1.2 storage and activation boundary
+
+CNPG data and WAL currently use `local-path`. Their replicated durability comes
+from PostgreSQL streaming replication across CNPG instances, not from
+replicated block storage. The declared Longhorn StorageClass is named
+`longhorn`; Longhorn `1.7.2` is an unqualified repository target, and the
+production PVC patch remains commented out. C1.2 selects and executes no
+storage migration. Any later proposal must first pass
+[`C1_2_STORAGE_PLACEMENT_GATE.md`](C1_2_STORAGE_PLACEMENT_GATE.md).
+
+Three Longhorn replicas would mean three node copies, not three proven rack,
+power, network, or facility failure domains. Longhorn upgrades advance one
+supported minor at a time; downgrade is not an accepted recovery path.
+
+The exact RKE2 pins, rung gates, evidence, and rollback contract are in
+[`RKE2_1_34_QUALIFICATION.md`](RKE2_1_34_QUALIFICATION.md). The C1.1
+CloudNativePG and PostgreSQL prerequisites remain in
+[`CNPG_POSTGRES_18_QUALIFICATION.md`](CNPG_POSTGRES_18_QUALIFICATION.md).
+
+## Required pre-sync operator warning
+
+> Syncing this revision is an operator action, not a merge side effect. It
+> triggers a CNPG rolling re-schedule under required hostname anti-affinity,
+> redeploys the backend under hard hostname spread, and changes the Longhorn
+> child Application to manual-sync. Expect controlled pod movement and a
+> deliberately OutOfSync Longhorn child. Abort before sync if node labels,
+> capacity, CNPG quorum/replication, backend disruption budget/readiness, or
+> the Longhorn ownership plan do not match the qualification evidence.
+
+Before that sync, the operator must relabel the three existing nodes and align
+their persistent RKE2 `node-label` configuration. RKE2 registration-time
+configuration does not retroactively relabel an already registered node. The
+named change commander, database owner, application owner, storage owner,
+network owner, and facilities owner must approve the window and their
+service-specific abort thresholds. Missing ownership or thresholds means
+`NOT QUALIFIED`; this document does not invent an RTO or RPO.
 
 ## Required Posture
 
@@ -43,11 +82,25 @@ monitoring checks below have been completed on a disposable namespace.
 
 - Complete the binding activation procedure in
   [`CNPG_POSTGRES_18_QUALIFICATION.md`](CNPG_POSTGRES_18_QUALIFICATION.md):
-  C1.2 Kubernetes 1.34+, PostgreSQL 17 at the current secure minor floor (17.10
-  as of 2026-07-28), a reader-only PostgreSQL 17 backup restore, the sequential
-  CNPG ladder through 1.30.0 without a major change, operating-system
-  alignment, synthetic offline upgrade, exact pgvector proof, `ANALYZE`, and a
-  fresh PostgreSQL 18 backup plus reader-only restore.
+  follow
+  [`RKE2_1_34_QUALIFICATION.md`](RKE2_1_34_QUALIFICATION.md) through
+  `v1.31.4+rke2r1 -> v1.31.14+rke2r2 -> v1.32.13+rke2r2 ->
+  v1.33.13+rke2r1 -> v1.34.9+rke2r1`, interleaving CNPG `1.27.4`,
+  `1.28.4`, `1.29.2`, and `1.30.0` at Kubernetes 1.31, 1.32, 1.33, and
+  1.34 respectively. CNPG 1.27.4 and 1.28.4 are past-EOL transit-only
+  states crossed in one campaign, never parking states. Then require
+  PostgreSQL 17 at the current secure minor floor (17.10 as of 2026-07-28), a
+  reader-only PostgreSQL 17 backup restore, operating-system alignment,
+  synthetic offline upgrade, exact pgvector proof, `ANALYZE`, and a fresh
+  PostgreSQL 18 backup plus reader-only restore.
+
+- Keep the production Longhorn PVC patch commented. Before any later storage
+  proposal, complete the owner and evidence contract in
+  [`C1_2_STORAGE_PLACEMENT_GATE.md`](C1_2_STORAGE_PLACEMENT_GATE.md), including
+  StorageClass/PV/PVC/affinity inventory, Longhorn health, hardware and
+  capacity, performance and network-loss testing, write-amplification
+  measurement, facility mapping, backup/restore proof, compatibility, and a
+  service-by-service migration and abort plan.
 
 - Before the next manual platform sync, install Barman Cloud Plugin 0.13.0
   outside ArgoCD, confirm `objectstores.barmancloud.cnpg.io`, seal the producer,
@@ -163,6 +216,11 @@ RTO: restore drill reaches a queryable database within the agreed window.
 Retention: backup retention meets hospital/legal retention requirements.
 ```
 
+The named database and service owners must explicitly approve the five-minute
+RPO target, the RTO window, retention, and drill acceptance criteria for the
+change window. An absent owner approval or an unspecified RTO is
+`NOT QUALIFIED`.
+
 - A merge leaves the C1.1 `PrometheusRule` definitions inert because the
   top-level platform Application is manual-sync. After an operator syncs
   `vhhealth-platform`, Prometheus may load and evaluate them. Verify that rule
@@ -184,7 +242,14 @@ Failed auth spikes
 
 - Run `npm run ci:db-guardrails` from `apps/backend` before every
   schema-affecting merge.
-- Run `node scripts/local-ci.mjs --only=security,backend,infra` before deploy.
+- Run the C1.2 infrastructure CI entrypoint:
+
+```text
+node scripts/ci/run.mjs --only=infra
+```
+
+  This repository-only gate claims no live cluster, R2, backup, restore,
+  upgrade, migration, or deployment result.
 - Run the staff role workflow sweep against the deployed backend after deploy:
 
 ```powershell

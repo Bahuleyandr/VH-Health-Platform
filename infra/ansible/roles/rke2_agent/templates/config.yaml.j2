@@ -5,11 +5,15 @@
 node-name: "{{ inventory_hostname }}"
 node-label:
   - "kubernetes.io/role=worker"
-  - "topology.kubernetes.io/zone={{ inventory_zone | default('default') }}"
+  - "topology.kubernetes.io/region={{ inventory_region }}"
+  - "topology.kubernetes.io/zone={{ inventory_zone }}"
   - "vhhealth.io/tier=worker"
 
 server: "{{ rke2_agent_server_url }}"
-token: "{{ rke2_agent_token }}"
+token-file: "{{ rke2_agent_token_file }}"
+{% if rke2_install_artifact_url | string | trim | length > 0 %}
+system-default-registry: "{{ rke2_system_default_registry }}"
+{% endif %}
 
 kubelet-arg:
   - "system-reserved={{ rke2_system_reserved }}"

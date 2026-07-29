@@ -4,7 +4,8 @@
 
 **Clearance date:** 2026-07-28
 
-**Implementation baseline:** `93e887f9b6db248bb898cd12479caf6c020ce73c`
+**Implementation baseline:** `github/main` at
+`93e887f9b6db248bb898cd12479caf6c020ce73c`, fetched on 2026-07-29
 
 **Scope:** `infra/ansible`, `infra/kubernetes`, and `docs` only. This slice has
 no backend, application-code, database-migration, live-host, live-cluster,
@@ -76,18 +77,23 @@ notify risk is removed.
 
 The firewall permits:
 
-- VRRP IP protocol 112 only between the declared cluster CIDRs; and
-- Kubernetes API TCP 6443 only from declared management CIDRs.
+- VRRP IP protocol 112 only between the declared cluster CIDRs on the selected
+  control-plane interface; and
+- Kubernetes API TCP 6443 from declared management CIDRs and declared cluster
+  peers, which require internal API access.
 
 The inventory contract is:
 
 - `control_plane_vip_enabled`;
 - `control_plane_vip_address`;
 - `control_plane_vip_interface`;
+- per-host `control_plane_vip_unicast_address`, normally the node address on
+  that interface;
 - `control_plane_vip_prefix_length`;
 - `control_plane_vip_virtual_router_id`;
 - `control_plane_api_dns_name`; and
-- vault-backed `rke2_cluster_token`.
+- vault-backed `rke2_cluster_token`, with an explicit
+  `rke2_cluster_token_mode`.
 
 The production example enables the VIP. Single-node development disables it.
 The future internal-ingress VIP remains C2 work. It may reuse the role only
@@ -106,8 +112,18 @@ vault-backed value with the live token on each existing server. Any mismatch,
 missing value, placeholder value, or disagreement between servers is a hard
 stop before configuration or service changes.
 
-Development may use an explicitly marked non-production example value. There
-is no generated or silently defaulted production token.
+Existing production uses `steady_state_exact`, which accepts only the secure
+`K10...::server:...` value read from the cluster. A brand-new self-signed
+cluster may use `fresh_short` for its first run only; after bootstrap the
+operator captures the persisted secure token into Vault and changes the mode
+to `steady_state_exact` before any reapply. The role refuses `fresh_short` as
+soon as datastore state exists.
+
+Only the disabled-VIP, single-node development inventory uses
+`development_short`, allowing RKE2's secure wrapper around its explicitly
+non-production short token. There is no generated or silently defaulted
+production token. Server and agent configuration reference root-only token
+files so Ansible diffs and configuration backups do not expose the credential.
 
 ## 4. RKE2 and kubeconfig wiring
 
@@ -215,8 +231,11 @@ etcd, or storage state.
 
 `docs/RKE2_1_34_QUALIFICATION.md` records the official release URL and release
 date for every exact pin, especially the two pins that were externally
-unconfirmed at clearance. It also records gates, evidence, rollback, and the
-acceptance note that CNPG 1.31, expected around September 2026, will likely
+unconfirmed at clearance. RKE2 `v1.31.14+rke2r2` and
+`v1.32.13+rke2r2` are SUSE Prime-only releases with no public artifacts;
+authenticated Prime artifact access is a hard pre-rung gate, never a reason to
+skip the minor. The qualification also records gates, evidence, rollback, and
+the acceptance note that CNPG 1.31, expected around September 2026, will likely
 make Kubernetes 1.35 the next objective as one additional rung rather than a
 redesign.
 
@@ -302,6 +321,13 @@ as described in section 5. A merge or CI result is not activation evidence.
 
 ## 10. Complete implementation ledger
 
+The coordinator clearance packet labels `playbooks/upgrade-k8s.yml`,
+`playbooks/node-replace.yml`, and `playbooks/longhorn-prereqs.yml` as **Add**.
+The pinned `github/main` baseline already contained stubs at those exact paths,
+so C1.2 replaces and modifies the stubs rather than creating new paths. They
+remain under **Add** below solely to preserve the coordinator's exact 43-path
+ledger.
+
 Add:
 
 - `infra/ansible/roles/control_plane_vip/defaults/main.yml`;
@@ -323,8 +349,8 @@ Add:
 Modify:
 
 - `infra/ansible/inventories/group_vars/all/main.yml`;
-- `infra/ansible/inventories/group_vars/all/prod.yml.example`;
-- `infra/ansible/inventories/group_vars/all/dev.yml`;
+- `infra/ansible/inventories/prod.yml.example`;
+- `infra/ansible/inventories/dev.yml`;
 - `infra/ansible/inventories/group_vars/all/vault.yml.example`;
 - `infra/ansible/playbooks/site.yml`;
 - `infra/ansible/roles/rke2_server/defaults/main.yml`;
@@ -374,6 +400,18 @@ The implementation retains command output as review receipts for:
 - truth sweeps for `node-1`, `longhorn-nvme`, fictitious zone isolation,
   automatic-sync claims, and storage-migration wording.
 
+The complete file ledger intentionally prevents this slice from editing older
+guidance outside its boundary. Truth-sweep receipts therefore classify the
+pre-existing automatic-sync text in `docs/SYSTEM-ARCHITECTURE.md`,
+`docs/GO_LIVE_ACTIVATION_CHECKLIST.md`,
+`docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md`, and
+`infra/kubernetes/base/argocd/README.md`, plus the older zone comments in
+`infra/kubernetes/base/cloudflare-tunnel/cloudflared.yaml` and
+`infra/kubernetes/base/redis/redis-sentinel.yaml`, as non-authoritative legacy
+exceptions requiring a coordinator-approved ledger expansion. They are not
+operator authority for C1.2; the manual-sync and shared-zone contracts in this
+document and the linked C1.2 runbooks control.
+
 The repository CI entrypoint is:
 
 ```powershell
@@ -416,4 +454,3 @@ Implementation acceptance additionally requires all six clearance conditions:
    in both documentation and the pull request body, including expected
    behavior and the abort signal.
 6. Run `node scripts/ci/run.mjs --only=infra` as the CI entrypoint.
-

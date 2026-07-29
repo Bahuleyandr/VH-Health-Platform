@@ -6,9 +6,12 @@ rke2_version: "v1.31.4+rke2r1"
 # Channel used by the install script when version pin isn't set.
 rke2_channel: stable
 
-# Install method: 'curl' (official script) or 'tarball' (air-gapped).
-# For hospital offline environments, switch to tarball + preload artefacts.
+# This role implements only the official install-script path. Air-gapped
+# installation needs a separately qualified role, not an unimplemented value.
 rke2_install_method: curl
+# Optional authenticated artifact-prefix override for Prime-only release pins.
+rke2_install_artifact_url: ""
+rke2_system_default_registry: registry.rancher.com
 
 # Paths.
 rke2_config_dir: /etc/rancher/rke2
@@ -17,6 +20,16 @@ rke2_data_dir: /var/lib/rancher/rke2
 rke2_audit_policy_file: "{{ rke2_config_dir }}/audit-policy.yaml"
 rke2_audit_log_dir: /var/lib/rancher/rke2/server/logs
 rke2_audit_log_file: "{{ rke2_audit_log_dir }}/audit.log"
+rke2_token_file: "{{ rke2_data_dir }}/server/token"
+rke2_token_input_file: "{{ rke2_config_dir }}/cluster-token"
+rke2_secret_config_dir: "{{ rke2_config_dir }}/config.yaml.d"
+rke2_etcd_s3_secret_config_file: "{{ rke2_secret_config_dir }}/90-etcd-s3-secrets.yaml"
+
+# Existing production clusters require byte-for-byte token equality.
+# `fresh_short` is a one-run bootstrap state with no existing datastore.
+# `development_short` permits RKE2's secure-token wrapper only for a disabled-
+# VIP, single-node development inventory.
+rke2_cluster_token_mode: steady_state_exact
 
 # CNI — canal = flannel overlay + calico NetworkPolicy. Good default for
 # hospital LAN with NetworkPolicy support. Alternatives: 'cilium', 'calico'.
@@ -58,3 +71,10 @@ rke2_kubectx_version: "v0.9.5"
 # Additional TLS SANs for the API server certificate.
 # Override per-environment in inventory.
 cluster_dns_san: []
+
+# The HA control-plane endpoint is inventory-owned. These fallbacks keep the
+# role safe when invoked directly, but joining servers assert that the VIP is
+# explicitly enabled and complete before they start.
+control_plane_vip_enabled: false
+control_plane_vip_address: ""
+control_plane_api_dns_name: ""

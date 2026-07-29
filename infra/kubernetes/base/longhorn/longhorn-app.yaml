@@ -5,8 +5,9 @@
 # from Helm reliably without the helmCharts inflator and chart vendoring). Argo
 # CD's native Helm source is cleaner for an operator-installed component.
 #
-# Longhorn version pinned: 1.7.2 (stable). Upgrade requires draining replicas
-# first — see the Longhorn upgrade runbook in this file's trailing comment.
+# Longhorn 1.7.2 is a repository target, not a qualified production fact.
+# Qualification and operator evidence are required before the first manual
+# sync. Upgrades advance one minor at a time; downgrades are not accepted.
 #
 # Sync wave −5: storage must be ready before any StatefulSet PVCs are bound.
 # CRD establishment takes ~20s; the wave gap gives the operator time to register
@@ -18,22 +19,12 @@
 #   - cryptsetup (optional, for LUKS volume encryption).
 #   See: https://longhorn.io/docs/1.7.x/deploy/install/#installation-requirements
 #
-# CNPG note: CNPG already replicates at the PostgreSQL layer (3-instance cluster
-# with 1 synchronous standby). Switching CNPG PVCs from local-path to Longhorn
-# (replica=3) therefore gives TRIPLE redundancy: PG streaming replication AND
-# 3 copies of each block device. This is intentional — storage and app-layer
-# durability are orthogonal. The tradeoff is 3× the write IOPS on storage nodes
-# (each 100 GiB PG data PVC becomes 300 GiB of block across 3 nodes). Accept
-# this for prod; for dev keep local-path (see overlays/dev).
-#
-# Migration of existing PVCs: local-path volumes cannot be live-migrated to
-# Longhorn. The operator must:
-#   1. Scale down the StatefulSet.
-#   2. Take a final backup (CNPG barman, MinIO mc mirror, etc.).
-#   3. Delete the old PVC.
-#   4. Patch the StatefulSet's volumeClaimTemplate storageClass to longhorn.
-#   5. Scale back up — the operator creates a fresh Longhorn PV and restores from backup.
-# See operator steps at the bottom of this file.
+# CNPG currently keeps data and WAL on local-path and relies on PostgreSQL
+# streaming replication for durability. A future Longhorn placement would add
+# three storage copies per volume, which are node copies rather than evidence
+# of separate rack, power, or network failure domains. No placement change is
+# selected by this manifest. The evidence and service-by-service decision gate
+# is docs/C1_2_STORAGE_PLACEMENT_GATE.md; dev remains on local-path.
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -65,9 +56,9 @@ spec:
           # only when no other node is available (3 nodes × 3 replicas works
           # without this but is safer with it for future drains).
           replicaSoftAntiAffinity: true
-          # Storage over-provisioning factor: 200% is the Longhorn default.
-          # At 3 nodes × ~500 GiB usable per node = 1.5 TiB raw storage
-          # (Longhorn does not pool — each replica is a full copy on its node).
+          # Longhorn does not pool capacity: every replica is a full node copy.
+          # Qualify observed disks, headroom, and over-provisioning against
+          # docs/C1_2_STORAGE_PLACEMENT_GATE.md before placing any workload.
           storageOverProvisioningPercentage: 150
           # Backups to MinIO bucket `longhorn-backups` via S3-compatible API.
           # The secret `longhorn-s3-secret` (in longhorn-system) must be
@@ -121,9 +112,8 @@ spec:
     server: https://kubernetes.default.svc
     namespace: longhorn-system
   syncPolicy:
-    automated:
-      prune: false         # Never auto-delete Longhorn volumes — operator gates deletion.
-      selfHeal: true
+    # Manual sync only. The repository target remains inert until an operator
+    # completes the storage-placement gate and deliberately syncs this child.
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -157,6 +147,7 @@ spec:
 # [ ] Create the longhorn-backups MinIO bucket (no objectLock — Longhorn uses
 #     its own snapshot model; objectLock conflicts with backup cleanup):
 #       mc mb local/longhorn-backups
-# [ ] After Longhorn is Ready: apply the longhorn StorageClass + PVC migration
-#     steps per infra/kubernetes/base/longhorn/storageclass.yaml.
+# [ ] Complete docs/C1_2_STORAGE_PLACEMENT_GATE.md before selecting any
+#     workload placement. This Application and all placement changes stay
+#     manual and independently operator-gated.
 # =============================================================================

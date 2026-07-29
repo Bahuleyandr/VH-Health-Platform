@@ -3,6 +3,10 @@
 # inventories/group_vars/all/main.yml because they are used by multiple
 # roles (firewall + hardening). They are intentionally NOT role-prefixed.
 
+# Ports we open to declared management networks.
+firewall_management_tcp_ports:
+  - 6443            # Kubernetes API through the control-plane VIP
+
 # Ports we open cluster-wide.
 # Source: https://docs.rke2.io/install/requirements#networking
 firewall_cluster_tcp_ports:
@@ -14,6 +18,9 @@ firewall_cluster_udp_ports:
   - 8472            # flannel VXLAN
   - 51820           # wireguard (optional; leave open for future)
   - 51821           # wireguard IPv6 (optional)
+
+# Unicast keepalived uses VRRP IP protocol 112 directly between cluster nodes.
+firewall_vrrp_protocol: 112
 
 # NodePort range (kube default 30000-32767).
 firewall_nodeport_range: "30000-32767"

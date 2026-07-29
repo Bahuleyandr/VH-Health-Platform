@@ -1,15 +1,197 @@
 ---
-# RKE2 agent role — worker-only nodes joining an existing cluster.
-# DELIBERATELY a no-op when inventory has no 'rke2_agents' group: we only
-# touch the host if the operator has opted in explicitly by defining
-# rke2_agent_server_url + rke2_agent_token.
+# RKE2 agent role — worker-only nodes joining through the control-plane VIP.
 
-- name: Skip if agent activation vars not provided
-  ansible.builtin.meta: end_host
-  when:
-    - rke2_agent_server_url | length == 0
-    - rke2_agent_token | length == 0
-  tags: [rke2-agent]
+- name: Validate agent registration contract
+  ansible.builtin.assert:
+    that:
+      - control_plane_vip_enabled | bool
+      - control_plane_vip_address | string | trim | length > 0
+      - rke2_agent_server_url == 'https://' ~ control_plane_vip_address ~ ':9345'
+      - rke2_agent_token | string | trim | length > 0
+      - rke2_agent_token | string == (rke2_agent_token | string | trim)
+      - not (rke2_agent_token | string | regex_search('\s'))
+      - "'REPLACE' not in (rke2_agent_token | string | upper)"
+      - "'CHANGEME' not in (rke2_agent_token | string | upper)"
+      - "'PLACEHOLDER' not in (rke2_agent_token | string | upper)"
+      - "'FILL_ME' not in (rke2_agent_token | string | upper)"
+      - >-
+        rke2_cluster_token_mode | default('steady_state_exact')
+        == 'steady_state_exact'
+      - >-
+        (
+          rke2_agent_token
+          | string
+          | regex_search('^K10[0-9a-fA-F]{64}::server:\S+$')
+        ) is not none
+      - rke2_install_method == 'curl'
+      - rke2_channel == 'stable'
+      - >-
+        rke2_install_artifact_url | string
+        == (rke2_install_artifact_url | string | trim)
+      - >-
+        rke2_install_artifact_url | string
+        ==
+        (vault_rke2_prime_artifact_url | default('') | string)
+      - >-
+        rke2_install_artifact_url | string | length == 0
+        or (
+          (
+            rke2_install_artifact_url
+            | regex_search('^https://\S+/rke2/?$')
+          ) is not none
+        )
+      - >-
+        rke2_install_artifact_url | string | length == 0
+        or rke2_system_default_registry == 'registry.rancher.com'
+      - inventory_region is defined
+      - inventory_region | string | trim | length > 0
+      - inventory_zone is defined
+      - inventory_zone | string | trim | length > 0
+    fail_msg: >-
+      RKE2 agents require an enabled control-plane VIP, exact pre-shared token,
+      truthful region/zone labels, and the implemented stable curl installer.
+      Prime URLs must come from vault_rke2_prime_artifact_url, use HTTPS, end
+      in /rke2, and use registry.rancher.com.
+    quiet: true
+  tags: [rke2-agent, preflight]
+
+- name: Check for an existing agent configuration
+  ansible.builtin.stat:
+    path: "{{ rke2_config_file }}"
+  register: rke2_agent_existing_config_file
+  tags: [rke2-agent, preflight, token]
+
+- name: Check for an existing protected agent token
+  ansible.builtin.stat:
+    path: "{{ rke2_agent_token_file }}"
+  register: rke2_agent_existing_token_file
+  tags: [rke2-agent, preflight, token]
+
+- name: Read the existing protected agent token
+  ansible.builtin.slurp:
+    src: "{{ rke2_agent_token_file }}"
+  register: rke2_agent_existing_token_blob
+  when: rke2_agent_existing_token_file.stat.exists | bool
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Read the existing agent configuration
+  ansible.builtin.slurp:
+    src: "{{ rke2_config_file }}"
+  register: rke2_agent_existing_config_blob
+  when: rke2_agent_existing_config_file.stat.exists | bool
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Parse the existing agent configuration
+  ansible.builtin.set_fact:
+    rke2_agent_existing_config: >-
+      {{
+        rke2_agent_existing_config_blob.content
+        | b64decode
+        | from_yaml
+      }}
+  when: rke2_agent_existing_config_file.stat.exists | bool
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Resolve the existing agent token without normalization
+  ansible.builtin.set_fact:
+    rke2_agent_existing_token_value: >-
+      {%- if rke2_agent_existing_token_file.stat.exists | bool -%}
+      {{
+        rke2_agent_existing_token_blob.content
+        | b64decode
+        | regex_replace('[\r\n]+$', '')
+      }}
+      {%- elif rke2_agent_existing_config_file.stat.exists | bool -%}
+      {{ rke2_agent_existing_config.token | default('') | string }}
+      {%- else -%}
+      {{ '' }}
+      {%- endif -%}
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Guard existing agent token replacement
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (
+          (rke2_agent_existing_config_file.stat.exists | bool)
+          or (rke2_agent_existing_token_file.stat.exists | bool)
+        )
+        or rke2_agent_existing_token_value | length > 0
+      - >-
+        rke2_agent_existing_token_value | length == 0
+        or rke2_agent_existing_token_value == (rke2_agent_token | string)
+        or rke2_agent_allow_token_rotation | bool
+    fail_msg: >-
+      The existing agent token differs from the declared secure cluster token.
+      A controlled cluster-wide token rotation must explicitly set
+      rke2_agent_allow_token_rotation; silent replacement is refused.
+    quiet: true
+  no_log: true
+  tags: [rke2-agent, preflight, token]
+
+- name: Locate an installed RKE2 agent binary
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/rke2
+    - /opt/rke2/bin/rke2
+  register: rke2_agent_binary_candidates
+  tags: [rke2-agent, install]
+
+- name: Select the installed RKE2 agent binary
+  ansible.builtin.set_fact:
+    rke2_agent_binary_path: >-
+      {{
+        rke2_agent_binary_candidates.results
+        | selectattr('stat.exists')
+        | map(attribute='item')
+        | first
+        | default('')
+      }}
+  tags: [rke2-agent, install]
+
+- name: Read the installed RKE2 agent version
+  ansible.builtin.command:
+    argv:
+      - "{{ rke2_agent_binary_path }}"
+      - --version
+  register: rke2_agent_installed
+  changed_when: false
+  check_mode: false
+  when: rke2_agent_binary_path | length > 0
+  tags: [rke2-agent, install]
+
+- name: Parse the installed RKE2 agent version exactly
+  ansible.builtin.set_fact:
+    rke2_agent_installed_version: >-
+      {{
+        rke2_agent_installed.stdout
+        | default('')
+        | regex_findall(
+            '(?m)^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)(?:[ \t].*)?$'
+          )
+        | first
+        | default('')
+      }}
+  tags: [rke2-agent, install]
+
+- name: Reject agent version changes outside the qualified upgrade playbook
+  ansible.builtin.assert:
+    that:
+      - >-
+        rke2_agent_binary_path | length == 0
+        or rke2_agent_installed_version | length > 0
+      - >-
+        rke2_agent_binary_path | length == 0
+        or rke2_agent_installed_version == rke2_version
+    fail_msg: >-
+      site.yml cannot change an installed RKE2 agent version. Use the
+      approved upgrade playbook after all servers pass the rung.
+  tags: [rke2-agent, install]
 
 - name: Download RKE2 install script (agent mode)
   ansible.builtin.get_url:
@@ -18,19 +200,88 @@
     mode: "0750"
     owner: root
     group: root
-  when: rke2_install_method == 'curl'
+  when:
+    - rke2_agent_binary_path | length == 0
   tags: [rke2-agent, install]
 
 - name: Run RKE2 install script (agent, pinned {{ rke2_version }})
   ansible.builtin.command:
     cmd: /usr/local/sbin/rke2-install.sh
-  environment:
-    INSTALL_RKE2_VERSION: "{{ rke2_version }}"
-    INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
-    INSTALL_RKE2_TYPE: "agent"
-  register: rke2_agent_install
-  changed_when: rke2_agent_install.rc == 0
+  environment: >-
+    {{
+      {
+        'INSTALL_RKE2_VERSION': rke2_version,
+        'INSTALL_RKE2_CHANNEL': rke2_channel,
+        'INSTALL_RKE2_TYPE': 'agent'
+      }
+      | combine(
+          {'INSTALL_RKE2_ARTIFACT_URL': rke2_install_artifact_url}
+          if (rke2_install_artifact_url | string | trim | length > 0)
+          else {}
+        )
+    }}
+  when:
+    - rke2_agent_binary_path | length == 0
+  changed_when: true
+  no_log: "{{ rke2_install_artifact_url | string | trim | length > 0 }}"
   notify: reload systemd
+  tags: [rke2-agent, install]
+
+- name: Locate the agent binary after installation
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/rke2
+    - /opt/rke2/bin/rke2
+  register: rke2_agent_post_install_binary_candidates
+  tags: [rke2-agent, install]
+
+- name: Select the post-install RKE2 agent binary
+  ansible.builtin.set_fact:
+    rke2_agent_post_install_binary_path: >-
+      {{
+        rke2_agent_post_install_binary_candidates.results
+        | selectattr('stat.exists')
+        | map(attribute='item')
+        | first
+        | default('')
+      }}
+  tags: [rke2-agent, install]
+
+- name: Read the post-install RKE2 agent version
+  ansible.builtin.command:
+    argv:
+      - "{{ rke2_agent_post_install_binary_path }}"
+      - --version
+  register: rke2_agent_post_install_version_output
+  changed_when: false
+  check_mode: false
+  when: rke2_agent_post_install_binary_path | length > 0
+  tags: [rke2-agent, install]
+
+- name: Parse the post-install RKE2 agent version exactly
+  ansible.builtin.set_fact:
+    rke2_agent_post_install_version: >-
+      {{
+        rke2_agent_post_install_version_output.stdout
+        | default('')
+        | regex_findall(
+            '(?m)^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)(?:[ \t].*)?$'
+          )
+        | first
+        | default('')
+      }}
+  tags: [rke2-agent, install]
+
+- name: Verify the exact post-install RKE2 agent pin
+  ansible.builtin.assert:
+    that:
+      - rke2_agent_post_install_binary_path | length > 0
+      - rke2_agent_post_install_version == rke2_version
+    fail_msg: >-
+      The RKE2 installer did not produce the exact requested agent version at
+      /usr/local/bin/rke2 or /opt/rke2/bin/rke2.
+  when: not ansible_check_mode or rke2_agent_binary_path | length > 0
   tags: [rke2-agent, install]
 
 - name: Ensure config directory
@@ -42,6 +293,19 @@
     mode: "0750"
   tags: [rke2-agent, config]
 
+- name: Write the protected agent token file
+  ansible.builtin.copy:
+    content: "{{ rke2_agent_token }}\n"
+    dest: "{{ rke2_agent_token_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+    backup: false
+  diff: false
+  no_log: true
+  notify: restart rke2-agent
+  tags: [rke2-agent, config, token]
+
 - name: Render agent config.yaml
   ansible.builtin.template:
     src: config.yaml.j2
@@ -49,16 +313,36 @@
     owner: root
     group: root
     mode: "0640"
-    backup: true
+    backup: false
+  diff: false
+  no_log: true
   notify: restart rke2-agent
   tags: [rke2-agent, config]
 
-- name: Ensure rke2-agent enabled + started
+- name: Wait for the control-plane VIP before starting the agent
+  ansible.builtin.wait_for:
+    host: "{{ control_plane_vip_address }}"
+    port: 9345
+    connect_timeout: 3
+    delay: 2
+    timeout: 300
+  tags: [rke2-agent]
+
+- name: Ensure rke2-agent service is enabled
   ansible.builtin.systemd:
     name: rke2-agent
     enabled: true
-    state: started
     daemon_reload: true
+  tags: [rke2-agent]
+
+- name: Apply notified agent configuration changes before readiness checks
+  ansible.builtin.meta: flush_handlers
+  tags: [rke2-agent]
+
+- name: Ensure rke2-agent is started
+  ansible.builtin.systemd:
+    name: rke2-agent
+    state: started
   tags: [rke2-agent]
 
 - name: Wait for kubelet to come up

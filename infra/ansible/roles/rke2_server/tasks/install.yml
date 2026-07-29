@@ -1,14 +1,71 @@
 ---
 # RKE2 binary installation via the official install script.
-# Pin to rke2_version; re-runs no-op unless version changed.
+# Pin to rke2_version; site.yml rejects every installed version mismatch.
 
-- name: Check currently installed RKE2 version
+- name: Require successful token preflight before installation
+  ansible.builtin.assert:
+    that:
+      - rke2_cluster_token_canonical is defined
+      - rke2_cluster_token_canonical | length > 0
+    fail_msg: >-
+      Run the complete RKE2 role so token.yml can validate and canonicalize
+      the protected cluster-token input before install.yml.
+  tags: [rke2, install]
+
+- name: Locate an installed RKE2 binary
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/rke2
+    - /opt/rke2/bin/rke2
+  register: rke2_binary_candidates
+  tags: [rke2, install]
+
+- name: Select the installed RKE2 binary
+  ansible.builtin.set_fact:
+    rke2_binary_path: >-
+      {{
+        rke2_binary_candidates.results
+        | selectattr('stat.exists')
+        | map(attribute='item')
+        | first
+        | default('')
+      }}
+  tags: [rke2, install]
+
+- name: Read the installed RKE2 version
   ansible.builtin.command:
-    cmd: /usr/local/bin/rke2 --version
+    argv:
+      - "{{ rke2_binary_path }}"
+      - --version
   register: rke2_installed
-  failed_when: false
   changed_when: false
   check_mode: false
+  when: rke2_binary_path | length > 0
+  tags: [rke2, install]
+
+- name: Parse the installed RKE2 version exactly
+  ansible.builtin.set_fact:
+    rke2_installed_version: >-
+      {{
+        rke2_installed.stdout
+        | default('')
+        | regex_findall(
+            '(?m)^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)(?:[ \t].*)?$'
+          )
+        | first
+        | default('')
+      }}
+  tags: [rke2, install]
+
+- name: Reject version changes outside the qualified upgrade playbook
+  ansible.builtin.assert:
+    that:
+      - rke2_binary_path | length == 0 or rke2_installed_version | length > 0
+      - rke2_binary_path | length == 0 or rke2_installed_version == rke2_version
+    fail_msg: >-
+      site.yml cannot change an installed RKE2 version. Use
+      playbooks/upgrade-k8s.yml and cross exactly one approved ladder rung.
   tags: [rke2, install]
 
 - name: Download RKE2 install script
@@ -19,20 +76,136 @@
     owner: root
     group: root
   when:
-    - rke2_install_method == 'curl'
-    - rke2_installed.rc != 0 or rke2_version not in (rke2_installed.stdout | default(''))
+    - rke2_binary_path | length == 0
   tags: [rke2, install]
 
 - name: Run RKE2 install script (pinned to {{ rke2_version }})
   ansible.builtin.command:
     cmd: /usr/local/sbin/rke2-install.sh
-  environment:
-    INSTALL_RKE2_VERSION: "{{ rke2_version }}"
-    INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
-    INSTALL_RKE2_TYPE: "server"
+  environment: >-
+    {{
+      {
+        'INSTALL_RKE2_VERSION': rke2_version,
+        'INSTALL_RKE2_CHANNEL': rke2_channel,
+        'INSTALL_RKE2_TYPE': 'server'
+      }
+      | combine(
+          {'INSTALL_RKE2_ARTIFACT_URL': rke2_install_artifact_url}
+          if (rke2_install_artifact_url | string | trim | length > 0)
+          else {}
+        )
+    }}
   when:
-    - rke2_install_method == 'curl'
-    - rke2_installed.rc != 0 or rke2_version not in (rke2_installed.stdout | default(''))
+    - rke2_binary_path | length == 0
   changed_when: true
+  no_log: "{{ rke2_install_artifact_url | string | trim | length > 0 }}"
   notify: reload systemd
+  tags: [rke2, install]
+
+- name: Ensure protected RKE2 configuration directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ rke2_config_dir }}"
+    - "{{ rke2_secret_config_dir }}"
+  tags: [rke2, install, config]
+
+- name: Write the protected cluster-token input file
+  ansible.builtin.copy:
+    content: "{{ rke2_cluster_token_canonical }}\n"
+    dest: "{{ rke2_token_input_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+    backup: false
+  diff: false
+  no_log: true
+  notify: restart rke2-server
+  tags: [rke2, install, config, token]
+
+- name: Write protected etcd S3 credentials
+  ansible.builtin.copy:
+    content: |
+      etcd-s3-access-key: {{ etcd_s3_access_key | to_json }}
+      etcd-s3-secret-key: {{ etcd_s3_secret_key | to_json }}
+    dest: "{{ rke2_etcd_s3_secret_config_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+    backup: false
+  diff: false
+  no_log: true
+  notify: restart rke2-server
+  when: rke2_etcd_s3_enabled | bool
+  tags: [rke2, install, config]
+
+- name: Remove stale etcd S3 credential drop-in when disabled
+  ansible.builtin.file:
+    path: "{{ rke2_etcd_s3_secret_config_file }}"
+    state: absent
+  diff: false
+  no_log: true
+  notify: restart rke2-server
+  when: not (rke2_etcd_s3_enabled | bool)
+  tags: [rke2, install, config]
+
+- name: Locate the installed binary after installation
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/rke2
+    - /opt/rke2/bin/rke2
+  register: rke2_post_install_binary_candidates
+  tags: [rke2, install]
+
+- name: Select the post-install RKE2 binary
+  ansible.builtin.set_fact:
+    rke2_post_install_binary_path: >-
+      {{
+        rke2_post_install_binary_candidates.results
+        | selectattr('stat.exists')
+        | map(attribute='item')
+        | first
+        | default('')
+      }}
+  tags: [rke2, install]
+
+- name: Read the post-install RKE2 version
+  ansible.builtin.command:
+    argv:
+      - "{{ rke2_post_install_binary_path }}"
+      - --version
+  register: rke2_post_install_version_output
+  changed_when: false
+  check_mode: false
+  when: rke2_post_install_binary_path | length > 0
+  tags: [rke2, install]
+
+- name: Parse the post-install RKE2 version exactly
+  ansible.builtin.set_fact:
+    rke2_post_install_version: >-
+      {{
+        rke2_post_install_version_output.stdout
+        | default('')
+        | regex_findall(
+            '(?m)^rke2 version (v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+)(?:[ \t].*)?$'
+          )
+        | first
+        | default('')
+      }}
+  tags: [rke2, install]
+
+- name: Verify the exact post-install RKE2 pin
+  ansible.builtin.assert:
+    that:
+      - rke2_post_install_binary_path | length > 0
+      - rke2_post_install_version == rke2_version
+    fail_msg: >-
+      The RKE2 installer did not produce the exact requested version at
+      /usr/local/bin/rke2 or /opt/rke2/bin/rke2.
+  when: not ansible_check_mode or rke2_binary_path | length > 0
   tags: [rke2, install]
