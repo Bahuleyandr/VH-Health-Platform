@@ -95,9 +95,17 @@ export async function verifyFrozenCutoverMigrationFiles({
   const artifacts = {};
   for (const name of CUTOVER_MIGRATIONS) {
     const contents = await readFileImpl(join(migrationsDirectory, name));
+    // Normalize CRLF before measuring/hashing so Windows autocrlf checkouts
+    // verify identically to the LF git blobs these pins were frozen from
+    // (verified 2026-07-28: the raw working-tree read on Windows yields
+    // 253,110 bytes / 08A4C599… for migration 580 versus the pinned LF blob's
+    // 246,628 / A41495FC…, failing local sweep chunk 104 while Linux CI
+    // passes). Same idiom as the frozen-migration deep tests. A real content
+    // change — including an appended newline — still alters bytes and sha256.
+    const normalized = contents.toString('utf8').replace(/\r\n/g, '\n');
     artifacts[name] = {
-      bytes: contents.byteLength,
-      sha256: createHash('sha256').update(contents).digest('hex').toUpperCase(),
+      bytes: Buffer.byteLength(normalized, 'utf8'),
+      sha256: createHash('sha256').update(normalized).digest('hex').toUpperCase(),
     };
   }
   return assertFrozenCutoverMigrationArtifacts(artifacts);
