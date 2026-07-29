@@ -694,6 +694,12 @@ BEGIN
       );
   END IF;
 
+  -- The 15-minute freshness and 24-hour hard-expiry intervals below are the
+  -- owner-ratified C-D2 values recorded in
+  -- docs/continuity/c0-4-owner-decision-dossier.md (2026-07-28): the existing
+  -- generation cadence and PACK_EXPIRY_HOURS were adopted as policy, with an
+  -- explicit no-historical-mode ruling. Changing either interval is a NEW
+  -- owner decision plus a new migration, never a tuning edit.
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conrelid = 'downtime_snapshots'::regclass
@@ -1472,6 +1478,18 @@ $cc_trigger_replacement$;
 
 -- ---------------------------------------------------------------------------
 -- Pattern-A RLS plus restrictive explicit-context policies.
+--
+-- DELIBERATE STRICTNESS (C3.1 design §2.4; coordinator clearance condition):
+-- the standard permissive tenant_isolation policy is kept for house-tooling
+-- compatibility (the migration-272 FORCE sweeper, fixtures), but AS RESTRICTIVE
+-- policies are ANDed over it so an absent, empty, or 'bypass'
+-- app.current_tenant_id matches NO rows on clinical continuity data
+-- (app_current_tenant_id_uuid() returns NULL in those states, and
+-- tenant_id = NULL is never true). Migration 587's legacy null/empty
+-- visibility is intentionally NOT inherited for continuity PHI. On
+-- downtime_snapshots the restriction applies only to the new
+-- 'clinical_continuity_pack' scope, so legacy ward/patient evidence keeps its
+-- existing behavior. The migration owner role (bypassrls) is unaffected.
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE clinical_continuity_policy_versions ENABLE ROW LEVEL SECURITY;
