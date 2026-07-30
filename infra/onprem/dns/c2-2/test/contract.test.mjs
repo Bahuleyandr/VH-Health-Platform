@@ -42,7 +42,7 @@ test('renders exact managed hosts and preserves a public catch-all view', () => 
       const zone = readFileSync(join(output, 'zones', file), 'utf8');
       assert.match(zone, /@ IN A 10\.50\.0\.10/);
       assert.doesNotMatch(zone, /^(?!;).*\sAAAA\s/m);
-      assert.match(zone, /authoritative zone returns\n; NODATA for AAAA/);
+      assert.match(zone, /authoritative zone returns\r?\n; NODATA for AAAA/);
     }
   } finally {
     rmSync(output, { recursive: true, force: true });
