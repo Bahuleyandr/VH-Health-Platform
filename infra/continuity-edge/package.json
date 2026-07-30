@@ -1,0 +1,13 @@
+{
+  "name": "@vhhealth/continuity-edge",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:runtime": "node tools/build-runtime-verifier.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

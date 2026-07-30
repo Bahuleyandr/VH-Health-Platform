@@ -1,0 +1,18 @@
+[Unit]
+Description=Re-verify the selected continuity set and anti-rollback floors
+Requires=vhhealth-continuity-edge-preflight.service
+After=vhhealth-continuity-edge-preflight.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/vhhealth/continuity-edge/edge.env
+ExecStartPre=/usr/bin/podman image exists ${VHEDGE_GATEWAY_IMAGE}
+ExecStart=/usr/bin/podman run --rm --read-only --user 10001:10001 --cap-drop=all --security-opt=no-new-privileges --env-file=/etc/vhhealth/continuity-edge/edge.env --volume=/etc/vhhealth/continuity-edge:/etc/vhhealth/continuity-edge:ro --volume=${VHEDGE_DATA_ROOT}:${VHEDGE_DATA_ROOT}:rw ${VHEDGE_GATEWAY_IMAGE} /opt/vhhealth-continuity-edge/bin/verify-set.mjs
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadOnlyPaths=/etc/vhhealth/continuity-edge /opt/vhhealth-continuity-edge
+ReadWritePaths=/var/lib/containers /run/containers /var/lib/vhhealth/continuity-edge

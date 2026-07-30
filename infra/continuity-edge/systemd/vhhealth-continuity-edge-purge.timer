@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule signed-retention continuity purge
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=vhhealth-continuity-edge-purge.service
+
+[Install]
+WantedBy=timers.target

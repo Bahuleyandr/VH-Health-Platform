@@ -1,0 +1,59 @@
+# C3.2b continuity-edge rules. Delivery is intentionally inert until the C1.3
+# lane wires and proves Alertmanager routing.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vhhealth-continuity-edge-alerts
+  namespace: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: rules
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  groups:
+    - name: continuity-edge
+      interval: 30s
+      rules:
+        - alert: ContinuityPackExpired
+          expr: max(vhhealth_continuity_pack_fresh_until_timestamp_seconds) > 0 and time() > max(vhhealth_continuity_pack_fresh_until_timestamp_seconds)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The latest signed continuity publication is past fresh_until"
+            runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"
+        - alert: ContinuityVerificationFailed
+          expr: sum by (reason) (increase(vhhealth_continuity_verification_failures_total[15m])) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Continuity verification rejected one or more artifacts ({{ $labels.reason }})"
+            runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"
+        - alert: ContinuityCoverageIncomplete
+          expr: max(vhhealth_continuity_pack_fresh_until_timestamp_seconds) > 0 and min(vhhealth_continuity_coverage_complete) == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The latest continuity publication does not have exact required coverage"
+            runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"
+        - alert: ContinuityEdgeSyncStale
+          expr: max(vhhealth_continuity_edge_last_sync_success_timestamp_seconds) > 0 and time() - max(vhhealth_continuity_edge_last_sync_success_timestamp_seconds) > 1800
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No successful continuity-edge replication has completed for 30 minutes"
+            runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"
+        - alert: ContinuityEdgeReplicationLagHigh
+          expr: max(vhhealth_continuity_edge_replication_lag_seconds) > 900
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Continuity-edge replication lag is above 15 minutes"
+            runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"

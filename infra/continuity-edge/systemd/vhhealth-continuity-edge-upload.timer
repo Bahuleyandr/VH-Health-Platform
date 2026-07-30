@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule recovery-time continuity access-log upload
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=vhhealth-continuity-edge-upload.service
+
+[Install]
+WantedBy=timers.target

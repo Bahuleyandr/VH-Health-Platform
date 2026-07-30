@@ -1,0 +1,29 @@
+[Unit]
+Description=VH Health continuity-edge loopback Caddy
+Requires=vhhealth-continuity-edge-preflight.service
+After=vhhealth-continuity-edge-preflight.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/vhhealth/continuity-edge/edge.env
+ExecStartPre=/usr/bin/podman image exists ${VHEDGE_CADDY_IMAGE}
+# The pinned upstream binary carries cap_net_bind_service=ep; retain only that
+# file capability so no-new-privileges can execute it as UID 10001.
+ExecStart=/usr/bin/podman run --rm --name vhhealth-continuity-edge-caddy --network host --read-only --user 10001:10001 --cap-drop=all --cap-add=net_bind_service --security-opt=no-new-privileges --tmpfs=/config:rw,nodev,nosuid,noexec,size=16m,uid=10001,gid=10001,mode=700 --tmpfs=/data:rw,nodev,nosuid,noexec,size=16m,uid=10001,gid=10001,mode=700 --volume=${VHEDGE_CADDYFILE}:/etc/caddy/Caddyfile:ro --volume=${VHEDGE_DATA_ROOT}:/srv/continuity:ro ${VHEDGE_CADDY_IMAGE} caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+ExecStop=/usr/bin/podman stop --time 10 vhhealth-continuity-edge-caddy
+Restart=always
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadOnlyPaths=/etc/vhhealth/continuity-edge /opt/vhhealth-continuity-edge
+ReadWritePaths=/var/lib/containers /run/containers
+
+[Install]
+WantedBy=multi-user.target

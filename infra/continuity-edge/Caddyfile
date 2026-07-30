@@ -1,0 +1,32 @@
+{
+	admin off
+	auto_https off
+}
+
+http://127.0.0.1:8080 {
+	root * /srv/continuity
+
+	@pack path_regexp pack ^/continuity-v1/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/facilities/[1-9][0-9]*/sets/v[1-9][0-9]*/locations/(ward|paeds|ed_board|opd_day)/[A-Za-z0-9][A-Za-z0-9._-]{0,159}/pack\.(html|json)$
+	handle @pack {
+		file_server {
+			hide ._* current.json manifest.json edge-access.json
+		}
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+
+	header {
+		-Server
+		Cache-Control "no-store, max-age=0"
+		Pragma "no-cache"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+	}
+
+	log {
+		output discard
+	}
+}

@@ -1,0 +1,10 @@
+# This file contains no credential. The operator-installed copy points at the
+# dedicated, host-key-verified SSH endpoint. The edge process injects the
+# exact source key and known-hosts paths from edge.env so they cannot drift
+# from the preflighted credentials.
+[continuity_source]
+type = sftp
+host = OWNER_INPUT_SOURCE_HOST
+user = OWNER_INPUT_FACILITY_SCOPED_PULL_USER
+shell_type = none
+disable_hashcheck = true

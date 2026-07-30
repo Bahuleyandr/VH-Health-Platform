@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vhhealth-backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: CLINICAL_CONTINUITY_PACKS_ENABLED
+              value: "false"
+            - name: DOWNTIME_MIRROR_DIR
+              value: /var/lib/vhhealth/continuity
+          volumeMounts:
+            - name: continuity-publication
+              mountPath: /var/lib/vhhealth/continuity
+              readOnly: true
+      volumes:
+        - name: continuity-publication
+          persistentVolumeClaim:
+            claimName: vhhealth-continuity-publication
+            readOnly: true

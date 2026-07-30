@@ -1,0 +1,18 @@
+{
+  "format": "vhhealth_continuity_edge_activation_receipt/v1",
+  "tenantId": "OWNER_INPUT_NON_DEFAULT_TENANT_UUID",
+  "facilityId": 0,
+  "edgeHostAssetId": "OWNER_INPUT",
+  "storageReceipt": "OWNER_INPUT_H1_RECEIPT_REFERENCE",
+  "cD4Countersignature": "OWNER_INPUT",
+  "cD10Countersignature": "OWNER_INPUT",
+  "loggingIdentityApproval": "OWNER_INPUT",
+  "outageDrillReceipt": "OWNER_INPUT",
+  "approvedBy": [
+    "OWNER_INPUT_CLINICAL_OWNER",
+    "OWNER_INPUT_PRIVACY_OWNER",
+    "OWNER_INPUT_SECURITY_OWNER",
+    "OWNER_INPUT_INFRA_OWNER"
+  ],
+  "approvedAt": "OWNER_INPUT_CANONICAL_UTC_TIMESTAMP"
+}
