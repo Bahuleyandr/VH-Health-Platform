@@ -1,0 +1,151 @@
+# The dedicated namespace is default-deny. nftables remains authoritative for
+# the approved LAN source CIDRs before hostPort DNAT; these policies restrict
+# the selected pod, ports, and controller destinations inside Kubernetes.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-nginx-internal-default-deny
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-nginx-internal-host-listeners
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    vhhealth.app/activation-hold: "replace TEST-NET client sentinels with approved CIDRs"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx-internal
+      app.kubernetes.io/instance: ingress-nginx-internal
+      app.kubernetes.io/component: controller
+  policyTypes: [Ingress]
+  ingress:
+    # Documentation-only TEST-NET sentinels keep the Kubernetes layer
+    # fail-closed. An approved activation overlay must replace these with the
+    # exact same clinical/management CIDR ledger used by nftables.
+    - from:
+        - ipBlock:
+            cidr: 192.0.2.0/32
+        - ipBlock:
+            cidr: 198.51.100.0/32
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+    - from:
+        - ipBlock:
+            cidr: 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 10254
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 10254
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-nginx-internal-controlled-egress
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx-internal
+      app.kubernetes.io/instance: ingress-nginx-internal
+      app.kubernetes.io/component: controller
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Kubernetes API access is required for Ingress, Secret, EndpointSlice,
+    # ConfigMap, and Lease watches. Cover the documented Service IP and the
+    # current node subnet because CNI policy can observe either side of DNAT.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: 10.10.0.0/24
+      ports:
+        - protocol: TCP
+          port: 6443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+      ports:
+        - protocol: TCP
+          port: 5000
+    # Reserved for the C2.2 staff-web activation. The held Ingress cannot
+    # select this route in C2.1.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-staff-web
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Monitoring UIs remain held, but their eventual destinations are bounded.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 9093
+    # cert-manager creates solver pods in the Certificate's namespace.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              acme.cert-manager.io/http01-solver: "true"
+      ports:
+        - protocol: TCP
+          port: 8089

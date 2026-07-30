@@ -179,13 +179,12 @@ metadata:
     app.kubernetes.io/exposure: lan-only
   annotations:
     argocd.argoproj.io/sync-wave: "4"
-    cert-manager.io/cluster-issuer: step-ca-internal
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
 spec:
-  ingressClassName: nginx-internal
+  ingressClassName: nginx-internal-held
   tls:
     - hosts:
         - analytics.vhhealth.hospital.local

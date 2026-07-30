@@ -66,8 +66,41 @@ For ABDM: set `x-hip-id` → secret. For HL7: receiving-facility (MSH-6) → sec
 `upsertInteropSecret` (W3 WS6). Skip if the tenant doesn't use ABDM/HL7 (the env-backed
 default applies).
 
+### B2.1 — Add an explicit private-ingress host (only after C2 activation)
+
+C2.1 deliberately ships only the apex `api.vhhealth.app` rule on the private
+controller. The public Cloudflare route may keep its existing wildcard, but
+the hospital-LAN route never inherits it.
+
+If the tenant is approved for split-horizon private access:
+
+1. confirm C-D13, the network-owner ledger, C0.1 parity, and the C2.1 operator
+   drill are complete for the active private path;
+2. record `<slug>-api.vhhealth.app` in the reviewed tenant-host inventory;
+3. add one literal host rule to
+   `infra/kubernetes/apps/backend/ingress-internal-api.yaml`, using path `/`,
+   `Prefix`, and Service `vhhealth-backend`;
+4. add the exact hostname to the selected certificate SAN ledger. Do not add
+   `*.vhhealth.app`, and do not use wildcard-with-HTTP-01;
+5. preserve the original Host: do not add a rewrite, `upstream-vhost`,
+   `httpHostHeader`, or Host-replacement annotation;
+6. run
+   `node infra/kubernetes/qa/c2-1-internal-ingress-contract.mjs`, production
+   apps/platform Kustomize renders, and strict kubeconform;
+7. obtain the required review and merge. A merge remains inert because the
+   production Applications are manual-sync; and
+8. after the separately approved manual sync, C2.2 may publish one explicit
+   private DNS record on managed clinical networks.
+
+Before and after the new rule, an unlisted tenant, arbitrary wildcard host,
+node-IP Host, and `admin.vhhealth.app` must reach the internal controller's
+default backend 404. If any reaches the VH Health backend, roll back the rule.
+
 ### B3 — Verify routing + isolation
 - `curl -sI https://acme-api.vhhealth.app/api/v1/health` → 200.
+- If private access was approved, repeat from an approved clinical network and
+  prove DNS resolves to the private VIP, the original Host reaches the backend,
+  and the same request from a guest network retains the public route.
 - Log in to `https://admin.vhhealth.app` as the bootstrapped admin → you see ONLY
   Acme's data (backend RLS + the admin's token tenant_id; admin is single-host).
 - **Phase-E RLS check** (GO_LIVE): run the runtime RLS verification for `tenant_id =
@@ -102,6 +135,9 @@ the patient/staff app links, and a note that all access is tenant-isolated + aud
 - [ ] A second tenant's admin CANNOT see this tenant's data (cross-tenant 403/empty).
 - [ ] Phase-E runtime RLS green for the new `tenant_id`.
 - [ ] Patient + staff builds point at the subdomain (decode a token → `tenant_id` matches).
+- [ ] If private access is approved, the exact `<slug>-api` rule and SAN exist;
+  there is no wildcard private rule or record, and unlisted hosts return the
+  internal default backend 404.
 - [ ] Branding (name/colour) renders in the admin chrome.
 
 ## Rollback (a tenant onboarded in error)
@@ -116,5 +152,8 @@ back to remove one tenant.
 ## Notes
 - After **all** tenants are subdomained, flip `ALLOW_DEFAULT_TENANT=false` (design D4)
   to fail-close the apex.
+- `clinical.vhhealth.hospital.local` is the staff SPA identity, not a tenant API
+  host. It remains on `nginx-internal-held` until C2.2 fixes the web artifact's
+  `/api/v1` base URL and completes browser CORS/WebSocket/login/upload proof.
 - Scale items (per-tenant metrics/quotas/backups/erase, Vault, Kyverno Enforce) are
   separate tickets — see the W7 design "Scale items".

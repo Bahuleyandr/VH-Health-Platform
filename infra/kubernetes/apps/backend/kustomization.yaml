@@ -26,6 +26,9 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  # C2.1 apex-only private route. Its referenced TLS Secret has no producer in
+  # the default render and the keepalived VIP defaults disabled/addressless.
+  - ingress-internal-api.yaml
   # LAN-only ingress for /api/v1/clinical-ai/clinical/* (Phase 1 of the
   # clinical-AI rollout — see docs/CLINICAL_AI_ROLLOUT_PLAN.md). Uses
   # ingressClassName: nginx-internal so it's served by the internal-only
@@ -51,6 +54,11 @@ configMapGenerator:
     files:
       - upload-archive.sh
       - verify-upload-archive.sh
+  - name: vhhealth-internal-ingress-parameters
+    literals:
+      # C-D13 remains unresolved. An approved overlay replaces this value only
+      # when it also selects exactly one matching TLS-material component.
+      - tlsSecretName=c-d13-unprovisioned-internal-api-tls
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -83,3 +91,15 @@ replacements:
           name: backup-verification
         fieldPaths:
           - spec.jobTemplate.spec.template.spec.initContainers.[name=archive-reader].env.[name=R2_ENDPOINT].value
+  - source:
+      kind: ConfigMap
+      name: vhhealth-internal-ingress-parameters
+      fieldPath: data.tlsSecretName
+    targets:
+      - select:
+          group: networking.k8s.io
+          version: v1
+          kind: Ingress
+          name: vhhealth-backend-internal-api
+        fieldPaths:
+          - spec.tls.0.secretName

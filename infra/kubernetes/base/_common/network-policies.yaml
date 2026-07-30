@@ -319,15 +319,18 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-ingress-egress-all
+  name: allow-public-controller-egress
   namespace: vhhealth-ingress
   labels:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 spec:
-  # The ingress controller forwards to all namespaces, and cloudflared
-  # needs egress to Cloudflare's edge (IPs vary) via the internet.
-  podSelector: {}
+  # Preserve the public controller's existing destination reachability while
+  # removing that broad grant from cloudflared and every future pod.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: ingress-nginx
+      app.kubernetes.io/component: controller
   policyTypes: [Egress]
   egress:
     - to:
@@ -341,39 +344,114 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-external-ingress
+  name: allow-cloudflared-egress
   namespace: vhhealth-ingress
   labels:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 spec:
-  # Cloudflare Tunnel is the current external path. The internal controller,
-  # VIP, and LAN DNS path are deferred to C2; this policy is not evidence that
-  # a LoadBalancer, MetalLB, or hostNetwork endpoint exists. The empty ingress
-  # peer list permits traffic once a separately controlled network path reaches
-  # these pods; Service, CNI, and upstream firewall policy still govern
-  # reachability.
-  podSelector: {}
-  policyTypes: [Ingress]
-  ingress:
-    - {}
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: cloudflared
+  policyTypes: [Egress]
+  egress:
+    # Cloudflare traffic can enter only through the public controller.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 7844
+        - protocol: UDP
+          port: 7844
+        - protocol: TCP
+          port: 443
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-monitoring-scrape
+  name: allow-cloudflared-to-public-controller
   namespace: vhhealth-ingress
   labels:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: ingress-nginx
+      app.kubernetes.io/component: controller
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: cloudflared
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-controller-monitoring
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: ingress-nginx
+      app.kubernetes.io/component: controller
   policyTypes: [Ingress]
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 10254
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cloudflared-monitoring
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: cloudflared
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 2000
 ---
 # ---- vhhealth-security ----
 apiVersion: networking.k8s.io/v1

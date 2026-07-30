@@ -22,6 +22,13 @@ firewall_cluster_udp_ports:
 # Unicast keepalived uses VRRP IP protocol 112 directly between cluster nodes.
 firewall_vrrp_protocol: 112
 
+# C2.1 hostPort listener contract. The input and early-prerouting rules are
+# emitted only when both the private VIP and its guard are explicitly enabled.
+firewall_internal_ingress_tcp_ports:
+  - 80
+  - 443
+firewall_internal_ingress_health_port: 10255
+
 # NodePort range (kube default 30000-32767).
 firewall_nodeport_range: "30000-32767"
 

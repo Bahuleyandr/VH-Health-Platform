@@ -22,3 +22,24 @@ control_plane_vip_health_rise: 2
 
 control_plane_vip_config_path: /etc/keepalived/keepalived.conf
 control_plane_vip_health_script_path: /usr/local/sbin/check-rke2-control-plane
+
+# C2.1 private-ingress VIP. Disabled and addressless by default: network
+# owners must supply a collision-checked address and interface before enabling.
+internal_ingress_vip_enabled: false
+internal_ingress_vip_address: ""
+internal_ingress_vip_interface: ""
+internal_ingress_vip_unicast_address: "{{ ansible_host | default('') }}"
+internal_ingress_vip_prefix_length: 24
+internal_ingress_vip_virtual_router_id: 52
+
+internal_ingress_vip_priority_base: 150
+internal_ingress_vip_priority_step: 10
+internal_ingress_vip_advert_interval: 1
+
+internal_ingress_vip_health_interval: 2
+internal_ingress_vip_health_timeout: 4
+internal_ingress_vip_health_fall: 3
+internal_ingress_vip_health_rise: 2
+
+internal_ingress_vip_health_script_path: /usr/local/sbin/check-internal-ingress
+internal_ingress_vip_firewall_guard_enabled: false

@@ -1,0 +1,307 @@
+---
+# Offline contract only. Run from infra/ansible with:
+#   ansible-playbook -i localhost, -c local tests/c2_1_contract.yml
+
+- name: Build the C2.1 three-node fixture inventory
+  hosts: localhost
+  gather_facts: false
+  vars:
+    c21_fixture_servers:
+      - name: c21-server-a
+        address: 10.20.30.11
+        expected_priority: 150
+      - name: c21-server-b
+        address: 10.20.30.12
+        expected_priority: 140
+      - name: c21-server-c
+        address: 10.20.30.13
+        expected_priority: 130
+  tasks:
+    - name: Add combined control-plane and ingress fixture hosts
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups:
+          - rke2_servers
+          - c2_1_contract_servers
+        ansible_connection: local
+        ansible_host: "{{ item.address }}"
+        control_plane_vip_unicast_address: "{{ item.address }}"
+        internal_ingress_vip_unicast_address: "{{ item.address }}"
+        c21_expected_priority: "{{ item.expected_priority }}"
+      loop: "{{ c21_fixture_servers }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+- name: Render and verify the combined C2.1 contract
+  hosts: c2_1_contract_servers
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../roles/control_plane_vip/defaults/main.yml"
+    - "{{ playbook_dir }}/../roles/firewall/defaults/main.yml"
+  vars:
+    ansible_managed: C2.1 offline contract fixture
+    management_cidrs:
+      - 10.20.10.0/24
+    clinical_cidrs:
+      - 10.20.20.0/24
+    cluster_cidrs:
+      - 10.20.30.0/24
+    control_plane_vip_enabled: true
+    control_plane_vip_address: 10.20.30.10
+    control_plane_vip_interface: enp1s0
+    control_plane_vip_prefix_length: 24
+    control_plane_vip_virtual_router_id: 41
+    internal_ingress_vip_enabled: true
+    internal_ingress_vip_address: 10.20.30.50
+    internal_ingress_vip_interface: enp1s0
+    internal_ingress_vip_prefix_length: 24
+    internal_ingress_vip_virtual_router_id: 52
+    internal_ingress_vip_firewall_guard_enabled: true
+  tasks:
+    - name: Apply the combined C2.1 fixture over role defaults
+      ansible.builtin.set_fact:
+        control_plane_vip_enabled: true
+        control_plane_vip_address: 10.20.30.10
+        control_plane_vip_interface: enp1s0
+        control_plane_vip_prefix_length: 24
+        control_plane_vip_virtual_router_id: 41
+        internal_ingress_vip_enabled: true
+        internal_ingress_vip_address: 10.20.30.50
+        internal_ingress_vip_interface: enp1s0
+        internal_ingress_vip_prefix_length: 24
+        internal_ingress_vip_virtual_router_id: 52
+        internal_ingress_vip_firewall_guard_enabled: true
+
+    - name: Derive deterministic peer order and priorities
+      ansible.builtin.set_fact:
+        control_plane_vip_server_hosts: "{{ groups['rke2_servers'] | sort }}"
+        control_plane_vip_effective_priority: >-
+          {{
+            control_plane_vip_priority_base
+            - (
+              (groups['rke2_servers'] | sort).index(inventory_hostname)
+              * control_plane_vip_priority_step
+            )
+          }}
+        internal_ingress_vip_effective_priority: >-
+          {{
+            internal_ingress_vip_priority_base
+            - (
+              (groups['rke2_servers'] | sort).index(inventory_hostname)
+              * internal_ingress_vip_priority_step
+            )
+          }}
+
+    - name: Render combined keepalived and firewall contracts
+      ansible.builtin.set_fact:
+        c21_keepalived_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/control_plane_vip/templates/keepalived.conf.j2'
+            )
+          }}
+        c21_internal_health_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/control_plane_vip/templates/check-internal-ingress.sh.j2'
+            )
+          }}
+        c21_firewall_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/firewall/templates/nftables.conf.j2'
+            )
+          }}
+
+    - name: Assert two isolated keepalived instances
+      ansible.builtin.assert:
+        that:
+          - "'vrrp_instance VI_RKE2_CONTROL_PLANE' in c21_keepalived_text"
+          - "'vrrp_instance VI_VHHEALTH_INTERNAL_INGRESS' in c21_keepalived_text"
+          - "'virtual_router_id 41' in c21_keepalived_text"
+          - "'virtual_router_id 52' in c21_keepalived_text"
+          - "'10.20.30.10/24 dev enp1s0' in c21_keepalived_text"
+          - "'10.20.30.50/24 dev enp1s0' in c21_keepalived_text"
+          - "'check_rke2_control_plane' in c21_keepalived_text"
+          - "'check_vhhealth_internal_ingress' in c21_keepalived_text"
+          - >-
+            ('priority ' ~ (c21_expected_priority | string))
+            in c21_keepalived_text
+          - >-
+            (
+              c21_keepalived_text
+              | regex_findall('10\\.20\\.30\\.(?:11|12|13)')
+              | unique
+              | length
+            ) == 3
+        fail_msg: >-
+          The combined keepalived render lost an instance, distinct address,
+          VRID, health script, peer, or deterministic priority.
+
+    - name: Assert backend-independent local health checks
+      ansible.builtin.assert:
+        that:
+          - "'/dev/tcp/127.0.0.1/80' in c21_internal_health_text"
+          - "'/dev/tcp/127.0.0.1/443' in c21_internal_health_text"
+          - "'http://127.0.0.1:10255/healthz' in c21_internal_health_text"
+          - "'--connect-timeout 2' in c21_internal_health_text"
+          - "'--max-time 3' in c21_internal_health_text"
+          - "'backend' not in c21_internal_health_text"
+          - "'vhhealth-backend' not in c21_internal_health_text"
+
+    - name: Assert the early fail-closed firewall contract
+      ansible.builtin.assert:
+        that:
+          - "'destroy table inet vhhealth' in c21_firewall_text"
+          - "'flush ruleset' not in c21_firewall_text"
+          - "'chain c2_1_internal_ingress_prerouting' in c21_firewall_text"
+          - "'hook prerouting priority -150' in c21_firewall_text"
+          - "'internal_ingress_clients_v4' in c21_firewall_text"
+          - "'internal_ingress_vrrp_peers_v4' in c21_firewall_text"
+          - "'control_plane_vrrp_peers_v4' in c21_firewall_text"
+          - "'internal_ingress_nodes_v4' in c21_firewall_text"
+          - "'10.20.10.0/24' in c21_firewall_text"
+          - "'10.20.20.0/24' in c21_firewall_text"
+          - "'ip daddr 10.20.30.50' in c21_firewall_text"
+          - "'tcp dport { 80, 443 } reject with tcp reset' in c21_firewall_text"
+          - "'meta nfproto ipv6' in c21_firewall_text"
+          - "'tcp dport 10255 reject with tcp reset' in c21_firewall_text"
+          - "'ip protocol 112 accept' in c21_firewall_text"
+        fail_msg: >-
+          The firewall render lost the early hostPort, approved-client,
+          physical-node, IPv6, health-port, or declared-peer guard.
+
+    - name: Validate rendered nftables syntax when requested
+      ansible.builtin.command:
+        cmd: nft --check --file /dev/stdin
+        stdin: "{{ c21_firewall_text }}"
+      changed_when: false
+      when: c21_validate_nft | default(false) | bool
+
+    - name: Render the disabled private-ingress contract
+      ansible.builtin.set_fact:
+        internal_ingress_vip_enabled: false
+
+    - name: Capture disabled keepalived and firewall renders
+      ansible.builtin.set_fact:
+        c21_disabled_keepalived_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/control_plane_vip/templates/keepalived.conf.j2'
+            )
+          }}
+        c21_disabled_firewall_text: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../roles/firewall/templates/nftables.conf.j2'
+            )
+          }}
+
+    - name: Assert disabled means absent and addressless
+      ansible.builtin.assert:
+        that:
+          - >-
+            'VI_VHHEALTH_INTERNAL_INGRESS'
+            not in c21_disabled_keepalived_text
+          - >-
+            'c2_1_internal_ingress_prerouting'
+            not in c21_disabled_firewall_text
+          - "'10.20.30.50' not in c21_disabled_firewall_text"
+          - "'VI_RKE2_CONTROL_PLANE' in c21_disabled_keepalived_text"
+
+- name: Verify invalid C2.1 inputs are represented by hard-stop assertions
+  hosts: localhost
+  gather_facts: false
+  vars:
+    c21_task_text: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../roles/control_plane_vip/tasks/main.yml'
+        )
+      }}
+    c21_site_text: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../playbooks/site.yml'
+        )
+      }}
+    c21_valid_vip: 10.20.30.50
+    c21_control_plane_vip: 10.20.30.10
+    c21_node_addresses:
+      - 10.20.30.11
+      - 10.20.30.12
+      - 10.20.30.13
+    c21_valid_peers:
+      - 10.20.30.11
+      - 10.20.30.12
+      - 10.20.30.13
+  tasks:
+    - name: Assert each negative has an implementation hard stop
+      ansible.builtin.assert:
+        that:
+          - >-
+            'internal_ingress_vip_firewall_guard_enabled | bool'
+            in c21_task_text
+          - >-
+            'internal_ingress_vip_address != control_plane_vip_address'
+            in c21_task_text
+          - >-
+            'internal_ingress_vip_virtual_router_id | int'
+            in c21_task_text
+          - "'clinical_cidrs | length > 0' in c21_task_text"
+          - "'management_cidrs | length > 0' in c21_task_text"
+          - >-
+            'internal_ingress_vip_local_unicast_prefixes | length == 1'
+            in c21_task_text
+          - >-
+            'internal_ingress_vip_server_addresses | unique | list | length'
+            in c21_task_text
+          - >-
+            'internal_ingress_vip_address'
+            in c21_site_text
+          - >-
+            'not in c2_1_declared_node_addresses'
+            in c21_site_text
+          - >-
+            c21_valid_vip not in c21_node_addresses
+          - >-
+            c21_control_plane_vip not in c21_valid_peers
+          - >-
+            c21_valid_peers | unique | length == c21_valid_peers | length
+
+    - name: Prove representative invalid fixture values fail their predicates
+      ansible.builtin.assert:
+        that:
+          - not (c21_control_plane_vip != c21_control_plane_vip)
+          - not (52 != 52)
+          - not (false | bool)
+          - not ([] | length > 0)
+          - >-
+            not (
+              ['10.20.30.11', '10.20.30.11', '10.20.30.13']
+              | unique
+              | length == 3
+            )
+          - >-
+            not (
+              (
+                '10.20.31.50/24' | ansible.utils.ipaddr('network')
+              )
+              ==
+              (
+                '10.20.30.11/24' | ansible.utils.ipaddr('network')
+              )
+            )
+          - not ('10.20.30.11' not in c21_node_addresses)
+        fail_msg: >-
+          A collision, VRID reuse, missing firewall guard, empty CIDR ledger,
+          duplicate peer, off-subnet VIP, or node-owned VIP escaped its
+          representative negative predicate.

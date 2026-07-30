@@ -23,6 +23,7 @@ resources:
   - minio
   - harbor
   - ingress-nginx
+  - ingress-nginx-internal
   - cloudflare-tunnel
   - monitoring
   - falco

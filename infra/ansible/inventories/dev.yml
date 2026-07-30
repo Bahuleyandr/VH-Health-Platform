@@ -29,10 +29,20 @@ all:
     control_plane_vip_virtual_router_id: 51
     control_plane_api_dns_name: ""
 
+    # C2.1 is not activated in a single-node development sandbox.
+    internal_ingress_vip_enabled: false
+    internal_ingress_vip_address: ""
+    internal_ingress_vip_interface: ""
+    internal_ingress_vip_prefix_length: 24
+    internal_ingress_vip_virtual_router_id: 52
+    internal_ingress_vip_firewall_guard_enabled: false
+
     management_cidrs:
       - "10.0.0.0/8"
       - "192.168.0.0/16"
       - "172.16.0.0/12"
+
+    clinical_cidrs: []
 
     cluster_cidrs:
       - "127.0.0.0/8"

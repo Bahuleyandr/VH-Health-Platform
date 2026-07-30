@@ -151,7 +151,6 @@ metadata:
     app.kubernetes.io/exposure: lan-only
   annotations:
     argocd.argoproj.io/sync-wave: "4"
-    cert-manager.io/cluster-issuer: step-ca-internal
     # OHIF loads large DICOM data via XHR — allow up to 1 GiB bodies so
     # bulk C-MOVE responses and multiframe images aren't truncated at nginx.
     nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
@@ -168,7 +167,7 @@ metadata:
       more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
       more_set_headers "Permissions-Policy: geolocation=(), microphone=()";
 spec:
-  ingressClassName: nginx-internal
+  ingressClassName: nginx-internal-held
   tls:
     - hosts:
         - imaging.vhhealth.hospital.local

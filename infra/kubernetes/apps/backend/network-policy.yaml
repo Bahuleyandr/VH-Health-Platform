@@ -16,11 +16,22 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # 1. ingress-nginx → backend on :5000 (HTTP public traffic)
+    # 1. Each ingress controller is a separate identity. The public
+    # controller preserves the existing edge route; the internal controller
+    # reaches only the explicit C2.1 API route.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: vhhealth-ingress
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress-internal
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: ingress-nginx-internal
       ports:
         - protocol: TCP
           port: 5000

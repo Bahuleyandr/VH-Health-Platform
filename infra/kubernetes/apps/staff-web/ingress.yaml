@@ -15,7 +15,6 @@ metadata:
   name: vhhealth-staff-web
   annotations:
     argocd.argoproj.io/sync-wave: "2"
-    cert-manager.io/cluster-issuer: step-ca-internal
     # Static assets — small bodies, fast timeouts.
     nginx.ingress.kubernetes.io/proxy-body-size: "1m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
@@ -33,7 +32,9 @@ metadata:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/exposure: lan-only
 spec:
-  ingressClassName: nginx-internal
+  # The production artifact currently omits /api/v1 from VH_BASE_URL. Keep
+  # the SPA identity held until C2.2 supplies browser proof.
+  ingressClassName: nginx-internal-held
   tls:
     - hosts:
         - clinical.vhhealth.hospital.local

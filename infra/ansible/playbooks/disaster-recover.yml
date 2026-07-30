@@ -34,6 +34,21 @@
         fail_msg: "Pass -e etcd_snapshot=<filename-or-s3-URL>"
       run_once: true
 
+    - name: Require exactly one explicit bootstrap host
+      ansible.builtin.assert:
+        that:
+          - >-
+            groups['rke2_servers']
+            | map('extract', hostvars)
+            | selectattr('rke2_bootstrap', 'defined')
+            | selectattr('rke2_bootstrap', 'equalto', true)
+            | list
+            | length == 1
+        fail_msg: >-
+          Disaster recovery requires exactly one rke2_servers host with
+          rke2_bootstrap: true. There is no first-server fallback.
+      run_once: true
+
 - name: Pre-install baseline on all nodes (but do not start RKE2 yet)
   hosts: rke2_servers
   become: true
@@ -43,6 +58,13 @@
     - role: hardening
     - role: firewall
   tasks:
+    - name: Apply firewall changes before keepalived
+      ansible.builtin.meta: flush_handlers
+
+    - name: Render validated keepalived instances
+      ansible.builtin.include_role:
+        name: control_plane_vip
+
     - name: Install RKE2 binaries (no service start)
       ansible.builtin.include_role:
         name: rke2_server
@@ -66,13 +88,16 @@
   become: true
   gather_facts: false
   vars:
+    bootstrap_hosts: >-
+      {%- set hosts = [] -%}
+      {%- for host in groups['rke2_servers'] -%}
+      {%- if hostvars[host].rke2_bootstrap | default(false) | bool -%}
+      {%- set _ = hosts.append(host) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ hosts }}
     bootstrap_host: >-
-      {{ (groups['rke2_servers']
-          | selectattr('rke2_bootstrap', 'defined')
-          | selectattr('rke2_bootstrap', 'equalto', true)
-          | list
-          | first
-         ) | default(groups['rke2_servers'] | first) }}
+      {{ bootstrap_hosts | first }}
   tasks:
     - name: Run rke2 cluster-reset with snapshot
       ansible.builtin.command:

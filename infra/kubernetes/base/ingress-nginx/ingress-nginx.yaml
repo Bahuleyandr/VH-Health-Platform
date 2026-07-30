@@ -1,24 +1,22 @@
 # ingress-nginx/ingress-nginx.yaml — ingress-nginx controller
 #
-# Runs as a DaemonSet so every node terminates ingress traffic locally
-# (cloudflared can pick any node it likes, and LAN clients are round-
-# robin'd via the hospital LAN's DNS). Two distinct IngressClasses:
+# Runs as a DaemonSet so every node can terminate public ingress traffic
+# locally and cloudflared can pick any node it likes. This manifest owns one
+# IngressClass:
 #
 #   - `nginx`          — default, for services that are reached from
 #                        the public internet through the Cloudflare
 #                        Tunnel (api.vhhealth.app, admin.vhhealth.app).
-#   - `nginx-internal` — LAN-only services (Grafana, Harbor, Argo CD,
-#                        MinIO console). Routes only entries targeting
-#                        this class; the hospital LAN is the only
-#                        way in.
+#
+# C2.1 extracts `nginx-internal` into the wholly separate
+# base/ingress-nginx-internal controller. The public workload below is
+# behaviorally unchanged.
 #
 # Upstream chart: `ingress-nginx/ingress-nginx` v4.11.3 (controller
 # v1.11.3). We render raw manifests here rather than use kustomize's
 # helmCharts inflator so offline builds don't require the helm CLI.
 #
-# TLS: for `nginx` class, cert-manager + letsencrypt-prod. For
-# `nginx-internal`, cert-manager + step-ca-internal. Both ClusterIssuers
-# are in base/cert-manager/.
+# TLS for the public `nginx` class uses cert-manager + letsencrypt-prod.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -287,18 +285,6 @@ metadata:
     ingressclass.kubernetes.io/is-default-class: "true"
 spec:
   controller: k8s.io/ingress-nginx
----
-apiVersion: networking.k8s.io/v1
-kind: IngressClass
-metadata:
-  name: nginx-internal
-  labels:
-    app.kubernetes.io/name: ingress-nginx
-    app.kubernetes.io/instance: ingress-nginx-internal
-    app.kubernetes.io/part-of: vhhealth
-    app.kubernetes.io/managed-by: kustomize
-spec:
-  controller: k8s.io/ingress-nginx-internal
 ---
 apiVersion: v1
 kind: Service

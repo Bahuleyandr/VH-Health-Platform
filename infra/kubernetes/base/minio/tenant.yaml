@@ -186,11 +186,10 @@ metadata:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
   annotations:
-    cert-manager.io/cluster-issuer: step-ca-internal
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     nginx.ingress.kubernetes.io/proxy-body-size: "0"
 spec:
-  ingressClassName: nginx-internal
+  ingressClassName: nginx-internal-held
   tls:
     - hosts: [minio.vhhealth.hospital.local]
       secretName: minio-console-tls

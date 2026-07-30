@@ -1,0 +1,8 @@
+# ingress-nginx-internal/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-ingress-nginx-internal
+resources:
+  - controller.yaml
+  - network-policy.yaml
