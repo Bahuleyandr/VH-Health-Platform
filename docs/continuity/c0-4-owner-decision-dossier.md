@@ -1,6 +1,6 @@
 # C0.4 Clinical Service Continuity Owner Decision Dossier
 
-**Status:** C-D2, C-D3, and C-D7 owner statements, plus the C-D6 partial record and C-D7 addendum, recorded by engineering from the owner's 2026-07-28 statement; C-D4 and C-D13 owner statements, plus the C-D10 retention partial record, recorded by engineering from the owner's 2026-07-30 statement; countersignatures pending — all other decisions and the non-retention portions of C-D10 remain open
+**Status:** C-D2, C-D3, and C-D7 owner statements, plus the C-D6 fallback-reconciliation partial record and C-D7 addendum, recorded by engineering from the owner's 2026-07-28 statement; C-D1, C-D4, C-D6, C-D9, and C-D13 owner statements, plus the C-D10 retention partial record, recorded by engineering from the owner's 2026-07-30 statement; countersignatures pending — C-D5, C-D8, C-D11, C-D12, and the non-retention portions of C-D10 remain open
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
@@ -34,11 +34,11 @@ infrastructure.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | All clinical workflows are Tier 1. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approved values or policy | All clinical workflows are Tier 1. Every clinical workflow receives the same top-tier protection objectives; no clinical function is assigned a weaker recovery-time or data-loss objective than another. Only administrative functions — billing, reporting, and analytics — are placed in a lower tier. Recovery EXECUTION order remains dependency-driven (infrastructure, then database, then authentication, then clinical services) because components cannot be restored simultaneously; that ordering is a physical constraint of recovery and is not a statement that any clinical workflow matters less. Numeric recovery-time targets are not fixed here: the first timed restore drill produces the measured figures, which are then ratified through this dossier. Data-loss objective for clinical data is the platform's existing synchronous-replication posture — committed writes are flushed to at least two of three database nodes before acknowledgement. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Owner names and roles | executive, clinical safety, operations, infrastructure — names at countersignature. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Decision date | 2026-07-30 — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
 
 ### C-D2 — minimum cached dataset and freshness
 
@@ -123,11 +123,11 @@ leadership, IT/security.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | Two-key incident authority. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approved values or policy | Two-key incident authority. One named operational incident commander declares and runs a downtime incident. The clinical safety lead independently co-attests closure. Both signatures are required before an incident can close, and an incident cannot close while owner-defined safety-critical items remain unresolved. Offline declaration uses pre-provisioned, one-use signed facility incident packets containing an unused incident UUID and a reserved paper-item range; identifiers printed before an outage are never described as bound to a newly generated incident. Duplicate commanders, split-brain declarations, lost or revoked ranges, and incident merge or alias must be handled without rewriting history. Roles are recorded now; names at countersignature. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Owner names and roles | hospital operations, medical leadership, nursing leadership, IT/security — names at countersignature. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Decision date | 2026-07-30 — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
 
 #### Partial record (2026-07-28) — fallback reconciliation principal (C0A)
 
@@ -196,11 +196,11 @@ privacy/legal, infrastructure.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | A warm standby second site is selected. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approved values or policy | A warm standby second site is selected: a continuously replicated secondary site that can be promoted on failure, targeting approximately one hour to service restoration and seconds of data loss. This does not displace the design's precondition — immutable off-site backup and a proven, timed restore must be activated and demonstrated first, and the warm site is built only on top of that evidence. Site selection, private connectivity, hardware and operating budget, data residency (India-first per the platform's deployment posture), the promotion and failback runbooks, and the timed failover drill remain executive, finance/procurement, security, privacy/legal, and infrastructure items. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Owner names and roles | executive, finance/procurement, security, privacy/legal, infrastructure — names at countersignature. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Decision date | 2026-07-30 — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
 
 ### C-D10 — break-glass, retention, device loss, and communications
 
