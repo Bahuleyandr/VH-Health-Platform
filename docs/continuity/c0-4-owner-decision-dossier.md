@@ -1,6 +1,6 @@
 # C0.4 Clinical Service Continuity Owner Decision Dossier
 
-**Status:** C-D1, C-D2, C-D3, C-D4, C-D6 (full record and fallback-principal partial record), C-D7 (decision table and needs_review addendum), C-D9, C-D13, and the C-D10 retention partial record were countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner; the three delegated C-D2 values were ratified on the same date; C-D5, C-D8, C-D11, C-D12, and the non-retention portions of C-D10 remain open
+**Status:** C-D1, C-D2, C-D3, C-D4, C-D6 (full record and fallback-principal partial record), C-D7 (decision table and needs_review addendum), C-D9, C-D13, and the C-D10 retention partial record were countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D8 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; the three delegated C-D2 values were ratified 2026-07-30; C-D5, C-D11, C-D12, and the non-retention portions of C-D10 remain open
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
@@ -179,13 +179,16 @@ by engineering from the owner's 2026-07-28 statement; countersigned 2026-07-30 b
 **Required sign-off roles:** each interface/domain owner, clinical safety,
 operations.
 
+**Adopted operational baseline:** [C6.1 integration recovery inventory section
+4](c6-1-integration-recovery-inventory.md#4-stop-and-restart-order-recommendation).
+
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | The C-D8 external interface stop/restart policy below is approved. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approved values or policy | 1. LATE DATA (the governing rule). Data arriving late from any external interface after an outage never automatically fires a retrospective SLA-breach alarm, care-pathway transition, or patient notification. It lands as ordinary pending work in its existing domain surface — a late critical lab result appears in the critical-results inbox for human acknowledgement, never silently dropped and never auto-alerted as a fresh breach. Any interface that must deviate requires its own signed event-family policy under the design's late-arrival rules; absent that signed exception, suppression is the default.<br><br>2. STOP AND RESTART ORDER. The engineering dependency order in the C6.1 integration recovery inventory section 4 is adopted as the approved operational baseline: quiesce external senders, stop synchronous clinical consumers, record queue counts and oldest-item timestamps then freeze durable outbound queues, stop schedulers, then databases and storage last; restart in reverse, restoring durable foundations and confirming time sync first, starting workers paused, applying the per-interface disposition before any backlog replay, resuming clinical ingress one interface at a time with count validation, and opening external senders last for reconciliation. The operator executes this order and records any per-incident deviation with its reason.<br><br>3. RESUME MARKERS AND DUPLICATE HANDLING. Every external interface that carries a replayable stream receives a durable, per-tenant high-water mark and a duplicate key so post-outage replay is automatic and idempotent rather than manual. Interfaces that are stateless request/response and carry no replayable stream (for example OIDC/SAML identity, payment-link handoff, AI providers, read-only terminology) receive an explicit recorded 'not applicable — no replayable stream' disposition rather than a fabricated marker. No interface is left without a stated disposition. The exact per-interface build set is drawn from the C6.1 inventory and delivered under the C6 integration-recovery slice; this decision authorizes building resume markers for all interfaces that can bear one.<br><br>4. OWNERSHIP. Dr Bahuleyan S, Medical Director & Accountable Owner, is the accountable owner for every interface's recovery decisions, signing as the single accountable owner across the interface-domain roles. Named per-interface delegates (for example laboratory, pharmacy, blood bank, identity) may be recorded later without invalidating this record. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the interface-domain roles. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Decision date | 2026-07-31 — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 
 ### C-D9 — secondary site and data location
 
