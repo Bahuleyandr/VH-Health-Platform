@@ -25,6 +25,7 @@ jobs:
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
       STAFF_CERT_PIN_HASHES: ${{ vars.STAFF_CERT_PIN_HASHES }}
+      CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS: ${{ vars.CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS }}
       STAFF_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAFF_ANDROID_KEYSTORE_BASE64 }}
       STAFF_ANDROID_KEY_ALIAS: ${{ secrets.STAFF_ANDROID_KEY_ALIAS }}
       STAFF_ANDROID_KEY_PASSWORD: ${{ secrets.STAFF_ANDROID_KEY_PASSWORD }}
@@ -67,6 +68,7 @@ jobs:
             VH_BASE_URL \
             VH_API_KEY \
             STAFF_CERT_PIN_HASHES \
+            CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS \
             STAFF_ANDROID_KEYSTORE_BASE64 \
             STAFF_ANDROID_KEY_ALIAS \
             STAFF_ANDROID_KEY_PASSWORD \
@@ -77,6 +79,9 @@ jobs:
               missing=1
             fi
           done
+          node scripts/validate-cert-pin-set.mjs \
+            --pins "${STAFF_CERT_PIN_HASHES}" \
+            --clock-skew-seconds "${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
           exit "$missing"
 
       - name: Configure Android signing
@@ -98,6 +103,7 @@ jobs:
           --dart-define=VH_API_KEY="${VH_API_KEY}"
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${STAFF_CERT_PIN_HASHES}"
+          --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
 
       - name: Build release AAB
         working-directory: apps/staff
@@ -107,6 +113,7 @@ jobs:
           --dart-define=VH_API_KEY="${VH_API_KEY}"
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${STAFF_CERT_PIN_HASHES}"
+          --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
 
       - name: Prepare release assets
         run: |

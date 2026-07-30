@@ -23,6 +23,17 @@ describe('Rate Limiting', () => {
     expect(investigationProfile.message).toContain('investigation');
   });
 
+  it('gives authenticated client readiness a dedicated enforced health profile', () => {
+    const profile = RATE_LIMIT_PROFILES.clientReadiness;
+    expect(profile).toMatchObject({
+      windowMs: 60 * 1000,
+      max: 30,
+      enforceOnHealthRoutes: true,
+      enforceInTest: true,
+    });
+    expect(profile.message).toContain('readiness');
+  });
+
   it('should trigger rate limit after multiple requests', async () => {
     const token = generateTestToken('ADMIN');
     const results = [];

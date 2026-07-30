@@ -27,6 +27,7 @@ const String kFixtureCertDerBase64 =
 
 /// openssl-computed SPKI SHA-256 (base64) for the fixture above.
 const String kExpectedSpkiPin = 'tDs+NegRunKt8CnNuDfrWXaK7ZZ6cVG50HfPjAHzEoA=';
+const String kNextSpkiPin = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
 
 void main() {
   final certDer = Uint8List.fromList(base64.decode(kFixtureCertDerBase64));
@@ -62,23 +63,33 @@ void main() {
   });
 
   group('CertificatePinner.normalizePins', () {
-    test('strips the sha256/ prefix and trims whitespace', () {
+    test('strips, trims, and deduplicates the flat overlap set', () {
       expect(
         CertificatePinner.normalizePins([
           'sha256/$kExpectedSpkiPin',
-          '  sha256/AAAA  ',
-          'BBBB',
-          '',
+          '  sha256/$kNextSpkiPin  ',
+          'sha256/$kExpectedSpkiPin',
         ]),
-        {kExpectedSpkiPin, 'AAAA', 'BBBB'},
+        {kExpectedSpkiPin, kNextSpkiPin},
       );
+    });
+
+    test('rejects malformed or role-annotated pin entries', () {
+      for (final pins in [
+        ['BBBB'],
+        ['sha256/short'],
+        ['current=sha256/$kExpectedSpkiPin'],
+      ]) {
+        expect(() => CertificatePinner.normalizePins(pins), throwsStateError);
+      }
     });
   });
 
   group('pin matching (the actual accept/reject decision)', () {
-    test('accepts the real SPKI pin', () {
+    test('accepts the current pin while current and next overlap', () {
       final pins = CertificatePinner.normalizePins([
         'sha256/$kExpectedSpkiPin',
+        'sha256/$kNextSpkiPin',
       ]);
       final hash = CertificatePinner.spkiSha256Base64FromDer(certDer);
       expect(pins.contains(hash), isTrue);
@@ -88,6 +99,12 @@ void main() {
       final pins = CertificatePinner.normalizePins([
         'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       ]);
+      final hash = CertificatePinner.spkiSha256Base64FromDer(certDer);
+      expect(pins.contains(hash), isFalse);
+    });
+
+    test('rejects a removed current pin after the flat set rotates', () {
+      final pins = CertificatePinner.normalizePins(['sha256/$kNextSpkiPin']);
       final hash = CertificatePinner.spkiSha256Base64FromDer(certDer);
       expect(pins.contains(hash), isFalse);
     });

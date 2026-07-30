@@ -145,6 +145,7 @@ metadata:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 data:
+  X-VH-Route-Kind: "public"
   # Transport-security headers uniform across all VH Health Ingresses.
   # CSP is deliberately absent — it is app-specific and enforced by
   # Helmet.js (backend) and next.config.js headers() (admin).

@@ -26,6 +26,13 @@ export const RATE_LIMIT_PROFILES = {
     max: 60,
     message: 'Too many requests. Please try again later.'
   },
+  clientReadiness: {
+    windowMs: 60 * 1000,
+    max: 30,
+    message: 'Too many client readiness requests. Please try again shortly.',
+    enforceOnHealthRoutes: true,
+    enforceInTest: true
+  },
 
   // Auth login rate limiting — max 5 login attempts per IP per 15 minutes
   auth: {

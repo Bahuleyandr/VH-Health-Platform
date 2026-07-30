@@ -283,6 +283,14 @@ communications, product.
 > trust union, a separate LAN hostname requires a reviewed endpoint state
 > machine and mutation-idempotency proof before activation.
 
+**C2.2 evidence input:** the shipped-client inventory, current flat-set
+semantics, and exact consequences of the trust options reviewed in the owner
+statement below are in
+[`c2-2-cd13-pin-inventory.md`](c2-2-cd13-pin-inventory.md). The packet records
+no production pin attributable to a tagged release and one known installed
+unpinned Staff pilot; it does not itself fill or authorize any owner-input
+value. The recorded owner statement below is authoritative.
+
 **Required sign-off roles:** security, infrastructure/network, privacy,
 product/release.
 

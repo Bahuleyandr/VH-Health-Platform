@@ -31,6 +31,7 @@ jobs:
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
       PATIENT_CERT_PIN_HASHES: ${{ vars.PATIENT_CERT_PIN_HASHES }}
+      CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS: ${{ vars.CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS }}
       PATIENT_ANDROID_KEYSTORE_BASE64: ${{ secrets.PATIENT_ANDROID_KEYSTORE_BASE64 }}
       PATIENT_ANDROID_KEY_ALIAS: ${{ secrets.PATIENT_ANDROID_KEY_ALIAS }}
       PATIENT_ANDROID_KEY_PASSWORD: ${{ secrets.PATIENT_ANDROID_KEY_PASSWORD }}
@@ -60,6 +61,7 @@ jobs:
             VH_BASE_URL \
             VH_API_KEY \
             PATIENT_CERT_PIN_HASHES \
+            CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS \
             PATIENT_ANDROID_KEYSTORE_BASE64 \
             PATIENT_ANDROID_KEY_ALIAS \
             PATIENT_ANDROID_KEY_PASSWORD \
@@ -70,6 +72,9 @@ jobs:
               missing=1
             fi
           done
+          node scripts/validate-cert-pin-set.mjs \
+            --pins "${PATIENT_CERT_PIN_HASHES}" \
+            --clock-skew-seconds "${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
           exit "${missing}"
 
       - name: Configure Android signing
@@ -91,6 +96,7 @@ jobs:
           --dart-define=VH_API_KEY="${VH_API_KEY}"
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
+          --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
 
       - name: Build release AAB
         working-directory: apps/patient
@@ -100,6 +106,7 @@ jobs:
           --dart-define=VH_API_KEY="${VH_API_KEY}"
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
+          --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
 
       - uses: softprops/action-gh-release@v3
         with:

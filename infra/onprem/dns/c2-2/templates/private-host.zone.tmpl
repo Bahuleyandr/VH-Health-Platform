@@ -1,0 +1,13 @@
+$TTL {{POSITIVE_TTL}}
+@ IN SOA {{RESOLVER_A_NAME}} hostmaster.vhhealth.app. (
+  {{ZONE_SERIAL}}
+  60
+  30
+  86400
+  {{NEGATIVE_TTL}}
+)
+@ IN NS {{RESOLVER_A_NAME}}
+@ IN NS {{RESOLVER_B_NAME}}
+@ IN A {{PRIVATE_IPV4}}
+; Deliberately no AAAA record. This exact-host authoritative zone returns
+; NODATA for AAAA and cannot fall through to a public IPv6 answer.

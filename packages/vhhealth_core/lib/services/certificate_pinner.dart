@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../config/security_config.dart';
 
-final List<String> kPinnedCertificates = SecurityConfig.pinnedCertFingerprints;
+final List<String> kPinnedCertificates =
+    SecurityConfig.validatedPinnedCertFingerprints;
 
 /// Shared TLS certificate pinning utility for VHHealth apps.
 ///
@@ -87,15 +88,13 @@ class CertificatePinner {
     return client;
   }
 
-  /// Strips the `sha256/` prefix from each configured pin. Entries without
-  /// the prefix are kept verbatim (already-bare base64).
+  /// Validates the flat pin set, then strips each `sha256/` prefix.
   @visibleForTesting
   static Set<String> normalizePins(List<String> pins) {
-    return pins
-        .map((p) => p.trim())
-        .where((p) => p.isNotEmpty)
-        .map((p) => p.startsWith('sha256/') ? p.substring('sha256/'.length) : p)
-        .toSet();
+    return SecurityConfig.validatePinSet(
+      pins.join(','),
+      requireOverlap: false,
+    ).map((pin) => pin.substring('sha256/'.length)).toSet();
   }
 
   /// True when [cert]'s SPKI SHA-256 (base64) matches one of
