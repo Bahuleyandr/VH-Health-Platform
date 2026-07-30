@@ -1,0 +1,23 @@
+# OPERATOR INPUT — intentionally absent from monitoring/kustomization.yaml.
+#
+# The C3.2b edge is an independently operated host, not a Kubernetes workload.
+# Copy this file to a secure temporary path, replace the address and addressType
+# with the approved node-exporter endpoint, and apply it only during the C1.3
+# operator activation. Do not commit the real address.
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: vhhealth-continuity-edge-owner-input
+  namespace: vhhealth-monitoring
+  labels:
+    kubernetes.io/service-name: vhhealth-continuity-edge
+    endpointslice.kubernetes.io/managed-by: vhhealth-owner-input
+addressType: IPv4
+endpoints:
+  - addresses:
+      - OWNER_INPUT_EDGE_NODE_EXPORTER_ADDRESS
+ports:
+  - name: metrics
+    protocol: TCP
+    port: 9100

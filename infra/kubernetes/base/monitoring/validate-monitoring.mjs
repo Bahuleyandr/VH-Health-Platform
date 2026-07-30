@@ -1,8 +1,7 @@
 // infra/kubernetes/base/monitoring/validate-monitoring.mjs
-// Validates the monitoring assets WITHOUT a cluster: promtool check rules over
-// every PrometheusRule, and JSON.parse over every dashboard. Deploy is HELD, so
-// alerts cannot be live-fired — this is the honest CI gate (structure + PromQL
-// parse-validity), NOT proof that an alert fires.
+// Validates the monitoring assets WITHOUT a cluster: promtool check/test rules,
+// metadata-only team-label parity, and JSON.parse over every dashboard. Deploy
+// is HELD, so this remains preparation evidence, NOT live delivery proof.
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -10,14 +9,24 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ruleFiles = ['backend-reliability-alerts.yaml', 'backend-slo.yaml', 'backend-red-alerts.yaml', 'alert-rules.yaml', 'device-gateway-alerts.yaml', 'continuity-edge-alerts.yaml'];
+const promtool = process.env.PROMTOOL_BIN || 'promtool';
+const ruleFiles = [
+  'backend-reliability-alerts.yaml',
+  'backend-slo.yaml',
+  'backend-red-alerts.yaml',
+  'alert-rules.yaml',
+  'device-gateway-alerts.yaml',
+  'continuity-edge-alerts.yaml',
+  'proof/synthetic-rules.yaml',
+  'proof/synthetic-live-drill.yaml.example',
+];
 
 let failed = false;
 for (const f of ruleFiles) {
   const tempDir = mkdtempSync(join(tmpdir(), 'vhhealth-prom-rules-'));
   try {
     const promtoolFile = extractPrometheusRuleGroups(join(here, f), tempDir);
-    const out = execFileSync('promtool', ['check', 'rules', promtoolFile], { encoding: 'utf8' });
+    const out = execFileSync(promtool, ['check', 'rules', promtoolFile], { encoding: 'utf8' });
     console.log(`✓ ${f}\n${out.trim()}`);
   } catch (e) {
     failed = true;
@@ -26,6 +35,20 @@ for (const f of ruleFiles) {
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
+
+for (const script of ['verify-rule-metadata.mjs', 'run-promtool-rule-tests.mjs']) {
+  try {
+    const out = execFileSync(process.execPath, [join(here, script)], {
+      encoding: 'utf8',
+      env: { ...process.env, PROMTOOL_BIN: promtool },
+    });
+    console.log(`✓ ${script}\n${out.trim()}`);
+  } catch (e) {
+    failed = true;
+    console.error(`✗ ${script}\n${e.stdout || ''}${e.stderr || e.message}`);
+  }
+}
+
 const dashDir = join(here, 'dashboards');
 for (const f of readdirSync(dashDir).filter((n) => n.endsWith('.json'))) {
   try {

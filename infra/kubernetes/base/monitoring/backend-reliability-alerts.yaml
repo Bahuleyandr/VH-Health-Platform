@@ -24,6 +24,7 @@ spec:
           for: 10m
           labels:
             severity: critical
+            team: backend
           annotations:
             summary: "Oldest pending event_outbox row is >10m old — the drain cron is stalled"
             runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxdrainstalled"
@@ -32,6 +33,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "event_outbox pending backlog >500 for 10m"
             runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxbacklog"
@@ -40,6 +42,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: backend
           annotations:
             summary: "event_outbox dead-letter rows present — events permanently undelivered (clinical/billing consumers never saw them)"
             runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxdeadletters"
@@ -48,6 +51,7 @@ spec:
           for: 0m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "Events are crossing into dead-letter (rate>0 over 15m)"
             runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxdeadletters"
@@ -56,6 +60,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: backend
           annotations:
             summary: "event_outbox contains expired processing leases — source work is stranded until reaped"
             runbook: "docs/RUNBOOK_ONCALL.md#outboxstaleleases"
@@ -64,6 +69,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "webhook_deliveries in terminal dead status — outbound webhooks permanently undelivered"
             runbook: "docs/RUNBOOK_ONCALL.md#webhookdeliveriesdead"
@@ -72,6 +78,7 @@ spec:
           for: 15m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "webhook_deliveries pending backlog >200 for 15m"
             runbook: "docs/RUNBOOK_ONCALL.md#webhookbacklog"
@@ -80,6 +87,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "webhook_deliveries contains expired in-flight leases — dispatch workers may be crashing or timing out"
             runbook: "docs/RUNBOOK_ONCALL.md#outboxstaleleases"
@@ -88,6 +96,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "Outbox stale-lease reapers recovered more than three claims in 15m — investigate worker instability"
             runbook: "docs/RUNBOOK_ONCALL.md#outboxstaleleases"
@@ -96,6 +105,7 @@ spec:
           for: 15m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "notification_outbox PENDING backlog >500 for 15m"
             runbook: "docs/RUNBOOK_ONCALL.md#notificationbacklog"
@@ -104,6 +114,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: backend
           annotations:
             summary: "Real-time WS broadcasts dropping (slow-consumer backpressure or cross-process fan-out fallback) — clinical realtime (vitals/alerts) may not reach all sessions"
             description: "By reason: {{ $labels.reason }}. The invisible Redis-failover drop is proxied by ws_fanout_subscriber_errors_total."
@@ -113,6 +124,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "WS Redis fan-out subscriber erroring/reconnecting — the window where broadcasts can be silently dropped (at-most-once)"
             runbook: "docs/RUNBOOK_ONCALL.md#wsbroadcastdrops"
@@ -121,6 +133,7 @@ spec:
           for: 2m
           labels:
             severity: critical
+            team: backend
           annotations:
             summary: "Prisma DB circuit breaker is OPEN — queries are being rejected fast"
             runbook: "docs/RUNBOOK_ONCALL.md#dbcircuitbreakeropen"
@@ -129,6 +142,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "Backend read-replica lag above 30s — read-only routes may serve stale data"
             runbook: "docs/RUNBOOK_ONCALL.md#dbreadreplicalaghigh"
@@ -137,6 +151,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "Care-pathway reconciliation is failing technically for {{ $labels.pathway_key }}"
             runbook: "docs/RUNBOOK_ONCALL.md#carepathwayreconciliationtechnicalerror"
@@ -145,6 +160,7 @@ spec:
           for: 0m
           labels:
             severity: critical
+            team: backend
           annotations:
             summary: "A tenant configured {{ $labels.pathway_key }} active without production activation authority"
             runbook: "docs/RUNBOOK_ONCALL.md#carepathwayactivewithoutauthority"
@@ -153,6 +169,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "Pathway projector inbox contains terminal dead rows"
             runbook: "docs/RUNBOOK_ONCALL.md#pathwayprojectordebt"
@@ -161,6 +178,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "Retired pathway projector generations still contain pending work"
             runbook: "docs/RUNBOOK_ONCALL.md#pathwayprojectordebt"
@@ -172,6 +190,7 @@ spec:
           for: 0m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "Deep/critical clinical-AI module {{ $labels.module }} silently fell back to a TEMPLATE draft — clinicians may believe it is AI-assisted"
             runbook: "docs/RUNBOOK_ONCALL.md#clinicalaitemplatefallback"
@@ -180,6 +199,7 @@ spec:
           for: 0m
           labels:
             severity: warning
+            team: backend
           annotations:
             summary: "Postgres 42P01 undefined_table graceful fallbacks firing — likely schema drift or a missing partition"
             runbook: "docs/RUNBOOK_ONCALL.md#dbundefinedtablefallback"

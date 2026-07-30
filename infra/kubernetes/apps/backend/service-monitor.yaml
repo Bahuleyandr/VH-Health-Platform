@@ -26,9 +26,9 @@ spec:
       # The backend /metrics endpoint is token-gated (requireProductionMonitoring
       # Access). Send the monitoring token as a Bearer credential so the scrape
       # authenticates — without this Prometheus is blind to the backend (audit
-      # 2026-06-22 W3-H4). The Secret lives in the PROMETHEUS namespace (Prometheus
-      # reads scrape credentials from its own namespace, not the target's):
-      #   kubectl -n monitoring create secret generic vhhealth-monitoring-token \
+      # 2026-06-22 W3-H4). The Secret lives in the rendered ServiceMonitor
+      # namespace (`vhhealth`), which is where this SecretKeySelector resolves:
+      #   kubectl -n vhhealth create secret generic vhhealth-monitoring-token \
       #     --from-literal=token="$MONITORING_TOKEN"   # same value as the backend's MONITORING_TOKEN
       authorization:
         type: Bearer
