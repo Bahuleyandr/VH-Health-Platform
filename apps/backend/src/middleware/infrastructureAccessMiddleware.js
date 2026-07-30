@@ -132,39 +132,23 @@ export function requireProductionMonitoringAccess(req, res, next) {
 }
 
 export function requireDowntimeAccess(req, res, next) {
-  // CAN-054: the static downtime mirror serves PHI ward packs. Prefer a
-  // DEDICATED downtime token so a leaked metrics/scrape token can NOT also pull
-  // ward packs. Posture:
-  //   * A dedicated downtime token IS configured  → ONLY it is accepted; the
-  //     monitoring token no longer unlocks the packs (the separation we want).
-  //   * No dedicated downtime token configured     → fall back to the monitoring
-  //     token (backward-compatible) with a loud warning, so outage packs stay
-  //     reachable until the operator provisions DOWNTIME_ACCESS_TOKEN. This is
-  //     an OUTAGE-CRITICAL, DB-free route — failing closed here on an unset
-  //     token would make ward packs unreachable during the very incident they
-  //     exist for, so the migration is opt-in rather than a hard cutover.
-  if (configuredDowntimeTokens().length > 0) {
-    if (hasValidDowntimeToken(req)) return next();
+  // C3.2a completes the CAN-054 cutover: the deprecated legacy ward-pack
+  // surface accepts only a dedicated downtime credential. An unset credential
+  // fails closed; a monitoring credential never authorizes pack PHI.
+  if (hasValidDowntimeToken(req)) return next();
 
-    logger.warn('Downtime pack denied without a valid dedicated downtime token', {
-      path: req.originalUrl || req.url,
-      method: req.method,
-      ip: req.ip,
-    });
+  logger.warn('Downtime pack denied without a valid dedicated downtime token', {
+    path: req.originalUrl || req.url,
+    method: req.method,
+    ip: req.ip,
+    configured: configuredDowntimeTokens().length > 0,
+  });
 
-    return res.status(401).json({
-      success: false,
-      error: 'Downtime access token required',
-      code: 'DOWNTIME_AUTH_REQUIRED',
-    });
-  }
-
-  logger.warn(
-    'DOWNTIME_ACCESS_TOKEN is not configured — downtime packs are falling back '
-      + 'to the shared monitoring token. Provision a dedicated downtime token to '
-      + 'separate ward-pack PHI access from metrics/scrape access (CAN-054).',
-  );
-  return requireProductionMonitoringAccess(req, res, next);
+  return res.status(401).json({
+    success: false,
+    error: 'Downtime access token required',
+    code: 'DOWNTIME_AUTH_REQUIRED',
+  });
 }
 
 export function requireProductionInfrastructureAdmin(req, res, next) {

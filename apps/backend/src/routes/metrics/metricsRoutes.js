@@ -1,11 +1,12 @@
 // src/routes/metrics/metricsRoutes.js
 // GET /metrics — returns Prometheus exposition format
-// No authentication — accessed by Prometheus scraper on internal network
+// Authentication is applied at the app mount before this internal scraper route.
 
 import { Router } from 'express';
 import { serializeMetrics } from '../../middleware/prometheusMiddleware.js';
 import { serializeReliabilityMetrics } from '../../observability/reliabilityMetrics.js';
 import { serializeTeleconsultOpsMetrics } from '../../observability/teleconsultOpsMetrics.js';
+import { serializeContinuityMetrics } from '../../observability/continuityMetrics.js';
 
 const router = Router();
 
@@ -16,7 +17,9 @@ router.get('/', (_req, res) => {
       + '\n'
       + serializeReliabilityMetrics()
       + '\n'
-      + serializeTeleconsultOpsMetrics(),
+      + serializeTeleconsultOpsMetrics()
+      + '\n'
+      + serializeContinuityMetrics(),
   );
 });
 

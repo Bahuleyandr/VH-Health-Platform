@@ -1,6 +1,6 @@
 // src/routes/downtime/staticDowntimeRoutes.js
 //
-// DB-FREE static downtime ward-pack mirror (WS2 / REL-5 — B2.5).
+// DEPRECATED DB-FREE legacy ward-pack mirror (WS2 / REL-5 — B2.5).
 //
 // PURPOSE: the regular /api/v1/downtime/* surface reads downtime_snapshots via
 // Prisma and is JWT + clinical-role gated — exactly useless during the
@@ -13,10 +13,10 @@
 //
 // SECURITY / PHI POSTURE:
 //   * Ward packs contain PHI (census, allergies, MAR, diagnoses).
-//   * This endpoint is token-gated in production (mounted behind
-//     requireProductionMonitoringAccess in app.js — no-op outside prod, x-
-//     monitoring-token required in prod) and is intended for LAN / ops-box
-//     access during an outage, mirroring the /metrics posture.
+//   * This endpoint always requires a dedicated downtime token. A monitoring
+//     token is never accepted, and unset dedicated configuration fails closed.
+//   * It serves only root legacy index.html / ward-<id>.html files. It never
+//     resolves or falls through to the tenant/facility signed-set hierarchy.
 //   * It CANNOT write a DB audit row during an outage (the DB may be the thing
 //     that is down), so access is recorded to the Winston file log instead —
 //     never silently. Do NOT add a Prisma-backed phiAccessLogger here; that
@@ -47,6 +47,15 @@ function setHtmlHeaders(res) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   // Outage data: never cache. Staff must always get the freshest mirrored pack.
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Deprecation', 'true');
+  res.setHeader(
+    'Link',
+    '</docs/continuity/c3-2-edge-mirror-design-delta.md#10-legacy-downtimestatic-route>; rel="deprecation"',
+  );
+  res.setHeader(
+    'Warning',
+    '299 VHHealth "Deprecated legacy ward-pack route; use the scoped signed continuity edge when activated"',
+  );
 }
 
 // Minimal, self-contained fallback shown (HTTP 200) when a requested file is

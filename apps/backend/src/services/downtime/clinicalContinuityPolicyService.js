@@ -14,6 +14,7 @@ import {
 export const CLINICAL_CONTINUITY_POLICY_TYPE = 'clinical_continuity_pack';
 export const CLINICAL_CONTINUITY_POLICY_CANONICALIZATION = 'rfc8785-jcs';
 export const CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION = 1;
+export const CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION = 2;
 export const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 export const ALLERGY_UNKNOWN_TEXT = 'Allergy status UNKNOWN — not recorded';
 export const CODE_STATUS_UNKNOWN_TEXT = 'Code status NOT RECORDED — confirm per hospital policy';
@@ -554,11 +555,89 @@ function normalizeMedicationsDueWindow(value) {
   };
 }
 
+function normalizeEdgeAccess(value) {
+  const edgeAccess = objectValue(value, 'policyDocument.edgeAccess');
+  exactKeys(
+    edgeAccess,
+    [
+      'authenticationMode',
+      'credentialLifetimeMinutes',
+      'emergencyReadPosture',
+      'maximumOfflineAuthorizationMinutes'
+    ],
+    'policyDocument.edgeAccess'
+  );
+  if (edgeAccess.authenticationMode !== 'mtls_client_certificate') {
+    policyConflict(
+      'Policy edge authentication mode is unsupported',
+      'CONTINUITY_POLICY_EDGE_AUTHENTICATION_UNSUPPORTED'
+    );
+  }
+  if (!['disabled', 'read_only'].includes(edgeAccess.emergencyReadPosture)) {
+    policyConflict(
+      'Policy emergency-read posture is unsupported',
+      'CONTINUITY_POLICY_EDGE_EMERGENCY_POSTURE_INVALID'
+    );
+  }
+  const maximumOfflineAuthorizationMinutes = positiveInteger(
+    edgeAccess.maximumOfflineAuthorizationMinutes,
+    'policyDocument.edgeAccess.maximumOfflineAuthorizationMinutes',
+    2_147_483_647
+  );
+  const credentialLifetimeMinutes = positiveInteger(
+    edgeAccess.credentialLifetimeMinutes,
+    'policyDocument.edgeAccess.credentialLifetimeMinutes',
+    2_147_483_647
+  );
+  if (credentialLifetimeMinutes < maximumOfflineAuthorizationMinutes) {
+    policyConflict(
+      'Credential lifetime cannot be shorter than the offline authorization window',
+      'CONTINUITY_POLICY_EDGE_CREDENTIAL_LIFETIME_INVALID'
+    );
+  }
+  return {
+    authenticationMode: 'mtls_client_certificate',
+    credentialLifetimeMinutes,
+    emergencyReadPosture: edgeAccess.emergencyReadPosture,
+    maximumOfflineAuthorizationMinutes
+  };
+}
+
+function normalizeRetention(value) {
+  const retention = objectValue(value, 'policyDocument.retention');
+  exactKeys(
+    retention,
+    [
+      'accessLogRetentionHours',
+      'edgePackRetentionHours',
+      'sourcePackRetentionHours'
+    ],
+    'policyDocument.retention'
+  );
+  return {
+    accessLogRetentionHours: positiveInteger(
+      retention.accessLogRetentionHours,
+      'policyDocument.retention.accessLogRetentionHours',
+      2_147_483_647
+    ),
+    edgePackRetentionHours: positiveInteger(
+      retention.edgePackRetentionHours,
+      'policyDocument.retention.edgePackRetentionHours',
+      2_147_483_647
+    ),
+    sourcePackRetentionHours: positiveInteger(
+      retention.sourcePackRetentionHours,
+      'policyDocument.retention.sourcePackRetentionHours',
+      2_147_483_647
+    )
+  };
+}
+
 /**
- * Parse and validate the signed C3.1 policy language. The version-1 language
- * is deliberately closed: a later C4 action-registry extension must increment
- * policySchemaVersion and update this validator rather than being interpreted
- * through an ambiguous fallback.
+ * Parse and validate the signed C3 policy language. Both versions are closed:
+ * v1 governs C3.1 packs, while v2 adds the C3.2 edge-access and retention
+ * decisions. Later extensions must increment policySchemaVersion rather than
+ * being interpreted through an ambiguous fallback.
  */
 export function parseClinicalContinuityPolicyDocument(
   value,
@@ -572,27 +651,35 @@ export function parseClinicalContinuityPolicyDocument(
     2_147_483_647
   );
   const document = objectValue(value, 'policyDocument');
+  const supportedSchema = [
+    CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION,
+    CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+  ].includes(expectedSchemaVersion);
+  const expectedKeys = [
+    'audience',
+    'fieldPolicy',
+    'generation',
+    'includedAreas',
+    'medicationsDueWindow',
+    'packSchemaVersion',
+    'policySchemaVersion',
+    'policyType',
+    'recentReleasedResults',
+    'requiredCoverage'
+  ];
+  if (expectedSchemaVersion === CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION) {
+    expectedKeys.push('edgeAccess', 'retention');
+  }
   exactKeys(
     document,
-    [
-      'audience',
-      'fieldPolicy',
-      'generation',
-      'includedAreas',
-      'medicationsDueWindow',
-      'packSchemaVersion',
-      'policySchemaVersion',
-      'policyType',
-      'recentReleasedResults',
-      'requiredCoverage'
-    ],
+    expectedKeys,
     'policyDocument'
   );
 
   if (
     document.policyType !== CLINICAL_CONTINUITY_POLICY_TYPE ||
     document.policySchemaVersion !== expectedSchemaVersion ||
-    expectedSchemaVersion !== CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION
+    !supportedSchema
   ) {
     policyConflict(
       'The clinical continuity policy schema is unsupported',
@@ -683,6 +770,9 @@ export function parseClinicalContinuityPolicyDocument(
       facilityId: String(expectedFacilityId),
       tenantId: expectedTenantId
     },
+    ...(expectedSchemaVersion === CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+      ? { edgeAccess: normalizeEdgeAccess(document.edgeAccess) }
+      : {}),
     fieldPolicy: normalizeFieldPolicy(document.fieldPolicy),
     generation: {
       currentForMinutes: 15,
@@ -700,11 +790,32 @@ export function parseClinicalContinuityPolicyDocument(
     policySchemaVersion: expectedSchemaVersion,
     policyType: CLINICAL_CONTINUITY_POLICY_TYPE,
     recentReleasedResults: normalizeRecentResults(document.recentReleasedResults),
+    ...(expectedSchemaVersion === CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+      ? { retention: normalizeRetention(document.retention) }
+      : {}),
     requiredCoverage
   };
 
   const canonical = canonicalizeJson(normalized);
   return deepFreeze(JSON.parse(canonical));
+}
+
+export function requireClinicalContinuityEdgePolicy(policy) {
+  if (
+    !VERIFIED_ACTIVE_POLICIES.has(policy) ||
+    policy.policySchemaVersion !== CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION ||
+    policy.policyDocument?.policySchemaVersion !==
+      CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+  ) {
+    policyConflict(
+      'A verified active policy-schema v2 document is required for edge access',
+      'CONTINUITY_EDGE_POLICY_V2_REQUIRED'
+    );
+  }
+  return deepFreeze({
+    edgeAccess: policy.policyDocument.edgeAccess,
+    retention: policy.policyDocument.retention
+  });
 }
 
 function normalizeRevokedKeyIds(value) {

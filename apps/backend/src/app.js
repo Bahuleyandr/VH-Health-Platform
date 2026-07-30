@@ -647,10 +647,10 @@ app.use('/api/v1/fhir', publicSmartFhirResourceRouter);
 // /metrics posture: token-gated + rate-limited, ALWAYS-ON (no NODE_ENV bypass).
 // CAN-054: it uses a DEDICATED downtime token (requireDowntimeAccess) rather
 // than the shared monitoring token, so a leaked metrics/scrape token can NOT
-// also unlock PHI ward packs. When no dedicated token is configured it falls
-// back to the monitoring token (logged) so outage packs stay reachable. It
-// cannot DB-audit during an outage, so access is Winston-file logged inside the
-// router instead.
+// also unlock PHI ward packs. Missing dedicated-token configuration fails
+// closed; monitoring credentials never authorize this route. It cannot
+// DB-audit during an outage, so access is Winston-file logged inside the router
+// instead.
 app.use('/downtime/static', genericLimiter, requireDowntimeAccess, staticDowntimeRoutes);
 
 // ====================================

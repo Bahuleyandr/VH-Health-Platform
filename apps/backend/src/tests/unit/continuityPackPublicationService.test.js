@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,6 +27,7 @@ function publication({
   manifestVersion = 1,
   requiredCoverage = REQUIRED_COVERAGE,
   assets,
+  rootAssets,
   manifestContent,
   fsOps,
   commitEvidence,
@@ -57,6 +59,7 @@ function publication({
       },
     ],
     manifestContent: manifestContent ?? '{"signature":"already-signed"}',
+    ...(rootAssets ? { rootAssets } : {}),
     ...(fsOps ? { fsOps } : {}),
     ...(commitEvidence ? { commitEvidence } : {}),
   };
@@ -129,6 +132,26 @@ describe('continuityPackPublicationService', () => {
       .rejects.toMatchObject({ code: 'CONTINUITY_PACK_SET_EXISTS' });
     expect(JSON.parse(await fs.readFile(result.paths.currentPath, 'utf8')))
       .toEqual(pointer);
+  });
+
+  it('stages, verifies, and receipts root assets before exposing the new pointer', async () => {
+    let observed;
+    const content = '{"schema":"vhhealth_continuity_edge_access/v1"}\n';
+    const result = await publishContinuityPackSet(publication({
+      root,
+      rootAssets: [{ relativePath: 'edge-access.json', content }],
+      commitEvidence: (receipt) => {
+        observed = receipt;
+      },
+    }));
+
+    expect(await fs.readFile(path.join(result.paths.setDir, 'edge-access.json'), 'utf8'))
+      .toBe(content);
+    expect(observed.rootAssets).toEqual([{
+      relativePath: 'edge-access.json',
+      sha256: createHash('sha256').update(content).digest('hex'),
+    }]);
+    expect(Object.isFrozen(observed.rootAssets)).toBe(true);
   });
 
   it('keeps identical facility/location labels isolated between tenants', async () => {
@@ -660,6 +683,39 @@ describe('continuityPackPublicationService', () => {
       manifestVersion: 2,
       fsOps: { readFile },
     }))).rejects.toThrow('injected asset readback failure');
+
+    expect((await fs.readFile(previous.paths.currentPath)).equals(oldPointer)).toBe(true);
+    const nextPaths = buildContinuityPackPaths({
+      root,
+      tenantId: TENANT_A,
+      facilityId: FACILITY_ID,
+      manifestVersion: 2,
+    });
+    await expect(fs.lstat(nextPaths.setDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('leaves the previous pointer unchanged after an edge-access readback failure', async () => {
+    const previous = await publishContinuityPackSet(publication({ root }));
+    const oldPointer = await fs.readFile(previous.paths.currentPath);
+    const readFile = async (target, ...args) => {
+      if (
+        String(target).includes('.v2.staging-')
+        && String(target).endsWith(`${path.sep}edge-access.json`)
+      ) {
+        throw injectedError('injected edge-access readback failure');
+      }
+      return fs.readFile(target, ...args);
+    };
+
+    await expect(publishContinuityPackSet(publication({
+      root,
+      manifestVersion: 2,
+      rootAssets: [{
+        relativePath: 'edge-access.json',
+        content: '{"schema":"vhhealth_continuity_edge_access/v1"}\n',
+      }],
+      fsOps: { readFile },
+    }))).rejects.toThrow('injected edge-access readback failure');
 
     expect((await fs.readFile(previous.paths.currentPath)).equals(oldPointer)).toBe(true);
     const nextPaths = buildContinuityPackPaths({
