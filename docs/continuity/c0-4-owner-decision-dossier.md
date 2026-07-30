@@ -1,6 +1,6 @@
 # C0.4 Clinical Service Continuity Owner Decision Dossier
 
-**Status:** C-D2, C-D3, and C-D7 owner statements, plus the C-D6 partial record and C-D7 addendum, recorded by engineering from the owner's 2026-07-28 statement; countersignature pending — all other decisions remain open
+**Status:** C-D2, C-D3, and C-D7 owner statements, plus the C-D6 partial record and C-D7 addendum, recorded by engineering from the owner's 2026-07-28 statement; C-D4 and C-D13 owner statements, plus the C-D10 retention partial record, recorded by engineering from the owner's 2026-07-30 statement; countersignatures pending — all other decisions and the non-retention portions of C-D10 remain open
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
@@ -86,11 +86,11 @@ owner.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | The C-D4 offline authentication and revocation-risk policy below is approved. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approved values or policy | Normal backend authentication applies whenever the backend is reachable, including over the LAN. During a full backend outage, a named staff member who successfully authenticated within the last 12 hours may unlock the cached read-only continuity pack on their own device using a device-bound PIN or biometric. Twelve hours is chosen to cover one full shift plus handover. Access is read-only; no offline write, acknowledgement, or clinical action is permitted. No shared or generic downtime account is authorized. The accepted revocation risk is stated explicitly: a staff member whose access is revoked mid-shift retains read access to already-cached data until the 12-hour window lapses. Emergency access beyond this is not authorized by this decision. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Owner names and roles | security, privacy, clinical operations, HR/identity owner — names at countersignature. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Decision date | 2026-07-30 — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
 
 ### C-D5 — downtime patient identity and new arrivals
 
@@ -224,6 +224,19 @@ operations.
 | Decision date | OWNER INPUT — engineering must not fill |
 | Approval or signature references | OWNER INPUT — engineering must not fill |
 
+#### Partial record (2026-07-30) — retention
+
+| Retention field | Value |
+|---|---|
+| Decision | The C-D10 retention policy below is approved. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approved values or policy | Continuity packs are purged 7 days after their signed expiry. Packs expire 24 hours after generation; the additional 7 days exists to cover reconciliation and incident review, after which the patient data is purged and never reconstructed. Edge access logs are retained for 365 days, reusing the platform's existing operational-audit retention baseline seeded in migration 576_audit_retention_policy_baseline.sql rather than introducing a new figure; the 2555-day and 3650-day clinical classes are deliberately not applied to these logs. These values are the signed retention inputs the C3.1 policy document and the C3.2 purge path require; absent them, activation remains blocked. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Owner names and roles | clinical governance, security, privacy/legal, operations — names at countersignature. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Decision date | 2026-07-30 — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+
+Break-glass, device-loss, and communications fields remain OWNER INPUT —
+engineering must not fill.
+
 ### C-D11 — activation cohort and evidence
 
 > **Recommendation:** one facility and one suitable unit first, beginning in
@@ -273,11 +286,11 @@ product/release.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | The C-D13 LAN hostname, certificate, pin, and trust-boundary policy below is approved. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approved values or policy | Same-host split-horizon is adopted. The hospital-LAN route uses the existing step-ca-internal certificate authority; the tls/step-ca component is the selected option and tls/operator-held is not used. The client keeps ONE flat accepted-pin set containing both the Cloudflare public SPKI and the internal SPKI, with the current/next overlap requirement C2.2 adds. The union-pin risk is EXPLICITLY ACCEPTED, not eliminated: if the internal CA key were compromised, an attacker with network position could present an internal-CA certificate on the public route and the client would accept it. The risk is accepted as bounded because this is a single hospital operating its own certificate authority, and it is recorded here so it is visible at every future release and rotation. The Cloudflare custom-certificate alternative, which would eliminate the risk by serving one operator-held key on both routes, is rejected on cost (custom certificate upload requires a Cloudflare Business plan). A rehearsed certificate rotation and the shipped-pin overlap remain prerequisites for activation. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Owner names and roles | security, infrastructure/network, privacy, product/release — names at countersignature. — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Decision date | 2026-07-30 — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-30 statement; countersignature pending |
 
 ## 3. C0A gate evidence freeze
 
