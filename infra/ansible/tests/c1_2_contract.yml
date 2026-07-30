@@ -582,8 +582,10 @@
           rstrip=false
         )
       }}
+    # Verified 2026-07-30 against de1ac3139, which legitimately hardened the
+    # same C1.2 slice in PR #643 after 20c936ca6 froze this pin.
     c12_expected_server_preflight_sha256: >-
-      EC84125AF29AABEA2A5956DB2937F7625C44A7FCB20A568D087193E65FF94240
+      C8DFCD5177DF11B1363342AABD2FE2CAE33DD880FBAE6C00DB483388F98972DB
     c12_server_token_source: >-
       {{
         lookup(
@@ -606,8 +608,10 @@
           rstrip=false
         )
       }}
+    # Verified 2026-07-30 against de1ac3139, which legitimately hardened the
+    # same C1.2 slice in PR #643 after 20c936ca6 froze this pin.
     c12_expected_server_install_sha256: >-
-      EC025DDBA88D7DEE2597EE2B9AC2A28F64F4F35864DB06B784A5C63159447A12
+      A22140FD0E58B8D652104B1AE31319C26754A05BDBC8D200347C9B9CD204AFA5
     c12_server_install_tasks: "{{ c12_server_install_source | from_yaml }}"
     c12_server_token_write_task: >-
       {{
