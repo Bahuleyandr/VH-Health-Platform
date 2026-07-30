@@ -1,0 +1,6 @@
+captured_at=2026-07-30T00:00:06Z
+command= kubectl get cronjobs,jobs -A
+---
+No resources found
+---
+exit_status=0

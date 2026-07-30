@@ -1,0 +1,6 @@
+captured_at=2026-07-30T00:00:05Z
+command= kubectl get --raw /fixture/prometheus/watchdog
+---
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{"alertname":"Watchdog","alertstate":"firing"},"value":[1785369600,"1"]}]}}
+---
+exit_status=0

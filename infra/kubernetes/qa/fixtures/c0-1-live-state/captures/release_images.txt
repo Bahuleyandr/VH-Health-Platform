@@ -1,0 +1,7 @@
+captured_at=2026-07-30T00:00:01Z
+command= kubectl get pods -A -o custom-columns=...
+---
+NAMESPACE POD REQUESTED_IMAGES RUNNING_IMAGE_IDS READY
+vhhealth backend-7d9 ghcr.io/bahuleyandr/vh-health-platform-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa docker-pullable://ghcr.io/bahuleyandr/vh-health-platform-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa true
+---
+exit_status=0

@@ -1,0 +1,7 @@
+captured_at=2026-07-30T00:00:07Z
+command= kubectl get configmap vhhealth-backend-config -o custom-columns=...
+---
+NAME R2_ENDPOINT R2_BUCKET MINIO_BACKUP_BUCKET
+vhhealth-backend-config https://example.r2.cloudflarestorage.com vhhealth-backups vhhealth-records
+---
+exit_status=0

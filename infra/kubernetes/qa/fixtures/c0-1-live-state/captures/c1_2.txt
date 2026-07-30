@@ -1,0 +1,6 @@
+captured_at=2026-07-30T00:00:00Z
+command= bash c1-2-ha-evidence.sh /fixture/raw/c1-2
+---
+Required tool 'kubectl' is unavailable; fact remains unknown.
+---
+exit_status=127

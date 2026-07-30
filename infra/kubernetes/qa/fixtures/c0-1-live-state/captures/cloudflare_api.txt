@@ -1,0 +1,6 @@
+captured_at=2026-07-30T00:00:04Z
+command= cloudflare_tunnel_api_probe
+---
+CF_API_TOKEN, CF_ACCOUNT_ID, and CF_TUNNEL_ID were not all supplied.
+---
+exit_status=78

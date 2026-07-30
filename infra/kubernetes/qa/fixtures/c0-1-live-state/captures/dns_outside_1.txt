@@ -1,0 +1,6 @@
+captured_at=2026-07-30T00:00:03Z
+command= dig @1.1.1.1 api.vhhealth.app A
+---
+api.vhhealth.app. 300 IN A 203.0.113.41
+---
+exit_status=0

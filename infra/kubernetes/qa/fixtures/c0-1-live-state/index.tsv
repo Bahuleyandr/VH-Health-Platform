@@ -1,0 +1,9 @@
+id	section	label	file	exit_status	command
+c1_2	Control plane and etcd	Fixture C1.2 collector	captures/c1_2.txt	127	bash c1-2-ha-evidence.sh /fixture/raw/c1-2
+release_images	Release and images	Fixture running images	captures/release_images.txt	0	kubectl get pods -A -o custom-columns=...
+ingress_routes	Ingress, edge, DNS, and certificates	Fixture ingress routes	captures/ingress_routes.txt	0	kubectl get ingress.networking.k8s.io -A -o custom-columns=...
+dns_outside_1	Ingress, edge, DNS, and certificates	Fixture public DNS	captures/dns_outside_1.txt	0	dig @1.1.1.1 api.vhhealth.app A
+cloudflare_api	Ingress, edge, DNS, and certificates	Fixture unavailable Cloudflare API	captures/cloudflare_api.txt	78	cloudflare_tunnel_api_probe
+prometheus_watchdog	Monitoring and alerting	Fixture Watchdog query	captures/prometheus_watchdog.txt	0	kubectl get --raw /fixture/prometheus/watchdog
+backup_jobs	Backups and restore	Fixture absent backup Jobs	captures/backup_jobs.txt	0	kubectl get cronjobs,jobs -A
+r2_target	Backups and restore	Fixture R2 target	captures/r2_target.txt	0	kubectl get configmap vhhealth-backend-config -o custom-columns=...

@@ -1,0 +1,8 @@
+captured_at=2026-07-30T00:00:02Z
+command= kubectl get ingress.networking.k8s.io -A -o custom-columns=...
+---
+NAMESPACE NAME CLASS HOSTS TLS_SECRET_NAMES ADDRESSES
+vhhealth api nginx api.vhhealth.app vhhealth-api-tls 10.10.0.31
+vhhealth clinical-held nginx-internal-held clinical.hospital.local clinical-tls <none>
+---
+exit_status=0
