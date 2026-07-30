@@ -836,7 +836,7 @@ if command -v sha256sum >/dev/null 2>&1; then
       -print0 |
       sort -z |
       while IFS= read -r -d '' evidence_file; do
-        sha256sum -- "${evidence_file}"
+        sha256sum --text -- "${evidence_file}"
       done
   ) >"${OUTPUT_DIR}/SHA256SUMS"
 else
