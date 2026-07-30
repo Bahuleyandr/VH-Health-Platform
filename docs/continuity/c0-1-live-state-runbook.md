@@ -133,7 +133,7 @@ This preflight does not contact a cluster:
 ```bash
 shellcheck infra/kubernetes/qa/c0-1-live-state-evidence.sh \
   infra/kubernetes/qa/c1-2-ha-evidence.sh
-node --test scripts/c0-1-live-state-collectors.test.mjs
+node --test infra/kubernetes/qa/c0-1-live-state-collectors.test.mjs
 bash infra/kubernetes/qa/c0-1-live-state-evidence.sh \
   /secure/operator-artifacts/vhhealth/c0-1-fixture \
   --fixture infra/kubernetes/qa/fixtures/c0-1-live-state
