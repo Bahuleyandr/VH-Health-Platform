@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+{{ ansible_managed | comment }}
+set -euo pipefail
+
+timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/80'
+timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/443'
+
+curl --fail --silent --show-error \
+  --connect-timeout 2 \
+  --max-time 3 \
+  http://127.0.0.1:10255/healthz \
+  >/dev/null

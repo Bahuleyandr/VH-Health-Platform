@@ -40,8 +40,6 @@ metadata:
   name: vhhealth-backend-clinical-internal
   annotations:
     argocd.argoproj.io/sync-wave: "2"
-    # Internal cert (step-ca-internal) — see base/cert-manager/.
-    cert-manager.io/cluster-issuer: step-ca-internal
     # Same body / timeout shape as the public ingress so multipart
     # patient-record uploads work uniformly when a clinician initiates
     # them via the staff app.
@@ -71,7 +69,9 @@ metadata:
     # Distinguishes this Ingress from the public one in dashboards.
     app.kubernetes.io/exposure: lan-only
 spec:
-  ingressClassName: nginx-internal
+  # C2.1 quarantine. This SPA-host route is not an API-host replacement and
+  # remains unclaimed until C2.2 fixes and proves the staff-web artifact.
+  ingressClassName: nginx-internal-held
   tls:
     - hosts:
         - clinical.vhhealth.hospital.local

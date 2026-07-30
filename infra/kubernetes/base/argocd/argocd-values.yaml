@@ -58,9 +58,8 @@ server:
       drop: [ALL]
   ingress:
     enabled: true
-    ingressClassName: nginx-internal
+    ingressClassName: nginx-internal-held
     annotations:
-      cert-manager.io/cluster-issuer: step-ca-internal
       nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     hosts:
       - argocd.vhhealth.hospital.local

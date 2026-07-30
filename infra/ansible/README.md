@@ -134,6 +134,45 @@ entry. Every joining server and agent uses
 SANs for break-glass access. Admin kubeconfigs on every server use
 `https://10.10.0.10:6443`.
 
+## Private ingress endpoint
+
+C2.1 extends the same keepalived configuration with an independent
+`VI_VHHEALTH_INTERNAL_INGRESS` instance. It is not MetalLB and does not use a
+Kubernetes `LoadBalancer` or `NodePort`. The private ingress-nginx DaemonSet
+binds host TCP 80/443 and loopback-only host TCP 10255 for local health.
+
+The repository defaults are fail-closed:
+
+- `internal_ingress_vip_enabled: false`;
+- `internal_ingress_vip_address: ""`;
+- `internal_ingress_vip_interface: ""`;
+- `internal_ingress_vip_firewall_guard_enabled: false`; and
+- `clinical_cidrs: []`.
+
+Before enabling, network owners must supply a collision-checked VIP, real
+interface and prefix, unique per-host
+`internal_ingress_vip_unicast_address` values, a distinct VRID, and approved
+clinical/management CIDRs. Preflight rejects empty or invalid CIDRs, a
+node-owned/off-subnet/control-plane VIP, interface or prefix mismatch,
+incomplete or duplicate peers, VRID reuse, and an enabled VIP without its
+firewall guard.
+
+The health script checks local TCP 80, TCP 443, and
+`http://127.0.0.1:10255/healthz` with strict timeouts. It does not check the
+backend: a backend outage must not move the VIP between equally affected
+nodes.
+
+The `inet vhhealth` nftables table admits VIP TCP 80/443 only on the approved
+interface from `clinical_cidrs` and `management_cidrs`. An early prerouting
+chain rejects guest/external sources before hostPort DNAT, rejects physical
+node addresses and direct IPv6 listeners, keeps TCP 10255 loopback-only, and
+admits VRRP protocol 112 only from declared peers. The role still atomically
+replaces only its own table.
+
+The repository implementation is inert. Follow
+`docs/runbooks/C2_1_INTERNAL_INGRESS_DRILL.md` only after every activation hold
+has owner approval.
+
 ---
 
 ## Quickstart — fresh production cluster
@@ -147,6 +186,8 @@ $EDITOR inventories/prod.yml
 #   - replace ansible_host for each node with the real IP
 #   - replace management_cidrs with the hospital IT LAN
 #   - replace cluster_cidrs with the cluster subnet
+#   - leave all internal_ingress_vip_* activation values disabled/empty and
+#     clinical_cidrs empty unless the approved C2.1 drill is being executed
 #   - replace admin_ssh_key with the SRE public key
 #   - confirm VIP/interface/prefix and optional API DNS name
 #   - set required inventory_region and inventory_zone for every node
@@ -248,7 +289,7 @@ changes.
 | `playbooks/upgrade-k8s.yml` | One approved RKE2 ladder rung | Rejects off-ladder, skipped, downgrade, missing-snapshot, or degraded-state attempts; processes one node at a time |
 | `playbooks/node-replace.yml` | A node failed and replacement hardware is ready | Uses the VIP-backed kubeconfig and an explicitly selected healthy maintenance server |
 | `playbooks/longhorn-prereqs.yml` | After the storage placement gate passes, before a separately approved Longhorn activation | Installs and verifies host packages/modules only; it does not install Longhorn or migrate a PVC |
-| `playbooks/disaster-recover.yml` | Never for full-cluster loss | Legacy draft; token and snapshot semantics remain unapproved |
+| `playbooks/disaster-recover.yml` | Never for full-cluster loss | Legacy draft; requires exactly one explicit bootstrap host and renders enabled keepalived instances, but token and snapshot semantics remain unapproved |
 
 ---
 
@@ -572,7 +613,8 @@ advance one minor at a time; downgrade is not accepted.
 | --- | --- |
 | Existing-cluster preflight reports a token mismatch | Stop. Securely compare every live server token with the Vault value; correct Vault to the exact existing value. Never bypass or regenerate it. |
 | A joining server waits for the control plane | Confirm its `server:` is exactly `https://10.10.0.10:9345`, both VIP ports are reachable, and the required token is present without printing it. |
-| VIP is absent or does not fail over | On each server inspect keepalived and the local health script: HTTPS `GET /readyz` on 127.0.0.1:6443 plus TCP 127.0.0.1:9345 must pass. Verify VRRP protocol 112 is allowed only between `cluster_cidrs`. |
+| Control-plane VIP is absent or does not fail over | On each server inspect keepalived and the local health script: HTTPS `GET /readyz` on 127.0.0.1:6443 plus TCP 127.0.0.1:9345 must pass. Verify VRRP protocol 112 is scoped to the declared peers. |
+| Internal-ingress VIP is absent | Keep it absent unless activation is approved. During an approved drill, verify local TCP 80/443 plus HTTP 10255 health, the distinct VRID and peer ledger, and the active `c2_1_internal_ingress_prerouting` nftables guard. Backend readiness is intentionally not part of this health check. |
 | `kubectl` reports an x509 SAN error | Verify the VIP is in `tls-san` on every server; also verify the optional API DNS name and per-node hostname/IP break-glass SANs. |
 | fail2ban locked out an SRE laptop | Run `sudo fail2ban-client unban <ip>` from console access. |
 | nftables dropped cluster traffic after a NIC rename | Verify `control_plane_vip_interface`, the node address, and `cluster_cidrs`, then inspect `nft list ruleset`. |

@@ -92,6 +92,12 @@ The new base owns two classes:
 The held class is deliberately unimplemented. It is a repository-visible
 quarantine state, not an alternate route.
 
+Kubernetes Baseline and Restricted Pod Security reject hostPort. The private
+controller therefore has a dedicated `vhhealth-ingress-internal` namespace
+whose enforcement exception cannot weaken the Restricted public ingress
+namespace. The internal controller still uses the Restricted container
+security context; the namespace retains Restricted audit and warning labels.
+
 ## 3. LAN listener and keepalived mechanism
 
 The LAN mechanism is keepalived unicast VRRP. MetalLB is not introduced.
@@ -189,7 +195,10 @@ Kubernetes NetworkPolicies separate the two controller identities:
   admitting the entire ingress namespace.
 
 Canal provides L3/L4 NetworkPolicy enforcement. The host firewall remains the
-authoritative LAN source and destination guard for hostPorts.
+authoritative LAN source and destination guard for hostPorts. The default
+NetworkPolicy contains only RFC 5737 TEST-NET sentinel sources, so it admits no
+real client. An approved activation overlay must replace those sentinels with
+the same owner-approved clinical/management CIDR ledger used by Ansible.
 
 ## 5. Routing and tenant-host contract
 

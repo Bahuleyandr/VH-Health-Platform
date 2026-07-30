@@ -13,6 +13,31 @@
 # Never flush the global ruleset: kube-proxy and the CNI own other tables.
 destroy table inet vhhealth
 
+{% set control_plane_vrrp_peers = [] %}
+{% set internal_ingress_vrrp_peers = [] %}
+{% set internal_ingress_node_addresses = [] %}
+{% set internal_ingress_approved_clients = [] %}
+{% for host in groups['rke2_servers'] | default([]) | sort %}
+{% set control_address = hostvars[host].control_plane_vip_unicast_address | default(hostvars[host].ansible_host | default('')) | string %}
+{% if control_address | length > 0 and control_address not in control_plane_vrrp_peers %}
+{% set _ = control_plane_vrrp_peers.append(control_address) %}
+{% endif %}
+{% set ingress_address = hostvars[host].internal_ingress_vip_unicast_address | default(hostvars[host].ansible_host | default('')) | string %}
+{% if ingress_address | length > 0 and ingress_address not in internal_ingress_vrrp_peers %}
+{% set _ = internal_ingress_vrrp_peers.append(ingress_address) %}
+{% endif %}
+{% for address in [hostvars[host].ansible_host | default('') | string, control_address, ingress_address] %}
+{% if address | length > 0 and address not in internal_ingress_node_addresses %}
+{% set _ = internal_ingress_node_addresses.append(address) %}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% for cidr in (management_cidrs | default([])) + (clinical_cidrs | default([])) %}
+{% if cidr not in internal_ingress_approved_clients %}
+{% set _ = internal_ingress_approved_clients.append(cidr) %}
+{% endif %}
+{% endfor %}
+
 table inet vhhealth {
 
     # --- Named sets ---------------------------------------------------------
@@ -36,11 +61,48 @@ table inet vhhealth {
         }
     }
 
+{% if control_plane_vip_enabled | bool %}
+    set control_plane_vrrp_peers_v4 {
+        type ipv4_addr
+        elements = { {{ control_plane_vrrp_peers | join(', ') }} }
+    }
+{% endif %}
+
+{% if internal_ingress_vip_enabled | bool and internal_ingress_vip_firewall_guard_enabled | bool %}
+    set internal_ingress_clients_v4 {
+        type ipv4_addr
+        flags interval
+        elements = { {{ internal_ingress_approved_clients | join(', ') }} }
+    }
+
+    set internal_ingress_vrrp_peers_v4 {
+        type ipv4_addr
+        elements = { {{ internal_ingress_vrrp_peers | join(', ') }} }
+    }
+
+    set internal_ingress_nodes_v4 {
+        type ipv4_addr
+        elements = { {{ internal_ingress_node_addresses | join(', ') }} }
+    }
+
+    # hostPort destination NAT can bypass an input-only filter. This guard
+    # evaluates the original LAN destination before kube-proxy/CNI DNAT.
+    chain c2_1_internal_ingress_prerouting {
+        type filter hook prerouting priority -150; policy accept;
+
+        iifname "{{ internal_ingress_vip_interface }}" ip daddr {{ internal_ingress_vip_address }} ip saddr @internal_ingress_clients_v4 tcp dport { {{ firewall_internal_ingress_tcp_ports | join(', ') }} } accept
+        iifname "{{ internal_ingress_vip_interface }}" ip daddr {{ internal_ingress_vip_address }} tcp dport { {{ firewall_internal_ingress_tcp_ports | join(', ') }} } reject with tcp reset
+        ip daddr @internal_ingress_nodes_v4 tcp dport { {{ firewall_internal_ingress_tcp_ports | join(', ') }} } reject with tcp reset
+        fib daddr type local meta nfproto ipv4 ip daddr != {{ internal_ingress_vip_address }} tcp dport { {{ firewall_internal_ingress_tcp_ports | join(', ') }} } reject with tcp reset
+        fib daddr type local meta nfproto ipv6 tcp dport { {{ firewall_internal_ingress_tcp_ports | join(', ') }} } reject with tcp reset
+    }
+{% endif %}
+
     # --- Input chain --------------------------------------------------------
     chain input {
         type filter hook input priority 0; policy drop;
 
-        # Loopback unconditional.
+        # Loopback unconditional, including the C2.1 health listener on 10255.
         iif "lo" accept
 
         # Connection tracking fast path.
@@ -57,9 +119,19 @@ table inet vhhealth {
         # --- Kubernetes API from management CIDRs ---------------------------
         ip saddr @mgmt_v4 tcp dport { {{ firewall_management_tcp_ports | join(', ') }} } accept
 
-        # --- Unicast VRRP only from cluster CIDRs on the declared LAN --------
+        # --- Unicast VRRP only between declared peers -----------------------
 {% if control_plane_vip_enabled | bool %}
-        iifname "{{ control_plane_vip_interface }}" ip saddr @cluster_v4 ip protocol {{ firewall_vrrp_protocol }} accept
+        iifname "{{ control_plane_vip_interface }}" ip saddr @control_plane_vrrp_peers_v4 ip protocol {{ firewall_vrrp_protocol }} accept
+{% endif %}
+{% if internal_ingress_vip_enabled | bool and internal_ingress_vip_firewall_guard_enabled | bool %}
+        iifname "{{ internal_ingress_vip_interface }}" ip saddr @internal_ingress_vrrp_peers_v4 ip protocol {{ firewall_vrrp_protocol }} accept
+
+        # The early guard is authoritative for hostPort forwarding. Retain
+        # matching input rules for implementations that deliver locally.
+        iifname "{{ internal_ingress_vip_interface }}" ip daddr {{ internal_ingress_vip_address }} ip saddr @internal_ingress_clients_v4 tcp dport { {{ firewall_internal_ingress_tcp_ports | join(', ') }} } accept
+        ip daddr @internal_ingress_nodes_v4 tcp dport { {{ firewall_internal_ingress_tcp_ports | join(', ') }} } reject with tcp reset
+        meta nfproto ipv6 tcp dport { {{ firewall_internal_ingress_tcp_ports | join(', ') }} } reject with tcp reset
+        tcp dport {{ firewall_internal_ingress_health_port }} reject with tcp reset
 {% endif %}
 
         # --- RKE2 cluster-internal traffic ----------------------------------
@@ -70,7 +142,7 @@ table inet vhhealth {
         ip saddr @mgmt_v4    tcp dport {{ firewall_nodeport_range }} accept
         ip saddr @cluster_v4 tcp dport {{ firewall_nodeport_range }} accept
 
-        # --- CNI traffic on the flannel VXLAN interface -----------------
+        # --- CNI traffic on the flannel VXLAN interface ---------------------
         # flannel.1 traffic already matched by vxlan udp 8472 above; pod-to-pod
         # local traffic rides on the overlay, no separate rule needed.
 

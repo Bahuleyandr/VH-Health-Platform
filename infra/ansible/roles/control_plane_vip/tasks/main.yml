@@ -1,11 +1,15 @@
 ---
-- name: Configure the RKE2 control-plane VIP
+- name: Build deterministic keepalived server list
+  ansible.builtin.set_fact:
+    control_plane_vip_server_hosts: "{{ groups['rke2_servers'] | default([]) | sort }}"
+  when:
+    - >-
+      (control_plane_vip_enabled | bool)
+      or (internal_ingress_vip_enabled | bool)
+
+- name: Validate the RKE2 control-plane VIP
   when: control_plane_vip_enabled | bool
   block:
-    - name: Build deterministic control-plane peer list
-      ansible.builtin.set_fact:
-        control_plane_vip_server_hosts: "{{ groups['rke2_servers'] | default([]) | sort }}"
-
     - name: Validate control-plane VIP settings
       ansible.builtin.assert:
         that:
@@ -41,7 +45,7 @@
           prefix, a VRID from 1 through 255, and a valid deterministic
           priority range.
 
-    - name: Resolve addresses and prefixes on the selected interface
+    - name: Resolve addresses and prefixes on the control-plane interface
       ansible.builtin.set_fact:
         control_plane_vip_local_interface_addresses: >-
           {{
@@ -71,7 +75,7 @@
           {%- endfor -%}
           {{ prefixes }}
 
-    - name: Bind the configured prefix to the selected local address
+    - name: Bind the control-plane prefix to the selected local address
       ansible.builtin.assert:
         that:
           - control_plane_vip_unicast_address in control_plane_vip_local_interface_addresses
@@ -84,11 +88,7 @@
               (
                 control_plane_vip_address
                 ~ '/'
-                ~ (
-                    control_plane_vip_local_unicast_prefixes
-                    | first
-                    | string
-                  )
+                ~ (control_plane_vip_local_unicast_prefixes | first | string)
               )
               | ansible.utils.ipaddr('network')
             )
@@ -97,20 +97,16 @@
               (
                 control_plane_vip_unicast_address
                 ~ '/'
-                ~ (
-                    control_plane_vip_local_unicast_prefixes
-                    | first
-                    | string
-                  )
+                ~ (control_plane_vip_local_unicast_prefixes | first | string)
               )
               | ansible.utils.ipaddr('network')
             )
         fail_msg: >-
-          The declared unicast source must resolve exactly once on the selected
-          interface, its actual prefix must match control_plane_vip_prefix_length,
-          and the VIP must share that real interface subnet.
+          The declared control-plane unicast source must resolve exactly once
+          on the selected interface, its actual prefix must match, and the VIP
+          must share that real interface subnet.
 
-    - name: Validate every unicast peer address
+    - name: Validate every control-plane unicast peer address
       ansible.builtin.assert:
         that:
           - >-
@@ -126,16 +122,9 @@
           - >-
             (
               (
-                (
-                  hostvars[item].control_plane_vip_unicast_address
-                  | default('')
-                )
+                (hostvars[item].control_plane_vip_unicast_address | default(''))
                 ~ '/'
-                ~ (
-                    control_plane_vip_local_unicast_prefixes
-                    | first
-                    | string
-                  )
+                ~ (control_plane_vip_local_unicast_prefixes | first | string)
               )
               | ansible.utils.ipaddr('network')
             )
@@ -144,11 +133,7 @@
               (
                 control_plane_vip_address
                 ~ '/'
-                ~ (
-                    control_plane_vip_local_unicast_prefixes
-                    | first
-                    | string
-                  )
+                ~ (control_plane_vip_local_unicast_prefixes | first | string)
               )
               | ansible.utils.ipaddr('network')
             )
@@ -157,7 +142,7 @@
           on the real selected-interface subnet for unicast VRRP.
       loop: "{{ control_plane_vip_server_hosts }}"
 
-    - name: Resolve control-plane peer addresses and local priority
+    - name: Resolve control-plane peers and local priority
       ansible.builtin.set_fact:
         control_plane_vip_server_addresses: >-
           {%- set addresses = [] -%}
@@ -174,11 +159,11 @@
              - (control_plane_vip_server_hosts.index(inventory_hostname)
              * (control_plane_vip_priority_step | int)) }}
 
-    - name: Initialize scoped VRRP address proof
+    - name: Initialize control-plane firewall-scope proof
       ansible.builtin.set_fact:
         control_plane_vip_firewall_scoped_addresses: []
 
-    - name: Resolve VIP and peer addresses against cluster CIDRs
+    - name: Resolve control-plane addresses against cluster CIDRs
       ansible.builtin.set_fact:
         control_plane_vip_firewall_scoped_addresses: >-
           {{
@@ -198,7 +183,7 @@
           }}
       loop: "{{ cluster_cidrs }}"
 
-    - name: Reject ambiguous VIP and peer addressing
+    - name: Reject ambiguous control-plane addressing
       ansible.builtin.assert:
         that:
           - control_plane_vip_address not in control_plane_vip_server_addresses
@@ -218,28 +203,280 @@
           - control_plane_vip_effective_priority | int >= 1
           - control_plane_vip_effective_priority | int <= 254
         fail_msg: >-
-          The VIP must not equal any real or declared node address. Every
-          unicast VRRP source must be unique and must exist on the selected
-          local interface.
+          The control-plane VIP must not equal any real or declared node
+          address. Every unicast VRRP source must be unique and local.
 
-    - name: Verify the required firewall table before keepalived
+    - name: Read the active firewall before control-plane keepalived
       ansible.builtin.command:
         cmd: nft list table inet vhhealth
       register: control_plane_vip_firewall_table
       changed_when: false
       when: not ansible_check_mode
 
-    - name: Refuse to start keepalived without active VRRP firewall rules
+    - name: Require scoped control-plane VRRP firewall rules
       ansible.builtin.assert:
         that:
+          - "'control_plane_vrrp_peers_v4' in control_plane_vip_firewall_table.stdout"
           - >-
             ('ip protocol vrrp' in control_plane_vip_firewall_table.stdout)
             or ('ip protocol 112' in control_plane_vip_firewall_table.stdout)
         fail_msg: >-
-          The active vhhealth nftables table does not allow unicast VRRP.
-          Apply and verify the firewall role before keepalived.
+          The active vhhealth nftables table lacks the scoped control-plane
+          VRRP peer rule. Apply and verify the firewall role first.
       when: not ansible_check_mode
 
+- name: Validate the internal-ingress VIP
+  when: internal_ingress_vip_enabled | bool
+  block:
+    - name: Validate internal-ingress VIP settings
+      ansible.builtin.assert:
+        that:
+          - internal_ingress_vip_firewall_guard_enabled | bool
+          - control_plane_vip_server_hosts | length >= 2
+          - inventory_hostname in control_plane_vip_server_hosts
+          - internal_ingress_vip_address | string | trim | length > 0
+          - >-
+            (internal_ingress_vip_address | ansible.utils.ipaddr('address'))
+            is not sameas false
+          - internal_ingress_vip_interface | string | trim | length > 0
+          - internal_ingress_vip_interface in (ansible_facts['interfaces'] | default([]))
+          - ansible_facts[internal_ingress_vip_interface]['ipv4'] is defined
+          - internal_ingress_vip_unicast_address | string | trim | length > 0
+          - >-
+            (internal_ingress_vip_unicast_address
+             | ansible.utils.ipaddr('address')) is not sameas false
+          - internal_ingress_vip_prefix_length | int >= 1
+          - internal_ingress_vip_prefix_length | int <= 32
+          - internal_ingress_vip_virtual_router_id | int >= 1
+          - internal_ingress_vip_virtual_router_id | int <= 255
+          - internal_ingress_vip_priority_base | int <= 254
+          - internal_ingress_vip_priority_step | int >= 1
+          - >-
+            (internal_ingress_vip_priority_base | int)
+            - (((control_plane_vip_server_hosts | length) - 1)
+            * (internal_ingress_vip_priority_step | int)) >= 1
+          - management_cidrs is sequence
+          - management_cidrs is not string
+          - management_cidrs | length > 0
+          - clinical_cidrs is sequence
+          - clinical_cidrs is not string
+          - clinical_cidrs | length > 0
+          - internal_ingress_vip_address != control_plane_vip_address
+          - >-
+            (not (control_plane_vip_enabled | bool))
+            or (
+              internal_ingress_vip_virtual_router_id | int
+              != control_plane_vip_virtual_router_id | int
+            )
+        fail_msg: >-
+          Internal-ingress VIP input is incomplete or unsafe. The address and
+          interface must be real, the firewall guard must be enabled, clinical
+          and management CIDRs must be non-empty, and its VIP/VRID must remain
+          distinct from the control-plane instance.
+
+    - name: Validate every approved internal-ingress client CIDR
+      ansible.builtin.assert:
+        that:
+          - item is string
+          - item | trim | length > 0
+          - >-
+            (item | ansible.utils.ipaddr('network')) is not sameas false
+          - >-
+            (item | ansible.utils.ipaddr('ipv4')) is not sameas false
+        fail_msg: >-
+          {{ item | default('empty') }} is not a valid IPv4 clinical or
+          management network. The private ingress remains fail-closed.
+      loop: "{{ clinical_cidrs + management_cidrs }}"
+
+    - name: Resolve addresses and prefixes on the internal-ingress interface
+      ansible.builtin.set_fact:
+        internal_ingress_vip_local_interface_addresses: >-
+          {{
+            [ansible_facts[internal_ingress_vip_interface]['ipv4']['address']]
+            + (
+                ansible_facts[internal_ingress_vip_interface]['ipv4_secondaries']
+                | default([])
+                | map(attribute='address')
+                | list
+              )
+          }}
+        internal_ingress_vip_local_unicast_prefixes: >-
+          {%- set prefixes = [] -%}
+          {%- set interface_facts =
+            ansible_facts[internal_ingress_vip_interface] -%}
+          {%- set primary = interface_facts['ipv4'] | default({}) -%}
+          {%- if primary.address | default('')
+            == internal_ingress_vip_unicast_address -%}
+          {%- set _ = prefixes.append(primary.prefix | default(-1)) -%}
+          {%- endif -%}
+          {%- for secondary in
+            interface_facts['ipv4_secondaries'] | default([]) -%}
+          {%- if secondary.address | default('')
+            == internal_ingress_vip_unicast_address -%}
+          {%- set _ = prefixes.append(secondary.prefix | default(-1)) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ prefixes }}
+
+    - name: Bind the internal-ingress prefix to the selected local address
+      ansible.builtin.assert:
+        that:
+          - >-
+            internal_ingress_vip_unicast_address
+            in internal_ingress_vip_local_interface_addresses
+          - internal_ingress_vip_local_unicast_prefixes | length == 1
+          - >-
+            internal_ingress_vip_local_unicast_prefixes | first | int
+            == internal_ingress_vip_prefix_length | int
+          - >-
+            (
+              (
+                internal_ingress_vip_address
+                ~ '/'
+                ~ (internal_ingress_vip_local_unicast_prefixes | first | string)
+              )
+              | ansible.utils.ipaddr('network')
+            )
+            ==
+            (
+              (
+                internal_ingress_vip_unicast_address
+                ~ '/'
+                ~ (internal_ingress_vip_local_unicast_prefixes | first | string)
+              )
+              | ansible.utils.ipaddr('network')
+            )
+        fail_msg: >-
+          The internal-ingress unicast source must resolve exactly once on the
+          selected interface, its actual prefix must match, and the VIP must
+          share that real interface subnet.
+
+    - name: Validate every internal-ingress unicast peer address
+      ansible.builtin.assert:
+        that:
+          - >-
+            hostvars[item].internal_ingress_vip_unicast_address
+            | default('')
+            | string | trim | length > 0
+          - >-
+            (
+              hostvars[item].internal_ingress_vip_unicast_address
+              | default('')
+              | ansible.utils.ipaddr('address')
+            ) is not sameas false
+          - >-
+            (
+              (
+                (hostvars[item].internal_ingress_vip_unicast_address | default(''))
+                ~ '/'
+                ~ (internal_ingress_vip_local_unicast_prefixes | first | string)
+              )
+              | ansible.utils.ipaddr('network')
+            )
+            ==
+            (
+              (
+                internal_ingress_vip_address
+                ~ '/'
+                ~ (internal_ingress_vip_local_unicast_prefixes | first | string)
+              )
+              | ansible.utils.ipaddr('network')
+            )
+        fail_msg: >-
+          RKE2 server {{ item }} needs one valid and on-subnet
+          internal_ingress_vip_unicast_address.
+      loop: "{{ control_plane_vip_server_hosts }}"
+
+    - name: Resolve internal-ingress peers, node addresses, and local priority
+      ansible.builtin.set_fact:
+        internal_ingress_vip_server_addresses: >-
+          {%- set addresses = [] -%}
+          {%- for host in control_plane_vip_server_hosts -%}
+          {%- set _ = addresses.append(
+            hostvars[host].internal_ingress_vip_unicast_address
+            | default('')
+            | string
+          ) -%}
+          {%- endfor -%}
+          {{ addresses }}
+        internal_ingress_vip_declared_node_addresses: >-
+          {%- set addresses = [] -%}
+          {%- for host in control_plane_vip_server_hosts -%}
+          {%- set _ = addresses.append(hostvars[host].ansible_host | default('') | string) -%}
+          {%- set _ = addresses.append(
+            hostvars[host].control_plane_vip_unicast_address
+            | default('')
+            | string
+          ) -%}
+          {%- set _ = addresses.append(
+            hostvars[host].internal_ingress_vip_unicast_address
+            | default('')
+            | string
+          ) -%}
+          {%- endfor -%}
+          {{ addresses | reject('equalto', '') | unique | list }}
+        internal_ingress_vip_effective_priority: >-
+          {{ (internal_ingress_vip_priority_base | int)
+             - (control_plane_vip_server_hosts.index(inventory_hostname)
+             * (internal_ingress_vip_priority_step | int)) }}
+
+    - name: Reject ambiguous internal-ingress addressing
+      ansible.builtin.assert:
+        that:
+          - >-
+            internal_ingress_vip_address
+            not in internal_ingress_vip_server_addresses
+          - >-
+            internal_ingress_vip_address
+            not in internal_ingress_vip_declared_node_addresses
+          - >-
+            internal_ingress_vip_address
+            not in (ansible_facts['all_ipv4_addresses'] | default([]))
+          - >-
+            internal_ingress_vip_unicast_address
+            in internal_ingress_vip_local_interface_addresses
+          - >-
+            internal_ingress_vip_unicast_address
+            in internal_ingress_vip_server_addresses
+          - >-
+            internal_ingress_vip_server_addresses | unique | list | length
+            == internal_ingress_vip_server_addresses | length
+          - internal_ingress_vip_effective_priority | int >= 1
+          - internal_ingress_vip_effective_priority | int <= 254
+        fail_msg: >-
+          The internal-ingress VIP must not equal any real, control-plane, or
+          declared node address. Every ingress VRRP peer must be unique.
+
+    - name: Read the active firewall before internal-ingress keepalived
+      ansible.builtin.command:
+        cmd: nft list table inet vhhealth
+      register: internal_ingress_vip_firewall_table
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Require the active early internal-ingress firewall guard
+      ansible.builtin.assert:
+        that:
+          - >-
+            'c2_1_internal_ingress_prerouting'
+            in internal_ingress_vip_firewall_table.stdout
+          - >-
+            'internal_ingress_vrrp_peers_v4'
+            in internal_ingress_vip_firewall_table.stdout
+          - >-
+            internal_ingress_vip_address
+            in internal_ingress_vip_firewall_table.stdout
+        fail_msg: >-
+          The active vhhealth nftables table lacks the early C2.1 hostPort,
+          node-address, IPv6, or scoped VRRP guard. Keepalived remains stopped.
+      when: not ansible_check_mode
+
+- name: Install and render enabled keepalived instances
+  when:
+    - >-
+      (control_plane_vip_enabled | bool)
+      or (internal_ingress_vip_enabled | bool)
+  block:
     - name: Install keepalived
       ansible.builtin.apt:
         name: keepalived
@@ -255,13 +492,23 @@
         group: root
         mode: "0750"
 
-    - name: Ensure health-check directory exists
+    - name: Ensure control-plane health-check directory exists
       ansible.builtin.file:
         path: "{{ control_plane_vip_health_script_path | dirname }}"
         state: directory
         owner: root
         group: root
         mode: "0755"
+      when: control_plane_vip_enabled | bool
+
+    - name: Ensure internal-ingress health-check directory exists
+      ansible.builtin.file:
+        path: "{{ internal_ingress_vip_health_script_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: internal_ingress_vip_enabled | bool
 
     - name: Render RKE2 control-plane health check
       ansible.builtin.template:
@@ -271,6 +518,18 @@
         group: root
         mode: "0750"
         backup: true
+      when: control_plane_vip_enabled | bool
+      notify: reload control-plane keepalived
+
+    - name: Render internal-ingress health check
+      ansible.builtin.template:
+        src: check-internal-ingress.sh.j2
+        dest: "{{ internal_ingress_vip_health_script_path }}"
+        owner: root
+        group: root
+        mode: "0750"
+        backup: true
+      when: internal_ingress_vip_enabled | bool
       notify: reload control-plane keepalived
 
     - name: Render unicast keepalived configuration

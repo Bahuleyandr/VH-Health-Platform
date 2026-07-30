@@ -95,10 +95,12 @@ The inventory contract is:
 - vault-backed `rke2_cluster_token`, with an explicit
   `rke2_cluster_token_mode`.
 
-The production example enables the VIP. Single-node development disables it.
-The future internal-ingress VIP remains C2 work. It may reuse the role only
-with a distinct address, virtual-router ID, health check, and certificate
-contract; C1.2 builds none of that ingress path.
+The production example enables the control-plane VIP. Single-node development
+disables it. C2.1 subsequently extends the role with a separately gated
+internal-ingress instance, distinct address, virtual-router ID, peer ledger,
+health check, and firewall contract. The C1.2 instance and endpoint contract
+remain unchanged; see
+[`c2-1-private-ingress-slice-design.md`](c2-1-private-ingress-slice-design.md).
 
 ## 3. Token custody and existing-cluster hard stop
 

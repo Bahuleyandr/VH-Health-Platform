@@ -1,0 +1,468 @@
+# A second, independent ingress-nginx data plane for the future hospital-LAN
+# route. It is inert until an operator supplies and enables the guarded
+# keepalived VIP, resolves C-D13, selects a TLS component, and manually syncs
+# the pinned Argo revisions.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    # Kubernetes Baseline and Restricted Pod Security reject hostPort. Keep
+    # this exception in a dedicated namespace so it cannot weaken the public
+    # controller or cloudflared namespace. The workload itself retains the
+    # Restricted container security context; audit and warn remain enabled.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "HostPort-only private ingress data plane; C2.1 activation held."
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingress-nginx-internal
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/version: "1.11.3"
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-nginx-internal-controller
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  use-forwarded-headers: "false"
+  compute-full-forwarded-for: "false"
+  use-proxy-protocol: "false"
+  enable-real-ip: "false"
+  proxy-add-original-uri-header: "false"
+  generate-request-id: "true"
+  allow-snippet-annotations: "false"
+  annotations-risk-level: "High"
+  strict-validate-path-type: "true"
+  server-tokens: "false"
+  ssl-redirect: "true"
+  force-ssl-redirect: "true"
+  ssl-protocols: "TLSv1.2 TLSv1.3"
+  ssl-ciphers: "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305"
+  proxy-body-size: "50m"
+  proxy-connect-timeout: "10"
+  proxy-read-timeout: "60"
+  proxy-send-timeout: "60"
+  proxy-buffering: "on"
+  keep-alive-requests: "10000"
+  upstream-keepalive-connections: "32"
+  proxy-set-headers: "vhhealth-ingress-internal/ingress-nginx-internal-request-headers"
+  log-format-escape-json: "true"
+  # Deliberately omit path, query, bodies, credentials, cookies, referer, and
+  # user agent. Source identity is the socket peer observed by this controller.
+  log-format-upstream: >-
+    {"time":"$time_iso8601","request_id":"$req_id",
+    "source_ip":"$remote_addr","host":"$host","scheme":"$scheme",
+    "method":"$request_method","status":$status,"bytes_sent":$bytes_sent,
+    "request_length":$request_length,"request_time":$request_time,
+    "upstream_response_time":"$upstream_response_time",
+    "upstream_status":"$upstream_status"}
+---
+# Inbound proxy/client identity is discarded. Only X-Forwarded-For is
+# regenerated from the socket peer; Host and scheme retain ingress-nginx's
+# normal pass-through behavior.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-nginx-internal-request-headers
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: request-headers
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  Forwarded: ""
+  X-Forwarded-For: "$remote_addr"
+  X-Real-IP: ""
+  X-Forwarded-Host: ""
+  X-Original-Forwarded-For: ""
+  X-Original-Host: ""
+  X-Client-IP: ""
+  X-Cluster-Client-IP: ""
+  CF-Connecting-IP: ""
+  CF-IPCountry: ""
+  CF-Visitor: ""
+  True-Client-IP: ""
+  Fastly-Client-IP: ""
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-nginx-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, endpoints, nodes, pods, secrets, namespaces]
+    verbs: [list, watch]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, ingressclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [list, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-nginx-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ingress-nginx-internal
+subjects:
+  - kind: ServiceAccount
+    name: ingress-nginx-internal
+    namespace: vhhealth-ingress-internal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ingress-nginx-internal
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, pods, secrets, endpoints, services]
+    verbs: [get, list, watch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [ingress-nginx-internal-leader]
+    verbs: [get, update]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ingress-nginx-internal
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ingress-nginx-internal
+subjects:
+  - kind: ServiceAccount
+    name: ingress-nginx-internal
+    namespace: vhhealth-ingress-internal
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: nginx-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  controller: k8s.io/ingress-nginx-internal
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: nginx-internal-held
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: activation-hold
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    vhhealth.app/activation-hold: "C-D13, C2.2, and route-specific proof"
+spec:
+  controller: vhhealth.io/ingress-nginx-internal-held-unimplemented
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-internal-controller
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: controller
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: https
+      port: 443
+      targetPort: https
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-internal-controller-metrics
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: controller
+  ports:
+    - name: http-metrics
+      port: 10254
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ingress-nginx-internal-controller
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx-internal
+      app.kubernetes.io/instance: ingress-nginx-internal
+      app.kubernetes.io/component: controller
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  minReadySeconds: 15
+  revisionHistoryLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ingress-nginx-internal
+        app.kubernetes.io/instance: ingress-nginx-internal
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/part-of: vhhealth
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: ingress-nginx-internal
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 300
+      dnsPolicy: ClusterFirst
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 82
+        fsGroup: 82
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: registry.k8s.io/ingress-nginx/controller:v1.11.3@sha256:d56f135b6462cfc476447cfe564b83a45e8bb7da2774963b00d12161112270b7
+          imagePullPolicy: IfNotPresent
+          args:
+            - /nginx-ingress-controller
+            - --election-id=ingress-nginx-internal-leader
+            - --controller-class=k8s.io/ingress-nginx-internal
+            - --ingress-class=nginx-internal
+            - --configmap=$(POD_NAMESPACE)/ingress-nginx-internal-controller
+            - --enable-metrics=true
+            - --watch-ingress-without-class=false
+            - --update-status=false
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LD_PRELOAD
+              value: /usr/local/lib/libmimalloc.so
+          ports:
+            - name: http
+              containerPort: 80
+              hostPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              hostPort: 443
+              protocol: TCP
+            - name: metrics
+              containerPort: 10254
+              hostIP: 127.0.0.1
+              hostPort: 10255
+              protocol: TCP
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/wait-shutdown"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 82
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [NET_BIND_SERVICE]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ingress-nginx-internal-controller
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx-internal
+      app.kubernetes.io/instance: ingress-nginx-internal
+      app.kubernetes.io/component: controller
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ingress-nginx-internal
+  namespace: vhhealth-ingress-internal
+  labels:
+    app.kubernetes.io/name: ingress-nginx-internal
+    app.kubernetes.io/instance: ingress-nginx-internal
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx-internal
+      app.kubernetes.io/instance: ingress-nginx-internal
+      app.kubernetes.io/component: metrics
+  namespaceSelector:
+    matchNames:
+      - vhhealth-ingress-internal
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      path: /metrics

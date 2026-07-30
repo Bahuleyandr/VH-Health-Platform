@@ -17,9 +17,10 @@ skip_list:
   # we don't flip changed state falsely.
   - command-instead-of-shell
 
-  # We intentionally use `run_once: true` in the token broadcast pattern —
-  # rke2_server/tasks/token.yml reads the bootstrap node's token once and
-  # delegates it to all peers. No other idiom covers this safely.
+  # We intentionally use `run_once: true` for fleet-wide invariant checks,
+  # preflight token-mode classification, and recovery actions delegated to the
+  # one explicitly declared bootstrap host. No token is broadcast from a
+  # first-server fallback.
   - run-once
 
   # ansible-lint's production profile requires every variable inside a role

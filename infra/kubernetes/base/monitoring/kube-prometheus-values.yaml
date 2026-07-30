@@ -220,9 +220,8 @@ grafana:
       cpu: 1
   ingress:
     enabled: true
-    ingressClassName: nginx-internal
-    annotations:
-      cert-manager.io/cluster-issuer: step-ca-internal
+    ingressClassName: nginx-internal-held
+    annotations: {}
     hosts:
       - grafana.vhhealth.hospital.local
     tls:

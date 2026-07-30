@@ -162,6 +162,12 @@ Edit `inventories/prod.yml` and replace every documented placeholder:
 - set `management_cidrs` to the networks allowed to reach SSH and API TCP 6443,
   and `cluster_cidrs` to the peer network allowed to exchange VRRP protocol 112
   and RKE2 cluster traffic; and
+- leave `internal_ingress_vip_enabled` and
+  `internal_ingress_vip_firewall_guard_enabled` false, the address/interface
+  empty, and `clinical_cidrs` empty unless the complete C2.1 activation packet
+  and [`C2_1_INTERNAL_INGRESS_DRILL.md`](runbooks/C2_1_INTERNAL_INGRESS_DRILL.md)
+  are approved. Network owners, not repository authors, supply those values;
+  and
 - use `longhorn` when referring to the repository's Longhorn StorageClass.
   CNPG data and WAL currently remain on `local-path`; the production Longhorn
   PVC patch stays commented and no storage migration is selected by C1.2.
@@ -237,7 +243,11 @@ named by the repository's pre-existing controller configuration.
 5. joins each remaining server through the VIP registration endpoint, one at a
    time; and
 6. writes a VIP-backed admin kubeconfig to `~vhhealth/.kube/config` on every
-   server.
+   server; and
+7. only when explicitly enabled, renders a second independent keepalived
+   instance for the internal-ingress VIP after validating its early nftables
+   guard, CIDRs, interface, prefix, peer ledger, collision state, and distinct
+   VRID.
 
 Install the CNPG operator and Barman plugin through the qualified external
 sequence in §4.3. Bootstrap the remaining controllers and workloads through
@@ -335,6 +345,21 @@ kubectl port-forward -n argocd svc/argocd-server 8080:443
 From now on, ArgoCD polls `main` and reports drift within roughly three
 minutes. The operator must review the target revision and start each production
 sync explicitly.
+
+> **C2.1 private-ingress hold:** the platform tree contains a second
+> ingress-nginx controller with hostPorts in the dedicated
+> `vhhealth-ingress-internal` namespace. That namespace alone enforces
+> `privileged` Pod Security because Kubernetes Baseline/Restricted rejects
+> hostPort; the controller keeps a Restricted container security context and
+> the public ingress namespace remains Restricted. The private VIP is disabled
+> and addressless, the default render supplies no internal API TLS producer,
+> and non-approved internal routes use the unimplemented
+> `nginx-internal-held` class. Do not sync or activate it until C-D13,
+> network-owner VIP/interface/prefix/CIDR approval, tenant-host inventory,
+> C2.2 staff-web correction, C0.1 parity, and the operator drill are complete.
+> The default host-listener NetworkPolicy also contains only TEST-NET
+> sentinels; the approved activation overlay must replace them with the exact
+> same clinical/management CIDRs used by the host firewall.
 
 ### 4.3 Required pre-sync operator sequence
 

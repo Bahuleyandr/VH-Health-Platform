@@ -36,6 +36,10 @@ all:
     management_cidrs:
       - "10.0.0.0/8"
 
+    # REPLACE with the exact managed clinical LAN CIDR ledger approved by the
+    # network owner. Empty keeps C2.1 fail-closed.
+    clinical_cidrs: []
+
     # REPLACE with the cluster subnet the three nodes share. Used by
     # firewall for cluster-internal port allowlist.
     cluster_cidrs:
@@ -51,6 +55,17 @@ all:
     control_plane_vip_prefix_length: 24
     control_plane_vip_virtual_router_id: 51
     control_plane_api_dns_name: "rke2-api.vhhealth.hospital.local"
+
+    # --- C2.1 private ingress VIP (ACTIVATION HOLD) -------------------------
+    # Network owners supply a collision-checked address, interface, prefix,
+    # peer ledger, and approved clinical/management CIDRs before setting both
+    # booleans true. Do not commit a real production value to this example.
+    internal_ingress_vip_enabled: false
+    internal_ingress_vip_address: ""
+    internal_ingress_vip_interface: ""
+    internal_ingress_vip_prefix_length: 24
+    internal_ingress_vip_virtual_router_id: 52
+    internal_ingress_vip_firewall_guard_enabled: false
 
     # --- TLS SANs appended to API-server certificate ----------------------
     cluster_dns_san:
@@ -79,6 +94,7 @@ all:
         vhh-node-1:
           ansible_host: 10.10.0.11       # REPLACE
           control_plane_vip_unicast_address: 10.10.0.11  # REPLACE
+          internal_ingress_vip_unicast_address: 10.10.0.11  # REPLACE
           inventory_region: hospital-primary
           # All nodes use the same truthful zone until facilities evidence
           # proves independent rack, power, and network failure domains.
@@ -88,12 +104,14 @@ all:
         vhh-node-2:
           ansible_host: 10.10.0.12       # REPLACE
           control_plane_vip_unicast_address: 10.10.0.12  # REPLACE
+          internal_ingress_vip_unicast_address: 10.10.0.12  # REPLACE
           inventory_region: hospital-primary
           inventory_zone: hospital-shared
         # --- Node 3 --- Joins via the control-plane VIP --------------------
         vhh-node-3:
           ansible_host: 10.10.0.13       # REPLACE
           control_plane_vip_unicast_address: 10.10.0.13  # REPLACE
+          internal_ingress_vip_unicast_address: 10.10.0.13  # REPLACE
           inventory_region: hospital-primary
           inventory_zone: hospital-shared
 

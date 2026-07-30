@@ -1,0 +1,44 @@
+# C2.1 apex-only hospital-LAN API route. Tenant hosts are added later as
+# explicit reviewed rules through docs/TENANT_ONBOARDING_RUNBOOK.md. There is
+# intentionally no wildcard rule, Host rewrite, or upstream-vhost override.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vhhealth-backend-internal-api
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    vhhealth.app/activation-hold: "C-D13, network-owner ledger, C0.1 parity"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-rpm: "600"
+    nginx.ingress.kubernetes.io/enable-modsecurity: "false"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/exposure: lan-only
+spec:
+  ingressClassName: nginx-internal
+  tls:
+    - hosts:
+        - api.vhhealth.app
+      # Replaced from the non-secret parameter ConfigMap by kustomize. No
+      # Certificate or Secret producer is selected in the default render.
+      secretName: c-d13-unprovisioned-internal-api-tls
+  rules:
+    - host: api.vhhealth.app
+      http:
+        paths:
+          # The full Staff surface intentionally remains one prefix: REST,
+          # health, continuity, upload/download, and Socket.IO/WebSocket.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-backend
+                port:
+                  number: 80
