@@ -347,16 +347,24 @@ describe('continuity edge mirror verifier', () => {
   });
 
   test('rejects a symbolic link in the tenant/facility directory chain', async () => {
+    const mirrorRoot = path.resolve('mirror');
+    const tenantDirectory = path.join(
+      mirrorRoot,
+      'continuity-v1',
+      'tenants',
+      'tenant-a'
+    );
+    const tenantsSuffix = `${path.sep}tenants`;
     const result = await __testing__.safeDirectoryChain(
       {
         lstat: async candidate => ({
-          isDirectory: () => !String(candidate).endsWith('tenants'),
-          isSymbolicLink: () => String(candidate).endsWith('tenants')
+          isDirectory: () => !String(candidate).endsWith(tenantsSuffix),
+          isSymbolicLink: () => String(candidate).endsWith(tenantsSuffix)
         }),
         realpath: async candidate => candidate
       },
-      'C:\\mirror',
-      'C:\\mirror\\continuity-v1\\tenants\\tenant-a'
+      mirrorRoot,
+      tenantDirectory
     );
     expect(result).toMatchObject({
       ok: false,
