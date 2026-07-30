@@ -9,7 +9,11 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const backendDir = path.join(repoRoot, 'infra', 'kubernetes', 'apps', 'backend');
 
 function readBackendFile(name) {
-  return fs.readFileSync(path.join(backendDir, name), 'utf8');
+  return normalizeLineEndings(fs.readFileSync(path.join(backendDir, name), 'utf8'));
+}
+
+function normalizeLineEndings(content) {
+  return content.replace(/\r\n/g, '\n');
 }
 
 const uploadScript = readBackendFile('upload-archive.sh');
@@ -90,6 +94,32 @@ test('archive scripts are valid in both execution shells', () => {
         `${script} failed ${shell} -n:\n${result.stdout}\n${result.stderr}`,
       );
     }
+  }
+});
+
+test('marker extraction accepts LF and CRLF content', () => {
+  const lf = [
+    'header',
+    '            - name: minio-fetch',
+    '              image: example.invalid/minio',
+    '            - name: archive-seal',
+    'footer',
+    '',
+  ].join('\n');
+  const expected = [
+    '            - name: minio-fetch',
+    '              image: example.invalid/minio',
+  ].join('\n') + '\n';
+
+  for (const content of [lf, lf.replace(/\n/g, '\r\n')]) {
+    assert.equal(
+      between(
+        normalizeLineEndings(content),
+        '            - name: minio-fetch\n',
+        '            - name: archive-seal\n',
+      ),
+      expected,
+    );
   }
 });
 

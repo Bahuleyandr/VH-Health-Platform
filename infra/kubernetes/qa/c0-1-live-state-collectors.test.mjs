@@ -24,7 +24,7 @@ const c12Collector = path.join(qaDir, 'c1-2-ha-evidence.sh');
 const fixture = path.join(qaDir, 'fixtures', 'c0-1-live-state');
 
 function read(file) {
-  return fs.readFileSync(file, 'utf8');
+  return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 }
 
 function bashPath(file) {
@@ -43,21 +43,23 @@ function verifySha256ManifestRow(line, outputDirectory) {
 }
 
 test('capture parser preserves output and exit status', () => {
-  assert.deepEqual(
-    parseCapture(
-      [
-        'captured_at=2026-07-30T00:00:00Z',
-        'command= example',
-        '---',
-        'first',
-        'second',
-        '---',
-        'exit_status=78',
-        '',
-      ].join('\n'),
-    ),
-    { output: 'first\nsecond', status: 78 },
-  );
+  const lf = [
+    'captured_at=2026-07-30T00:00:00Z',
+    'command= example',
+    '---',
+    'first',
+    'second',
+    '---',
+    'exit_status=78',
+    '',
+  ].join('\n');
+
+  for (const content of [lf, lf.replace(/\n/g, '\r\n')]) {
+    assert.deepEqual(
+      parseCapture(content),
+      { output: 'first\nsecond', status: 78 },
+    );
+  }
 });
 
 test('redactor uses stable aliases and never preserves sensitive named values', () => {
