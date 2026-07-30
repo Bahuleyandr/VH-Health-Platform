@@ -468,11 +468,13 @@ transport-versus-continuity connection-state UI. C3.3 declares only these
 shared-file integration overlaps:
 
 - `packages/vhhealth_core/lib/vhhealth_core.dart` — barrel exports;
-- `apps/staff/lib/core/widgets/staff_scaffold.dart` — C3.3 adds a distinct
-  continuity-cache action, never connection status;
 - `apps/staff/lib/l10n/app_strings.dart` — separate C3.3 message keys;
-- `apps/staff/test/i18n_guard_test.dart` — shared locale completeness guard;
-- `pubspec.lock` — workspace dependency resolution only.
+- `apps/staff/test/i18n_guard_test.dart` — shared locale completeness guard.
+
+C2.2's reciprocal ledger does not touch C3.3's `staff_scaffold.dart`,
+`secure_blob.dart`, package dependency files, lockfile, cache, or continuity
+display files. C3.3's `staff_scaffold.dart` change is limited to a separate
+continuity-cache action and never carries transport or connection state.
 
 C2.2 should land first. C3.3 then rebases on that merge, preserves C2.2's
 connection UI and translations, and injects C2.2's stable authenticated
@@ -646,7 +648,7 @@ This slice deliberately provides:
 Coordinator clearance must confirm:
 
 1. the exact ledger in section 9;
-2. C2.2-first sequencing for the five shared files in section 8.2;
+2. C2.2-first sequencing for the three shared files in section 8.2;
 3. the injected stable-readiness and trusted-clock boundary;
 4. the default-OFF/incomplete-policy-denies C-D4 treatment;
 5. the Android-plus-Windows evidence scope without C0.3 widening; and
