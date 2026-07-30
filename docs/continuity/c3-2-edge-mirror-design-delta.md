@@ -504,6 +504,7 @@ and cross-tenant sets fail closed.
 - `apps/backend/src/migrations/601_clinical_continuity_edge_access.sql`
 - `apps/backend/src/services/downtime/continuityEdgeAccessService.js`
 - `apps/backend/src/services/downtime/continuityEdgeMirrorVerifier.js`
+- `apps/backend/src/db/seedCoveragePolicy.js`
 - `apps/backend/src/observability/continuityMetrics.js`
 - `apps/backend/scripts/continuity-edge-access.mjs`
 - `apps/backend/scripts/ingest-continuity-edge-logs.mjs`
@@ -521,9 +522,12 @@ and cross-tenant sets fail closed.
 - `apps/backend/src/middleware/infrastructureAccessMiddleware.js`
 - `apps/backend/src/routes/downtime/staticDowntimeRoutes.js`
 - `apps/backend/src/routes/metrics/metricsRoutes.js`
+- `apps/backend/src/db/schemaContracts.js`
+- `apps/backend/scripts/check-db-contracts.mjs`
 - `apps/backend/scripts/seed-comprehensive-test-data.mjs` to declare the
   three inert edge-access tables intentionally empty instead of synthesizing
-  credentials or evidence
+  credentials or evidence, with the seeded DB contract gate using the same
+  exact allowlist
 - existing focused tests/fixtures only where schema-v2 or legacy expectations
   require alignment
 

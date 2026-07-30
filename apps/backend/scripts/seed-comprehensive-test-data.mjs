@@ -8,19 +8,16 @@ import {
   compileInpatientAdmissionToRecoveryDefinition
 } from '../src/services/pathways/inpatientPathwayDefinition.js';
 import { CLINICAL_CONTINUITY_SEED_FIXTURE } from './lib/clinicalContinuitySeedFixture.mjs';
+import { INTENTIONALLY_EMPTY_SEED_TABLES } from '../src/db/seedCoveragePolicy.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
 const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
 const SEED_TAG = 'vh_seed';
-const INTENTIONALLY_EMPTY_TABLES = new Set([
-  // C3.2a edge authorization is inert until a countersigned v2 policy and an
-  // operator-supplied client certificate exist. Synthetic grants, revocations,
-  // or log receipts would violate that activation boundary.
-  'clinical_continuity_edge_access_grants',
-  'clinical_continuity_edge_access_revocations',
-  'clinical_continuity_edge_log_receipts',
-]);
+// C3.2a edge authorization is inert until a countersigned v2 policy and an
+// operator-supplied client certificate exist. Synthetic grants, revocations,
+// or log receipts would violate that activation boundary.
+const INTENTIONALLY_EMPTY_TABLES = new Set(INTENTIONALLY_EMPTY_SEED_TABLES);
 const MANUAL_SEED_TABLES = new Set([
   // Care-pathway and lab-ingest coverage must be coherent evidence graphs.
   // The generic walker cannot satisfy their tenant-composite links, immutable

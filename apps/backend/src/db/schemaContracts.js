@@ -1,3 +1,5 @@
+import { partitionSeedCoverageEmptyTables } from './seedCoveragePolicy.js';
+
 export const SCHEMA_CONTRACTS = [
   {
     id: 'health.ready',
@@ -374,13 +376,19 @@ export async function runSchemaContractCheck(client, options = {}) {
     for (const table of tables) {
       if (!(await tableHasRows(client, table))) emptyTables.push(table);
     }
+    const {
+      intentionallyEmptyAppTables,
+      unexpectedEmptyAppTables,
+    } = partitionSeedCoverageEmptyTables(emptyTables);
     seeded = {
       totalAppTables: tables.length,
       nonEmptyAppTables: tables.length - emptyTables.length,
       emptyTables,
-      ok: emptyTables.length === 0,
+      intentionallyEmptyAppTables,
+      unexpectedEmptyAppTables,
+      ok: unexpectedEmptyAppTables.length === 0,
     };
-    for (const table of emptyTables) {
+    for (const table of unexpectedEmptyAppTables) {
       failures.push({ contract: 'seeded.table.coverage', message: `Empty table after seed: ${table}` });
     }
   }
