@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule continuity-edge pull and activation
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=vhhealth-continuity-edge-pull.service
+
+[Install]
+WantedBy=timers.target

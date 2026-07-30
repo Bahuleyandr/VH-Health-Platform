@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ruleFiles = ['backend-reliability-alerts.yaml', 'backend-slo.yaml', 'backend-red-alerts.yaml', 'alert-rules.yaml', 'device-gateway-alerts.yaml'];
+const ruleFiles = ['backend-reliability-alerts.yaml', 'backend-slo.yaml', 'backend-red-alerts.yaml', 'alert-rules.yaml', 'device-gateway-alerts.yaml', 'continuity-edge-alerts.yaml'];
 
 let failed = false;
 for (const f of ruleFiles) {

@@ -1,0 +1,18 @@
+{
+  "format": "vhhealth_continuity_edge_logging_identities/v1",
+  "locations": {
+    "ward/OWNER_INPUT_UNIT_ID": {
+      "tenantId": "OWNER_INPUT_NON_DEFAULT_TENANT_UUID",
+      "facilityId": 0,
+      "locationType": "ward",
+      "locationIdentifier": "OWNER_INPUT_UNIT_ID",
+      "grantId": "OWNER_INPUT_LOGGING_GRANT_UUID",
+      "deviceId": "OWNER_INPUT_EDGE_LOGGING_DEVICE_ID",
+      "policyVersionId": "OWNER_INPUT_POLICY_UUID",
+      "policyVersion": "OWNER_INPUT",
+      "accessRevision": "OWNER_INPUT",
+      "certificatePath": "/etc/vhhealth/continuity-edge/logging/ward.crt",
+      "privateKeyPath": "/etc/vhhealth/continuity-edge/logging/ward.key"
+    }
+  }
+}

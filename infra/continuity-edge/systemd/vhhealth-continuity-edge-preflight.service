@@ -1,0 +1,22 @@
+[Unit]
+Description=VH Health continuity-edge encryption and activation preflight
+Before=vhhealth-continuity-edge-caddy.service vhhealth-continuity-edge-gateway.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/vhhealth/continuity-edge/edge.env
+ExecStart=/usr/bin/bash /opt/vhhealth-continuity-edge/preflight.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadOnlyPaths=/etc/vhhealth/continuity-edge /opt/vhhealth-continuity-edge
+ReadWritePaths=/var/lib/containers /run/containers /var/lib/vhhealth/continuity-edge /var/log/vhhealth/continuity-edge
+
+[Install]
+WantedBy=multi-user.target

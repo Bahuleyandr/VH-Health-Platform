@@ -4,6 +4,9 @@ metadata:
   name: vhhealth-backend
   annotations:
     argocd.argoproj.io/sync-wave: "0"
+    # The unselected continuity-publication-rwx component adds the shared
+    # publication volume read-only. This annotation is an inert review hook.
+    vhhealth.app/continuity-publication-role: held-reader
   labels:
     app.kubernetes.io/name: vhhealth-backend
     app.kubernetes.io/component: api

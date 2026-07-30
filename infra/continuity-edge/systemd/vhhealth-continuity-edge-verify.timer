@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule continuity-edge selected-set verification
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Persistent=true
+Unit=vhhealth-continuity-edge-verify.service
+
+[Install]
+WantedBy=timers.target

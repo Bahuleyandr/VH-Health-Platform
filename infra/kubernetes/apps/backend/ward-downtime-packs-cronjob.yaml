@@ -26,6 +26,9 @@ metadata:
   name: ward-downtime-packs
   annotations:
     argocd.argoproj.io/sync-wave: "2"
+    # The unselected continuity-publication-rwx component adds the shared
+    # publication volume read/write. This annotation is an inert review hook.
+    vhhealth.app/continuity-publication-role: held-writer
   labels:
     app.kubernetes.io/name: ward-downtime-packs
     app.kubernetes.io/component: outage-critical-job

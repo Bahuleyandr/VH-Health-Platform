@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Validation-only render. This directory is not referenced by an Argo
+# Application or active overlay.
+resources:
+  - ../../../../kubernetes/apps/backend
+
+components:
+  - ../../../../kubernetes/components/continuity-publication-rwx

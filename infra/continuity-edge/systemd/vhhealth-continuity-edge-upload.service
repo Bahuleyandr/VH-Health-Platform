@@ -1,0 +1,18 @@
+[Unit]
+Description=Upload verified continuity access-log batches to the write-only drop
+Requires=vhhealth-continuity-edge-preflight.service
+After=vhhealth-continuity-edge-preflight.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/vhhealth/continuity-edge/edge.env
+ExecStartPre=/usr/bin/podman image exists ${VHEDGE_GATEWAY_IMAGE}
+ExecStart=/usr/bin/podman run --rm --read-only --user 10001:10001 --cap-drop=all --security-opt=no-new-privileges --env-file=/etc/vhhealth/continuity-edge/edge.env --volume=/etc/vhhealth/continuity-edge:/etc/vhhealth/continuity-edge:ro --volume=${VHEDGE_LOG_ROOT}:${VHEDGE_LOG_ROOT}:rw ${VHEDGE_GATEWAY_IMAGE} /opt/vhhealth-continuity-edge/bin/upload-logs.mjs
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadOnlyPaths=/etc/vhhealth/continuity-edge /opt/vhhealth-continuity-edge
+ReadWritePaths=/var/lib/containers /run/containers /var/log/vhhealth/continuity-edge

@@ -1,0 +1,18 @@
+{
+  "packKeys": {
+    "OWNER_INPUT_PACK_KEY_ID": {
+      "algorithm": "Ed25519",
+      "keyId": "OWNER_INPUT_PACK_KEY_ID",
+      "publicKey": "OWNER_INPUT_PACK_PUBLIC_KEY_SPKI_PEM",
+      "state": "current"
+    }
+  },
+  "policyKeys": {
+    "OWNER_INPUT_POLICY_KEY_ID": {
+      "algorithm": "Ed25519",
+      "keyId": "OWNER_INPUT_POLICY_KEY_ID",
+      "publicKey": "OWNER_INPUT_POLICY_PUBLIC_KEY_SPKI_PEM",
+      "state": "active"
+    }
+  }
+}

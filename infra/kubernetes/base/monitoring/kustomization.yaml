@@ -10,6 +10,7 @@ resources:
   - backend-reliability-alerts.yaml
   - backend-slo.yaml
   - device-gateway-alerts.yaml
+  - continuity-edge-alerts.yaml
 
 configMapGenerator:
   - name: vhhealth-backend-dashboards

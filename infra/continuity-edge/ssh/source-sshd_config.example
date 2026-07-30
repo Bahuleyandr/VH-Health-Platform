@@ -1,0 +1,15 @@
+# Dedicated source account. The chroot must be root-owned and contain a
+# read-only bind mount named /facility pointing at exactly one approved
+# tenant/facility publication root.
+Match User OWNER_INPUT_FACILITY_PULL_USER
+    ChrootDirectory /srv/vhhealth-continuity-export/OWNER_INPUT_FACILITY_PULL_USER
+    ForceCommand internal-sftp -R -d /facility
+    AuthenticationMethods publickey
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    PermitTTY no
+    DisableForwarding yes
+    X11Forwarding no
+    AllowAgentForwarding no
+    AllowTcpForwarding no
+    PermitTunnel no

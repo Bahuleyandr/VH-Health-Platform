@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ward-downtime-packs
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: ward-downtime-packs
+              env:
+                - name: CLINICAL_CONTINUITY_PACKS_ENABLED
+                  value: "false"
+                - name: DOWNTIME_MIRROR_DIR
+                  value: /var/lib/vhhealth/continuity
+              volumeMounts:
+                - name: continuity-publication
+                  mountPath: /var/lib/vhhealth/continuity
+                  readOnly: false
+          volumes:
+            - name: continuity-publication
+              persistentVolumeClaim:
+                claimName: vhhealth-continuity-publication

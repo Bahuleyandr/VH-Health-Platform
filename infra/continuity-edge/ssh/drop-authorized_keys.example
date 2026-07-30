@@ -1,0 +1,1 @@
+from="OWNER_INPUT_EDGE_SOURCE_IP",restrict,command="/usr/bin/rrsync -wo /srv/vhhealth-continuity-log-drop/OWNER_INPUT_FACILITY" ssh-ed25519 OWNER_INPUT_DISTINCT_WRITE_ONLY_UPLOAD_PUBLIC_KEY OWNER_INPUT_EDGE_LOG_UPLOAD

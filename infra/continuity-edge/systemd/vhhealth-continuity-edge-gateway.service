@@ -1,0 +1,27 @@
+[Unit]
+Description=VH Health continuity-edge LAN TLS gateway
+Requires=vhhealth-continuity-edge-preflight.service vhhealth-continuity-edge-caddy.service
+After=vhhealth-continuity-edge-preflight.service vhhealth-continuity-edge-caddy.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/vhhealth/continuity-edge/edge.env
+ExecStartPre=/usr/bin/podman image exists ${VHEDGE_GATEWAY_IMAGE}
+ExecStart=/usr/bin/podman run --rm --name vhhealth-continuity-edge-gateway --network host --read-only --user 10001:10001 --cap-drop=all --security-opt=no-new-privileges --env-file=/etc/vhhealth/continuity-edge/edge.env --volume=/etc/vhhealth/continuity-edge:/etc/vhhealth/continuity-edge:ro --volume=${VHEDGE_DATA_ROOT}:${VHEDGE_DATA_ROOT}:ro --volume=${VHEDGE_DATA_ROOT}/state:${VHEDGE_DATA_ROOT}/state:rw --volume=${VHEDGE_DATA_ROOT}/metrics:${VHEDGE_DATA_ROOT}/metrics:rw --volume=${VHEDGE_LOG_ROOT}:${VHEDGE_LOG_ROOT}:rw ${VHEDGE_GATEWAY_IMAGE} /opt/vhhealth-continuity-edge/bin/gateway.mjs
+ExecStop=/usr/bin/podman stop --time 10 vhhealth-continuity-edge-gateway
+Restart=always
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadOnlyPaths=/etc/vhhealth/continuity-edge /opt/vhhealth-continuity-edge
+ReadWritePaths=/var/lib/containers /run/containers /var/lib/vhhealth/continuity-edge /var/log/vhhealth/continuity-edge
+
+[Install]
+WantedBy=multi-user.target

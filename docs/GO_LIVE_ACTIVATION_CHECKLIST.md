@@ -131,13 +131,48 @@ Jun-30 reliability gate.
 
 ## Phase H — Downtime LAN mirror (REL-5 infra half)
 
-Code half (B2.5) is done — the ward-pack generator writes static HTML to
-`DOWNTIME_MIRROR_DIR` and `/downtime/static` serves it DB-free. The infra half
-is operator-only.
+The manifests and edge package are held. Completing these receipts does not
+authorize a sync, flag flip, service enablement, or production activation.
+Use [`runbooks/CONTINUITY_EDGE_MIRROR.md`](runbooks/CONTINUITY_EDGE_MIRROR.md)
+for the exact operator sequence.
 
-- [ ] **H1.** Provision a shared `hostPath`/Longhorn volume at `DOWNTIME_MIRROR_DIR`, mounted by **both** the downtime-pack CronJob and the backend Deployment. (date / initials): ______
-- [ ] **H2.** Wire the ops-box LAN sync so packs stay reachable from ward terminals with the backend DB down. (date / initials): ______
-- [ ] **H3.** Tabletop test: kill the backend, confirm `/downtime/static` + the LAN mirror still serve current ward packs. (date / initials): ______
+- [ ] **H1. Durable publication RWX evidence.** The operator has selected a
+  StorageClass only after
+  [`C1_2_STORAGE_PLACEMENT_GATE.md`](C1_2_STORAGE_PLACEMENT_GATE.md) records
+  `PLACEMENT QUALIFIED / CHANGE APPROVED`, pre-created the
+  `vhhealth-continuity-publication` RWX PVC, and attached one evidence packet
+  containing all of the following. (date / initials): ______
+  - [ ] StorageClass, CSI driver/version, PV, PVC, encryption-at-rest, reclaim
+    policy, expansion, and backup/restore evidence.
+  - [ ] Concurrent RWX proof from pods scheduled on separate nodes; this must
+    demonstrate one coherent view rather than node-local `hostPath` behavior.
+  - [ ] The production UID/GID and filesystem-permission receipt proving the
+    generator can write while the backend identity can read but cannot write.
+  - [ ] Capacity, storage-failure, node-failure, detach/remount, and post-remount
+    integrity evidence with named pass/fail results.
+  - [ ] The source SSH hostname/fingerprint and forced-command read-only pull
+    principal; no shell, forwarding, write, delete, or tenant-root listing.
+  - [ ] Named infrastructure, security, privacy, and clinical owners.
+  - [ ] A reviewed Kustomize diff showing the CronJob read/write mount, backend
+    read-only mount, `/var/lib/vhhealth/continuity`,
+    `DOWNTIME_MIRROR_DIR`, and
+    `CLINICAL_CONTINUITY_PACKS_ENABLED=false`.
+- [ ] **H2. Independent edge activation packet.** C-D4 and C-D10 are
+  countersigned; the schema-v2 policy receipt supplies approved access and
+  retention values; LUKS2 data/log mounts, distinct source-pull/log-upload/TLS
+  credentials, location-scoped logging identities, trusted clock, image
+  digests, anti-rollback bootstrap floors, and the completed activation
+  receipt have passed the package preflight. The exact facility/unit edge URLs
+  have been installed through the managed terminal launcher. (date / initials): ______
+- [ ] **H3. Outage and legacy-sunset drill.** With backend, database,
+  Kubernetes path, Cloudflare, and internet unavailable, an authorized terminal
+  retrieved and printed the exact facility/unit edge pack while wrong audience,
+  revoked certificate, expired grant, stale/rolled-back set, and corrupt or
+  partial set attempts failed closed. Recovery uploaded and ingested the signed
+  access-log chain. Legacy `/downtime/static` bookmarks were inventoried,
+  migrated, observed through the agreed coexistence window, and retired only
+  under a signed change receipt. Attach timings, evidence, rollback result,
+  owners, date, and initials. (date / initials): ______
 
 ---
 
