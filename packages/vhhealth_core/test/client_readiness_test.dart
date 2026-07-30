@@ -43,6 +43,7 @@ ClientReadinessService serviceFor(
     request: request,
     tenantId: () async => tenantId,
     staffId: () async => 'staff-1',
+    maxClockSkew: const Duration(seconds: 300),
     authentication: authentication ?? () async => 'jwt-1',
     clock: clock ?? () => serverNow,
     delay: delay ?? (_) async {},

@@ -98,6 +98,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 data:
   Forwarded: ""
+  X-VH-Route-Kind: "internal"
   X-Forwarded-For: "$remote_addr"
   X-Real-IP: ""
   X-Forwarded-Host: ""
