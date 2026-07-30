@@ -1766,7 +1766,7 @@
               '    - role: firewall'
             )
           - >-
-            '- name: Resolve addresses and prefixes on the selected interface'
+            '- name: Resolve addresses and prefixes on the control-plane interface'
             in c12_control_plane_vip_tasks_source
           - >-
             "interface_facts['ipv4_secondaries'] | default([])"
@@ -1782,11 +1782,11 @@
             in c12_control_plane_vip_tasks_source
           - >-
             c12_control_plane_vip_tasks_source.find(
-              '- name: Reject ambiguous VIP and peer addressing'
+              '- name: Reject ambiguous control-plane addressing'
             )
             <
             c12_control_plane_vip_tasks_source.find(
-              '- name: Verify the required firewall table before keepalived'
+              '- name: Read the active firewall before control-plane keepalived'
             )
         fail_msg: >-
           Site and control_plane_vip must bind the declared unicast source to
