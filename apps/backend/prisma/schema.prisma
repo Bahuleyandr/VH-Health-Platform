@@ -25168,6 +25168,9 @@ model clinical_continuity_policy_versions {
   retirement_reason                                                                                          String?
   created_at                                                                                                 DateTime                                 @default(now()) @db.Timestamptz(6)
   updated_at                                                                                                 DateTime                                 @default(now()) @db.Timestamptz(6)
+  action_registry_schema_version                                                                             Int?
+  action_registry_version                                                                                    BigInt?
+  action_registry_checksum                                                                                   String?                                  @db.Char(64)
   clinical_continuity_edge_access_grants                                                                     clinical_continuity_edge_access_grants[]
   clinical_continuity_edge_log_receipts                                                                      clinical_continuity_edge_log_receipts[]
   approvals                                                                                                  approvals?                               @relation(fields: [tenant_id, approval_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_policy_approval_tenant_fk")
@@ -25187,6 +25190,7 @@ model clinical_continuity_policy_versions {
   @@unique([tenant_id, facility_id, id], map: "ux_cc_policy_tenant_facility_id")
   @@unique([tenant_id, facility_id, policy_version], map: "ux_cc_policy_tenant_facility_version")
   @@index([tenant_id, approval_id], map: "idx_cc_policy_approval", where: raw("(approval_id IS NOT NULL)"))
+  @@index([tenant_id, facility_id, action_registry_version, policy_version(sort: Desc)], map: "idx_cc_policy_action_registry", where: raw("(action_registry_version IS NOT NULL)"))
   @@index([tenant_id, current_pack_signing_key_id], map: "idx_cc_policy_current_key")
   @@index([tenant_id, facility_id, lifecycle_state, effective_from(sort: Desc), policy_version(sort: Desc)], map: "idx_cc_policy_effective")
   @@index([tenant_id, next_pack_signing_key_id], map: "idx_cc_policy_next_key", where: raw("(next_pack_signing_key_id IS NOT NULL)"))

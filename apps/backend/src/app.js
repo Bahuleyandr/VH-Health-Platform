@@ -337,6 +337,8 @@ import metricsRoutes from './routes/metrics/metricsRoutes.js';
 // Swagger loader
 import swaggerLoader from './utils/swaggerLoader.js';
 import { resolveTenantForRequest } from './services/tenant/tenantService.js';
+import { assertClinicalContinuityActionBindings } from './services/downtime/clinicalContinuityActionBindingRegistry.js';
+import { clinicalContinuityActionPolicyMiddleware } from './middleware/clinicalContinuityActionPolicyMiddleware.js';
 
 // ====================================
 // ENVIRONMENT AND INITIALIZATION
@@ -706,6 +708,7 @@ app.use(normalizeIdentityFields); // runs AFTER JWT auth
 // most need attributed to a user; public/pre-auth routes still get the
 // per-request tags from sentryScopeMiddleware mounted at the top of the chain.
 app.use(attachUserContext);
+app.use(clinicalContinuityActionPolicyMiddleware);
 
 // Entitlement capability manifest for authenticated clients. Clinical/mobile
 // surfaces stay informational; hard-blocking happens only on opted-in routes.
@@ -1509,5 +1512,9 @@ if (process.env.NODE_ENV === 'development') {
   logger.info('  - ✓ Infrastructure (/api/v1/*)');
   logger.info('=====================================\n');
 }
+
+// Deliberately independent of CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED:
+// code-to-route binding corruption must stop boot while capture remains inert.
+assertClinicalContinuityActionBindings();
 
 export default app;

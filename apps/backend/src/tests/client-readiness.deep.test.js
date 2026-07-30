@@ -12,7 +12,8 @@ jest.unstable_mockModule(
     DEFAULT_TENANT_ID: TENANT,
     enumerateActiveClinicalContinuityPolicies: jest.fn(),
     loadActiveClinicalContinuityPoliciesForTenant: loadPolicies,
-    loadActiveClinicalContinuityPolicyForFacilityTx: jest.fn()
+    loadActiveClinicalContinuityPolicyForFacilityTx: jest.fn(),
+    loadHistoricalClinicalContinuityPolicyForActionTx: jest.fn()
   })
 );
 

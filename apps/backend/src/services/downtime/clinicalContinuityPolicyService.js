@@ -10,11 +10,13 @@ import {
   sha256Hex,
   verifyCanonicalValue
 } from './continuityPackCanonical.js';
+import { parseClinicalContinuityActionRegistry } from './clinicalContinuityActionRegistryService.js';
 
 export const CLINICAL_CONTINUITY_POLICY_TYPE = 'clinical_continuity_pack';
 export const CLINICAL_CONTINUITY_POLICY_CANONICALIZATION = 'rfc8785-jcs';
 export const CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION = 1;
 export const CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION = 2;
+export const CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION = 3;
 export const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 export const ALLERGY_UNKNOWN_TEXT = 'Allergy status UNKNOWN — not recorded';
 export const CODE_STATUS_UNKNOWN_TEXT = 'Code status NOT RECORDED — confirm per hospital policy';
@@ -57,6 +59,9 @@ const POLICY_SELECT_BASE_SQL = `
          policy.facility_id,
          policy.policy_version,
          policy.policy_schema_version,
+         policy.action_registry_schema_version,
+         policy.action_registry_version,
+         policy.action_registry_checksum,
          policy.lifecycle_state,
          policy.policy_document,
          policy.policy_checksum,
@@ -138,6 +143,17 @@ const POLICY_SELECT_SQL = `${POLICY_SELECT_BASE_SQL}
 
 const POLICY_SELECT_FACILITY_SQL = `${POLICY_SELECT_BASE_SQL}
      AND policy.facility_id = $2::integer
+   ORDER BY policy.policy_version DESC
+   LIMIT 2`;
+
+const POLICY_SELECT_HISTORICAL_SQL = `${POLICY_SELECT_BASE_SQL.replace(
+  "WHERE policy.tenant_id = $1::uuid\n     AND policy.lifecycle_state = 'active'",
+  `WHERE policy.tenant_id = $1::uuid
+     AND policy.facility_id = $2::integer
+     AND policy.id = $3::uuid
+     AND policy.policy_version = $4::bigint
+     AND policy.lifecycle_state IN ('active', 'retired')`
+)}
    ORDER BY policy.policy_version DESC
    LIMIT 2`;
 
@@ -634,14 +650,14 @@ function normalizeRetention(value) {
 }
 
 /**
- * Parse and validate the signed C3 policy language. Both versions are closed:
- * v1 governs C3.1 packs, while v2 adds the C3.2 edge-access and retention
- * decisions. Later extensions must increment policySchemaVersion rather than
- * being interpreted through an ambiguous fallback.
+ * Parse and validate the signed continuity policy language. Every version is
+ * closed: v1 governs C3.1 packs, v2 adds C3.2 edge access and retention, and
+ * v3 adds C4.2 action authority. Later extensions must increment
+ * policySchemaVersion rather than being interpreted through a fallback.
  */
 export function parseClinicalContinuityPolicyDocument(
   value,
-  { tenantId, facilityId, policySchemaVersion } = {}
+  { tenantId, facilityId, policySchemaVersion, effectiveFrom, effectiveUntil } = {}
 ) {
   const expectedTenantId = normalizedTenantId(tenantId);
   const expectedFacilityId = normalizedFacilityId(facilityId);
@@ -653,8 +669,15 @@ export function parseClinicalContinuityPolicyDocument(
   const document = objectValue(value, 'policyDocument');
   const supportedSchema = [
     CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION,
-    CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+    CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
+    CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
   ].includes(expectedSchemaVersion);
+  if (!supportedSchema) {
+    policyConflict(
+      'The clinical continuity policy schema is unsupported',
+      'CONTINUITY_POLICY_SCHEMA_UNSUPPORTED'
+    );
+  }
   const expectedKeys = [
     'audience',
     'fieldPolicy',
@@ -667,8 +690,11 @@ export function parseClinicalContinuityPolicyDocument(
     'recentReleasedResults',
     'requiredCoverage'
   ];
-  if (expectedSchemaVersion === CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION) {
+  if (expectedSchemaVersion >= CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION) {
     expectedKeys.push('edgeAccess', 'retention');
+  }
+  if (expectedSchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
+    expectedKeys.push('actionRegistry');
   }
   exactKeys(
     document,
@@ -678,8 +704,7 @@ export function parseClinicalContinuityPolicyDocument(
 
   if (
     document.policyType !== CLINICAL_CONTINUITY_POLICY_TYPE ||
-    document.policySchemaVersion !== expectedSchemaVersion ||
-    !supportedSchema
+    document.policySchemaVersion !== expectedSchemaVersion
   ) {
     policyConflict(
       'The clinical continuity policy schema is unsupported',
@@ -766,11 +791,19 @@ export function parseClinicalContinuityPolicyDocument(
   }
 
   const normalized = {
+    ...(expectedSchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+      ? {
+          actionRegistry: parseClinicalContinuityActionRegistry(document.actionRegistry, {
+            effectiveFrom,
+            effectiveUntil
+          })
+        }
+      : {}),
     audience: {
       facilityId: String(expectedFacilityId),
       tenantId: expectedTenantId
     },
-    ...(expectedSchemaVersion === CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+    ...(expectedSchemaVersion >= CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
       ? { edgeAccess: normalizeEdgeAccess(document.edgeAccess) }
       : {}),
     fieldPolicy: normalizeFieldPolicy(document.fieldPolicy),
@@ -790,7 +823,7 @@ export function parseClinicalContinuityPolicyDocument(
     policySchemaVersion: expectedSchemaVersion,
     policyType: CLINICAL_CONTINUITY_POLICY_TYPE,
     recentReleasedResults: normalizeRecentResults(document.recentReleasedResults),
-    ...(expectedSchemaVersion === CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+    ...(expectedSchemaVersion >= CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
       ? { retention: normalizeRetention(document.retention) }
       : {}),
     requiredCoverage
@@ -803,12 +836,11 @@ export function parseClinicalContinuityPolicyDocument(
 export function requireClinicalContinuityEdgePolicy(policy) {
   if (
     !VERIFIED_ACTIVE_POLICIES.has(policy) ||
-    policy.policySchemaVersion !== CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION ||
-    policy.policyDocument?.policySchemaVersion !==
-      CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+    policy.policySchemaVersion < CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION ||
+    policy.policyDocument?.policySchemaVersion < CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
   ) {
     policyConflict(
-      'A verified active policy-schema v2 document is required for edge access',
+      'A verified active policy-schema v2 or later document is required for edge access',
       'CONTINUITY_EDGE_POLICY_V2_REQUIRED'
     );
   }
@@ -852,9 +884,24 @@ export function buildClinicalContinuityPolicySigningPayload(value) {
     'policySchemaVersion',
     2_147_483_647
   );
+  const effectiveFrom = normalizedDate(
+    rowValue(value, 'effectiveFrom', 'effective_from'),
+    'effectiveFrom'
+  );
+  const effectiveUntil = normalizedDate(
+    rowValue(value, 'effectiveUntil', 'effective_until'),
+    'effectiveUntil',
+    { nullable: true }
+  );
+  if (effectiveUntil !== null && Date.parse(effectiveUntil) <= Date.parse(effectiveFrom)) {
+    policyConflict(
+      'Policy effectiveUntil must be later than effectiveFrom',
+      'CONTINUITY_POLICY_TIME_INVALID'
+    );
+  }
   const policyDocument = parseClinicalContinuityPolicyDocument(
     rowValue(value, 'policyDocument', 'policy_document'),
-    { tenantId, facilityId, policySchemaVersion }
+    { tenantId, facilityId, policySchemaVersion, effectiveFrom, effectiveUntil }
   );
   const policyVersion = normalizeGovernanceVersion(
     rowValue(value, 'policyVersion', 'policy_version')
@@ -911,25 +958,50 @@ export function buildClinicalContinuityPolicySigningPayload(value) {
       'CONTINUITY_POLICY_CHECKSUM_MISMATCH'
     );
   }
-  const effectiveFrom = normalizedDate(
-    rowValue(value, 'effectiveFrom', 'effective_from'),
-    'effectiveFrom'
-  );
-  const effectiveUntil = normalizedDate(
-    rowValue(value, 'effectiveUntil', 'effective_until'),
-    'effectiveUntil',
-    { nullable: true }
-  );
-  if (effectiveUntil !== null && Date.parse(effectiveUntil) <= Date.parse(effectiveFrom)) {
+  let actionRegistryFields = {};
+  if (policySchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
+    const actionRegistrySchemaVersion = positiveInteger(
+      rowValue(value, 'actionRegistrySchemaVersion', 'action_registry_schema_version'),
+      'actionRegistrySchemaVersion',
+      2_147_483_647
+    );
+    const actionRegistryVersion = normalizeGovernanceVersion(
+      rowValue(value, 'actionRegistryVersion', 'action_registry_version')
+    );
+    const actionRegistryChecksum = normalizedPublicKeySha256(
+      rowValue(value, 'actionRegistryChecksum', 'action_registry_checksum'),
+      'actionRegistryChecksum'
+    );
+    if (
+      actionRegistrySchemaVersion !== policyDocument.actionRegistry.registrySchemaVersion ||
+      actionRegistryVersion !== policyDocument.actionRegistry.registryVersion ||
+      actionRegistryChecksum !== policyDocument.actionRegistry.registryChecksum
+    ) {
+      policyConflict(
+        'Action registry row binding does not match the signed policy document',
+        'CONTINUITY_ACTION_REGISTRY_ROW_MISMATCH'
+      );
+    }
+    actionRegistryFields = {
+      actionRegistryChecksum,
+      actionRegistrySchemaVersion,
+      actionRegistryVersion
+    };
+  } else if (
+    rowValue(value, 'actionRegistrySchemaVersion', 'action_registry_schema_version') != null ||
+    rowValue(value, 'actionRegistryVersion', 'action_registry_version') != null ||
+    rowValue(value, 'actionRegistryChecksum', 'action_registry_checksum') != null
+  ) {
     policyConflict(
-      'Policy effectiveUntil must be later than effectiveFrom',
-      'CONTINUITY_POLICY_TIME_INVALID'
+      'Policy schemas v1 and v2 cannot carry an action registry',
+      'CONTINUITY_ACTION_POLICY_V3_REQUIRED'
     );
   }
 
   const supersedesValue = rowValue(value, 'supersedesPolicyId', 'supersedes_policy_id');
   return {
     algorithm: SIGNATURE_ALGORITHM,
+    ...actionRegistryFields,
     audience: { tenantId, facilityId: String(facilityId) },
     canonicalization: CLINICAL_CONTINUITY_POLICY_CANONICALIZATION,
     currentPackSigningKeyId,
@@ -1065,6 +1137,11 @@ function assertApprovalEvidence(row, payload) {
     approvedAt < decidedAt ||
     !isPlainObject(receipt) ||
     receipt.policy_checksum !== payload.policyChecksum ||
+    (payload.policySchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION &&
+      (Number(receipt.action_registry_schema_version) !== payload.actionRegistrySchemaVersion ||
+        String(receipt.action_registry_version) !== payload.actionRegistryVersion ||
+        receipt.action_registry_checksum !== payload.actionRegistryChecksum ||
+        receipt.action_registry_decision_id !== 'C-D3')) ||
     receipt.countersignature_complete !== true
   ) {
     policyConflict(
@@ -1228,6 +1305,13 @@ function activePolicyFromRow(
 
   const policy = {
     id: String(row.id).toLowerCase(),
+    ...(payload.policySchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+      ? {
+          actionRegistryChecksum: payload.actionRegistryChecksum,
+          actionRegistrySchemaVersion: payload.actionRegistrySchemaVersion,
+          actionRegistryVersion: payload.actionRegistryVersion
+        }
+      : {}),
     tenantId: payload.audience.tenantId,
     facilityId: Number(payload.audience.facilityId),
     facilityDisplayName: row.facility_display_name,
@@ -1247,6 +1331,7 @@ function activePolicyFromRow(
     revokedKeyIds: payload.revokedKeyIds,
     effectiveFrom: payload.effectiveFrom,
     effectiveUntil: payload.effectiveUntil,
+    supersedesPolicyId: payload.supersedesPolicyId,
     minimumPolicyVersion: effectivePolicyFloor,
     minimumRevocationEpoch: effectiveRevocationFloor,
     trustedNow: now,
@@ -1424,6 +1509,110 @@ export async function loadActiveClinicalContinuityPolicyForFacilityTx({
     trustedNow: rows[0].trusted_now,
     clockTrusted: true
   });
+}
+
+function historicalActionPolicyFromRow(row, { capturedAt }) {
+  const payload = buildClinicalContinuityPolicySigningPayload(row);
+  if (payload.policySchemaVersion !== CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
+    policyConflict(
+      'Only policy-schema v3 can be evaluated as captured action authority',
+      'CONTINUITY_ACTION_POLICY_V3_REQUIRED'
+    );
+  }
+  if (!['active', 'retired'].includes(row.lifecycle_state)) {
+    policyConflict(
+      'Captured action policy was never active',
+      'CONTINUITY_ACTION_CAPTURE_POLICY_NOT_ACTIVE'
+    );
+  }
+  assertApprovalEvidence(row, payload);
+
+  const captured = normalizedDate(capturedAt, 'capturedAt');
+  if (
+    Date.parse(captured) < Date.parse(payload.effectiveFrom) ||
+    payload.effectiveUntil === null ||
+    Date.parse(captured) >= Date.parse(payload.effectiveUntil)
+  ) {
+    policyConflict(
+      'Captured action policy was outside its finite effective window',
+      'CONTINUITY_ACTION_CAPTURE_POLICY_NOT_EFFECTIVE'
+    );
+  }
+
+  const parsedKey = keyMetadata(row.policy_key_metadata, 'Policy signing key metadata');
+  if (
+    String(row.policy_key_algorithm || '').toLowerCase() !== 'ed25519' ||
+    parsedKey.metadata.purpose !== POLICY_KEY_PURPOSE ||
+    sha256Hex(parsedKey.publicKey) !== payload.policySigningPublicKeySha256 ||
+    !verifyCanonicalValue(
+      payload,
+      signatureBase64(row.policy_signature),
+      parsedKey.publicKey
+    )
+  ) {
+    policyConflict(
+      'Captured action policy signature or key binding is invalid',
+      'CONTINUITY_ACTION_CAPTURE_POLICY_INVALID'
+    );
+  }
+
+  let trustState = 'historical';
+  if (row.policy_key_status === 'compromised') {
+    trustState = 'compromised';
+  } else if (payload.revokedKeyIds.includes(payload.policySigningKeyId)) {
+    trustState = 'revoked';
+  } else if (!['active', 'retiring', 'retired'].includes(row.policy_key_status)) {
+    trustState = 'invalid';
+  }
+
+  return deepFreeze({
+    id: String(row.id).toLowerCase(),
+    tenantId: payload.audience.tenantId,
+    facilityId: Number(payload.audience.facilityId),
+    policyVersion: payload.policyVersion,
+    policySchemaVersion: payload.policySchemaVersion,
+    policyChecksum: payload.policyChecksum,
+    policySigningKeyId: payload.policySigningKeyId,
+    actionRegistryChecksum: payload.actionRegistryChecksum,
+    actionRegistrySchemaVersion: payload.actionRegistrySchemaVersion,
+    actionRegistryVersion: payload.actionRegistryVersion,
+    effectiveFrom: payload.effectiveFrom,
+    effectiveUntil: payload.effectiveUntil,
+    supersedesPolicyId: payload.supersedesPolicyId,
+    revocationEpoch: payload.revocationEpoch,
+    revokedKeyIds: payload.revokedKeyIds,
+    policyDocument: payload.policyDocument,
+    trustState
+  });
+}
+
+export async function loadHistoricalClinicalContinuityPolicyForActionTx({
+  tx,
+  tenantId,
+  facilityId,
+  policyId,
+  policyVersion,
+  capturedAt
+} = {}) {
+  const normalizedTenant = normalizedTenantId(tenantId);
+  const normalizedFacility = normalizedFacilityId(facilityId);
+  const normalizedPolicyId = normalizedUuid(policyId, 'policyId');
+  const normalizedPolicyVersion = normalizeGovernanceVersion(policyVersion);
+  await assertTenantScopeTx(tx, normalizedTenant, { requireRepeatableRead: true });
+  const rows = await tx.$queryRawUnsafe(
+    POLICY_SELECT_HISTORICAL_SQL,
+    normalizedTenant,
+    normalizedFacility,
+    normalizedPolicyId,
+    normalizedPolicyVersion
+  );
+  if (rows.length !== 1) {
+    policyConflict(
+      'Captured action policy is missing or ambiguous',
+      'CONTINUITY_ACTION_CAPTURE_POLICY_NOT_FOUND'
+    );
+  }
+  return historicalActionPolicyFromRow(rows[0], { capturedAt });
 }
 
 export async function loadActiveClinicalContinuityPoliciesForTenant(
