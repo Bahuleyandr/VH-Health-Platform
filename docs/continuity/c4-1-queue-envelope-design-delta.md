@@ -143,12 +143,18 @@ legacy-plaintext interpretation.
 | `app_version` | Running Staff semantic version plus build number supplied by the Staff adapter | The binary that captured the command |
 | `envelope_schema_version` | Core constant `1` for the C4 envelope | The closed envelope language |
 | `queue_schema_version` | SQLite schema constant `6` | The local persistence format |
+| `action_version` | Verified capture policy/action entry supplied by the future policy adapter | The exact action-contract generation |
+| `action_checksum` | Same verified action entry | The complete canonical action contract |
+| `action_schema_id` | Same verified action entry | The closed client payload validator selected at capture; retained as envelope evidence but not trusted as a server route or replay binding |
 | `action_schema_version` | Verified capture policy/action entry supplied by the future policy adapter | The schema used to validate the payload |
 | `action_schema_checksum` | Same verified action entry | The exact action schema bytes |
 | `policy_id` | Verified signed capture policy | The policy document used at capture |
 | `policy_version` | Verified signed capture policy | The monotonic capture policy version |
 | `policy_checksum` | Verified signed capture policy | The exact capture policy |
 | `policy_signing_key_id` | Verified signed capture policy | The signing authority used at capture |
+| `policy_effective_from` | Verified signed capture policy | The beginning of the exact authority window |
+| `policy_effective_until` | Verified signed capture policy | The finite end of the exact authority window |
+| `policy_supersedes_id` | Verified signed capture policy, explicit null when absent | The policy lineage asserted at capture |
 | `policy_revocation_epoch` | Verified signed capture policy | The revocation knowledge at capture |
 | `registry_version` | Verified signed action registry | The exact registry generation |
 | `registry_checksum` | Verified signed action registry | The exact registry contents |
@@ -210,8 +216,8 @@ approved handoff; changing the current login never rewrites the capture actor.
 | `captured_at` | Device wall clock when the immutable command snapshot is created | Local intent time |
 | `queued_at` | Device wall clock recorded by SQLite when the transaction commits | Durable-journal time |
 | `clock_evidence` | C2.2 readiness midpoint, server time, measured skew, uncertainty/tolerance, route kind, and observation time | Whether local timestamps were tolerable at capture/attempt |
-| `source_cache_version` | Optional verified C3.3 manifest/pack version supplied by the caller | The cached source that informed the capture |
-| `source_cache_time` | Optional signed source generation/recorded time | Freshness of the source used |
+| `cached_sources` | Canonically sorted map of signed action-contract source IDs to the exact RFC 3339 source timestamps observed by the typed workflow | The complete source-freshness proof required by the action, including `patient_identity` for the two currently capture-ready draft actions |
+| `source_cache_version` | Optional verified C3.3 manifest/pack version supplied by the caller | The C3.3 cache generation that supplied one or more `cached_sources`; it is provenance, not signed action authority |
 | `base_revision` | Optional authoritative resource revision supplied by the workflow | Optimistic-concurrency base |
 | `base_etag` | Optional exact ETag supplied by the workflow | HTTP/resource concurrency base |
 | `expires_at` | Signed action policy's capture/replay horizon | The latest automatic-attempt time |
@@ -229,6 +235,52 @@ source revision fails closed before network.
 
 Server `received_at` and authoritative `recorded_at` are not fabricated by the
 client. They belong to the later server receipt/effect transaction in C5.1.
+
+### 3.4 Exact C4.2 replay projection
+
+The C4.1 envelope stores every value consumed by the in-flight C4.2
+middleware, but it does not copy C4.2's server binding registry or persist a
+route. After both slices are merged and C4.3 supplies verified policy capture,
+the prepared sender projects the immutable fields into this exact wire
+contract:
+
+| Stored field | Replay header |
+| --- | --- |
+| `action_id` | `X-VH-Continuity-Action-Id` |
+| `facility_id` | `X-VH-Continuity-Facility-Id` |
+| `captured_at` | `X-VH-Continuity-Captured-At` |
+| `capture_session_id` | `X-VH-Continuity-Capture-Session-Id` |
+| `cached_sources` | `X-VH-Continuity-Cached-Sources`, serialized in sorted `source_id=timestamp` order |
+| `app_version` | `X-VH-Continuity-Client-App-Version` |
+| `action_version` | `X-VH-Continuity-Action-Version` |
+| `action_checksum` | `X-VH-Continuity-Action-Checksum` |
+| `action_schema_version` | `X-VH-Continuity-Action-Schema-Version` |
+| `action_schema_checksum` | `X-VH-Continuity-Action-Schema-Checksum` |
+| `policy_id` | `X-VH-Continuity-Policy-Id` |
+| `policy_version` | `X-VH-Continuity-Policy-Version` |
+| `policy_checksum` | `X-VH-Continuity-Policy-Checksum` |
+| `policy_signing_key_id` | `X-VH-Continuity-Policy-Signing-Key-Id` |
+| `policy_effective_from` | `X-VH-Continuity-Policy-Effective-From` |
+| `policy_effective_until` | `X-VH-Continuity-Policy-Effective-Until` |
+| `policy_supersedes_id` | `X-VH-Continuity-Policy-Supersedes-Id`, encoded as `none` when null |
+| `policy_revocation_epoch` | `X-VH-Continuity-Revocation-Epoch` |
+| `registry_version` | `X-VH-Continuity-Registry-Version` |
+| `registry_checksum` | `X-VH-Continuity-Registry-Checksum` |
+| `idempotency_key` | Standard `Idempotency-Key` |
+
+C4.2 derives the replay actor, role/capabilities, tenant, and current device
+posture from the authenticated request. C4.1 never substitutes stored
+capture-time claims for those current server-owned facts. The stored
+`device_posture`, capture actor/role, tenant, facility, and patient/workflow
+identity remain immutable fingerprint and audit evidence; the request body and
+authenticated context must satisfy C4.2 independently.
+
+`action_schema_id` and `minimum_app_version` are deliberately not emitted as
+authority headers. C4.2 resolves the schema ID and current per-posture minimum
+version from its verified signed registry, then compares the pinned
+version/checksum claims and the actual client version. Any absent envelope
+value, malformed header projection, authority mismatch, stale required source,
+or identity mismatch fails closed before the authoritative handler.
 
 ## 4. Pre-attempt persistence and online/offline unification
 
@@ -602,6 +654,8 @@ C4.1 adds focused tests for:
 
 - every envelope field, strict closed parsing, canonical hash, and fingerprint
   stability;
+- the exact C4.2 replay-header projection, including all 14 pinned authority
+  claims, deterministic cached-source serialization, and absent-claim refusal;
 - pre-attempt disk failure causing zero HTTP;
 - online first attempt and offline retry reusing one identity;
 - lost 2xx, process death, duplicate request, expired lease, and app restart;
