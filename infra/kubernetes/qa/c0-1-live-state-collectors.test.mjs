@@ -31,6 +31,17 @@ function bashPath(file) {
   return file.replaceAll('\\', '/');
 }
 
+function verifySha256ManifestRow(line, outputDirectory) {
+  const match = line.match(/^([0-9a-f]{64}) [ *]\.\/(.+)$/);
+  assert.ok(match, `malformed SHA256SUMS row: ${line}`);
+  const actual = crypto
+    .createHash('sha256')
+    .update(fs.readFileSync(path.join(outputDirectory, match[2])))
+    .digest('hex');
+  assert.equal(actual, match[1], `${match[2]} changed after checksumming`);
+  return match;
+}
+
 test('capture parser preserves output and exit status', () => {
   assert.deepEqual(
     parseCapture(
@@ -182,16 +193,27 @@ test('fixture mode runs without kubectl and writes separate full/redacted packs'
   ]) {
     assert.ok(fs.existsSync(path.join(outputDirectory, name)), `${name} missing`);
   }
-  for (const line of read(path.join(outputDirectory, 'SHA256SUMS'))
+  const manifestRows = read(path.join(outputDirectory, 'SHA256SUMS'))
     .trim()
-    .split(/\r?\n/)) {
-    const match = line.match(/^([0-9a-f]{64})  \.\/(.+)$/);
-    assert.ok(match, `malformed SHA256SUMS row: ${line}`);
-    const actual = crypto
-      .createHash('sha256')
-      .update(fs.readFileSync(path.join(outputDirectory, match[2])))
-      .digest('hex');
-    assert.equal(actual, match[1], `${match[2]} changed after checksumming`);
+    .split(/\r?\n/);
+  for (const line of manifestRows) {
+    assert.match(
+      line,
+      /^[0-9a-f]{64}  \.\//,
+      `generated SHA256SUMS row is not text mode: ${line}`,
+    );
+    verifySha256ManifestRow(line, outputDirectory);
+  }
+
+  const [, firstHash, firstPath] = verifySha256ManifestRow(
+    manifestRows[0],
+    outputDirectory,
+  );
+  for (const separator of [' ', '*']) {
+    verifySha256ManifestRow(
+      `${firstHash} ${separator}./${firstPath}`,
+      outputDirectory,
+    );
   }
   assert.doesNotMatch(
     read(path.join(outputDirectory, 'redacted-summary.md')),
@@ -219,6 +241,7 @@ test('collectors are syntactically valid and C0.1 calls the C1.2 prior art', () 
 
   const source = read(collector);
   assert.match(source, /c1-2-ha-evidence\.sh/);
+  assert.match(source, /sha256sum --text -- "\$\{evidence_file\}"/);
   assert.match(source, /ABSOLUTE SAFETY RULES/);
   assert.match(source, /assert_safe_command/);
   assert.match(source, /cloudflare_tunnel_api_probe/);
