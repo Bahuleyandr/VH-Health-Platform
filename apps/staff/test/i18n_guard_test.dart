@@ -31,6 +31,22 @@ void main() {
     expect(c0aKeys, contains('offline_sync.family.authoritative_note'));
     expect(c0aKeys, contains('offline_sync.field.paper_form_set'));
     expect(c0aKeys, contains('offline_sync.discard.vitals_body'));
+    const connectionStateKeys = {
+      'offline_sync.transport.unknown',
+      'offline_sync.transport.available',
+      'offline_sync.transport.unavailable',
+      'offline_sync.continuity.signed_out',
+      'offline_sync.continuity.checking',
+      'offline_sync.continuity.not_ready',
+      'offline_sync.continuity.clock_uncertain',
+      'offline_sync.continuity.policy_incompatible',
+      'offline_sync.continuity.ready_public',
+      'offline_sync.continuity.ready_internal',
+      'offline_sync.continuity.rate_limited',
+      'offline_sync.continuity.syncing',
+      'offline_sync.continuity.review_required',
+    };
+    expect(c0aKeys, containsAll(connectionStateKeys));
     for (final locale in const ['hi', 'ta', 'te', 'ml']) {
       final missing = c0aKeys.difference(localeKeys[locale]!);
       expect(
@@ -102,6 +118,16 @@ void main() {
       expect(strings.offlineSyncOfflineQueued(937), contains('937'));
       expect(strings.offlineSyncSyncing(937), contains('937'));
       expect(strings.offlineSyncBlockerEarlierItem(937), contains('937'));
+      for (final key in connectionStateKeys) {
+        expect(strings.lookup(key), isNot(key));
+        if (locale != 'en') {
+          expect(
+            strings.lookup(key),
+            isNot(AppStrings.forLocale(const Locale('en')).lookup(key)),
+            reason: '$locale must not hide a missing $key behind English',
+          );
+        }
+      }
       final attestation = strings.offlineSyncAttestationRecorded(
         '__ACTOR__',
         '__TIME__',

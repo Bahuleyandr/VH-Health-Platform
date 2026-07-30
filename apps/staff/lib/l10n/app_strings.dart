@@ -153,6 +153,32 @@ class AppStrings {
   String get offlineSyncEmpty => _t('offline_sync.empty');
   String get offlineSyncStatusOnline => _t('offline_sync.status.online');
   String get offlineSyncStatusOffline => _t('offline_sync.status.offline');
+  String get offlineSyncTransportUnknown =>
+      _t('offline_sync.transport.unknown');
+  String get offlineSyncTransportAvailable =>
+      _t('offline_sync.transport.available');
+  String get offlineSyncTransportUnavailable =>
+      _t('offline_sync.transport.unavailable');
+  String get offlineSyncContinuitySignedOut =>
+      _t('offline_sync.continuity.signed_out');
+  String get offlineSyncContinuityChecking =>
+      _t('offline_sync.continuity.checking');
+  String get offlineSyncContinuityNotReady =>
+      _t('offline_sync.continuity.not_ready');
+  String get offlineSyncContinuityClockUncertain =>
+      _t('offline_sync.continuity.clock_uncertain');
+  String get offlineSyncContinuityPolicyIncompatible =>
+      _t('offline_sync.continuity.policy_incompatible');
+  String get offlineSyncContinuityReadyPublic =>
+      _t('offline_sync.continuity.ready_public');
+  String get offlineSyncContinuityReadyInternal =>
+      _t('offline_sync.continuity.ready_internal');
+  String get offlineSyncContinuityRateLimited =>
+      _t('offline_sync.continuity.rate_limited');
+  String get offlineSyncContinuitySyncing =>
+      _t('offline_sync.continuity.syncing');
+  String get offlineSyncContinuityReviewRequired =>
+      _t('offline_sync.continuity.review_required');
   String get offlineSyncFieldFamily => _t('offline_sync.field.family');
   String get offlineSyncFieldContext => _t('offline_sync.field.context');
   String get offlineSyncFieldCaptured => _t('offline_sync.field.captured');
@@ -3545,6 +3571,23 @@ class AppStrings {
       'offline_sync.empty': 'No unresolved offline work for this user',
       'offline_sync.status.online': 'Online',
       'offline_sync.status.offline': 'Offline',
+      'offline_sync.transport.unknown': 'Transport — unknown',
+      'offline_sync.transport.available': 'Transport — available',
+      'offline_sync.transport.unavailable': 'Transport — unavailable',
+      'offline_sync.continuity.signed_out': 'Continuity — signed out',
+      'offline_sync.continuity.checking': 'Continuity — checking',
+      'offline_sync.continuity.not_ready': 'Continuity — not ready',
+      'offline_sync.continuity.clock_uncertain':
+          'Continuity — device clock uncertain',
+      'offline_sync.continuity.policy_incompatible':
+          'Continuity — policy incompatible',
+      'offline_sync.continuity.ready_public':
+          'Continuity — ready via public route',
+      'offline_sync.continuity.ready_internal':
+          'Continuity — ready via internal route',
+      'offline_sync.continuity.rate_limited': 'Continuity — rate limited',
+      'offline_sync.continuity.syncing': 'Continuity — syncing',
+      'offline_sync.continuity.review_required': 'Continuity — review required',
       'offline_sync.field.family': 'Action',
       'offline_sync.field.context': 'Context',
       'offline_sync.field.captured': 'Captured',
@@ -9813,6 +9856,22 @@ class AppStrings {
           'इस उपयोगकर्ता के लिए कोई अनसुलझा ऑफ़लाइन कार्य नहीं है',
       'offline_sync.status.online': 'ऑनलाइन',
       'offline_sync.status.offline': 'ऑफ़लाइन',
+      'offline_sync.transport.unknown': 'ट्रांसपोर्ट — अज्ञात',
+      'offline_sync.transport.available': 'ट्रांसपोर्ट — उपलब्ध',
+      'offline_sync.transport.unavailable': 'ट्रांसपोर्ट — अनुपलब्ध',
+      'offline_sync.continuity.signed_out': 'निरंतरता — साइन आउट',
+      'offline_sync.continuity.checking': 'निरंतरता — जाँच जारी',
+      'offline_sync.continuity.not_ready': 'निरंतरता — तैयार नहीं',
+      'offline_sync.continuity.clock_uncertain':
+          'निरंतरता — डिवाइस की घड़ी अनिश्चित',
+      'offline_sync.continuity.policy_incompatible': 'निरंतरता — नीति असंगत',
+      'offline_sync.continuity.ready_public':
+          'निरंतरता — सार्वजनिक मार्ग से तैयार',
+      'offline_sync.continuity.ready_internal':
+          'निरंतरता — आंतरिक मार्ग से तैयार',
+      'offline_sync.continuity.rate_limited': 'निरंतरता — दर सीमित',
+      'offline_sync.continuity.syncing': 'निरंतरता — सिंक जारी',
+      'offline_sync.continuity.review_required': 'निरंतरता — समीक्षा आवश्यक',
       'offline_sync.field.family': 'कार्रवाई',
       'offline_sync.field.context': 'संदर्भ',
       'offline_sync.field.captured': 'दर्ज करने का समय',
@@ -15971,6 +16030,23 @@ class AppStrings {
           'இந்தப் பயனருக்கு தீர்க்கப்படாத ஆஃப்லைன் வேலை எதுவும் இல்லை',
       'offline_sync.status.online': 'ஆன்லைன்',
       'offline_sync.status.offline': 'ஆஃப்லைன்',
+      'offline_sync.transport.unknown': 'போக்குவரத்து — தெரியவில்லை',
+      'offline_sync.transport.available': 'போக்குவரத்து — கிடைக்கிறது',
+      'offline_sync.transport.unavailable': 'போக்குவரத்து — கிடைக்கவில்லை',
+      'offline_sync.continuity.signed_out': 'தொடர்ச்சி — வெளியேறியுள்ளார்',
+      'offline_sync.continuity.checking': 'தொடர்ச்சி — சரிபார்க்கிறது',
+      'offline_sync.continuity.not_ready': 'தொடர்ச்சி — தயாரில்லை',
+      'offline_sync.continuity.clock_uncertain':
+          'தொடர்ச்சி — சாதன நேரம் உறுதியில்லை',
+      'offline_sync.continuity.policy_incompatible':
+          'தொடர்ச்சி — கொள்கை பொருந்தவில்லை',
+      'offline_sync.continuity.ready_public':
+          'தொடர்ச்சி — பொது வழி மூலம் தயார்',
+      'offline_sync.continuity.ready_internal':
+          'தொடர்ச்சி — உள் வழி மூலம் தயார்',
+      'offline_sync.continuity.rate_limited': 'தொடர்ச்சி — விகித வரம்பு',
+      'offline_sync.continuity.syncing': 'தொடர்ச்சி — ஒத்திசைக்கிறது',
+      'offline_sync.continuity.review_required': 'தொடர்ச்சி — ஆய்வு தேவை',
       'offline_sync.field.family': 'செயல்',
       'offline_sync.field.context': 'சூழல்',
       'offline_sync.field.captured': 'பதிவு செய்த நேரம்',
@@ -22832,6 +22908,23 @@ class AppStrings {
       'offline_sync.empty': 'ఈ వినియోగదారుడికి పరిష్కరించని ఆఫ్‌లైన్ పని లేదు',
       'offline_sync.status.online': 'ఆన్‌లైన్',
       'offline_sync.status.offline': 'ఆఫ్‌లైన్',
+      'offline_sync.transport.unknown': 'రవాణా — తెలియదు',
+      'offline_sync.transport.available': 'రవాణా — అందుబాటులో ఉంది',
+      'offline_sync.transport.unavailable': 'రవాణా — అందుబాటులో లేదు',
+      'offline_sync.continuity.signed_out': 'కొనసాగింపు — సైన్ అవుట్',
+      'offline_sync.continuity.checking': 'కొనసాగింపు — తనిఖీ చేస్తోంది',
+      'offline_sync.continuity.not_ready': 'కొనసాగింపు — సిద్ధంగా లేదు',
+      'offline_sync.continuity.clock_uncertain':
+          'కొనసాగింపు — పరికర గడియారం అనిశ్చితం',
+      'offline_sync.continuity.policy_incompatible':
+          'కొనసాగింపు — విధానం అనుకూలం కాదు',
+      'offline_sync.continuity.ready_public':
+          'కొనసాగింపు — పబ్లిక్ మార్గం ద్వారా సిద్ధం',
+      'offline_sync.continuity.ready_internal':
+          'కొనసాగింపు — అంతర్గత మార్గం ద్వారా సిద్ధం',
+      'offline_sync.continuity.rate_limited': 'కొనసాగింపు — రేటు పరిమితం',
+      'offline_sync.continuity.syncing': 'కొనసాగింపు — సింక్ అవుతోంది',
+      'offline_sync.continuity.review_required': 'కొనసాగింపు — సమీక్ష అవసరం',
       'offline_sync.field.family': 'చర్య',
       'offline_sync.field.context': 'సందర్భం',
       'offline_sync.field.captured': 'నమోదైన సమయం',
@@ -29622,6 +29715,23 @@ class AppStrings {
       'offline_sync.empty': 'ഈ ഉപയോക്താവിന് പരിഹരിക്കാത്ത ഓഫ്‌ലൈൻ ജോലിയില്ല',
       'offline_sync.status.online': 'ഓൺലൈൻ',
       'offline_sync.status.offline': 'ഓഫ്‌ലൈൻ',
+      'offline_sync.transport.unknown': 'ഗതാഗതം — അജ്ഞാതം',
+      'offline_sync.transport.available': 'ഗതാഗതം — ലഭ്യമാണ്',
+      'offline_sync.transport.unavailable': 'ഗതാഗതം — ലഭ്യമല്ല',
+      'offline_sync.continuity.signed_out': 'തുടർച്ച — സൈൻ ഔട്ട് ചെയ്തു',
+      'offline_sync.continuity.checking': 'തുടർച്ച — പരിശോധിക്കുന്നു',
+      'offline_sync.continuity.not_ready': 'തുടർച്ച — തയ്യാറല്ല',
+      'offline_sync.continuity.clock_uncertain':
+          'തുടർച്ച — ഉപകരണ സമയം ഉറപ്പില്ല',
+      'offline_sync.continuity.policy_incompatible':
+          'തുടർച്ച — നയം പൊരുത്തപ്പെടുന്നില്ല',
+      'offline_sync.continuity.ready_public':
+          'തുടർച്ച — പൊതു റൂട്ടിലൂടെ തയ്യാർ',
+      'offline_sync.continuity.ready_internal':
+          'തുടർച്ച — ആന്തരിക റൂട്ടിലൂടെ തയ്യാർ',
+      'offline_sync.continuity.rate_limited': 'തുടർച്ച — നിരക്ക് പരിമിതം',
+      'offline_sync.continuity.syncing': 'തുടർച്ച — സിങ്ക് ചെയ്യുന്നു',
+      'offline_sync.continuity.review_required': 'തുടർച്ച — അവലോകനം ആവശ്യമാണ്',
       'offline_sync.field.family': 'നടപടി',
       'offline_sync.field.context': 'സന്ദർഭം',
       'offline_sync.field.captured': 'രേഖപ്പെടുത്തിയ സമയം',

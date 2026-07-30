@@ -1,0 +1,25 @@
+// Generated C2.2 split-horizon configuration. Do not edit generated output.
+// Include this only after C-D13 and the activation runbook are approved.
+
+acl "vhhealth-managed-clinical" {
+{{CLINICAL_CIDRS}}
+};
+
+acl "vhhealth-known-nonclinical" {
+{{NONCLINICAL_CIDRS}}
+};
+
+view "vhhealth-managed-clinical" {
+  match-clients { "vhhealth-managed-clinical"; };
+  recursion yes;
+{{ZONE_DECLARATIONS}}
+};
+
+// All sources outside the managed-clinical ACL retain the resolver's normal
+// public recursion/forwarding path. The named non-clinical ACL is emitted for
+// auditability; this catch-all also protects newly added guest/patient ranges
+// from accidentally inheriting the private answer.
+view "vhhealth-public" {
+  match-clients { ! "vhhealth-managed-clinical"; any; };
+  recursion yes;
+};

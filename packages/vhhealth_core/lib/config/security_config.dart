@@ -1,4 +1,4 @@
-// lib/config/security_config.dart
+import 'dart:convert';
 
 /// Security configuration shared by all VHHealth apps.
 ///
@@ -73,11 +73,58 @@ class SecurityConfig {
   /// production (pinning is disabled there). In production, an empty list
   /// is treated as a configuration error — [verifyOrWarn] throws.
   static List<String> get pinnedCertFingerprints {
-    if (_rawFingerprints.isEmpty) return const <String>[];
-    return _rawFingerprints
+    return _deduplicate(_rawFingerprints);
+  }
+
+  /// The same undifferentiated flat pin set after strict shape validation.
+  ///
+  /// Pins intentionally have no host or route role in C2.2. Production
+  /// requires at least two distinct values so current/next rotation overlap
+  /// cannot be omitted accidentally.
+  static List<String> get validatedPinnedCertFingerprints =>
+      validatePinSet(_rawFingerprints, requireOverlap: enableCertPinning);
+
+  static List<String> validatePinSet(
+    String raw, {
+    required bool requireOverlap,
+  }) {
+    final hashes = _deduplicate(raw);
+    for (final hash in hashes) {
+      if (!hash.startsWith('sha256/')) {
+        throw StateError(
+          'SecurityConfig: invalid pinned fingerprint. '
+          'Expected format "sha256/<base64 SHA-256>".',
+        );
+      }
+      final encoded = hash.substring('sha256/'.length);
+      try {
+        final decoded = base64.decode(encoded);
+        if (decoded.length != 32 || base64.encode(decoded) != encoded) {
+          throw const FormatException();
+        }
+      } on FormatException {
+        throw StateError(
+          'SecurityConfig: invalid pinned fingerprint. '
+          'Expected a canonical base64-encoded SHA-256 value.',
+        );
+      }
+    }
+    if (requireOverlap && hashes.length < 2) {
+      throw StateError(
+        'SecurityConfig: production requires at least two distinct '
+        'CERT_PIN_HASHES values for current/next rotation overlap.',
+      );
+    }
+    return hashes;
+  }
+
+  static List<String> _deduplicate(String raw) {
+    if (raw.trim().isEmpty) return const <String>[];
+    final seen = <String>{};
+    return raw
         .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty && seen.add(value))
         .toList(growable: false);
   }
 
@@ -87,39 +134,11 @@ class SecurityConfig {
   /// is enabled but no fingerprints are configured — this intentionally
   /// blocks launch until the build is configured with `CERT_PIN_HASHES`.
   ///
-  /// In non-production builds, logs a warning and continues so developer
-  /// builds keep working without the define.
+  /// In non-production builds, returns without requiring pin configuration so
+  /// developer builds keep working without the define.
   static void verifyOrWarn() {
     if (!enableCertPinning) return;
 
-    final hashes = pinnedCertFingerprints;
-    if (hashes.isEmpty) {
-      const msg =
-          'SecurityConfig: Certificate pinning is enabled but no hashes '
-          'were provided via --dart-define=CERT_PIN_HASHES. '
-          'Populate at least two (current + next) SPKI SHA-256 hashes '
-          'before shipping a production build.';
-      throw StateError(msg);
-    }
-
-    // Warn if only one hash — rotation requires overlap.
-    if (hashes.length < 2) {
-      // ignore: avoid_print
-      print(
-        'WARNING: SecurityConfig has only one pinned certificate fingerprint. '
-        'Add a second (backup / next-rotation) hash to avoid a hard lockout '
-        'when the current certificate expires.',
-      );
-    }
-
-    // Basic shape validation — reject obviously malformed entries.
-    for (final hash in hashes) {
-      if (!hash.startsWith('sha256/') || hash.length < 20) {
-        throw StateError(
-          'SecurityConfig: invalid pinned fingerprint "$hash". '
-          'Expected format "sha256/<base64 hash>".',
-        );
-      }
-    }
+    validatePinSet(_rawFingerprints, requireOverlap: true);
   }
 }

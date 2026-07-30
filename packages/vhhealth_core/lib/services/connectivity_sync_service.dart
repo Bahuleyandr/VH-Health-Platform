@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/client_readiness.dart';
 import '../models/offline_write_entry.dart';
 import '../utils/log_sanitizer.dart';
 import 'auth_service.dart';
+import 'client_readiness_service.dart';
 import 'http_client.dart';
 import 'offline_queue.dart';
 import 'offline_write_containment.dart';
@@ -42,8 +44,29 @@ class ConnectivitySyncService extends ChangeNotifier {
   bool _isOnline = true;
   bool get isOnline => _isOnline;
 
+  ClientTransportState _transportState = ClientTransportState.unknown;
+  ClientTransportState get transportState => _transportState;
+
+  ContinuityLifecycleState _continuityLifecycleState =
+      ContinuityLifecycleState.notReady;
+  ContinuityLifecycleState get continuityLifecycleState =>
+      _continuityLifecycleState;
+
+  ClientReadinessRouteKind? _readinessRouteKind;
+  ClientReadinessRouteKind? get readinessRouteKind => _readinessRouteKind;
+
   bool _isSyncing = false;
   bool get isSyncing => _isSyncing;
+
+  bool _isEvaluatingReadiness = false;
+  bool get isEvaluatingReadiness => _isEvaluatingReadiness;
+
+  bool _hasAuthenticatedSession = false;
+  bool get canAttemptSync =>
+      _transportState == ClientTransportState.available &&
+      _hasAuthenticatedSession &&
+      !_isSyncing &&
+      !_isEvaluatingReadiness;
 
   int _pendingCount = 0;
   int get pendingCount => _pendingCount;
@@ -57,6 +80,11 @@ class ConnectivitySyncService extends ChangeNotifier {
   int get unresolvedCount => _pendingCount + _conflictCount + _needsReviewCount;
 
   StreamSubscription<List<ConnectivityResult>>? _subscription;
+  Timer? _readinessDebounceTimer;
+  Duration _readinessDebounce = const Duration(milliseconds: 750);
+  ClientReadinessProbe _readinessProbe =
+      ClientReadinessService.instance.ensureReady;
+  bool _wakeQueued = false;
   int _sessionBarrierDepth = 0;
   int _activeEnqueues = 0;
   Completer<void>? _quiescent;
@@ -65,26 +93,16 @@ class ConnectivitySyncService extends ChangeNotifier {
 
   void startListening() {
     _subscription ??= Connectivity().onConnectivityChanged.listen((results) {
-      final wasOffline = !_isOnline;
       final newOnline = results.any((r) => r != ConnectivityResult.none);
       if (kDebugMode) {
         debugPrint('ConnectivitySync: online=$newOnline results=$results');
       }
-      if (newOnline != _isOnline) {
-        _isOnline = newOnline;
-        notifyListeners();
-      }
-      if (_isOnline && wasOffline && !isSessionBarrierActive) {
-        syncPending();
-      }
+      _handleTransportAvailability(newOnline);
     });
 
     Connectivity().checkConnectivity().then((results) {
       final newOnline = results.any((r) => r != ConnectivityResult.none);
-      if (newOnline != _isOnline) {
-        _isOnline = newOnline;
-        notifyListeners();
-      }
+      _handleTransportAvailability(newOnline);
     });
     refreshCounts();
   }
@@ -92,6 +110,31 @@ class ConnectivitySyncService extends ChangeNotifier {
   void stopListening() {
     _subscription?.cancel();
     _subscription = null;
+    _readinessDebounceTimer?.cancel();
+    _readinessDebounceTimer = null;
+  }
+
+  void _handleTransportAvailability(bool available) {
+    final nextTransport = available
+        ? ClientTransportState.available
+        : ClientTransportState.unavailable;
+    final changed = _transportState != nextTransport || _isOnline != available;
+    _transportState = nextTransport;
+    _isOnline = available;
+
+    _readinessDebounceTimer?.cancel();
+    _readinessDebounceTimer = null;
+    if (!available) {
+      ClientReadinessService.instance.closeForTransportLoss();
+      _readinessRouteKind = null;
+      _continuityLifecycleState = ContinuityLifecycleState.notReady;
+    } else if (!isSessionBarrierActive) {
+      _readinessDebounceTimer = Timer(_readinessDebounce, () {
+        _readinessDebounceTimer = null;
+        syncPending();
+      });
+    }
+    if (changed) notifyListeners();
   }
 
   /// Closes admission synchronously, then waits for an enqueue or drain that
@@ -230,13 +273,61 @@ class ConnectivitySyncService extends ChangeNotifier {
   }
 
   Future<void> syncPending() async {
-    if (_isSyncing || isSessionBarrierActive || !_isOnline) return;
-    _isSyncing = true;
-    notifyListeners();
+    if (isSessionBarrierActive) return;
+    if (_isSyncing || _isEvaluatingReadiness) {
+      _wakeQueued = true;
+      return;
+    }
+    _isEvaluatingReadiness = true;
+    var enteredDrain = false;
 
     try {
       final ownerAtStart = await AuthService.getStaffId();
-      if (ownerAtStart == null || isSessionBarrierActive) return;
+      final wasAuthenticated = _hasAuthenticatedSession;
+      _hasAuthenticatedSession =
+          ownerAtStart != null && ownerAtStart.isNotEmpty;
+      if (ownerAtStart == null || ownerAtStart.isEmpty) {
+        _continuityLifecycleState = ContinuityLifecycleState.signedOut;
+        if (wasAuthenticated != _hasAuthenticatedSession) notifyListeners();
+        return;
+      }
+      if (_transportState != ClientTransportState.available) return;
+
+      _continuityLifecycleState = ContinuityLifecycleState.checking;
+      notifyListeners();
+      ClientReadinessOutcome readiness;
+      try {
+        readiness = await _readinessProbe();
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint(
+            'ConnectivitySync: readiness failed: ${logSafeError(error)}',
+          );
+        }
+        readiness = ClientReadinessOutcome.notReady;
+      }
+      _readinessRouteKind = readiness.routeKind;
+      _continuityLifecycleState = readiness.lifecycle;
+      notifyListeners();
+      if (!readiness.ready) return;
+
+      if (isSessionBarrierActive ||
+          _transportState != ClientTransportState.available ||
+          await AuthService.getStaffId() != ownerAtStart) {
+        _readinessRouteKind = null;
+        _continuityLifecycleState = isSessionBarrierActive
+            ? ContinuityLifecycleState.notReady
+            : ContinuityLifecycleState.signedOut;
+        notifyListeners();
+        return;
+      }
+
+      _isEvaluatingReadiness = false;
+      _isSyncing = true;
+      enteredDrain = true;
+      _continuityLifecycleState = ContinuityLifecycleState.syncing;
+      notifyListeners();
+
       final entries = await OfflineQueue.unresolvedEntriesForCurrentOwner();
       final transientlyBlockedPartitions = <String>{};
       if (kDebugMode && entries.isNotEmpty) {
@@ -334,21 +425,73 @@ class ConnectivitySyncService extends ChangeNotifier {
         }
       }
     } finally {
+      _isEvaluatingReadiness = false;
       _isSyncing = false;
       try {
-        await refreshCounts();
+        if (enteredDrain) await refreshCounts();
+        if (enteredDrain && _needsReviewCount > 0) {
+          _continuityLifecycleState = ContinuityLifecycleState.reviewRequired;
+        } else if (enteredDrain &&
+            _readinessRouteKind == ClientReadinessRouteKind.internal) {
+          _continuityLifecycleState = ContinuityLifecycleState.readyInternal;
+        } else if (enteredDrain &&
+            _readinessRouteKind == ClientReadinessRouteKind.public) {
+          _continuityLifecycleState = ContinuityLifecycleState.readyPublic;
+        }
         notifyListeners();
       } finally {
         _signalQuiescentIfReady();
+        _runCoalescedWake();
       }
     }
   }
 
+  void _runCoalescedWake() {
+    if (!_wakeQueued) return;
+    _wakeQueued = false;
+    if (isSessionBarrierActive) return;
+    scheduleMicrotask(syncPending);
+  }
+
   @visibleForTesting
-  Future<void> resetForTesting() async {
+  void setTransportAvailableForTesting(bool available) {
+    _handleTransportAvailability(available);
+  }
+
+  @visibleForTesting
+  void setConnectionStateForTesting({
+    required ClientTransportState transport,
+    required ContinuityLifecycleState continuity,
+    bool authenticated = true,
+    ClientReadinessRouteKind? routeKind,
+  }) {
+    _transportState = transport;
+    _isOnline = transport == ClientTransportState.available;
+    _continuityLifecycleState = continuity;
+    _hasAuthenticatedSession = authenticated;
+    _readinessRouteKind = routeKind;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  Future<void> resetForTesting({
+    ClientReadinessProbe? readinessProbe,
+    Duration readinessDebounce = const Duration(milliseconds: 750),
+  }) async {
     stopListening();
     _isOnline = true;
+    _transportState = ClientTransportState.available;
+    _continuityLifecycleState = ContinuityLifecycleState.notReady;
+    _readinessRouteKind = null;
     _isSyncing = false;
+    _isEvaluatingReadiness = false;
+    _hasAuthenticatedSession = false;
+    _wakeQueued = false;
+    _readinessDebounce = readinessDebounce;
+    _readinessProbe =
+        readinessProbe ??
+        () async => ClientReadinessOutcome.alwaysReadyForTesting;
+    ClientReadinessService.instance.resetForTesting();
     _pendingCount = 0;
     _conflictCount = 0;
     _needsReviewCount = 0;

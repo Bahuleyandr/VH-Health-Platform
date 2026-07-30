@@ -152,7 +152,8 @@ export const getRateLimiter = (profileName = 'default') => {
     ? profile.skip
     : (req) => {
         if (isRateLimitingDisabled()) return true;
-        if (isTestEnv) return true;
+        if (isTestEnv && profile.enforceInTest !== true) return true;
+        if (profile.enforceOnHealthRoutes === true) return false;
         const p = req.path || '';
         return (
           p === '/' ||

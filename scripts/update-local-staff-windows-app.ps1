@@ -16,6 +16,8 @@ param(
   [string]$SentryDsn = $env:VH_SENTRY_DSN,
   [string]$SentryEnvironment = $env:VH_SENTRY_ENVIRONMENT,
   [string]$SentryRelease = $env:VH_SENTRY_RELEASE,
+  [string]$CertPinHashes = $env:STAFF_CERT_PIN_HASHES,
+  [string]$ClientReadinessMaxClockSkewSeconds = $env:CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS,
   [string]$InstallDir = "D:\Dev\Tools\VH Health Staff",
   [switch]$UseDalekdefenderApiKey,
   [string]$DalekHost = "dalekdefender",
@@ -39,6 +41,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $staffDir = Join-Path $repoRoot "apps\staff"
 $releaseDir = Join-Path $staffDir "build\windows\x64\runner\Release"
 $defaultStableBaseUrl = "https://api.vhhealth.app/api/v1"
+$pinValidatorPath = Join-Path $PSScriptRoot "validate-cert-pin-set.mjs"
 $defaultInstallDir = [System.IO.Path]::GetFullPath(
   "D:\Dev\Tools\VH Health Staff"
 )
@@ -50,6 +53,9 @@ if (-not $AllowCustomInstallDir.IsPresent -and $installFullPath -ne $defaultInst
 
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
   $BaseUrl = $defaultStableBaseUrl
+}
+if ([string]::IsNullOrWhiteSpace($CertPinHashes)) {
+  $CertPinHashes = $env:CERT_PIN_HASHES
 }
 
 function Get-KubernetesSecretValueViaSsh {
@@ -190,6 +196,15 @@ $flutterCommand = Resolve-DevTool `
   -Name "flutter" `
   -FallbackPaths (Get-UpwardToolPaths -StartDir $repoRoot -RelativePath "Tools\flutter\bin\flutter.bat")
 
+if (-not $SkipBuild.IsPresent) {
+  & node $pinValidatorPath `
+    --pins $CertPinHashes `
+    --clock-skew-seconds $ClientReadinessMaxClockSkewSeconds
+  if ($LASTEXITCODE -ne 0) {
+    throw "Release pin/clock validation failed with exit code $LASTEXITCODE"
+  }
+}
+
 Get-Process -Name "vhhealth_staff" -ErrorAction SilentlyContinue | Stop-Process -Force
 
 if (-not $SkipBuild.IsPresent) {
@@ -208,7 +223,10 @@ if (-not $SkipBuild.IsPresent) {
       --dart-define=SENTRY_DSN=$SentryDsn `
       --dart-define=SENTRY_ENVIRONMENT=$SentryEnvironment `
       --dart-define=SENTRY_RELEASE=$SentryRelease `
-      --dart-define=VH_DISABLE_CRASHLYTICS=true
+      --dart-define=VH_DISABLE_CRASHLYTICS=true `
+      --dart-define=PRODUCTION=true `
+      --dart-define=CERT_PIN_HASHES=$CertPinHashes `
+      --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS=$ClientReadinessMaxClockSkewSeconds
     if ($LASTEXITCODE -ne 0) {
       throw "flutter build windows failed with exit code $LASTEXITCODE"
     }

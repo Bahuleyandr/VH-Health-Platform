@@ -13,11 +13,14 @@
 #
 # Usage:
 #   scripts/build-tenant-client.sh --slug acme --tenant-id <uuid> --api-key <key> \
+#     --cert-pin-hashes <current,next> --clock-skew-seconds 300 \
 #     [--base-host api.vhhealth.app] [--primary "#1565C0"] \
 #     [--apps patient,staff] [--target apk|appbundle|ios] [--dry-run]
 set -euo pipefail
 
 SLUG=""; TENANT_ID=""; API_KEY=""; BASE_HOST="vhhealth.app"; PRIMARY=""
+CERT_PIN_HASHES="${CERT_PIN_HASHES:-}"
+CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS:-}"
 APPS="patient,staff"; TARGET="apk"; DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
@@ -27,6 +30,8 @@ while [[ $# -gt 0 ]]; do
     --api-key) API_KEY="$2"; shift 2;;
     --base-host) BASE_HOST="$2"; shift 2;;
     --primary) PRIMARY="$2"; shift 2;;
+    --cert-pin-hashes) CERT_PIN_HASHES="$2"; shift 2;;
+    --clock-skew-seconds) CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="$2"; shift 2;;
     --apps) APPS="$2"; shift 2;;
     --target) TARGET="$2"; shift 2;;
     --dry-run) DRY_RUN=1; shift;;
@@ -38,6 +43,9 @@ done
 [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]] && { echo "✗ --slug must be lowercase [a-z0-9-], 3–40 chars" >&2; exit 2; }
 [[ -z "$TENANT_ID" ]] && { echo "✗ --tenant-id (uuid) is required" >&2; exit 2; }
 [[ -z "$API_KEY" && "$DRY_RUN" -eq 0 ]] && { echo "✗ --api-key is required (or use --dry-run)" >&2; exit 2; }
+node scripts/validate-cert-pin-set.mjs \
+  --pins "$CERT_PIN_HASHES" \
+  --clock-skew-seconds "$CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS"
 
 BASE_URL="https://${SLUG}-api.${BASE_HOST}/api/v1"   # flat: <slug>-api.<base>
 
@@ -52,6 +60,9 @@ run_build() {
     "--dart-define=VH_TENANT_SLUG=${SLUG}"
     "--dart-define=VH_TENANT_ID=${TENANT_ID}"
     "--dart-define=VH_API_KEY=${API_KEY}"
+    "--dart-define=PRODUCTION=true"
+    "--dart-define=CERT_PIN_HASHES=${CERT_PIN_HASHES}"
+    "--dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS=${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
   )
   [[ -n "$PRIMARY" ]] && defines+=( "--dart-define=VH_TENANT_PRIMARY=${PRIMARY}" )
   # --flavor <slug> assumes the operator has declared the per-tenant flavor

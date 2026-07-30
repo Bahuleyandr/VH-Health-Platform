@@ -8,6 +8,7 @@ import tenantContextMiddleware from '../../middleware/tenantContextMiddleware.js
 import tenantRlsMiddleware from '../../middleware/tenantRlsMiddleware.js';
 import validateApiKey from '../../middleware/validateApiKey.js';
 import logger from '../../logging/logger.js';
+import clientReadinessRoutes from './clientReadinessRoutes.js';
 import protectedRoutes from './protectedRoutes.js';
 import publicRoutes from './publicRoutes.js';
 import uptimeRoutes from './uptimeRoutes.js';
@@ -35,6 +36,11 @@ router.use('/', publicRoutes);
 
 // Uptime monitoring endpoints (public, no auth)
 router.use('/', uptimeRoutes);
+
+// Authenticated, low-information client drain-readiness contract. It owns its
+// complete auth/tenant/RLS/RBAC/rate-limit chain because the surrounding
+// health router intentionally keeps monitoring endpoints public.
+router.use('/', clientReadinessRoutes);
 
 // Protected routes (patient health data). This module is mounted BEFORE the
 // global jwtAuth + tenant middleware in app.js (so the public health checks

@@ -1,0 +1,26 @@
+{
+  "resolverA": {
+    "name": "REPLACE_WITH_RESOLVER_A_FQDN",
+    "address": "REPLACE_WITH_RESOLVER_A_PRIVATE_IPV4"
+  },
+  "resolverB": {
+    "name": "REPLACE_WITH_RESOLVER_B_FQDN",
+    "address": "REPLACE_WITH_RESOLVER_B_PRIVATE_IPV4"
+  },
+  "clinicalCidrs": [
+    "REPLACE_WITH_MANAGED_CLINICAL_VLAN_CIDR",
+    "REPLACE_WITH_MANAGED_CLINICAL_SSID_CIDR"
+  ],
+  "nonClinicalCidrs": [
+    "REPLACE_WITH_GUEST_VLAN_CIDR",
+    "REPLACE_WITH_PATIENT_SSID_CIDR"
+  ],
+  "privateIpv4": "REPLACE_WITH_C2_1_PRIVATE_IPV4",
+  "positiveTtlSeconds": "REPLACE_WITH_APPROVED_POSITIVE_TTL",
+  "negativeTtlSeconds": "REPLACE_WITH_APPROVED_NEGATIVE_TTL",
+  "zoneSerial": "REPLACE_WITH_MONOTONIC_ZONE_SERIAL",
+  "hosts": [
+    "api.vhhealth.app",
+    "REPLACE_WITH_ONBOARDED_SLUG-api.vhhealth.app"
+  ]
+}

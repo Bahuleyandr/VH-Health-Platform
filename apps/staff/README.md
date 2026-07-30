@@ -61,8 +61,18 @@ flutter build windows --release `
   --dart-define=VH_BASE_URL=https://<host>/api/v1 `
   --dart-define=VH_API_KEY=<release-smoke-api-key> `
   --dart-define=SENTRY_DSN=<staff-sentry-dsn> `
-  --dart-define=SENTRY_ENVIRONMENT=staff-windows
+  --dart-define=SENTRY_ENVIRONMENT=staff-windows `
+  --dart-define=PRODUCTION=true `
+  --dart-define=CERT_PIN_HASHES=<current-spki-pin>,<next-spki-pin> `
+  --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS=300
 ```
+
+Production packages require two distinct `sha256/<base64 SHA-256>` SPKI pins
+in the existing flat pin set and the security-owner-approved 300-second
+readiness skew tolerance. Run `node scripts/validate-cert-pin-set.mjs` from the
+repository root before any manual release build. The validation adds rotation
+overlap only; it does not assign route-specific pin roles or change the trust
+model.
 
 Sentry is disabled unless `SENTRY_DSN` or `VH_SENTRY_DSN` is provided at build
 time. When enabled, Staff reports through the shared `CrashReporter`

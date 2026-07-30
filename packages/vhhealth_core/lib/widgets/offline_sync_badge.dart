@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../models/client_readiness.dart';
 import '../models/offline_write_entry.dart';
 import '../services/connectivity_sync_service.dart';
 import '../services/offline_write_containment.dart';
@@ -12,8 +13,23 @@ typedef OfflineSyncActorUidResolver = Future<String?> Function();
 String _defaultOfflineSyncText(String key, Map<String, Object?> values) {
   const strings = <String, String>{
     'offline_sync.title': 'Sync status',
-    'offline_sync.status.online': 'Online',
-    'offline_sync.status.offline': 'Offline',
+    'offline_sync.transport.unknown': 'Transport — unknown',
+    'offline_sync.transport.available': 'Transport — available',
+    'offline_sync.transport.unavailable': 'Transport — unavailable',
+    'offline_sync.continuity.signed_out': 'Continuity — signed out',
+    'offline_sync.continuity.checking': 'Continuity — checking',
+    'offline_sync.continuity.not_ready': 'Continuity — not ready',
+    'offline_sync.continuity.clock_uncertain':
+        'Continuity — device clock uncertain',
+    'offline_sync.continuity.policy_incompatible':
+        'Continuity — policy incompatible',
+    'offline_sync.continuity.ready_public':
+        'Continuity — ready via public route',
+    'offline_sync.continuity.ready_internal':
+        'Continuity — ready via internal route',
+    'offline_sync.continuity.rate_limited': 'Continuity — rate limited',
+    'offline_sync.continuity.syncing': 'Continuity — syncing',
+    'offline_sync.continuity.review_required': 'Continuity — review required',
     'offline_sync.pending_count': '{count} pending',
     'offline_sync.review_count': '{count} need review',
     'offline_sync.conflict_count': '{count} conflict(s)',
@@ -137,6 +153,35 @@ String _resolveText(
   Map<String, Object?> values = const {},
 ]) {
   return (resolver ?? _defaultOfflineSyncText)(key, values);
+}
+
+String _transportKey(ClientTransportState state) {
+  return switch (state) {
+    ClientTransportState.unknown => 'offline_sync.transport.unknown',
+    ClientTransportState.available => 'offline_sync.transport.available',
+    ClientTransportState.unavailable => 'offline_sync.transport.unavailable',
+  };
+}
+
+String _continuityKey(ContinuityLifecycleState state) {
+  return switch (state) {
+    ContinuityLifecycleState.signedOut => 'offline_sync.continuity.signed_out',
+    ContinuityLifecycleState.checking => 'offline_sync.continuity.checking',
+    ContinuityLifecycleState.notReady => 'offline_sync.continuity.not_ready',
+    ContinuityLifecycleState.clockUncertain =>
+      'offline_sync.continuity.clock_uncertain',
+    ContinuityLifecycleState.policyIncompatible =>
+      'offline_sync.continuity.policy_incompatible',
+    ContinuityLifecycleState.readyPublic =>
+      'offline_sync.continuity.ready_public',
+    ContinuityLifecycleState.readyInternal =>
+      'offline_sync.continuity.ready_internal',
+    ContinuityLifecycleState.rateLimited =>
+      'offline_sync.continuity.rate_limited',
+    ContinuityLifecycleState.syncing => 'offline_sync.continuity.syncing',
+    ContinuityLifecycleState.reviewRequired =>
+      'offline_sync.continuity.review_required',
+  };
 }
 
 /// Opens the current-owner offline reconciliation sheet.
@@ -272,16 +317,41 @@ class OfflineSyncBadge extends StatelessWidget {
         ),
       );
     }
-    if (!service.isOnline) {
-      final label = service.pendingCount > 0
-          ? _resolveText(textResolver, 'offline_sync.offline_queued', {
-              'count': service.pendingCount,
-            })
-          : _resolveText(textResolver, 'offline_sync.status.offline');
+    if (service.transportState != ClientTransportState.available) {
+      final label = _resolveText(
+        textResolver,
+        _transportKey(service.transportState),
+      );
       return _BadgeState(
         label: label,
         color: Colors.orange.shade800,
         leading: Icon(Icons.cloud_off, size: 14, color: Colors.orange.shade800),
+      );
+    }
+    if (service.continuityLifecycleState !=
+            ContinuityLifecycleState.readyPublic &&
+        service.continuityLifecycleState !=
+            ContinuityLifecycleState.readyInternal) {
+      final checking =
+          service.continuityLifecycleState == ContinuityLifecycleState.checking;
+      final label = _resolveText(
+        textResolver,
+        _continuityKey(service.continuityLifecycleState),
+      );
+      final color = checking ? Colors.blue.shade700 : Colors.orange.shade800;
+      return _BadgeState(
+        label: label,
+        color: color,
+        leading: checking
+            ? SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(color),
+                ),
+              )
+            : Icon(Icons.sync_problem, size: 14, color: color),
       );
     }
     if (service.pendingCount > 0) {
@@ -412,19 +482,43 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
               ),
               const SizedBox(height: 12),
               _StatusRow(
-                icon: service.isOnline ? Icons.cloud_done : Icons.cloud_off,
-                color: service.isOnline
+                icon: service.transportState == ClientTransportState.available
+                    ? Icons.network_check
+                    : Icons.signal_wifi_connected_no_internet_4,
+                color: service.transportState == ClientTransportState.available
                     ? Colors.green.shade700
                     : Colors.orange.shade800,
-                label: service.isOnline
-                    ? _resolveText(
-                        widget.textResolver,
-                        'offline_sync.status.online',
-                      )
-                    : _resolveText(
-                        widget.textResolver,
-                        'offline_sync.status.offline',
-                      ),
+                label: _resolveText(
+                  widget.textResolver,
+                  _transportKey(service.transportState),
+                ),
+              ),
+              const SizedBox(height: 6),
+              _StatusRow(
+                icon: switch (service.continuityLifecycleState) {
+                  ContinuityLifecycleState.readyPublic ||
+                  ContinuityLifecycleState.readyInternal =>
+                    Icons.verified_outlined,
+                  ContinuityLifecycleState.checking ||
+                  ContinuityLifecycleState.syncing => Icons.sync,
+                  ContinuityLifecycleState.reviewRequired =>
+                    Icons.assignment_late_outlined,
+                  _ => Icons.sync_problem,
+                },
+                color: switch (service.continuityLifecycleState) {
+                  ContinuityLifecycleState.readyPublic ||
+                  ContinuityLifecycleState.readyInternal =>
+                    Colors.green.shade700,
+                  ContinuityLifecycleState.checking ||
+                  ContinuityLifecycleState.syncing => Colors.blue.shade700,
+                  ContinuityLifecycleState.reviewRequired =>
+                    Colors.deepOrange.shade800,
+                  _ => Colors.orange.shade800,
+                },
+                label: _resolveText(
+                  widget.textResolver,
+                  _continuityKey(service.continuityLifecycleState),
+                ),
               ),
               const SizedBox(height: 6),
               _StatusRow(
@@ -473,9 +567,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
                   ),
                   TextButton.icon(
                     onPressed:
-                        service.isOnline &&
-                            !service.isSyncing &&
-                            service.pendingCount > 0
+                        service.canAttemptSync && service.pendingCount > 0
                         ? () async {
                             await service.syncPending();
                             _refreshUi();

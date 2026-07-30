@@ -29,6 +29,7 @@ import * as clinicalInbox from './openapi/schemas/clinicalInbox.mjs';
 import * as lab from './openapi/schemas/lab.mjs';
 import * as carePathways from './openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from './openapi/schemas/outboxRecovery.mjs';
+import * as clientReadiness from './openapi/schemas/clientReadiness.mjs';
 
 const SCHEMA_MODULES = [
   money,
@@ -46,7 +47,8 @@ const SCHEMA_MODULES = [
   clinicalInbox,
   lab,
   carePathways,
-  outboxRecovery
+  outboxRecovery,
+  clientReadiness
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

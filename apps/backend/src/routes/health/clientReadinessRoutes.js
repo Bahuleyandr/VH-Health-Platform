@@ -1,0 +1,25 @@
+import express from 'express';
+
+import rbacConfig from '../../config/rbacConfig.js';
+import { getClientReadiness } from '../../controllers/health/clientReadinessController.js';
+import jwtAuth from '../../middleware/jwtMiddleware.js';
+import { getRateLimiter } from '../../middleware/rateLimitMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import tenantContextMiddleware from '../../middleware/tenantContextMiddleware.js';
+import tenantRlsMiddleware from '../../middleware/tenantRlsMiddleware.js';
+import validateApiKey from '../../middleware/validateApiKey.js';
+
+const router = express.Router();
+
+router.get(
+  '/client-readiness',
+  validateApiKey,
+  jwtAuth,
+  tenantContextMiddleware,
+  tenantRlsMiddleware,
+  requireRole(...rbacConfig.staffRoutes),
+  getRateLimiter('clientReadiness'),
+  getClientReadiness,
+);
+
+export default router;
