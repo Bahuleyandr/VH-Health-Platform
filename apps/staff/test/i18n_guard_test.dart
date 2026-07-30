@@ -5,6 +5,77 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
+  test(
+    'C3.3 continuity copy has five-locale parity and exact UNKNOWN copy',
+    () {
+      final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+      final localeKeys = {
+        for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+          locale: _mapKeysForLocale(source, locale),
+      };
+      final continuityKeys = localeKeys['en']!
+          .where((key) => key.startsWith('continuity.'))
+          .toSet();
+
+      expect(continuityKeys, contains('continuity.read_only_banner'));
+      expect(continuityKeys, contains('continuity.refusal.paper_phone'));
+      expect(continuityKeys, contains('continuity.unknown.allergy'));
+      expect(continuityKeys, contains('continuity.unknown.code_status'));
+      expect(continuityKeys, contains('continuity.unknown.generic'));
+      for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+        final missing = continuityKeys.difference(localeKeys[locale]!);
+        expect(
+          missing,
+          isEmpty,
+          reason:
+              'C3.3 continuity keys missing from $locale: '
+              '${missing.toList()..sort()}',
+        );
+      }
+
+      for (final locale in const ['en', 'hi', 'ta', 'te', 'ml']) {
+        final strings = AppStrings.forLocale(Locale(locale));
+        expect(
+          strings.lookup('continuity.unknown.allergy'),
+          'Allergy status UNKNOWN — not recorded',
+        );
+        expect(
+          strings.lookup('continuity.unknown.code_status'),
+          'Code status NOT RECORDED — confirm per hospital policy',
+        );
+        expect(
+          strings.lookup('continuity.unknown.generic'),
+          isNot('continuity.unknown.generic'),
+        );
+        expect(
+          strings.format('continuity.metadata', {
+            'label': '__LABEL__',
+            'value': '__VALUE__',
+          }),
+          allOf(contains('__LABEL__'), contains('__VALUE__')),
+        );
+        expect(
+          strings.format('continuity.status.age_badge', {
+            'status': '__STATUS__',
+            'age': '__AGE__',
+          }),
+          allOf(contains('__STATUS__'), contains('__AGE__')),
+        );
+        expect(
+          strings.format('continuity.patient.number', {'number': 937}),
+          contains('937'),
+        );
+        expect(
+          strings.format('continuity.recorded_at.value', {
+            'time': '__TIME__',
+            'age': '__AGE__',
+          }),
+          allOf(contains('__TIME__'), contains('__AGE__')),
+        );
+      }
+    },
+  );
+
   test('C0A safety copy has five-locale parity and binding placeholders', () {
     final source = File('lib/l10n/app_strings.dart').readAsStringSync();
     final localeKeys = {

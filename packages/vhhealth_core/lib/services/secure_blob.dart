@@ -39,13 +39,17 @@ class SecureBlobCodec {
 
   /// Encrypt [plaintext] with AES-256-GCM and a fresh random 12-byte IV.
   /// Returns `iv_base64:ciphertext_base64`.
-  Future<String> seal(String plaintext) async {
+  Future<String> seal(
+    String plaintext, {
+    List<int> authenticatedData = const [],
+  }) async {
     final key = await _key();
     final nonce = _secureRandomBytes(12);
     final box = await _aesGcm.encrypt(
       utf8.encode(plaintext),
       secretKey: key,
       nonce: nonce,
+      aad: authenticatedData,
     );
     final combined = Uint8List.fromList([...box.cipherText, ...box.mac.bytes]);
     return '${base64Encode(nonce)}:${base64Encode(combined)}';
@@ -53,7 +57,10 @@ class SecureBlobCodec {
 
   /// Decrypt an envelope produced by [seal]. Throws on GCM authentication
   /// failure or malformed input.
-  Future<String> open(String envelope) async {
+  Future<String> open(
+    String envelope, {
+    List<int> authenticatedData = const [],
+  }) async {
     final key = await _key();
     final parts = envelope.split(':');
     if (parts.length != 2) {
@@ -69,8 +76,19 @@ class SecureBlobCodec {
     final plain = await _aesGcm.decrypt(
       SecretBox(cipherText, nonce: nonce, mac: mac),
       secretKey: key,
+      aad: authenticatedData,
     );
     return utf8.decode(plain);
+  }
+
+  /// Destroy this codec's key without affecting any other secure-storage item.
+  ///
+  /// Envelopes sealed with the destroyed key become cryptographically
+  /// unrecoverable. C3.3 uses one opaque facility-scoped key name so a governed
+  /// facility wipe cannot invalidate another facility's cache.
+  Future<void> destroyKey() async {
+    _cached = null;
+    await VHSecureStorage.instance.delete(key: keyName);
   }
 
   Uint8List _secureRandomBytes(int length) {

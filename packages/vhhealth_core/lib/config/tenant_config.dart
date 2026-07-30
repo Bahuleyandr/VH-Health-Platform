@@ -31,6 +31,19 @@ class TenantConfig {
     defaultValue: '',
   );
 
+  /// Inert unless explicitly enabled in the tenant build.
+  static const bool clinicalContinuityCacheEnabled = bool.fromEnvironment(
+    'VH_CLINICAL_CONTINUITY_CACHE_ENABLED',
+    defaultValue: false,
+  );
+
+  /// Cannot enable local access by itself; the cache flag and a complete,
+  /// verified signed policy are also required.
+  static const bool clinicalContinuityLocalUnlockEnabled = bool.fromEnvironment(
+    'VH_CLINICAL_CONTINUITY_LOCAL_UNLOCK_ENABLED',
+    defaultValue: false,
+  );
+
   /// True for an unstamped (default single-tenant) build.
   static bool get isDefaultTenant => slug.isEmpty;
 
