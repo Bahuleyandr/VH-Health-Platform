@@ -13,10 +13,11 @@ import {
   parseCapture,
   redactText,
   sanitizeSecretValues,
-} from '../infra/kubernetes/qa/c0-1-live-state-report.mjs';
+} from './c0-1-live-state-report.mjs';
+import { stagesForChangedFiles } from '../../../scripts/ci/stage-selection.mjs';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const qaDir = path.join(repoRoot, 'infra', 'kubernetes', 'qa');
+const qaDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(qaDir, '..', '..', '..');
 const collector = path.join(qaDir, 'c0-1-live-state-evidence.sh');
 const reporter = path.join(qaDir, 'c0-1-live-state-report.mjs');
 const c12Collector = path.join(qaDir, 'c1-2-ha-evidence.sh');
@@ -265,5 +266,21 @@ test('database probe is fixed to PHI-free metadata sources', () => {
   assert.doesNotMatch(
     sql,
     /\b(?:patients|appointments|encounters|admissions|clinical_timeline_events|prescriptions|patient_vitals)\b/i,
+  );
+});
+
+test('collector and runbook paths stay within the existing security+infra CI scope', () => {
+  const stageOrder = ['security', 'backend', 'fhir', 'admin', 'flutter', 'infra'];
+  assert.deepEqual(
+    stagesForChangedFiles(
+      [
+        'infra/kubernetes/qa/c0-1-live-state-evidence.sh',
+        'infra/kubernetes/qa/c0-1-live-state-report.mjs',
+        'infra/kubernetes/qa/c0-1-live-state-collectors.test.mjs',
+        'docs/continuity/c0-1-live-state-runbook.md',
+      ],
+      stageOrder,
+    ),
+    ['security', 'infra'],
   );
 });
