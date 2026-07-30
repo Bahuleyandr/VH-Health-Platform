@@ -27,6 +27,7 @@ import '../../features/phone/screens/staff_query_screen.dart';
 import '../../features/reception/screens/front_office_workbench_screen.dart';
 import '../../features/reception/screens/billing_desk_screen.dart';
 import '../../features/ward/screens/ward_mode_screen.dart';
+import '../../features/clinical_continuity/screens/continuity_cache_screen.dart';
 
 // Doctor
 import '../../features/doctor/screens/patient_records_screen.dart';
@@ -243,6 +244,12 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state, child) => MainScaffold(child: child),
       routes: [
         // Core
+        GoRoute(
+          path: '/clinical-continuity',
+          name: 'clinical-continuity',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ContinuityCacheScreen()),
+        ),
         GoRoute(
           path: '/dashboard',
           name: 'dashboard',

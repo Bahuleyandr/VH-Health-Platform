@@ -43,4 +43,27 @@ void main() {
         '${parts[0]}:${parts[1].substring(0, parts[1].length - 2)}AA';
     expect(() => codec.open(tampered), throwsA(anything));
   });
+
+  test('authenticated data is optional and enforced when supplied', () async {
+    final codec = SecureBlobCodec('continuity_cache_aes_key_test');
+    final encoded = await codec.seal(
+      'clinical payload',
+      authenticatedData: [1, 2, 3],
+    );
+    expect(
+      await codec.open(encoded, authenticatedData: [1, 2, 3]),
+      'clinical payload',
+    );
+    expect(
+      () => codec.open(encoded, authenticatedData: [1, 2, 4]),
+      throwsA(anything),
+    );
+  });
+
+  test('destroyKey makes prior envelopes unrecoverable', () async {
+    final codec = SecureBlobCodec('continuity_destroy_key_test');
+    final encoded = await codec.seal('clinical payload');
+    await codec.destroyKey();
+    expect(() => codec.open(encoded), throwsA(anything));
+  });
 }

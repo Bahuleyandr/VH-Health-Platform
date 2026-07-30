@@ -30,6 +30,9 @@ dependencies:
   connectivity_plus: ^7.1.1
   # Used by OfflineSyncBadge for the "synced 2 minutes ago" label.
   intl: ^0.20.2
+  # Facility-local rendering for signed continuity packs. The bundled IANA
+  # database keeps Android and Windows daylight-saving behavior identical.
+  timezone: ^0.11.0
   # Device integrity — used by DeviceIntegrityService to detect
   # rooted / jailbroken devices before issuing JWTs in release builds.
   # Used by DeviceInfoPlusProbe for richer emulator/device-trust detection.
