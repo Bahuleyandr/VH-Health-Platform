@@ -8,11 +8,11 @@
 //     monitoring token alone is rejected (the separation we want);
 //   * the dedicated token works over both its own header and the shared
 //     monitoring/Bearer transport (so existing outage tooling can carry it);
-//   * with NO dedicated token configured, it falls back to the monitoring token
-//     so outage packs stay reachable until the operator provisions one.
+//   * with NO dedicated token configured, it fails closed and the route remains
+//     dark until the operator provisions the dedicated credential.
 //
 // The env is read at REQUEST time, so the same app instance exercises both the
-// dedicated-token and fallback postures by toggling process.env between requests.
+// dedicated-token and fail-closed postures by toggling process.env between requests.
 // No Prisma seeding — the route is filesystem-only.
 
 import fs from 'fs';
@@ -77,17 +77,18 @@ describe('CAN-054 dedicated downtime token', () => {
     });
   });
 
-  describe('with NO dedicated downtime token configured (backward-compat fallback)', () => {
-    it('falls back to the monitoring token so outage packs stay reachable', async () => {
+  describe('with NO dedicated downtime token configured', () => {
+    it('rejects the monitoring token and keeps ward-pack PHI dark', async () => {
       const res = await get(`/downtime/static/wards/${WARD_ID}`).set('x-monitoring-token', MONITORING_TOKEN);
-      expect(res.status).toBe(200);
-      expect(res.text).toContain('CAN-054 FIXTURE WARD');
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('code', 'DOWNTIME_AUTH_REQUIRED');
+      expect(res.text).not.toContain('CAN-054 FIXTURE WARD');
     });
 
-    it('still fails closed without any token in fallback mode', async () => {
+    it('fails closed without any token', async () => {
       const res = await get(`/downtime/static/wards/${WARD_ID}`);
       expect(res.status).toBe(401);
-      expect(res.body).toHaveProperty('code', 'MONITORING_AUTH_REQUIRED');
+      expect(res.body).toHaveProperty('code', 'DOWNTIME_AUTH_REQUIRED');
     });
   });
 });

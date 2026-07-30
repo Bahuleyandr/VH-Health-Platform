@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import {
   clinicalContinuityPacksEnabled,
   getClinicalContinuityPublicationRoot
@@ -6,8 +8,10 @@ import {
 import { setTenantTx } from '../../lib/prisma.js';
 import {
   DEFAULT_TENANT_ID,
+  CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
   enumerateActiveClinicalContinuityPolicies,
-  loadActiveClinicalContinuityPolicyForFacilityTx
+  loadActiveClinicalContinuityPolicyForFacilityTx,
+  requireClinicalContinuityEdgePolicy
 } from './clinicalContinuityPolicyService.js';
 import {
   FRESHNESS_STATES,
@@ -24,10 +28,16 @@ import {
 } from './continuityPackCanonical.js';
 import { produceFacilityContinuityPacks } from './continuityPackProducers.js';
 import {
+  buildContinuityPackPaths,
   normalizeCoverageLocation,
   publishContinuityPackSet
 } from './continuityPackPublicationService.js';
 import { buildContinuityPackHtml } from './continuityPackRenderer.js';
+import { buildContinuityEdgeGrantSet } from './continuityEdgeAccessService.js';
+import {
+  recordContinuityCoverageIncomplete,
+  recordContinuityPublication
+} from '../../observability/continuityMetrics.js';
 
 export const CLINICAL_CONTINUITY_PACK_SCOPE = 'clinical_continuity_pack';
 export const CLINICAL_CONTINUITY_MANIFEST_FORMAT = 'vhhealth_clinical_continuity_manifest/v1';
@@ -738,15 +748,31 @@ async function produceFacilitySet({ discoveredPolicy }) {
         facilityId: identity.facilityId,
         policy
       });
-      return { manifestVersion, policy, produced };
+      const edgeGrantSet =
+        policy.policySchemaVersion === CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+          ? await buildContinuityEdgeGrantSet({ tx, policy })
+          : null;
+      return { edgeGrantSet, manifestVersion, policy, produced };
     },
     { isolationLevel: 'RepeatableRead', readOnly: false }
   );
 }
 
-async function signAndPublishFacilitySet({ root, signer, manifestVersion, policy, produced }) {
+async function signAndPublishFacilitySet({
+  root,
+  signer,
+  edgeGrantSet,
+  manifestVersion,
+  policy,
+  produced
+}) {
   const requiredCoverage = policyCoverage(policy);
-  assertExactProducedCoverage(requiredCoverage, produced.packs);
+  try {
+    assertExactProducedCoverage(requiredCoverage, produced.packs);
+  } catch (error) {
+    recordContinuityCoverageIncomplete();
+    throw error;
+  }
   if (
     !produced.source_watermark ||
     typeof produced.source_watermark !== 'object' ||
@@ -818,7 +844,44 @@ async function signAndPublishFacilitySet({ root, signer, manifestVersion, policy
   const manifestIssuedAt = signedPacks[0].location.generatedAt;
   const manifestExpiresAt = signedPacks.map(record => record.location.expiresAt).sort()[0];
   const publicationSetId = randomUUID();
+  let edgeAccessAsset = null;
+  if (edgeGrantSet !== null) {
+    requireClinicalContinuityEdgePolicy(policy);
+    const edgeAccessRendered = canonicalizeJson(edgeGrantSet);
+    const edgeAccessEnvelope = await createExternallySignedEnvelope({
+      signer,
+      policy,
+      content: edgeGrantSet,
+      rendered: edgeAccessRendered,
+      manifestVersion,
+      issuedAt: manifestIssuedAt,
+      expiresAt: manifestExpiresAt
+    });
+    assertSelfVerified({
+      envelope: edgeAccessEnvelope,
+      rendered: edgeAccessRendered,
+      policy,
+      manifestVersion,
+      trustedNow: manifestIssuedAt
+    });
+    const content = `${canonicalizeJson(edgeAccessEnvelope)}\n`;
+    edgeAccessAsset = {
+      accessRevision: edgeGrantSet.accessRevision,
+      content,
+      path: 'edge-access.json',
+      sha256: sha256Hex(content)
+    };
+  }
   const manifest = {
+    ...(edgeAccessAsset === null
+      ? {}
+      : {
+          edgeAccess: {
+            accessRevision: edgeAccessAsset.accessRevision,
+            path: edgeAccessAsset.path,
+            sha256: edgeAccessAsset.sha256
+          }
+        }),
     facility: {
       id: String(policy.facilityId),
       name: produced.facility.name,
@@ -860,13 +923,17 @@ async function signAndPublishFacilitySet({ root, signer, manifestVersion, policy
     packAssetRecord(record.location, 'pack.json', record.json),
     packAssetRecord(record.location, 'pack.html', record.html)
   ]);
-  return publishContinuityPackSet({
+  const result = await publishContinuityPackSet({
     root,
     tenantId: policy.tenantId,
     facilityId: policy.facilityId,
     manifestVersion,
     requiredCoverage,
     assets,
+    rootAssets:
+      edgeAccessAsset === null
+        ? undefined
+        : [{ relativePath: edgeAccessAsset.path, content: edgeAccessAsset.content }],
     manifestContent: `${canonicalizeJson(manifestEnvelope)}\n`,
     commitEvidence: receipt =>
       insertPublicationEvidence({
@@ -879,6 +946,216 @@ async function signAndPublishFacilitySet({ root, signer, manifestVersion, policy
         receipt
       })
   });
+  recordContinuityPublication({
+    freshUntil: manifestExpiresAt,
+    complete: true
+  });
+  return result;
+}
+
+function exactPointer(pointer, tenantId, facilityId) {
+  if (!pointer || typeof pointer !== 'object' || Array.isArray(pointer)) return null;
+  const keys = Object.keys(pointer).sort();
+  const expected = [
+    'facility_id',
+    'manifest',
+    'manifest_sha256',
+    'manifest_version',
+    'schema',
+    'set',
+    'tenant_id'
+  ].sort();
+  if (
+    keys.length !== expected.length ||
+    keys.some((key, index) => key !== expected[index]) ||
+    pointer.schema !== 'continuity-current-v1' ||
+    pointer.tenant_id !== tenantId ||
+    Number(pointer.facility_id) !== facilityId
+  ) {
+    return null;
+  }
+  const manifestVersion = normalizeGovernanceVersion(pointer.manifest_version);
+  const set = `sets/v${manifestVersion}`;
+  if (
+    pointer.set !== set ||
+    pointer.manifest !== `${set}/manifest.json` ||
+    typeof pointer.manifest_sha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(pointer.manifest_sha256)
+  ) {
+    return null;
+  }
+  return { manifestVersion, set };
+}
+
+async function readPurgePointer(io, paths) {
+  let bytes;
+  let pointer;
+  try {
+    bytes = await io.readFile(paths.currentPath);
+    pointer = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    throw orchestrationError(
+      'Source purge requires a valid current pointer',
+      'CONTINUITY_PACK_PURGE_POINTER_INVALID'
+    );
+  }
+  let normalized;
+  try {
+    normalized = exactPointer(pointer, paths.tenantId, paths.facilityId);
+  } catch {
+    normalized = null;
+  }
+  if (normalized === null) {
+    throw orchestrationError(
+      'Source purge requires a valid current pointer',
+      'CONTINUITY_PACK_PURGE_POINTER_INVALID'
+    );
+  }
+  return { bytes, ...normalized };
+}
+
+async function assertPurgeTreeSafe(io, target, label) {
+  let stat;
+  try {
+    stat = await io.lstat(target);
+  } catch {
+    throw orchestrationError(
+      'Source purge encountered an unsafe set path',
+      'CONTINUITY_PACK_PURGE_PATH_UNSAFE',
+      { entry: label }
+    );
+  }
+  if (stat.isSymbolicLink()) {
+    throw orchestrationError(
+      'Source purge encountered a symbolic link',
+      'CONTINUITY_PACK_PURGE_PATH_UNSAFE',
+      { entry: label }
+    );
+  }
+  if (stat.isFile()) return;
+  if (!stat.isDirectory()) {
+    throw orchestrationError(
+      'Source purge encountered a special filesystem entry',
+      'CONTINUITY_PACK_PURGE_PATH_UNSAFE',
+      { entry: label }
+    );
+  }
+  const entries = await io.readdir(target, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(entry.name)) {
+      throw orchestrationError(
+        'Source purge encountered an unsafe filename',
+        'CONTINUITY_PACK_PURGE_PATH_UNSAFE',
+        { entry: `${label}/${entry.name}` }
+      );
+    }
+    await assertPurgeTreeSafe(io, path.join(target, entry.name), `${label}/${entry.name}`);
+  }
+}
+
+async function purgeFacilitySourceSets({ root, policy, io }) {
+  const decisions = requireClinicalContinuityEdgePolicy(policy);
+  const paths = buildContinuityPackPaths({
+    root,
+    tenantId: policy.tenantId,
+    facilityId: policy.facilityId,
+    manifestVersion: '1'
+  });
+  const pointer = await readPurgePointer(io, paths);
+  const cutoff =
+    Date.parse(policy.trustedNow) -
+    decisions.retention.sourcePackRetentionHours * 60 * 60 * 1000;
+  let entries;
+  try {
+    entries = await io.readdir(paths.setsDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+
+  const removed = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!/^v[1-9][0-9]{0,18}$/.test(entry.name) || entry.name === path.basename(pointer.set)) {
+      continue;
+    }
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw orchestrationError(
+        'Source purge encountered an unsafe set entry',
+        'CONTINUITY_PACK_PURGE_PATH_UNSAFE',
+        { entry: entry.name }
+      );
+    }
+    const setDir = path.join(paths.setsDir, entry.name);
+    const manifestPath = path.join(setDir, 'manifest.json');
+    let manifestBytes;
+    let envelope;
+    let stat;
+    try {
+      await assertPurgeTreeSafe(io, setDir, entry.name);
+      stat = await io.lstat(manifestPath);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('unsafe manifest');
+      manifestBytes = await io.readFile(manifestPath);
+      envelope = JSON.parse(manifestBytes.toString('utf8'));
+    } catch {
+      throw orchestrationError(
+        'Source purge encountered an unverifiable set manifest',
+        'CONTINUITY_PACK_PURGE_MANIFEST_INVALID',
+        { entry: entry.name }
+      );
+    }
+    const issuedAt = Date.parse(envelope?.issuedAt);
+    if (!Number.isFinite(issuedAt) || issuedAt > cutoff) continue;
+    const verification = verifySignedPackEnvelope(envelope, {
+      rendered: canonicalizeJson(envelope?.content),
+      trustedKeys: policy.trustedKeys,
+      expectedKeyId: envelope?.keyId,
+      expectedAudience: { tenantId: policy.tenantId, facilityId: String(policy.facilityId) },
+      minimumManifestVersion: envelope?.manifestVersion,
+      minimumPolicyVersion: envelope?.policyVersion,
+      minimumRevocationEpoch: envelope?.revocationEpoch,
+      trustedNow: envelope?.issuedAt,
+      minimumTrustedNow: envelope?.issuedAt,
+      clockTrusted: true
+    });
+    if (!verification.ok) {
+      throw orchestrationError(
+        'Source purge refused an unverifiable set',
+        'CONTINUITY_PACK_PURGE_MANIFEST_INVALID',
+        { entry: entry.name, reason: verification.reason }
+      );
+    }
+    await assertPurgeTreeSafe(io, setDir, entry.name);
+    const currentBytes = await io.readFile(paths.currentPath);
+    if (!Buffer.from(currentBytes).equals(Buffer.from(pointer.bytes))) {
+      throw orchestrationError(
+        'Source purge stopped because the current pointer changed',
+        'CONTINUITY_PACK_PURGE_POINTER_CHANGED'
+      );
+    }
+    await io.rm(setDir, { recursive: true, force: false });
+    removed.push(entry.name);
+  }
+  return removed;
+}
+
+export async function purgeClinicalContinuitySourceSets({
+  env = process.env,
+  fsOps = fs,
+  policyEnumerator = enumerateActiveClinicalContinuityPolicies
+} = {}) {
+  if (!clinicalContinuityPacksEnabled(env)) return [];
+  const root = getClinicalContinuityPublicationRoot(env);
+  const policies = await policyEnumerator({ readOnly: true });
+  const results = [];
+  for (const policy of policies) {
+    const removed = await purgeFacilitySourceSets({ root, policy, io: fsOps });
+    results.push({
+      tenantId: policy.tenantId,
+      facilityId: policy.facilityId,
+      removed
+    });
+  }
+  return results;
 }
 
 /**
@@ -925,8 +1202,15 @@ export async function generateClinicalContinuityPackSets({ signer, env = process
   return results;
 }
 
+export const __testing__ = Object.freeze({
+  assertPurgeTreeSafe,
+  exactPointer,
+  purgeFacilitySourceSets
+});
+
 export default {
   generateClinicalContinuityPackSets,
+  purgeClinicalContinuitySourceSets,
   CLINICAL_CONTINUITY_PACK_SCOPE,
   CLINICAL_CONTINUITY_MANIFEST_FORMAT,
   CLINICAL_CONTINUITY_SIGNER_PREFLIGHT_FORMAT,

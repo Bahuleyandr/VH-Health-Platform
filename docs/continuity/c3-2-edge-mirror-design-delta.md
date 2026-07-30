@@ -140,8 +140,8 @@ decision.
 
 Each immutable row contains:
 
-- UUID primary key;
-- explicit `tenant_id` and `facility_id`;
+- tenant/facility-first composite primary key
+  `(tenant_id, facility_id, id)`, with a UUID row ID;
 - bounded `location_type` and `location_identifier`;
 - named `staff_uid`;
 - bounded opaque `device_id`;
@@ -155,7 +155,8 @@ Each immutable row contains:
 The pinned policy reference is tenant/facility aware and must identify the
 exact countersigned schema-v2 policy used to authorize the grant. The service
 also proves that validity length does not exceed that policy's signed
-credential lifetime.
+credential lifetime and stays inside the supplied Ed25519 public
+certificate's validity window.
 
 An unconditional `BEFORE UPDATE OR DELETE` trigger rejects mutation. Renewal
 re-runs all authorization checks and inserts a new row with a new ID and access
@@ -176,8 +177,8 @@ index.
 
 Each immutable row contains:
 
-- UUID primary key;
-- explicit `tenant_id` and `facility_id`;
+- tenant/facility-first composite primary key
+  `(tenant_id, facility_id, id)`, with a UUID row ID;
 - the exact `grant_id`;
 - a separately allocated monotonic `access_revision`;
 - named `revoked_by`;
@@ -199,8 +200,8 @@ certificate, or location.
 
 Each immutable receipt contains only verification evidence:
 
-- UUID primary key;
-- explicit `tenant_id` and `facility_id`;
+- tenant/facility-first composite primary key
+  `(tenant_id, facility_id, id)`, with a UUID row ID;
 - bounded opaque `device_id`;
 - the authorizing `grant_id` and certificate fingerprint;
 - signed policy ID/version and access revision;
@@ -377,14 +378,18 @@ Before any receipt insert, the importer:
 3. verifies the signature and canonical batch hash;
 4. verifies the grant was valid and unrevoked for the batch's signed access
    revision and time window;
-5. verifies strictly contiguous event sequence and previous-batch hash against
-   the latest receipt for that exact device scope; and
-6. resolves replay idempotently.
+5. requires sequence `1` for the device's genesis batch, then verifies each
+   bounded event's sequence, the declared contiguous range, and the
+   previous-batch hash against the latest receipt for that exact device scope;
+6. refuses an access revision that the facility has not issued; and
+7. resolves replay idempotently.
 
 An exact already-ingested batch returns the existing receipt. A reused batch ID
-with different evidence, a hash-chain gap, an older access revision, or a
-cross-scope batch is rejected. Only the receipt evidence from §4.4 is written
-centrally.
+with different evidence, a hash-chain gap, an unknown future access revision,
+or a cross-scope batch is rejected. Historical batches created before a later
+revocation remain admissible only when their signed event window ends before
+that revocation; a fabricated future revision is rejected. Only the receipt
+evidence from §4.4 is written centrally.
 
 ## 10. Legacy `/downtime/static` route
 
@@ -511,8 +516,14 @@ and cross-tenant sets fail closed.
 - `apps/backend/prisma/schema.prisma`
 - `apps/backend/src/services/downtime/clinicalContinuityPolicyService.js`
 - `apps/backend/src/services/downtime/clinicalContinuityPackOrchestrationService.js`
+- `apps/backend/src/services/downtime/continuityPackPublicationService.js`
+- `apps/backend/src/app.js`
 - `apps/backend/src/middleware/infrastructureAccessMiddleware.js`
 - `apps/backend/src/routes/downtime/staticDowntimeRoutes.js`
+- `apps/backend/src/routes/metrics/metricsRoutes.js`
+- `apps/backend/scripts/seed-comprehensive-test-data.mjs` to declare the
+  three inert edge-access tables intentionally empty instead of synthesizing
+  credentials or evidence
 - existing focused tests/fixtures only where schema-v2 or legacy expectations
   require alignment
 

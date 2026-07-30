@@ -234,6 +234,43 @@ function prepareAssets(assets) {
   });
 }
 
+function prepareRootAssets(assets) {
+  if (assets === undefined) return [];
+  if (!Array.isArray(assets)) {
+    throw validationError('rootAssets must be an array');
+  }
+  const seenPaths = new Set();
+  return assets.map((asset, index) => {
+    if (!asset || typeof asset !== 'object' || Array.isArray(asset)) {
+      throw validationError(`rootAssets[${index}] must be an object`);
+    }
+    const relativePath = sanitizeAssetRelativePath(
+      aliasedValue(
+        asset,
+        ['relativePath', 'relative_path', 'fileName', 'file_name', 'filename', 'name'],
+        `rootAssets[${index}].relativePath`,
+      ),
+    );
+    if (relativePath === 'manifest.json' || seenPaths.has(relativePath)) {
+      throw validationError(`rootAssets contains reserved or duplicate path ${relativePath}`);
+    }
+    seenPaths.add(relativePath);
+    const bytes = contentBytes(
+      aliasedValue(
+        asset,
+        ['content', 'signedContent', 'signed_content', 'bytes'],
+        `rootAssets[${index}].content`,
+      ),
+      `rootAssets[${index}].content`,
+    );
+    return {
+      relativePath,
+      bytes,
+      sha256: sha256Hex(bytes),
+    };
+  }).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
 export function assertExactCoverage(requiredCoverage, producedLocations) {
   const required = normalizeCoverageLocations(requiredCoverage, 'requiredCoverage');
   if (!Array.isArray(producedLocations)) {
@@ -569,7 +606,7 @@ function pointerBytes(paths, manifestSha256) {
   );
 }
 
-function buildEvidenceReceipt(paths, manifestSha256, coverage, assets) {
+function buildEvidenceReceipt(paths, manifestSha256, coverage, assets, rootAssets) {
   return Object.freeze({
     tenantId: paths.tenantId,
     facilityId: paths.facilityId,
@@ -587,6 +624,14 @@ function buildEvidenceReceipt(paths, manifestSha256, coverage, assets) {
       relativePath: buildContinuityAssetRelativePath(asset, asset.relativePath),
       sha256: asset.sha256,
     }))),
+    ...(rootAssets.length > 0
+      ? {
+          rootAssets: Object.freeze(rootAssets.map((asset) => Object.freeze({
+            relativePath: asset.relativePath,
+            sha256: asset.sha256,
+          }))),
+        }
+      : {}),
   });
 }
 
@@ -609,6 +654,7 @@ export async function publishContinuityPackSet(options = {}) {
     manifestVersion: options.manifestVersion,
   });
   const assets = prepareAssets(options.assets);
+  const rootAssets = prepareRootAssets(options.rootAssets);
   const requiredCoverage = options.requiredCoverage ?? options.requiredLocations;
   const coverage = assertExactCoverage(requiredCoverage, assets);
   const manifestContent = aliasedValue(
@@ -628,6 +674,7 @@ export async function publishContinuityPackSet(options = {}) {
     manifestSha256,
     coverage.produced,
     assets,
+    rootAssets,
   );
 
   const stagingDir = path.join(
@@ -680,6 +727,13 @@ export async function publishContinuityPackSet(options = {}) {
       addDirectoryChain(stagedDirectories, parentDir, stagingDir);
       await writeExclusiveAndSync(io, stagedPath, asset.bytes);
     }
+    for (const asset of rootAssets) {
+      const stagedPath = path.join(stagingDir, ...asset.relativePath.split('/'));
+      const parentDir = path.dirname(stagedPath);
+      await io.mkdir(parentDir, { recursive: true, mode: 0o700 });
+      addDirectoryChain(stagedDirectories, parentDir, stagingDir);
+      await writeExclusiveAndSync(io, stagedPath, asset.bytes);
+    }
 
     const stagedManifestPath = path.join(stagingDir, 'manifest.json');
     await writeExclusiveAndSync(io, stagedManifestPath, manifestBytes);
@@ -690,6 +744,17 @@ export async function publishContinuityPackSet(options = {}) {
       const actualHash = sha256Hex(readback);
       if (actualHash !== asset.sha256) {
         const error = new Error(`asset readback hash mismatch for ${relativePath}`);
+        error.code = 'CONTINUITY_PACK_READBACK_MISMATCH';
+        throw error;
+      }
+    }
+    for (const asset of rootAssets) {
+      const readback = await io.readFile(
+        path.join(stagingDir, ...asset.relativePath.split('/')),
+      );
+      const actualHash = sha256Hex(readback);
+      if (actualHash !== asset.sha256) {
+        const error = new Error(`root asset readback hash mismatch for ${asset.relativePath}`);
         error.code = 'CONTINUITY_PACK_READBACK_MISMATCH';
         throw error;
       }

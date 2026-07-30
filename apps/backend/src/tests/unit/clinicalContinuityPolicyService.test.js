@@ -2,6 +2,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { jest } from '@jest/globals';
 import {
   ALLERGY_UNKNOWN_TEXT,
+  CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
   CLINICAL_CONTINUITY_POLICY_CANONICALIZATION,
   CLINICAL_CONTINUITY_POLICY_TYPE,
   CODE_STATUS_UNKNOWN_TEXT,
@@ -16,6 +17,7 @@ import {
   loadActiveClinicalContinuityPoliciesForTenant,
   parseClinicalContinuityPolicyDocument,
   prepareClinicalContinuityPolicyDraft,
+  requireClinicalContinuityEdgePolicy,
   verifyActiveClinicalContinuityPolicyRow
 } from '../../services/downtime/clinicalContinuityPolicyService.js';
 import {
@@ -235,6 +237,114 @@ describe('clinical continuity policy document', () => {
     expect(Object.isFrozen(parsed)).toBe(true);
   });
 
+  test('requires explicit signed C-D4/C-D10 fields in the closed v2 contract', () => {
+    const document = policyDocument({
+      policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
+      edgeAccess: {
+        authenticationMode: 'mtls_client_certificate',
+        credentialLifetimeMinutes: 480,
+        emergencyReadPosture: 'read_only',
+        maximumOfflineAuthorizationMinutes: 60
+      },
+      retention: {
+        accessLogRetentionHours: 720,
+        edgePackRetentionHours: 48,
+        sourcePackRetentionHours: 72
+      }
+    });
+    const parsed = parseClinicalContinuityPolicyDocument(document, {
+      tenantId: TENANT,
+      facilityId: FACILITY,
+      policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+    });
+
+    expect(parsed.edgeAccess).toEqual(document.edgeAccess);
+    expect(parsed.retention).toEqual(document.retention);
+  });
+
+  test('does not invent edge-access or retention defaults for schema v2', () => {
+    expect(() =>
+      parseClinicalContinuityPolicyDocument(
+        policyDocument({
+          policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+        }),
+        {
+          tenantId: TENANT,
+          facilityId: FACILITY,
+          policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+        }
+      )
+    ).toThrow('unsupported shape');
+  });
+
+  test('rejects unsupported authentication and a lifetime below the risk window', () => {
+    const base = {
+      policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
+      edgeAccess: {
+        authenticationMode: 'shared_password',
+        credentialLifetimeMinutes: 30,
+        emergencyReadPosture: 'read_only',
+        maximumOfflineAuthorizationMinutes: 60
+      },
+      retention: {
+        accessLogRetentionHours: 720,
+        edgePackRetentionHours: 48,
+        sourcePackRetentionHours: 72
+      }
+    };
+    expect(() =>
+      parseClinicalContinuityPolicyDocument(policyDocument(base), {
+        tenantId: TENANT,
+        facilityId: FACILITY,
+        policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+      })
+    ).toThrow('authentication mode');
+
+    base.edgeAccess.authenticationMode = 'mtls_client_certificate';
+    expect(() =>
+      parseClinicalContinuityPolicyDocument(policyDocument(base), {
+        tenantId: TENANT,
+        facilityId: FACILITY,
+        policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+      })
+    ).toThrow('cannot be shorter');
+  });
+
+  test('keeps a verified schema-v1 policy insufficient for edge operations', () => {
+    expect(() => requireClinicalContinuityEdgePolicy(verifyRow())).toThrow(
+      'policy-schema v2'
+    );
+  });
+
+  test('allows edge decisions only from the verified active schema-v2 object', () => {
+    const policy_document = policyDocument({
+      policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
+      edgeAccess: {
+        authenticationMode: 'mtls_client_certificate',
+        credentialLifetimeMinutes: 480,
+        emergencyReadPosture: 'read_only',
+        maximumOfflineAuthorizationMinutes: 60
+      },
+      retention: {
+        accessLogRetentionHours: 720,
+        edgePackRetentionHours: 48,
+        sourcePackRetentionHours: 72
+      }
+    });
+    const verified = verifyRow({
+      policy_document,
+      policy_schema_version: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+    });
+
+    expect(requireClinicalContinuityEdgePolicy(verified)).toEqual({
+      edgeAccess: policy_document.edgeAccess,
+      retention: policy_document.retention
+    });
+    expect(() => requireClinicalContinuityEdgePolicy({
+      ...verified
+    })).toThrow('policy-schema v2');
+  });
+
   test.each([
     [
       'calm allergy wording',
@@ -381,12 +491,12 @@ describe('clinical continuity policy document', () => {
     expect(() =>
       parseClinicalContinuityPolicyDocument(
         policyDocument({
-          policySchemaVersion: 2
+          policySchemaVersion: 3
         }),
         {
           tenantId: TENANT,
           facilityId: FACILITY,
-          policySchemaVersion: 2
+          policySchemaVersion: 3
         }
       )
     ).toThrow(

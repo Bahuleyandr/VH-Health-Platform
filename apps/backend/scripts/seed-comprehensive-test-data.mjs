@@ -13,6 +13,14 @@ const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
 const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
 const SEED_TAG = 'vh_seed';
+const INTENTIONALLY_EMPTY_TABLES = new Set([
+  // C3.2a edge authorization is inert until a countersigned v2 policy and an
+  // operator-supplied client certificate exist. Synthetic grants, revocations,
+  // or log receipts would violate that activation boundary.
+  'clinical_continuity_edge_access_grants',
+  'clinical_continuity_edge_access_revocations',
+  'clinical_continuity_edge_log_receipts',
+]);
 const MANUAL_SEED_TABLES = new Set([
   // Care-pathway and lab-ingest coverage must be coherent evidence graphs.
   // The generic walker cannot satisfy their tenant-composite links, immutable
@@ -1146,7 +1154,11 @@ async function getCoreRefs() {
 async function seedRemainingTables() {
   const metadata = await getMetadata();
   const tables = [...metadata.columnsByTable.keys()]
-    .filter((table) => !table.startsWith('_') && !MANUAL_SEED_TABLES.has(table))
+    .filter((table) => (
+      !table.startsWith('_')
+      && !MANUAL_SEED_TABLES.has(table)
+      && !INTENTIONALLY_EMPTY_TABLES.has(table)
+    ))
     .sort();
   const seeded = [];
   const failed = new Map();
@@ -1216,9 +1228,11 @@ async function summarize(failed) {
 
   let nonEmpty = 0;
   const empty = [];
+  const intentionallyEmpty = [];
   for (const { table_name: table } of counts.rows) {
     if (table.startsWith('_')) continue;
     if (await tableCount(table)) nonEmpty += 1;
+    else if (INTENTIONALLY_EMPTY_TABLES.has(table)) intentionallyEmpty.push(table);
     else empty.push(table);
   }
 
@@ -1244,6 +1258,7 @@ async function summarize(failed) {
     totalAppTables: counts.rows.filter((row) => !row.table_name.startsWith('_')).length,
     nonEmptyAppTables: nonEmpty,
     emptyAppTables: empty,
+    intentionallyEmptyAppTables: intentionallyEmpty,
     failed: [...failed.entries()].map(([table, error]) => ({ table, error })),
     domainCounts,
     credentials: {

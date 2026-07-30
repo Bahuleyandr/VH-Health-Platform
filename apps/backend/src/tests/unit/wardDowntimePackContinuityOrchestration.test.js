@@ -1,7 +1,15 @@
 import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { jest } from '@jest/globals';
+import {
+  canonicalizeJson,
+  createSignedPackEnvelope
+} from '../../services/downtime/continuityPackCanonical.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const EDGE_POLICY_SCHEMA_VERSION = 2;
 const TENANT_A = '10000000-0000-4000-8000-000000000001';
 const TENANT_B = '20000000-0000-4000-8000-000000000002';
 const POLICY_A = 'a0000000-0000-4000-8000-000000000001';
@@ -79,6 +87,10 @@ const publishPackSet = jest.fn(async options => {
         `${asset.locationType.toLowerCase()}/` +
         `${asset.locationId.toLowerCase()}/${asset.relativePath}`,
       sha256: createHash('sha256').update(asset.content).digest('hex')
+    })),
+    rootAssets: (options.rootAssets || []).map(asset => ({
+      relativePath: asset.relativePath,
+      sha256: createHash('sha256').update(asset.content).digest('hex')
     }))
   };
   await options.commitEvidence(receipt);
@@ -90,6 +102,43 @@ const publishPackSet = jest.fn(async options => {
     manifestSha256: receipt.manifestSha256
   };
 });
+const buildEdgeGrantSet = jest.fn(async ({ policy }) => ({
+  accessRevision: '31',
+  audience: {
+    tenantId: policy.tenantId,
+    facilityId: String(policy.facilityId)
+  },
+  edgeAccess: policy.policyDocument.edgeAccess,
+  format: 'vhhealth_clinical_continuity_edge_access/v1',
+  generatedAt: policy.trustedNow,
+  grants: [],
+  policy: {
+    id: policy.id,
+    version: policy.policyVersion,
+    revocationEpoch: policy.revocationEpoch
+  },
+  revocations: []
+}));
+
+function buildPublicationPaths({ root, tenantId, facilityId, manifestVersion }) {
+  const facilityDir = path.join(
+    root,
+    'continuity-v1',
+    'tenants',
+    tenantId,
+    'facilities',
+    String(facilityId)
+  );
+  return {
+    root,
+    tenantId,
+    facilityId,
+    manifestVersion: String(manifestVersion),
+    facilityDir,
+    setsDir: path.join(facilityDir, 'sets'),
+    currentPath: path.join(facilityDir, 'current.json')
+  };
+}
 
 jest.unstable_mockModule('../../config/downtimeConfig.js', () => ({
   clinicalContinuityPacksEnabled: jest.fn(() => featureEnabled),
@@ -102,18 +151,34 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../services/downtime/clinicalContinuityPolicyService.js', () => ({
   DEFAULT_TENANT_ID,
+  CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION: EDGE_POLICY_SCHEMA_VERSION,
   enumerateActiveClinicalContinuityPolicies: enumeratePolicies,
-  loadActiveClinicalContinuityPolicyForFacilityTx: loadPolicyForFacility
+  loadActiveClinicalContinuityPolicyForFacilityTx: loadPolicyForFacility,
+  requireClinicalContinuityEdgePolicy: policy => {
+    if (policy.policySchemaVersion !== EDGE_POLICY_SCHEMA_VERSION) {
+      const error = new Error('edge policy required');
+      error.code = 'CONTINUITY_EDGE_POLICY_REQUIRED';
+      throw error;
+    }
+    return {
+      edgeAccess: policy.policyDocument.edgeAccess,
+      retention: policy.policyDocument.retention
+    };
+  }
 }));
 jest.unstable_mockModule('../../services/downtime/continuityPackProducers.js', () => ({
   produceFacilityContinuityPacks: produceFacilityPacks
 }));
 jest.unstable_mockModule('../../services/downtime/continuityPackPublicationService.js', () => ({
+  buildContinuityPackPaths: buildPublicationPaths,
   normalizeCoverageLocation: location => ({
     locationType: location.locationType.toLowerCase(),
     locationId: location.locationId.toLowerCase()
   }),
   publishContinuityPackSet: publishPackSet
+}));
+jest.unstable_mockModule('../../services/downtime/continuityEdgeAccessService.js', () => ({
+  buildContinuityEdgeGrantSet: buildEdgeGrantSet
 }));
 jest.unstable_mockModule('../../services/downtime/continuityPackRenderer.js', () => ({
   buildContinuityPackHtml: renderPack
@@ -129,7 +194,12 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   }
 }));
 
-const { ClinicalContinuityPackOrchestrationError, generateClinicalContinuityPackSets } =
+const {
+  ClinicalContinuityPackOrchestrationError,
+  __testing__,
+  generateClinicalContinuityPackSets,
+  purgeClinicalContinuitySourceSets
+} =
   await import('../../services/downtime/clinicalContinuityPackOrchestrationService.js');
 const { generateWardDowntimePacks } =
   await import('../../services/downtime/wardDowntimePackService.js');
@@ -148,7 +218,8 @@ function makePolicy({
     paediatricWards: [],
     edBoards: [],
     opdClinicDays: []
-  }
+  },
+  policySchemaVersion = 1
 } = {}) {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   privateKeyById.set(keyId, privateKey);
@@ -159,10 +230,24 @@ function makePolicy({
     facilityDisplayName: `Facility ${facilityId}`,
     facilityTimezone: 'Asia/Kolkata',
     policyVersion: '7',
-    policySchemaVersion: 1,
+    policySchemaVersion,
     packSchemaVersion: 1,
     policyDocument: {
-      requiredCoverage: coverage
+      requiredCoverage: coverage,
+      ...(policySchemaVersion === EDGE_POLICY_SCHEMA_VERSION
+        ? {
+          edgeAccess: {
+            authenticationMode: 'mtls_client_certificate',
+            credentialLifetimeMinutes: 480,
+            emergencyReadPosture: 'read_only',
+            maximumOfflineAuthorizationMinutes: 60
+          },
+          retention: {
+            recoveredLogReceiptHours: 8760,
+            sourcePackRetentionHours: 24
+          }
+        }
+        : {})
     },
     policyChecksum: 'a'.repeat(64),
     currentPackSigningKeyId: keyId,
@@ -526,6 +611,36 @@ describe('C3.1 facility pack-set orchestration', () => {
     }
   });
 
+  it('publishes a signed edge-access root asset only for a verified v2 policy', async () => {
+    featureEnabled = true;
+    const policy = makePolicy({ policySchemaVersion: EDGE_POLICY_SCHEMA_VERSION });
+    const location = locationForCoverage(policy.policyDocument.requiredCoverage);
+    registerPolicy(policy, [makePack(policy, location)]);
+
+    await generateClinicalContinuityPackSets({ signer: signer() });
+
+    expect(buildEdgeGrantSet).toHaveBeenCalledWith({
+      tx: expect.any(Object),
+      policy
+    });
+    const [publication] = publishPackSet.mock.calls[0];
+    expect(publication.rootAssets).toHaveLength(1);
+    expect(publication.rootAssets[0].relativePath).toBe('edge-access.json');
+    const edgeEnvelope = JSON.parse(publication.rootAssets[0].content);
+    const manifestEnvelope = JSON.parse(publication.manifestContent);
+    expect(edgeEnvelope.content).toMatchObject({
+      accessRevision: '31',
+      format: 'vhhealth_clinical_continuity_edge_access/v1'
+    });
+    expect(manifestEnvelope.content.edgeAccess).toEqual({
+      accessRevision: '31',
+      path: 'edge-access.json',
+      sha256: createHash('sha256')
+        .update(publication.rootAssets[0].content)
+        .digest('hex')
+    });
+  });
+
   it('fails the whole facility set before rendering or publication when coverage is partial', async () => {
     featureEnabled = true;
     const policy = makePolicy({
@@ -877,5 +992,112 @@ describe('C3.1 facility pack-set orchestration', () => {
     expect(externalSigner.sign).not.toHaveBeenCalled();
     expect(setTenantTx).not.toHaveBeenCalled();
     expect(produceFacilityPacks).not.toHaveBeenCalled();
+  });
+});
+
+describe('C3.2a signed-policy source-set purge', () => {
+  it('remains inert before policy or filesystem access while the feature flag is false', async () => {
+    const policyEnumerator = jest.fn();
+
+    await expect(purgeClinicalContinuitySourceSets({ policyEnumerator }))
+      .resolves.toEqual([]);
+
+    expect(policyEnumerator).not.toHaveBeenCalled();
+    expect(getPublicationRoot).not.toHaveBeenCalled();
+  });
+
+  it('deletes a retention-expired non-current set even before its signed expiry', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-purge-'));
+    try {
+      featureEnabled = true;
+      const policy = makePolicy({ policySchemaVersion: EDGE_POLICY_SCHEMA_VERSION });
+      const paths = buildPublicationPaths({
+        root,
+        tenantId: policy.tenantId,
+        facilityId: policy.facilityId,
+        manifestVersion: '1'
+      });
+      const oldSet = path.join(paths.setsDir, 'v1');
+      const currentSet = path.join(paths.setsDir, 'v2');
+      await fs.mkdir(oldSet, { recursive: true });
+      await fs.mkdir(currentSet, { recursive: true });
+      const content = { kind: 'retained-source-manifest' };
+      const rendered = canonicalizeJson(content);
+      const envelope = createSignedPackEnvelope({
+        audience: {
+          tenantId: policy.tenantId,
+          facilityId: String(policy.facilityId)
+        },
+        content,
+        rendered,
+        keyId: policy.currentPackSigningKeyId,
+        manifestVersion: '1',
+        policyVersion: policy.policyVersion,
+        revocationEpoch: policy.revocationEpoch,
+        issuedAt: '2026-07-27T00:00:00.000Z',
+        expiresAt: '2026-08-01T00:00:00.000Z',
+        privateKey: privateKeyById.get(policy.currentPackSigningKeyId)
+      });
+      await fs.writeFile(
+        path.join(oldSet, 'manifest.json'),
+        `${canonicalizeJson(envelope)}\n`,
+        'utf8'
+      );
+      await fs.writeFile(
+        paths.currentPath,
+        JSON.stringify({
+          schema: 'continuity-current-v1',
+          tenant_id: policy.tenantId,
+          facility_id: policy.facilityId,
+          manifest_version: '2',
+          set: 'sets/v2',
+          manifest: 'sets/v2/manifest.json',
+          manifest_sha256: 'a'.repeat(64)
+        }),
+        'utf8'
+      );
+      getPublicationRoot.mockReturnValueOnce(root);
+
+      await expect(purgeClinicalContinuitySourceSets({
+        policyEnumerator: async ({ readOnly }) => {
+          expect(readOnly).toBe(true);
+          return [policy];
+        }
+      })).resolves.toEqual([{
+        tenantId: policy.tenantId,
+        facilityId: policy.facilityId,
+        removed: ['v1']
+      }]);
+
+      await expect(fs.lstat(oldSet)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.lstat(currentSet)).resolves.toBeDefined();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a symbolic link anywhere below a purge candidate', async () => {
+    const directoryStat = {
+      isDirectory: () => true,
+      isFile: () => false,
+      isSymbolicLink: () => false
+    };
+    const symlinkStat = {
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => true
+    };
+    const io = {
+      lstat: async target => String(target).endsWith('escape') ? symlinkStat : directoryStat,
+      readdir: async () => [{
+        name: 'escape',
+        isDirectory: () => false,
+        isFile: () => false,
+        isSymbolicLink: () => true
+      }]
+    };
+
+    await expect(__testing__.assertPurgeTreeSafe(io, 'C:\\sets\\v1', 'v1'))
+      .rejects.toMatchObject({ code: 'CONTINUITY_PACK_PURGE_PATH_UNSAFE' });
   });
 });
