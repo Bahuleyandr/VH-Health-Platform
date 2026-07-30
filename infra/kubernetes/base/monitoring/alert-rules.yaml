@@ -26,6 +26,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: platform
           annotations:
             summary: "Node {{ $labels.instance }} is down"
             description: "node_exporter has been unreachable for 5 minutes on {{ $labels.instance }}."
@@ -36,6 +37,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "High CPU on {{ $labels.instance }}"
             description: "CPU usage above 85% on {{ $labels.instance }} for 10 minutes."
@@ -45,6 +47,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "High memory on {{ $labels.instance }}"
             description: "Memory usage above 90% on {{ $labels.instance }} for 10 minutes."
@@ -54,6 +57,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is 85% full"
             description: "Expand the PVC or delete old data before it runs out."
@@ -63,6 +67,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: platform
           annotations:
             summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is 95% full"
 
@@ -74,6 +79,7 @@ spec:
           for: 15m
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
             description: "More than 5 restarts in 15 minutes."
@@ -83,6 +89,7 @@ spec:
           for: 15m
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has fewer ready replicas than desired"
 
@@ -91,6 +98,7 @@ spec:
           for: 15m
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} has fewer ready replicas than desired"
 
@@ -102,6 +110,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: database
           annotations:
             summary: "Postgres replica {{ $labels.client }} lagging > 60s"
             description: "Replication lag in seconds: {{ $value }}."
@@ -111,6 +120,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: database
           annotations:
             summary: "Postgres replica {{ $labels.client }} lagging > 5 minutes"
 
@@ -119,6 +129,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: database
           annotations:
             summary: "Postgres primary connection usage > 85%"
 
@@ -130,6 +141,7 @@ spec:
           for: 1h
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in <30 days"
             description: "Check cert-manager logs if renewal isn't happening automatically."
@@ -139,6 +151,7 @@ spec:
           for: 1h
           labels:
             severity: critical
+            team: platform
           annotations:
             summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in <7 days"
 
@@ -150,6 +163,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: platform
           annotations:
             summary: "Cloudflare Tunnel has no active streams"
             description: "All public API traffic is affected. Check cloudflared pod logs."
@@ -162,6 +176,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: platform
           annotations:
             summary: "Harbor registry component down: {{ $labels.instance }}"
             description: "Image pulls/pushes may fail. Check {{ $labels.job }}."
@@ -182,6 +197,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "Canary health-check CronJob has not run in >30m"
             description: "The synthetic DB read/write + stuck-notification + unacked-critical-alert check is not scheduling. The platform may be degraded with no signal. Check the canary-health-check CronJob in ns vhhealth."
@@ -190,6 +206,7 @@ spec:
           for: 15m
           labels:
             severity: warning
+            team: platform
           annotations:
             summary: "Canary health-check job is failing"
             description: "The most recent canary-health-check Job reported a failure — either the canary itself is broken or it is detecting a real fault. Inspect the Job logs in ns vhhealth."
@@ -200,6 +217,7 @@ spec:
           for: 1h
           labels:
             severity: critical
+            team: backup
           annotations:
             summary: "CNPG backup-verify CronJob has not run in >30 hours"
             description: "Backup restorability is no longer being verified — a 'WAL with no good base backup' failure could go undetected until a real restore. Check the cnpg-backup-verify CronJob in ns vhhealth-platform."
@@ -208,6 +226,7 @@ spec:
           for: 1h
           labels:
             severity: critical
+            team: backup
           annotations:
             summary: "CNPG backup-verify job is failing"
             description: "The latest cnpg-backup-verify Job failed — the R2 base backup may be missing or unrestorable. Treat as a DR-readiness incident. Inspect the Job logs in ns vhhealth-platform."
@@ -218,6 +237,7 @@ spec:
           for: 15m
           labels:
             severity: critical
+            team: backup
           annotations:
             summary: "The latest Barman Cloud Plugin backup attempt failed"
             description: "The plugin reports a failed backup newer than its last available backup. Preserve the healthy WAL stream and inspect the Backup CR, ObjectStore status, and plugin logs."
@@ -231,6 +251,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            team: backup
           annotations:
             summary: "The operator-gated CNPG restore proof is not suspended"
             description: "C1.1 ships this CronJob suspended. Suspend it immediately unless a recorded synthetic restore drill is actively in progress."

@@ -1,0 +1,35 @@
+services:
+  receiver:
+    image: node:22-alpine
+    command: ["node", "/proof/receiver.mjs"]
+    volumes:
+      - ./receiver.mjs:/proof/receiver.mjs:ro
+    ports:
+      - "18080:8080"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yaml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager.yaml:/etc/alertmanager/alertmanager.yaml:ro
+    ports:
+      - "19093:9093"
+    depends_on:
+      - receiver
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --rules.alert.resend-delay=5s
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./synthetic-rules.yaml:/etc/prometheus/synthetic-rules.yaml:ro
+    ports:
+      - "19090:9090"
+    depends_on:
+      - alertmanager
+      - receiver

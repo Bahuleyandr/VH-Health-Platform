@@ -1,0 +1,76 @@
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",instance="node-a"}'
+        values: '0x20'
+      - series: 'db_circuit_breaker_open{pod="backend-0"}'
+        values: '1x20'
+      - series: 'job:slo_error:ratio_rate1h{job="backend"}'
+        values: '0.01x20'
+      - series: 'job:slo_error:ratio_rate5m{job="backend"}'
+        values: '0.01x20'
+      - series: 'gateway_spool_depth'
+        values: '101x20'
+      - series: 'vhhealth_continuity_edge_replication_lag_seconds'
+        values: '901x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: NodeDown
+        exp_alerts:
+          - exp_labels:
+              instance: node-a
+              job: node-exporter
+              severity: critical
+              team: platform
+            exp_annotations:
+              summary: "Node node-a is down"
+              description: "node_exporter has been unreachable for 5 minutes on node-a."
+              runbook: "apps/backend/docs/RUNBOOKS/node-down.md"
+      - eval_time: 3m
+        alertname: BackendDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: "No backend targets up for 2m — downtime procedure may apply"
+              runbook: "docs/DOWNTIME_PROCEDURE.md"
+      - eval_time: 3m
+        alertname: DbCircuitBreakerOpen
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: "Prisma DB circuit breaker is OPEN — queries are being rejected fast"
+              runbook: "docs/RUNBOOK_ONCALL.md#dbcircuitbreakeropen"
+      - eval_time: 3m
+        alertname: BackendErrorBudgetBurnFast
+        exp_alerts:
+          - exp_labels:
+              job: backend
+              severity: critical
+              slo: availability
+              team: backend
+            exp_annotations:
+              summary: "Backend availability error budget burning >14.4x (99.95% SLO) — fast burn"
+              runbook: "docs/RUNBOOK_ONCALL.md#backenderrorbudgetburn"
+      - eval_time: 16m
+        alertname: DeviceGatewaySpoolDepthHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: device
+            exp_annotations:
+              summary: "Device gateway spool is backing up"
+              description: "gateway_spool_depth has been above 100 for 15 minutes."
+      - eval_time: 11m
+        alertname: ContinuityEdgeReplicationLagHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: continuity
+            exp_annotations:
+              summary: "Continuity-edge replication lag is above 15 minutes"
+              runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"

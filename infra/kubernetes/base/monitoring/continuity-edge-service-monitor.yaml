@@ -1,0 +1,50 @@
+# The C3.2b edge is deliberately outside Kubernetes. This selectorless Service
+# is the Kubernetes discovery bridge for its node-exporter textfile endpoint.
+# An operator supplies the EndpointSlice during activation; no edge address is
+# committed and no nonexistent Kubernetes workload selector is invented.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vhhealth-continuity-edge
+  namespace: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/name: vhhealth-continuity-edge
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vhhealth-continuity-edge
+  namespace: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/name: vhhealth-continuity-edge
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-continuity-edge
+  namespaceSelector:
+    matchNames:
+      - vhhealth-monitoring
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        - targetLabel: scrape_contract
+          replacement: continuity-edge-textfile

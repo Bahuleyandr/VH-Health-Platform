@@ -1,0 +1,168 @@
+# OPERATOR-EXECUTED LIVE DRILL ONLY.
+#
+# This manifest is intentionally absent from every kustomization. Apply it only
+# during the approved C1.3 live drill, never as part of Argo sync. Set exactly
+# one metric below to 1, wait for firing evidence, return it to 0, and wait for
+# resolved evidence before proceeding to the next family.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-c1-3-drill
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    vhhealth.app/temporary-drill: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: c1-3-synthetic-exporter
+  namespace: vhhealth-c1-3-drill
+data:
+  metrics: |
+    # HELP vhhealth_c13_live_drill Synthetic C1.3 live routing drill.
+    # TYPE vhhealth_c13_live_drill gauge
+    vhhealth_c13_live_drill{family="platform"} 0
+    vhhealth_c13_live_drill{family="database"} 0
+    vhhealth_c13_live_drill{family="backup"} 0
+    vhhealth_c13_live_drill{family="backend"} 0
+    vhhealth_c13_live_drill{family="continuity"} 0
+    vhhealth_c13_live_drill{family="device"} 0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: c1-3-synthetic-exporter
+  namespace: vhhealth-c1-3-drill
+  labels:
+    app.kubernetes.io/name: c1-3-synthetic-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: c1-3-synthetic-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: c1-3-synthetic-exporter
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exporter
+          image: docker.io/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          args: ["httpd", "-f", "-p", "8080", "-h", "/www"]
+          ports:
+            - name: metrics
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+          volumeMounts:
+            - name: metrics
+              mountPath: /www
+              readOnly: true
+      volumes:
+        - name: metrics
+          configMap:
+            name: c1-3-synthetic-exporter
+            items:
+              - key: metrics
+                path: metrics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: c1-3-synthetic-exporter
+  namespace: vhhealth-c1-3-drill
+  labels:
+    app.kubernetes.io/name: c1-3-synthetic-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: c1-3-synthetic-exporter
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: c1-3-synthetic-exporter
+  namespace: vhhealth-c1-3-drill
+  labels:
+    release: vhhealth-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: c1-3-synthetic-exporter
+  namespaceSelector:
+    matchNames:
+      - vhhealth-c1-3-drill
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 2s
+      scrapeTimeout: 1s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: c1-3-synthetic-routing
+  namespace: vhhealth-c1-3-drill
+  labels:
+    release: vhhealth-monitoring
+spec:
+  groups:
+    - name: c1-3-live-drill
+      interval: 2s
+      rules:
+        - alert: C13LivePlatformSynthetic
+          expr: vhhealth_c13_live_drill{family="platform"} == 1
+          labels:
+            severity: critical
+            team: platform
+        - alert: C13LiveDatabaseSynthetic
+          expr: vhhealth_c13_live_drill{family="database"} == 1
+          labels:
+            severity: critical
+            team: database
+        - alert: C13LiveBackupSynthetic
+          expr: vhhealth_c13_live_drill{family="backup"} == 1
+          labels:
+            severity: critical
+            team: backup
+        - alert: C13LiveBackendSynthetic
+          expr: vhhealth_c13_live_drill{family="backend"} == 1
+          labels:
+            severity: critical
+            team: backend
+        - alert: C13LiveContinuitySynthetic
+          expr: vhhealth_c13_live_drill{family="continuity"} == 1
+          labels:
+            severity: critical
+            team: continuity
+        - alert: C13LiveDeviceSynthetic
+          expr: vhhealth_c13_live_drill{family="device"} == 1
+          labels:
+            severity: critical
+            team: device

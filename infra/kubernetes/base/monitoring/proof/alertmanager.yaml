@@ -1,0 +1,91 @@
+global:
+  resolve_timeout: 5s
+
+route:
+  receiver: unmatched-alerts
+  group_by: [team, alertname, cluster, namespace, severity]
+  group_wait: 1s
+  group_interval: 1s
+  repeat_interval: 1h
+  routes:
+    - receiver: deadman-external
+      matchers:
+        - alertname = "Watchdog"
+      group_wait: 0s
+      group_interval: 1s
+      repeat_interval: 5s
+    - receiver: ops-webhook
+      matchers:
+        - severity =~ "critical|warning"
+      continue: true
+    - receiver: critical-pagerduty
+      matchers:
+        - severity = "critical"
+      continue: true
+    - receiver: team-platform
+      matchers:
+        - team = "platform"
+    - receiver: team-database
+      matchers:
+        - team = "database"
+    - receiver: team-backup
+      matchers:
+        - team = "backup"
+    - receiver: team-backend
+      matchers:
+        - team = "backend"
+    - receiver: team-continuity
+      matchers:
+        - team = "continuity"
+    - receiver: team-device
+      matchers:
+        - team = "device"
+
+receivers:
+  - name: ops-webhook
+    webhook_configs:
+      - url: http://receiver:8080/notify/ops-webhook
+        send_resolved: true
+  - name: deadman-external
+    webhook_configs:
+      - url: http://receiver:8080/notify/deadman-external
+        send_resolved: false
+  - name: critical-pagerduty
+    webhook_configs:
+      - url: http://receiver:8080/notify/critical-pagerduty
+        send_resolved: true
+  - name: team-platform
+    webhook_configs:
+      - url: http://receiver:8080/notify/team-platform
+        send_resolved: true
+  - name: team-database
+    webhook_configs:
+      - url: http://receiver:8080/notify/team-database
+        send_resolved: true
+  - name: team-backup
+    webhook_configs:
+      - url: http://receiver:8080/notify/team-backup
+        send_resolved: true
+  - name: team-backend
+    webhook_configs:
+      - url: http://receiver:8080/notify/team-backend
+        send_resolved: true
+  - name: team-continuity
+    webhook_configs:
+      - url: http://receiver:8080/notify/team-continuity
+        send_resolved: true
+  - name: team-device
+    webhook_configs:
+      - url: http://receiver:8080/notify/team-device
+        send_resolved: true
+  - name: unmatched-alerts
+    webhook_configs:
+      - url: http://receiver:8080/notify/unmatched-alerts
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: [alertname, team, cluster, namespace]

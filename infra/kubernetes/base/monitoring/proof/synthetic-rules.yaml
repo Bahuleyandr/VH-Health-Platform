@@ -1,0 +1,41 @@
+groups:
+  - name: c1-3-synthetic-families
+    interval: 1s
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+          team: platform
+        annotations:
+          summary: "C1.3 local dead-man pipeline heartbeat"
+      - alert: C13PlatformSynthetic
+        expr: vhhealth_c13_synthetic_alert{family="platform"} == 1
+        labels:
+          severity: critical
+          team: platform
+      - alert: C13DatabaseSynthetic
+        expr: vhhealth_c13_synthetic_alert{family="database"} == 1
+        labels:
+          severity: critical
+          team: database
+      - alert: C13BackupSynthetic
+        expr: vhhealth_c13_synthetic_alert{family="backup"} == 1
+        labels:
+          severity: critical
+          team: backup
+      - alert: C13BackendSynthetic
+        expr: vhhealth_c13_synthetic_alert{family="backend"} == 1
+        labels:
+          severity: critical
+          team: backend
+      - alert: C13ContinuitySynthetic
+        expr: vhhealth_c13_synthetic_alert{family="continuity"} == 1
+        labels:
+          severity: critical
+          team: continuity
+      - alert: C13DeviceSynthetic
+        expr: vhhealth_c13_synthetic_alert{family="device"} == 1
+        labels:
+          severity: critical
+          team: device

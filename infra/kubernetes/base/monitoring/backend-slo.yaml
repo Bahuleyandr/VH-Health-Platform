@@ -40,6 +40,7 @@ spec:
           for: 2m
           labels:
             severity: critical
+            team: backend
             slo: availability
           annotations:
             summary: "Backend availability error budget burning >14.4x (99.95% SLO) — fast burn"
@@ -53,6 +54,7 @@ spec:
           for: 15m
           labels:
             severity: warning
+            team: backend
             slo: availability
           annotations:
             summary: "Backend availability error budget burning >6x (99.95% SLO) — sustained slow burn"
