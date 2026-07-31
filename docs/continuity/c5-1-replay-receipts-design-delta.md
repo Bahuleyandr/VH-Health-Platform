@@ -1,6 +1,7 @@
 # C5.1 replay receipts and domain-route conformance — backend design delta
 
-**Status:** Step 1 design packet; awaiting coordinator clearance  
+**Status:** coordinator-cleared 2026-07-31; Step 2 remains held at the section
+2 gates and is not authorized<br>
 **Scope:** `apps/backend`, one re-derived migration, regenerated
 `apps/backend/prisma/schema.prisma`, backend tests, and this record only  
 **Branch:** `feat/continuity-c5-1-replay-receipts`  
@@ -11,8 +12,8 @@
 [#660](https://github.com/Bahuleyandr/VH-Health-Platform/pull/660), merge
 `64739bde040075018f52dfddb0b889b9337cd1a5`, migration
 `602_clinical_continuity_action_registry.sql`  
-**Build order:** fourth — after C6.1-A, which currently owns the next migration
-slot, and after the default-off facility-context build  
+**Build order:** coordinator queue `AF -> C5.1`; C6.1-A is merged and the
+default-off facility-context build remains the immediate predecessor<br>
 **Migration:** not reserved; re-list and derive the next free number only at
 the cleared build kickoff  
 **Activation:** none  
@@ -851,3 +852,36 @@ invention in this backend lane:
 
 Until these decisions and the queued prerequisite builds are cleared, this
 branch remains design-only.
+
+## 17. Coordinator clearance record
+
+The coordinator approved this delta as written on 2026-07-31 and adopted the
+section 2 stop conditions verbatim as the build gate. This clearance changes
+the design status only. It does not authorize Step 2, reserve a migration,
+activate capture, merge, or deploy.
+
+The coordinator ratified these fail-closed postures:
+
+1. no receipt/effect-evidence compaction or tombstone/attempt deletion until
+   the C-D10 receipt and tombstone horizons are countersigned; engineering
+   supplies no interim value;
+2. different-actor replay remains refused until a server-verifiable handoff
+   contract exists; local C0A attestation is not promoted into server
+   authority; and
+3. the build remains blocked until the landed C4.1 envelope matches the
+   cleared delta field-for-field and the closed C5.1 wire mapping is approved.
+
+Live prerequisite receipt when this clearance was recorded:
+
+- `github/main` is
+  `e5aa113cb4895deb763800e6309ea64fd492cb3b`, merge of C6.1-A PR
+  [#664](https://github.com/Bahuleyandr/VH-Health-Platform/pull/664);
+- C6.1-A landed `603_external_interface_recovery.sql`;
+- `github/feat/continuity-facility-context` remains at its design/clearance
+  commit `f77d0ed208841054b2bb0376e29d12bcfdabe1fc`; and
+- `github/feat/continuity-c4-1-queue-envelope` remains at its cleared design
+  commit `aa25b1a62d65b353c5dc397a00ddbefdeb8c0896`.
+
+The next permissible action is another live gate check after the
+facility-context build and the landed C4.1 envelope exist. Until then, this
+lane holds with no backend, migration, Prisma, test, or activation work.
