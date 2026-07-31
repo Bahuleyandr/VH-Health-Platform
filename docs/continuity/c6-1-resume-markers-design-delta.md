@@ -1,6 +1,7 @@
 # C6.1 durable resume markers and duplicate keys — backend design delta
 
-**Status:** Step 1 design delta; implementation is not cleared
+**Status:** coordinator-cleared 2026-07-31 with two mandatory proof conditions;
+runtime build remains gated on C4.2 PR #660
 **Scope:** `apps/backend`, its migration, regenerated
 `apps/backend/prisma/schema.prisma`, and backend tests only
 **Branch:** `feat/continuity-c6-1-resume-markers`
@@ -9,10 +10,11 @@
 (`2026-07-31T01:50:26+05:30`)
 **Sequencing gate:** C4.2 PR
 [#660](https://github.com/Bahuleyandr/VH-Health-Platform/pull/660) is still an
-open draft at `d02785b95784feac14f9e93a366b1a25959b0268`; it owns migration
+open draft, last verified at `14ff52099bc3e8fd776c8b03156ba3fe8fb08e2b`;
+it owns migration
 `602_clinical_continuity_action_registry.sql` and regenerates
 `prisma/schema.prisma`. C6.1 does not build, reserve a migration number, or
-regenerate Prisma until #660 is merged and this delta is cleared.
+regenerate Prisma until #660 is merged.
 **Release state:** inert, workers paused, no interface activation
 **Merge state:** never merge from this lane
 
@@ -60,6 +62,18 @@ C-D8 is not reopened. In particular:
    key; and
 4. Dr Bahuleyan S remains the accountable owner for interface recovery
    decisions, with delegates optionally recorded later.
+
+Coordinator clearance binds two additional implementation proofs:
+
+1. the `scope_kind` row-type discriminator is a database CHECK invariant, not
+   an application convention; direct SQL must be unable to create a
+   tenantless external row or a control-plane row carrying external-interface
+   fields; and
+2. occurrence-time normalization must preserve the exact currently observable
+   pathway behavior for every legacy event. The only intentional behavior
+   difference is for a new event whose projector previously had to fall back
+   to ingestion time and whose producer now persists an explicit validated
+   occurrence time.
 
 ## 2. Existing-mechanism ruling
 
@@ -117,8 +131,8 @@ Existing pathway columns remain populated only for `pathway_registry` rows.
 External rows carry:
 
 - non-null `tenant_id`;
-- nullable `facility_id`, required by the interface catalog when the source is
-  facility-bound;
+- `facility_scope` of `tenant` or `facility`, with `facility_id` null only for
+  tenant-wide streams and non-null only for facility-bound streams;
 - `interface_family`, `direction`, `source_partition`, `consumer_key`, and
   `generation`;
 - `cursor_kind`;
@@ -130,6 +144,58 @@ External rows carry:
 - signed policy/version binding; and
 - retention-policy binding and `retention_until` without an engineering
   default.
+
+The migration adds a named, validated row-shape CHECK constraint. The binding
+shape is:
+
+```sql
+CHECK (
+  (
+    scope_kind = 'pathway_registry'
+    AND tenant_id IS NULL
+    AND facility_scope IS NULL
+    AND facility_id IS NULL
+    AND interface_family IS NULL
+    AND direction IS NULL
+    AND source_partition IS NULL
+    AND cursor_kind IS NULL
+    AND historical_cutoff_event_id IS NOT NULL
+    AND backfill_cursor_event_id IS NOT NULL
+  )
+  OR
+  (
+    scope_kind = 'external_interface'
+    AND tenant_id IS NOT NULL
+    AND tenant_id <> '00000000-0000-4000-8000-000000000001'::uuid
+    AND facility_scope IN ('tenant', 'facility')
+    AND (
+      (facility_scope = 'tenant' AND facility_id IS NULL)
+      OR
+      (facility_scope = 'facility' AND facility_id IS NOT NULL)
+    )
+    AND interface_family IS NOT NULL
+    AND direction IS NOT NULL
+    AND source_partition IS NOT NULL
+    AND cursor_kind IS NOT NULL
+    AND historical_cutoff_event_id IS NULL
+    AND backfill_cursor_event_id IS NULL
+  )
+)
+```
+
+The final DDL may add further non-null external fields, but it may not weaken
+either branch. There is no third/fallback row type. The migration validates the
+constraint before exposing any writer function. A direct-SQL test executed as
+the migration owner must prove SQLSTATE `23514` and the named constraint for:
+
+- `external_interface` with null/default tenant;
+- `external_interface` with a facility-scope/facility-ID mismatch;
+- `pathway_registry` with tenant, facility, interface, direction, partition,
+  or cursor fields; and
+- either row type carrying the other row type's required column family.
+
+Those tests deliberately bypass application validation and RLS so they prove
+the CHECK itself. Separate runtime-role tests then prove RLS and grants.
 
 The position is an adapter-normalized monotonic ordinal. The token is the exact
 source/provider value used for round-trip reconciliation. A source that has
@@ -326,14 +392,28 @@ The live anchors are
 `apps/backend/src/services/pathways/inpatientPathwayProjector.js:71,390`, and
 `apps/backend/src/services/pathways/emergencyPathwayProjector.js:216`.
 
-The first build adds a typed `event_outbox.occurred_at` contract and treats
-`created_at` as server `recorded_at`. Historical rows are backfilled from
-`created_at` only to preserve historical behavior; they are marked as legacy
-receipt-time provenance. Every replay-origin row must provide a validated
-source occurrence time and canonical inbox reference or the insert fails.
-`pathwayProjectorService` passes `occurred_at`, and all five projectors stop
-reading `created_at` as domain time. A late-pending event is fenced before any
-projector handler regardless of its timestamp.
+The first build adds typed `event_outbox.occurred_at` and
+`occurred_at_source` contracts and treats `created_at` as server
+`recorded_at`. The migration preserves the old effective time event by event:
+
+- legacy `admission.diagnostic_resource_linked` rows with a valid
+  `payload.occurred_at` are backfilled from that payload value because the
+  inpatient projector already consumes it;
+- every other legacy row is backfilled from `created_at`, even if an ignored
+  payload field happens to be named `occurred_at`, because switching an
+  existing event to a previously ignored value would alter active pathway
+  behavior; and
+- new/replay-origin rows must persist a validated explicit occurrence time and
+  canonical inbox reference or the insert fails.
+
+Provenance distinguishes `legacy_payload`, `legacy_recorded_at`, and
+`explicit`. `pathwayProjectorService` passes the persisted effective
+`occurred_at`, and all five projectors stop independently choosing between
+payload and `created_at`. The normalization is therefore byte-for-byte
+behavior-preserving for legacy rows and for new rows whose occurrence equals
+recording time. It is observable only for a new explicit row whose projector
+would formerly have fallen back to `created_at`. A late-pending event is fenced
+before any projector handler regardless of its timestamp.
 
 ## 6. All-interface disposition table
 
@@ -452,8 +532,9 @@ and outage/recovery drill are cleared.
 ## 9. C6.1-A exact file ledger
 
 This is the proposed first-PR ledger after rebasing onto the merge of #660.
-Coordinator clearance is required before any of these runtime files are
-changed.
+The coordinator cleared this ledger on 2026-07-31 subject to the two proof
+conditions in section 1. Runtime changes remain prohibited until #660 merges,
+main is re-fetched, and the next migration number is derived.
 
 ### Add
 
@@ -464,6 +545,7 @@ changed.
 - `apps/backend/src/tests/deep/externalInterfaceRecoveryMigration.deep.test.js`
 - `apps/backend/src/tests/external-interface-recovery.deep.test.js`
 - `apps/backend/src/tests/external-recovery-late-effects.deep.test.js`
+- `apps/backend/src/tests/pathway-projector-occurrence-parity.deep.test.js`
 - `apps/backend/src/tests/unit/externalInterfaceRecoveryCatalog.test.js`
 - `apps/backend/src/tests/unit/externalRecoveryEffectGate.test.js`
 
@@ -505,6 +587,10 @@ All fixtures are synthetic.
   constrained functions;
 - external rows reject null/default tenant, wrong tenant, wrong facility, and
   cross-tenant offset/inbox/domain links;
+- the named row-shape CHECK is present and validated;
+- migration-owner direct SQL receives SQLSTATE `23514` for a tenantless/default
+  tenant external row, a facility-scope mismatch, and a pathway-registry row
+  carrying any external-interface field;
 - `ENABLE` plus `FORCE` RLS and restrictive explicit-context policies;
 - direct SQL with absent, empty, `bypass`, wrong, and correct pinned tenant;
 - exact runtime role grants and denied update/delete/truncate/function bypass;
@@ -526,8 +612,23 @@ All fixtures are synthetic.
 
 - replay-origin outbox rows reject missing inbox identity, occurrence time,
   fingerprint, or disposition;
-- historical outbox rows preserve receipt-time behavior with explicit legacy
-  provenance;
+- a deterministic five-projector fixture matrix runs at the rebased
+  `github/main` base and on the feature branch, and the normalized transition,
+  task, SLA, resource-reference, and occurrence-time outputs are compared;
+- legacy diagnostic, referral, OP, emergency, and inpatient events that used
+  `created_at` before the change produce byte-identical outputs after it;
+- a legacy `admission.diagnostic_resource_linked` event with valid
+  `payload.occurred_at` produces byte-identical output before and after;
+- a legacy non-inpatient event that already carries a valid but historically
+  ignored `payload.occurred_at` still uses `created_at` and projects
+  identically;
+- a new explicit `occurred_at` equal to `created_at` projects identically;
+- the only differential fixture is a new explicit `occurred_at` different
+  from `created_at` on a path that formerly fell back to ingestion time; only
+  occurrence-derived fields may differ, while transition identity, task/SLA
+  linkage, resource identity, and outcome remain equal;
+- missing/invalid explicit occurrence on replay-origin rows fails closed
+  instead of falling back;
 - all five projectors receive `occurred_at` and no longer use `created_at` as
   domain time;
 - `late_pending_only` prevents pathway handler invocation;
@@ -580,7 +681,7 @@ behavior remains available through the compatibility row type. A later
 contract migration may stop new writes only after parity; it may not drop
 retained evidence in the rollback PR.
 
-## 12. Explicit non-goals and clearance conditions
+## 12. Explicit non-goals and remaining build gate
 
 This delta and its first build provide:
 
@@ -596,15 +697,19 @@ This delta and its first build provide:
 - no device-gateway/client change in this backend lane; and
 - no merge.
 
-Coordinator clearance must confirm:
+Coordinator clearance on 2026-07-31 approved the canonical-pair ruling, both
+untenanted exemptions, all 30 dispositions, owner-directed marker
+reconciliation, database-backed late-effect seam, Section 6.8 controls, and
+C6.1-A as substrate plus I10 only.
 
-1. the canonical-pair ruling and the two explicit untenanted exemptions;
-2. the all-30 disposition table;
-3. the missing-marker and source-retention reconciliation states;
-4. the database-backed late-effect seam and normalized projector occurrence
-   time;
-5. the C3.1-style RLS, facility integrity, grants, retention binding, and
-   cross-tenant tests;
-6. C6.1-A as substrate plus I10 only; and
-7. rebase, migration-number derivation, and Prisma regeneration only after
-   #660 merges.
+The clearance is conditional on:
+
+1. the exact database row-shape CHECK and direct-SQL negative proof in sections
+   3.1 and 10.1; and
+2. the five-projector before/after parity and isolated differential proof in
+   sections 5.1 and 10.2.
+
+The only remaining kickoff gate is #660 merging. After that merge, this lane
+must re-fetch/rebase, derive the next free migration number, regenerate Prisma
+from the migrated database, and revalidate the exact file ledger before
+runtime implementation.
