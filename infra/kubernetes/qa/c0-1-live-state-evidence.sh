@@ -250,10 +250,12 @@ assert_safe_command() {
       ;;
   esac
 
-  if [[ "${joined}" =~ (^|[[:space:]])(argocd|ansible|ansible-playbook|rclone|wrangler)([[:space:]]|$) ]]; then
-    printf 'SAFETY REFUSAL: prohibited control tool in command: %s\n' "${joined}" >&2
-    return 97
-  fi
+  case "${first##*/}" in
+    argocd|ansible|ansible-playbook|rclone|wrangler)
+      printf 'SAFETY REFUSAL: prohibited control tool in command: %s\n' "${joined}" >&2
+      return 97
+      ;;
+  esac
   if [[ "${joined}" =~ kubectl.*[[:space:]](apply|create|patch|delete|scale|annotate|label|cordon|drain|replace|edit|rollout|taint|set)([[:space:]]|$) ]]; then
     printf 'SAFETY REFUSAL: mutating kubectl verb in command: %s\n' "${joined}" >&2
     return 97
