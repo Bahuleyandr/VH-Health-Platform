@@ -7,7 +7,7 @@ import { jest } from '@jest/globals';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenant } from '../lib/prisma.js';
 import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import { AuthService } from '../services/auth/authService.js';
 import { storeOTP } from '../services/auth/otpService.js';
@@ -25,6 +25,7 @@ const STAFF_PHONE = '+919270000012';
 const EMPLOYEE_ID = 'OTP27EMP';
 const PIN = '4827';
 const DEVICE_TOKEN = 'otp27-registered-device-token';
+const DEVICE_ID = '33333333-3333-4333-8333-333333333333';
 const REQUEST = {
   ip: '203.0.113.27',
   headers: {
@@ -162,14 +163,28 @@ d('OTP/PIN active-session tracking and revoke-all (#27)', () => {
       TENANT_ID,
     );
 
+    await setTenant(TENANT_ID, tx => tx.$executeRawUnsafe(
+        `INSERT INTO user_devices
+           (tenant_id, user_uid, device_id, device_name, platform,
+            device_type, last_active, created_at, updated_at)
+         VALUES
+           ($1::uuid, $2::uuid, $3, 'OTP 27 Device', 'test',
+            'staff', NOW(), NOW(), NOW())`,
+        TENANT_ID,
+        STAFF_UID,
+        DEVICE_ID,
+    ));
+
     await prisma.$executeRawUnsafe(
       `INSERT INTO staff_devices
-         (staff_id, device_id, device_name, device_token, is_active, tenant_id,
-          registered_at, trust_expires_at, created_at)
+         (staff_id, user_uid, device_id, device_name, device_token, is_active,
+          tenant_id, registered_at, trust_expires_at, created_at)
        VALUES
-         ($1, 'otp27-device', 'OTP 27 Device', $2, true, $3::uuid,
+         ($1, $2::uuid, $3, 'OTP 27 Device', $4, true, $5::uuid,
           NOW(), NOW() + INTERVAL '1 day', NOW())`,
       staffId,
+      STAFF_UID,
+      DEVICE_ID,
       DEVICE_TOKEN,
       TENANT_ID,
     );
@@ -191,6 +206,15 @@ d('OTP/PIN active-session tracking and revoke-all (#27)', () => {
     await prisma.$executeRawUnsafe('DELETE FROM auth_logs WHERE phone = $1', EMPLOYEE_ID).catch(() => {});
     await prisma.$executeRawUnsafe('DELETE FROM admin_activity_logs WHERE admin_uid = $1::uuid', STAFF_UID).catch(() => {});
     await prisma.$executeRawUnsafe('DELETE FROM staff_devices WHERE staff_id = $1', staffId).catch(() => {});
+    await setTenant(TENANT_ID, tx => tx.$executeRawUnsafe(
+        `DELETE FROM user_devices
+          WHERE tenant_id = $1::uuid
+            AND user_uid = $2::uuid
+            AND device_id = $3`,
+        TENANT_ID,
+        STAFF_UID,
+        DEVICE_ID,
+    )).catch(() => {});
     await prisma.$executeRawUnsafe('DELETE FROM staff WHERE user_id = $1::uuid', STAFF_UID).catch(() => {});
     await prisma.$executeRawUnsafe(
       'DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)',
@@ -218,7 +242,11 @@ d('OTP/PIN active-session tracking and revoke-all (#27)', () => {
       EMPLOYEE_ID,
       PIN,
       REQUEST,
-      { deviceType: 'mobile', deviceToken: DEVICE_TOKEN },
+      {
+        deviceType: 'mobile',
+        deviceToken: DEVICE_TOKEN,
+        installationId: DEVICE_ID,
+      },
     );
 
     await expectTrackedAndRevoked({ uid: STAFF_UID, token: result.accessToken });

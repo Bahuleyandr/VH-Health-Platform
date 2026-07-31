@@ -5,7 +5,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { AUTH_CONFIG } from '../../config/authConfig.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
@@ -19,18 +19,18 @@ import { getUserSessionDeviceType } from './userActiveSession.js';
 // `{ rows, rowCount }`. Most of this file reads `result.rows[0]` / `rows[i]`;
 // a couple of historical sites treat the result as a plain array instead —
 // those are updated below to use `.rows`.
-const query = async (sql, params = []) => {
+const query = async (sql, params = [], client = prisma) => {
   const normalizedSql = sql.trim();
   const upperSql = normalizedSql.toUpperCase();
   const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
   const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
 
   if (isReadQuery) {
-    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
+    const rows = await client.$queryRawUnsafe(normalizedSql, ...params);
     return { rows: Array.isArray(rows) ? rows : [], rowCount: Array.isArray(rows) ? rows.length : 0 };
   }
 
-  const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  const rowCount = await client.$executeRawUnsafe(normalizedSql, ...params);
   return { rows: [], rowCount: Number(rowCount) || 0 };
 };
 
@@ -50,9 +50,61 @@ const SCIM_MANAGED_SOURCES = new Set(['scim', 'hybrid']);
 
 const MAX_DEVICES_PER_STAFF = parseInt(process.env.MAX_DEVICES_PER_STAFF) || 5;
 const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS) || AUTH_CONFIG.rateLimit.loginAttempts;
+const INSTALLATION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function installationId(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!INSTALLATION_ID_PATTERN.test(normalized)) {
+    const error = new Error('A valid installation ID is required');
+    error.statusCode = 400;
+    error.code = 'STAFF_INSTALLATION_ID_INVALID';
+    throw error;
+  }
+  return normalized;
+}
 
 // ✅ FIX: All methods are now correctly inside the class block.
 export class StaffAuthService {
+  static async bindStaffInstallation(staff, rawInstallationId, deviceInfo = {}) {
+    const stableDeviceId = installationId(rawInstallationId);
+    if (!staff?.uid || !staff?.tenant_id) {
+      throw new Error('Staff installation binding requires tenant and user identity');
+    }
+
+    await setTenant(staff.tenant_id, tx => query(
+      `INSERT INTO user_devices (
+         tenant_id, user_uid, device_id, device_name, platform,
+         app_version, os_version, last_active, created_at,
+         updated_at, device_type
+       )
+       VALUES (
+         $1::uuid, $2::uuid, $3, $4, $5, $6, $7,
+         NOW(), NOW(), NOW(), 'staff'
+       )
+       ON CONFLICT (tenant_id, user_uid, device_id)
+       DO UPDATE SET
+         device_name = COALESCE(EXCLUDED.device_name, user_devices.device_name),
+         platform = COALESCE(EXCLUDED.platform, user_devices.platform),
+         app_version = COALESCE(EXCLUDED.app_version, user_devices.app_version),
+         os_version = COALESCE(EXCLUDED.os_version, user_devices.os_version),
+         last_active = NOW(),
+         updated_at = NOW(),
+         device_type = 'staff'`,
+      [
+        staff.tenant_id,
+        staff.uid,
+        stableDeviceId,
+        deviceInfo.name || deviceInfo.deviceName || null,
+        deviceInfo.platform || null,
+        deviceInfo.appVersion || null,
+        deviceInfo.os || deviceInfo.osVersion || null,
+      ],
+      tx,
+    ));
+
+    return stableDeviceId;
+  }
   // =================================================================
   // SHARED LOCKOUT CHECK
   // =================================================================
@@ -138,14 +190,20 @@ export class StaffAuthService {
   // PRIMARY AUTHENTICATION METHODS
   // =================================================================
 
-  static async authenticateStaff(employeeId, password, req, { deviceType } = {}) {
+  static async authenticateStaff(
+    employeeId,
+    password,
+    req,
+    { deviceType, installationId: rawInstallationId } = {},
+  ) {
     try {
       await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login');
 
       // Find staff member by employee ID
       const result = await query(`
         SELECT
-          u.id, u.uid, u.name, u.email, u.phone, u.role, u.encrypted_password,
+          u.id, u.uid, u.tenant_id, u.name, u.email, u.phone, u.role,
+          u.encrypted_password,
           s.employee_id, s.department, s.position, s.is_active, s.shift_type
         FROM staff s
         JOIN users u ON s.user_id = u.uid
@@ -196,15 +254,21 @@ export class StaffAuthService {
       }
 
       await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', true, null, 'password', req);
+      const stableDeviceId = await this.bindStaffInstallation(
+        staff,
+        rawInstallationId,
+        { platform: deviceType },
+      );
 
       const { accessToken } = await issueAccessTokenAndClaimSession({
         userUid: staff.uid,
         tokenPayload: { id: staff.id, uid: staff.uid, role: staff.role },
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
         deviceType,
+        stableDeviceId,
         req,
       });
-      const refreshToken = this.generateRefreshToken(staff);
+      const refreshToken = this.generateRefreshToken(staff, stableDeviceId);
 
       await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
       await this.logActivity(staff.uid, 'STAFF_LOGIN', 'Staff login successful', req);
@@ -221,6 +285,8 @@ export class StaffAuthService {
           department: staff.department,
           role: staff.role,
           position: staff.position,
+          tenantId: staff.tenant_id,
+          stableDeviceId,
         },
       };
     } catch (error) {
@@ -345,18 +411,32 @@ export class StaffAuthService {
     return { success: true };
   }
 
-  static async registerStaffDevice(employeeId, password, deviceInfo, req, { deviceType } = {}) {
+  static async registerStaffDevice(
+    employeeId,
+    password,
+    deviceInfo,
+    req,
+    { deviceType, installationId: rawInstallationId } = {},
+  ) {
     try {
       // Re-uses the result from authenticateStaff, avoiding extra DB calls.
       // The inner call already claims the single active session.
-      const authResult = await this.authenticateStaff(employeeId, password, req, { deviceType });
+      const authResult = await this.authenticateStaff(employeeId, password, req, {
+        deviceType,
+        installationId: rawInstallationId,
+      });
       const staff = authResult.staff;
       const userId = staff.id;
+      const stableDeviceId = installationId(rawInstallationId);
 
       // Check device limit
       const deviceCountResult = await query(
-        'SELECT COUNT(*) FROM staff_devices WHERE staff_id = $1 AND is_active = true',
-        [userId]
+        `SELECT COUNT(*)
+           FROM staff_devices
+          WHERE tenant_id = $1::uuid
+            AND staff_id = $2
+            AND is_active = true`,
+        [staff.tenantId, userId]
       );
 
       if (parseInt(deviceCountResult.rows[0].count) >= MAX_DEVICES_PER_STAFF) {
@@ -364,15 +444,28 @@ export class StaffAuthService {
       }
 
       const deviceToken = this.generateDeviceToken();
-      const deviceId = crypto.randomUUID();
+      const deviceId = stableDeviceId;
 
       await query(`
         INSERT INTO staff_devices (
-          staff_id, device_id, device_name, device_token,
+          tenant_id, staff_id, user_uid, device_id, device_name, device_token,
           is_active, registered_at, registered_location, trust_expires_at
-        ) VALUES ($1, $2, $3, $4, true, NOW(), $5, NOW() + INTERVAL '30 days')
+        ) VALUES (
+          $1::uuid, $2, $3::uuid, $4, $5, $6,
+          true, NOW(), $7, NOW() + INTERVAL '30 days'
+        )
+        ON CONFLICT (tenant_id, user_uid, device_id)
+        DO UPDATE SET
+          device_name = EXCLUDED.device_name,
+          device_token = EXCLUDED.device_token,
+          is_active = true,
+          registered_at = NOW(),
+          registered_location = EXCLUDED.registered_location,
+          trust_expires_at = EXCLUDED.trust_expires_at
       `, [
+        staff.tenantId,
         userId,
+        staff.uid,
         deviceId,
         deviceInfo.name || 'Unknown Device',
         deviceToken,
@@ -384,7 +477,7 @@ export class StaffAuthService {
         }),
       ]);
 
-      const sessionToken = this.generateRefreshToken(staff);
+      const sessionToken = this.generateRefreshToken(staff, stableDeviceId);
       await this.createSession(userId, deviceId, sessionToken, req);
 
       await this.logActivity(staff.uid, 'DEVICE_REGISTERED',
@@ -402,29 +495,41 @@ export class StaffAuthService {
     }
   }
 
-  static async quickLogin(deviceToken, pin, biometric, location, req, { deviceType } = {}) {
+  static async quickLogin(
+    deviceToken,
+    pin,
+    biometric,
+    location,
+    req,
+    { deviceType, installationId: rawInstallationId } = {},
+  ) {
     try {
+      const stableDeviceId = installationId(rawInstallationId);
       const deviceResult = await query(`
         SELECT 
           d.id as internal_device_id, d.staff_id, d.device_id, d.pin_hash, d.biometric_enabled,
-          u.uid, u.name, u.email, u.phone, u.role, u.encrypted_password,
+          u.uid, u.tenant_id, u.name, u.email, u.phone, u.role, u.encrypted_password,
           s.employee_id, s.department, s.position, s.is_active
         FROM staff_devices d
         JOIN users u ON d.staff_id = u.id
         JOIN staff s ON u.uid = s.user_id
-        WHERE d.device_token = $1 
+        WHERE d.device_token = $1
+          AND d.device_id = $2
           AND d.is_active = true
           AND (
             (d.trust_expires_at IS NOT NULL AND d.trust_expires_at > NOW())
             OR (d.trust_expires_at IS NULL AND d.created_at > NOW() - INTERVAL '90 days')
           )
-      `, [deviceToken]);
+      `, [deviceToken, stableDeviceId]);
 
       if (deviceResult.rows.length === 0) {
         throw new Error('Invalid or expired device token');
       }
 
       const deviceAndStaff = deviceResult.rows[0];
+      await this.bindStaffInstallation(deviceAndStaff, stableDeviceId, {
+        platform: deviceType,
+      });
 
       // Check lockout across all auth methods for this employee
       await this._checkStaffLockout(deviceAndStaff.employee_id, req, '/api/v1/auth/staff/quick-login');
@@ -469,9 +574,10 @@ export class StaffAuthService {
         },
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
         deviceType,
+        stableDeviceId,
         req,
       });
-      const refreshToken = this.generateRefreshToken(deviceAndStaff);
+      const refreshToken = this.generateRefreshToken(deviceAndStaff, stableDeviceId);
 
       await this.createSession(deviceAndStaff.staff_id, deviceAndStaff.device_id, refreshToken, req);
       await query('UPDATE staff_devices SET last_used = NOW() WHERE id = $1', [deviceAndStaff.internal_device_id]);
@@ -489,7 +595,8 @@ export class StaffAuthService {
     department: deviceAndStaff.department,
     role: deviceAndStaff.role,
     position: deviceAndStaff.position
-  }
+  },
+  stableDeviceId,
 };
     } catch (error) {
       logger.error('Quick login error:', error);
@@ -526,8 +633,14 @@ export class StaffAuthService {
     }
   }
 
-  static async refreshStaffSession(refreshToken, _deviceToken, req) {
+  static async refreshStaffSession(
+    refreshToken,
+    _deviceToken,
+    rawInstallationId,
+    req,
+  ) {
     try {
+      const stableDeviceId = installationId(rawInstallationId);
       const decoded = verifyToken(refreshToken);
       if (!decoded) throw new Error('Invalid or expired refresh token');
 
@@ -536,6 +649,12 @@ export class StaffAuthService {
       // no `type` claim) could be replayed here to mint fresh access tokens
       // indefinitely. generateRefreshToken() stamps `type: 'refresh'`.
       if (decoded.type !== 'refresh') {
+        throw new Error('Invalid or expired refresh token');
+      }
+      if (
+        !decoded.stableDeviceId
+        || String(decoded.stableDeviceId).toLowerCase() !== stableDeviceId
+      ) {
         throw new Error('Invalid or expired refresh token');
       }
 
@@ -548,16 +667,22 @@ export class StaffAuthService {
 
       const incomingHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
       const sessionResult = await query(`
-        SELECT s.*, u.uid, u.name, u.email, u.role, st.employee_id, st.is_active
+        SELECT s.*, u.uid, u.tenant_id, u.name, u.email, u.role,
+               st.employee_id, st.is_active
         FROM staff_auth_sessions s
         JOIN users u ON s.staff_id = u.id
         JOIN staff st ON u.id = st.user_id
-        WHERE s.session_token = $1 AND s.expires_at > NOW()
-      `, [incomingHash]);
+        WHERE s.session_token = $1
+          AND s.device_id = $2
+          AND s.expires_at > NOW()
+      `, [incomingHash, stableDeviceId]);
 
       if (sessionResult.rows.length === 0) throw new Error('Invalid or expired session');
       const session = sessionResult.rows[0];
       if (!session.is_active) throw new Error('Account deactivated');
+      await this.bindStaffInstallation(session, stableDeviceId, {
+        platform: await getUserSessionDeviceType(session.uid),
+      });
 
       await query('UPDATE staff_auth_sessions SET last_activity = NOW() WHERE id = $1', [session.id]);
 
@@ -574,6 +699,7 @@ export class StaffAuthService {
         tokenPayload: { id: session.staff_id, uid: session.uid, role: session.role },
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
         deviceType,
+        stableDeviceId,
         req,
         pushRevoked: false,
       });
@@ -605,8 +731,14 @@ export class StaffAuthService {
    *      locks the account (with a loud security event) if failures arrive
    *      from many sources at once.
    */
-  static async authenticateStaffWithPin(employeeId, pin, req, { deviceType, deviceToken } = {}) {
+  static async authenticateStaffWithPin(
+    employeeId,
+    pin,
+    req,
+    { deviceType, deviceToken, installationId: rawInstallationId } = {},
+  ) {
     try {
+      const stableDeviceId = installationId(rawInstallationId);
       await this._checkStaffPinLockout(employeeId, req, deviceToken);
 
       // Device binding (M5): PIN login requires a registered, active device.
@@ -621,7 +753,7 @@ export class StaffAuthService {
       // Find staff member by employee ID
       const result = await query(`
         SELECT
-          u.id, u.uid, u.name, u.email, u.phone, u.role,
+          u.id, u.uid, u.tenant_id, u.name, u.email, u.phone, u.role,
           s.employee_id, s.department, s.position, s.is_active,
           s.pin_hash -- Assumes a PIN hash is stored on the staff table
         FROM staff s
@@ -661,10 +793,14 @@ export class StaffAuthService {
       // device of THIS staff member.
       const deviceResult = await query(`
         SELECT id FROM staff_devices
-        WHERE device_token = $1 AND staff_id = $2 AND is_active = true
+        WHERE device_token = $1
+          AND staff_id = $2
+          AND tenant_id = $3::uuid
+          AND device_id = $4
+          AND is_active = true
           AND (trust_expires_at IS NULL OR trust_expires_at > NOW())
         LIMIT 1
-      `, [deviceToken, staff.id]);
+      `, [deviceToken, staff.id, staff.tenant_id, stableDeviceId]);
       if (deviceResult.rows.length === 0) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Unregistered device for PIN login', 'pin', req, deviceToken);
         logSecurityEvent('LOGIN_FAILED', {
@@ -704,15 +840,19 @@ export class StaffAuthService {
       }
 
       await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', true, null, 'pin', req, deviceToken);
+      await this.bindStaffInstallation(staff, stableDeviceId, {
+        platform: deviceType,
+      });
 
       const { accessToken } = await issueAccessTokenAndClaimSession({
         userUid: staff.uid,
         tokenPayload: { id: staff.id, uid: staff.uid, role: staff.role },
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
         deviceType,
+        stableDeviceId,
         req,
       });
-      const refreshToken = this.generateRefreshToken(staff);
+      const refreshToken = this.generateRefreshToken(staff, stableDeviceId);
 
       await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
       await this.logActivity(staff.uid, 'STAFF_PIN_LOGIN', 'Staff login with PIN successful', req);
@@ -729,6 +869,7 @@ export class StaffAuthService {
           department: staff.department,
           role: staff.role,
           position: staff.position,
+          stableDeviceId,
         },
       };
     } catch (error) {
@@ -854,9 +995,15 @@ export class StaffAuthService {
     return generateToken({ id: staff.id, uid: staff.uid, role: staff.role }, SECURITY_CONFIG.jwt.staffAccessExpiry);
   }
 
-  static generateRefreshToken(staff) {
+  static generateRefreshToken(staff, stableDeviceId) {
     // Refresh tokens get a longer expiry (30 days)
-    return generateToken({ id: staff.id, uid: staff.uid, role: staff.role, type: 'refresh' }, '30d');
+    return generateToken({
+      id: staff.id,
+      uid: staff.uid,
+      role: staff.role,
+      type: 'refresh',
+      ...(stableDeviceId ? { stableDeviceId } : {}),
+    }, '30d');
   }
 
   static generateDeviceToken() {

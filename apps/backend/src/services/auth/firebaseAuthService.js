@@ -2,7 +2,7 @@
 
 import { AUTH_ACTIONS } from '../../config/authConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import admin from '../../utils/firebaseAdmin.js';
@@ -22,18 +22,18 @@ import { issueAccessTokenAndClaimSession, generateRefreshToken } from './loginSe
 // The latter group silently failed (object has no `length`), which
 // was the root cause of the new-user signup flow being broken at
 // completeUserProfile + linkFirebaseAccount.
-const query = async (sql, params = []) => {
+const query = async (sql, params = [], client = prisma) => {
   const normalizedSql = sql.trim();
   const upperSql = normalizedSql.toUpperCase();
   const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
   const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
 
   if (isReadQuery) {
-    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
+    const rows = await client.$queryRawUnsafe(normalizedSql, ...params);
     return Array.isArray(rows) ? rows : [];
   }
 
-  await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  await client.$executeRawUnsafe(normalizedSql, ...params);
   return [];
 };
 
@@ -165,7 +165,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
 
   // Store device info if provided
   if (deviceInfo) {
-    await storeDeviceInfo(user.uid, deviceInfo);
+    await storeDeviceInfo(user.uid, deviceInfo, tenantId);
   }
 
   // Log authentication
@@ -342,7 +342,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
 };
 
 // Update FCM token
-export const updateFcmToken = async (phone, fcmToken, deviceId) => {
+export const updateFcmToken = async (phone, fcmToken, deviceId, req = null) => {
   if (!phone || !fcmToken) {
     const error = new Error('Phone and FCM token are required');
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
@@ -350,15 +350,24 @@ export const updateFcmToken = async (phone, fcmToken, deviceId) => {
   }
 
   const normalizedPhone = normalizePhone(phone);
+  const tenantId = req
+    ? await resolveTenantForRequest(req)
+    : DEFAULT_TENANT_ID;
 
   // Update or insert FCM token
-  await query(
-    `INSERT INTO user_devices (user_uid, device_id, fcm_token, last_active, created_at)
-     SELECT uid, $2, $3, NOW(), NOW() FROM users WHERE phone = $1
-     ON CONFLICT (user_uid, device_id)
+  await setTenant(tenantId, tx => query(
+    `INSERT INTO user_devices (
+       tenant_id, user_uid, device_id, fcm_token, last_active, created_at
+     )
+     SELECT tenant_id, uid, $3, $4, NOW(), NOW()
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND phone = $2
+     ON CONFLICT (tenant_id, user_uid, device_id)
      DO UPDATE SET fcm_token = EXCLUDED.fcm_token, last_active = NOW()`,
-    [normalizedPhone, deviceId || 'default', fcmToken]
-  );
+    [tenantId, normalizedPhone, deviceId || 'default', fcmToken],
+    tx
+  ));
 
   logger.info(`📱 FCM token updated for user: ${maskPhoneForLog(normalizedPhone)}`);
 
@@ -437,14 +446,25 @@ export const getHealthStatus = async () => {
     FROM users
   `);
 
-  const deviceStats = await query(`
-    SELECT 
-      platform,
-      COUNT(*) as device_count,
-      COUNT(*) FILTER (WHERE last_active > NOW() - INTERVAL '24 hours') as active_24h
-    FROM user_devices
-    GROUP BY platform
-  `);
+  const tenantRows = await query('SELECT id::text FROM tenants ORDER BY id');
+  const deviceStats = (
+    await Promise.all(tenantRows.map(({ id }) => setTenant(
+      id,
+      tx => query(
+        `SELECT platform,
+                COUNT(*) AS device_count,
+                COUNT(*) FILTER (
+                  WHERE last_active > NOW() - INTERVAL '24 hours'
+                ) AS active_24h
+           FROM user_devices
+          WHERE tenant_id = $1::uuid
+          GROUP BY platform`,
+        [id],
+        tx
+      ),
+      { readOnly: true }
+    )))
+  ).flat();
 
   return {
     status: 'healthy',
@@ -456,14 +476,14 @@ export const getHealthStatus = async () => {
 };
 
 // Store device information
-const storeDeviceInfo = async (userUid, deviceInfo) => {
+const storeDeviceInfo = async (userUid, deviceInfo, tenantId) => {
   try {
-    await query(
+    await setTenant(tenantId, tx => query(
       `INSERT INTO user_devices (
-        user_uid, device_id, device_name, platform, app_version, 
+        tenant_id, user_uid, device_id, device_name, platform, app_version,
         fcm_token, last_active, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-      ON CONFLICT (user_uid, device_id) 
+      ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, NOW(), NOW())
+      ON CONFLICT (tenant_id, user_uid, device_id)
       DO UPDATE SET 
         device_name = EXCLUDED.device_name,
         platform = EXCLUDED.platform,
@@ -471,14 +491,16 @@ const storeDeviceInfo = async (userUid, deviceInfo) => {
         fcm_token = EXCLUDED.fcm_token,
         last_active = NOW()`,
       [
+        tenantId,
         userUid,
         deviceInfo.deviceId,
         deviceInfo.deviceName,
         deviceInfo.platform,
         deviceInfo.appVersion,
         deviceInfo.fcmToken
-      ]
-    );
+      ],
+      tx
+    ));
   } catch (deviceErr) {
     logger.warn('Failed to store device info:', deviceErr.message);
   }

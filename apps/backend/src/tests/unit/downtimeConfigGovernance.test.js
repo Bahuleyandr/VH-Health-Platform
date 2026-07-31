@@ -1,5 +1,9 @@
 import {
+  CLINICAL_CONTINUITY_C_D14_APPROVED,
   clinicalContinuityActionRegistryEnabled,
+  clinicalContinuityFacilityContextEnabled,
+  clinicalContinuityFacilityContextPlumbingEnabled,
+  clinicalContinuityFacilityEnrollmentEnabled,
   clinicalContinuityPacksEnabled,
   getClinicalContinuityPublicationRoot,
   getDowntimeMirrorDir,
@@ -18,14 +22,26 @@ describe('clinical continuity publication configuration', () => {
   test('enables action evaluation only for an explicit true value', () => {
     expect(
       clinicalContinuityActionRegistryEnabled({
-        CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: ' TRUE '
-      })
+        CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: ' TRUE ',
+      }),
     ).toBe(true);
     expect(
       clinicalContinuityActionRegistryEnabled({
-        CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: '1'
-      })
+        CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: '1',
+      }),
     ).toBe(false);
+  });
+
+  test('C-D14 gates activation while preserving testable plumbing', () => {
+    const env = {
+      CLINICAL_CONTINUITY_FACILITY_CONTEXT_ENABLED: 'true',
+      CLINICAL_CONTINUITY_FACILITY_ENROLLMENT_ENABLED: 'true',
+    };
+
+    expect(CLINICAL_CONTINUITY_C_D14_APPROVED).toBe(false);
+    expect(clinicalContinuityFacilityContextPlumbingEnabled(env)).toBe(true);
+    expect(clinicalContinuityFacilityContextEnabled(env)).toBe(false);
+    expect(clinicalContinuityFacilityEnrollmentEnabled(env)).toBe(false);
   });
 
   test('requires an explicit operator-owned root when enabled', () => {

@@ -15,6 +15,7 @@ import {
   Server,
   KeyRound,
   Plus,
+  LockKeyhole,
 } from "lucide-react";
 import { fetchAdminAPI } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -130,7 +131,7 @@ export default function DevicesPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
-  const [activeTab, setActiveTab] = useState<"app" | "clinical">("app");
+  const [activeTab, setActiveTab] = useState<"app" | "clinical" | "continuity">("app");
 
   // Fetch devices
   const {
@@ -237,6 +238,16 @@ export default function DevicesPage() {
         >
           <Server className="h-4 w-4" />
           Clinical Devices
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("continuity")}
+          className={`inline-flex items-center gap-2 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            activeTab === "continuity" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+          }`}
+        >
+          <LockKeyhole className="h-4 w-4" />
+          Continuity Enrollment
         </button>
       </div>
 
@@ -468,9 +479,59 @@ export default function DevicesPage() {
       )}
 
         </>
-      ) : (
+      ) : activeTab === "clinical" ? (
         <ClinicalDeviceRegistry />
+      ) : (
+        <ContinuityEnrollmentLocked />
       )}
+    </div>
+  );
+}
+
+function ContinuityEnrollmentLocked() {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950">
+        <div className="flex items-start gap-3">
+          <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <h2 className="font-semibold">Enrollment is locked</h2>
+            <p className="mt-1 text-sm">
+              C-D14 owner values and countersignatures are still open. This
+              build exposes no capture grant, enrollment, revocation, or
+              activation action.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 rounded-lg border border-border bg-card p-5 md:grid-cols-2">
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Stable installation ID</span>
+          <input
+            disabled
+            placeholder="OWNER INPUT required before enrollment"
+            className="w-full rounded-md border border-border bg-muted px-3 py-2 text-muted-foreground"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Facility</span>
+          <select
+            disabled
+            className="w-full rounded-md border border-border bg-muted px-3 py-2 text-muted-foreground"
+          >
+            <option>No owner-approved facility workflow</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          disabled
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-muted px-3 py-2 text-sm font-medium text-muted-foreground md:col-span-2"
+        >
+          <LockKeyhole className="h-4 w-4" />
+          Enroll fixed device
+        </button>
+      </div>
     </div>
   );
 }

@@ -313,13 +313,13 @@ export async function createContinuityEdgeGrant(
            tenant_id, facility_id, location_type, location_identifier,
            staff_uid, device_id, client_certificate_sha256,
            valid_from, valid_until, policy_version_id, policy_version,
-           created_by
+           created_by, grant_purpose
          )
          VALUES (
            $1::uuid, $2::integer, $3::varchar, $4::varchar,
            $5::uuid, $6::varchar, $7::char(64),
            $8::timestamptz, $9::timestamptz, $10::uuid, $11::bigint,
-           $12::uuid
+           $12::uuid, 'edge_read'
          )
          RETURNING id::text, tenant_id::text, facility_id,
                    location_type, location_identifier, staff_uid::text,
@@ -366,6 +366,7 @@ export async function revokeContinuityEdgeGrant(
           WHERE tenant_id = $1::uuid
             AND facility_id = $2::integer
             AND id = $3::uuid
+            AND grant_purpose = 'edge_read'
           FOR SHARE`,
         normalized.tenantId,
         normalized.facilityId,
@@ -384,7 +385,8 @@ export async function revokeContinuityEdgeGrant(
            FROM clinical_continuity_edge_access_revocations
           WHERE tenant_id = $1::uuid
             AND facility_id = $2::integer
-            AND grant_id = $3::uuid`,
+            AND grant_id = $3::uuid
+            AND grant_purpose = 'edge_read'`,
         normalized.tenantId,
         normalized.facilityId,
         normalized.grantId
@@ -405,9 +407,13 @@ export async function revokeContinuityEdgeGrant(
 
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO clinical_continuity_edge_access_revocations (
-           tenant_id, facility_id, grant_id, revoked_by, reason
-         )
-         VALUES ($1::uuid, $2::integer, $3::uuid, $4::uuid, $5::varchar)
+           tenant_id, facility_id, grant_id, revoked_by, reason,
+           grant_purpose
+          )
+          VALUES (
+            $1::uuid, $2::integer, $3::uuid, $4::uuid, $5::varchar,
+            'edge_read'
+          )
          RETURNING id::text, tenant_id::text, facility_id, grant_id::text,
                    access_revision::text, revoked_by::text, revoked_at, reason`,
         normalized.tenantId,
@@ -463,8 +469,10 @@ export async function buildContinuityEdgeGrantSet({
          ON revocation.tenant_id = grant_row.tenant_id
         AND revocation.facility_id = grant_row.facility_id
         AND revocation.grant_id = grant_row.id
+        AND revocation.grant_purpose = 'edge_read'
       WHERE grant_row.tenant_id = $1::uuid
         AND grant_row.facility_id = $2::integer
+        AND grant_row.grant_purpose = 'edge_read'
         AND grant_row.policy_version_id = $3::uuid
         AND grant_row.policy_version = $4::bigint
       ORDER BY grant_row.access_revision, grant_row.id`,
@@ -478,11 +486,15 @@ export async function buildContinuityEdgeGrantSet({
        FROM (
          SELECT access_revision
            FROM clinical_continuity_edge_access_grants
-          WHERE tenant_id = $1::uuid AND facility_id = $2::integer
+          WHERE tenant_id = $1::uuid
+            AND facility_id = $2::integer
+            AND grant_purpose = 'edge_read'
          UNION ALL
          SELECT access_revision
            FROM clinical_continuity_edge_access_revocations
-          WHERE tenant_id = $1::uuid AND facility_id = $2::integer
+          WHERE tenant_id = $1::uuid
+            AND facility_id = $2::integer
+            AND grant_purpose = 'edge_read'
        ) AS revisions`,
     policy.tenantId,
     policy.facilityId
@@ -590,8 +602,10 @@ export async function authorizeContinuityEdgeCredential(
              ON revocation.tenant_id = grant_row.tenant_id
             AND revocation.facility_id = grant_row.facility_id
             AND revocation.grant_id = grant_row.id
+            AND revocation.grant_purpose = 'edge_read'
           WHERE grant_row.tenant_id = $1::uuid
             AND grant_row.facility_id = $2::integer
+            AND grant_row.grant_purpose = 'edge_read'
             AND grant_row.location_type = $3::varchar
             AND grant_row.location_identifier = $4::varchar
             AND grant_row.staff_uid = $5::uuid
@@ -782,6 +796,7 @@ export async function ingestContinuityEdgeLogBatch(
            FROM clinical_continuity_edge_log_receipts
           WHERE tenant_id = $1::uuid
             AND facility_id = $2::integer
+            AND grant_purpose = 'edge_read'
             AND device_id = $3::varchar
             AND batch_id = $4::varchar`,
         batch.tenantId,
@@ -813,8 +828,10 @@ export async function ingestContinuityEdgeLogBatch(
              ON revocation.tenant_id = grant_row.tenant_id
             AND revocation.facility_id = grant_row.facility_id
             AND revocation.grant_id = grant_row.id
+            AND revocation.grant_purpose = 'edge_read'
           WHERE grant_row.tenant_id = $1::uuid
             AND grant_row.facility_id = $2::integer
+            AND grant_row.grant_purpose = 'edge_read'
             AND grant_row.id = $3::uuid
           FOR SHARE OF grant_row`,
         batch.tenantId,
@@ -847,11 +864,15 @@ export async function ingestContinuityEdgeLogBatch(
            FROM (
              SELECT access_revision
                FROM clinical_continuity_edge_access_grants
-              WHERE tenant_id = $1::uuid AND facility_id = $2::integer
+              WHERE tenant_id = $1::uuid
+                AND facility_id = $2::integer
+                AND grant_purpose = 'edge_read'
              UNION ALL
              SELECT access_revision
                FROM clinical_continuity_edge_access_revocations
-              WHERE tenant_id = $1::uuid AND facility_id = $2::integer
+              WHERE tenant_id = $1::uuid
+                AND facility_id = $2::integer
+                AND grant_purpose = 'edge_read'
            ) AS revisions`,
         batch.tenantId,
         batch.facilityId
@@ -871,6 +892,7 @@ export async function ingestContinuityEdgeLogBatch(
            FROM clinical_continuity_edge_log_receipts
           WHERE tenant_id = $1::uuid
             AND facility_id = $2::integer
+            AND grant_purpose = 'edge_read'
             AND device_id = $3::varchar
           ORDER BY last_event_sequence DESC, received_at DESC
           LIMIT 1
@@ -909,7 +931,7 @@ export async function ingestContinuityEdgeLogBatch(
            access_revision, batch_id, previous_batch_sha256, batch_sha256,
            event_count, first_event_sequence, last_event_sequence,
            first_event_at, last_event_at, signature_algorithm,
-           signature_sha256, imported_by
+           signature_sha256, imported_by, grant_purpose
          )
          VALUES (
            $1::uuid, $2::integer, $3::varchar, $4::uuid,
@@ -917,7 +939,7 @@ export async function ingestContinuityEdgeLogBatch(
            $8::bigint, $9::varchar, $10::char(64), $11::char(64),
            $12::integer, $13::bigint, $14::bigint,
            $15::timestamptz, $16::timestamptz, 'ed25519',
-           $17::char(64), $18::uuid
+           $17::char(64), $18::uuid, 'edge_read'
          )
          RETURNING id::text, tenant_id::text, facility_id, device_id,
                    grant_id::text, client_certificate_sha256,

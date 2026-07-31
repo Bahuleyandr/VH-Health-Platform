@@ -8,6 +8,7 @@ const loadPolicies = jest.fn();
 jest.unstable_mockModule(
   '../services/downtime/clinicalContinuityPolicyService.js',
   () => ({
+    CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION: 3,
     CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION: 1,
     DEFAULT_TENANT_ID: TENANT,
     enumerateActiveClinicalContinuityPolicies: jest.fn(),

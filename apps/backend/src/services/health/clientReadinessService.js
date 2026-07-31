@@ -2,8 +2,12 @@ import {
   CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION,
   loadActiveClinicalContinuityPoliciesForTenant,
 } from '../downtime/clinicalContinuityPolicyService.js';
+import {
+  resolveClinicalContinuityFacilityContext,
+} from '../downtime/clinicalContinuityFacilityContextService.js';
 
 export const CLIENT_READINESS_CONTRACT_VERSION = 1;
+export const CLIENT_READINESS_FACILITY_CONTRACT_VERSION = 2;
 export const CLIENT_READINESS_ENDPOINT_ID = 'vhhealth-api';
 
 const ROUTE_KINDS = new Set(['public', 'internal']);
@@ -123,4 +127,68 @@ export async function evaluateClientReadiness({
     }),
     internalError: null,
   };
+}
+
+export async function evaluateFacilityClientReadiness({
+  req,
+  facilityContext,
+  routeKind,
+  clock = () => new Date(),
+  resolveContext = resolveClinicalContinuityFacilityContext,
+} = {}) {
+  const normalizedRouteKind = String(routeKind ?? '').trim().toLowerCase();
+  if (!ROUTE_KINDS.has(normalizedRouteKind)) {
+    const result = notReady({
+      routeKind: normalizedRouteKind,
+      clock,
+      state: 'endpoint_unverified',
+    });
+    return {
+      ...result,
+      payload: {
+        ...result.payload,
+        readinessContractVersion: CLIENT_READINESS_FACILITY_CONTRACT_VERSION,
+      },
+    };
+  }
+
+  try {
+    const context = await resolveContext({
+      req,
+      envelope: facilityContext,
+      clock,
+    });
+    return {
+      statusCode: 200,
+      payload: {
+        readinessContractVersion: CLIENT_READINESS_FACILITY_CONTRACT_VERSION,
+        ready: true,
+        endpointId: CLIENT_READINESS_ENDPOINT_ID,
+        routeKind: normalizedRouteKind,
+        tenantId: context.tenantId,
+        database: 'ready',
+        policy: {
+          state: 'compatible',
+          schemaVersion: 3,
+        },
+        facilityId: String(context.facilityId),
+        contextId: context.contextId,
+        contextRevision: context.contextRevision,
+        serverTime: serverTime(clock),
+      },
+      internalError: null,
+    };
+  } catch (internalError) {
+    return {
+      statusCode: 503,
+      payload: {
+        readinessContractVersion: CLIENT_READINESS_FACILITY_CONTRACT_VERSION,
+        ready: false,
+        routeKind: normalizedRouteKind,
+        serverTime: serverTime(clock),
+        state: 'facility_context_unverified',
+      },
+      internalError,
+    };
+  }
 }

@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { USER_CONFIG } from '../../config/userConfig.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
@@ -768,14 +768,16 @@ export class UserService {
     const sanitizedIp = normalizeClientIp(ipAddress);
     const idempotencyKey = `patient-account-deletion:${user.uid}`;
 
-    await prisma.$transaction(async tx => {
+    await setTenantTx(user.tenant_id, async tx => {
       await tx.$executeRawUnsafe(
         `UPDATE user_devices
             SET fcm_token = NULL,
                 updated_at = NOW(),
                 last_active = NOW()
-          WHERE user_uid = $1::uuid`,
-        user.uid
+          WHERE user_uid = $1::uuid
+            AND tenant_id = $2::uuid`,
+        user.uid,
+        user.tenant_id
       );
 
       await tx.$executeRawUnsafe(

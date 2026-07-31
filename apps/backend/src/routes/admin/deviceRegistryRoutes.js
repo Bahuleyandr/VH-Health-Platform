@@ -1,6 +1,9 @@
 // src/routes/admin/deviceRegistryRoutes.js
 
 import express from 'express';
+import {
+  clinicalContinuityFacilityEnrollmentEnabled,
+} from '../../config/downtimeConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
@@ -14,6 +17,11 @@ import {
 } from '../../services/devices/deviceRegistryService.js';
 import { listAssociations } from '../../services/devices/deviceAssociationService.js';
 import { ingestDeviceVitals } from '../../services/emr/deviceVitalsService.js';
+import {
+  enrollClinicalContinuityFacilityGrant,
+  listClinicalContinuityFacilityGrants,
+  revokeClinicalContinuityFacilityGrant,
+} from '../../services/downtime/clinicalContinuityFacilityContextService.js';
 import prisma from '../../lib/prisma.js';
 
 const router = express.Router();
@@ -30,6 +38,21 @@ function requireManage(req, res, next) {
 
 function handleFailure(res, err, context) {
   return relayAppError(res, err, `Failed to ${context}`);
+}
+
+function requireContinuityEnrollmentEnabled(req, res, next) {
+  if (clinicalContinuityFacilityEnrollmentEnabled()) return next();
+  return error(
+    res,
+    'Clinical continuity facility enrollment is unavailable',
+    503,
+    {
+      safe: true,
+      topLevel: {
+        code: 'CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE',
+      },
+    },
+  );
 }
 
 router.get('/', async (req, res) => {
@@ -96,6 +119,76 @@ router.get('/messages', async (req, res) => {
     return handleFailure(res, err, 'list messages');
   }
 });
+
+router.get(
+  '/continuity-facility-context/grants',
+  requireManage,
+  requireContinuityEnrollmentEnabled,
+  async (req, res) => {
+    try {
+      const grants = await listClinicalContinuityFacilityGrants({
+        tenantId: requestTenantId(req),
+        facilityId: req.query.facility_id || null,
+      });
+      return success(res, { grants }, 'Continuity facility grants');
+    } catch (err) {
+      return handleFailure(res, err, 'list continuity facility grants');
+    }
+  },
+);
+
+router.post(
+  '/continuity-facility-context/enroll',
+  requireManage,
+  requireContinuityEnrollmentEnabled,
+  async (req, res) => {
+    try {
+      const grant = await enrollClinicalContinuityFacilityGrant({
+        tenantId: requestTenantId(req),
+        facilityId: req.body?.facility_id,
+        grantPurpose: req.body?.grant_purpose,
+        staffUid: req.body?.staff_uid,
+        deviceId: req.body?.device_id,
+        devicePublicKeyBase64: req.body?.device_public_key_base64,
+        validFrom: req.body?.valid_from,
+        validUntil: req.body?.valid_until,
+        createdBy: req.user?.uid,
+      });
+      return success(
+        res,
+        { grant },
+        'Continuity facility device enrolled',
+        HTTP_STATUS.CREATED,
+      );
+    } catch (err) {
+      return handleFailure(res, err, 'enroll continuity facility device');
+    }
+  },
+);
+
+router.post(
+  '/continuity-facility-context/revoke',
+  requireManage,
+  requireContinuityEnrollmentEnabled,
+  async (req, res) => {
+    try {
+      const revocation = await revokeClinicalContinuityFacilityGrant({
+        tenantId: requestTenantId(req),
+        facilityId: req.body?.facility_id,
+        grantId: req.body?.grant_id,
+        revokedBy: req.user?.uid,
+        reason: req.body?.reason,
+      });
+      return success(
+        res,
+        { revocation },
+        'Continuity facility grant revoked',
+      );
+    } catch (err) {
+      return handleFailure(res, err, 'revoke continuity facility grant');
+    }
+  },
+);
 
 router.post('/messages/:id/replay', requireManage, async (req, res) => {
   try {

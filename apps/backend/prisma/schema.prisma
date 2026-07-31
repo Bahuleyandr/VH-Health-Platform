@@ -5254,6 +5254,7 @@ model facilities {
   pathway_projector_inbox                     pathway_projector_inbox[]
   queue_display_profiles                      queue_display_profiles[]
   service_catalog                             service_catalog[]
+  user_devices                                user_devices[]
   wards                                       wards[]
 
   @@unique([tenant_id, facility_code])
@@ -9183,22 +9184,26 @@ model staff_auth_sessions {
 }
 
 model staff_devices {
-  id                  Int       @id @default(autoincrement())
+  id                  Int           @id @default(autoincrement())
   staff_id            Int?
-  device_id           String    @db.VarChar(255)
-  device_name         String?   @db.VarChar(255)
+  device_id           String        @db.VarChar(255)
+  device_name         String?       @db.VarChar(255)
   device_token        String?
-  is_active           Boolean   @default(true)
-  registered_at       DateTime  @default(now()) @db.Timestamp(6)
-  registered_location String?   @db.VarChar(255)
-  trust_expires_at    DateTime? @db.Timestamp(6)
-  last_used           DateTime? @db.Timestamp(6)
-  tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  is_active           Boolean       @default(true)
+  registered_at       DateTime      @default(now()) @db.Timestamp(6)
+  registered_location String?       @db.VarChar(255)
+  trust_expires_at    DateTime?     @db.Timestamp(6)
+  last_used           DateTime?     @db.Timestamp(6)
+  tenant_id           String        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   pin_hash            String?
-  biometric_enabled   Boolean   @default(false)
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_devices_tenant")
+  biometric_enabled   Boolean       @default(false)
+  created_at          DateTime      @default(now()) @db.Timestamp(6)
+  user_uid            String?       @db.Uuid
+  user_devices        user_devices? @relation("cc_staff_device_projection", fields: [tenant_id, user_uid, device_id], references: [tenant_id, user_uid, device_id], onUpdate: NoAction, map: "cc_staff_device_projection_fk")
+  users               users?        @relation(fields: [tenant_id, user_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_staff_device_user_tenant_fk")
+  tenants             tenants       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_devices_tenant")
 
+  @@unique([tenant_id, user_uid, device_id], map: "ux_staff_devices_tenant_user_device")
   @@index([device_id])
   @@index([staff_id])
   @@index([tenant_id], map: "idx_staff_devices_tenant_id")
@@ -10884,26 +10889,43 @@ model user_deactivation_log {
 }
 
 model user_devices {
-  id          Int       @id @default(autoincrement())
-  user_uid    String    @db.Uuid
-  device_id   String    @db.VarChar(255)
-  device_name String?   @db.VarChar(255)
-  platform    String?   @db.VarChar(50)
-  app_version String?   @db.VarChar(50)
-  os_version  String?   @db.VarChar(50)
-  fcm_token   String?
-  last_active DateTime? @db.Timestamp(6)
-  created_at  DateTime  @default(now()) @db.Timestamp(6)
-  device_type String?   @db.VarChar(50)
-  ip_address  String?   @db.VarChar(45)
-  updated_at  DateTime  @default(now()) @db.Timestamp(6)
-  tenant_id   String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants     tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_devices_tenant")
+  id                                     Int                                     @id @default(autoincrement())
+  user_uid                               String                                  @db.Uuid
+  device_id                              String                                  @db.VarChar(255)
+  device_name                            String?                                 @db.VarChar(255)
+  platform                               String?                                 @db.VarChar(50)
+  app_version                            String?                                 @db.VarChar(50)
+  os_version                             String?                                 @db.VarChar(50)
+  fcm_token                              String?
+  last_active                            DateTime?                               @db.Timestamp(6)
+  created_at                             DateTime                                @default(now()) @db.Timestamp(6)
+  device_type                            String?                                 @db.VarChar(50)
+  ip_address                             String?                                 @db.VarChar(45)
+  updated_at                             DateTime                                @default(now()) @db.Timestamp(6)
+  tenant_id                              String                                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id                            Int?
+  continuity_grant_id                    String?                                 @db.Uuid
+  continuity_grant_purpose               String?                                 @db.VarChar(32)
+  continuity_capture_revision            BigInt?
+  continuity_context_id                  String?                                 @db.Uuid
+  continuity_context_revision            BigInt?
+  continuity_session_jti_sha256          String?                                 @db.Char(64)
+  continuity_issued_at                   DateTime?                               @db.Timestamptz(6)
+  continuity_expires_at                  DateTime?                               @db.Timestamptz(6)
+  continuity_validated_at                DateTime?                               @db.Timestamptz(6)
+  continuity_validation_state            String?                                 @db.VarChar(32)
+  staff_devices                          staff_devices?                          @relation("cc_staff_device_projection")
+  facilities                             facilities?                             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_user_devices_facility_tenant_fk")
+  clinical_continuity_edge_access_grants clinical_continuity_edge_access_grants? @relation(fields: [tenant_id, facility_id, continuity_grant_id, continuity_grant_purpose], references: [tenant_id, facility_id, id, grant_purpose], onUpdate: NoAction, map: "cc_user_devices_grant_tenant_fk")
+  users                                  users                                   @relation(fields: [tenant_id, user_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_user_devices_user_tenant_fk")
+  tenants                                tenants                                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_devices_tenant")
 
-  @@unique([user_uid, device_id])
+  @@unique([tenant_id, user_uid, device_id], map: "ux_user_devices_tenant_user_device")
   @@index([updated_at(sort: Desc)], map: "idx_user_devices_updated")
   @@index([user_uid])
   @@index([tenant_id], map: "idx_user_devices_tenant_id")
+  @@index([tenant_id, facility_id, continuity_context_id, continuity_context_revision], map: "idx_user_devices_continuity_context", where: raw("(continuity_context_id IS NOT NULL)"))
+  @@index([tenant_id, facility_id, continuity_grant_id, continuity_capture_revision], map: "idx_user_devices_continuity_grant", where: raw("(continuity_grant_id IS NOT NULL)"))
 }
 
 model user_reactivation_log {
@@ -11283,6 +11305,7 @@ model users {
   staff_attendance                                                                                                 staff_attendance[]
   staff_breaks_staff_breaks_staff_idTousers                                                                        staff_breaks[]                                @relation("staff_breaks_staff_idTousers")
   staff_breaks_staff_breaks_staff_uidTousers                                                                       staff_breaks[]                                @relation("staff_breaks_staff_uidTousers")
+  staff_devices                                                                                                    staff_devices[]
   staff_grievances_staff_grievances_assigned_toTousers                                                             staff_grievances[]                            @relation("staff_grievances_assigned_toTousers")
   staff_grievances_staff_grievances_reporter_idTousers                                                             staff_grievances[]                            @relation("staff_grievances_reporter_idTousers")
   staff_grievances_staff_grievances_resolved_byTousers                                                             staff_grievances[]                            @relation("staff_grievances_resolved_byTousers")
@@ -11300,6 +11323,7 @@ model users {
   trauma_activations                                                                                               trauma_activations[]
   trauma_survey_records                                                                                            trauma_survey_records[]
   trauma_timeline_events                                                                                           trauma_timeline_events[]
+  user_devices                                                                                                     user_devices[]
   guardian_user                                                                                                    users?                                        @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onUpdate: NoAction, map: "users_guardian_user_fk")
   dependents                                                                                                       users[]                                       @relation("users_guardian_user_fk")
   tenants                                                                                                          tenants                                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -25286,90 +25310,110 @@ model clinical_continuity_policy_versions {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clinical_continuity_edge_access_grants {
-  id                                                                       String                                       @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                                                                String                                       @db.Uuid
-  facility_id                                                              Int
-  location_type                                                            String                                       @db.VarChar(32)
-  location_identifier                                                      String                                       @db.VarChar(160)
-  staff_uid                                                                String                                       @db.Uuid
-  device_id                                                                String                                       @db.VarChar(160)
-  client_certificate_sha256                                                String                                       @db.Char(64)
-  valid_from                                                               DateTime                                     @db.Timestamptz(6)
-  valid_until                                                              DateTime                                     @db.Timestamptz(6)
-  policy_version_id                                                        String                                       @db.Uuid
-  policy_version                                                           BigInt
-  access_revision                                                          BigInt                                       @default(autoincrement())
-  created_by                                                               String                                       @db.Uuid
-  created_at                                                               DateTime                                     @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
-  users_clinical_continuity_edge_access_grants_tenant_id_created_byTousers users                                        @relation("clinical_continuity_edge_access_grants_tenant_id_created_byTousers", fields: [tenant_id, created_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_edge_grant_creator_tenant_fk")
-  facilities                                                               facilities                                   @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_edge_grant_facility_tenant_fk")
-  clinical_continuity_policy_versions                                      clinical_continuity_policy_versions          @relation(fields: [tenant_id, facility_id, policy_version_id, policy_version], references: [tenant_id, facility_id, id, policy_version], onUpdate: NoAction, map: "cc_edge_grant_policy_tenant_facility_fk")
-  users_clinical_continuity_edge_access_grants_tenant_id_staff_uidTousers  users                                        @relation("clinical_continuity_edge_access_grants_tenant_id_staff_uidTousers", fields: [tenant_id, staff_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_edge_grant_staff_tenant_fk")
-  tenants                                                                  tenants                                      @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "cc_edge_grant_tenant_fk")
-  clinical_continuity_edge_access_revocations                              clinical_continuity_edge_access_revocations?
-  clinical_continuity_edge_log_receipts                                    clinical_continuity_edge_log_receipts[]
+  id                                                                                                                                                             String                                       @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                                                                      String                                       @db.Uuid
+  facility_id                                                                                                                                                    Int
+  location_type                                                                                                                                                  String?                                      @db.VarChar(32)
+  location_identifier                                                                                                                                            String?                                      @db.VarChar(160)
+  staff_uid                                                                                                                                                      String?                                      @db.Uuid
+  device_id                                                                                                                                                      String                                       @db.VarChar(160)
+  client_certificate_sha256                                                                                                                                      String?                                      @db.Char(64)
+  valid_from                                                                                                                                                     DateTime                                     @db.Timestamptz(6)
+  valid_until                                                                                                                                                    DateTime                                     @db.Timestamptz(6)
+  policy_version_id                                                                                                                                              String                                       @db.Uuid
+  policy_version                                                                                                                                                 BigInt
+  access_revision                                                                                                                                                BigInt?                                      @default(autoincrement())
+  created_by                                                                                                                                                     String                                       @db.Uuid
+  created_at                                                                                                                                                     DateTime                                     @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  grant_purpose                                                                                                                                                  String                                       @default("edge_read") @db.VarChar(32)
+  subject_kind                                                                                                                                                   String                                       @default("staff_device") @db.VarChar(32)
+  device_public_key_raw                                                                                                                                          Bytes?
+  device_credential_sha256                                                                                                                                       String?                                      @db.Char(64)
+  capture_revision                                                                                                                                               BigInt?
+  users_clinical_continuity_edge_access_grants_tenant_id_created_byTousers                                                                                       users                                        @relation("clinical_continuity_edge_access_grants_tenant_id_created_byTousers", fields: [tenant_id, created_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_edge_grant_creator_tenant_fk")
+  facilities                                                                                                                                                     facilities                                   @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_edge_grant_facility_tenant_fk")
+  clinical_continuity_policy_versions                                                                                                                            clinical_continuity_policy_versions          @relation(fields: [tenant_id, facility_id, policy_version_id, policy_version], references: [tenant_id, facility_id, id, policy_version], onUpdate: NoAction, map: "cc_edge_grant_policy_tenant_facility_fk")
+  users_clinical_continuity_edge_access_grants_tenant_id_staff_uidTousers                                                                                        users?                                       @relation("clinical_continuity_edge_access_grants_tenant_id_staff_uidTousers", fields: [tenant_id, staff_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_edge_grant_staff_tenant_fk")
+  tenants                                                                                                                                                        tenants                                      @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "cc_edge_grant_tenant_fk")
+  clinical_continuity_edge_access_revocations                                                                                                                    clinical_continuity_edge_access_revocations?
+  clinical_continuity_edge_access_revocations_clinical_continuity_edge_access_revocations_tenant_id_facility_id_grant_idToclinical_continuity_edge_access_grants clinical_continuity_edge_access_revocations? @relation("clinical_continuity_edge_access_revocations_tenant_id_facility_id_grant_idToclinical_continuity_edge_access_grants")
+  clinical_continuity_edge_log_receipts                                                                                                                          clinical_continuity_edge_log_receipts[]
+  clinical_continuity_edge_log_receipts_clinical_continuity_edge_log_receipts_tenant_id_facility_id_grant_idToclinical_continuity_edge_access_grants             clinical_continuity_edge_log_receipts[]      @relation("clinical_continuity_edge_log_receipts_tenant_id_facility_id_grant_idToclinical_continuity_edge_access_grants")
+  user_devices                                                                                                                                                   user_devices[]
 
   @@id([tenant_id, facility_id, id])
   @@unique([tenant_id, facility_id, id], map: "ux_cc_edge_grant_tenant_facility_id")
+  @@unique([tenant_id, facility_id, id, grant_purpose], map: "ux_cc_grant_tenant_facility_id_purpose")
   @@unique([tenant_id, facility_id, access_revision], map: "ux_cc_edge_grant_tenant_facility_revision")
+  @@unique([tenant_id, facility_id, capture_revision], map: "ux_cc_grant_capture_revision", where: raw("(capture_revision IS NOT NULL)"))
   @@index([tenant_id, facility_id, access_revision, id], map: "idx_cc_edge_grant_export")
   @@index([tenant_id, facility_id, location_type, location_identifier, access_revision], map: "idx_cc_edge_grant_location")
   @@index([tenant_id, facility_id, policy_version_id, policy_version, access_revision], map: "idx_cc_edge_grant_policy")
   @@index([tenant_id, facility_id, staff_uid, device_id, client_certificate_sha256, access_revision], map: "idx_cc_edge_grant_subject")
+  @@index([tenant_id, facility_id, grant_purpose, device_id, capture_revision], map: "idx_cc_grant_capture_device", where: raw("((grant_purpose)::text <> 'edge_read'::text)"))
+  @@index([tenant_id, facility_id, staff_uid, device_id, capture_revision], map: "idx_cc_grant_capture_staff", where: raw("((grant_purpose)::text = 'capture_staff_facility'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clinical_continuity_edge_access_revocations {
-  id                                     String                                 @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                              String                                 @db.Uuid
-  facility_id                            Int
-  grant_id                               String                                 @db.Uuid
-  access_revision                        BigInt                                 @default(autoincrement())
-  revoked_by                             String                                 @db.Uuid
-  revoked_at                             DateTime                               @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
-  reason                                 String                                 @db.VarChar(500)
-  users                                  users                                  @relation(fields: [tenant_id, revoked_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_edge_revocation_actor_tenant_fk")
-  facilities                             facilities                             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_edge_revocation_facility_tenant_fk")
-  clinical_continuity_edge_access_grants clinical_continuity_edge_access_grants @relation(fields: [tenant_id, facility_id, grant_id], references: [tenant_id, facility_id, id], onUpdate: NoAction, map: "cc_edge_revocation_grant_tenant_facility_fk")
-  tenants                                tenants                                @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "cc_edge_revocation_tenant_fk")
+  id                                                                                                                                                        String                                 @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                                                                 String                                 @db.Uuid
+  facility_id                                                                                                                                               Int
+  grant_id                                                                                                                                                  String                                 @db.Uuid
+  access_revision                                                                                                                                           BigInt?                                @default(autoincrement())
+  revoked_by                                                                                                                                                String                                 @db.Uuid
+  revoked_at                                                                                                                                                DateTime                               @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  reason                                                                                                                                                    String                                 @db.VarChar(500)
+  grant_purpose                                                                                                                                             String                                 @default("edge_read") @db.VarChar(32)
+  capture_revision                                                                                                                                          BigInt?
+  users                                                                                                                                                     users                                  @relation(fields: [tenant_id, revoked_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_edge_revocation_actor_tenant_fk")
+  facilities                                                                                                                                                facilities                             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_edge_revocation_facility_tenant_fk")
+  clinical_continuity_edge_access_grants                                                                                                                    clinical_continuity_edge_access_grants @relation(fields: [tenant_id, facility_id, grant_id, grant_purpose], references: [tenant_id, facility_id, id, grant_purpose], onUpdate: NoAction, map: "cc_edge_revocation_grant_purpose_fk")
+  clinical_continuity_edge_access_grants_clinical_continuity_edge_access_revocations_tenant_id_facility_id_grant_idToclinical_continuity_edge_access_grants clinical_continuity_edge_access_grants @relation("clinical_continuity_edge_access_revocations_tenant_id_facility_id_grant_idToclinical_continuity_edge_access_grants", fields: [tenant_id, facility_id, grant_id], references: [tenant_id, facility_id, id], onUpdate: NoAction, map: "cc_edge_revocation_grant_tenant_facility_fk")
+  tenants                                                                                                                                                   tenants                                @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "cc_edge_revocation_tenant_fk")
 
   @@id([tenant_id, facility_id, id])
   @@unique([tenant_id, facility_id, grant_id], map: "ux_cc_edge_revocation_grant")
+  @@unique([tenant_id, facility_id, grant_id, grant_purpose], map: "ux_cc_revocation_grant_purpose")
   @@unique([tenant_id, facility_id, access_revision], map: "ux_cc_edge_revocation_revision")
+  @@unique([tenant_id, facility_id, capture_revision], map: "ux_cc_revocation_capture_revision", where: raw("(capture_revision IS NOT NULL)"))
   @@unique([tenant_id, facility_id, id], map: "ux_cc_edge_revocation_tenant_facility_id")
   @@index([tenant_id, facility_id, access_revision, grant_id], map: "idx_cc_edge_revocation_export")
+  @@index([tenant_id, facility_id, grant_purpose, grant_id, capture_revision], map: "idx_cc_revocation_capture_grant", where: raw("((grant_purpose)::text <> 'edge_read'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clinical_continuity_edge_log_receipts {
-  id                                     String                                 @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                              String                                 @db.Uuid
-  facility_id                            Int
-  device_id                              String                                 @db.VarChar(160)
-  grant_id                               String                                 @db.Uuid
-  client_certificate_sha256              String                                 @db.Char(64)
-  policy_version_id                      String                                 @db.Uuid
-  policy_version                         BigInt
-  access_revision                        BigInt
-  batch_id                               String                                 @db.VarChar(160)
-  previous_batch_sha256                  String?                                @db.Char(64)
-  batch_sha256                           String                                 @db.Char(64)
-  event_count                            Int
-  first_event_sequence                   BigInt
-  last_event_sequence                    BigInt
-  first_event_at                         DateTime                               @db.Timestamptz(6)
-  last_event_at                          DateTime                               @db.Timestamptz(6)
-  signature_algorithm                    String                                 @default("ed25519") @db.VarChar(24)
-  signature_sha256                       String                                 @db.Char(64)
-  imported_by                            String                                 @db.Uuid
-  received_at                            DateTime                               @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
-  users                                  users                                  @relation(fields: [tenant_id, imported_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_edge_receipt_actor_tenant_fk")
-  facilities                             facilities                             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_edge_receipt_facility_tenant_fk")
-  clinical_continuity_edge_access_grants clinical_continuity_edge_access_grants @relation(fields: [tenant_id, facility_id, grant_id], references: [tenant_id, facility_id, id], onUpdate: NoAction, map: "cc_edge_receipt_grant_tenant_facility_fk")
-  clinical_continuity_policy_versions    clinical_continuity_policy_versions    @relation(fields: [tenant_id, facility_id, policy_version_id, policy_version], references: [tenant_id, facility_id, id, policy_version], onUpdate: NoAction, map: "cc_edge_receipt_policy_tenant_facility_fk")
-  tenants                                tenants                                @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "cc_edge_receipt_tenant_fk")
+  id                                                                                                                                                  String                                 @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                                                           String                                 @db.Uuid
+  facility_id                                                                                                                                         Int
+  device_id                                                                                                                                           String                                 @db.VarChar(160)
+  grant_id                                                                                                                                            String                                 @db.Uuid
+  client_certificate_sha256                                                                                                                           String                                 @db.Char(64)
+  policy_version_id                                                                                                                                   String                                 @db.Uuid
+  policy_version                                                                                                                                      BigInt
+  access_revision                                                                                                                                     BigInt
+  batch_id                                                                                                                                            String                                 @db.VarChar(160)
+  previous_batch_sha256                                                                                                                               String?                                @db.Char(64)
+  batch_sha256                                                                                                                                        String                                 @db.Char(64)
+  event_count                                                                                                                                         Int
+  first_event_sequence                                                                                                                                BigInt
+  last_event_sequence                                                                                                                                 BigInt
+  first_event_at                                                                                                                                      DateTime                               @db.Timestamptz(6)
+  last_event_at                                                                                                                                       DateTime                               @db.Timestamptz(6)
+  signature_algorithm                                                                                                                                 String                                 @default("ed25519") @db.VarChar(24)
+  signature_sha256                                                                                                                                    String                                 @db.Char(64)
+  imported_by                                                                                                                                         String                                 @db.Uuid
+  received_at                                                                                                                                         DateTime                               @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  grant_purpose                                                                                                                                       String                                 @default("edge_read") @db.VarChar(32)
+  users                                                                                                                                               users                                  @relation(fields: [tenant_id, imported_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_edge_receipt_actor_tenant_fk")
+  facilities                                                                                                                                          facilities                             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_edge_receipt_facility_tenant_fk")
+  clinical_continuity_edge_access_grants                                                                                                              clinical_continuity_edge_access_grants @relation(fields: [tenant_id, facility_id, grant_id, grant_purpose], references: [tenant_id, facility_id, id, grant_purpose], onUpdate: NoAction, map: "cc_edge_receipt_grant_purpose_fk")
+  clinical_continuity_edge_access_grants_clinical_continuity_edge_log_receipts_tenant_id_facility_id_grant_idToclinical_continuity_edge_access_grants clinical_continuity_edge_access_grants @relation("clinical_continuity_edge_log_receipts_tenant_id_facility_id_grant_idToclinical_continuity_edge_access_grants", fields: [tenant_id, facility_id, grant_id], references: [tenant_id, facility_id, id], onUpdate: NoAction, map: "cc_edge_receipt_grant_tenant_facility_fk")
+  clinical_continuity_policy_versions                                                                                                                 clinical_continuity_policy_versions    @relation(fields: [tenant_id, facility_id, policy_version_id, policy_version], references: [tenant_id, facility_id, id, policy_version], onUpdate: NoAction, map: "cc_edge_receipt_policy_tenant_facility_fk")
+  tenants                                                                                                                                             tenants                                @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "cc_edge_receipt_tenant_fk")
 
   @@id([tenant_id, facility_id, id])
   @@unique([tenant_id, facility_id, device_id, batch_id], map: "ux_cc_edge_receipt_device_batch")

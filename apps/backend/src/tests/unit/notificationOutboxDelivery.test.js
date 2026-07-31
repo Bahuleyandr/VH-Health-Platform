@@ -18,6 +18,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryRawUnsafeMock,
   },
+  setTenant: jest.fn(async (_tenantId, callback) => callback({
+    $queryRawUnsafe: queryRawUnsafeMock,
+  })),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

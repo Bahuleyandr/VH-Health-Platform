@@ -282,7 +282,8 @@ describe('authenticateWithFirebase', () => {
       /INSERT INTO user_devices/i.test(c[0]) && /device_name/i.test(c[0]),
     );
     expect(deviceInsert).toBeTruthy();
-    expect(deviceInsert[1]).toBe('user-uuid-5'); // userUid bound first
+    expect(deviceInsert[1]).toBe(DEFAULT_TENANT_ID);
+    expect(deviceInsert[2]).toBe('user-uuid-5');
 
     // auth_logs row written (logFirebaseAuth)
     const authLog = prismaMock.$executeRawUnsafe.mock.calls.find((c) =>
@@ -597,8 +598,9 @@ describe('updateFcmToken', () => {
       /INSERT INTO user_devices/i.test(c[0]) && /ON CONFLICT/i.test(c[0]),
     );
     expect(upsert).toBeTruthy();
-    expect(upsert[1]).toBe('+919000000008'); // normalized phone bound first
-    expect(upsert[2]).toBe('default'); // deviceId fallback
+    expect(upsert[1]).toBe(DEFAULT_TENANT_ID);
+    expect(upsert[2]).toBe('+919000000008');
+    expect(upsert[3]).toBe('default');
     expect(result).toMatchObject({
       phone: '+919000000008',
       fcmToken: 'abcdefghij...[REDACTED]',
@@ -609,7 +611,7 @@ describe('updateFcmToken', () => {
   it('passes an explicit deviceId through when supplied', async () => {
     const result = await updateFcmToken('9000000008', 'tok1234567890', 'device-42');
     const upsert = prismaMock.$executeRawUnsafe.mock.calls[0];
-    expect(upsert[2]).toBe('device-42');
+    expect(upsert[3]).toBe('device-42');
     expect(result.deviceId).toBe('device-42');
   });
 });
@@ -698,6 +700,9 @@ describe('getHealthStatus', () => {
           total_users: 25,
         },
       ]) // user stats
+      .mockResolvedValueOnce([
+        { id: DEFAULT_TENANT_ID },
+      ]) // tenant enumeration
       .mockResolvedValueOnce([
         { platform: 'android', device_count: 5, active_24h: 2 },
         { platform: 'ios', device_count: 3, active_24h: 1 },

@@ -1,6 +1,9 @@
 // validators/auth/adminAuthValidator.js
 import { body, param, oneOf } from 'express-validator';
-import { deviceTypeValidator } from './authValidator.js';
+import {
+  deviceTypeValidator,
+  staffInstallationIdValidator,
+} from './authValidator.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 
 const PASSWORD_MIN_LENGTH = SECURITY_CONFIG.password.minLength;
@@ -42,6 +45,7 @@ export const staffPinLoginValidator = [
     .notEmpty().withMessage('PIN is required')
     .isLength({ min: 4, max: 6 }).withMessage('PIN must be between 4 and 6 digits')
     .isNumeric().withMessage('PIN must contain only numbers'),
+  staffInstallationIdValidator,
   deviceTypeValidator,
 ];
 

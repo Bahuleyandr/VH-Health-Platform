@@ -9,6 +9,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
     $queryRawUnsafe: queryMock,
   },
   isTenantTransactionClient: () => true,
+  setTenant: jest.fn(async () => {}),
   // A module in patientPortalService's import graph statically imports
   // setTenantTx (Batch-0a RLS conversion); provide it for ESM linking.
   setTenantTx: jest.fn(async (_tenantId, cb) => cb({ $queryRawUnsafe: queryMock })),

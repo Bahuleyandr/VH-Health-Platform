@@ -274,12 +274,25 @@ describe('auth response contracts', () => {
       };
       mockAuthenticateStaff.mockResolvedValue(data);
       const { req, res } = makeHttp({
-        body: { employeeId: 'EMP-001', password: 'correct', deviceType: 'mobile' },
+        body: {
+          employeeId: 'EMP-001',
+          password: 'correct',
+          deviceType: 'mobile',
+          installationId: '33333333-3333-4333-8333-333333333333',
+        },
       });
 
       await staffAuthController.login(req, res);
 
-      expect(mockAuthenticateStaff).toHaveBeenCalledWith('EMP-001', 'correct', req, { deviceType: 'mobile' });
+      expect(mockAuthenticateStaff).toHaveBeenCalledWith(
+        'EMP-001',
+        'correct',
+        req,
+        {
+          deviceType: 'mobile',
+          installationId: '33333333-3333-4333-8333-333333333333',
+        },
+      );
       expect(res.statusCode).toBe(200);
       expect(res.body).toEqual({
         success: true,
@@ -310,6 +323,7 @@ describe('auth response contracts', () => {
           pin: '1234',
           deviceToken: 'registered-device',
           deviceType: 'mobile',
+          installationId: '33333333-3333-4333-8333-333333333333',
         },
       });
 
@@ -319,7 +333,11 @@ describe('auth response contracts', () => {
         'EMP-001',
         '1234',
         req,
-        { deviceType: 'mobile', deviceToken: 'registered-device' },
+        {
+          deviceType: 'mobile',
+          deviceToken: 'registered-device',
+          installationId: '33333333-3333-4333-8333-333333333333',
+        },
       );
       expect(res.statusCode).toBe(200);
       expect(res.body).toEqual({
@@ -340,6 +358,7 @@ describe('auth response contracts', () => {
           pin: '1234',
           deviceToken: 'unknown-device',
           deviceType: 'mobile',
+          installationId: '33333333-3333-4333-8333-333333333333',
         },
       });
 
@@ -369,12 +388,21 @@ describe('auth response contracts', () => {
       };
       mockRefreshStaffSession.mockResolvedValue(data);
       const { req, res } = makeHttp({
-        body: { refreshToken: 'staff-refresh-token', deviceToken: 'registered-device' },
+        body: {
+          refreshToken: 'staff-refresh-token',
+          deviceToken: 'registered-device',
+          installationId: '33333333-3333-4333-8333-333333333333',
+        },
       });
 
       await staffAuthController.refreshSession(req, res);
 
-      expect(mockRefreshStaffSession).toHaveBeenCalledWith('staff-refresh-token', 'registered-device', req);
+      expect(mockRefreshStaffSession).toHaveBeenCalledWith(
+        'staff-refresh-token',
+        'registered-device',
+        '33333333-3333-4333-8333-333333333333',
+        req,
+      );
       expect(res.statusCode).toBe(200);
       expect(res.body).toEqual({
         success: true,
@@ -388,7 +416,11 @@ describe('auth response contracts', () => {
       err.statusCode = 401;
       mockRefreshStaffSession.mockRejectedValue(err);
       const { req, res } = makeHttp({
-        body: { refreshToken: 'expired-refresh-token', deviceToken: 'registered-device' },
+        body: {
+          refreshToken: 'expired-refresh-token',
+          deviceToken: 'registered-device',
+          installationId: '33333333-3333-4333-8333-333333333333',
+        },
       });
 
       await staffAuthController.refreshSession(req, res);

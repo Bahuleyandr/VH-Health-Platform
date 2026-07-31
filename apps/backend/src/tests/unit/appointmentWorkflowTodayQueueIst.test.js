@@ -7,9 +7,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryUnsafeMock,
   },
-  // registerWalkIn (also exported by this controller) statically imports
-  // setTenantTx, so the mock MUST provide it for ESM linking even though
-  // getTodayQueue never calls it.
+  // Sibling controller dependencies statically import both helpers, so the
+  // mock must provide them for ESM linking even though getTodayQueue calls neither.
+  setTenant: jest.fn(async (_tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock })),
   setTenantTx: jest.fn(async (_tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock })),
   isTenantTransactionClient: () => true,
 }));

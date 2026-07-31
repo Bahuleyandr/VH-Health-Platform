@@ -1,7 +1,7 @@
 // src\utils\notifications\sendPushNotification.js"
 
 import admin from 'firebase-admin';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendToUser } from '../websocket/wsServer.js';
 
@@ -110,21 +110,35 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
         logger.warn(`Removing ${invalidTokens.length} invalid device tokens`);
         setImmediate(async () => {
           try {
-            // Deactivate invalid tokens in user_devices (fcm_token column)
-            await prisma.$queryRawUnsafe(
-              `UPDATE user_devices SET fcm_token = NULL WHERE fcm_token = ANY($1)`,
-              invalidTokens
+            const tenants = await prisma.$queryRawUnsafe(
+              'SELECT id::text FROM tenants ORDER BY id'
             );
-            // Deactivate invalid tokens in staff_devices (device_token column)
-            await prisma.$queryRawUnsafe(
-              `UPDATE staff_devices SET is_active = false, device_token = NULL WHERE device_token = ANY($1)`,
-              invalidTokens
-            );
-            // Clear invalid tokens from users table (device_token column)
-            await prisma.$queryRawUnsafe(
-              `UPDATE users SET device_token = NULL WHERE device_token = ANY($1)`,
-              invalidTokens
-            );
+            await Promise.all(tenants.map(({ id }) => setTenant(id, async tx => {
+              await tx.$queryRawUnsafe(
+                `UPDATE user_devices
+                    SET fcm_token = NULL
+                  WHERE tenant_id = $1::uuid
+                    AND fcm_token = ANY($2)`,
+                id,
+                invalidTokens
+              );
+              await tx.$queryRawUnsafe(
+                `UPDATE staff_devices
+                    SET is_active = false, device_token = NULL
+                  WHERE tenant_id = $1::uuid
+                    AND device_token = ANY($2)`,
+                id,
+                invalidTokens
+              );
+              await tx.$queryRawUnsafe(
+                `UPDATE users
+                    SET device_token = NULL
+                  WHERE tenant_id = $1::uuid
+                    AND device_token = ANY($2)`,
+                id,
+                invalidTokens
+              );
+            })));
           } catch (e) {
             logger.warn('Failed to cleanup invalid tokens:', e.message);
           }

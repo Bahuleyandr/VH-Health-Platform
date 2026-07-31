@@ -1183,6 +1183,11 @@ export async function completeStaffOidcCallback({ req, providerKey, code, state,
     },
   });
 
+  const stableDeviceId = await StaffAuthService.bindStaffInstallation(
+    staff,
+    statePayload.deviceId,
+    { platform: statePayload.deviceType || deviceTypeFrom(req) },
+  );
   const { accessToken } = await issueAccessTokenAndClaimSession({
     userUid: staff.uid,
     tokenPayload: {
@@ -1193,15 +1198,16 @@ export async function completeStaffOidcCallback({ req, providerKey, code, state,
     },
     expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
     deviceType: statePayload.deviceType || deviceTypeFrom(req),
+    stableDeviceId,
     req,
   });
-  const refreshToken = StaffAuthService.generateRefreshToken(staff);
+  const refreshToken = StaffAuthService.generateRefreshToken(staff, stableDeviceId);
   await createStaffSsoRefreshSession({
     tenantId: statePayload.tenantId,
     staff,
     refreshToken,
     req,
-    deviceId: statePayload.deviceId,
+    deviceId: stableDeviceId,
   });
 
   return {

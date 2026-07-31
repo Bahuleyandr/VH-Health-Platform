@@ -592,6 +592,26 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     facility_id: null,
     pending_task_id: null,
   },
+  // mig 604: legacy staff-device rows remain valid only when both identity
+  // pointers are absent, while user_devices must not infer continuity or
+  // facility authority for an ordinary pre-enrollment device.
+  staff_devices: {
+    staff_id: null,
+    user_uid: null,
+  },
+  user_devices: {
+    facility_id: null,
+    continuity_grant_id: null,
+    continuity_grant_purpose: null,
+    continuity_capture_revision: null,
+    continuity_context_id: null,
+    continuity_context_revision: null,
+    continuity_session_jti_sha256: null,
+    continuity_issued_at: null,
+    continuity_expires_at: null,
+    continuity_validated_at: null,
+    continuity_validation_state: null,
+  },
   cold_chain_readings: {
     tenant_id: (ctx) => ctx.tenantId,
     unit_id: async () => firstValue('cold_chain_units', 'id'),
