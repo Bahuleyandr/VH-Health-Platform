@@ -1,6 +1,6 @@
 # C0.4 Clinical Service Continuity Owner Decision Dossier
 
-**Status:** C-D1, C-D2, C-D3, C-D4, C-D6 (full record and fallback-principal partial record), C-D7 (decision table and needs_review addendum), C-D9, C-D13, and the C-D10 retention partial record were countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D8 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; the three delegated C-D2 values were ratified 2026-07-30; C-D5, C-D11, C-D12, and the non-retention portions of C-D10 remain open
+**Status:** C-D1, C-D2, C-D3, C-D4, C-D6 (full record and fallback-principal partial record), C-D7 (decision table and needs_review addendum), C-D9, C-D13, and the C-D10 retention partial record were countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D5 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D8 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; the remaining C-D10 fields were countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner, completing C-D10 together with its 2026-07-30 retention partial record; C-D14 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; the three delegated C-D2 values were ratified 2026-07-30; C-D11 and C-D12 remain open
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
@@ -10,7 +10,7 @@
 
 ## 1. Purpose and completion rule
 
-This dossier records the C-D1 through C-D13 decisions required before the
+This dossier records the C-D1 through C-D14 decisions required before the
 continuity program may treat any associated policy or value as approved. The
 recommendations and sign-off roles below are transcribed from the design
 authority; they are not approvals.
@@ -107,11 +107,11 @@ privacy.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | The C-D5 identity recommendation is adopted, with two-key merge authority. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approved values or policy | New or unidentifiable arrivals during downtime receive an explicit temporary identity drawn from the active C-D6 incident packet's reserved paper-item range; a permanent record is never created directly during downtime. Two-identifier bedside checks are required where the patient's condition allows; an unconscious or unaccompanied patient receives a physical wristband from the reserved range as the second identifier. A downtime temporary identity is merged into a permanent patient record only after service restoration under two-key approval: registration/HIM proposes the match and a clinical role — the treating doctor or the clinical safety lead — co-approves it. A duplicate permanent identity is never created silently, and an unknown identifier is never treated as verified. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the roles listed for this decision. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Decision date | 2026-07-31 — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 
 ### C-D6 — incident authority and reconciliation ownership
 
@@ -223,11 +223,11 @@ operations.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | The remaining C-D10 fields are approved; together with the 2026-07-30 retention partial record, C-D10 is complete. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approved values or policy | Electronic break-glass remains blocked offline in the initial rollout; the named-staff continuity pack access shipped in C3.3 is the only offline read path, and this posture is revisited only after first-activation evidence. Replay and receipt horizons: the server accepts a queued offline command for at most 7 days after capture; a first-applied replay receipt remains fully rearm-blocking for 365 days, reusing the operational-audit retention baseline; the compact deduplication tombstone that replaces it is retained for 2555 days, reusing the platform's existing 7-year clinical evidence class. These values satisfy the rule that the tombstone horizon is never shorter than any interval in which the command can still be accepted. Device loss: on a report of a lost or stolen staff device, its grants and sessions are revoked immediately, a signed governed wipe order is issued and executes on the device's next contact, offline pack access dies at its signed expiry of at most 24 hours by design, and any unsynced captured work surfaces as needs_review to the C-D6 fallback reconciliation principal and is never silently discarded. Communications: each pre-provisioned C-D6 incident packet carries a printed phone-tree and role contact sheet, refreshed on the packet's print cycle; incident coordination falls back to telephony and messaging that do not depend on hospital infrastructure. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the roles listed for this decision. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Decision date | 2026-07-31 — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 
 #### Partial record (2026-07-30) — retention
 
@@ -238,9 +238,6 @@ operations.
 | Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the roles listed for this decision. — recorded by engineering from the owner's 2026-07-30 statement; countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 | Decision date | 2026-07-30 — recorded by engineering from the owner's 2026-07-30 statement; countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 | Approval or signature references | pending — recorded by engineering from the owner's 2026-07-30 statement; countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner |
-
-Break-glass, device-loss, and communications fields remain OWNER INPUT —
-engineering must not fill.
 
 ### C-D11 — activation cohort and evidence
 
@@ -304,6 +301,37 @@ product/release.
 | Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the roles listed for this decision. — recorded by engineering from the owner's 2026-07-30 statement; countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 | Decision date | 2026-07-30 — recorded by engineering from the owner's 2026-07-30 statement; countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 | Approval or signature references | pending — recorded by engineering from the owner's 2026-07-30 statement; countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+
+### C-D14 — capture-side facility context operating model
+
+> **Recommendation:** use a combination model. Operator-enroll ward-fixed and
+> shared devices to one facility; require mobile/floating Staff to explicitly
+> confirm one server-authorized facility per session. Issue a signed,
+> revocable server context, permit only one active facility context per
+> authenticated client session, rotate the capture session on a facility
+> change, and never re-scope already captured work. Do not derive facility from
+> tenant, department, care-team text, host, roster label, or screen state.
+
+**Required sign-off roles:** clinical operations, nursing/workforce operations,
+privacy, security/identity, hospital IT/device operations, product/UX, and
+release.
+
+| Owner-input field | Value |
+|---|---|
+| Decision | The combination model is adopted: facility-fixed devices are enrolled; mobile staff sessions confirm a facility; IT/security is the single granting and device-lifecycle authority. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approved values or policy | Shared and ward-fixed devices — tablets, desktops, and carts — are operator-enrolled to exactly one facility, and moving one requires re-enrollment. Personal and floating staff devices confirm one facility at login from the staff member's server-authorized set, re-confirmed at every login and at least every 12 hours, aligned with the countersigned C-D4 offline-authorization window. Cross-cover across facilities in one shift is an explicit in-app facility switch; pending work remains bound to the facility where it was captured. IT/security alone maintains the staff-to-facility authorization set and performs device enrollment, re-provisioning, and revocation; the owner accepts the recorded trade-off that access decisions are centralized away from ward-level rosters. Shared-device user switching uses the attested-handoff flow already shipped in C0A. Device loss follows the C-D10 policy. Facility-context grant and audit records reuse the countersigned 365-day operational-audit retention baseline. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Which device classes are facility-fixed | Shared and ward-fixed devices — tablets, desktops, and carts — are operator-enrolled to exactly one facility, and moving one requires re-enrollment. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Which Staff/device classes may select a facility per session | Personal and floating staff devices confirm one facility at login from the staff member's server-authorized set, re-confirmed at every login and at least every 12 hours, aligned with the countersigned C-D4 offline-authorization window. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Authoritative process and owner for granting Staff access to each facility | IT/security alone maintains the staff-to-facility authorization set and performs device enrollment, re-provisioning, and revocation; the owner accepts the recorded trade-off that access decisions are centralized away from ward-level rosters. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Login/shift reconfirmation trigger and maximum context age | Personal and floating staff devices confirm one facility at login from the staff member's server-authorized set, re-confirmed at every login and at least every 12 hours, aligned with the countersigned C-D4 offline-authorization window. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Shared-tablet user-switch and handoff procedure | Shared-device user switching uses the attested-handoff flow already shipped in C0A. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Cross-cover procedure for two facilities in one shift | Cross-cover across facilities in one shift is an explicit in-app facility switch; pending work remains bound to the facility where it was captured. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Device enrollment, reprovisioning, and revocation roles | IT/security alone maintains the staff-to-facility authorization set and performs device enrollment, re-provisioning, and revocation; the owner accepts the recorded trade-off that access decisions are centralized away from ward-level rosters. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Device-loss revocation, wipe, and offline-risk handling | Device loss follows the C-D10 policy. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Facility-context grant, revocation, and audit retention | Facility-context grant and audit records reuse the countersigned 365-day operational-audit retention baseline. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the roles listed for this decision. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Decision date | 2026-07-31 — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 
 ## 3. C0A gate evidence freeze
 
