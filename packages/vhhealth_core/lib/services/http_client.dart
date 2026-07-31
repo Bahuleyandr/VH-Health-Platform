@@ -2,12 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import '../config/api_config.dart';
 import '../models/api_response.dart';
+import '../models/offline_command_envelope.dart';
 import '../utils/log_sanitizer.dart';
 import 'auth_service.dart';
-import 'pinned_http_client.dart';
 import 'idempotency_key.dart';
+import 'offline_command_codec.dart';
+import 'pinned_http_client.dart';
+
+class PreparedMutationResponse {
+  const PreparedMutationResponse({required this.response, this.retryAfter});
+
+  final ApiResponse response;
+  final DateTime? retryAfter;
+}
 
 /// Production-grade HTTP client for all VHHealth backend API calls.
 ///
@@ -318,6 +328,96 @@ class VHHttpClient {
 
     _checkUnauthorized(parsed);
     return parsed;
+  }
+
+  /// Sends one already-persisted C4 command attempt.
+  ///
+  /// This path cannot mint an event ID or idempotency key. The exact stored
+  /// key and signed-authority projection are reused across network retry and
+  /// 401 refresh.
+  static Future<PreparedMutationResponse> sendPreparedMutation(
+    PersistedOfflineCommand command, {
+    required String path,
+    required String method,
+    Duration? timeout,
+  }) async {
+    if (command.envelope.idempotencyKey.isEmpty ||
+        command.envelope.clientEventId.isEmpty) {
+      throw StateError('Prepared command identity is incomplete');
+    }
+    final normalizedMethod = method.toUpperCase();
+    if (!const {'POST', 'PUT', 'PATCH', 'DELETE'}.contains(normalizedMethod)) {
+      throw ArgumentError.value(
+        method,
+        'method',
+        'Unsupported mutation method',
+      );
+    }
+    final uri = _buildUri(path);
+    final encoded = jsonEncode(command.payload);
+    final continuityHeaders = OfflineCommandCodec.replayHeaders(
+      command.envelope,
+    );
+
+    Future<http.Response> send() async {
+      final headers =
+          await _headers(
+              auth: true,
+              json: true,
+              idempotencyKey: command.envelope.idempotencyKey,
+            )
+            ..addAll(continuityHeaders);
+      return _sendWithRetry(
+        () => switch (normalizedMethod) {
+          'POST' =>
+            _client
+                .post(uri, headers: headers, body: encoded)
+                .timeout(timeout ?? _defaultTimeout),
+          'PUT' =>
+            _client
+                .put(uri, headers: headers, body: encoded)
+                .timeout(timeout ?? _defaultTimeout),
+          'PATCH' =>
+            _client
+                .patch(uri, headers: headers, body: encoded)
+                .timeout(timeout ?? _defaultTimeout),
+          'DELETE' =>
+            _client
+                .delete(uri, headers: headers, body: encoded)
+                .timeout(timeout ?? _defaultTimeout),
+          _ => throw StateError('Prepared method validation drifted'),
+        },
+      );
+    }
+
+    var raw = await send();
+    var parsed = ApiResponse.fromHttp(raw);
+    if (parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
+      raw = await send();
+      parsed = ApiResponse.fromHttp(raw);
+    }
+    _checkUnauthorized(parsed);
+    return PreparedMutationResponse(
+      response: parsed,
+      retryAfter: _parseRetryAfter(raw.headers['retry-after']),
+    );
+  }
+
+  static DateTime? _parseRetryAfter(String? value, {DateTime? now}) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) return null;
+    final seconds = int.tryParse(text);
+    if (seconds != null && seconds >= 0) {
+      return (now ?? DateTime.now()).toUtc().add(Duration(seconds: seconds));
+    }
+    try {
+      return DateFormat(
+        "EEE, dd MMM yyyy HH:mm:ss 'GMT'",
+        'en_US',
+      ).parseUtc(text);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Authenticated multipart POST (for file uploads). Retries once on 401

@@ -4,12 +4,14 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/client_readiness.dart';
+import '../models/offline_command_envelope.dart';
 import '../models/offline_write_entry.dart';
 import '../utils/log_sanitizer.dart';
 import 'auth_service.dart';
 import 'client_readiness_service.dart';
 import 'http_client.dart';
 import 'offline_queue.dart';
+import 'offline_action_ids.dart';
 import 'offline_write_containment.dart';
 
 enum SyncDisposition { success, conflict, retry }
@@ -23,6 +25,32 @@ SyncDisposition dispositionForStatus(int statusCode) {
     return SyncDisposition.conflict;
   }
   return SyncDisposition.retry;
+}
+
+SyncDisposition preparedDispositionForStatus(int statusCode) {
+  if (statusCode >= 200 && statusCode < 300) return SyncDisposition.success;
+  if (const {400, 403, 404, 409, 410, 412, 422}.contains(statusCode)) {
+    return SyncDisposition.conflict;
+  }
+  return SyncDisposition.retry;
+}
+
+bool _isTypedPreparedSuccess(PreparedMutationResponse result) {
+  final raw = result.response.raw;
+  return result.response.isSuccess &&
+      raw is Map<String, dynamic> &&
+      raw.containsKey('data');
+}
+
+String _preparedReviewReason(int statusCode) {
+  return switch (statusCode) {
+    400 || 422 => 'server_validation_rejected',
+    403 => 'server_authorization_rejected',
+    404 => 'server_target_not_found',
+    409 || 412 => 'server_concurrency_conflict',
+    410 => 'server_target_gone',
+    _ => 'server_reconciliation_required',
+  };
 }
 
 class OfflineSessionBarrierActive implements Exception {
@@ -162,7 +190,12 @@ class ConnectivitySyncService extends ChangeNotifier {
   Future<void> refreshCounts() async {
     final entries = await OfflineQueue.unresolvedEntriesForCurrentOwner();
     final pending = entries
-        .where((entry) => entry.status == OfflineWriteStatus.pending)
+        .where(
+          (entry) =>
+              entry.status == OfflineWriteStatus.pending ||
+              entry.status == OfflineWriteStatus.inFlight ||
+              entry.status == OfflineWriteStatus.retryWait,
+        )
         .length;
     final conflicts = entries
         .where((entry) => entry.status == OfflineWriteStatus.conflict)
@@ -226,6 +259,35 @@ class ConnectivitySyncService extends ChangeNotifier {
       _activeEnqueues--;
       _signalQuiescentIfReady();
     }
+  }
+
+  Future<PersistedOfflineCommand> prepareCapture(
+    OfflineCommandDraft draft,
+  ) async {
+    if (isSessionBarrierActive) throw const OfflineSessionBarrierActive();
+    _activeEnqueues++;
+    try {
+      if (isSessionBarrierActive) throw const OfflineSessionBarrierActive();
+      final command = await OfflineQueue.persistPreparedCommand(draft);
+      await refreshCounts();
+      if (_transportState == ClientTransportState.available &&
+          !isSessionBarrierActive) {
+        await syncPending();
+      }
+      return command;
+    } finally {
+      _activeEnqueues--;
+      _signalQuiescentIfReady();
+    }
+  }
+
+  Future<bool> reconcileCommand(
+    int id,
+    OfflineReconciliationRequest request,
+  ) async {
+    final reconciled = await OfflineQueue.reconcileCommand(id, request);
+    if (reconciled) await refreshCounts();
+    return reconciled;
   }
 
   Future<bool> attestHandoff(int id, {required String actorUid}) async {
@@ -328,6 +390,7 @@ class ConnectivitySyncService extends ChangeNotifier {
       _continuityLifecycleState = ContinuityLifecycleState.syncing;
       notifyListeners();
 
+      await OfflineQueue.recoverExpiredLeases();
       final entries = await OfflineQueue.unresolvedEntriesForCurrentOwner();
       final transientlyBlockedPartitions = <String>{};
       if (kDebugMode && entries.isNotEmpty) {
@@ -339,6 +402,95 @@ class ConnectivitySyncService extends ChangeNotifier {
       for (final entry in entries) {
         if (isSessionBarrierActive) break;
         if (await AuthService.getStaffId() != ownerAtStart) break;
+        if (entry.envelopeReady) {
+          if ((entry.status != OfflineWriteStatus.pending &&
+                  entry.status != OfflineWriteStatus.retryWait) ||
+              entry.isSkipped ||
+              transientlyBlockedPartitions.contains(entry.partitionKey)) {
+            continue;
+          }
+          final transport = entry.actionId == null
+              ? null
+              : OfflineActionIds.clientTransportFor(entry.actionId!);
+          if (transport == null) {
+            await OfflineQueue.markPreparedNeedsReview(
+              rowId: entry.id,
+              reasonCode: 'client_transport_binding_unavailable',
+            );
+            transientlyBlockedPartitions.add(entry.partitionKey);
+            continue;
+          }
+          final command = await OfflineQueue.claimPreparedCommand(entry.id);
+          if (command == null) {
+            transientlyBlockedPartitions.add(entry.partitionKey);
+            continue;
+          }
+          try {
+            final result = await VHHttpClient.sendPreparedMutation(
+              command,
+              path: transport.path,
+              method: transport.method,
+            );
+            if (result.response.statusCode == 401) {
+              await OfflineQueue.releasePreparedLeaseForAuthentication(
+                rowId: command.rowId,
+                leaseId: command.leaseId!,
+              );
+              break;
+            }
+            if (_isTypedPreparedSuccess(result)) {
+              await OfflineQueue.markPreparedApplied(
+                rowId: command.rowId,
+                leaseId: command.leaseId!,
+              );
+            } else if (result.response.isSuccess) {
+              await OfflineQueue.markPreparedNeedsReview(
+                rowId: command.rowId,
+                leaseId: command.leaseId,
+                reasonCode: 'malformed_success_response',
+              );
+              transientlyBlockedPartitions.add(entry.partitionKey);
+            } else if (preparedDispositionForStatus(
+                  result.response.statusCode,
+                ) ==
+                SyncDisposition.conflict) {
+              await OfflineQueue.markPreparedNeedsReview(
+                rowId: command.rowId,
+                leaseId: command.leaseId,
+                reasonCode: _preparedReviewReason(result.response.statusCode),
+              );
+              transientlyBlockedPartitions.add(entry.partitionKey);
+            } else {
+              await OfflineQueue.schedulePreparedRetry(
+                rowId: command.rowId,
+                leaseId: command.leaseId!,
+                retryAfter: result.retryAfter,
+                reasonCode: result.response.statusCode == 429
+                    ? 'server_retry_after'
+                    : 'transient_http_failure',
+              );
+              transientlyBlockedPartitions.add(entry.partitionKey);
+            }
+          } catch (error) {
+            if (kDebugMode) {
+              debugPrint(
+                'ConnectivitySync: prepared error id=${entry.id}: '
+                '${logSafeError(error)}',
+              );
+            }
+            await OfflineQueue.schedulePreparedRetry(
+              rowId: command.rowId,
+              leaseId: command.leaseId!,
+              reasonCode: 'ambiguous_transport_outcome',
+            );
+            transientlyBlockedPartitions.add(entry.partitionKey);
+          }
+          if (isSessionBarrierActive ||
+              await AuthService.getStaffId() != ownerAtStart) {
+            break;
+          }
+          continue;
+        }
         if (entry.status != OfflineWriteStatus.pending ||
             entry.isSkipped ||
             transientlyBlockedPartitions.contains(entry.partitionKey)) {

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/client_readiness.dart';
+import '../models/offline_command_envelope.dart';
 import '../models/offline_write_entry.dart';
 import '../services/connectivity_sync_service.dart';
+import '../services/offline_action_ids.dart';
 import '../services/offline_write_containment.dart';
 
 typedef OfflineSyncTextResolver =
@@ -53,14 +55,39 @@ String _defaultOfflineSyncText(String key, Map<String, Object?> values) {
     'offline_sync.field.endpoint': 'Action',
     'offline_sync.field.attestation': 'Handoff',
     'offline_sync.state.pending': 'Pending',
+    'offline_sync.state.in_flight': 'Sending',
+    'offline_sync.state.retry_wait': 'Waiting to retry',
     'offline_sync.state.conflict': 'Conflict',
     'offline_sync.state.needs_review': 'Needs review',
     'offline_sync.state.skipped': 'Skipped this pass',
     'offline_sync.state.attested': 'Needs review · handoff attested',
     'offline_sync.action.retry': 'Retry',
     'offline_sync.action.discard': 'Discard',
+    'offline_sync.action.reconcile': 'Reconcile',
     'offline_sync.action.attest': 'Record attested handoff',
     'offline_sync.action.cancel': 'Cancel',
+    'offline_sync.reconcile.title': 'Reconcile offline item',
+    'offline_sync.reconcile.reason': 'Resolution reason',
+    'offline_sync.reconcile.explanation': 'Explanation',
+    'offline_sync.reconcile.explanation_required':
+        'An explanation is required for this reason.',
+    'offline_sync.reconcile.confirmation':
+        'I verified that this command was not recorded on the server.',
+    'offline_sync.reconcile.submit': 'Record reconciliation',
+    'offline_sync.reconcile.failed':
+        'Reconciliation was not recorded. Refresh and verify the item.',
+    'offline_sync.reconcile.reason.recorded_elsewhere_verified':
+        'Recorded elsewhere and verified',
+    'offline_sync.reconcile.reason.transferred_to_paper':
+        'Transferred to paper',
+    'offline_sync.reconcile.reason.manual_entry_verified':
+        'Manual entry verified',
+    'offline_sync.reconcile.reason.duplicate_confirmed': 'Duplicate confirmed',
+    'offline_sync.reconcile.reason.wrong_patient_or_context':
+        'Wrong patient or context',
+    'offline_sync.reconcile.reason.policy_or_schema_conflict':
+        'Policy or schema conflict',
+    'offline_sync.reconcile.reason.draft_cancelled': 'Draft cancelled',
     'offline_sync.attestation.title': 'Record attested handoff?',
     'offline_sync.attestation.body':
         'Confirm that this item was reviewed — transferred to paper / handed to the reconciliation owner. This attestation cannot be changed.',
@@ -415,14 +442,30 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
     _refreshUi();
   }
 
-  Future<void> _discard(
-    OfflineWriteEntry entry, {
-    required bool reconciliationConfirmed,
-  }) async {
-    await ConnectivitySyncService.instance.discardConflict(
-      entry.id,
-      reconciliationConfirmed: reconciliationConfirmed,
+  Future<void> _reconcile(OfflineWriteEntry entry) async {
+    final actorUid = await widget.actorUidResolver?.call();
+    if (!mounted || actorUid == null || actorUid.trim().isEmpty) return;
+    final request = await _showReconciliationDialog(
+      context,
+      entry,
+      actorUid.trim(),
+      widget.textResolver,
     );
+    if (request == null) return;
+    final reconciled = await ConnectivitySyncService.instance.reconcileCommand(
+      entry.id,
+      request,
+    );
+    if (!mounted) return;
+    if (!reconciled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _resolveText(widget.textResolver, 'offline_sync.reconcile.failed'),
+          ),
+        ),
+      );
+    }
     _refreshUi();
   }
 
@@ -620,11 +663,10 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
                           entry: entry,
                           textResolver: widget.textResolver,
                           onRetry: entry.canRetry ? () => _retry(entry) : null,
-                          onDiscard: entry.canDiscard
-                              ? (confirmed) => _discard(
-                                  entry,
-                                  reconciliationConfirmed: confirmed,
-                                )
+                          onReconcile:
+                              _canReconcile(entry) &&
+                                  widget.actorUidResolver != null
+                              ? () => _reconcile(entry)
                               : null,
                           onAttest:
                               entry.canAttestHandoff &&
@@ -640,6 +682,180 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
           );
         },
       ),
+    );
+  }
+}
+
+bool _canReconcile(OfflineWriteEntry entry) {
+  if (entry.isSkipped) return false;
+  if (!entry.envelopeReady) return entry.status == OfflineWriteStatus.conflict;
+  return switch (entry.durableState) {
+    OfflineCommandState.pending ||
+    OfflineCommandState.retryWait ||
+    OfflineCommandState.needsReview => true,
+    _ => false,
+  };
+}
+
+Future<OfflineReconciliationRequest?> _showReconciliationDialog(
+  BuildContext context,
+  OfflineWriteEntry entry,
+  String actorUid,
+  OfflineSyncTextResolver? textResolver,
+) {
+  return showDialog<OfflineReconciliationRequest>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => _ReconciliationDialog(
+      entry: entry,
+      actorUid: actorUid,
+      textResolver: textResolver,
+    ),
+  );
+}
+
+class _ReconciliationDialog extends StatefulWidget {
+  const _ReconciliationDialog({
+    required this.entry,
+    required this.actorUid,
+    required this.textResolver,
+  });
+
+  final OfflineWriteEntry entry;
+  final String actorUid;
+  final OfflineSyncTextResolver? textResolver;
+
+  @override
+  State<_ReconciliationDialog> createState() => _ReconciliationDialogState();
+}
+
+class _ReconciliationDialogState extends State<_ReconciliationDialog> {
+  late final TextEditingController _explanationController;
+  late final List<OfflineReconciliationReason> _reasons;
+  late OfflineReconciliationReason _reason;
+  var _confirmed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _explanationController = TextEditingController();
+    final isDraft = OfflineActionIds.isDraft(
+      widget.entry.actionId ?? OfflineActionIds.unknown,
+    );
+    _reasons = [
+      OfflineReconciliationReason.recordedElsewhereVerified,
+      if (!isDraft) OfflineReconciliationReason.transferredToPaper,
+      OfflineReconciliationReason.manualEntryVerified,
+      OfflineReconciliationReason.duplicateConfirmed,
+      OfflineReconciliationReason.wrongPatientOrContext,
+      OfflineReconciliationReason.policyOrSchemaConflict,
+      if (isDraft) OfflineReconciliationReason.draftCancelled,
+    ];
+    _reason = _reasons.first;
+  }
+
+  @override
+  void dispose() {
+    _explanationController.dispose();
+    super.dispose();
+  }
+
+  String _text(String key, [Map<String, Object?> values = const {}]) {
+    return _resolveText(widget.textResolver, key, values);
+  }
+
+  bool get _explanationRequired =>
+      _reason == OfflineReconciliationReason.wrongPatientOrContext ||
+      _reason == OfflineReconciliationReason.policyOrSchemaConflict;
+
+  bool get _canSubmit =>
+      _confirmed &&
+      (!_explanationRequired || _explanationController.text.trim().isNotEmpty);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(_text('offline_sync.reconcile.title')),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DropdownButtonFormField<OfflineReconciliationReason>(
+                initialValue: _reason,
+                decoration: InputDecoration(
+                  labelText: _text('offline_sync.reconcile.reason'),
+                ),
+                items: [
+                  for (final reason in _reasons)
+                    DropdownMenuItem(
+                      value: reason,
+                      child: Text(
+                        _text('offline_sync.reconcile.reason.${reason.code}'),
+                      ),
+                    ),
+                ],
+                onChanged: (reason) {
+                  if (reason == null) return;
+                  setState(() => _reason = reason);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _explanationController,
+                minLines: 2,
+                maxLines: 4,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: _text('offline_sync.reconcile.explanation'),
+                  errorText:
+                      _explanationRequired &&
+                          _explanationController.text.trim().isEmpty
+                      ? _text('offline_sync.reconcile.explanation_required')
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _confirmed,
+                onChanged: (value) =>
+                    setState(() => _confirmed = value ?? false),
+                title: Text(
+                  _text('offline_sync.reconcile.confirmation'),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(_text('offline_sync.action.cancel')),
+        ),
+        FilledButton(
+          onPressed: _canSubmit
+              ? () {
+                  Navigator.of(context).pop(
+                    OfflineReconciliationRequest(
+                      reason: _reason,
+                      actorUuid: widget.actorUid,
+                      confirmedNotRecordedOnServer: true,
+                      explanation: _explanationController.text.trim().isEmpty
+                          ? null
+                          : _explanationController.text.trim(),
+                    ),
+                  );
+                }
+              : null,
+          child: Text(_text('offline_sync.reconcile.submit')),
+        ),
+      ],
     );
   }
 }
@@ -679,6 +895,7 @@ class OfflineWriteStatusRow extends StatelessWidget {
   final OfflineSyncTextResolver? textResolver;
   final Future<void> Function()? onRetry;
   final OfflineWriteDiscardCallback? onDiscard;
+  final Future<void> Function()? onReconcile;
   final Future<void> Function()? onAttest;
 
   const OfflineWriteStatusRow({
@@ -687,6 +904,7 @@ class OfflineWriteStatusRow extends StatelessWidget {
     this.textResolver,
     this.onRetry,
     this.onDiscard,
+    this.onReconcile,
     this.onAttest,
   });
 
@@ -738,10 +956,10 @@ class OfflineWriteStatusRow extends StatelessWidget {
         : entry.isHandoffAttested
         ? 'attested'
         : entry.status.value;
-    final statusLabel = _text('offline_sync.state.$statusKey');
+    final statusLabel = _codeLabel('offline_sync.state', statusKey);
     final statusStyle = _statusPresentation(statusKey);
     final reason = entry.reviewReasonCode != null
-        ? _text('offline_sync.reason.${entry.reviewReasonCode}')
+        ? _codeLabel('offline_sync.reason', entry.reviewReasonCode!)
         : entry.conflictReason ?? '—';
     final blockerBase = entry.isSkipped
         ? entry.blockerRowId == null
@@ -763,6 +981,7 @@ class OfflineWriteStatusRow extends StatelessWidget {
     );
     final showRetry = entry.canRetry && onRetry != null;
     final showDiscard = entry.canDiscard && onDiscard != null;
+    final showReconcile = _canReconcile(entry) && onReconcile != null;
     final showAttest = entry.canAttestHandoff && onAttest != null;
 
     return Card(
@@ -868,7 +1087,7 @@ class OfflineWriteStatusRow extends StatelessWidget {
                         ).format(entry.handoffAttestedAt!),
                 }),
               ),
-            if (showRetry || showDiscard || showAttest) ...[
+            if (showRetry || showDiscard || showReconcile || showAttest) ...[
               const SizedBox(height: 10),
               Wrap(
                 alignment: WrapAlignment.end,
@@ -879,6 +1098,12 @@ class OfflineWriteStatusRow extends StatelessWidget {
                     TextButton(
                       onPressed: () => _handleDiscard(context),
                       child: Text(_text('offline_sync.action.discard')),
+                    ),
+                  if (showReconcile)
+                    TextButton.icon(
+                      onPressed: onReconcile,
+                      icon: const Icon(Icons.fact_check_outlined),
+                      label: Text(_text('offline_sync.action.reconcile')),
                     ),
                   if (showRetry)
                     FilledButton.tonal(
@@ -909,6 +1134,12 @@ class OfflineWriteStatusRow extends StatelessWidget {
       return _text('offline_sync.state.${status.value}');
     }
     return reasonCode.replaceAll('_', ' ');
+  }
+
+  String _codeLabel(String prefix, String code) {
+    final key = '$prefix.$code';
+    final localized = _text(key);
+    return localized == key ? code.replaceAll('_', ' ') : localized;
   }
 }
 
@@ -967,6 +1198,11 @@ class _StatusPresentation {
 _StatusPresentation _statusPresentation(String status) {
   return switch (status) {
     'pending' => _StatusPresentation(Icons.schedule, Colors.amber.shade800),
+    'in_flight' => _StatusPresentation(Icons.sync, Colors.blue.shade700),
+    'retry_wait' => _StatusPresentation(
+      Icons.replay_outlined,
+      Colors.amber.shade900,
+    ),
     'conflict' => _StatusPresentation(Icons.error_outline, Colors.red.shade700),
     'skipped' => _StatusPresentation(
       Icons.pause_circle_outline,

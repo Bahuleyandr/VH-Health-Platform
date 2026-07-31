@@ -47,6 +47,14 @@ before persistence or network. The existing two C0A controls retain their
 legacy compatibility behavior while activation remains off; they do not
 silently become C4-authorized captures.
 
+Device-to-facility provisioning does not exist anywhere in the current client
+or backend contract. It is a separate program-level slice, not C4.1 work. C4
+capture cannot activate until that slice supplies a trustworthy
+device-to-facility binding: C4.2 enforces per-facility action sets, design
+section 6.8 requires facility-belongs-to-tenant integrity, and C-D11 makes
+activation per facility/cohort. A later session must not infer or synthesize a
+facility merely to make capture pass.
+
 ## 2. Existing behavior that remains authoritative
 
 ### 2.1 C0A
@@ -328,6 +336,14 @@ translates them to their frozen action IDs, and delegates to the v6 journal.
 Contained and unknown routes are still rejected before insert. No C4-ready
 code accepts or persists the facade's endpoint/method as execution authority.
 
+This facade is temporary and is removed by C4.3 Staff action-registry
+enforcement. C4.3 replaces it with shared verified policy/action models and
+typed action-ID capture calls at every inventoried enqueue site; no endpoint or
+method compatibility input remains. Until removal, the facade cannot weaken
+any C0A containment, ownership, encryption, session-barrier, drain-partition,
+retry, or reconciliation invariant, and every named C0A suite remains
+byte-for-byte unchanged in black-box behavior.
+
 ### 4.2 Ambiguous and lost responses
 
 The row is moved from `pending` or due `retry_wait` to leased `in_flight`
@@ -428,13 +444,24 @@ Both version upgrade and defensive `onOpen` repair use one SQLite transaction:
 11. Convert legacy `conflict` to `needs_review/legacy_conflict`, preserving the
     encrypted conflict evidence and its current Retry/Discard presentation
     compatibility.
-12. Insert an initial migration state event, then commit all schema and row
-    changes together.
+12. Create or repair both `offline_write_sequences` and
+    `offline_write_state_events` with the same PRAGMA-guarded discipline as the
+    added columns.
+13. Insert an initial migration state event, then commit all schema, auxiliary
+    table, index, and row changes together.
 
 There is no table rebuild, `VACUUM`, body rewrite, current-login owner
 attribution, or best-effort partial migration. Disk-full, key loss, corrupt
 ciphertext, unknown encryption, future schema, duplicate identity, and
 interrupted-upgrade tests prove rollback and byte retention.
+
+The convergence suite starts independently from an authentic v4 fixture, an
+authentic v5 fixture, and a deliberately partially upgraded database missing
+different v6 columns, indexes, and each auxiliary table. Opening each fixture
+twice must converge to the identical complete v6 schema without loss of any
+existing row ID, encrypted body bytes, owner, idempotency key, handoff
+attestation, or review evidence; unupgradeable rows remain retained as typed
+`needs_review`.
 
 Existing C0A test-only compatibility readers continue to project applied and
 draft-cancelled rows as absent and migrated `legacy_conflict` rows through the
@@ -660,7 +687,8 @@ C4.1 adds focused tests for:
 - online first attempt and offline retry reusing one identity;
 - lost 2xx, process death, duplicate request, expired lease, and app restart;
 - all durable states and forbidden transitions;
-- v5-to-v6 idempotent additive migration and exact byte retention;
+- v4-to-v6, v5-to-v6, and partially-upgraded-to-v6 idempotent additive
+  convergence, including both new tables and exact byte retention;
 - malformed/missing/duplicate legacy identity moving to review;
 - wrong tenant, user, facility, device, role, and action;
 - clock rollback/uncertainty, expiry, policy supersession, and corrupt

@@ -102,6 +102,8 @@ void main() {
     expect(c0aKeys, contains('offline_sync.family.authoritative_note'));
     expect(c0aKeys, contains('offline_sync.field.paper_form_set'));
     expect(c0aKeys, contains('offline_sync.discard.vitals_body'));
+    expect(c0aKeys, contains('offline_sync.action.reconcile'));
+    expect(c0aKeys, contains('offline_sync.reconcile.confirmation'));
     const connectionStateKeys = {
       'offline_sync.transport.unknown',
       'offline_sync.transport.available',
@@ -172,6 +174,10 @@ void main() {
       'chart before discarding.',
     );
     expect(en.offlineSyncDiscardConfirm, 'Discard after reconciliation');
+    expect(
+      en.lookup('offline_sync.reconcile.confirmation'),
+      'I verified that this command was not recorded on the server.',
+    );
 
     for (final locale in const ['en', 'hi', 'ta', 'te', 'ml']) {
       final strings = AppStrings.forLocale(Locale(locale));
@@ -189,6 +195,10 @@ void main() {
       expect(strings.offlineSyncOfflineQueued(937), contains('937'));
       expect(strings.offlineSyncSyncing(937), contains('937'));
       expect(strings.offlineSyncBlockerEarlierItem(937), contains('937'));
+      expect(
+        strings.lookup('offline_sync.reconcile.confirmation'),
+        isNot('offline_sync.reconcile.confirmation'),
+      );
       for (final key in connectionStateKeys) {
         expect(strings.lookup(key), isNot(key));
         if (locale != 'en') {
