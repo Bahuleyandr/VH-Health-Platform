@@ -119,6 +119,14 @@ Locked objects are intentionally **not rollback-deletable**. Pre-activation
 rollback is “do not add the production rule.” After activation, do not promise
 overwrite or deletion before the effective rule permits it.
 
+## Operator activation consequence
+
+Syncing C6.2 stops automatic database-backup pruning; storage accumulates
+without bound until the suspended retention remover has its scoped credential,
+the required approvals are complete, and operators activate it. This is an
+intentional fail-safe against data loss, and the resulting R2 capacity and cost
+growth must be planned before sync.
+
 ## Credential qualification
 
 Against synthetic data:

@@ -185,6 +185,13 @@ The effective database object retention is the longer of:
 - every applicable bucket-lock rule; and
 - any legal hold.
 
+Syncing C6.2 stops automatic database-backup pruning because the production
+`ObjectStore` no longer delegates deletion to the writer and the separate
+retention-removal CronJob is suspended by default. R2 storage therefore
+accumulates without bound until operators provision its scoped credential,
+complete the required approvals, and activate the remover; this fail-safe
+accumulation and its cost consequence are intentional.
+
 A 30-day Barman policy therefore does not promise deletion at day 30. A longer
 lock or hold intentionally postpones deletion. Conversely, the database lock
 must not be shortened to the continuity-pack interval or replaced by the
