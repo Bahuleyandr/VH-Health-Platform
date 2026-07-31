@@ -3,20 +3,20 @@
 **Status:** coordinator-cleared 2026-07-31; Step 2 remains held at the section
 2 gates and is not authorized<br>
 **Scope:** `apps/backend`, one re-derived migration, regenerated
-`apps/backend/prisma/schema.prisma`, backend tests, and this record only  
-**Branch:** `feat/continuity-c5-1-replay-receipts`  
+`apps/backend/prisma/schema.prisma`, backend tests, and this record only<br>
+**Branch:** `feat/continuity-c5-1-replay-receipts`<br>
 **Baseline:** re-fetched `github/main` and `origin/main` at
 `48509b1a8e5ff011905c01ef7370a85bf2fa7a0d`
-(`2026-07-31T07:42:04+05:30`)  
+(`2026-07-31T07:42:04+05:30`)<br>
 **Merged prerequisite:** C4.2 PR
 [#660](https://github.com/Bahuleyandr/VH-Health-Platform/pull/660), merge
 `64739bde040075018f52dfddb0b889b9337cd1a5`, migration
-`602_clinical_continuity_action_registry.sql`  
+`602_clinical_continuity_action_registry.sql`<br>
 **Build order:** coordinator queue `AF -> C5.1`; C6.1-A is merged and the
 default-off facility-context build remains the immediate predecessor<br>
 **Migration:** not reserved; re-list and derive the next free number only at
-the cleared build kickoff  
-**Activation:** none  
+the cleared build kickoff<br>
+**Activation:** none<br>
 **Merge state:** never merge from this lane
 
 ## 1. Outcome and binding boundary
