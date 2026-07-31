@@ -603,6 +603,8 @@ After coordinator clearance, the intended inert implementation ledger is:
 - `infra/kubernetes/base/cnpg/scheduled-restore-proof.sh`;
 - `infra/kubernetes/base/cnpg/kustomization.yaml`;
 - `infra/kubernetes/base/monitoring/alert-rules.yaml`;
+- `infra/kubernetes/base/monitoring/rule-semantics.sha256` (validator-only:
+  repin the C1.3 semantic lock to the approved C6.2 alert-rule additions);
 - `scripts/check-c1-1-manifest-contract.mjs` (validator-only: move the 30-day
   assertion from Barman's writer-owned deletion field to C6.2's external
   remover boundary);
