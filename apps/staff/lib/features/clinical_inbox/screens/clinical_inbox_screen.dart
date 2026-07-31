@@ -8,6 +8,7 @@ import '../../../core/models/care_pathway_work_models.dart';
 import '../../../core/providers/clinical_inbox_provider.dart';
 import '../../../core/services/care_pathway_api_service.dart';
 import '../../../core/services/clinical_inbox_api_service.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/post_discharge_cross_sign_sheet.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -46,6 +47,7 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
     final provider = context.watch<ClinicalInboxProvider>();
+    final isOnline = ConnectivitySyncService.instance.isOnline;
     final now = DateTime.now();
     final groups = _groupTasks(provider.tasks, now);
 
@@ -73,7 +75,7 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
-            if (provider.lastError != null)
+            if (provider.lastError != null && provider.tasks.isNotEmpty)
               _ErrorBanner(
                 message: provider.lastError!,
                 onRetry: () => unawaited(provider.refresh()),
@@ -82,6 +84,11 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
               const Padding(
                 padding: EdgeInsets.only(top: 96),
                 child: Center(child: CircularProgressIndicator()),
+              )
+            else if (provider.tasks.isEmpty && provider.lastError != null)
+              _ErrorBanner(
+                message: provider.lastError!,
+                onRetry: () => unawaited(provider.refresh()),
               )
             else if (provider.tasks.isEmpty)
               _EmptyState(message: strings.clinicalInboxEmpty)
@@ -96,6 +103,7 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
                       task: task,
                       now: now,
                       acceptingTransfer: _acceptingTransfers.contains(task.id),
+                      isOnline: isOnline,
                       onOpen: () => _showTaskDetail(context, task),
                       onAcknowledge: () => _acknowledge(context, task),
                       onReview: () => _beginDiagnosticReview(context, task),
@@ -115,6 +123,7 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
     ClinicalInboxTask task,
   ) async {
     final strings = AppStrings.of(context);
+    if (!OnlineOnlyActionGuard.require(context)) return;
     try {
       await context.read<ClinicalInboxProvider>().acknowledge(task.id);
     } catch (e) {
@@ -129,6 +138,7 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
     BuildContext context,
     ClinicalInboxTask task,
   ) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     if (task.isPostDischargePendingResultReview) {
       await _beginPostDischargeCrossSign(context, task);
       return;
@@ -161,14 +171,10 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
     ClinicalInboxTask task,
   ) async {
     final strings = AppStrings.of(context);
-    if (!ConnectivitySyncService.instance.isOnline) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            strings.lookup('clinical_inbox.cross_sign.requires_connection'),
-          ),
-        ),
-      );
+    if (!OnlineOnlyActionGuard.require(
+      context,
+      message: strings.lookup('clinical_inbox.cross_sign.requires_connection'),
+    )) {
       return;
     }
     try {
@@ -251,16 +257,12 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
     ClinicalInboxTask task,
   ) async {
     final strings = AppStrings.of(context);
-    if (!ConnectivitySyncService.instance.isOnline) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            strings.lookup(
-              'clinical_inbox.transfer_accept_requires_connection',
-            ),
-          ),
-        ),
-      );
+    if (!OnlineOnlyActionGuard.require(
+      context,
+      message: strings.lookup(
+        'clinical_inbox.transfer_accept_requires_connection',
+      ),
+    )) {
       return;
     }
     final appointmentId = task.sourceAppointmentId;
@@ -358,6 +360,7 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
       builder: (sheetContext) => _ClinicalInboxTaskDetail(
         task: task,
         acceptingTransfer: _acceptingTransfers.contains(task.id),
+        isOnline: ConnectivitySyncService.instance.isOnline,
         onAcknowledge: () => _acknowledge(context, task),
         onReview: () {
           Navigator.pop(sheetContext);
@@ -380,6 +383,7 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
   final VoidCallback onReview;
   final VoidCallback onAcceptTransfer;
   final bool acceptingTransfer;
+  final bool isOnline;
 
   const _ClinicalInboxTaskCard({
     required this.task,
@@ -389,6 +393,7 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
     required this.onReview,
     required this.onAcceptTransfer,
     required this.acceptingTransfer,
+    required this.isOnline,
   });
 
   @override
@@ -396,13 +401,14 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
     final strings = AppStrings.of(context);
     final provider = context.watch<ClinicalInboxProvider>();
     final busy = provider.isMutating(task.id);
-    final canAck = task.needsAcknowledgement && !busy;
-    final canReview = task.needsDoctorAction && !busy;
-    final canCrossSign = task.needsPostDischargeCrossSign && !busy;
+    final canAck = task.needsAcknowledgement && !busy && isOnline;
+    final canReview = task.needsDoctorAction && !busy && isOnline;
+    final canCrossSign = task.needsPostDischargeCrossSign && !busy && isOnline;
     final canAcceptTransfer =
         task.isOpInpatientTransferReview &&
         task.sourceAppointmentId != null &&
-        !acceptingTransfer;
+        !acceptingTransfer &&
+        isOnline;
     final color = _priorityColor(context, task, now);
 
     return Card(
@@ -456,6 +462,21 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 12),
+              if (!isOnline &&
+                  (task.needsAcknowledgement ||
+                      task.needsDoctorAction ||
+                      task.needsPostDischargeCrossSign ||
+                      task.isOpInpatientTransferReview))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    strings.onlineOnlyActionMessage,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               Align(
                 alignment: Alignment.centerRight,
                 child: FilledButton(
@@ -538,6 +559,7 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
   final VoidCallback onReview;
   final VoidCallback onAcceptTransfer;
   final bool acceptingTransfer;
+  final bool isOnline;
 
   const _ClinicalInboxTaskDetail({
     required this.task,
@@ -545,6 +567,7 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
     required this.onReview,
     required this.onAcceptTransfer,
     required this.acceptingTransfer,
+    required this.isOnline,
   });
 
   @override
@@ -692,19 +715,29 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                         : Text(_formatDateTime(escalation.at!)),
                   ),
               const SizedBox(height: 12),
+              if (!isOnline) ...[
+                Text(
+                  strings.lookup('online_only.message'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                const SizedBox(height: 12),
+              ],
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed:
                       currentTask.isOpInpatientTransferReview &&
                           currentTask.sourceAppointmentId != null &&
-                          !acceptingTransfer
+                          !acceptingTransfer &&
+                          isOnline
                       ? onAcceptTransfer
-                      : currentTask.needsPostDischargeCrossSign && !busy
+                      : currentTask.needsPostDischargeCrossSign &&
+                            !busy &&
+                            isOnline
                       ? onReview
-                      : currentTask.needsDoctorAction && !busy
+                      : currentTask.needsDoctorAction && !busy && isOnline
                       ? onReview
-                      : currentTask.needsAcknowledgement && !busy
+                      : currentTask.needsAcknowledgement && !busy && isOnline
                       ? onAcknowledge
                       : null,
                   child: busy || acceptingTransfer
@@ -788,6 +821,7 @@ class _DiagnosticActionSheetState extends State<_DiagnosticActionSheet> {
 
   Future<void> _submit() async {
     final strings = AppStrings.of(context);
+    if (!OnlineOnlyActionGuard.require(context)) return;
     if (!(_formKey.currentState?.validate() ?? false) || !_attested) {
       setState(() {});
       return;
@@ -971,20 +1005,25 @@ class _DiagnosticActionSheetState extends State<_DiagnosticActionSheet> {
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _submitting ? null : _submit,
-                    icon: _submitting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.verified_user_outlined),
-                    label: Text(
-                      _submitting
-                          ? strings.clinicalInboxActionRecording
-                          : strings.clinicalInboxActionSubmit,
-                    ),
+                  child: OnlineOnlyActionState(
+                    builder: (context, isOnline, offlineMessage) =>
+                        FilledButton.icon(
+                          onPressed: _submitting || !isOnline ? null : _submit,
+                          icon: _submitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.verified_user_outlined),
+                          label: Text(
+                            _submitting
+                                ? strings.clinicalInboxActionRecording
+                                : strings.clinicalInboxActionSubmit,
+                          ),
+                        ),
                   ),
                 ),
               ],

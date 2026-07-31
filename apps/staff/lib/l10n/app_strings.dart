@@ -100,6 +100,10 @@ class AppStrings {
   // ── Common actions ─────────────────────────────────────────────────
   String get actionCancel => _t('action.cancel');
   String get actionClose => _t('action.close');
+  String get onlineOnlyActionTitle => _t('continuity.online_only.title');
+  String get onlineOnlyActionMessage => _t('continuity.online_only.message');
+  String get localClinicalDraftSavedMessage =>
+      _t('continuity.local_draft.saved');
   String get actionConfirm => _t('action.confirm');
   String get actionDelete => _t('action.delete');
   String get actionEdit => _t('action.edit');
@@ -869,14 +873,11 @@ class AppStrings {
   String get vitalsNoRecords => _t('vitals.no_records');
   // REVIEW: clinical-action confirmation
   String get vitalsRecordedSuccess => _t('vitals.recorded_success');
-  // REVIEW: clinical / connectivity message
-  String get vitalsOfflineQueued => _t('vitals.offline_queued');
-
-  // ── Offline bedside scan copy ──────────────────────────────────────
-  String get transfusionScanPendingSyncMessage =>
-      _t('transfusion_scan.pending_sync_message');
-  String get specimenScanPendingSyncMessage =>
-      _t('specimen_scan.pending_sync_message');
+  String get vitalsOfflineRetiredTitle => _t('vitals.offline_retired.title');
+  String get vitalsOfflineRetiredMessage =>
+      _t('vitals.offline_retired.message');
+  String get vitalsOfflinePaperButton =>
+      _t('vitals.offline_retired.paper_button');
 
   // ── Nursing Notes ──────────────────────────────────────────────────
   String get nursingNotesTitle => _t('nursing_notes.title');
@@ -3587,6 +3588,11 @@ class AppStrings {
       'resus.entry.note': 'Note',
       'resus.entry.correction_note': 'Correction note',
       'action.close': 'Close',
+      'continuity.online_only.title': 'Online connection required',
+      'continuity.online_only.message':
+          'Reconnect to continue. This action cannot be completed offline.',
+      'continuity.local_draft.saved':
+          'Saved on this device only — not sent to the EMR. Reconnect and reopen for review.',
       'action.confirm': 'Confirm',
       'action.delete': 'Delete',
       'action.edit': 'Edit',
@@ -4446,12 +4452,11 @@ class AppStrings {
       'vitals.trends_hint': 'Enter a patient ID to view vital trends',
       'vitals.no_records': 'No vital records found for this patient',
       'vitals.recorded_success': 'Vitals recorded successfully',
-      'vitals.offline_queued':
-          'Recorded — pending sync. Vitals will sync when online.',
-      'transfusion_scan.pending_sync_message':
-          'The bedside transfusion verification was recorded on this device and will sync when online.',
-      'specimen_scan.pending_sync_message':
-          'The specimen collection was recorded on this device and will sync when online.',
+      'vitals.offline_retired.title':
+          'Offline vitals now use the governed paper path',
+      'vitals.offline_retired.message':
+          "This Staff app no longer saves or queues vitals while offline. Record them on the ward's governed paper chart, then complete verified back-entry after service returns.",
+      'vitals.offline_retired.paper_button': 'Use paper while offline',
       // Nursing Notes
       'nursing_notes.title': 'Nursing Notes',
       'nursing_notes.tab.add': 'Add Note',
@@ -9944,6 +9949,11 @@ class AppStrings {
       'resus.entry.note': 'नोट',
       'resus.entry.correction_note': 'सुधार नोट',
       'action.close': 'बंद करें',
+      'continuity.online_only.title': 'ऑनलाइन कनेक्शन आवश्यक है',
+      'continuity.online_only.message':
+          'जारी रखने के लिए फिर से कनेक्ट करें। यह कार्रवाई ऑफ़लाइन पूरी नहीं की जा सकती।',
+      'continuity.local_draft.saved':
+          'केवल इस डिवाइस पर सहेजा गया — EMR को नहीं भेजा गया। फिर से कनेक्ट करें और समीक्षा के लिए दोबारा खोलें।',
       'action.confirm': 'पुष्टि करें',
       'action.delete': 'हटाएँ',
       'action.edit': 'संपादित करें',
@@ -10823,12 +10833,12 @@ class AppStrings {
       // REVIEW: clinical-action confirmation
       'vitals.recorded_success': 'वाइटल्स सफलतापूर्वक दर्ज किए गए',
       // REVIEW: clinical / connectivity message
-      'vitals.offline_queued':
-          'दर्ज किया गया — सिंक लंबित। ऑनलाइन होने पर वाइटल्स सिंक होंगे।',
-      'transfusion_scan.pending_sync_message':
-          'बेडसाइड ट्रांसफ्यूजन सत्यापन इस डिवाइस पर दर्ज किया गया है और ऑनलाइन होने पर सिंक होगा।',
-      'specimen_scan.pending_sync_message':
-          'सैंपल संग्रह इस डिवाइस पर दर्ज किया गया है और ऑनलाइन होने पर सिंक होगा।',
+      'vitals.offline_retired.title':
+          'ऑफ़लाइन वाइटल्स अब निर्धारित कागज़ी प्रक्रिया से दर्ज करें',
+      'vitals.offline_retired.message':
+          'यह Staff ऐप ऑफ़लाइन रहते हुए वाइटल्स सहेजता या सिंक कतार में नहीं डालता। वार्ड के निर्धारित कागज़ी चार्ट पर वाइटल्स दर्ज करें और सेवा लौटने के बाद सत्यापित बैक-एंट्री पूरी करें।',
+      'vitals.offline_retired.paper_button':
+          'ऑफ़लाइन कागज़ी प्रक्रिया का उपयोग करें',
       // Nursing Notes
       'nursing_notes.title': 'नर्सिंग नोट्स',
       'nursing_notes.tab.add': 'नोट जोड़ें',
@@ -16201,6 +16211,11 @@ class AppStrings {
       'resus.entry.note': 'குறிப்பு',
       'resus.entry.correction_note': 'திருத்தக் குறிப்பு',
       'action.close': 'மூடு',
+      'continuity.online_only.title': 'ஆன்லைன் இணைப்பு தேவை',
+      'continuity.online_only.message':
+          'தொடர மீண்டும் இணைக்கவும். இந்தச் செயலை ஆஃப்லைனில் முடிக்க முடியாது.',
+      'continuity.local_draft.saved':
+          'இந்தச் சாதனத்தில் மட்டும் சேமிக்கப்பட்டது — EMR-க்கு அனுப்பப்படவில்லை. மீண்டும் இணைத்து மதிப்பாய்வுக்காகத் திறக்கவும்.',
       'action.confirm': 'உறுதிப்படுத்து',
       'action.delete': 'நீக்கு',
       'action.edit': 'திருத்து',
@@ -17119,12 +17134,12 @@ class AppStrings {
       // REVIEW: clinical-action confirmation
       'vitals.recorded_success': 'வைட்டல்ஸ் வெற்றிகரமாக பதிவு செய்யப்பட்டது',
       // REVIEW: clinical / connectivity message
-      'vitals.offline_queued':
-          'பதிவு செய்யப்பட்டது — சிங்க் நிலுவையில். ஆன்லைனில் வந்ததும் வைட்டல்ஸ் சிங்க் ஆகும்.',
-      'transfusion_scan.pending_sync_message':
-          'படுக்கையருகே செய்யப்பட்ட இரத்த மாற்ற சரிபார்ப்பு இந்த சாதனத்தில் பதிவு செய்யப்பட்டது; ஆன்லைனில் வந்ததும் சிங்க் ஆகும்.',
-      'specimen_scan.pending_sync_message':
-          'மாதிரி சேகரிப்பு இந்த சாதனத்தில் பதிவு செய்யப்பட்டது; ஆன்லைனில் வந்ததும் சிங்க் ஆகும்.',
+      'vitals.offline_retired.title':
+          'ஆஃப்லைன் வைட்டல்ஸ் இனி அங்கீகரிக்கப்பட்ட காகித வழியைப் பயன்படுத்தும்',
+      'vitals.offline_retired.message':
+          'ஆஃப்லைனில் இந்த Staff செயலி வைட்டல்ஸை சேமிக்கவோ சிங்க் வரிசையில் சேர்க்கவோ செய்யாது. வார்டின் அங்கீகரிக்கப்பட்ட காகிதப் பட்டியலில் பதிவு செய்து, சேவை திரும்பியதும் சரிபார்க்கப்பட்ட பின்-பதிவை முடிக்கவும்.',
+      'vitals.offline_retired.paper_button':
+          'ஆஃப்லைனில் காகித வழியைப் பயன்படுத்தவும்',
       // Nursing Notes - REVIEW
       'nursing_notes.title': 'செவிலியர் குறிப்புகள்',
       'nursing_notes.tab.add': 'குறிப்பு சேர்',
@@ -23164,6 +23179,11 @@ class AppStrings {
       'resus.entry.note': 'గమనిక',
       'resus.entry.correction_note': 'సవరణ గమనిక',
       'action.close': 'మూసివేయి',
+      'continuity.online_only.title': 'ఆన్‌లైన్ కనెక్షన్ అవసరం',
+      'continuity.online_only.message':
+          'కొనసాగించడానికి మళ్లీ కనెక్ట్ అవ్వండి. ఈ చర్యను ఆఫ్‌లైన్‌లో పూర్తి చేయలేరు.',
+      'continuity.local_draft.saved':
+          'ఈ పరికరంలో మాత్రమే సేవ్ చేయబడింది — EMRకు పంపబడలేదు. మళ్లీ కనెక్ట్ చేసి సమీక్ష కోసం తెరవండి.',
       'action.confirm': 'నిర్ధారించు',
       'action.delete': 'తొలగించు',
       'action.edit': 'సవరించు',
@@ -24069,12 +24089,12 @@ class AppStrings {
       // REVIEW: clinical-action confirmation
       'vitals.recorded_success': 'వైటల్స్ విజయవంతంగా రికార్డ్ చేయబడ్డాయి',
       // REVIEW: clinical / connectivity message
-      'vitals.offline_queued':
-          'రికార్డ్ అయింది — సింక్ పెండింగ్‌లో ఉంది. ఆన్‌లైన్‌లోకి వచ్చినప్పుడు వైటల్స్ సింక్ అవుతాయి.',
-      'transfusion_scan.pending_sync_message':
-          'బెడ్‌సైడ్ రక్త మార్పిడి ధృవీకరణ ఈ పరికరంలో రికార్డ్ అయింది, ఆన్‌లైన్‌లోకి వచ్చినప్పుడు సింక్ అవుతుంది.',
-      'specimen_scan.pending_sync_message':
-          'నమూనా సేకరణ ఈ పరికరంలో రికార్డ్ అయింది, ఆన్‌లైన్‌లోకి వచ్చినప్పుడు సింక్ అవుతుంది.',
+      'vitals.offline_retired.title':
+          'ఆఫ్‌లైన్ వైటల్స్ ఇప్పుడు ఆమోదిత కాగిత విధానాన్ని ఉపయోగిస్తాయి',
+      'vitals.offline_retired.message':
+          'ఆఫ్‌లైన్‌లో ఈ Staff యాప్ వైటల్స్‌ను సేవ్ చేయదు లేదా సింక్ క్యూలో ఉంచదు. వార్డ్ ఆమోదిత కాగిత చార్ట్‌లో నమోదు చేసి, సేవ తిరిగి వచ్చిన తర్వాత ధృవీకరించిన బ్యాక్-ఎంట్రీ పూర్తి చేయండి.',
+      'vitals.offline_retired.paper_button':
+          'ఆఫ్‌లైన్‌లో కాగిత విధానాన్ని ఉపయోగించండి',
       // Nursing Notes - REVIEW
       'nursing_notes.title': 'నర్సింగ్ నోట్స్',
       'nursing_notes.tab.add': 'గమనిక జోడించు',
@@ -30012,6 +30032,11 @@ class AppStrings {
       'resus.entry.note': 'കുറിപ്പ്',
       'resus.entry.correction_note': 'തിരുത്തൽ കുറിപ്പ്',
       'action.close': 'അടയ്ക്കുക',
+      'continuity.online_only.title': 'ഓൺലൈൻ കണക്ഷൻ ആവശ്യമാണ്',
+      'continuity.online_only.message':
+          'തുടരാൻ വീണ്ടും കണക്റ്റ് ചെയ്യുക. ഈ പ്രവർത്തനം ഓഫ്‌ലൈനിൽ പൂർത്തിയാക്കാനാവില്ല.',
+      'continuity.local_draft.saved':
+          'ഈ ഉപകരണത്തിൽ മാത്രം സേവ് ചെയ്തു — EMR-ലേക്ക് അയച്ചിട്ടില്ല. വീണ്ടും കണക്റ്റ് ചെയ്ത് അവലോകനത്തിനായി തുറക്കുക.',
       'action.confirm': 'സ്ഥിരീകരിക്കുക',
       'action.delete': 'ഇല്ലാതാക്കുക',
       'action.edit': 'എഡിറ്റ് ചെയ്യുക',
@@ -30939,12 +30964,11 @@ class AppStrings {
       'vitals.trends_hint': 'വൈറ്റൽ ട്രെൻഡുകൾ കാണാൻ രോഗി ഐഡി നൽകുക',
       'vitals.no_records': 'ഈ രോഗിക്ക് വൈറ്റൽ രേഖകളൊന്നുമില്ല',
       'vitals.recorded_success': 'വൈറ്റൽസ് രേഖപ്പെടുത്തി',
-      'vitals.offline_queued':
-          'രേഖപ്പെടുത്തി — സിങ്ക് ബാക്കി. ഓൺലൈനാകുമ്പോൾ വൈറ്റൽസ് സിങ്ക് ചെയ്യും.',
-      'transfusion_scan.pending_sync_message':
-          'ബെഡ്‌സൈഡ് രക്തമാറ്റ പരിശോധന ഈ ഉപകരണത്തിൽ രേഖപ്പെടുത്തി; ഓൺലൈനാകുമ്പോൾ സിങ്ക് ചെയ്യും.',
-      'specimen_scan.pending_sync_message':
-          'സ്പെസിമെൻ ശേഖരണം ഈ ഉപകരണത്തിൽ രേഖപ്പെടുത്തി; ഓൺലൈനാകുമ്പോൾ സിങ്ക് ചെയ്യും.',
+      'vitals.offline_retired.title':
+          'ഓഫ്‌ലൈൻ വൈറ്റൽസ് ഇനി അംഗീകൃത പേപ്പർ വഴിയാണ് രേഖപ്പെടുത്തേണ്ടത്',
+      'vitals.offline_retired.message':
+          'ഓഫ്‌ലൈനിൽ ഈ Staff ആപ്പ് വൈറ്റൽസ് സേവ് ചെയ്യുകയോ സിങ്ക് ക്യൂവിൽ ചേർക്കുകയോ ഇല്ല. വാർഡിന്റെ അംഗീകൃത പേപ്പർ ചാർട്ടിൽ രേഖപ്പെടുത്തി, സേവനം മടങ്ങിയെത്തിയ ശേഷം പരിശോധിച്ച ബാക്ക്-എൻട്രി പൂർത്തിയാക്കുക.',
+      'vitals.offline_retired.paper_button': 'ഓഫ്‌ലൈനിൽ പേപ്പർ വഴി ഉപയോഗിക്കുക',
       'nursing_notes.title': 'നഴ്സിംഗ് കുറിപ്പുകൾ',
       'nursing_notes.tab.add': 'കുറിപ്പ് ചേർക്കുക',
       'nursing_notes.tab.recent': 'സമീപകാല കുറിപ്പുകൾ',

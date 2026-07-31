@@ -2,10 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/features/doctor/prescription_offline_rx.dart';
 
 void main() {
-  test('offline prescription creation always routes to paper fallback', () {
+  test('offline prescription work routes only to a private local draft', () {
     expect(
       prescriptionSubmissionDisposition(isOnline: false),
-      PrescriptionSubmissionDisposition.usePaperFallback,
+      PrescriptionSubmissionDisposition.attemptLocalDraft,
     );
   });
 

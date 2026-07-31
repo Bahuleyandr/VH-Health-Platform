@@ -96,6 +96,10 @@ class ClinicalContinuityCache {
     required String facilityId,
   }) async {
     final namespace = await _namespace(tenantId, facilityId);
+    return (await _readWitness(namespace))?.floors;
+  }
+
+  Future<_ClinicalContinuityWitness?> _readWitness(String namespace) async {
     final raw = await VHSecureStorage.instance.read(
       key: '$_witnessPrefix$namespace',
     );
@@ -104,12 +108,96 @@ class ClinicalContinuityCache {
       final parsed = ClinicalContinuityCanonicalJson.parse(
         Uint8List.fromList(utf8.encode(raw)),
       );
-      return ClinicalContinuityFloors.fromJson(
-        Map<String, Object?>.from(parsed! as Map),
+      final witness = Map<String, Object?>.from(parsed! as Map);
+      const floorKeys = {
+        'policyVersion',
+        'manifestVersion',
+        'revocationEpoch',
+        'trustedNow',
+      };
+      const actionKeys = {'actionRegistryVersion', 'actionRegistryChecksum'};
+      if (!witness.keys.toSet().containsAll(floorKeys) ||
+          witness.keys.any(
+            (key) => !floorKeys.contains(key) && !actionKeys.contains(key),
+          )) {
+        throw const FormatException('Invalid rollback witness shape');
+      }
+      final actionRegistryVersion = witness['actionRegistryVersion'];
+      final actionRegistryChecksum = witness['actionRegistryChecksum'];
+      final hasActionRegistry =
+          actionRegistryVersion != null || actionRegistryChecksum != null;
+      if (hasActionRegistry &&
+          (actionRegistryVersion is! String ||
+              _governanceFloor(actionRegistryVersion, allowZero: false) ==
+                  null ||
+              actionRegistryChecksum is! String ||
+              !RegExp(r'^[0-9a-f]{64}$').hasMatch(actionRegistryChecksum))) {
+        throw const FormatException('Invalid action registry witness');
+      }
+      final floorsJson = Map<String, Object?>.from(witness)
+        ..remove('actionRegistryVersion')
+        ..remove('actionRegistryChecksum');
+      return _ClinicalContinuityWitness(
+        floors: ClinicalContinuityFloors.fromJson(floorsJson),
+        actionRegistryVersion: hasActionRegistry
+            ? actionRegistryVersion! as String
+            : null,
+        actionRegistryChecksum: hasActionRegistry
+            ? actionRegistryChecksum! as String
+            : null,
       );
     } catch (_) {
       throw StateError('Clinical continuity rollback witness is unavailable');
     }
+  }
+
+  Future<bool> advanceActionPolicyFloors({
+    required String tenantId,
+    required String facilityId,
+    required String policyVersion,
+    required String registryVersion,
+    required String registryChecksum,
+    required String revocationEpoch,
+    required DateTime trustedNow,
+  }) async {
+    if (_governanceFloor(policyVersion, allowZero: false) == null ||
+        _governanceFloor(registryVersion, allowZero: false) == null ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(registryChecksum) ||
+        _governanceFloor(revocationEpoch, allowZero: true) == null) {
+      return false;
+    }
+    final namespace = await _namespace(tenantId, facilityId);
+    final existingWitness = await _readWitness(namespace);
+    final existing = existingWitness?.floors;
+    final existingRegistryVersion =
+        existingWitness?.actionRegistryVersion ?? '0';
+    final existingRegistryChecksum = existingWitness?.actionRegistryChecksum;
+    if (existing != null &&
+        (_lower(policyVersion, existing.policyVersion) ||
+            _lower(registryVersion, existingRegistryVersion) ||
+            (registryVersion == existingRegistryVersion &&
+                existingRegistryChecksum != null &&
+                registryChecksum != existingRegistryChecksum) ||
+            (_higher(registryVersion, existingRegistryVersion) &&
+                registryChecksum == existingRegistryChecksum) ||
+            _lower(revocationEpoch, existing.revocationEpoch) ||
+            trustedNow.toUtc().isBefore(existing.trustedNow.toUtc()))) {
+      return false;
+    }
+    final floors = ClinicalContinuityFloors(
+      policyVersion: policyVersion,
+      manifestVersion: existing?.manifestVersion ?? '0',
+      revocationEpoch: revocationEpoch,
+      trustedNow: trustedNow.toUtc(),
+    );
+    await _writeWitness(
+      namespace,
+      floors,
+      actionRegistryVersion: registryVersion,
+      actionRegistryChecksum: registryChecksum,
+    );
+    await _registerNamespace(namespace);
+    return true;
   }
 
   Future<ClinicalContinuityCacheWriteResult> store(
@@ -134,10 +222,8 @@ class ClinicalContinuityCache {
       set.audience.tenantId,
       set.audience.facilityId,
     );
-    final existingFloors = await readFloors(
-      tenantId: set.audience.tenantId,
-      facilityId: set.audience.facilityId,
-    );
+    final existingWitness = await _readWitness(namespace);
+    final existingFloors = existingWitness?.floors;
     if (existingFloors != null &&
         (_lower(set.floors.policyVersion, existingFloors.policyVersion) ||
             _lower(
@@ -242,7 +328,12 @@ class ClinicalContinuityCache {
     final ciphertext = await codec.seal(plaintext, authenticatedData: aad);
     // Advance the secure witness before the cache row. A crash can make the
     // older row unusable, but can never make an older version acceptable.
-    await _writeWitness(namespace, set.floors);
+    await _writeWitness(
+      namespace,
+      set.floors,
+      actionRegistryVersion: existingWitness?.actionRegistryVersion,
+      actionRegistryChecksum: existingWitness?.actionRegistryChecksum,
+    );
     await db.transaction((transaction) async {
       for (final evicted in evictions) {
         await transaction.delete(
@@ -614,11 +705,20 @@ class ClinicalContinuityCache {
 
   Future<void> _writeWitness(
     String namespace,
-    ClinicalContinuityFloors floors,
-  ) async {
+    ClinicalContinuityFloors floors, {
+    String? actionRegistryVersion,
+    String? actionRegistryChecksum,
+  }) async {
+    if ((actionRegistryVersion == null) != (actionRegistryChecksum == null)) {
+      throw StateError('Action registry rollback witness is incomplete');
+    }
     await VHSecureStorage.instance.write(
       key: '$_witnessPrefix$namespace',
-      value: ClinicalContinuityCanonicalJson.canonicalize(floors.toJson()),
+      value: ClinicalContinuityCanonicalJson.canonicalize({
+        ...floors.toJson(),
+        'actionRegistryVersion': ?actionRegistryVersion,
+        'actionRegistryChecksum': ?actionRegistryChecksum,
+      }),
     );
   }
 
@@ -702,6 +802,18 @@ class ClinicalContinuityCache {
   }
 }
 
+class _ClinicalContinuityWitness {
+  const _ClinicalContinuityWitness({
+    required this.floors,
+    required this.actionRegistryVersion,
+    required this.actionRegistryChecksum,
+  });
+
+  final ClinicalContinuityFloors floors;
+  final String? actionRegistryVersion;
+  final String? actionRegistryChecksum;
+}
+
 Uint8List _lengthDelimited(List<List<int>> values) {
   final builder = BytesBuilder(copy: false);
   final length = ByteData(4);
@@ -727,6 +839,18 @@ int _base64Length(int bytes) => ((bytes + 2) ~/ 3) * 4;
 
 bool _lower(String left, String right) =>
     BigInt.parse(left) < BigInt.parse(right);
+
+bool _higher(String left, String right) =>
+    BigInt.parse(left) > BigInt.parse(right);
+
+String? _governanceFloor(String value, {required bool allowZero}) {
+  if (!RegExp(r'^(?:0|[1-9][0-9]{0,18})$').hasMatch(value) ||
+      (!allowZero && value == '0') ||
+      BigInt.parse(value) > BigInt.from(9223372036854775807)) {
+    return null;
+  }
+  return value;
+}
 
 bool _constantTimeEqual(List<int> left, List<int> right) {
   if (left.length != right.length) return false;

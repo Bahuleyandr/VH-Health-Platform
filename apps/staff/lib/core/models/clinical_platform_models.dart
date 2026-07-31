@@ -400,53 +400,6 @@ class ClinicalDocumentationTemplate {
   }
 }
 
-class ClinicalDowntimePolicy {
-  const ClinicalDowntimePolicy({
-    required this.policyVersion,
-    required this.mode,
-    required this.readAllowed,
-    required this.queueableWrites,
-    required this.localDraftOnly,
-    required this.blockedOffline,
-    required this.reconciliation,
-    this.role,
-    this.generatedAt,
-  });
-
-  final String policyVersion;
-  final String mode;
-  final String? role;
-  final List<String> readAllowed;
-  final List<String> queueableWrites;
-  final List<String> localDraftOnly;
-  final List<String> blockedOffline;
-  final List<String> reconciliation;
-  final DateTime? generatedAt;
-
-  factory ClinicalDowntimePolicy.fromJson(Map<String, dynamic> json) {
-    return ClinicalDowntimePolicy(
-      policyVersion: _string(
-        json['policy_version'] ?? json['policyVersion'],
-        fallback: 'clinical-downtime-v1',
-      ),
-      mode: _string(json['mode'], fallback: 'online_first'),
-      role: _nullableString(json['role']),
-      readAllowed: _stringList(json['read_allowed'] ?? json['readAllowed']),
-      queueableWrites: _stringList(
-        json['queueable_writes'] ?? json['queueableWrites'],
-      ),
-      localDraftOnly: _stringList(
-        json['local_draft_only'] ?? json['localDraftOnly'],
-      ),
-      blockedOffline: _stringList(
-        json['blocked_offline'] ?? json['blockedOffline'],
-      ),
-      reconciliation: _stringList(json['reconciliation']),
-      generatedAt: _date(json['generated_at'] ?? json['generatedAt']),
-    );
-  }
-}
-
 class RolePolicyFeature {
   const RolePolicyFeature({
     required this.id,

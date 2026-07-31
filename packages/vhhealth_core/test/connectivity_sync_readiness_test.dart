@@ -3,10 +3,13 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:vhhealth_core/config/tenant_config.dart';
 import 'package:vhhealth_core/models/client_readiness.dart';
+import 'package:vhhealth_core/models/offline_command_envelope.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/http_client.dart';
+import 'package:vhhealth_core/services/offline_action_ids.dart';
 import 'package:vhhealth_core/services/offline_queue.dart';
 
 import 'helpers/offline_queue_test_harness.dart';
@@ -20,6 +23,13 @@ void main() {
   setUp(() async {
     harness = OfflineQueueTestHarness('connectivity_sync_readiness');
     await harness.setUp();
+    OfflineQueue.registerMetadataResolvers(
+      tenantIdResolver: () => TenantConfig.id,
+      reconciliationOwnerResolver: (_) =>
+          OfflineQueue.fallbackReconciliationRole,
+      currentActorUidResolver: () async => harness.currentActorUid,
+      currentActorRoleResolver: () async => 'doctor',
+    );
     await AuthService.setStaffId('staff-1');
     await AuthService.setJwt('test-jwt');
   });
@@ -79,11 +89,8 @@ void main() {
     await service.resetForTesting(
       readinessProbe: () async => ClientReadinessOutcome.alwaysReadyForTesting,
     );
-    await service.enqueue(
-      endpoint: '/emr/notes/draft',
-      method: 'PUT',
-      body: const {'text': 'safe draft'},
-    );
+    service.setTransportAvailableForTesting(false);
+    final command = await service.prepareCapture(_preparedDraft());
     var clinicalRequests = 0;
     VHHttpClient.setClientForTesting(
       MockClient((_) async {
@@ -91,11 +98,17 @@ void main() {
         return http.Response('{"data":{}}', 200);
       }),
     );
+    service.setConnectionStateForTesting(
+      transport: ClientTransportState.available,
+      continuity: ContinuityLifecycleState.notReady,
+    );
 
     await service.syncPending();
 
     expect(clinicalRequests, 1);
-    expect(await OfflineQueue.debugAllRows(), isEmpty);
+    final row = (await OfflineQueue.debugAllRows()).single;
+    expect(row['id'], command.rowId);
+    expect(row['status'], 'applied');
     expect(
       service.continuityLifecycleState,
       ContinuityLifecycleState.readyPublic,
@@ -189,5 +202,56 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 25));
       expect(probes, 1);
     },
+  );
+}
+
+OfflineCommandDraft _preparedDraft() {
+  final captured = DateTime.now().toUtc();
+  return OfflineCommandDraft(
+    actionId: OfflineActionIds.opNoteDraftStore,
+    payload: const {
+      'patient_uid': 'patient-1',
+      'note_type': 'op_consultation',
+      'content': {'assessment': 'stable'},
+    },
+    appVersion: '1.2.0+4',
+    actionVersion: 1,
+    actionChecksum: 'action-checksum',
+    actionSchemaId: 'schema.op-note-draft',
+    actionSchemaVersion: 1,
+    actionSchemaChecksum: 'schema-checksum',
+    policyId: 'policy-1',
+    policyVersion: '1',
+    policyChecksum: 'policy-checksum',
+    policySigningKeyId: 'key-1',
+    policyEffectiveFrom: captured.subtract(const Duration(hours: 1)),
+    policyEffectiveUntil: captured.add(const Duration(days: 1)),
+    policyRevocationEpoch: '1',
+    registryVersion: '1',
+    registryChecksum: 'registry-checksum',
+    minimumAppVersion: '1.2.0',
+    tenantId: TenantConfig.id,
+    facilityId: 17,
+    deviceId: 'device-1',
+    devicePosture: 'desktop',
+    captureSessionId: '11111111-1111-4111-8111-111111111111',
+    captureActorUuid: 'staff-user-uid',
+    captureRole: 'doctor',
+    patientReference: 'patient-1',
+    appointmentId: 'appointment-1',
+    occurredAt: captured,
+    capturedAt: captured,
+    clockEvidence: OfflineClockEvidence(
+      observedAt: captured,
+      serverTime: captured,
+      midpoint: captured,
+      skewMilliseconds: 0,
+      uncertaintyMilliseconds: 10,
+      toleranceMilliseconds: 30000,
+      routeKind: 'public',
+    ),
+    cachedSources: {'patient_identity': captured},
+    expiresAt: captured.add(const Duration(hours: 8)),
+    orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
   );
 }

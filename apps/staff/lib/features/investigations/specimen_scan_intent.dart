@@ -2,16 +2,12 @@ class SpecimenScanIntent {
   const SpecimenScanIntent({
     required this.hardStop,
     required this.submit,
-    required this.enqueue,
-    required this.endpoint,
     required this.body,
     required this.failedRights,
   });
 
   final bool hardStop;
   final bool submit;
-  final bool enqueue;
-  final String endpoint;
   final Map<String, dynamic> body;
   final List<String> failedRights;
 }
@@ -38,8 +34,6 @@ SpecimenScanIntent buildSpecimenScanIntent({
   return SpecimenScanIntent(
     hardStop: hardStop,
     submit: canSubmit,
-    enqueue: canSubmit,
-    endpoint: '/lab/samples/$investigationId/collect',
     body: {
       'scanned_patient_uid': patientUid,
       'sample_barcode': barcode,

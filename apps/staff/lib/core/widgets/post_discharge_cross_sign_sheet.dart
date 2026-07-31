@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_strings.dart';
 import '../providers/clinical_inbox_provider.dart';
 import '../services/clinical_inbox_api_service.dart';
+import 'online_only_action_state.dart';
 
 class PostDischargeCrossSignReview {
   final PostDischargeCrossSignCommand command;
@@ -89,6 +90,7 @@ class _PostDischargeCrossSignSheetState
 
   Future<void> _submit() async {
     final strings = AppStrings.of(context);
+    if (!OnlineOnlyActionGuard.require(context)) return;
     if (!_attested) {
       setState(() {});
       return;
@@ -273,23 +275,29 @@ class _PostDischargeCrossSignSheetState
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton.icon(
-                  key: const Key('post-discharge-cross-sign-submit'),
-                  onPressed: _submitting || !review.canCrossSign
-                      ? null
-                      : _submit,
-                  icon: _submitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.verified_user_outlined),
-                  label: Text(
-                    strings.lookup(
-                      _submitting
-                          ? 'clinical_inbox.cross_sign.recording'
-                          : 'clinical_inbox.cross_sign.submit',
+                child: OnlineOnlyActionState(
+                  builder: (context, isOnline, offlineMessage) => Tooltip(
+                    message: isOnline ? '' : offlineMessage,
+                    child: FilledButton.icon(
+                      key: const Key('post-discharge-cross-sign-submit'),
+                      onPressed:
+                          _submitting || !review.canCrossSign || !isOnline
+                          ? null
+                          : _submit,
+                      icon: _submitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.verified_user_outlined),
+                      label: Text(
+                        strings.lookup(
+                          _submitting
+                              ? 'clinical_inbox.cross_sign.recording'
+                              : 'clinical_inbox.cross_sign.submit',
+                        ),
+                      ),
                     ),
                   ),
                 ),

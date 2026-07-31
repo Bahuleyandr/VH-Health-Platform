@@ -1,7 +1,7 @@
 name: vhhealth_staff
 description: VHHealth Staff App - Hospital staff management
 publish_to: 'none'
-version: 1.1.0+3
+version: 1.2.0+4
 resolution: workspace
 
 environment:

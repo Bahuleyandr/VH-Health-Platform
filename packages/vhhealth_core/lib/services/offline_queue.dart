@@ -623,6 +623,10 @@ class OfflineQueue {
     final existingReason = OfflineWriteReviewReason.fromCode(
       row['review_reason_code'] as String?,
     );
+    if (reason == OfflineWriteReviewReason.unknownEncryptionVersion &&
+        existingReason == OfflineWriteReviewReason.decryptFailed) {
+      reason = existingReason;
+    }
     final alreadyNeedsReview = storedStatus == 'needs_review';
     final existingStateReason = _nonEmptyString(row['state_reason_code']);
     final isLegacyConflict =
@@ -666,21 +670,28 @@ class OfflineQueue {
 
     final actionId =
         _nonEmptyString(row['action_id']) ??
-        OfflineActionIds.fromLegacyControl(
-          method: row['method'] as String,
-          path: row['endpoint'] as String,
-          body: decodedBody ?? const {},
-        );
+        (decodedBody == null
+            ? OfflineActionIds.unknown
+            : OfflineActionIds.fromLegacyControl(
+                method: row['method'] as String,
+                path: row['endpoint'] as String,
+                body: decodedBody,
+              ));
     final clientEventId =
         _nonEmptyString(row['client_event_id']) ?? IdempotencyKey.generate();
     updates['client_event_id'] = clientEventId;
     updates['action_id'] = actionId;
     updates['envelope_ready'] = 0;
     updates['envelope_schema_version'] = null;
+    updates['status'] = OfflineCommandState.needsReview.value;
+    updates['review_reason_code'] ??=
+        existingReason?.code ??
+        OfflineWriteReviewReason.legacyClientRowRequiresReconciliation.code;
+    updates['state_reason_code'] =
+        OfflineWriteReviewReason.legacyClientRowRequiresReconciliation.code;
+    updates['human_review_required'] = 1;
     updates['supersession_generation'] =
         row['supersession_generation'] as int? ?? 0;
-    updates['human_review_required'] =
-        row['human_review_required'] as int? ?? 0;
     final storedAttemptCount = row['attempt_count'] as int? ?? 0;
     updates['attempt_count'] = max(
       storedAttemptCount,
@@ -723,8 +734,9 @@ class OfflineQueue {
       clientEventId: clientEventId,
       fromState: storedStatus,
       toState: toState,
-      reasonCode: 'v6_migration',
-      eventKey: 'v6-migration:$id',
+      reasonCode:
+          OfflineWriteReviewReason.legacyClientRowRequiresReconciliation.code,
+      eventKey: 'c4-3-legacy-review:$id',
     );
   }
 
@@ -1951,6 +1963,79 @@ class OfflineQueue {
         leaseId: leaseId,
         leaseExpiresAt: leaseExpiresAt,
       );
+    });
+  }
+
+  static Future<PersistedOfflineCommand?> inspectPreparedCommand(
+    int rowId,
+  ) async {
+    final ownerId = await AuthService.getStaffId();
+    final tenantId = _validatedTenantId();
+    if (ownerId == null || tenantId == null) return null;
+    final db = await database;
+    final rows = await db.query(
+      'pending_writes',
+      where: 'id = ? AND envelope_ready = 1 AND tenant_id = ? AND staff_id = ?',
+      whereArgs: [rowId, tenantId, ownerId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _decodePreparedRow(db, rows.single);
+  }
+
+  static Future<int> cancelPreparedDrafts({
+    required String actionId,
+    required String patientReference,
+    String? appointmentId,
+    String? encounterId,
+    String? admissionId,
+  }) async {
+    if (!OfflineActionIds.isDraft(actionId)) return 0;
+    final ownerId = await AuthService.getStaffId();
+    final tenantId = _validatedTenantId();
+    final actorUid = await _currentActorUidResolver?.call();
+    if (ownerId == null ||
+        tenantId == null ||
+        actorUid == null ||
+        actorUid.trim().isEmpty) {
+      return 0;
+    }
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'pending_writes',
+        where:
+            'envelope_ready = 1 AND tenant_id = ? AND staff_id = ? '
+            'AND action_id = ? AND status IN (?, ?, ?)',
+        whereArgs: [
+          tenantId,
+          ownerId,
+          actionId,
+          OfflineCommandState.pending.value,
+          OfflineCommandState.retryWait.value,
+          OfflineCommandState.needsReview.value,
+        ],
+      );
+      var changed = 0;
+      for (final row in rows) {
+        final command = await _decodePreparedRow(txn, row);
+        if (command == null ||
+            command.envelope.patientReference != patientReference ||
+            command.envelope.appointmentId != appointmentId ||
+            command.envelope.encounterId != encounterId ||
+            command.envelope.admissionId != admissionId) {
+          continue;
+        }
+        final transitioned = await _transitionReady(
+          txn,
+          row,
+          toState: OfflineCommandState.cancelled,
+          reasonCode: OfflineReconciliationReason.draftCancelled.code,
+          actorUid: actorUid,
+        );
+        if (transitioned) changed++;
+      }
+      return changed;
     });
   }
 

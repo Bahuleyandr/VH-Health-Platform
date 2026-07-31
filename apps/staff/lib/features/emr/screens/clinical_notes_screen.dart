@@ -5,6 +5,7 @@ import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/dictation_review_sheet.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/patient_notes_list.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/vital_text_field.dart';
@@ -593,18 +594,28 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                                 icon: const Icon(Icons.edit_outlined, size: 18),
                                 label: const AppText('action.edit'),
                               ),
-                            TextButton.icon(
-                              onPressed: () => _signNoteAction(noteId),
-                              icon: const Icon(
-                                Icons.check_circle_outline,
-                                size: 18,
-                              ),
-                              label: Text(
-                                AppStrings.of(ctx).clinicalNotesSignNote,
-                              ),
-                              style: TextButton.styleFrom(
-                                foregroundColor: AppTheme.successGreen,
-                              ),
+                            OnlineOnlyActionState(
+                              builder: (context, isOnline, offlineMessage) =>
+                                  Tooltip(
+                                    message: isOnline ? '' : offlineMessage,
+                                    child: TextButton.icon(
+                                      onPressed: isOnline
+                                          ? () => _signNoteAction(noteId)
+                                          : null,
+                                      icon: const Icon(
+                                        Icons.check_circle_outline,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        AppStrings.of(
+                                          ctx,
+                                        ).clinicalNotesSignNote,
+                                      ),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppTheme.successGreen,
+                                      ),
+                                    ),
+                                  ),
                             ),
                           ],
                         ),
@@ -623,6 +634,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   // ── Sign Note ──
 
   Future<void> _signNoteAction(int noteId) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     try {
       await MedicalApiService.signNote(noteId);
       if (mounted) {

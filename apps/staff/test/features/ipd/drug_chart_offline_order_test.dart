@@ -2,10 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/features/ipd/drug_chart_offline_order.dart';
 
 void main() {
-  test('offline drug-chart orders always route to paper fallback', () {
+  test('offline drug-chart work routes only to a private local draft', () {
     expect(
       drugChartSubmissionDisposition(isOnline: false),
-      DrugChartSubmissionDisposition.usePaperFallback,
+      DrugChartSubmissionDisposition.attemptLocalDraft,
     );
   });
 

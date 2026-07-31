@@ -10,6 +10,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/clinical_print_pdf_action.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class DischargeHubScreen extends StatefulWidget {
@@ -366,6 +367,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
   }
 
   Future<void> _startAiPackage() async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     setState(() => _busyKey = 'ai');
     try {
       final result = await ClinicalAiApiService.startDischargeCompose(
@@ -439,6 +441,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
   }
 
   Future<void> _finishWorkItem(Map<String, dynamic> item) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     final type = (item['consult_type'] ?? '').toString();
     if (type.isEmpty) return;
     final notes = await _askFinishNotes(item);
@@ -1191,17 +1194,22 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
         trailing: done
             ? const AppText('incident_report.done_button')
             : canComplete
-            ? FilledButton(
-                onPressed: _busyKey == type
-                    ? null
-                    : () => _finishWorkItem(item),
-                child: _busyKey == type
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const AppText('s4.lib.discharge_hub.finish'),
+            ? OnlineOnlyActionState(
+                builder: (context, isOnline, offlineMessage) => Tooltip(
+                  message: isOnline ? '' : offlineMessage,
+                  child: FilledButton(
+                    onPressed: _busyKey == type || !isOnline
+                        ? null
+                        : () => _finishWorkItem(item),
+                    child: _busyKey == type
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const AppText('s4.lib.discharge_hub.finish'),
+                  ),
+                ),
               )
             : const AppText('appt_queue.tab.pending_prefix'),
       ),

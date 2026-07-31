@@ -33,6 +33,9 @@ void main() {
     await service.resetForTesting(
       readinessProbe: () async => ClientReadinessOutcome.alwaysReadyForTesting,
     );
+    service.registerPreparedDrainGate(
+      (_) async => const PreparedDrainGateDecision.allow(),
+    );
   });
 
   tearDown(() async {
@@ -166,6 +169,64 @@ void main() {
     expect(row['idempotency_key'], persisted.envelope.idempotencyKey);
     expect(row['command_fingerprint'], persisted.envelope.commandFingerprint);
   });
+
+  test('unavailable policy pauses before lease or HTTP attempt', () async {
+    var requestCount = 0;
+    VHHttpClient.setClientForTesting(
+      MockClient((_) async {
+        requestCount++;
+        return http.Response('{"data":{}}', 200);
+      }),
+    );
+    service.registerPreparedDrainGate(
+      (_) async =>
+          const PreparedDrainGateDecision.pause('action_policy_unavailable'),
+    );
+
+    final persisted = await service.prepareCapture(_draft());
+    final row = (await (await OfflineQueue.database).query(
+      'pending_writes',
+      where: 'id = ?',
+      whereArgs: [persisted.rowId],
+    )).single;
+
+    expect(requestCount, 0);
+    expect(row['status'], 'pending');
+    expect(row['attempt_count'], 0);
+    expect(row['lease_id'], isNull);
+    expect(row['last_attempt_at'], isNull);
+  });
+
+  test(
+    'definitive policy denial moves row to review before lease or HTTP',
+    () async {
+      var requestCount = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((_) async {
+          requestCount++;
+          return http.Response('{"data":{}}', 200);
+        }),
+      );
+      service.registerPreparedDrainGate(
+        (_) async =>
+            const PreparedDrainGateDecision.needsReview('role_not_allowed'),
+      );
+
+      final persisted = await service.prepareCapture(_draft());
+      final row = (await (await OfflineQueue.database).query(
+        'pending_writes',
+        where: 'id = ?',
+        whereArgs: [persisted.rowId],
+      )).single;
+
+      expect(requestCount, 0);
+      expect(row['status'], 'needs_review');
+      expect(row['state_reason_code'], 'role_not_allowed');
+      expect(row['attempt_count'], 0);
+      expect(row['lease_id'], isNull);
+      expect(row['last_attempt_at'], isNull);
+    },
+  );
 }
 
 OfflineCommandDraft _draft({

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/radiology_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../l10n/app_strings.dart';
 
 class RadiologyScreen extends StatefulWidget {
@@ -558,13 +559,21 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                       const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _showSignOffForm(id);
-                          },
-                          icon: const Icon(Icons.verified),
-                          label: Text(str.radiologySignOffReport),
+                        child: OnlineOnlyActionState(
+                          builder: (context, isOnline, offlineMessage) =>
+                              Tooltip(
+                                message: isOnline ? '' : offlineMessage,
+                                child: ElevatedButton.icon(
+                                  onPressed: isOnline
+                                      ? () {
+                                          Navigator.pop(ctx);
+                                          _showSignOffForm(id);
+                                        }
+                                      : null,
+                                  icon: const Icon(Icons.verified),
+                                  label: Text(str.radiologySignOffReport),
+                                ),
+                              ),
                         ),
                       ),
                     ],
@@ -931,6 +940,9 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                     onPressed: submitting
                         ? null
                         : () async {
+                            if (!OnlineOnlyActionGuard.require(sheetContext)) {
+                              return;
+                            }
                             if (classification == null) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(

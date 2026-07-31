@@ -106,7 +106,10 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
         );
         return;
       }
-      final response = await ApiClient.post(intent.endpoint, body: intent.body);
+      final response = await ApiClient.post(
+        '/lab/samples/${widget.investigationId}/collect',
+        body: intent.body,
+      );
       if (!mounted) return;
       if (response.isSuccess) {
         setState(() => _step = _SpecimenScanStep.done);

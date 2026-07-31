@@ -165,6 +165,11 @@ String _defaultOfflineSyncText(String key, Map<String, Object?> values) {
     'offline_sync.reason.decrypt_failed':
         'Encrypted clinical data could not be opened',
     'offline_sync.reason.retry_exhausted': 'Automatic retry limit reached',
+    'offline_sync.reason.legacy_client_row_requires_reconciliation':
+        'Created by an older Staff app — not sent',
+    'offline_sync.legacy.title': 'Older Staff app item',
+    'offline_sync.legacy.message':
+        'Created by an older Staff app — not sent. Review against the server or paper record.',
   };
 
   var result = strings[key] ?? key;
@@ -979,8 +984,11 @@ class OfflineWriteStatusRow extends StatelessWidget {
     final paperFormSetKey = offlinePaperFormSetKeyForFamily(
       entry.classification.family,
     );
-    final showRetry = entry.canRetry && onRetry != null;
-    final showDiscard = entry.canDiscard && onDiscard != null;
+    final isLegacy =
+        entry.stateReasonCode ==
+        OfflineWriteReviewReason.legacyClientRowRequiresReconciliation.code;
+    final showRetry = !isLegacy && entry.canRetry && onRetry != null;
+    final showDiscard = !isLegacy && entry.canDiscard && onDiscard != null;
     final showReconcile = _canReconcile(entry) && onReconcile != null;
     final showAttest = entry.canAttestHandoff && onAttest != null;
 
@@ -1007,7 +1015,9 @@ class OfflineWriteStatusRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    entry.contextLabel ?? entry.endpoint,
+                    isLegacy
+                        ? _text('offline_sync.legacy.title')
+                        : entry.contextLabel ?? entry.endpoint,
                     style: theme.textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -1029,19 +1039,42 @@ class OfflineWriteStatusRow extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
+            if (isLegacy) ...[
+              Semantics(
+                liveRegion: true,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _text('offline_sync.legacy.message'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             _EntryField(
               label: _text('offline_sync.field.family'),
               value: _text('offline_sync.family.${entry.familyKey}'),
             ),
-            _EntryField(
-              label: _text('offline_sync.field.context'),
-              value: entry.contextLabel ?? '—',
-            ),
-            _EntryField(
-              label: _text('offline_sync.field.endpoint'),
-              value: '${entry.method} ${entry.endpoint}',
-              monospace: true,
-            ),
+            if (!isLegacy) ...[
+              _EntryField(
+                label: _text('offline_sync.field.context'),
+                value: entry.contextLabel ?? '—',
+              ),
+              _EntryField(
+                label: _text('offline_sync.field.endpoint'),
+                value: '${entry.method} ${entry.endpoint}',
+                monospace: true,
+              ),
+            ],
             _EntryField(
               label: _text('offline_sync.field.captured'),
               value: created,
@@ -1054,22 +1087,24 @@ class OfflineWriteStatusRow extends StatelessWidget {
               label: _text('offline_sync.field.reason'),
               value: reason,
             ),
-            _EntryField(
-              label: _text('offline_sync.field.blocker'),
-              value: blocker,
-            ),
-            _EntryField(
-              label: _text('offline_sync.field.retry_count'),
-              value: '${entry.retryCount}',
-            ),
-            _EntryField(
-              label: _text('offline_sync.field.capture_owner'),
-              value: entry.staffId ?? '—',
-            ),
-            _EntryField(
-              label: _text('offline_sync.field.reconciliation_owner'),
-              value: reconciliationOwner,
-            ),
+            if (!isLegacy) ...[
+              _EntryField(
+                label: _text('offline_sync.field.blocker'),
+                value: blocker,
+              ),
+              _EntryField(
+                label: _text('offline_sync.field.retry_count'),
+                value: '${entry.retryCount}',
+              ),
+              _EntryField(
+                label: _text('offline_sync.field.capture_owner'),
+                value: entry.staffId ?? '—',
+              ),
+              _EntryField(
+                label: _text('offline_sync.field.reconciliation_owner'),
+                value: reconciliationOwner,
+              ),
+            ],
             if (paperFormSetKey != null)
               _EntryField(
                 label: _text('offline_sync.field.paper_form_set'),

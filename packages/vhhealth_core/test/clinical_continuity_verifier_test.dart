@@ -8,6 +8,7 @@ import 'package:vhhealth_core/services/clinical_continuity_canonical_json.dart';
 import 'package:vhhealth_core/services/clinical_continuity_source.dart';
 import 'package:vhhealth_core/services/clinical_continuity_trust_store.dart';
 import 'package:vhhealth_core/services/clinical_continuity_verifier.dart';
+import 'package:vhhealth_core/services/offline_action_ids.dart';
 
 const _tenantId = '52e31913-c846-4458-a21b-31cd2f457e9b';
 const _facilityId = '41';
@@ -279,13 +280,121 @@ void main() {
       expect(result.verifiedSet!.packs.single.locationType, locationType);
     }
   });
+
+  test(
+    'verifies a complete signed v3 action policy and rejects tampering',
+    () async {
+      final fixture = await _Fixture.build();
+      final envelope = await _actionPolicyEnvelope(fixture.signingPair);
+      final bytes = ClinicalContinuityCanonicalJson.canonicalBytes(envelope);
+
+      final accepted = await fixture.verifier.verifyActionPolicy(
+        envelopeBytes: bytes,
+        policyId: _policyId,
+        expectedAudience: const ClinicalContinuityAudience(
+          tenantId: _tenantId,
+          facilityId: _facilityId,
+        ),
+        clock: fixture.snapshot.clock,
+      );
+
+      expect(accepted.ok, isTrue);
+      expect(
+        accepted.verifiedPolicy!.actions.keys.toSet(),
+        OfflineActionIds.values.difference(const {OfflineActionIds.unknown}),
+      );
+      expect(accepted.verifiedPolicy!.registryVersion, '5');
+      expect(accepted.verifiedPolicy!.compatibilityRules, isEmpty);
+      expect(accepted.verifiedPolicy!.enforcedActionIds, {
+        OfflineActionIds.nursingNoteDraftStore,
+        OfflineActionIds.opNoteDraftStore,
+      });
+      expect(accepted.verifiedPolicy!.minimumAppVersions['desktop'], '1.2.0');
+
+      final tampered = utf8.decode(bytes).replaceFirst('"1.2.0"', '"1.1.0"');
+      final rejected = await fixture.verifier.verifyActionPolicy(
+        envelopeBytes: Uint8List.fromList(utf8.encode(tampered)),
+        policyId: _policyId,
+        expectedAudience: const ClinicalContinuityAudience(
+          tenantId: _tenantId,
+          facilityId: _facilityId,
+        ),
+        clock: fixture.snapshot.clock,
+      );
+      expect(
+        rejected.reason,
+        ClinicalContinuityVerificationReasons.signatureInvalid,
+      );
+    },
+  );
+
+  test('signed v3 registry and action shapes are closed', () async {
+    final fixture = await _Fixture.build();
+    final baseline = await _actionPolicyEnvelope(fixture.signingPair);
+
+    final registryExtra = _mutableJson(baseline);
+    final registryDocument = _mapForTest(registryExtra['policyDocument']);
+    final registry = _mapForTest(registryDocument['actionRegistry']);
+    registry['unexpected'] = true;
+    registryDocument['actionRegistry'] = registry;
+    registryExtra['policyDocument'] = registryDocument;
+    await _rehashAndSignActionPolicy(registryExtra, fixture.signingPair);
+    final rejectedRegistry = await fixture.verifier.verifyActionPolicy(
+      envelopeBytes: ClinicalContinuityCanonicalJson.canonicalBytes(
+        registryExtra,
+      ),
+      policyId: _policyId,
+      expectedAudience: const ClinicalContinuityAudience(
+        tenantId: _tenantId,
+        facilityId: _facilityId,
+      ),
+      clock: fixture.snapshot.clock,
+    );
+    expect(
+      rejectedRegistry.reason,
+      ClinicalContinuityVerificationReasons.actionRegistryInvalid,
+    );
+
+    final actionExtra = _mutableJson(baseline);
+    final actionDocument = _mapForTest(actionExtra['policyDocument']);
+    final actionRegistry = _mapForTest(actionDocument['actionRegistry']);
+    final actions = actionRegistry['actions']! as List<dynamic>;
+    final action = _mapForTest(actions.first);
+    action['unexpected'] = true;
+    await _rehashAction(action);
+    actions[0] = action;
+    actionRegistry['actions'] = actions;
+    actionDocument['actionRegistry'] = actionRegistry;
+    actionExtra['policyDocument'] = actionDocument;
+    await _rehashAndSignActionPolicy(actionExtra, fixture.signingPair);
+    final rejectedAction = await fixture.verifier.verifyActionPolicy(
+      envelopeBytes: ClinicalContinuityCanonicalJson.canonicalBytes(
+        actionExtra,
+      ),
+      policyId: _policyId,
+      expectedAudience: const ClinicalContinuityAudience(
+        tenantId: _tenantId,
+        facilityId: _facilityId,
+      ),
+      clock: fixture.snapshot.clock,
+    );
+    expect(
+      rejectedAction.reason,
+      ClinicalContinuityVerificationReasons.actionRegistryInvalid,
+    );
+  });
 }
 
 class _Fixture {
   final ClinicalContinuityVerifier verifier;
   final ClinicalContinuitySourceSnapshot snapshot;
+  final KeyPair signingPair;
 
-  const _Fixture({required this.verifier, required this.snapshot});
+  const _Fixture({
+    required this.verifier,
+    required this.snapshot,
+    required this.signingPair,
+  });
 
   static Future<_Fixture> build({
     String keyState = 'current',
@@ -571,6 +680,7 @@ class _Fixture {
     );
     return _Fixture(
       verifier: verifier,
+      signingPair: signingPair,
       snapshot: ClinicalContinuitySourceSnapshot(
         manifestEnvelopeBytes: manifestBytes,
         assets: {
@@ -688,4 +798,232 @@ Future<String> _sha256Hex(List<int> bytes) async {
   return digest.bytes
       .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
       .join();
+}
+
+Future<Map<String, Object?>> _actionPolicyEnvelope(KeyPair keyPair) async {
+  const effectiveUntil = '2026-07-30T04:00:00.000Z';
+  final actions = <Map<String, Object?>>[];
+  for (final actionId in OfflineActionIds.values.difference(const {
+    OfflineActionIds.unknown,
+  }).toList()..sort()) {
+    actions.add(await _c4_2Action(actionId));
+  }
+
+  final registryProjection = <String, Object?>{
+    'actions': actions,
+    'activation': {
+      'enforcedActionIds': const [
+        OfflineActionIds.nursingNoteDraftStore,
+        OfflineActionIds.opNoteDraftStore,
+      ],
+      'mode': 'enforce',
+    },
+    'approvalEvidence': _cD3Approval,
+    'audience': {
+      'devicePostures': const ['desktop', 'tablet'],
+    },
+    'compatibilityRules': const [],
+    'expiresAt': effectiveUntil,
+    'issuedAt': _issuedAt,
+    'minimumAppVersions': const {'desktop': '1.2.0', 'tablet': '1.2.0'},
+    'registrySchemaVersion': 1,
+    'registryVersion': '5',
+  };
+  final registry = <String, Object?>{
+    ...registryProjection,
+    'registryChecksum': await _sha256Hex(
+      ClinicalContinuityCanonicalJson.canonicalBytes(registryProjection),
+    ),
+  };
+  final document = <String, Object?>{
+    'actionRegistry': registry,
+    'audience': const {'tenantId': _tenantId, 'facilityId': _facilityId},
+    'edgeAccess': const <String, Object?>{},
+    'fieldPolicy': const <String, Object?>{},
+    'generation': const <String, Object?>{},
+    'includedAreas': const <String, Object?>{},
+    'medicationsDueWindow': const <String, Object?>{},
+    'packSchemaVersion': 1,
+    'policySchemaVersion': 3,
+    'policyType': 'clinical_continuity_pack',
+    'recentReleasedResults': const <String, Object?>{},
+    'requiredCoverage': const <String, Object?>{},
+    'retention': const <String, Object?>{},
+  };
+  final policyPublicKey = await keyPair.extractPublicKey() as SimplePublicKey;
+  final policyPublicKeyPem = _publicKeyPem(policyPublicKey.bytes);
+  final payload = <String, Object?>{
+    'actionRegistryChecksum': registry['registryChecksum'],
+    'actionRegistrySchemaVersion': 1,
+    'actionRegistryVersion': '5',
+    'algorithm': 'Ed25519',
+    'audience': const {'tenantId': _tenantId, 'facilityId': _facilityId},
+    'canonicalization': 'rfc8785-jcs',
+    'currentPackSigningKeyId': 'pack-current-1',
+    'currentPackSigningPublicKeySha256': 'a' * 64,
+    'effectiveFrom': _issuedAt,
+    'effectiveUntil': effectiveUntil,
+    'nextPackSigningKeyId': null,
+    'nextPackSigningPublicKeySha256': null,
+    'policyChecksum': await _sha256Hex(
+      ClinicalContinuityCanonicalJson.canonicalBytes(document),
+    ),
+    'policyDocument': document,
+    'policySchemaVersion': 3,
+    'policySigningKeyId': _keyId,
+    'policySigningPublicKeySha256': await _sha256Hex(
+      utf8.encode(policyPublicKeyPem),
+    ),
+    'policyVersion': '7',
+    'revocationEpoch': '3',
+    'revokedKeyIds': const <String>[],
+    'supersedesPolicyId': null,
+  };
+  final signature = await Ed25519().sign(
+    ClinicalContinuityCanonicalJson.canonicalBytes(payload),
+    keyPair: keyPair,
+  );
+  return {...payload, 'policySignature': base64Encode(signature.bytes)};
+}
+
+const _cD3Approval = <String, Object?>{
+  'countersignedAt': '2026-07-30',
+  'decisionId': 'C-D3',
+  'source':
+      'docs/continuity/c0-4-owner-decision-dossier.md#c-d3--offline-action-matrix',
+};
+
+Future<Map<String, Object?>> _c4_2Action(String actionId) async {
+  final captureReady = OfflineActionIds.draftStoreActions.contains(actionId);
+  final offlineClass = switch (actionId) {
+    OfflineActionIds.opPrescriptionDraft ||
+    OfflineActionIds.ipDrugChartDraft => 'local_draft_only',
+    OfflineActionIds.marAdministrationBackfill ||
+    OfflineActionIds.labSpecimenCollectionBackfill ||
+    OfflineActionIds.bloodTransfusionVerificationBackfill =>
+      'paper_only_backfill',
+    OfflineActionIds.vitalsCapture ||
+    OfflineActionIds.nursingNoteDraftStore ||
+    OfflineActionIds.opNoteDraftStore => 'queueable_capture',
+    _ => 'unknown_default_deny',
+  };
+  final actionSchema = captureReady
+      ? <String, Object?>{
+          'checksum': 'b' * 64,
+          'id': '$actionId/v1',
+          'version': 1,
+        }
+      : const <String, Object?>{'checksum': null, 'id': 'none', 'version': 0};
+  final projection = <String, Object?>{
+    'actionId': actionId,
+    'actionSchema': actionSchema,
+    'actionVersion': 1,
+    'allowedRoles': captureReady ? const ['NURSING_STAFF'] : const <String>[],
+    'approvalEvidence': _cD3Approval,
+    'breakGlass': 'blocked',
+    'cachedSourceContract': {
+      'mode': captureReady ? 'required' : 'not_capture_ready',
+      'sources': captureReady
+          ? const [
+              {
+                'maxAgeMinutes': 1440,
+                'sourceId': 'patient_identity',
+                'staleAtMinutes': 15,
+              },
+            ]
+          : const <Object?>[],
+    },
+    'classification': {
+      'captureReady': captureReady,
+      'clinicalObjectClass': captureReady ? 'draft' : 'non_executable',
+      'offlineClass': offlineClass,
+    },
+    'conflictOwnership': const {
+      'outcome': 'needs_review',
+      'owner': 'clinical_governance',
+    },
+    'idempotency': const {
+      'contract': 'stable_client_event_and_fingerprint_required',
+      'fingerprint': 'rfc8785-jcs-sha256',
+    },
+    'notifications': const {'contract': 'none'},
+    'occurrence': const {
+      'lateArrival': 'explicit_compatibility_or_needs_review',
+      'occurrenceTime': 'capture_time_required',
+    },
+    'optimisticConcurrency': const {
+      'contract': 'draft_revision_compare_and_swap_required',
+    },
+    'quarantineOwnership': const {
+      'durableState': 'needs_review',
+      'owner': 'clinical_governance',
+    },
+    'replayEndpoint': {
+      'bindingId': captureReady ? 'emr.note_draft.store/v1' : 'none',
+      'disposition': captureReady
+          ? 'private_draft_storage_only'
+          : 'electronic_replay_denied',
+    },
+    'requiredCapabilities': captureReady
+        ? const ['clinical_notes']
+        : const <String>[],
+    'requiredIdentity': const ['actor', 'tenant', 'facility', 'patient'],
+    'scope': const {
+      'client': 'staff',
+      'domain': 'test',
+      'facilityScoped': true,
+    },
+    'sla': const {'contract': 'no_clinical_sla_draft_storage_only'},
+    'witness': 'not_applicable',
+  };
+  return {
+    ...projection,
+    'actionChecksum': await _sha256Hex(
+      ClinicalContinuityCanonicalJson.canonicalBytes(projection),
+    ),
+  };
+}
+
+Map<String, Object?> _mutableJson(Map<String, Object?> value) {
+  return Map<String, Object?>.from(
+    jsonDecode(jsonEncode(value))! as Map<String, dynamic>,
+  );
+}
+
+Map<String, Object?> _mapForTest(Object? value) {
+  return Map<String, Object?>.from(value! as Map<dynamic, dynamic>);
+}
+
+Future<void> _rehashAction(Map<String, Object?> action) async {
+  final projection = Map<String, Object?>.from(action)
+    ..remove('actionChecksum');
+  action['actionChecksum'] = await _sha256Hex(
+    ClinicalContinuityCanonicalJson.canonicalBytes(projection),
+  );
+}
+
+Future<void> _rehashAndSignActionPolicy(
+  Map<String, Object?> envelope,
+  KeyPair keyPair,
+) async {
+  final document = _mapForTest(envelope['policyDocument']);
+  final registry = _mapForTest(document['actionRegistry']);
+  final registryProjection = Map<String, Object?>.from(registry)
+    ..remove('registryChecksum');
+  registry['registryChecksum'] = await _sha256Hex(
+    ClinicalContinuityCanonicalJson.canonicalBytes(registryProjection),
+  );
+  envelope['actionRegistryChecksum'] = registry['registryChecksum'];
+  document['actionRegistry'] = registry;
+  envelope['policyDocument'] = document;
+  envelope['policyChecksum'] = await _sha256Hex(
+    ClinicalContinuityCanonicalJson.canonicalBytes(document),
+  );
+  final unsigned = Map<String, Object?>.from(envelope)
+    ..remove('policySignature');
+  final signature = await Ed25519().sign(
+    ClinicalContinuityCanonicalJson.canonicalBytes(unsigned),
+    keyPair: keyPair,
+  );
+  envelope['policySignature'] = base64Encode(signature.bytes);
 }

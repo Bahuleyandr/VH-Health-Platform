@@ -13,6 +13,7 @@ import '../../../core/models/care_pathway_work_models.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../l10n/app_strings.dart';
 
 class DischargeSummaryScreen extends StatefulWidget {
@@ -273,6 +274,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Future<void> _sign() async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     final s = AppStrings.of(context);
     // Confirm before signing
     final confirmed = await showDialog<bool>(
@@ -324,6 +326,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Future<void> _proceedToDischarge() async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     final s = AppStrings.of(context);
     if (!_isSigned) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -588,28 +591,45 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                   children: [
                     if (!_isSigned)
                       Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _signing ? null : _sign,
-                          icon: _signing
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.verified_outlined),
-                          label: Text(s.dischargeSignSummary),
+                        child: OnlineOnlyActionState(
+                          builder: (context, isOnline, offlineMessage) =>
+                              Tooltip(
+                                message: isOnline ? '' : offlineMessage,
+                                child: OutlinedButton.icon(
+                                  onPressed: _signing || !isOnline
+                                      ? null
+                                      : _sign,
+                                  icon: _signing
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.verified_outlined),
+                                  label: Text(s.dischargeSignSummary),
+                                ),
+                              ),
                         ),
                       ),
                     if (!_isSigned) const SizedBox(width: 12),
                     Expanded(
-                      child: FilledButton.icon(
-                        onPressed: _isSigned ? _proceedToDischarge : null,
-                        icon: const Icon(Icons.exit_to_app),
-                        label: Text(s.dischargePatientButton),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _isSigned ? Colors.red : Colors.grey,
+                      child: OnlineOnlyActionState(
+                        builder: (context, isOnline, offlineMessage) => Tooltip(
+                          message: isOnline ? '' : offlineMessage,
+                          child: FilledButton.icon(
+                            onPressed: _isSigned && isOnline
+                                ? _proceedToDischarge
+                                : null,
+                            icon: const Icon(Icons.exit_to_app),
+                            label: Text(s.dischargePatientButton),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _isSigned
+                                  ? Colors.red
+                                  : Colors.grey,
+                            ),
+                          ),
                         ),
                       ),
                     ),

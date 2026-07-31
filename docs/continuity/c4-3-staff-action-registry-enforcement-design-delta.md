@@ -1,6 +1,6 @@
 # C4.3 Staff action-registry enforcement — design delta
 
-**Status:** Step 1 design-only; awaiting coordinator clearance
+**Status:** Step 2 implementation; coordinator-cleared, client-only, never merge
 **Authority:** implementation plan §1 and §7 C4.3, design §5.4 and §5.6,
 [C0.2 action census](./c0-2-action-route-inventory.md#6-proposed-default-deny-registry),
 [C0A queue contract](./c4-1-queue-envelope-design-delta.md),
@@ -12,6 +12,18 @@ countersigned owner decisions C-D3, C-D4, C-D7, and C-D14 in the
 **Lane:** `feat/continuity-c4-3-staff-enforcement`
 **Ledger overlap:** zero with backend lanes AF, C5.1, C5.2, and C6.1-B
 **Activation:** none
+
+### Ward-visible release note
+
+**Staff 1.2.0 removes offline vitals saving and queueing.** When Staff is
+offline, nurses must record vitals on the facility-governed ward paper chart
+and complete verified back-entry through the ordinary online workflow after
+reconnection. The app does not store, queue, or later auto-submit offline
+vitals. Existing rows created by an older Staff version are retained visibly
+as `needs_review`; they are never silently sent or deleted.
+
+This release note is repeated in the in-app retired-path message and the C4.3
+pull-request description because it changes the ward workflow.
 
 ## 1. Decision and boundary
 
@@ -112,25 +124,35 @@ the existing C3.3 components:
 
 1. `ClinicalContinuityTrustStore` retains the already validated policy-signing
    key in the returned trust bundle.
-2. `ClinicalContinuityVerifier` gains an action-policy verification entry
-   point that shares its strict JSON parsing, RFC 8785 JCS canonicalization,
-   SHA-256, Ed25519, audience, clock, key-state, revocation, supersession, and
-   anti-rollback primitives.
-3. `ClinicalContinuityCache` stores a verified v3 action-policy receipt and
-   advances the existing tenant/facility floors and secure witness. There is no
-   parallel floor, trusted clock, key registry, or witness.
+2. `ClinicalContinuityVerifier` accepts the exact C4.2 policy-schema v3 signing
+   payload plus its detached `policySignature`. It shares the existing strict
+   JSON parsing, RFC 8785 JCS canonicalization, SHA-256, Ed25519, audience,
+   clock, key-state, revocation, supersession, and anti-rollback primitives.
+   The embedded action-registry schema remains v1; outer, registry, action, and
+   compatibility objects are all closed shapes with exact checksums.
+3. `ClinicalContinuityCache` advances the existing tenant/facility secure
+   witness after cryptographic verification and before the repository can
+   publish a policy. Optional action-registry version and checksum fields live
+   in that same witness alongside the policy, manifest, revocation, and trusted
+   time floors. Normal continuity-pack writes preserve them. There is no
+   parallel floor, trusted clock, key registry, witness, or action-policy cache.
 4. `StaffActionPolicySource` is an injected byte-source boundary for one exact
-   signed C4.2 policy envelope plus authenticated provenance. The production
-   implementation in this lane is deliberately unavailable because no
-   approved Staff delivery adapter exists.
+   signed C4.2 policy envelope plus authenticated provenance. It also supplies
+   the authenticated source row's `policyId` separately because the ratified
+   C4.2 signing payload deliberately excludes the database row ID. The
+   production implementation in this lane is deliberately unavailable because
+   no approved Staff delivery adapter exists.
 5. The existing Staff `GET /encounters/downtime-policy` getter returns an
    unsigned parsed legacy advisory, with none of the signed-envelope authority
    required by C3.1/C4.2. C4.3 never fetches, verifies, caches, or evaluates it.
    Its unused `ClinicalDowntimePolicy` getter/model are retired to prevent
    accidental elevation.
 6. A later signed-policy delivery adapter requires its own approved source
-   contract and lane. It must supply exact bytes; it may not supply a parsed or
-   pre-verified object. Adding that adapter is not a C4.3 activation.
+   contract and lane. Its program inputs are an approved source inventory,
+   exact pre-verified signed envelope bytes, and authenticated provenance. The
+   client must still independently verify those exact bytes; the adapter may
+   not supply a parsed object or a trusted decision. Adding that adapter is not
+   a C4.3 activation.
 7. A Staff repository publishes only an immutable verified decision snapshot
    or a typed unavailable state. UI code never receives an unsigned policy
    object.
@@ -154,20 +176,26 @@ The verifier requires:
   actor, role, app version, and durable capture session.
 
 Missing, malformed, expired, shadow, stale, rolled-back, wrong-audience,
-unsupported, or unknown authority yields `unavailable`. Cached last-known-good
-authority is usable only while its signed validity window and shared trust
-floors still pass. No network failure extends expiry.
+unsupported, or unknown authority yields `unavailable`. A verified policy is
+held only as an immutable in-process snapshot, and trusted time advances
+continuously from the verified clock sample while it is evaluated. There is no
+restart or last-known-good policy fallback, and no network failure extends
+expiry.
 
 Because the production source is unavailable, this lane cannot authorize
 capture even if a backend operator publishes an enforcing v3 policy. That
 closed condition is intentional: signed policy delivery must exist and pass
-its own review before it can be wired into Staff.
+its own program-level review before it can be wired into Staff. The coordinator
+tracks that adapter as an external activation prerequisite; C4.3 builds no
+delivery adapter.
 
-The current Staff capture-context resolver deliberately returns
-`facility_context_unavailable` because C6.1-B provisioning has not supplied
-trustworthy production facility identity. C4.3 preserves that fail-closed
-state. It neither derives facility from mutable UI state nor invents a
-fallback.
+The rebased baseline includes the separately approved facility-context
+backend/auth substrate. Staff capture still has no production
+`StaffFacilityIdResolver`, however, so `StaffOfflineCaptureContext.resolve`
+deliberately returns `facility_context_unavailable`. C4.3 preserves that
+fail-closed boundary: it does not wire the new service, derive facility from
+mutable UI state, or invent a fallback. The coordinator tracks production
+Staff facility binding as a second external activation prerequisite.
 
 ## 6. Default deny at display, persistence, and drain
 
@@ -202,9 +230,10 @@ contract. An unrecognized call site or changed policy rejects before any
 SQLite insert. The gateway prepares the C4.1 envelope and calls the internal
 prepared-command persistence path only for the two draft-store actions.
 
-`ConnectivitySyncService.enqueue` and production use of
-`OfflineQueue.enqueue` are removed. The legacy queue fixture helper may remain
-test-only to prove migration behavior. `OfflineQueue.persistPreparedCommand`
+Production use of `ConnectivitySyncService.enqueue` and
+`OfflineQueue.enqueue` is removed. An annotated test-only legacy fixture hook
+remains for the unchanged C0A migration suites; the conformance scan rejects
+every production Staff attachment to it. `OfflineQueue.persistPreparedCommand`
 is core-internal and is not a Staff feature API.
 
 ### 6.3 Lease and drain
@@ -326,10 +355,12 @@ The current app is still `1.1.0+3`. All later C0A, C3, and C4 revisions share
 that public version, so `1.1.0` cannot distinguish an enforcing client from
 older clients. No `staff-v*` local tag, remote tag, or GitHub release was found.
 
-Step 2 therefore bumps Staff to `1.2.0+4`. The signed minimum safe version for
-an enforcing Android or Windows posture must be at least `1.2.0`. The security
-comparison uses the semantic version, not the build suffix: the current shared
-version comparator strips `+build`, so a build-only floor would be unsafe.
+Step 2 therefore bumps Staff to the approved engineering value `1.2.0+4`.
+That literal is not authority. Only a future independently verified signed v3
+policy can make `1.2.0` the minimum safe version for an enforcing Android or
+Windows posture. The security comparison uses the semantic version, not the
+build suffix: the current shared version comparator strips `+build`, so a
+build-only floor would be unsafe.
 
 The existing global `VersionGate` remains a service-availability convenience
 and currently fails open on an unreachable or malformed endpoint. It is not
@@ -392,8 +423,8 @@ C4.3 supplies none of those.
 
 Step 2 adds
 `apps/staff/test/clinical_continuity_action_registry_conformance_test.dart`.
-The test is executable architecture enforcement, not a prose or snapshot-only
-check.
+The test is merge-blocking through the full Staff/Melos test gate. It is
+executable architecture enforcement, not a prose or snapshot-only check.
 
 It proves all of the following:
 
@@ -431,6 +462,16 @@ display/enqueue time-of-check changes, drain pause versus review behavior,
 legacy-row quarantine, local-draft encryption and explicit reopening, critical
 inbox state exclusivity, and per-posture version-floor behavior.
 
+The migration matrix opens authentic v5 SQLite fixtures containing vitals,
+MAR administration, specimen collection, transfusion verification, unknown
+route, and undecryptable rows. It proves every row and ciphertext remains
+present, every row is visibly `needs_review` with the common
+`legacy_client_row_requires_reconciliation` state reason, and no row receives
+retry, discard, lease, or transport authority. The separate diagnostic review
+reason remains category-specific (`contained_*`, `unknown_action`,
+`decrypt_failed`, or the common legacy reason) so reconciliation does not lose
+why the row failed conformance.
+
 ## 14. Exact Step 2 file ledger
 
 This is the clearance ceiling. Step 2 may touch only the files below unless a
@@ -460,8 +501,11 @@ new design delta is approved.
 - `packages/vhhealth_core/test/clinical_continuity_cache_test.dart`
 - `packages/vhhealth_core/test/connectivity_sync_c0a_test.dart`
 - `packages/vhhealth_core/test/connectivity_sync_pre_attempt_test.dart`
+- `packages/vhhealth_core/test/connectivity_sync_readiness_test.dart`
 - `packages/vhhealth_core/test/connectivity_sync_state_machine_test.dart`
 - `packages/vhhealth_core/test/offline_queue_c0a_safety_test.dart`
+- `packages/vhhealth_core/test/offline_queue_drain_order_test.dart`
+- `packages/vhhealth_core/test/offline_queue_v5_migration_test.dart`
 - `packages/vhhealth_core/test/offline_queue_v6_migration_test.dart`
 - `packages/vhhealth_core/test/offline_write_containment_test.dart`
 - `packages/vhhealth_core/test/helpers/offline_queue_test_harness.dart`
@@ -524,7 +568,9 @@ new design delta is approved.
 
 - `apps/staff/test/core/services/prescription_payloads_test.dart`
 - `apps/staff/test/core/services/order_payloads_test.dart`
+- `apps/staff/test/core/widgets/offline_clinical_fallback_dialog_test.dart`
 - `apps/staff/test/features/emr/note_draft_autosave_test.dart`
+- `apps/staff/test/features/emr/note_draft_queue_identity_test.dart`
 - `apps/staff/test/features/nursing/vitals_queue_identity_test.dart`
 - `apps/staff/test/features/doctor/prescription_offline_rx_test.dart`
 - `apps/staff/test/features/ipd/drug_chart_offline_order_test.dart`
@@ -534,6 +580,7 @@ new design delta is approved.
 - `apps/staff/test/features/bloodbank/transfusion_scan_intent_test.dart`
 - `apps/staff/test/features/clinical_inbox/clinical_inbox_screen_test.dart`
 - `apps/staff/test/features/radiology/radiology_screen_test.dart`
+- `apps/staff/integration_test/clinical_continuity_airplane_mode_test.dart`
 
 ### 14.7 Step 1 design-only file
 
@@ -546,7 +593,7 @@ ledger.
 ## 15. Step 2 verification receipts
 
 Step 2 retains command logs under
-`D:\Dev\_codex\artifacts\logs\<date>\c4-3-staff-enforcement\` and must produce:
+`D:\Dev\_codex\artifacts\logs\2026-07-31\c4-3-staff-enforcement\` and must produce:
 
 - focused new verifier, action-gate, local-draft, conformance, version-floor,
   critical-inbox, and high-risk UI test receipts;
@@ -571,6 +618,44 @@ Step 2 retains command logs under
 - repository secret and dependency checks applicable to the client delta;
 - `git diff --check`; and
 - `git diff --name-status github/main...HEAD`.
+
+The 2026-07-31 implementation receipt is:
+
+- focused core verifier, shared-witness rollback, action-gate, and encrypted
+  local-draft suites passed; focused Staff policy-repository, action-gateway,
+  exact-conformance, online-only, local-draft, and retired-vitals suites passed;
+- the explicit C0A/C2.2/C3.3 core matrix passed 136 tests and the explicit
+  C0A/C3.3 Staff/i18n matrix passed 84 tests. The final monorepo rerun then
+  passed Patient 278, core 346, and Staff 879 tests with one intentional skip;
+- code generation wrote zero outputs; repository format passed with zero
+  changed files; analysis found no Patient or core issues and only the 15
+  pre-existing non-fatal Staff informational lints outside this ledger;
+- the Staff i18n guard passed 24 tests. The Staff i18n health command completed
+  as informational translator-backlog output with zero hardcoded-English or
+  orphan-getter violations;
+- `flutter pub get --enforce-lockfile` passed without a lockfile delta. The
+  repository service-account scan and full-worktree gitleaks scan both found no
+  leak;
+- Android release-mode APK and app bundle builds passed. Because this checkout
+  has no production signing material, the engineering-only build used the
+  existing Android debug keystore through a temporary ignored configuration;
+  that configuration and the temporary Flutter JDK override were removed after
+  the build. The artifacts are not distributable signing receipts and were not
+  published or deployed;
+- the Windows release build passed; and
+- the Windows airplane-mode integration passed both cases: verified read-only
+  pack access after transport loss, and restart retention of a queued row,
+  visible legacy-review row, and encrypted device-local draft.
+
+The final logs are `melos-codegen-final.log`, `melos-format-final.log`,
+`melos-analyze-final.log`, `melos-test-final.log`,
+`staff-i18n-guard-final.log`, `staff-i18n-health-final.log`,
+`staff-android-apk-release-final.log`,
+`staff-android-appbundle-release-final.log`,
+`staff-windows-release-final.log`,
+`staff-airplane-integration-windows-final.log`,
+`flutter-pub-get-enforce-lockfile-final.log`, `scan-secrets-final.log`, and
+`gitleaks-worktree-final.log` under the directory above.
 
 The three-dot intent receipt must contain only this design record and cleared
 core/Staff files in section 14. Any backend, provisioning, receipt, activation,
@@ -616,9 +701,9 @@ C4.3 provides:
 - no deployment; and
 - no merge.
 
-## 18. Coordinator clearance requested
+## 18. Coordinator clearance recorded
 
-Please approve or correct these exact Step 2 decisions:
+The coordinator approved Step 2 with these binding conditions:
 
 1. one shared C3.3 trust, verifier, floor, witness, and cache path for signed v3
    action authority;
@@ -638,5 +723,15 @@ Please approve or correct these exact Step 2 decisions:
 11. the exact Step 2 file ledger and named receipt matrix; and
 12. the zero-overlap boundary and explicit non-goals.
 
-Until clearance is recorded, this branch remains documentation-only and must
-not be merged.
+13. the vitals retirement ships as the ward-visible release note above, in the
+    in-app message, and in the pull-request description;
+14. signed-policy delivery and production Staff facility binding remain
+    separately approved, coordinator-tracked program prerequisites, with no
+    adapter or binding in C4.3;
+15. conformance is merge-blocking and the real v5 fixtures prove visible
+    retention of vitals, physical-action, unknown, and undecryptable rows; and
+16. `1.2.0` is an engineering value only until future signed policy makes it
+    authority.
+
+This branch is implementation-active under that clearance and must never be
+merged.

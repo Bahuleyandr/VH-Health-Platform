@@ -12,6 +12,7 @@ import '../../../core/services/bed_board_print_service.dart';
 import '../../../core/services/telemetry_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/patient_search_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -2360,6 +2361,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
   }
 
   Future<void> _discharge() async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     final id = _bedId();
     if (id.isEmpty) return;
     final s = AppStrings.of(context);
@@ -2539,20 +2541,31 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         ),
       );
       actions.add(
-        OutlinedButton.icon(
-          onPressed: _busy || dischargeInitiated ? null : _discharge,
-          icon: Icon(
-            dischargeInitiated ? Icons.pending_actions_outlined : Icons.logout,
-            size: 16,
-          ),
-          label: Text(
-            dischargeInitiated
-                ? s.bedSheetDischargeInitiatedShort
-                : s.bedSheetDischarge,
-          ),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppTheme.errorRed,
-            side: BorderSide(color: AppTheme.errorRed.withValues(alpha: 0.4)),
+        OnlineOnlyActionState(
+          builder: (context, isOnline, offlineMessage) => Tooltip(
+            message: isOnline ? '' : offlineMessage,
+            child: OutlinedButton.icon(
+              onPressed: _busy || dischargeInitiated || !isOnline
+                  ? null
+                  : _discharge,
+              icon: Icon(
+                dischargeInitiated
+                    ? Icons.pending_actions_outlined
+                    : Icons.logout,
+                size: 16,
+              ),
+              label: Text(
+                dischargeInitiated
+                    ? s.bedSheetDischargeInitiatedShort
+                    : s.bedSheetDischarge,
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.errorRed,
+                side: BorderSide(
+                  color: AppTheme.errorRed.withValues(alpha: 0.4),
+                ),
+              ),
+            ),
           ),
         ),
       );
