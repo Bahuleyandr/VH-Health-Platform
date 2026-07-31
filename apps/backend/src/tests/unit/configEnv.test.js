@@ -64,3 +64,21 @@ describe('validateEnv clinical continuity publication gate', () => {
     expect(configured.error).toBeUndefined();
   });
 });
+
+describe('validateEnv clinical continuity action-registry gate', () => {
+  it('defaults C4.2 enforcement to inert', () => {
+    const { error, value } = validate();
+
+    expect(error).toBeUndefined();
+    expect(value.CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED).toBe('false');
+  });
+
+  it('accepts only explicit true or false strings', () => {
+    expect(
+      validate({ CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: 'true' }).error
+    ).toBeUndefined();
+    expect(
+      validate({ CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: '1' }).error
+    ).toBeDefined();
+  });
+});

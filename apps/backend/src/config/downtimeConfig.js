@@ -23,6 +23,8 @@ import path from 'path';
 // vendor-prefixed so it can't collide with another tool's temp artifacts.
 export const DEFAULT_MIRROR_SUBDIR = 'vhhealth-downtime-mirror';
 export const CLINICAL_CONTINUITY_PACKS_FLAG = 'CLINICAL_CONTINUITY_PACKS_ENABLED';
+export const CLINICAL_CONTINUITY_ACTION_REGISTRY_FLAG =
+  'CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED';
 
 /**
  * Resolve the directory the downtime mirror reads from / writes to.
@@ -43,6 +45,12 @@ export function getDowntimeMirrorDir(env = process.env) {
 
 export function clinicalContinuityPacksEnabled(env = process.env) {
   return String(env[CLINICAL_CONTINUITY_PACKS_FLAG] || '').trim().toLowerCase() === 'true';
+}
+
+export function clinicalContinuityActionRegistryEnabled(env = process.env) {
+  return (
+    String(env[CLINICAL_CONTINUITY_ACTION_REGISTRY_FLAG] || '').trim().toLowerCase() === 'true'
+  );
 }
 
 /**
@@ -66,7 +74,9 @@ export function getClinicalContinuityPublicationRoot(env = process.env) {
 export default {
   getDowntimeMirrorDir,
   getClinicalContinuityPublicationRoot,
+  clinicalContinuityActionRegistryEnabled,
   clinicalContinuityPacksEnabled,
   DEFAULT_MIRROR_SUBDIR,
+  CLINICAL_CONTINUITY_ACTION_REGISTRY_FLAG,
   CLINICAL_CONTINUITY_PACKS_FLAG,
 };

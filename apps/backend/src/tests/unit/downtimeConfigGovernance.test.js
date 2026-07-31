@@ -1,4 +1,5 @@
 import {
+  clinicalContinuityActionRegistryEnabled,
   clinicalContinuityPacksEnabled,
   getClinicalContinuityPublicationRoot,
   getDowntimeMirrorDir,
@@ -9,8 +10,22 @@ describe('clinical continuity publication configuration', () => {
     const env = {};
 
     expect(clinicalContinuityPacksEnabled(env)).toBe(false);
+    expect(clinicalContinuityActionRegistryEnabled(env)).toBe(false);
     expect(getClinicalContinuityPublicationRoot(env)).toBeNull();
     expect(getDowntimeMirrorDir(env)).toContain('vhhealth-downtime-mirror');
+  });
+
+  test('enables action evaluation only for an explicit true value', () => {
+    expect(
+      clinicalContinuityActionRegistryEnabled({
+        CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: ' TRUE '
+      })
+    ).toBe(true);
+    expect(
+      clinicalContinuityActionRegistryEnabled({
+        CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: '1'
+      })
+    ).toBe(false);
   });
 
   test('requires an explicit operator-owned root when enabled', () => {

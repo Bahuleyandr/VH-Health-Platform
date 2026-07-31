@@ -4,14 +4,20 @@ import prisma from '../../lib/prisma.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
+import { saveClinicalNoteDraft } from '../../controllers/emr/clinicalNoteDraftController.js';
 import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
 import * as clinicalNoteDraftService from '../../services/emr/clinicalNoteDraftService.js';
+import { registerClinicalContinuityActionRoute } from '../../services/downtime/clinicalContinuityActionBindingRegistry.js';
 import { createDowntimeSnapshot } from '../../services/emr/clinicalTimelineService.js';
 import { publishEvent } from '../../services/events/eventOutboxService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
+import {
+  NURSING_NOTE_DRAFT_ACTION_SCHEMA,
+  OP_NOTE_DRAFT_ACTION_SCHEMA
+} from '../../validators/clinicalContinuityActionSchemas.js';
 
 const router = express.Router();
 
@@ -206,25 +212,25 @@ router.post('/notes/:id/addendum', rejectMobileClinicalWrite, guardClinicalNoteR
 // ===================================================================
 
 // PUT /emr/notes/draft — autosave-upsert the author's draft for a context.
-router.put('/notes/draft', rejectMobileClinicalWrite, guardClinicalNoteWrite, async (req, res, next) => {
-  try {
-    const patient_uid = await resolvePatientUidFromBody(req.body);
-    const { note_type, appointment_id, content } = req.body;
-    if (!patient_uid || !note_type) {
-      return error(res, 'patient_uid (or patient phone) and note_type are required', 400);
+registerClinicalContinuityActionRoute({
+  router,
+  method: 'PUT',
+  routePath: '/notes/draft',
+  fullRoutePath: '/api/v1/emr/notes/draft',
+  handler: saveClinicalNoteDraft,
+  beforeHandlers: [rejectMobileClinicalWrite, guardClinicalNoteWrite],
+  actions: [
+    {
+      actionId: 'emr.nursing_note.draft.store',
+      bindingId: 'emr.note_draft.store/v1',
+      schema: NURSING_NOTE_DRAFT_ACTION_SCHEMA
+    },
+    {
+      actionId: 'emr.op_note.draft.store',
+      bindingId: 'emr.note_draft.store/v1',
+      schema: OP_NOTE_DRAFT_ACTION_SCHEMA
     }
-    const draft = await clinicalNoteDraftService.upsertNoteDraft({
-      tenantId: req.tenantId,
-      authorUid: req.user.uid,
-      patientUid: patient_uid,
-      appointmentId: appointment_id ?? null,
-      noteType: note_type,
-      content: content ?? {},
-    });
-    return success(res, draft, 'Draft saved');
-  } catch (err) {
-    next(err);
-  }
+  ]
 });
 
 // GET /emr/notes/draft — load the author's OWN draft for a context (or null).

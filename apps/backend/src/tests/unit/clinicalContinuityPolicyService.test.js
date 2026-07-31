@@ -2,6 +2,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { jest } from '@jest/globals';
 import {
   ALLERGY_UNKNOWN_TEXT,
+  CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION,
   CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
   CLINICAL_CONTINUITY_POLICY_CANONICALIZATION,
   CLINICAL_CONTINUITY_POLICY_TYPE,
@@ -20,6 +21,9 @@ import {
   requireClinicalContinuityEdgePolicy,
   verifyActiveClinicalContinuityPolicyRow
 } from '../../services/downtime/clinicalContinuityPolicyService.js';
+import {
+  CLINICAL_CONTINUITY_ACTION_CATALOG
+} from '../../config/clinicalContinuityActionCatalog.js';
 import {
   KEY_STATES,
   hashCanonicalValue,
@@ -190,13 +194,65 @@ function signedPolicyRow(overrides = {}) {
     row.approval_metadata = {
       clinical_continuity_policy_governance: {
         countersignature_complete: true,
-        policy_checksum: row.policy_checksum
+        policy_checksum: row.policy_checksum,
+        ...(row.policy_schema_version === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+          ? {
+              action_registry_checksum: row.action_registry_checksum,
+              action_registry_decision_id: 'C-D3',
+              action_registry_schema_version: row.action_registry_schema_version,
+              action_registry_version: String(row.action_registry_version)
+            }
+          : {})
       }
     };
   }
   const payload = buildClinicalContinuityPolicySigningPayload(row);
   row.policy_signature = Buffer.from(signCanonicalValue(payload, policyKeys.privateKey), 'base64');
   return row;
+}
+
+function actionRegistry(overrides = {}) {
+  const value = {
+    actions: CLINICAL_CONTINUITY_ACTION_CATALOG,
+    activation: { enforcedActionIds: [], mode: 'shadow' },
+    approvalEvidence: {
+      countersignedAt: '2026-07-30',
+      decisionId: 'C-D3',
+      source: 'docs/continuity/c0-4-owner-decision-dossier.md#c-d3--offline-action-matrix'
+    },
+    audience: { devicePostures: ['desktop', 'tablet'] },
+    compatibilityRules: [],
+    expiresAt: EFFECTIVE_UNTIL,
+    issuedAt: EFFECTIVE_FROM,
+    minimumAppVersions: { desktop: '1.2.3', tablet: '1.2.3' },
+    registrySchemaVersion: 1,
+    registryVersion: '7',
+    ...overrides
+  };
+  const canonical = { ...value };
+  delete canonical.registryChecksum;
+  return {
+    ...value,
+    registryChecksum: hashCanonicalValue(canonical)
+  };
+}
+
+function actionPolicyDocument(registry = actionRegistry()) {
+  return policyDocument({
+    actionRegistry: registry,
+    policySchemaVersion: CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION,
+    edgeAccess: {
+      authenticationMode: 'mtls_client_certificate',
+      credentialLifetimeMinutes: 480,
+      emergencyReadPosture: 'read_only',
+      maximumOfflineAuthorizationMinutes: 60
+    },
+    retention: {
+      accessLogRetentionHours: 720,
+      edgePackRetentionHours: 48,
+      sourcePackRetentionHours: 72
+    }
+  });
 }
 
 function verifyRow(overrides = {}, options = {}) {
@@ -345,6 +401,47 @@ describe('clinical continuity policy document', () => {
     })).toThrow('policy-schema v2');
   });
 
+  test('verifies schema v3 through the existing signature, approval, and key substrate', () => {
+    const registry = actionRegistry();
+    const policy_document = actionPolicyDocument(registry);
+    const verified = verifyRow({
+      action_registry_checksum: registry.registryChecksum,
+      action_registry_schema_version: registry.registrySchemaVersion,
+      action_registry_version: BigInt(registry.registryVersion),
+      policy_document,
+      policy_schema_version: CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+    });
+
+    expect(verified).toMatchObject({
+      actionRegistryChecksum: registry.registryChecksum,
+      actionRegistrySchemaVersion: 1,
+      actionRegistryVersion: '7',
+      policySchemaVersion: 3
+    });
+    expect(requireClinicalContinuityEdgePolicy(verified)).toEqual({
+      edgeAccess: policy_document.edgeAccess,
+      retention: policy_document.retention
+    });
+  });
+
+  test('refuses a schema-v3 row whose registry binding differs from the signed document', () => {
+    const registry = actionRegistry();
+    const policy_document = actionPolicyDocument(registry);
+    expect(() =>
+      signedPolicyRow({
+        action_registry_checksum: 'f'.repeat(64),
+        action_registry_schema_version: 1,
+        action_registry_version: 7n,
+        policy_document,
+        policy_schema_version: CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+      })
+    ).toThrow(
+      expect.objectContaining({
+        code: 'CONTINUITY_ACTION_REGISTRY_ROW_MISMATCH'
+      })
+    );
+  });
+
   test.each([
     [
       'calm allergy wording',
@@ -491,12 +588,12 @@ describe('clinical continuity policy document', () => {
     expect(() =>
       parseClinicalContinuityPolicyDocument(
         policyDocument({
-          policySchemaVersion: 3
+          policySchemaVersion: 4
         }),
         {
           tenantId: TENANT,
           facilityId: FACILITY,
-          policySchemaVersion: 3
+          policySchemaVersion: 4
         }
       )
     ).toThrow(
