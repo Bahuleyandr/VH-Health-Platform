@@ -44855,6 +44855,57 @@
         }
       }
     },
+    "/api/v1/admin/devices/continuity-facility-context/enroll": {
+      "post": {
+        "operationId": "post_api_v1_admin_devices_continuity_facility_context_enroll",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/devices/continuity-facility-context/grants": {
+      "get": {
+        "operationId": "get_api_v1_admin_devices_continuity_facility_context_grants",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/devices/continuity-facility-context/revoke": {
+      "post": {
+        "operationId": "post_api_v1_admin_devices_continuity_facility_context_revoke",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/devices/messages": {
       "get": {
         "operationId": "get_api_v1_admin_devices_messages",
@@ -76973,6 +77024,23 @@
         ]
       }
     },
+    "/api/v1/downtime/facility-context": {
+      "post": {
+        "operationId": "post_api_v1_downtime_facility_context",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/downtime/generate": {
       "post": {
         "operationId": "post_api_v1_downtime_generate",
@@ -82590,6 +82658,23 @@
         },
         "summary": "Confirm authenticated client drain readiness",
         "description": "Low-information authenticated proof of endpoint route, tenant, database, policy compatibility, and server time."
+      }
+    },
+    "/api/v1/health/client-readiness/v2": {
+      "post": {
+        "operationId": "post_api_v1_health_client_readiness_v2",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/health/client-requirements": {

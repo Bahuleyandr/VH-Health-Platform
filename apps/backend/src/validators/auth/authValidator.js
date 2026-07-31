@@ -12,6 +12,12 @@ export const deviceTypeValidator = body('deviceType')
   .isIn(['mobile', 'tablet', 'desktop', 'web'])
   .withMessage('deviceType must be one of: mobile, tablet, desktop, web');
 
+export const staffInstallationIdValidator = body('installationId')
+  .notEmpty()
+  .withMessage('Installation ID is required')
+  .isUUID(4)
+  .withMessage('Installation ID must be an opaque UUIDv4');
+
 // Phone validators
 export const phoneValidator = [
   body('phone')
@@ -301,6 +307,7 @@ export const staffPasswordLoginValidator = [
   body('password')
     .notEmpty()
     .withMessage('Password is required'),
+  staffInstallationIdValidator,
   deviceTypeValidator,
 ];
 
@@ -317,6 +324,10 @@ export const deviceRegistrationValidator = [
   body('deviceInfo.deviceId')
     .notEmpty()
     .withMessage('Device ID is required'),
+  staffInstallationIdValidator,
+  body('deviceInfo.deviceId')
+    .custom((value, { req }) => value === req.body.installationId)
+    .withMessage('Device ID must match the installation ID'),
   body('deviceInfo.deviceName')
     .notEmpty()
     .withMessage('Device name is required'),
@@ -343,6 +354,7 @@ export const quickLoginValidator = [
   body('deviceToken')
     .notEmpty()
     .withMessage('Device token is required'),
+  staffInstallationIdValidator,
   body('pin')
     .optional()
     .matches(/^\d{4,6}$/)

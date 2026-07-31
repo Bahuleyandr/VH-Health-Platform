@@ -36,3 +36,46 @@ abstract interface class ClinicalContinuitySource {
 
   Future<void> cancel();
 }
+
+/// C4 adapter: C3.3 may consume only a verified, active facility context for
+/// its named session. The transport delegate remains responsible for exact
+/// pack bytes and the trusted readiness clock.
+class FacilityBoundClinicalContinuitySource
+    implements ClinicalContinuitySource {
+  const FacilityBoundClinicalContinuitySource({
+    required ClinicalContinuitySource delegate,
+    required Future<ClinicalContinuitySessionContext?> Function()
+    facilitySession,
+  }) : _delegate = delegate,
+       _facilitySession = facilitySession;
+
+  final ClinicalContinuitySource _delegate;
+  final Future<ClinicalContinuitySessionContext?> Function() _facilitySession;
+
+  @override
+  Future<ClinicalContinuityClockAssessment> assessClock() =>
+      _delegate.assessClock();
+
+  @override
+  Future<void> cancel() => _delegate.cancel();
+
+  @override
+  Future<ClinicalContinuitySessionContext?> currentSession() =>
+      _facilitySession();
+
+  @override
+  Future<ClinicalContinuitySourceSnapshot> fetchFacilitySet() async {
+    final session = await _facilitySession();
+    if (session == null) {
+      throw StateError('Verified facility context required');
+    }
+    final snapshot = await _delegate.fetchFacilitySet();
+    return ClinicalContinuitySourceSnapshot(
+      manifestEnvelopeBytes: snapshot.manifestEnvelopeBytes,
+      assets: snapshot.assets,
+      session: session,
+      clock: snapshot.clock,
+      provenance: snapshot.provenance,
+    );
+  }
+}

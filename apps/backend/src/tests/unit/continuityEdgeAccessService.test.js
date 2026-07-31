@@ -1,13 +1,19 @@
 import { createHash, createPrivateKey } from 'node:crypto';
+import fs from 'node:fs';
 import { jest } from '@jest/globals';
-import {
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(),
+}));
+
+const {
   CONTINUITY_EDGE_LOG_BATCH_FORMAT,
   authorizeContinuityEdgeCredential,
   buildContinuityEdgeGrantSet,
   createContinuityEdgeGrant,
   fingerprintContinuityEdgeCertificate,
   ingestContinuityEdgeLogBatch
-} from '../../services/downtime/continuityEdgeAccessService.js';
+} = await import('../../services/downtime/continuityEdgeAccessService.js');
 import {
   hashCanonicalValue,
   signCanonicalValue
@@ -198,6 +204,39 @@ describe('continuity edge access service', () => {
         revokedAt: '2026-07-30T02:00:00.000Z'
       }
     ]);
+    const canonicalMainFixture = fs.readFileSync(
+      new URL('../fixtures/continuity-edge-main-e5aa113cb.json', import.meta.url),
+      'utf8'
+    ).trim();
+    const canonicalCurrent = JSON.stringify(grantSet);
+    expect(canonicalCurrent).toBe(canonicalMainFixture);
+    expect(
+      createHash('sha256').update(canonicalCurrent).digest('hex')
+    ).toBe('2ffcf965c3d50a8bd8e778217d2c7b53fd3154e120095d6b41f5c1f8fa280667');
+    for (const [sql] of query.mock.calls) {
+      expect(sql).toContain("grant_purpose = 'edge_read'");
+    }
+  });
+
+  test('pins every shared edge-ledger query and insert to edge_read', () => {
+    const source = fs.readFileSync(
+      new URL(
+        '../../services/downtime/continuityEdgeAccessService.js',
+        import.meta.url
+      ),
+      'utf8'
+    );
+    const sharedTableStatements = [...source.matchAll(/`([\s\S]*?)`/g)]
+      .map(match => match[1])
+      .filter(sql => (
+        /clinical_continuity_edge_(?:access_grants|access_revocations|log_receipts)/
+          .test(sql)
+      ));
+    expect(sharedTableStatements).toHaveLength(12);
+    for (const sql of sharedTableStatements) {
+      expect(sql).toContain('grant_purpose');
+      expect(sql).toContain('edge_read');
+    }
   });
 
   test('rejects a revoked credential while an unrelated exact grant remains usable', async () => {

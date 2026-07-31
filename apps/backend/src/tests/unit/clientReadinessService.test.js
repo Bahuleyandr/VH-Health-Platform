@@ -1,10 +1,26 @@
 import { jest } from '@jest/globals';
 
-import {
+jest.unstable_mockModule(
+  '../../services/downtime/clinicalContinuityPolicyService.js',
+  () => ({
+    CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION: 1,
+    loadActiveClinicalContinuityPoliciesForTenant: jest.fn(),
+  }),
+);
+jest.unstable_mockModule(
+  '../../services/downtime/clinicalContinuityFacilityContextService.js',
+  () => ({
+    resolveClinicalContinuityFacilityContext: jest.fn(),
+  }),
+);
+
+const {
   CLIENT_READINESS_CONTRACT_VERSION,
   CLIENT_READINESS_ENDPOINT_ID,
+  CLIENT_READINESS_FACILITY_CONTRACT_VERSION,
   evaluateClientReadiness,
-} from '../../services/health/clientReadinessService.js';
+  evaluateFacilityClientReadiness,
+} = await import('../../services/health/clientReadinessService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const NOW = new Date('2026-07-30T01:02:03.000Z');
@@ -143,5 +159,66 @@ describe('clientReadinessService', () => {
     expect(serialized).not.toMatch(
       /patient|staff|facility|policyDocument|databaseHost|column|db\.internal/i,
     );
+  });
+
+  it('v2 verifies one exact context and echoes only its facility identity', async () => {
+    const req = { tenantId: TENANT };
+    const envelope = { signed: 'context' };
+    const resolveContext = jest.fn().mockResolvedValue({
+      tenantId: TENANT,
+      facilityId: 41,
+      contextId: '22222222-2222-4222-8222-222222222222',
+      contextRevision: '9',
+    });
+    const result = await evaluateFacilityClientReadiness({
+      req,
+      facilityContext: envelope,
+      routeKind: 'internal',
+      clock: () => NOW,
+      resolveContext,
+    });
+    expect(resolveContext).toHaveBeenCalledWith({
+      req,
+      envelope,
+      clock: expect.any(Function),
+    });
+    expect(result).toEqual({
+      statusCode: 200,
+      internalError: null,
+      payload: {
+        readinessContractVersion:
+          CLIENT_READINESS_FACILITY_CONTRACT_VERSION,
+        ready: true,
+        endpointId: CLIENT_READINESS_ENDPOINT_ID,
+        routeKind: 'internal',
+        tenantId: TENANT,
+        database: 'ready',
+        policy: { state: 'compatible', schemaVersion: 3 },
+        facilityId: '41',
+        contextId: '22222222-2222-4222-8222-222222222222',
+        contextRevision: '9',
+        serverTime: NOW.toISOString(),
+      },
+    });
+  });
+
+  it('v2 stays low-information when context verification fails', async () => {
+    const internalError = new Error('sensitive facility mismatch');
+    const result = await evaluateFacilityClientReadiness({
+      req: { tenantId: TENANT },
+      facilityContext: {},
+      routeKind: 'public',
+      clock: () => NOW,
+      resolveContext: jest.fn().mockRejectedValue(internalError),
+    });
+    expect(result.statusCode).toBe(503);
+    expect(result.internalError).toBe(internalError);
+    expect(result.payload).toEqual({
+      readinessContractVersion: CLIENT_READINESS_FACILITY_CONTRACT_VERSION,
+      ready: false,
+      routeKind: 'public',
+      serverTime: NOW.toISOString(),
+      state: 'facility_context_unverified',
+    });
   });
 });

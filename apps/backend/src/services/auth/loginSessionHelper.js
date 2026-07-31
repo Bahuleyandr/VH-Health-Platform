@@ -96,7 +96,7 @@ export async function resolveTenantIdForUid(uid) {
  * @param {string} identity.role - normalized role (e.g. 'PATIENT', 'ADMIN').
  * @returns {string} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
  */
-export function generateRefreshToken({ uid, id, phone, role }) {
+export function generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
   return generateToken(
     {
       uid,
@@ -104,6 +104,7 @@ export function generateRefreshToken({ uid, id, phone, role }) {
       ...(phone ? { phone } : {}),
       role,
       type: 'refresh',
+      ...(stableDeviceId ? { stableDeviceId } : {}),
     },
     SECURITY_CONFIG.jwt.refreshExpiry,
   );
@@ -130,6 +131,7 @@ export async function issueAccessTokenAndClaimSession({
   tokenPayload,
   expiresIn,
   deviceType,
+  stableDeviceId,
   req,
   pushRevoked = true,
 }) {
@@ -153,6 +155,7 @@ export async function issueAccessTokenAndClaimSession({
       tenant_id: tenantId,
       jti,
       ...(deviceType ? { deviceType } : {}),
+      ...(stableDeviceId ? { stableDeviceId } : {}),
     },
     expiresIn,
   );

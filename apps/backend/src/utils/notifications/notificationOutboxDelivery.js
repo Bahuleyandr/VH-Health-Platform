@@ -1,4 +1,4 @@
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { getTenantSettings } from '../../services/tenant/tenantSettingsService.js';
 import { sendSMS } from '../../services/smsService.js';
@@ -28,16 +28,27 @@ function normalizeTenantId(value) {
  * users.device_token, user_devices.fcm_token, staff_devices.device_token.
  * Returns a de-duplicated, non-empty token array (may be empty).
  */
-export async function resolveRecipientTokens(recipientId) {
+export async function resolveRecipientTokens(recipientId, explicitTenantId = null) {
   if (recipientId === null || recipientId === undefined || recipientId === '') return [];
   const idText = String(recipientId);
   const tokens = new Set();
+  const tenantId = explicitTenantId || await resolveTenantIdForOutboxRow({
+    recipient_id: idText,
+  });
+  if (!tenantId) return [];
+  const scopedQuery = (sql, ...params) => setTenant(
+    tenantId,
+    tx => tx.$queryRawUnsafe(sql, ...params),
+    { readOnly: true },
+  );
   try {
     // users.device_token — match on int id OR uuid uid (text-cast for safety).
-    const userRows = await prisma.$queryRawUnsafe(
+    const userRows = await scopedQuery(
       `SELECT device_token AS t FROM users
         WHERE device_token IS NOT NULL
-          AND (id::text = $1 OR uid::text = $1)`,
+          AND tenant_id = $1::uuid
+          AND (id::text = $2 OR uid::text = $2)`,
+      tenantId,
       idText,
     );
     for (const r of userRows) if (r.t) tokens.add(r.t);
@@ -45,9 +56,12 @@ export async function resolveRecipientTokens(recipientId) {
     logger.warn('outbox-drain: users token lookup failed:', err.message);
   }
   try {
-    const udRows = await prisma.$queryRawUnsafe(
+    const udRows = await scopedQuery(
       `SELECT fcm_token AS t FROM user_devices
-        WHERE fcm_token IS NOT NULL AND user_uid::text = $1`,
+        WHERE tenant_id = $1::uuid
+          AND fcm_token IS NOT NULL
+          AND user_uid::text = $2`,
+      tenantId,
       idText,
     );
     for (const r of udRows) if (r.t) tokens.add(r.t);
@@ -57,9 +71,13 @@ export async function resolveRecipientTokens(recipientId) {
   // staff_devices keys on an integer staff_id — only probe when numeric.
   if (/^\d+$/.test(idText)) {
     try {
-      const sdRows = await prisma.$queryRawUnsafe(
+      const sdRows = await scopedQuery(
         `SELECT device_token AS t FROM staff_devices
-          WHERE device_token IS NOT NULL AND is_active = true AND staff_id = $1::int`,
+          WHERE tenant_id = $1::uuid
+            AND device_token IS NOT NULL
+            AND is_active = true
+            AND staff_id = $2::int`,
+        tenantId,
         idText,
       );
       for (const r of sdRows) if (r.t) tokens.add(r.t);
@@ -178,7 +196,8 @@ export async function deliverLegacyOutboxRow(row) {
     return { channels };
   }
 
-  const tokens = await resolveRecipientTokens(row.recipient_id);
+  const tenantId = await resolveTenantIdForOutboxRow(row);
+  const tokens = await resolveRecipientTokens(row.recipient_id, tenantId);
   const data = payloadObject(row);
   if (!tokens.length && !row.recipient_id) {
     throw new Error('push outbox row has no resolvable device token or recipient_id');

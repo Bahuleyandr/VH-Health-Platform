@@ -150,6 +150,7 @@ void main() {
     test('POSTs {refreshToken} in body and rotates both tokens', () async {
       await AuthService.setJwt('old-access');
       await AuthService.setRefreshToken('old-refresh');
+      final installationId = await AuthService.getOrCreateInstallationId();
 
       Map<String, dynamic>? observedBody;
       VHHttpClient.setClientForTesting(
@@ -173,6 +174,7 @@ void main() {
       final ok = await VHHttpClient.debugTryRefreshToken();
       expect(ok, isTrue);
       expect(observedBody?['refreshToken'], 'old-refresh');
+      expect(observedBody?['installationId'], installationId);
       expect(await AuthService.getJwt(), 'new-access');
       expect(await AuthService.getRefreshToken(), 'new-refresh');
     });

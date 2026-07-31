@@ -70,6 +70,7 @@ jest.unstable_mockModule('../../utils/securityAuditLogger.js', () => ({
 const { StaffAuthService } = await import('../../services/auth/staffAuthService.js');
 
 const REQ = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } };
+const INSTALLATION_ID = '33333333-3333-4333-8333-333333333333';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -84,13 +85,23 @@ describe('staffAuthService — pg-wrapper "no rows" guards fire cleanly', () => 
   it('refreshStaffSession: a valid refresh token with no matching session row throws "Invalid or expired session" (not a TypeError)', async () => {
     // Genuine, non-revoked refresh token...
     mockVerifyToken.mockReturnValue({
-      uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'good-jti',
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'good-jti',
+      stableDeviceId: INSTALLATION_ID,
     });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     // ...but the session lookup finds nothing (expired/revoked/never existed).
     mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
 
-    const promise = StaffAuthService.refreshStaffSession('a-valid-refresh-token', null, REQ);
+    const promise = StaffAuthService.refreshStaffSession(
+      'a-valid-refresh-token',
+      null,
+      INSTALLATION_ID,
+      REQ,
+    );
 
     await expect(promise).rejects.toThrow('Invalid or expired session');
     // The bug surfaced as a TypeError from dereferencing rows[0]; make sure
@@ -104,7 +115,14 @@ describe('staffAuthService — pg-wrapper "no rows" guards fire cleanly', () => 
     // The device lookup returns zero rows.
     mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
 
-    const promise = StaffAuthService.quickLogin('unknown-device-token', '1234', false, null, REQ);
+    const promise = StaffAuthService.quickLogin(
+      'unknown-device-token',
+      '1234',
+      false,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    );
 
     await expect(promise).rejects.toThrow('Invalid or expired device token');
     await expect(promise).rejects.not.toThrow(TypeError);

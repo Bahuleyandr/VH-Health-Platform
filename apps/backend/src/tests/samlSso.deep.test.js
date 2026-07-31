@@ -15,6 +15,7 @@ const TENANT_A = '10000000-0000-4000-8000-0000000000a1';
 const TENANT_B = '10000000-0000-4000-8000-0000000000b1';
 const ADMIN_UID = '20000000-0000-4000-8000-0000000000a1';
 const STAFF_UID = '30000000-0000-4000-8000-0000000000a1';
+const STAFF_INSTALLATION_ID = '33333333-3333-4333-8333-333333333333';
 const PROVIDER_KEY = 'hospital-saml';
 const ISSUER_A = 'https://idp-a.example.test/saml';
 const ISSUER_B = 'https://idp-b.example.test/saml';
@@ -32,6 +33,7 @@ const resolveTenantForRequest = jest.fn();
 const issueAccessTokenAndClaimSession = jest.fn();
 const generateRefreshToken = jest.fn();
 const staffRefreshToken = jest.fn();
+const bindStaffInstallation = jest.fn();
 
 jest.unstable_mockModule('../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe, $executeRawUnsafe: executeRawUnsafe },
@@ -50,6 +52,7 @@ jest.unstable_mockModule('../services/auth/loginSessionHelper.js', () => ({
 
 jest.unstable_mockModule('../services/auth/staffAuthService.js', () => ({
   StaffAuthService: {
+    bindStaffInstallation,
     generateRefreshToken: staffRefreshToken,
   },
 }));
@@ -375,7 +378,10 @@ async function startForRealm(realm = 'admin') {
       realm,
       query: realm === 'admin'
         ? { admin_host: 'tenant-a-admin.localhost:5206', returnTo: '/dashboard' }
-        : {},
+        : {
+          deviceId: STAFF_INSTALLATION_ID,
+          deviceType: 'mobile',
+        },
     }),
     realm,
     providerKey: PROVIDER_KEY,
@@ -439,6 +445,7 @@ describe('SAML SSO broker', () => {
     });
     generateRefreshToken.mockReturnValue('vh-refresh-token');
     staffRefreshToken.mockReturnValue('vh-staff-refresh-token');
+    bindStaffInstallation.mockResolvedValue(STAFF_INSTALLATION_ID);
   });
 
   it('accepts a response-signed admin assertion and issues the normal admin session without MFA step-up', async () => {
@@ -476,6 +483,7 @@ describe('SAML SSO broker', () => {
     });
     expect(issuedArgs).toEqual(expect.objectContaining({
       userUid: STAFF_UID,
+      stableDeviceId: STAFF_INSTALLATION_ID,
       tokenPayload: expect.objectContaining({ tenant_id: TENANT_A, role: 'NURSING_STAFF' }),
     }));
     expect(executeRawUnsafe.mock.calls.some((call) => String(call[0]).includes('INSERT INTO staff_auth_sessions'))).toBe(true);

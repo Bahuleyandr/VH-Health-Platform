@@ -14,8 +14,11 @@ import { success, error, relayAppError } from '../../utils/responseHelper.js';
 // Staff login with employee ID and password
 export const login = async (req, res) => {
   try {
-    const { employeeId, password, deviceType } = req.body;
-    const result = await StaffAuthService.authenticateStaff(employeeId, password, req, { deviceType });
+    const { employeeId, password, deviceType, installationId } = req.body;
+    const result = await StaffAuthService.authenticateStaff(employeeId, password, req, {
+      deviceType,
+      installationId,
+    });
     success(res, result, 'Staff login successful');
   } catch (err) {
     logger.error('Staff Login Error:', err);
@@ -28,8 +31,12 @@ export const login = async (req, res) => {
 // deviceToken it received from /register-device.
 export const pinLogin = async (req, res) => {
   try {
-    const { employeeId, pin, deviceType, deviceToken } = req.body;
-    const result = await StaffAuthService.authenticateStaffWithPin(employeeId, pin, req, { deviceType, deviceToken });
+    const { employeeId, pin, deviceType, deviceToken, installationId } = req.body;
+    const result = await StaffAuthService.authenticateStaffWithPin(employeeId, pin, req, {
+      deviceType,
+      deviceToken,
+      installationId,
+    });
     success(res, result, 'Staff login with PIN successful');
   } catch (err) {
     logger.error('Staff PIN Login Error:', err);
@@ -45,8 +52,11 @@ export const pinLogin = async (req, res) => {
 // Register device for quick access
 export const registerDevice = async (req, res) => {
   try {
-    const { employeeId, password, deviceInfo, deviceType } = req.body;
-    const result = await StaffAuthService.registerStaffDevice(employeeId, password, deviceInfo, req, { deviceType });
+    const { employeeId, password, deviceInfo, deviceType, installationId } = req.body;
+    const result = await StaffAuthService.registerStaffDevice(employeeId, password, deviceInfo, req, {
+      deviceType,
+      installationId,
+    });
     success(res, result, 'Device registered successfully');
   } catch (err) {
     logger.error('Device Registration Error:', err);
@@ -57,8 +67,15 @@ export const registerDevice = async (req, res) => {
 // Quick login with PIN or biometric
 export const quickLogin = async (req, res) => {
   try {
-    const { deviceToken, pin, biometric, location, deviceType } = req.body;
-    const result = await StaffAuthService.quickLogin(deviceToken, pin, biometric, location, req, { deviceType });
+    const { deviceToken, pin, biometric, location, deviceType, installationId } = req.body;
+    const result = await StaffAuthService.quickLogin(
+      deviceToken,
+      pin,
+      biometric,
+      location,
+      req,
+      { deviceType, installationId },
+    );
     success(res, result, 'Quick login successful');
   } catch (err) {
     logger.error('Quick Login Error:', err);
@@ -95,8 +112,13 @@ export const toggleBiometric = async (req, res) => {
 // Refresh session
 export const refreshSession = async (req, res) => {
   try {
-    const { refreshToken, deviceToken } = req.body;
-    const result = await StaffAuthService.refreshStaffSession(refreshToken, deviceToken, req);
+    const { refreshToken, deviceToken, installationId } = req.body;
+    const result = await StaffAuthService.refreshStaffSession(
+      refreshToken,
+      deviceToken,
+      installationId,
+      req,
+    );
     success(res, result, 'Session refreshed successfully');
   } catch (err) {
     logger.error('Refresh Session Error:', err);

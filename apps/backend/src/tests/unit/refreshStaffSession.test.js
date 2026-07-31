@@ -59,12 +59,14 @@ jest.unstable_mockModule('../../utils/securityAuditLogger.js', () => ({
 const { StaffAuthService } = await import('../../services/auth/staffAuthService.js');
 
 const REQ = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } };
+const INSTALLATION_ID = '33333333-3333-4333-8333-333333333333';
 
 // A valid session row returned by the staff_auth_sessions lookup.
 const SESSION_ROW = {
   id: 5,
   staff_id: 42,
   uid: 'staff-uuid-1',
+  tenant_id: '22222222-2222-4222-8222-222222222222',
   name: 'Dr Who',
   email: 'who@test.local',
   role: 'DOCTOR',
@@ -86,7 +88,12 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
     mockVerifyToken.mockReturnValue({ uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', jti: 'j1' });
 
     await expect(
-      StaffAuthService.refreshStaffSession('an-access-token', null, REQ)
+      StaffAuthService.refreshStaffSession(
+        'an-access-token',
+        null,
+        INSTALLATION_ID,
+        REQ,
+      ),
     ).rejects.toThrow('Invalid or expired refresh token');
 
     // Must reject BEFORE touching the DB or minting a token.
@@ -96,12 +103,22 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
 
   it('rejects a blacklisted / revoked refresh token', async () => {
     mockVerifyToken.mockReturnValue({
-      uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'revoked-jti',
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'revoked-jti',
+      stableDeviceId: INSTALLATION_ID,
     });
     mockIsTokenBlacklisted.mockResolvedValue(true);
 
     await expect(
-      StaffAuthService.refreshStaffSession('a-revoked-refresh-token', null, REQ)
+      StaffAuthService.refreshStaffSession(
+        'a-revoked-refresh-token',
+        null,
+        INSTALLATION_ID,
+        REQ,
+      ),
     ).rejects.toThrow('Token has been revoked');
 
     expect(mockIsTokenBlacklisted).toHaveBeenCalledWith('revoked-jti');
@@ -114,17 +131,32 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
     mockVerifyToken.mockReturnValue(null);
 
     await expect(
-      StaffAuthService.refreshStaffSession('garbage', null, REQ)
+      StaffAuthService.refreshStaffSession(
+        'garbage',
+        null,
+        INSTALLATION_ID,
+        REQ,
+      ),
     ).rejects.toThrow('Invalid or expired refresh token');
   });
 
   it('accepts a valid, non-revoked refresh token and mints a new access token', async () => {
     mockVerifyToken.mockReturnValue({
-      uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'good-jti',
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'good-jti',
+      stableDeviceId: INSTALLATION_ID,
     });
     mockIsTokenBlacklisted.mockResolvedValue(false);
 
-    const result = await StaffAuthService.refreshStaffSession('a-valid-refresh-token', null, REQ);
+    const result = await StaffAuthService.refreshStaffSession(
+      'a-valid-refresh-token',
+      null,
+      INSTALLATION_ID,
+      REQ,
+    );
 
     expect(mockIsTokenBlacklisted).toHaveBeenCalledWith('good-jti');
     expect(mockIssueAccess).toHaveBeenCalledTimes(1);
@@ -137,13 +169,23 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
 
   it('rejects a valid refresh token after the staff account is deprovisioned', async () => {
     mockVerifyToken.mockReturnValue({
-      uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'good-jti',
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'good-jti',
+      stableDeviceId: INSTALLATION_ID,
     });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     mockPrisma.$queryRawUnsafe.mockResolvedValue([{ ...SESSION_ROW, is_active: false }]);
 
     await expect(
-      StaffAuthService.refreshStaffSession('a-valid-refresh-token', null, REQ)
+      StaffAuthService.refreshStaffSession(
+        'a-valid-refresh-token',
+        null,
+        INSTALLATION_ID,
+        REQ,
+      ),
     ).rejects.toThrow('Account deactivated');
 
     expect(mockIssueAccess).not.toHaveBeenCalled();
@@ -156,7 +198,12 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
     });
 
     await expect(
-      StaffAuthService.refreshStaffSession('typed-access-token', null, REQ)
+      StaffAuthService.refreshStaffSession(
+        'typed-access-token',
+        null,
+        INSTALLATION_ID,
+        REQ,
+      ),
     ).rejects.toThrow('Invalid or expired refresh token');
 
     expect(mockIsTokenBlacklisted).not.toHaveBeenCalled();

@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
+
 import 'api_client.dart';
 
 /// HR-related API calls: dashboard, staff management, performance,
@@ -862,11 +864,14 @@ class HrApiService {
     String? biometricToken,
     String? deviceToken,
   }) async {
+    final installationId =
+        await core_auth.AuthService.getOrCreateInstallationId();
     return _post('/auth/staff/quick-login', {
       'employeeId': employeeId,
       'pin': ?pin,
       'biometricToken': ?biometricToken,
       'deviceToken': ?deviceToken,
+      'installationId': installationId,
     });
   }
 
@@ -876,10 +881,13 @@ class HrApiService {
     required String deviceName,
     required String platform,
   }) async {
+    final installationId =
+        await core_auth.AuthService.getOrCreateInstallationId();
     return _post('/auth/staff/register-device', {
       'deviceToken': deviceToken,
       'deviceName': deviceName,
       'platform': platform,
+      'installationId': installationId,
     });
   }
 

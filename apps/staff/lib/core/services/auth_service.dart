@@ -237,7 +237,8 @@ class AuthService {
     StaffSsoProvider provider,
   ) async {
     final redirectUri = _ssoRedirectUriFor(provider);
-    final deviceToken = await getDeviceToken();
+    final installationId =
+        await core_auth.AuthService.getOrCreateInstallationId();
     final startResponse = await ApiClient.get(
       '/auth/staff/sso/oidc/${Uri.encodeComponent(provider.providerKey)}/start',
       auth: false,
@@ -245,8 +246,7 @@ class AuthService {
         'response_mode': 'json',
         'redirect_uri': redirectUri,
         'deviceType': currentDeviceType,
-        if (deviceToken != null && deviceToken.isNotEmpty)
-          'deviceId': deviceToken,
+        'deviceId': installationId,
       },
     );
     final startData = _successData(
@@ -282,8 +282,7 @@ class AuthService {
         'state': state,
         'redirect_uri': redirectUri,
         'deviceType': currentDeviceType,
-        if (deviceToken != null && deviceToken.isNotEmpty)
-          'deviceId': deviceToken,
+        'deviceId': installationId,
       },
     );
     final data = _successData(callbackResponse, 'Staff SSO login failed');
@@ -300,12 +299,15 @@ class AuthService {
     required String employeeId,
     required String password,
   }) async {
+    final installationId =
+        await core_auth.AuthService.getOrCreateInstallationId();
     final response = await ApiClient.post(
       '/auth/staff/login',
       auth: false,
       body: {
         'employeeId': employeeId,
         'password': password,
+        'installationId': installationId,
         // Pinned by platform — the backend uses this to (1) restrict
         // attendance-marking to phone-class clients, and (2) record the
         // device class in user_active_sessions for the new-login-evicts-
@@ -340,6 +342,8 @@ class AuthService {
     required String pin,
   }) async {
     final deviceToken = await getDeviceToken();
+    final installationId =
+        await core_auth.AuthService.getOrCreateInstallationId();
     final response = await ApiClient.post(
       '/auth/staff/login-pin',
       auth: false,
@@ -348,6 +352,7 @@ class AuthService {
         'pin': pin,
         'deviceType': currentDeviceType,
         'deviceToken': ?deviceToken,
+        'installationId': installationId,
       },
     );
 
@@ -431,6 +436,8 @@ class AuthService {
     String? biometricToken,
     String? deviceToken,
   }) async {
+    final installationId =
+        await core_auth.AuthService.getOrCreateInstallationId();
     final response = await ApiClient.post(
       '/auth/staff/quick-login',
       auth: false,
@@ -440,6 +447,7 @@ class AuthService {
         'biometricToken': ?biometricToken,
         'deviceToken': ?deviceToken,
         'deviceType': currentDeviceType,
+        'installationId': installationId,
       },
     );
 

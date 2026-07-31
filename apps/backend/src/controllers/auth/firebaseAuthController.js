@@ -74,7 +74,7 @@ export const updateFcmToken = async (req, res) => {
   try {
     const { phone, fcmToken, deviceId } = req.body;
 
-    const result = await firebaseAuthService.updateFcmToken(phone, fcmToken, deviceId);
+    const result = await firebaseAuthService.updateFcmToken(phone, fcmToken, deviceId, req);
 
     success(res, result, 'FCM token updated successfully');
   } catch (err) {

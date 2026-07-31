@@ -646,6 +646,9 @@ class VHHttpClient {
   static Future<bool> _performRefresh() async {
     final uri = _buildUri('/auth/refresh-token');
     final storedRefresh = await AuthService.getRefreshToken();
+    final installationId = storedRefresh != null && storedRefresh.isNotEmpty
+        ? await AuthService.getOrCreateInstallationId()
+        : null;
 
     // If we have a refresh token (staff path), send it in the body.
     // Otherwise fall back to bearer-based rotation (patient/admin path).
@@ -653,7 +656,10 @@ class VHHttpClient {
         ? await _headers(auth: false, json: true)
         : await _headers(auth: true, json: true);
     final body = storedRefresh != null && storedRefresh.isNotEmpty
-        ? jsonEncode({'refreshToken': storedRefresh})
+        ? jsonEncode({
+            'refreshToken': storedRefresh,
+            'installationId': installationId,
+          })
         : null;
 
     final response = await _client

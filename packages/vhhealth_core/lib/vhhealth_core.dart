@@ -17,6 +17,7 @@ export 'services/certificate_pinner.dart';
 export 'services/client_readiness_service.dart';
 export 'services/clinical_continuity_cache.dart';
 export 'services/clinical_continuity_canonical_json.dart';
+export 'services/clinical_continuity_facility_context.dart';
 export 'services/clinical_continuity_source.dart';
 export 'services/clinical_continuity_trust_store.dart';
 export 'services/clinical_continuity_verifier.dart';

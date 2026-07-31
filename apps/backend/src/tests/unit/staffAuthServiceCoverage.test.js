@@ -78,11 +78,13 @@ jest.unstable_mockModule('../../utils/securityAuditLogger.js', () => ({
 const { StaffAuthService } = await import('../../services/auth/staffAuthService.js');
 
 const REQ = { ip: '10.0.0.9', headers: { 'user-agent': 'jest-agent' } };
+const INSTALLATION_ID = '33333333-3333-4333-8333-333333333333';
 
 // A fully-populated staff row as returned by the password / PIN login SELECTs.
 const STAFF_ROW = {
   id: 42,
   uid: 'staff-uuid-1',
+  tenant_id: '22222222-2222-4222-8222-222222222222',
   name: 'Dr Who',
   email: 'who@test.local',
   phone: '+15550001111',
@@ -214,7 +216,10 @@ describe('authenticateStaff', () => {
     happyReads();
     mockBcryptCompare.mockResolvedValue(true);
 
-    const result = await StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, { deviceType: 'web' });
+    const result = await StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {
+      deviceType: 'web',
+      installationId: INSTALLATION_ID,
+    });
 
     expect(result.accessToken).toBe('fresh-access-token');
     expect(result.refreshToken).toBe('mock-refresh-token');
@@ -227,7 +232,9 @@ describe('authenticateStaff', () => {
   it('rejects an unknown employee ID', async () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
     read(/FROM staff s\s+JOIN users u/, []);
-    await expect(StaffAuthService.authenticateStaff('NOPE', 'pw', REQ, {}))
+    await expect(StaffAuthService.authenticateStaff('NOPE', 'pw', REQ, {
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('Invalid employee ID or password');
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('LOGIN_FAILED', expect.objectContaining({
       reason: 'Invalid employee ID',
@@ -237,7 +244,9 @@ describe('authenticateStaff', () => {
   it('rejects a deactivated account', async () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
     read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, is_active: false }]);
-    await expect(StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {}))
+    await expect(StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('Account deactivated');
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('LOGIN_FAILED', expect.objectContaining({
       reason: 'Account deactivated',
@@ -247,7 +256,9 @@ describe('authenticateStaff', () => {
   it('rejects a bad password', async () => {
     happyReads();
     mockBcryptCompare.mockResolvedValue(false);
-    await expect(StaffAuthService.authenticateStaff('EMP1', 'wrong', REQ, {}))
+    await expect(StaffAuthService.authenticateStaff('EMP1', 'wrong', REQ, {
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('Invalid employee ID or password');
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('LOGIN_FAILED', expect.objectContaining({
       reason: 'Invalid password',
@@ -256,7 +267,9 @@ describe('authenticateStaff', () => {
 
   it('propagates a lockout thrown by _checkStaffLockout (catch path)', async () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '5' }]);
-    await expect(StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {}))
+    await expect(StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('Account temporarily locked');
   });
 });
@@ -342,10 +355,14 @@ describe('registerStaffDevice', () => {
 
   it('registers a device and returns device token + id', async () => {
     authOk();
-    read(/COUNT\(\*\) FROM staff_devices/, [{ count: '1' }]);
+    read(/COUNT\(\*\)[\s\S]*FROM staff_devices/, [{ count: '1' }]);
     const out = await StaffAuthService.registerStaffDevice(
       'EMP1', 'pw', { name: 'Pixel 8', type: 'mobile', model: 'P8', os: 'Android', appVersion: '1.0' },
-      REQ, { deviceType: 'mobile' }
+      REQ,
+      {
+        deviceType: 'mobile',
+        installationId: INSTALLATION_ID,
+      },
     );
     expect(out.deviceToken).toEqual(expect.any(String));
     expect(out.deviceId).toEqual(expect.any(String));
@@ -355,22 +372,40 @@ describe('registerStaffDevice', () => {
 
   it('throws when the device limit is reached', async () => {
     authOk();
-    read(/COUNT\(\*\) FROM staff_devices/, [{ count: '5' }]);
-    await expect(StaffAuthService.registerStaffDevice('EMP1', 'pw', { name: 'X' }, REQ, {}))
+    read(/COUNT\(\*\)[\s\S]*FROM staff_devices/, [{ count: '5' }]);
+    await expect(StaffAuthService.registerStaffDevice(
+      'EMP1',
+      'pw',
+      { name: 'X' },
+      REQ,
+      { installationId: INSTALLATION_ID },
+    ))
       .rejects.toThrow('Maximum 5 devices allowed');
   });
 
   it('uses defaults when deviceInfo fields are absent', async () => {
     authOk();
-    read(/COUNT\(\*\) FROM staff_devices/, [{ count: '0' }]);
-    const out = await StaffAuthService.registerStaffDevice('EMP1', 'pw', {}, REQ, {});
+    read(/COUNT\(\*\)[\s\S]*FROM staff_devices/, [{ count: '0' }]);
+    const out = await StaffAuthService.registerStaffDevice(
+      'EMP1',
+      'pw',
+      {},
+      REQ,
+      { installationId: INSTALLATION_ID },
+    );
     expect(out.deviceId).toEqual(expect.any(String));
   });
 
   it('propagates an auth failure from the inner authenticateStaff (catch path)', async () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
     read(/FROM staff s\s+JOIN users u/, []); // unknown employee
-    await expect(StaffAuthService.registerStaffDevice('NOPE', 'pw', { name: 'X' }, REQ, {}))
+    await expect(StaffAuthService.registerStaffDevice(
+      'NOPE',
+      'pw',
+      { name: 'X' },
+      REQ,
+      { installationId: INSTALLATION_ID },
+    ))
       .rejects.toThrow('Invalid employee ID or password');
   });
 });
@@ -382,10 +417,11 @@ describe('quickLogin', () => {
   const DEVICE_ROW = {
     internal_device_id: 7,
     staff_id: 42,
-    device_id: 'dev-uuid',
+    device_id: INSTALLATION_ID,
     pin_hash: '$2b$10$pin',
     biometric_enabled: true,
     uid: 'staff-uuid-1',
+    tenant_id: '22222222-2222-4222-8222-222222222222',
     name: 'Dr Who',
     email: 'who@test.local',
     phone: '+1',
@@ -404,20 +440,44 @@ describe('quickLogin', () => {
 
   it('rejects an unknown/expired device token', async () => {
     read(/FROM staff_devices d\s+JOIN users u/, []);
-    await expect(StaffAuthService.quickLogin('bad', '1234', false, null, REQ))
+    await expect(StaffAuthService.quickLogin(
+      'bad',
+      '1234',
+      false,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    ))
       .rejects.toThrow('Invalid or expired device token');
   });
 
   it('rejects a deactivated account', async () => {
     deviceFound({ is_active: false });
-    await expect(StaffAuthService.quickLogin('tok', '1234', false, null, REQ))
+    await expect(StaffAuthService.quickLogin(
+      'tok',
+      '1234',
+      false,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    ))
       .rejects.toThrow('Account deactivated');
   });
 
   it('logs in with a valid PIN', async () => {
     deviceFound();
     mockBcryptCompare.mockResolvedValue(true);
-    const out = await StaffAuthService.quickLogin('tok', '1234', false, null, REQ, { deviceType: 'mobile' });
+    const out = await StaffAuthService.quickLogin(
+      'tok',
+      '1234',
+      false,
+      null,
+      REQ,
+      {
+        deviceType: 'mobile',
+        installationId: INSTALLATION_ID,
+      },
+    );
     expect(out.accessToken).toBe('fresh-access-token');
     expect(out.staff).toMatchObject({ employeeId: 'EMP1' });
   });
@@ -425,7 +485,14 @@ describe('quickLogin', () => {
   it('rejects an invalid PIN', async () => {
     deviceFound();
     mockBcryptCompare.mockResolvedValue(false);
-    await expect(StaffAuthService.quickLogin('tok', '0000', false, null, REQ))
+    await expect(StaffAuthService.quickLogin(
+      'tok',
+      '0000',
+      false,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    ))
       .rejects.toThrow('Invalid PIN');
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('LOGIN_FAILED', expect.objectContaining({
       reason: 'Invalid PIN (quick login)',
@@ -434,25 +501,53 @@ describe('quickLogin', () => {
 
   it('rejects when PIN is supplied but no pin_hash exists on the device', async () => {
     deviceFound({ pin_hash: null });
-    await expect(StaffAuthService.quickLogin('tok', '1234', false, null, REQ))
+    await expect(StaffAuthService.quickLogin(
+      'tok',
+      '1234',
+      false,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    ))
       .rejects.toThrow('PIN not set for this device');
   });
 
   it('logs in via biometric when enabled', async () => {
     deviceFound();
-    const out = await StaffAuthService.quickLogin('tok', null, true, { lat: 1 }, REQ);
+    const out = await StaffAuthService.quickLogin(
+      'tok',
+      null,
+      true,
+      { lat: 1 },
+      REQ,
+      { installationId: INSTALLATION_ID },
+    );
     expect(out.accessToken).toBe('fresh-access-token');
   });
 
   it('rejects biometric when not enabled for the device', async () => {
     deviceFound({ biometric_enabled: false });
-    await expect(StaffAuthService.quickLogin('tok', null, true, null, REQ))
+    await expect(StaffAuthService.quickLogin(
+      'tok',
+      null,
+      true,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    ))
       .rejects.toThrow('Biometric not enabled for this device');
   });
 
   it('rejects when neither PIN nor biometric is provided', async () => {
     deviceFound();
-    await expect(StaffAuthService.quickLogin('tok', null, false, null, REQ))
+    await expect(StaffAuthService.quickLogin(
+      'tok',
+      null,
+      false,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    ))
       .rejects.toThrow('PIN or biometric required');
   });
 });
@@ -468,21 +563,29 @@ describe('authenticateStaffWithPin', () => {
 
   it('rejects when no device token is supplied (403 / PIN_DEVICE_NOT_REGISTERED)', async () => {
     pinLockoutOk();
-    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {}))
+    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toMatchObject({ statusCode: 403, code: 'PIN_DEVICE_NOT_REGISTERED' });
   });
 
   it('rejects an unknown employee ID', async () => {
     pinLockoutOk();
     read(/FROM staff s\s+JOIN users u/, []);
-    await expect(StaffAuthService.authenticateStaffWithPin('NOPE', '1234', REQ, { deviceToken: 'dt' }))
+    await expect(StaffAuthService.authenticateStaffWithPin('NOPE', '1234', REQ, {
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('Invalid employee ID or PIN');
   });
 
   it('rejects a deactivated account', async () => {
     pinLockoutOk();
     read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, is_active: false }]);
-    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, { deviceToken: 'dt' }))
+    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('Account deactivated');
   });
 
@@ -490,7 +593,10 @@ describe('authenticateStaffWithPin', () => {
     pinLockoutOk();
     read(/FROM staff s\s+JOIN users u/, [STAFF_ROW]);
     read(/SELECT id FROM staff_devices/, []); // device binding lookup empty
-    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, { deviceToken: 'dt' }))
+    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toMatchObject({ statusCode: 403, code: 'PIN_DEVICE_NOT_REGISTERED' });
   });
 
@@ -498,7 +604,10 @@ describe('authenticateStaffWithPin', () => {
     pinLockoutOk();
     read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, pin_hash: null }]);
     read(/SELECT id FROM staff_devices/, [{ id: 9 }]);
-    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, { deviceToken: 'dt' }))
+    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('PIN not set for this account');
   });
 
@@ -507,7 +616,10 @@ describe('authenticateStaffWithPin', () => {
     read(/FROM staff s\s+JOIN users u/, [STAFF_ROW]);
     read(/SELECT id FROM staff_devices/, [{ id: 9 }]);
     mockBcryptCompare.mockResolvedValue(false);
-    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '0000', REQ, { deviceToken: 'dt' }))
+    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '0000', REQ, {
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('Invalid employee ID or PIN');
   });
 
@@ -517,7 +629,9 @@ describe('authenticateStaffWithPin', () => {
     read(/SELECT id FROM staff_devices/, [{ id: 9 }]);
     mockBcryptCompare.mockResolvedValue(true);
     const out = await StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
-      deviceType: 'mobile', deviceToken: 'dt',
+      deviceType: 'mobile',
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
     });
     expect(out.accessToken).toBe('fresh-access-token');
     expect(out.refreshToken).toBe('mock-refresh-token');
@@ -526,7 +640,10 @@ describe('authenticateStaffWithPin', () => {
 
   it('propagates a PIN lockout (catch path)', async () => {
     read(/STAFF_PIN_LOGIN/, [{ cnt: '5' }]); // vantage lockout
-    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, { deviceToken: 'dt' }))
+    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
+    }))
       .rejects.toThrow('Too many failed PIN attempts');
   });
 });
@@ -578,51 +695,110 @@ describe('refreshStaffSession', () => {
   const SESSION_ROW = {
     id: 5, staff_id: 42, uid: 'staff-uuid-1', name: 'Dr Who',
     email: 'who@test.local', role: 'DOCTOR', employee_id: 'EMP1', is_active: true,
+    tenant_id: '22222222-2222-4222-8222-222222222222',
   };
 
   it('mints a new access token for a valid, non-revoked refresh token', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'good' });
+    mockVerifyToken.mockReturnValue({
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'good',
+      stableDeviceId: INSTALLATION_ID,
+    });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     read(/FROM staff_auth_sessions s\s+JOIN users u/, [SESSION_ROW]);
-    const out = await StaffAuthService.refreshStaffSession('rt', null, REQ);
+    const out = await StaffAuthService.refreshStaffSession(
+      'rt',
+      null,
+      INSTALLATION_ID,
+      REQ,
+    );
     expect(out.accessToken).toBe('fresh-access-token');
     expect(mockIssueAccess).toHaveBeenCalledWith(expect.objectContaining({ pushRevoked: false }));
   });
 
   it('rejects a deactivated account on refresh', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'good' });
+    mockVerifyToken.mockReturnValue({
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'good',
+      stableDeviceId: INSTALLATION_ID,
+    });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     read(/FROM staff_auth_sessions s\s+JOIN users u/, [{ ...SESSION_ROW, is_active: false }]);
-    await expect(StaffAuthService.refreshStaffSession('rt', null, REQ))
+    await expect(StaffAuthService.refreshStaffSession(
+      'rt',
+      null,
+      INSTALLATION_ID,
+      REQ,
+    ))
       .rejects.toThrow('Account deactivated');
   });
 
   it('rejects an invalid/expired refresh token (verifyToken → null)', async () => {
     mockVerifyToken.mockReturnValue(null);
-    await expect(StaffAuthService.refreshStaffSession('garbage', null, REQ))
+    await expect(StaffAuthService.refreshStaffSession(
+      'garbage',
+      null,
+      INSTALLATION_ID,
+      REQ,
+    ))
       .rejects.toThrow('Invalid or expired refresh token');
   });
 
   it('rejects a token whose type is not "refresh" (access-token replay guard)', async () => {
     mockVerifyToken.mockReturnValue({ uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', jti: 'j1' });
-    await expect(StaffAuthService.refreshStaffSession('access-token', null, REQ))
+    await expect(StaffAuthService.refreshStaffSession(
+      'access-token',
+      null,
+      INSTALLATION_ID,
+      REQ,
+    ))
       .rejects.toThrow('Invalid or expired refresh token');
     expect(mockIsTokenBlacklisted).not.toHaveBeenCalled();
   });
 
   it('rejects a blacklisted / revoked refresh token', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'revoked' });
+    mockVerifyToken.mockReturnValue({
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'revoked',
+      stableDeviceId: INSTALLATION_ID,
+    });
     mockIsTokenBlacklisted.mockResolvedValue(true);
-    await expect(StaffAuthService.refreshStaffSession('rt', null, REQ))
+    await expect(StaffAuthService.refreshStaffSession(
+      'rt',
+      null,
+      INSTALLATION_ID,
+      REQ,
+    ))
       .rejects.toThrow('Token has been revoked');
     expect(mockIssueAccess).not.toHaveBeenCalled();
   });
 
   it('rejects when a valid refresh token has no matching session row', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'good' });
+    mockVerifyToken.mockReturnValue({
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'good',
+      stableDeviceId: INSTALLATION_ID,
+    });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     read(/FROM staff_auth_sessions s\s+JOIN users u/, []); // session lookup empty
-    await expect(StaffAuthService.refreshStaffSession('rt', null, REQ))
+    await expect(StaffAuthService.refreshStaffSession(
+      'rt',
+      null,
+      INSTALLATION_ID,
+      REQ,
+    ))
       .rejects.toThrow('Invalid or expired session');
     expect(mockIssueAccess).not.toHaveBeenCalled();
   });

@@ -85,6 +85,28 @@ void main() {
     });
   });
 
+  group('AuthService — staff installation identity', () {
+    test('is UUIDv4-stable and survives session teardown', () async {
+      final first = await AuthService.getOrCreateInstallationId();
+      final second = await AuthService.getOrCreateInstallationId();
+
+      expect(
+        first,
+        matches(
+          RegExp(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-'
+            r'[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+          ),
+        ),
+      );
+      expect(second, first);
+
+      await AuthService.clearSessionIdentity();
+
+      expect(await AuthService.getOrCreateInstallationId(), first);
+    });
+  });
+
   group('AuthService — setTokens', () {
     test('persists both tokens when refreshToken provided', () async {
       await AuthService.setTokens(

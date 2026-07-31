@@ -15,8 +15,35 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { body, validationResult } from 'express-validator';
+import {
+  issueFacilityContext,
+} from '../../controllers/downtime/clinicalContinuityFacilityContextController.js';
 
 const router = express.Router();
+
+router.post(
+  '/facility-context',
+  body('facilityId').isInt({ min: 1 }),
+  body('deviceProof').isObject(),
+  body('deviceProof.nonce').isUUID(),
+  body('deviceProof.signedAt').isISO8601({ strict: true }),
+  body('deviceProof.signature').isBase64(),
+  (req, res, next) => {
+    const validation = validationResult(req);
+    if (validation.isEmpty()) return next();
+    return error(
+      res,
+      'Clinical continuity facility context was denied',
+      HTTP_STATUS.BAD_REQUEST,
+      {
+        safe: true,
+        topLevel: { code: 'CONTINUITY_FACILITY_CONTEXT_DENIED' },
+      },
+    );
+  },
+  issueFacilityContext,
+);
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);

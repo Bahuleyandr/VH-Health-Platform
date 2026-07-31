@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
@@ -998,8 +998,8 @@ export class AuthService {
   // every realm — patient OTP, admin, and the Firebase patient path — mints
   // through one source of truth (no duplicated `type:'refresh'` / expiry logic
   // that could drift). See audit 2026-06-18 C-9.
-  static _generateRefreshToken({ uid, id, phone, role }) {
-    return generateRefreshToken({ uid, id, phone, role });
+  static _generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
+    return generateRefreshToken({ uid, id, phone, role, stableDeviceId });
   }
 
   static async refreshToken(token, req) {
@@ -1034,10 +1034,52 @@ export class AuthService {
       const user = subjectUid
         ? await prisma.users.findUnique({
             where: { uid: subjectUid },
-            select: { uid: true, id: true, phone: true, name: true, role: true },
+            select: {
+              uid: true,
+              id: true,
+              tenant_id: true,
+              phone: true,
+              name: true,
+              role: true,
+            },
           })
         : null;
       if (!user) throw AppError.unauthorized('User not found', 'TOKEN_INVALID');
+      const stableDeviceId = decoded.stableDeviceId
+        ? String(decoded.stableDeviceId).toLowerCase()
+        : null;
+      if (stableDeviceId) {
+        const suppliedInstallationId = String(
+          req?.body?.installationId || ''
+        ).trim().toLowerCase();
+        if (suppliedInstallationId !== stableDeviceId) {
+          throw AppError.unauthorized(
+            'Invalid or expired refresh token',
+            'TOKEN_INVALID'
+          );
+        }
+        const deviceRows = await setTenant(
+          user.tenant_id,
+          tx => tx.$queryRawUnsafe(
+            `SELECT 1
+               FROM user_devices
+              WHERE tenant_id = $1::uuid
+                AND user_uid = $2::uuid
+                AND device_id = $3
+              LIMIT 1`,
+            user.tenant_id,
+            user.uid,
+            stableDeviceId,
+          ),
+          { readOnly: true },
+        );
+        if (deviceRows.length !== 1) {
+          throw AppError.unauthorized(
+            'Invalid or expired refresh token',
+            'TOKEN_INVALID'
+          );
+        }
+      }
 
       // Rotate the refresh token: blacklist the presented refresh jti so it
       // cannot be replayed. For tokens already past exp, blacklistToken
@@ -1061,6 +1103,7 @@ export class AuthService {
           role: user.role,
         },
         deviceType: decoded.deviceType,
+        stableDeviceId,
         req,
         pushRevoked: false,
       });
@@ -1072,6 +1115,7 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        stableDeviceId,
       });
 
       return {

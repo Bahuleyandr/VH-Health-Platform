@@ -1267,6 +1267,11 @@ async function completeStaffSamlAcs({ validation, req }) {
     },
   });
 
+  const stableDeviceId = await StaffAuthService.bindStaffInstallation(
+    staff,
+    validation.relayState?.deviceId,
+    { platform: validation.relayState?.deviceType || deviceTypeFrom(req, 'mobile') },
+  );
   const { accessToken } = await issueAccessTokenAndClaimSession({
     userUid: staff.uid,
     tokenPayload: {
@@ -1277,15 +1282,16 @@ async function completeStaffSamlAcs({ validation, req }) {
     },
     expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
     deviceType: validation.relayState?.deviceType || deviceTypeFrom(req, 'mobile'),
+    stableDeviceId,
     req,
   });
-  const refreshToken = StaffAuthService.generateRefreshToken(staff);
+  const refreshToken = StaffAuthService.generateRefreshToken(staff, stableDeviceId);
   await createStaffSsoRefreshSession({
     tenantId,
     staff,
     refreshToken,
     req,
-    deviceId: validation.relayState?.deviceId,
+    deviceId: stableDeviceId,
   });
 
   return {

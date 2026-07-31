@@ -120,9 +120,11 @@ async function unregisterDeviceHandler(req, res) {
       `DELETE FROM user_devices
        WHERE device_id = $1
          AND user_uid = $2::uuid
+         AND tenant_id = $3::uuid
        RETURNING device_name, platform`,
       deviceId,
       targetUser.uid,
+      targetUser.tenantId,
     );
 
     if (result.length === 0) {
@@ -190,8 +192,10 @@ wrapAutoRBAC(
                 END as status
                FROM user_devices 
                WHERE user_uid = $1::uuid
+                 AND tenant_id = $2::uuid
                ORDER BY last_active DESC`,
               targetUser.uid,
+              targetUser.tenantId,
             );
 
             // Redact FCM tokens unless admin
@@ -277,9 +281,12 @@ wrapAutoRBAC(
                 ud.created_at,
                 ud.updated_at
               FROM user_devices ud
-              JOIN users u ON u.uid = ud.user_uid
+              JOIN users u
+                ON u.uid = ud.user_uid
+               AND u.tenant_id = ud.tenant_id
               ${whereClause || 'WHERE u.tenant_id = $1::uuid'}
               ${whereClause ? ` AND u.tenant_id = $${params.length + 1}::uuid` : ''}
+                AND ud.tenant_id = u.tenant_id
               ORDER BY ud.last_active DESC NULLS LAST, ud.created_at DESC NULLS LAST
               LIMIT 200`,
               ...params,
@@ -315,8 +322,10 @@ wrapAutoRBAC(
                   COUNT(CASE WHEN ud.last_active > NOW() - INTERVAL '30 days' THEN 1 END) as active_30_days,
                   COUNT(CASE WHEN ud.created_at > NOW() - INTERVAL '7 days' THEN 1 END) as new_registrations_7_days
                 FROM user_devices ud
-                JOIN users u ON u.uid = ud.user_uid
-                WHERE u.tenant_id = $1::uuid
+                JOIN users u
+                  ON u.uid = ud.user_uid
+                 AND u.tenant_id = ud.tenant_id
+                WHERE ud.tenant_id = $1::uuid
               `, tenantId),
               
               // Platform distribution
@@ -326,8 +335,10 @@ wrapAutoRBAC(
                   COUNT(*) as device_count,
                   COUNT(CASE WHEN ud.last_active > NOW() - INTERVAL '7 days' THEN 1 END) as active_count
                 FROM user_devices ud
-                JOIN users u ON u.uid = ud.user_uid
-                WHERE u.tenant_id = $1::uuid
+                JOIN users u
+                  ON u.uid = ud.user_uid
+                 AND u.tenant_id = ud.tenant_id
+                WHERE ud.tenant_id = $1::uuid
                 GROUP BY ud.platform
                 ORDER BY device_count DESC
               `, tenantId),
@@ -339,8 +350,10 @@ wrapAutoRBAC(
                   COUNT(DISTINCT ud.device_id) as active_devices,
                   COUNT(DISTINCT ud.user_uid) as active_users
                 FROM user_devices ud
-                JOIN users u ON u.uid = ud.user_uid
-                WHERE u.tenant_id = $1::uuid
+                JOIN users u
+                  ON u.uid = ud.user_uid
+                 AND u.tenant_id = ud.tenant_id
+                WHERE ud.tenant_id = $1::uuid
                   AND ud.last_active > NOW() - INTERVAL '30 days'
                 GROUP BY DATE(ud.last_active)
                 ORDER BY activity_date DESC
@@ -381,9 +394,11 @@ wrapAutoRBAC(
               `SELECT 
                 ud.*, u.name as user_name, u.phone as user_phone, u.role as user_role
                FROM user_devices ud
-               JOIN users u ON ud.user_uid = u.uid
+               JOIN users u
+                 ON ud.user_uid = u.uid
+                AND ud.tenant_id = u.tenant_id
                WHERE ud.device_id = $1
-                 AND u.tenant_id = $2::uuid`,
+                 AND ud.tenant_id = $2::uuid`,
               deviceId,
               tenantOf(req),
             );
@@ -425,10 +440,10 @@ wrapAutoRBAC(
             // Register/update device with enhanced conflict resolution
             const result = await prisma.$queryRawUnsafe(
               `INSERT INTO user_devices (
-                user_uid, device_id, device_name, platform, app_version, 
+                tenant_id, user_uid, device_id, device_name, platform, app_version,
                 os_version, fcm_token, last_active, created_at
-              ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-              ON CONFLICT (user_uid, device_id) 
+              ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+              ON CONFLICT (tenant_id, user_uid, device_id)
               DO UPDATE SET 
                 device_name = EXCLUDED.device_name,
                 platform = EXCLUDED.platform,
@@ -437,7 +452,8 @@ wrapAutoRBAC(
                 fcm_token = EXCLUDED.fcm_token,
                 last_active = NOW()
               RETURNING id, (xmax = 0) as is_new_registration`,
-              user.uid, deviceId, deviceName, platform, appVersion, osVersion, fcmToken
+              user.tenantId, user.uid, deviceId, deviceName, platform,
+              appVersion, osVersion, fcmToken
             );
 
             const isNewRegistration = result[0].is_new_registration;
@@ -491,6 +507,7 @@ wrapAutoRBAC(
                   os_version = COALESCE($4, os_version)
               WHERE device_id = $1 
                 AND user_uid = $2::uuid
+                AND tenant_id = $5::uuid
               RETURNING device_name, last_active
             `;
 
@@ -498,7 +515,8 @@ wrapAutoRBAC(
               deviceId, 
               targetUser.uid,
               additionalData.appVersion,
-              additionalData.osVersion
+              additionalData.osVersion,
+              targetUser.tenantId
             );
 
             if (result.length === 0) {
@@ -539,8 +557,9 @@ wrapAutoRBAC(
                SET fcm_token = $1, last_active = NOW()
                WHERE device_id = $2 
                  AND user_uid = $3::uuid
+                 AND tenant_id = $4::uuid
                RETURNING device_name`,
-              fcmToken, deviceId, targetUser.uid
+              fcmToken, deviceId, targetUser.uid, targetUser.tenantId
             );
 
             if (result.length === 0) {
@@ -599,6 +618,7 @@ wrapAutoRBAC(
               `DELETE FROM user_devices
                USING users u
                WHERE user_devices.user_uid = u.uid
+                 AND user_devices.tenant_id = u.tenant_id
                  AND u.tenant_id = $2::uuid
                  AND user_devices.last_active < NOW() - make_interval(days => $1)
                RETURNING user_devices.device_name, user_devices.platform, user_devices.last_active`,

@@ -8,7 +8,7 @@
 // — the patient route lets a patient mint their own UPI link for an
 // invoice they actually own.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import * as paymentLinkService from '../billing/paymentLinkService.js';
@@ -348,16 +348,19 @@ function activeDependentContext(acting) {
 // Fetch active FCM tokens for a patient. Returns [] when the patient
 // has no registered devices — caller should treat the missing notif
 // as best-effort, not a hard error.
-async function fcmTokensForPatient(patient_uid) {
-  if (!patient_uid) return [];
+async function fcmTokensForPatient(patient_uid, tenantId) {
+  if (!patient_uid || !tenantId) return [];
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT fcm_token FROM user_devices
-        WHERE user_uid = $1::uuid
+    const rows = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
+      `SELECT fcm_token
+         FROM user_devices
+        WHERE tenant_id = $1::uuid
+          AND user_uid = $2::uuid
           AND fcm_token IS NOT NULL
           AND fcm_token <> ''`,
+      tenantId,
       String(patient_uid),
-    );
+    ), { readOnly: true });
     return rows.map((r) => r.fcm_token);
   } catch (err) {
     logger.warn('fcmTokensForPatient failed', { error: err.message });
@@ -2584,7 +2587,7 @@ export async function appendMessage({
     Promise.resolve()
       .then(async () => {
         const patientUid = owner[0].patient_uid;
-        const tokens = await fcmTokensForPatient(patientUid);
+        const tokens = await fcmTokensForPatient(patientUid, tenantId);
         if (!tokens.length) return;
         // Fetch the thread subject to give the notification context
         // beyond "New message" — patients triage from the lock screen.

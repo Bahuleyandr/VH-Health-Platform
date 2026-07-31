@@ -25,6 +25,15 @@ jest.unstable_mockModule('../../services/emr/deviceVitalsService.js', () => ({
   ingestDeviceVitals: jest.fn(),
 }));
 
+jest.unstable_mockModule(
+  '../../services/downtime/clinicalContinuityFacilityContextService.js',
+  () => ({
+    enrollClinicalContinuityFacilityGrant: jest.fn(),
+    listClinicalContinuityFacilityGrants: jest.fn(),
+    revokeClinicalContinuityFacilityGrant: jest.fn(),
+  }),
+);
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: jest.fn(async () => []) },
 }));
@@ -73,5 +82,23 @@ describe('device registry handleFailure relays AppError code + details', () => {
     expect(response.body.success).toBe(false);
     expect(response.body.message).toBe('Failed to list devices');
     expect(response.body.message).not.toMatch(/ECONNREFUSED/);
+  });
+});
+
+describe('continuity facility enrollment stays activation locked', () => {
+  test.each([
+    ['get', '/continuity-facility-context/grants'],
+    ['post', '/continuity-facility-context/enroll'],
+    ['post', '/continuity-facility-context/revoke'],
+  ])('%s %s is unavailable while C-D14 is open', async (method, path) => {
+    const response = await request(app)[method](
+      `/api/v1/admin/devices${path}`,
+    ).send({});
+
+    expect(response.statusCode).toBe(503);
+    expect(response.body).toMatchObject({
+      code: 'CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE',
+      success: false,
+    });
   });
 });

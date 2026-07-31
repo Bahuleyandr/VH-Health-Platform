@@ -7,6 +7,7 @@ process.env.JWT_SECRET ||= 'test-jwt-secret-for-ci-must-be-at-least-32-chars';
 const TENANT_A = '10000000-0000-4000-8000-0000000000a1';
 const TENANT_B = '10000000-0000-4000-8000-0000000000b1';
 const STAFF_UID = '30000000-0000-4000-8000-0000000000a1';
+const STAFF_INSTALLATION_ID = '33333333-3333-4333-8333-333333333333';
 const ISSUER = 'https://idp.test/realms/vh-staff';
 const CLIENT_ID = 'vh-staff';
 const PROVIDER_KEY = 'keycloak-staff';
@@ -18,6 +19,7 @@ const executeRawUnsafe = jest.fn();
 const resolveTenantForRequest = jest.fn();
 const issueAccessTokenAndClaimSession = jest.fn();
 const generateRefreshToken = jest.fn();
+const bindStaffInstallation = jest.fn();
 
 jest.unstable_mockModule('../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe, $executeRawUnsafe: executeRawUnsafe },
@@ -34,6 +36,7 @@ jest.unstable_mockModule('../services/auth/loginSessionHelper.js', () => ({
 
 jest.unstable_mockModule('../services/auth/staffAuthService.js', () => ({
   StaffAuthService: {
+    bindStaffInstallation,
     generateRefreshToken,
   },
 }));
@@ -187,7 +190,7 @@ function req({ host = 'tenant-a-api.localhost:5206', query = {} } = {}) {
     query: {
       redirect_uri: STAFF_REDIRECT_URI,
       deviceType: 'tablet',
-      deviceId: 'staff-device-1',
+      deviceId: STAFF_INSTALLATION_ID,
       ...query,
     },
   };
@@ -379,6 +382,7 @@ describe('staff OIDC SSO broker', () => {
       return { accessToken: 'vh-staff-access-token' };
     });
     generateRefreshToken.mockReturnValue('vh-staff-refresh-token');
+    bindStaffInstallation.mockResolvedValue(STAFF_INSTALLATION_ID);
     global.fetch = jest.fn();
   });
 
@@ -490,6 +494,7 @@ describe('staff OIDC SSO broker', () => {
     expect(issuedArgs).toEqual(expect.objectContaining({
       userUid: STAFF_UID,
       deviceType: 'tablet',
+      stableDeviceId: STAFF_INSTALLATION_ID,
       tokenPayload: expect.objectContaining({
         id: 42,
         uid: STAFF_UID,

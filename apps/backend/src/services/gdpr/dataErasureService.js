@@ -22,7 +22,7 @@ const ANON_EMAIL = 'deleted@redacted.invalid';
 const ERASURE_TARGETS = [
   // Notification + device data — delete entirely
   { model: 'notifications',     whereByUid: 'uid',         action: 'delete', tenantScoped: true },
-  { model: 'user_devices',      whereByUid: 'user_uid',    action: 'delete' },
+  { model: 'user_devices',      whereByUid: 'user_uid',    action: 'delete', tenantScoped: true },
   { model: 'devices',           whereByPhone: 'phone',     action: 'delete' },
 
   // Session + auth data — delete entirely

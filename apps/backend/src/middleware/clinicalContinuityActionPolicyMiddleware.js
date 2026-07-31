@@ -1,4 +1,7 @@
-import { clinicalContinuityActionRegistryEnabled } from '../config/downtimeConfig.js';
+import {
+  clinicalContinuityActionRegistryEnabled,
+  clinicalContinuityFacilityContextEnabled,
+} from '../config/downtimeConfig.js';
 import {
   CLINICAL_CONTINUITY_ACTIONS_BY_ID
 } from '../config/clinicalContinuityActionCatalog.js';
@@ -10,6 +13,10 @@ import {
 import {
   evaluateClinicalContinuityActionRequest
 } from '../services/downtime/clinicalContinuityActionRegistryService.js';
+import {
+  decodeClinicalContinuityFacilityContextHeader,
+  resolveClinicalContinuityFacilityContext,
+} from '../services/downtime/clinicalContinuityFacilityContextService.js';
 import { error } from '../utils/responseHelper.js';
 
 const HEADER_PREFIX = 'x-vh-continuity-';
@@ -105,11 +112,34 @@ export async function clinicalContinuityActionPolicyMiddleware(req, res, next) {
     method: req.method,
     path
   });
-  const facilityId = numericHeader(req, 'facility-id');
   const capturedAt = header(req, 'captured-at');
   const claims = authorityClaims(req);
 
   try {
+    if (!clinicalContinuityFacilityContextEnabled()) {
+      return error(
+        res,
+        'Clinical continuity action was not authorized',
+        403,
+        {
+          code: 'CONTINUITY_FACILITY_CONTEXT_UNAVAILABLE',
+          decision: 'deny',
+          safe: true,
+        },
+      );
+    }
+    const clientFacilityId = header(req, 'facility-id')
+      ? numericHeader(req, 'facility-id')
+      : null;
+    const envelope = decodeClinicalContinuityFacilityContextHeader(
+      header(req, 'facility-context'),
+    );
+    const facilityContext = await resolveClinicalContinuityFacilityContext({
+      req,
+      envelope,
+      clientFacilityId,
+    });
+    const facilityId = facilityContext.facilityId;
     const result = await evaluateClinicalContinuityActionRequest({
       tenantId: req.tenantId,
       facilityId,
@@ -147,6 +177,18 @@ export async function clinicalContinuityActionPolicyMiddleware(req, res, next) {
       safe: true
     });
   } catch (err) {
+    if (String(err?.code || '').startsWith('CONTINUITY_FACILITY_CONTEXT_')) {
+      return error(
+        res,
+        'Clinical continuity action was not authorized',
+        403,
+        {
+          code: 'CONTINUITY_FACILITY_CONTEXT_DENIED',
+          decision: 'deny',
+          safe: true,
+        },
+      );
+    }
     return next(err);
   }
 }
