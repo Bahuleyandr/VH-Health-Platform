@@ -68,7 +68,7 @@ function diagnosticResourceIdentity(event) {
       'INPATIENT_PROJECTOR_DIAGNOSTIC_RESOURCE_ID_INVALID',
     );
   }
-  const occurredAt = new Date(event.payload?.occurred_at);
+  const occurredAt = new Date(event.occurred_at);
   if (
     Number.isNaN(occurredAt.getTime())
     || event.payload?.admission_lineage_version !== 1
@@ -387,7 +387,7 @@ export async function projectInpatientPathwayEvent({
     registry: runtimeRegistry,
   });
   const workflowDefinitionId = await approvedDefinitionIdTx(tx, tenantId, compiled.checksum);
-  const occurredAt = new Date(event.created_at).toISOString();
+  const occurredAt = new Date(event.occurred_at).toISOString();
   const actor = createRegisteredWorkflowSystemActor({
     registry: runtimeRegistry,
     systemKey: 'inpatient.pathway_projector.v1',

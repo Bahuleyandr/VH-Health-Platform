@@ -35,11 +35,12 @@ class NotificationOutbox {
    *   persisted as text; blank/null normalizes to NULL.
    * @returns {Object} The queued notification record
    */
-  async queue(notification) {
+  async queue(notification, { tx = null, strict = false } = {}) {
     try {
       const recipientId = toRecipientIdTextOrNull(notification.recipientId);
+      const db = tx || prisma;
 
-      const result = await prisma.$queryRawUnsafe(
+      const result = await db.$queryRawUnsafe(
         `INSERT INTO notification_outbox
           (type, recipient_id, recipient_phone, title, body, payload, status, created_at)
          VALUES ($1, $2::text, $3, $4, $5, $6::jsonb, 'PENDING', NOW())
@@ -55,6 +56,7 @@ class NotificationOutbox {
       );
       return result[0];
     } catch (err) {
+      if (strict) throw err;
       logger.warn('Notification outbox queue failed:', err.message);
       return null;
     }

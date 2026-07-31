@@ -63,6 +63,59 @@ function normalizePayload(payload) {
   return payload;
 }
 
+function normalizeOccurredAt(value, { required = false } = {}) {
+  if (value === null || value === undefined || value === '') {
+    if (required) {
+      throw AppError.badRequest(
+        'occurredAt is required for replay-origin events',
+        'EVENT_OUTBOX_OCCURRENCE_REQUIRED',
+      );
+    }
+    return null;
+  }
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) {
+    throw AppError.badRequest(
+      'occurredAt must be a valid timestamp',
+      'EVENT_OUTBOX_OCCURRENCE_INVALID',
+    );
+  }
+  return parsed.toISOString();
+}
+
+function normalizeRecoveryContract(recovery, occurredAt) {
+  if (recovery === null || recovery === undefined) {
+    return Object.freeze({
+      inboxId: null,
+      fingerprint: null,
+      effectDisposition: null,
+    });
+  }
+  if (!recovery || typeof recovery !== 'object' || Array.isArray(recovery)) {
+    throw AppError.badRequest('recovery must be an object', 'EVENT_OUTBOX_RECOVERY_INVALID');
+  }
+  const fingerprint = String(recovery.fingerprint || '').trim().toLowerCase();
+  const effectDisposition = String(recovery.effectDisposition || '').trim();
+  if (!UUID_PATTERN.test(String(recovery.inboxId || '')) || !/^[0-9a-f]{64}$/.test(fingerprint)) {
+    throw AppError.badRequest(
+      'recovery inbox identity and fingerprint are invalid',
+      'EVENT_OUTBOX_RECOVERY_INVALID',
+    );
+  }
+  if (!['normal', 'late_pending_only', 'signed_exception'].includes(effectDisposition)) {
+    throw AppError.badRequest(
+      'recovery effect disposition is invalid',
+      'EVENT_OUTBOX_RECOVERY_INVALID',
+    );
+  }
+  normalizeOccurredAt(occurredAt, { required: true });
+  return Object.freeze({
+    inboxId: String(recovery.inboxId).toLowerCase(),
+    fingerprint,
+    effectDisposition,
+  });
+}
+
 function backoffSecondsForAttempt(attemptNumber) {
   const index = Math.max(0, Math.min(attemptNumber - 1, BACKOFF_SECONDS.length - 1));
   return BACKOFF_SECONDS[index];
@@ -89,6 +142,8 @@ export async function publishEvent({
   payload = {},
   tx = null,
   tenantId = null,
+  occurredAt = null,
+  recovery = null,
 }) {
   if (!eventType || !aggregateType) {
     logger.warn('Skipped event_outbox insert: missing eventType or aggregateType', {
@@ -97,34 +152,60 @@ export async function publishEvent({
     });
     return null;
   }
+  const normalizedOccurredAt = normalizeOccurredAt(occurredAt);
+  const recoveryContract = normalizeRecoveryContract(recovery, occurredAt);
   const client = tx ?? prisma;
   const insert = () => (tenantId
     ? client.$queryRawUnsafe(
-      `INSERT INTO event_outbox
+      `WITH clock AS (SELECT NOW() AS inserted_at)
+       INSERT INTO event_outbox
          (event_type, aggregate_type, aggregate_id, patient_uid, payload, tenant_id,
-          status, available_at, created_at)
-       VALUES ($1, $2, $3, $4::uuid, $5::jsonb, $6::uuid, 'pending', NOW(), NOW())
+          status, available_at, created_at, occurred_at, occurred_at_source,
+          recovery_inbox_id, recovery_fingerprint, recovery_effect_disposition)
+       SELECT $1, $2, $3, $4::uuid, $5::jsonb, $6::uuid, 'pending',
+              clock.inserted_at, clock.inserted_at,
+              COALESCE($7::timestamptz, clock.inserted_at), 'explicit',
+              $8::uuid, $9::char(64), $10::text
+         FROM clock
        RETURNING id::text, event_type, aggregate_type, aggregate_id, patient_uid,
-                 status, tenant_id, created_at`,
+                 status, tenant_id, created_at, occurred_at, occurred_at_source,
+                 recovery_inbox_id::text, recovery_fingerprint,
+                 recovery_effect_disposition`,
       eventType,
       aggregateType,
       aggregateId ? String(aggregateId) : null,
       patientUid || null,
       JSON.stringify(normalizePayload(payload)),
       String(tenantId),
+      normalizedOccurredAt,
+      recoveryContract.inboxId,
+      recoveryContract.fingerprint,
+      recoveryContract.effectDisposition,
     )
     : client.$queryRawUnsafe(
-      `INSERT INTO event_outbox
+      `WITH clock AS (SELECT NOW() AS inserted_at)
+       INSERT INTO event_outbox
          (event_type, aggregate_type, aggregate_id, patient_uid, payload,
-          status, available_at, created_at)
-       VALUES ($1, $2, $3, $4::uuid, $5::jsonb, 'pending', NOW(), NOW())
+          status, available_at, created_at, occurred_at, occurred_at_source,
+          recovery_inbox_id, recovery_fingerprint, recovery_effect_disposition)
+       SELECT $1, $2, $3, $4::uuid, $5::jsonb, 'pending',
+              clock.inserted_at, clock.inserted_at,
+              COALESCE($6::timestamptz, clock.inserted_at), 'explicit',
+              $7::uuid, $8::char(64), $9::text
+         FROM clock
        RETURNING id::text, event_type, aggregate_type, aggregate_id, patient_uid,
-                 status, tenant_id, created_at`,
+                 status, tenant_id, created_at, occurred_at, occurred_at_source,
+                 recovery_inbox_id::text, recovery_fingerprint,
+                 recovery_effect_disposition`,
       eventType,
       aggregateType,
       aggregateId ? String(aggregateId) : null,
       patientUid || null,
       JSON.stringify(normalizePayload(payload)),
+      normalizedOccurredAt,
+      recoveryContract.inboxId,
+      recoveryContract.fingerprint,
+      recoveryContract.effectDisposition,
     ));
   if (tx) return (await insert())[0];
   try {
@@ -154,8 +235,10 @@ export async function listEvents({
   const safeOffset = boundedInteger(offset, 0, 0, 10_000, 'offset');
   return setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
     `SELECT id::text, event_type, aggregate_type, aggregate_id, patient_uid, payload,
-            status, attempts, available_at, last_error, created_at, delivered_at,
-            lease_owner, lease_expires_at, redrive_count
+            status, attempts, available_at, last_error, created_at, occurred_at,
+            occurred_at_source, recovery_inbox_id::text, recovery_fingerprint,
+            recovery_effect_disposition, delivered_at, lease_owner,
+            lease_expires_at, redrive_count
        FROM event_outbox
       WHERE tenant_id = $1::uuid
         AND status = $2::text
@@ -204,6 +287,9 @@ export async function claimPendingEvents({
           AND event.status = 'pending'
         RETURNING event.id::text, event.event_type, event.aggregate_type,
                   event.aggregate_id, event.patient_uid, event.payload,
+                  event.occurred_at, event.occurred_at_source,
+                  event.recovery_inbox_id::text, event.recovery_fingerprint,
+                  event.recovery_effect_disposition,
                   event.status, event.attempts, event.available_at,
                   event.tenant_id, event.lease_owner, event.lease_expires_at`,
       safeLimit,

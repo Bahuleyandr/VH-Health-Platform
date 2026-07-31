@@ -574,6 +574,31 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     cath_case_id: null,
     cath_usage_id: null,
   },
+  // mig 603: seed the preserved pathway-registry row shape. External recovery
+  // rows require operator-owned policy, retention, and cursor evidence and
+  // must never be synthesized by the generic coverage walker.
+  event_consumer_offsets: {
+    scope_kind: 'pathway_registry',
+    tenant_id: null,
+    facility_scope: null,
+    facility_id: null,
+    historical_cutoff_event_id: 0,
+    backfill_cursor_event_id: 0,
+  },
+  pathway_projector_inbox: {
+    scope_kind: 'pathway_registry',
+    event_id: 0,
+    offset_id: null,
+    facility_id: null,
+    pending_task_id: null,
+  },
+  cold_chain_readings: {
+    tenant_id: (ctx) => ctx.tenantId,
+    unit_id: async () => firstValue('cold_chain_units', 'id'),
+    device_registry_id: async () => firstValue('device_registry', 'id'),
+    facility_id: null,
+    recovery_inbox_id: null,
+  },
 };
 
 function seedOverrideFor(table, columnName) {

@@ -5116,16 +5116,43 @@ model escalation_rules {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model event_consumer_offsets {
-  consumer_key               String    @unique(map: "uq_event_consumer_offsets_live_consumer", where: raw("(intake_retired_at IS NULL)")) @db.VarChar(120)
+  consumer_key               String                    @unique(map: "uq_event_consumer_offsets_live_consumer", where: raw("(((scope_kind)::text = 'pathway_registry'::text) AND (intake_retired_at IS NULL))")) @db.VarChar(120)
   generation                 Int
-  historical_cutoff_event_id BigInt
-  backfill_cursor_event_id   BigInt    @default(0)
-  backfill_completed_at      DateTime? @db.Timestamptz(6)
-  intake_retired_at          DateTime? @db.Timestamptz(6)
-  registered_at              DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  historical_cutoff_event_id BigInt?
+  backfill_cursor_event_id   BigInt?                   @default(0)
+  backfill_completed_at      DateTime?                 @db.Timestamptz(6)
+  intake_retired_at          DateTime?                 @db.Timestamptz(6)
+  registered_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  offset_id                  String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scope_kind                 String                    @default("pathway_registry") @db.VarChar(32)
+  tenant_id                  String?                   @db.Uuid
+  facility_scope             String?                   @db.VarChar(16)
+  facility_id                Int?
+  interface_family           String?                   @db.VarChar(8)
+  direction                  String?                   @db.VarChar(16)
+  source_partition           String?                   @db.VarChar(160)
+  cursor_kind                String?                   @db.VarChar(40)
+  high_water_position        BigInt?
+  high_water_token           String?                   @db.VarChar(255)
+  retained_from_position     BigInt?
+  retained_from_token        String?                   @db.VarChar(255)
+  resume_cutoff_position     BigInt?
+  resume_cutoff_token        String?                   @db.VarChar(255)
+  recovery_state             String?                   @db.VarChar(80)
+  reconciliation_reason      String?                   @db.VarChar(160)
+  policy_version             String?                   @db.VarChar(80)
+  policy_signature           String?                   @db.VarChar(128)
+  retention_policy           String?                   @db.VarChar(80)
+  retention_until            DateTime?                 @db.Timestamptz(6)
+  facilities                 facilities?               @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_consumer_offsets_facility")
+  tenants                    tenants?                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_consumer_offsets_tenant")
+  pathway_projector_inbox    pathway_projector_inbox[]
 
-  @@id([consumer_key, generation])
+  @@unique([tenant_id, interface_family, direction, source_partition, generation], map: "uq_event_consumer_offsets_external_generation", where: raw("((scope_kind)::text = 'external_interface'::text)"))
+  @@unique([tenant_id, interface_family, direction, source_partition], map: "uq_event_consumer_offsets_external_live", where: raw("(((scope_kind)::text = 'external_interface'::text) AND (intake_retired_at IS NULL))"))
+  @@unique([consumer_key, generation], map: "uq_event_consumer_offsets_pathway_generation", where: raw("((scope_kind)::text = 'pathway_registry'::text)"))
+  @@unique([tenant_id, offset_id], map: "ux_event_consumer_offsets_tenant_offset")
 }
 
 model event_outbox {
@@ -5145,8 +5172,14 @@ model event_outbox {
   lease_owner                            String?                                 @db.Uuid
   lease_expires_at                       DateTime?                               @db.Timestamptz(6)
   redrive_count                          Int                                     @default(0)
+  occurred_at                            DateTime                                @default(now()) @db.Timestamptz(6)
+  occurred_at_source                     String                                  @default("explicit") @db.VarChar(32)
+  recovery_inbox_id                      String?                                 @db.Uuid
+  recovery_fingerprint                   String?                                 @db.Char(64)
+  recovery_effect_disposition            String?                                 @db.VarChar(32)
   care_pathway_resource_references       care_pathway_resource_references[]
   discharge_pending_result_owner_actions discharge_pending_result_owner_actions?
+  pathway_projector_inbox                pathway_projector_inbox?                @relation(fields: [tenant_id, recovery_inbox_id, occurred_at, recovery_fingerprint, recovery_effect_disposition], references: [tenant_id, inbox_id, occurred_at, command_fingerprint, effect_disposition], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_recovery_contract")
   tenants                                tenants                                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_tenant")
 
   @@unique([tenant_id, id], map: "ux_event_outbox_tenant_id")
@@ -5209,12 +5242,16 @@ model facilities {
   clinical_continuity_edge_access_revocations clinical_continuity_edge_access_revocations[]
   clinical_continuity_edge_log_receipts       clinical_continuity_edge_log_receipts[]
   clinical_continuity_policy_versions         clinical_continuity_policy_versions[]
+  cold_chain_readings                         cold_chain_readings[]
+  cold_chain_units                            cold_chain_units[]
   downtime_snapshots                          downtime_snapshots[]
   emergency_visits                            emergency_visits[]
+  event_consumer_offsets                      event_consumer_offsets[]
   tenants                                     tenants                                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   facility_locations                          facility_locations[]
   facility_rooms                              facility_rooms[]
   lab_analyzers                               lab_analyzers[]
+  pathway_projector_inbox                     pathway_projector_inbox[]
   queue_display_profiles                      queue_display_profiles[]
   service_catalog                             service_catalog[]
   wards                                       wards[]
@@ -9784,6 +9821,7 @@ model tasks {
   engagement_follow_up_steps                  engagement_follow_up_steps[]
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts?
   lab_critical_alerts                         lab_critical_alerts[]                        @relation("lab_critical_alert_ack_task")
+  pathway_projector_inbox                     pathway_projector_inbox[]
   task_comments                               task_comments[]
   parent_task_same_run                        tasks?                                       @relation("tasks_parent_same_run", fields: [tenant_id, parent_task_id, workflow_run_id], references: [tenant_id, id, workflow_run_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_tasks_parent_same_run")
   child_tasks_same_run                        tasks[]                                      @relation("tasks_parent_same_run")
@@ -10161,6 +10199,7 @@ model tenants {
   engagement_templates                        engagement_templates[]
   entitlement_audit_events                    entitlement_audit_events[]
   escalation_rules                            escalation_rules[]
+  event_consumer_offsets                      event_consumer_offsets[]
   event_outbox                                event_outbox[]
   external_system_mappings                    external_system_mappings[]
   facilities                                  facilities?
@@ -17207,51 +17246,54 @@ model device_patient_associations {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model device_registry {
-  id                                    Int                                     @id @default(autoincrement())
-  tenant_id                             String                                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  device_code                           String                                  @db.VarChar(120)
-  display_name                          String                                  @db.VarChar(255)
-  kind                                  String                                  @db.VarChar(40)
-  protocol                              String                                  @default("mllp-hl7v2") @db.VarChar(40)
-  vendor                                String?                                 @db.VarChar(120)
-  model                                 String?                                 @db.VarChar(120)
-  serial_number                         String?                                 @db.VarChar(120)
-  biomed_device_id                      Int?
-  location_id                           Int?
-  allowed_source_ips                    String[]                                @default([]) @db.Inet
-  credential_hash                       String?                                 @db.VarChar(96)
-  credential_prefix                     String?                                 @db.VarChar(32)
-  status                                String                                  @default("active") @db.VarChar(24)
-  last_seen_at                          DateTime?                               @db.Timestamptz(6)
-  metadata                              Json                                    @default("{}")
-  created_by                            String?                                 @db.Uuid
-  created_at                            DateTime                                @default(now()) @db.Timestamptz(6)
-  updated_at                            DateTime                                @default(now()) @db.Timestamptz(6)
-  charting_interval_minutes             Int                                     @default(5)
-  critical_suppression_window_minutes   Int                                     @default(10)
-  warning_suppression_window_minutes    Int                                     @default(30)
-  artifact_filter_required              Int                                     @default(2)
-  artifact_filter_window                Int                                     @default(3)
-  expected_interval_seconds             Int                                     @default(60)
-  cold_chain_readings                   cold_chain_readings[]
-  cold_chain_units                      cold_chain_units[]
-  device_patient_associations           device_patient_associations[]
-  clinical_ai_biomed_devices            clinical_ai_biomed_devices?             @relation(fields: [biomed_device_id], references: [id], onUpdate: NoAction)
-  facility_locations                    facility_locations?                     @relation(fields: [location_id], references: [id], onUpdate: NoAction)
-  device_vital_sample_observations      device_vital_sample_observations[]
-  device_vital_suppression_counters     device_vital_suppression_counters[]
-  device_vitals_control_ids             device_vitals_control_ids[]
-  ed_encounter_evidence                 ed_encounter_evidence[]
-  icu_device_observation_links          icu_device_observation_links[]
-  nicu_cardiorespiratory_events         nicu_cardiorespiratory_events[]
-  nicu_feed_fluid_entries               nicu_feed_fluid_entries[]
-  nicu_jaundice_phototherapy_events     nicu_jaundice_phototherapy_events[]
-  nicu_respiratory_support_observations nicu_respiratory_support_observations[]
-  nicu_thermal_environment_observations nicu_thermal_environment_observations[]
-  prehospital_device_links              prehospital_device_links[]
-  resuscitation_device_links            resuscitation_device_links[]
+  id                                                                                    Int                                     @id @default(autoincrement())
+  tenant_id                                                                             String                                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  device_code                                                                           String                                  @db.VarChar(120)
+  display_name                                                                          String                                  @db.VarChar(255)
+  kind                                                                                  String                                  @db.VarChar(40)
+  protocol                                                                              String                                  @default("mllp-hl7v2") @db.VarChar(40)
+  vendor                                                                                String?                                 @db.VarChar(120)
+  model                                                                                 String?                                 @db.VarChar(120)
+  serial_number                                                                         String?                                 @db.VarChar(120)
+  biomed_device_id                                                                      Int?
+  location_id                                                                           Int?
+  allowed_source_ips                                                                    String[]                                @default([]) @db.Inet
+  credential_hash                                                                       String?                                 @db.VarChar(96)
+  credential_prefix                                                                     String?                                 @db.VarChar(32)
+  status                                                                                String                                  @default("active") @db.VarChar(24)
+  last_seen_at                                                                          DateTime?                               @db.Timestamptz(6)
+  metadata                                                                              Json                                    @default("{}")
+  created_by                                                                            String?                                 @db.Uuid
+  created_at                                                                            DateTime                                @default(now()) @db.Timestamptz(6)
+  updated_at                                                                            DateTime                                @default(now()) @db.Timestamptz(6)
+  charting_interval_minutes                                                             Int                                     @default(5)
+  critical_suppression_window_minutes                                                   Int                                     @default(10)
+  warning_suppression_window_minutes                                                    Int                                     @default(30)
+  artifact_filter_required                                                              Int                                     @default(2)
+  artifact_filter_window                                                                Int                                     @default(3)
+  expected_interval_seconds                                                             Int                                     @default(60)
+  cold_chain_readings                                                                   cold_chain_readings[]
+  cold_chain_readings_cold_chain_readings_tenant_id_device_registry_idTodevice_registry cold_chain_readings[]                   @relation("cold_chain_readings_tenant_id_device_registry_idTodevice_registry")
+  cold_chain_units                                                                      cold_chain_units[]
+  cold_chain_units_cold_chain_units_tenant_id_device_registry_idTodevice_registry       cold_chain_units?                       @relation("cold_chain_units_tenant_id_device_registry_idTodevice_registry")
+  device_patient_associations                                                           device_patient_associations[]
+  clinical_ai_biomed_devices                                                            clinical_ai_biomed_devices?             @relation(fields: [biomed_device_id], references: [id], onUpdate: NoAction)
+  facility_locations                                                                    facility_locations?                     @relation(fields: [location_id], references: [id], onUpdate: NoAction)
+  device_vital_sample_observations                                                      device_vital_sample_observations[]
+  device_vital_suppression_counters                                                     device_vital_suppression_counters[]
+  device_vitals_control_ids                                                             device_vitals_control_ids[]
+  ed_encounter_evidence                                                                 ed_encounter_evidence[]
+  icu_device_observation_links                                                          icu_device_observation_links[]
+  nicu_cardiorespiratory_events                                                         nicu_cardiorespiratory_events[]
+  nicu_feed_fluid_entries                                                               nicu_feed_fluid_entries[]
+  nicu_jaundice_phototherapy_events                                                     nicu_jaundice_phototherapy_events[]
+  nicu_respiratory_support_observations                                                 nicu_respiratory_support_observations[]
+  nicu_thermal_environment_observations                                                 nicu_thermal_environment_observations[]
+  prehospital_device_links                                                              prehospital_device_links[]
+  resuscitation_device_links                                                            resuscitation_device_links[]
 
   @@unique([tenant_id, device_code], map: "ux_device_registry_tenant_code")
+  @@unique([tenant_id, id], map: "ux_device_registry_tenant_id")
   @@index([tenant_id, last_seen_at], map: "idx_device_registry_last_seen", where: raw("((status)::text = 'active'::text)"))
   @@index([tenant_id, status, kind], map: "idx_device_registry_tenant_status")
 }
@@ -18405,20 +18447,27 @@ model cold_chain_excursions {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model cold_chain_readings {
-  id                 BigInt           @id @default(autoincrement())
-  tenant_id          String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  unit_id            Int
-  device_registry_id Int
-  temp_c             Decimal          @db.Decimal(5, 2)
-  humidity_pct       Decimal?         @db.Decimal(5, 2)
-  battery_pct        Decimal?         @db.Decimal(5, 2)
-  recorded_at        DateTime         @db.Timestamptz(6)
-  received_at        DateTime         @default(now()) @db.Timestamptz(6)
-  metadata           Json             @default("{}")
-  device_registry    device_registry  @relation(fields: [device_registry_id], references: [id], onUpdate: NoAction)
-  tenants            tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  cold_chain_units   cold_chain_units @relation(fields: [unit_id], references: [id], onUpdate: NoAction)
+  id                                                                                BigInt                   @id @default(autoincrement())
+  tenant_id                                                                         String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  unit_id                                                                           Int
+  device_registry_id                                                                Int
+  temp_c                                                                            Decimal                  @db.Decimal(5, 2)
+  humidity_pct                                                                      Decimal?                 @db.Decimal(5, 2)
+  battery_pct                                                                       Decimal?                 @db.Decimal(5, 2)
+  recorded_at                                                                       DateTime                 @db.Timestamptz(6)
+  received_at                                                                       DateTime                 @default(now()) @db.Timestamptz(6)
+  metadata                                                                          Json                     @default("{}")
+  facility_id                                                                       Int?
+  recovery_inbox_id                                                                 String?                  @db.Uuid
+  device_registry                                                                   device_registry          @relation(fields: [device_registry_id], references: [id], onUpdate: NoAction)
+  tenants                                                                           tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cold_chain_units                                                                  cold_chain_units         @relation(fields: [unit_id], references: [id], onUpdate: NoAction)
+  device_registry_cold_chain_readings_tenant_id_device_registry_idTodevice_registry device_registry          @relation("cold_chain_readings_tenant_id_device_registry_idTodevice_registry", fields: [tenant_id, device_registry_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cold_chain_readings_device_tenant")
+  facilities                                                                        facilities?              @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cold_chain_readings_facility_tenant")
+  pathway_projector_inbox                                                           pathway_projector_inbox? @relation(fields: [tenant_id, recovery_inbox_id, facility_id], references: [tenant_id, inbox_id, facility_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cold_chain_readings_recovery_inbox")
+  cold_chain_units_cold_chain_readings_tenant_id_unit_idTocold_chain_units          cold_chain_units         @relation("cold_chain_readings_tenant_id_unit_idTocold_chain_units", fields: [tenant_id, unit_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cold_chain_readings_unit_tenant")
 
+  @@unique([tenant_id, id], map: "ux_cold_chain_readings_tenant_id")
   @@index([recorded_at], map: "brin_cold_chain_readings_recorded", type: Brin)
   @@index([tenant_id, device_registry_id, recorded_at(sort: Desc)], map: "idx_cold_chain_readings_device_recorded")
   @@index([tenant_id, unit_id, recorded_at(sort: Desc)], map: "idx_cold_chain_readings_unit_recorded")
@@ -18427,35 +18476,40 @@ model cold_chain_readings {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model cold_chain_units {
-  id                                 Int                                  @id @default(autoincrement())
-  tenant_id                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  unit_code                          String                               @db.VarChar(120)
-  display_name                       String                               @db.VarChar(255)
-  kind                               String                               @db.VarChar(32)
-  department                         String                               @db.VarChar(32)
-  location_id                        Int?
-  biomed_device_id                   Int?
-  device_registry_id                 Int
-  min_temp_c                         Decimal                              @db.Decimal(5, 2)
-  max_temp_c                         Decimal                              @db.Decimal(5, 2)
-  excursion_grace_minutes            Int                                  @default(15)
-  alert_roles                        String[]                             @default([])
-  status                             String                               @default("active") @db.VarChar(24)
-  retention_days                     Int                                  @default(730)
-  metadata                           Json                                 @default("{}")
-  created_by                         String?                              @db.Uuid
-  created_at                         DateTime                             @default(now()) @db.Timestamptz(6)
-  updated_at                         DateTime                             @default(now()) @db.Timestamptz(6)
-  cold_chain_blood_bank_review_flags cold_chain_blood_bank_review_flags[]
-  cold_chain_excursions              cold_chain_excursions[]
-  cold_chain_readings                cold_chain_readings[]
-  clinical_ai_biomed_devices         clinical_ai_biomed_devices?          @relation(fields: [biomed_device_id], references: [id], onUpdate: NoAction)
-  device_registry                    device_registry                      @relation(fields: [device_registry_id], references: [id], onUpdate: NoAction)
-  facility_locations                 facility_locations?                  @relation(fields: [location_id], references: [id], onUpdate: NoAction)
-  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                                                                             Int                                  @id @default(autoincrement())
+  tenant_id                                                                      String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  unit_code                                                                      String                               @db.VarChar(120)
+  display_name                                                                   String                               @db.VarChar(255)
+  kind                                                                           String                               @db.VarChar(32)
+  department                                                                     String                               @db.VarChar(32)
+  location_id                                                                    Int?
+  biomed_device_id                                                               Int?
+  device_registry_id                                                             Int
+  min_temp_c                                                                     Decimal                              @db.Decimal(5, 2)
+  max_temp_c                                                                     Decimal                              @db.Decimal(5, 2)
+  excursion_grace_minutes                                                        Int                                  @default(15)
+  alert_roles                                                                    String[]                             @default([])
+  status                                                                         String                               @default("active") @db.VarChar(24)
+  retention_days                                                                 Int                                  @default(730)
+  metadata                                                                       Json                                 @default("{}")
+  created_by                                                                     String?                              @db.Uuid
+  created_at                                                                     DateTime                             @default(now()) @db.Timestamptz(6)
+  updated_at                                                                     DateTime                             @default(now()) @db.Timestamptz(6)
+  facility_id                                                                    Int?
+  cold_chain_blood_bank_review_flags                                             cold_chain_blood_bank_review_flags[]
+  cold_chain_excursions                                                          cold_chain_excursions[]
+  cold_chain_readings                                                            cold_chain_readings[]
+  cold_chain_readings_cold_chain_readings_tenant_id_unit_idTocold_chain_units    cold_chain_readings[]                @relation("cold_chain_readings_tenant_id_unit_idTocold_chain_units")
+  clinical_ai_biomed_devices                                                     clinical_ai_biomed_devices?          @relation(fields: [biomed_device_id], references: [id], onUpdate: NoAction)
+  device_registry                                                                device_registry                      @relation(fields: [device_registry_id], references: [id], onUpdate: NoAction)
+  facility_locations                                                             facility_locations?                  @relation(fields: [location_id], references: [id], onUpdate: NoAction)
+  tenants                                                                        tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  device_registry_cold_chain_units_tenant_id_device_registry_idTodevice_registry device_registry                      @relation("cold_chain_units_tenant_id_device_registry_idTodevice_registry", fields: [tenant_id, device_registry_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cold_chain_units_device_tenant")
+  facilities                                                                     facilities?                          @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cold_chain_units_facility_tenant")
 
   @@unique([tenant_id, unit_code], map: "ux_cold_chain_units_tenant_code")
   @@unique([tenant_id, device_registry_id], map: "ux_cold_chain_units_tenant_device_active", where: raw("((status)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying])::text[]))"))
+  @@unique([tenant_id, id], map: "ux_cold_chain_units_tenant_id")
   @@index([tenant_id, status, department], map: "idx_cold_chain_units_tenant_status")
 }
 
@@ -24366,25 +24420,58 @@ model cath_consumables_billing_settings {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pathway_projector_inbox {
-  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  consumer_key     String    @db.VarChar(120)
-  generation       Int
-  event_id         BigInt
-  status           String    @default("pending") @db.VarChar(20)
-  attempts         Int       @default(0)
-  lease_owner      String?   @db.Uuid
-  lease_expires_at DateTime? @db.Timestamptz(6)
-  next_attempt_at  DateTime  @default(now()) @db.Timestamptz(6)
-  last_error       String?
-  outcome_at       DateTime? @db.Timestamptz(6)
-  created_at       DateTime  @default(now()) @db.Timestamptz(6)
-  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
+  tenant_id              String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consumer_key           String                  @db.VarChar(120)
+  generation             Int
+  event_id               BigInt?
+  status                 String                  @default("pending") @db.VarChar(20)
+  attempts               Int                     @default(0)
+  lease_owner            String?                 @db.Uuid
+  lease_expires_at       DateTime?               @db.Timestamptz(6)
+  next_attempt_at        DateTime                @default(now()) @db.Timestamptz(6)
+  last_error             String?
+  outcome_at             DateTime?               @db.Timestamptz(6)
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  inbox_id               String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scope_kind             String                  @default("pathway_registry") @db.VarChar(32)
+  offset_id              String?                 @db.Uuid
+  facility_id            Int?
+  interface_family       String?                 @db.VarChar(8)
+  direction              String?                 @db.VarChar(16)
+  source_partition       String?                 @db.VarChar(160)
+  source_position        BigInt?
+  source_token           String?                 @db.VarChar(255)
+  predecessor_token      String?                 @db.VarChar(255)
+  duplicate_key          String?                 @db.VarChar(255)
+  command_fingerprint    String?                 @db.Char(64)
+  occurred_at            DateTime?               @db.Timestamptz(6)
+  received_at            DateTime?               @db.Timestamptz(6)
+  recorded_at            DateTime?               @db.Timestamptz(6)
+  arrival_class          String?                 @db.VarChar(32)
+  effect_disposition     String?                 @db.VarChar(32)
+  outcome_code           String?                 @db.VarChar(80)
+  pending_task_id        Int?
+  policy_version         String?                 @db.VarChar(80)
+  policy_signature       String?                 @db.VarChar(128)
+  retention_policy       String?                 @db.VarChar(80)
+  retention_until        DateTime?               @db.Timestamptz(6)
+  cold_chain_readings    cold_chain_readings[]
+  event_outbox           event_outbox[]
+  facilities             facilities?             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
+  event_consumer_offsets event_consumer_offsets? @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")
+  tasks                  tasks?                  @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_pending_task")
+  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
 
-  @@id([tenant_id, consumer_key, generation, event_id])
+  @@unique([tenant_id, interface_family, direction, source_partition, duplicate_key], map: "uq_pathway_projector_inbox_external_duplicate", where: raw("((scope_kind)::text = 'external_interface'::text)"))
+  @@unique([tenant_id, offset_id, generation, source_position], map: "uq_pathway_projector_inbox_external_position", where: raw("((scope_kind)::text = 'external_interface'::text)"))
+  @@unique([tenant_id, consumer_key, generation, event_id], map: "uq_pathway_projector_inbox_pathway_event", where: raw("((scope_kind)::text = 'pathway_registry'::text)"))
+  @@unique([tenant_id, inbox_id, facility_id], map: "ux_pathway_projector_inbox_facility_identity")
+  @@unique([tenant_id, inbox_id, occurred_at, command_fingerprint, effect_disposition], map: "ux_pathway_projector_inbox_recovery_contract")
   @@index([consumer_key, generation, next_attempt_at, event_id], map: "idx_pathway_projector_inbox_pending", where: raw("(((status)::text = 'pending'::text) AND (lease_owner IS NULL))"))
   @@index([consumer_key, generation, lease_expires_at, event_id], map: "idx_pathway_projector_inbox_stale", where: raw("(((status)::text = 'pending'::text) AND (lease_owner IS NOT NULL))"))
   @@index([tenant_id, consumer_key, generation, status, event_id], map: "idx_pathway_projector_inbox_tenant_ops")
   @@index([consumer_key, generation, status, created_at, lease_owner], map: "idx_pathway_projector_inbox_metrics", where: raw("((status)::text = ANY ((ARRAY['pending'::character varying, 'dead'::character varying])::text[]))"))
+  @@index([tenant_id, offset_id, source_position, next_attempt_at], map: "idx_pathway_projector_inbox_external_due", where: raw("(((scope_kind)::text = 'external_interface'::text) AND ((status)::text = 'pending'::text))"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

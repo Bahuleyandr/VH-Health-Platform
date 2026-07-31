@@ -19,6 +19,7 @@ import {
   resolveCurrentHumanActorTx,
 } from '../workflow/workflowHumanOwnerService.js';
 import { startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
+import { requireExternalRecoveryCapability } from '../integrations/externalRecoveryEffectGate.js';
 
 const COLD_CHAIN_SLA_KEY = 'cold_chain_excursion_ack';
 const COLD_CHAIN_ALERT_ROLE_ERROR_CODE = 'COLD_CHAIN_ALERT_ROLE_INVALID';
@@ -670,13 +671,16 @@ export async function createColdChainUnit(input = {}, context = {}) {
   return setTenantTx(tenantId, async (tx) => {
     await requireFridgeSensor(tx, { tenantId, deviceRegistryId: normalized.deviceRegistryId });
     const rows = await tx.$queryRawUnsafe(
-      `INSERT INTO cold_chain_units
-         (tenant_id, unit_code, display_name, kind, department, location_id, biomed_device_id,
-          device_registry_id, min_temp_c, max_temp_c, excursion_grace_minutes, alert_roles,
-          status, retention_days, metadata, created_by)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::int, $7::int,
-               $8::int, $9::numeric, $10::numeric, $11::int, $12::text[],
-               $13, $14::int, $15::jsonb, $16::uuid)
+       `INSERT INTO cold_chain_units
+          (tenant_id, unit_code, display_name, kind, department, location_id, facility_id, biomed_device_id,
+           device_registry_id, min_temp_c, max_temp_c, excursion_grace_minutes, alert_roles,
+           status, retention_days, metadata, created_by)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6::int,
+                (SELECT facility_id
+                   FROM facility_locations
+                  WHERE tenant_id = $1::uuid AND id = $6::int),
+                $7::int, $8::int, $9::numeric, $10::numeric, $11::int, $12::text[],
+                $13, $14::int, $15::jsonb, $16::uuid)
        RETURNING *`,
       tenantId,
       normalized.unitCode,
@@ -717,10 +721,15 @@ export async function updateColdChainUnit({ tenantId, id, patch = {} } = {}) {
       `UPDATE cold_chain_units
           SET unit_code = $3,
               display_name = $4,
-              kind = $5,
-              department = $6,
-              location_id = $7::int,
-              biomed_device_id = $8::int,
+               kind = $5,
+               department = $6,
+               location_id = $7::int,
+               facility_id = (
+                 SELECT facility_id
+                   FROM facility_locations
+                  WHERE tenant_id = $1::uuid AND id = $7::int
+               ),
+               biomed_device_id = $8::int,
               device_registry_id = $9::int,
               min_temp_c = $10::numeric,
               max_temp_c = $11::numeric,
@@ -826,10 +835,13 @@ export async function ingestColdChainReading(input = {}, context = {}) {
     if (!unit) throw AppError.notFound('Cold-chain unit not found for device', 'COLD_CHAIN_UNIT_NOT_FOUND');
     const readingRows = await tx.$queryRawUnsafe(
       `INSERT INTO cold_chain_readings
-         (tenant_id, unit_id, device_registry_id, temp_c, humidity_pct, battery_pct, recorded_at, metadata)
-       VALUES ($1::uuid, $2::int, $3::int, $4::numeric, $5::numeric, $6::numeric, $7::timestamptz, $8::jsonb)
+         (tenant_id, facility_id, unit_id, device_registry_id, temp_c,
+          humidity_pct, battery_pct, recorded_at, metadata)
+       VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::numeric,
+               $6::numeric, $7::numeric, $8::timestamptz, $9::jsonb)
        RETURNING *`,
       tenantId,
+      unit.facility_id,
       unit.id,
       device.id,
       normalized.tempC,
@@ -934,6 +946,148 @@ export async function ingestColdChainReading(input = {}, context = {}) {
     emitColdChain('reading-recorded', { tenantId, unit: result.unit, excursion: result.excursion });
   }
   return result;
+}
+
+export async function persistLateColdChainRecovery({
+  tx,
+  capability,
+  tenantId,
+  facilityId,
+  recoveryInboxId,
+  occurredAt,
+  command = {},
+} = {}) {
+  if (!tx) {
+    throw new TypeError('Late cold-chain recovery requires the seam transaction');
+  }
+  requireExternalRecoveryCapability(capability, {
+    tenantId,
+    facilityId,
+    effectDisposition: 'late_pending_only',
+  });
+  const tid = requireTenantId(tenantId);
+  const facility = normalizePositiveInt(facilityId, 'facility_id', { required: true });
+  const unitId = normalizePositiveInt(
+    command.unit_id ?? command.unitId,
+    'unit_id',
+    { required: true },
+  );
+  const deviceRegistryId = normalizePositiveInt(
+    command.device_registry_id ?? command.deviceRegistryId,
+    'device_registry_id',
+    { required: true },
+  );
+  if (command.recorded_at == null && command.recordedAt == null) {
+    throw AppError.badRequest(
+      'recorded_at is required',
+      'COLD_CHAIN_RECOVERY_RECORDED_AT_REQUIRED',
+    );
+  }
+  const recordedAt = normalizeTimestamp(
+    command.recorded_at ?? command.recordedAt,
+    'recorded_at',
+  );
+  const canonicalOccurredAt = normalizeTimestamp(occurredAt, 'occurred_at');
+  if (recordedAt !== canonicalOccurredAt) {
+    throw AppError.conflict(
+      'Cold-chain reading occurrence does not match the durable recovery item',
+      'COLD_CHAIN_RECOVERY_OCCURRENCE_MISMATCH',
+    );
+  }
+
+  const unit = await findUnit(tx, {
+    tenantId: tid,
+    unitId,
+    deviceRegistryId,
+    activeOnly: true,
+  });
+  if (!unit) {
+    throw AppError.notFound(
+      'Cold-chain unit not found for recovery item',
+      'COLD_CHAIN_RECOVERY_UNIT_NOT_FOUND',
+    );
+  }
+  if (Number(unit.facility_id) !== facility) {
+    throw AppError.conflict(
+      'Cold-chain recovery facility does not match the unit',
+      'COLD_CHAIN_RECOVERY_FACILITY_MISMATCH',
+    );
+  }
+
+  const tempC = normalizeNumber(
+    command.temp_c ?? command.temperature_c ?? command.tempC,
+    'temp_c',
+    { required: true },
+  );
+  const humidityPct = normalizeNumber(
+    command.humidity_pct ?? command.humidityPct,
+    'humidity_pct',
+    { min: 0, max: 100 },
+  );
+  const batteryPct = normalizeNumber(
+    command.battery_pct ?? command.batteryPct,
+    'battery_pct',
+    { min: 0, max: 100 },
+  );
+  const metadata = jsonObject(command.metadata, 'metadata');
+  const readingRows = await tx.$queryRawUnsafe(
+    `INSERT INTO cold_chain_readings
+       (tenant_id, facility_id, unit_id, device_registry_id, temp_c,
+        humidity_pct, battery_pct, recorded_at, metadata, recovery_inbox_id)
+     VALUES
+       ($1::uuid, $2::integer, $3::integer, $4::integer, $5::numeric,
+        $6::numeric, $7::numeric, $8::timestamptz, $9::jsonb, $10::uuid)
+     RETURNING *`,
+    tid,
+    facility,
+    unit.id,
+    deviceRegistryId,
+    tempC,
+    humidityPct,
+    batteryPct,
+    canonicalOccurredAt,
+    JSON.stringify({
+      ...metadata,
+      external_recovery: {
+        interface_family: 'I10',
+        inbox_id: recoveryInboxId,
+        effect_disposition: 'late_pending_only',
+      },
+    }),
+    recoveryInboxId,
+  );
+  const reading = readingRows[0];
+  const outOfRange = isReadingOutOfRange(unit, reading.temp_c);
+  const assignedToRole = unit.alert_roles?.[0]
+    || defaultAlertRoles(unit.department)[0];
+  const task = await createTask({
+    tenantId: tid,
+    taskKind: 'review',
+    title: `Review late cold-chain reading for ${unit.display_name}`,
+    description: 'A recovered sensor reading requires human review and did not alter live excursion state.',
+    relatedResourceType: 'cold_chain_readings',
+    relatedResourceId: String(reading.id),
+    priority: outOfRange ? 'high' : 'normal',
+    assignedToRole,
+    metadata: {
+      contract: 'external_recovery_late_pending_only_v1',
+      interface_family: 'I10',
+      recovery_inbox_id: recoveryInboxId,
+      unit_id: unit.id,
+      facility_id: facility,
+      recorded_at: canonicalOccurredAt,
+      out_of_range: outOfRange,
+    },
+    tx,
+    onConflictResourceDoNothing: true,
+  });
+  if (!task) {
+    throw AppError.internal(
+      'Late cold-chain recovery review task could not be materialized',
+      'COLD_CHAIN_RECOVERY_TASK_MISSING',
+    );
+  }
+  return Object.freeze({ unit, reading, task });
 }
 
 export async function acknowledgeColdChainExcursion({

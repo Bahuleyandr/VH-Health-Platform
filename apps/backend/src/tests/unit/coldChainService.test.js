@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 import { AppError } from '../../utils/AppError.js';
+import { mintExternalRecoveryCapability } from '../../services/integrations/externalRecoveryEffectGate.js';
 
 const queryRawMock = jest.fn();
 const executeRawMock = jest.fn();
@@ -83,6 +84,7 @@ const {
   buildTemperatureRegisterCsv,
   createColdChainUnit,
   ingestColdChainReading,
+  persistLateColdChainRecovery,
   recordColdChainCorrectiveAction,
   runSilentSensorWatchdog,
   updateColdChainUnit,
@@ -168,6 +170,89 @@ describe('coldChainService invariants', () => {
       observedAt: '2026-07-07T10:15:00.000Z',
       graceMinutes: 15,
     })).toBe(true);
+  });
+
+  it('persists late recovery as one reading plus pending review without live effects', async () => {
+    const inboxId = '44444444-4444-4444-8444-444444444444';
+    const occurredAt = '2026-07-07T09:00:00.000Z';
+    queryRawMock
+      .mockResolvedValueOnce([{
+        id: 11,
+        tenant_id: TENANT_ID,
+        facility_id: 5,
+        device_registry_id: 19,
+        unit_code: 'PH-FRIDGE-1',
+        display_name: 'Pharmacy Fridge 1',
+        department: 'pharmacy',
+        min_temp_c: 2,
+        max_temp_c: 8,
+        alert_roles: ['PHARMACY_STAFF'],
+      }])
+      .mockResolvedValueOnce([{
+        id: 88n,
+        tenant_id: TENANT_ID,
+        facility_id: 5,
+        unit_id: 11,
+        device_registry_id: 19,
+        temp_c: 10,
+        recorded_at: new Date(occurredAt),
+      }]);
+    const capability = mintExternalRecoveryCapability({
+      inboxId,
+      tenantId: TENANT_ID,
+      facilityId: 5,
+      effectDisposition: 'late_pending_only',
+    });
+
+    const result = await persistLateColdChainRecovery({
+      tx: tenantTxClient,
+      capability,
+      tenantId: TENANT_ID,
+      facilityId: 5,
+      recoveryInboxId: inboxId,
+      occurredAt,
+      command: {
+        unit_id: 11,
+        device_registry_id: 19,
+        temp_c: 10,
+        recorded_at: occurredAt,
+        metadata: { source: 'synthetic' },
+      },
+    });
+
+    expect(result).toMatchObject({
+      reading: { id: 88n },
+      task: { id: 77 },
+    });
+    expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT_ID,
+      taskKind: 'review',
+      relatedResourceType: 'cold_chain_readings',
+      relatedResourceId: '88',
+      priority: 'high',
+      tx: tenantTxClient,
+    }));
+    expect(startWorkflowSlaMock).not.toHaveBeenCalled();
+    expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(emitColdChainEventMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a forged recovery capability before touching the database', async () => {
+    await expect(persistLateColdChainRecovery({
+      tx: tenantTxClient,
+      capability: {
+        inboxId: '44444444-4444-4444-8444-444444444444',
+        tenantId: TENANT_ID,
+        facilityId: 5,
+        effectDisposition: 'late_pending_only',
+      },
+      tenantId: TENANT_ID,
+      facilityId: 5,
+      recoveryInboxId: '44444444-4444-4444-8444-444444444444',
+      occurredAt: '2026-07-07T09:00:00.000Z',
+      command: {},
+    })).rejects.toThrow('recovery-seam capability');
+    expect(queryRawMock).not.toHaveBeenCalled();
   });
 
   it('builds a stable monthly register CSV and marks out-of-range readings', () => {

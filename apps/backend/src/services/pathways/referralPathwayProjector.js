@@ -134,7 +134,7 @@ export async function projectReferralPathwayEvent({
     signalContext: {
       sourceResourceType: 'event_outbox',
       sourceResourceId: String(event.id),
-      occurredAt: new Date(event.created_at).toISOString(),
+      occurredAt: new Date(event.occurred_at).toISOString(),
     },
   });
 

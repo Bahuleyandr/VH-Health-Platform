@@ -115,4 +115,37 @@ describe('notificationOutbox.queue recipient_id text transport', () => {
     expect(queued).toBeNull();
     expect(loggerMock.warn).toHaveBeenCalled();
   });
+
+  it('uses a supplied transaction client for an atomic producer', async () => {
+    const txQuery = jest.fn().mockResolvedValue([{ id: 8, status: 'PENDING' }]);
+    const queued = await notificationOutbox.queue({
+      type: 'push',
+      recipientId: UUID,
+      title: 'Atomic producer',
+      body: 'transaction-bound',
+    }, {
+      tx: { $queryRawUnsafe: txQuery },
+      strict: true,
+    });
+
+    expect(queued).toEqual({ id: 8, status: 'PENDING' });
+    expect(txQuery).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rethrows database guard failures in strict mode', async () => {
+    const guarded = Object.assign(new Error('late recovery notification blocked'), {
+      code: '23514',
+      constraint: 'chk_external_recovery_late_effect_guard',
+    });
+    queryRawUnsafeMock.mockRejectedValueOnce(guarded);
+
+    await expect(notificationOutbox.queue({
+      type: 'push',
+      recipientId: UUID,
+      title: 'Must remain pending-only',
+      body: 'blocked',
+    }, { strict: true })).rejects.toBe(guarded);
+    expect(loggerMock.warn).not.toHaveBeenCalled();
+  });
 });
