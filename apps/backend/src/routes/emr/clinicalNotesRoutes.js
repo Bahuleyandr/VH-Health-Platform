@@ -1,18 +1,23 @@
 // src/routes/emr/clinicalNotesRoutes.js
 import express from 'express';
-import prisma from '../../lib/prisma.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { clinicalContinuityReplayMiddleware } from '../../middleware/clinicalContinuityReplayMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
-import { saveClinicalNoteDraft } from '../../controllers/emr/clinicalNoteDraftController.js';
+import {
+  resolvePatientUidFromBody,
+  saveClinicalNoteDraft,
+} from '../../controllers/emr/clinicalNoteDraftController.js';
 import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
 import * as clinicalNoteDraftService from '../../services/emr/clinicalNoteDraftService.js';
-import { registerClinicalContinuityActionRoute } from '../../services/downtime/clinicalContinuityActionBindingRegistry.js';
+import {
+  CLINICAL_CONTINUITY_PRIVATE_DRAFT_EFFECT,
+  registerClinicalContinuityActionRoute,
+} from '../../services/downtime/clinicalContinuityActionBindingRegistry.js';
 import { createDowntimeSnapshot } from '../../services/emr/clinicalTimelineService.js';
 import { publishEvent } from '../../services/events/eventOutboxService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   NURSING_NOTE_DRAFT_ACTION_SCHEMA,
@@ -52,26 +57,6 @@ const NURSING_NOTE_CODES = new Set([
   'emergency note',
   'other',
 ]);
-
-async function resolvePatientUidFromBody(body) {
-  if (body.patient_uid) return body.patient_uid;
-
-  const phone = normalizePhone(body.patient_phone || body.phone);
-  if (!phone) return null;
-
-  const last10 = phone.replace(/\D/g, '').slice(-10);
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT uid
-       FROM users
-      WHERE role = 'PATIENT'
-        AND (phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2)
-      ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
-      LIMIT 1`,
-    phone,
-    `%${last10}`,
-  );
-  return rows[0]?.uid ?? null;
-}
 
 function normalizeNotePayload(body) {
   const rawType = String(body.note_type || '').trim();
@@ -218,17 +203,31 @@ registerClinicalContinuityActionRoute({
   routePath: '/notes/draft',
   fullRoutePath: '/api/v1/emr/notes/draft',
   handler: saveClinicalNoteDraft,
-  beforeHandlers: [rejectMobileClinicalWrite, guardClinicalNoteWrite],
+  transactionalHandler: clinicalNoteDraftService.upsertNoteDraftTx,
+  effectContract: CLINICAL_CONTINUITY_PRIVATE_DRAFT_EFFECT,
+  beforeHandlers: [
+    rejectMobileClinicalWrite,
+    guardClinicalNoteWrite,
+    clinicalContinuityReplayMiddleware,
+    requireIdempotencyKey({
+      required: true,
+      scope: 'clinical_continuity_replay',
+      continuityReceiptRequired: true,
+      onlyWhen: req => Boolean(req.clinicalContinuityReplay),
+    }),
+  ],
   actions: [
     {
       actionId: 'emr.nursing_note.draft.store',
       bindingId: 'emr.note_draft.store/v1',
-      schema: NURSING_NOTE_DRAFT_ACTION_SCHEMA
+      schema: NURSING_NOTE_DRAFT_ACTION_SCHEMA,
+      schemaRecordId: 'emr.nursing_note.draft.store/v1',
     },
     {
       actionId: 'emr.op_note.draft.store',
       bindingId: 'emr.note_draft.store/v1',
-      schema: OP_NOTE_DRAFT_ACTION_SCHEMA
+      schema: OP_NOTE_DRAFT_ACTION_SCHEMA,
+      schemaRecordId: 'emr.op_note.draft.store/v1',
     }
   ]
 });

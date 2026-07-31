@@ -155,6 +155,10 @@ export const envSchema = Joi.object({
     .valid('true', 'false')
     .default('false')
     .label('CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED'),
+  CLINICAL_CONTINUITY_REPLAY_RECEIPTS_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('CLINICAL_CONTINUITY_REPLAY_RECEIPTS_ENABLED'),
   DOWNTIME_MIRROR_DIR: Joi.when('CLINICAL_CONTINUITY_PACKS_ENABLED', {
     is: 'true',
     then: Joi.string().trim().min(1).required(),

@@ -40,8 +40,14 @@ import logger from '../logging/logger.js';
 
 const HEADER = 'idempotency-key';
 
-export function requireIdempotencyKey({ required = true, scope = 'generic' } = {}) {
+export function requireIdempotencyKey({
+  required = true,
+  scope = 'generic',
+  onlyWhen = null,
+  continuityReceiptRequired = false,
+} = {}) {
   return async function idempotencyMiddleware(req, res, next) {
+    if (onlyWhen && !onlyWhen(req)) return next();
     const headerValue = req.get(HEADER);
     if (!headerValue) {
       if (!required) return next();
@@ -77,6 +83,14 @@ export function requireIdempotencyKey({ required = true, scope = 'generic' } = {
     }
 
     if (claim.state === 'replay') {
+      if (continuityReceiptRequired) {
+        return error(res, 'Clinical continuity replay requires manual review', 409, {
+          code: 'CONTINUITY_REPLAY_RECEIPT_MISSING_NEEDS_REVIEW',
+          decision: 'needs_review',
+          safe: true,
+          scope,
+        });
+      }
       const status = claim.response_status || 200;
       res.status(status);
       // The cached body went in via JSON.stringify on the way out so

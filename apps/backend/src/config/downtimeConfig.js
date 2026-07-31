@@ -29,6 +29,8 @@ export const CLINICAL_CONTINUITY_FACILITY_CONTEXT_FLAG =
   'CLINICAL_CONTINUITY_FACILITY_CONTEXT_ENABLED';
 export const CLINICAL_CONTINUITY_FACILITY_ENROLLMENT_FLAG =
   'CLINICAL_CONTINUITY_FACILITY_ENROLLMENT_ENABLED';
+export const CLINICAL_CONTINUITY_REPLAY_RECEIPTS_FLAG =
+  'CLINICAL_CONTINUITY_REPLAY_RECEIPTS_ENABLED';
 
 // C-D14 has no populated owner values or countersignatures. This compile-time
 // gate deliberately cannot be changed by deployment configuration.
@@ -85,6 +87,16 @@ export function clinicalContinuityFacilityEnrollmentEnabled(env = process.env) {
   );
 }
 
+export function clinicalContinuityReplayReceiptsEnabled(env = process.env) {
+  return (
+    clinicalContinuityActionRegistryEnabled(env)
+    && clinicalContinuityFacilityContextEnabled(env)
+    && String(env[CLINICAL_CONTINUITY_REPLAY_RECEIPTS_FLAG] || '')
+      .trim()
+      .toLowerCase() === 'true'
+  );
+}
+
 /**
  * C3 pack-set publication never falls back to the OS temp directory. The
  * operator-owned durable volume is provisioned outside C3.1; until both the
@@ -110,11 +122,13 @@ export default {
   clinicalContinuityFacilityContextEnabled,
   clinicalContinuityFacilityContextPlumbingEnabled,
   clinicalContinuityFacilityEnrollmentEnabled,
+  clinicalContinuityReplayReceiptsEnabled,
   clinicalContinuityPacksEnabled,
   DEFAULT_MIRROR_SUBDIR,
   CLINICAL_CONTINUITY_ACTION_REGISTRY_FLAG,
   CLINICAL_CONTINUITY_C_D14_APPROVED,
   CLINICAL_CONTINUITY_FACILITY_CONTEXT_FLAG,
   CLINICAL_CONTINUITY_FACILITY_ENROLLMENT_FLAG,
+  CLINICAL_CONTINUITY_REPLAY_RECEIPTS_FLAG,
   CLINICAL_CONTINUITY_PACKS_FLAG,
 };

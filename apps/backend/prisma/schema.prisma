@@ -455,6 +455,7 @@ model admissions {
   ap_cases                                ap_cases[]
   attendant_passes                        attendant_passes[]
   burn_charts                             burn_charts[]
+  clinical_continuity_replay_receipts     clinical_continuity_replay_receipts[]
   device_presence_logs                    device_presence_logs[]
   diagnostic_result_generations           diagnostic_result_generations[]
   discharge_consults                      discharge_consults[]
@@ -835,57 +836,58 @@ model appointment_status_history {
 }
 
 model appointments {
-  id                                   Int                                @id @default(autoincrement())
-  uid                                  String                             @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  phone                                String                             @db.VarChar(15)
+  id                                   Int                                   @id @default(autoincrement())
+  uid                                  String                                @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone                                String                                @db.VarChar(15)
   patient_id                           Int?
   doctor_id                            Int?
-  doctor_name                          String                             @default("") @db.VarChar(100)
-  patient_name                         String?                            @db.VarChar(255)
-  appointment_date                     DateTime                           @db.Date
-  appointment_time                     String                             @db.VarChar(10)
-  status                               String                             @default("SCHEDULED") @db.VarChar(50)
+  doctor_name                          String                                @default("") @db.VarChar(100)
+  patient_name                         String?                               @db.VarChar(255)
+  appointment_date                     DateTime                              @db.Date
+  appointment_time                     String                                @db.VarChar(10)
+  status                               String                                @default("SCHEDULED") @db.VarChar(50)
   reason                               String?
   notes                                String?
-  created_at                           DateTime                           @default(now()) @db.Timestamp(6)
-  updated_at                           DateTime                           @db.Timestamp(6)
-  admin_override                       Boolean                            @default(false)
+  created_at                           DateTime                              @default(now()) @db.Timestamp(6)
+  updated_at                           DateTime                              @db.Timestamp(6)
+  admin_override                       Boolean                               @default(false)
   override_reason                      String?
-  created_by                           String?                            @db.Uuid
-  updated_by                           String?                            @db.Uuid
-  reminder_sent                        Boolean                            @default(false)
-  reminder_1h_sent                     Boolean                            @default(false)
-  reminder_24h_sent                    Boolean                            @default(false)
-  token_number                         String?                            @db.VarChar(20)
-  department                           String?                            @db.VarChar(100)
-  confirmed_at                         DateTime?                          @db.Timestamptz(6)
-  sla_target_at                        DateTime?                          @db.Timestamptz(6)
-  visit_type                           String?                            @db.VarChar(50)
-  advised_for_admission_at             DateTime?                          @db.Timestamptz(6)
-  advised_for_admission_by             String?                            @db.Uuid
+  created_by                           String?                               @db.Uuid
+  updated_by                           String?                               @db.Uuid
+  reminder_sent                        Boolean                               @default(false)
+  reminder_1h_sent                     Boolean                               @default(false)
+  reminder_24h_sent                    Boolean                               @default(false)
+  token_number                         String?                               @db.VarChar(20)
+  department                           String?                               @db.VarChar(100)
+  confirmed_at                         DateTime?                             @db.Timestamptz(6)
+  sla_target_at                        DateTime?                             @db.Timestamptz(6)
+  visit_type                           String?                               @db.VarChar(50)
+  advised_for_admission_at             DateTime?                             @db.Timestamptz(6)
+  advised_for_admission_by             String?                               @db.Uuid
   advised_for_admission_note           String?
   parent_appointment_id                Int?
-  visit_no                             String?                            @db.VarChar(50)
-  payer_type                           String?                            @db.VarChar(30)
-  patient_category                     String?                            @db.VarChar(30)
-  insurer_name                         String?                            @db.VarChar(160)
-  policy_number                        String?                            @db.VarChar(80)
-  scheme_name                          String?                            @db.VarChar(120)
-  triage_acuity                        Int?                               @db.SmallInt
-  tenant_id                            String                             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  visit_no                             String?                               @db.VarChar(50)
+  payer_type                           String?                               @db.VarChar(30)
+  patient_category                     String?                               @db.VarChar(30)
+  insurer_name                         String?                               @db.VarChar(160)
+  policy_number                        String?                               @db.VarChar(80)
+  scheme_name                          String?                               @db.VarChar(120)
+  triage_acuity                        Int?                                  @db.SmallInt
+  tenant_id                            String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   queue_id                             Int?
   admissions                           admissions[]
   appointment_documents                appointment_documents[]
   appointment_slot_holds               appointment_slot_holds[]
   appointment_status_history           appointment_status_history[]
-  users_appointments_doctor_idTousers  users?                             @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
-  appointments                         appointments?                      @relation("appointmentsToappointments", fields: [parent_appointment_id], references: [id], onUpdate: NoAction)
-  other_appointments                   appointments[]                     @relation("appointmentsToappointments")
-  users_appointments_patient_idTousers users?                             @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
-  appointment_queues                   appointment_queues?                @relation(fields: [queue_id], references: [id], onUpdate: NoAction)
-  tenants                              tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointments_tenant")
+  users_appointments_doctor_idTousers  users?                                @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
+  appointments                         appointments?                         @relation("appointmentsToappointments", fields: [parent_appointment_id], references: [id], onUpdate: NoAction)
+  other_appointments                   appointments[]                        @relation("appointmentsToappointments")
+  users_appointments_patient_idTousers users?                                @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
+  appointment_queues                   appointment_queues?                   @relation(fields: [queue_id], references: [id], onUpdate: NoAction)
+  tenants                              tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointments_tenant")
   bed_inspections                      bed_inspections[]
   cath_lab_cases                       cath_lab_cases[]
+  clinical_continuity_replay_receipts  clinical_continuity_replay_receipts[]
   clinical_notes                       clinical_notes[]
   engagement_follow_up_loops           engagement_follow_up_loops[]
   feedback_nps_responses               feedback_nps_responses[]
@@ -904,6 +906,7 @@ model appointments {
   @@unique([tenant_id, doctor_id, appointment_date, appointment_time], map: "uniq_appointments_active_doctor_slot", where: raw("((doctor_id IS NOT NULL) AND (appointment_time IS NOT NULL) AND (btrim((appointment_time)::text) <> ''::text) AND (lower(btrim((appointment_time)::text)) <> 'walk-in'::text) AND ((status)::text <> ALL ((ARRAY['CANCELLED'::character varying, 'NO_SHOW'::character varying, 'RESCHEDULED'::character varying])::text[])))"))
   @@unique([tenant_id, visit_no], map: "uniq_appointments_tenant_visit_no", where: raw("(visit_no IS NOT NULL)"))
   @@unique([tenant_id, id], map: "ux_appointments_tenant_id")
+  @@unique([tenant_id, id, patient_id], map: "ux_appointments_tenant_id_id_patient_for_cc_replay")
   @@index([appointment_date])
   @@index([doctor_id])
   @@index([patient_id])
@@ -5242,6 +5245,7 @@ model facilities {
   clinical_continuity_edge_access_revocations clinical_continuity_edge_access_revocations[]
   clinical_continuity_edge_log_receipts       clinical_continuity_edge_log_receipts[]
   clinical_continuity_policy_versions         clinical_continuity_policy_versions[]
+  clinical_continuity_replay_receipts         clinical_continuity_replay_receipts[]
   cold_chain_readings                         cold_chain_readings[]
   cold_chain_units                            cold_chain_units[]
   downtime_snapshots                          downtime_snapshots[]
@@ -10133,6 +10137,8 @@ model tenants {
   clinical_continuity_edge_access_revocations clinical_continuity_edge_access_revocations[]
   clinical_continuity_edge_log_receipts       clinical_continuity_edge_log_receipts[]
   clinical_continuity_policy_versions         clinical_continuity_policy_versions[]
+  clinical_continuity_replay_attempts         clinical_continuity_replay_attempts[]
+  clinical_continuity_replay_receipts         clinical_continuity_replay_receipts[]
   clinical_document_extraction_events         clinical_document_extraction_events[]
   clinical_document_intake                    clinical_document_intake[]
   clinical_document_signatures                clinical_document_signatures[]
@@ -11124,6 +11130,9 @@ model users {
   clinical_continuity_edge_log_receipts                                                                            clinical_continuity_edge_log_receipts[]
   clinical_continuity_policy_versions_clinical_continuity_policy_versions_tenant_id_approved_byTousers             clinical_continuity_policy_versions[]         @relation("clinical_continuity_policy_versions_tenant_id_approved_byTousers")
   clinical_continuity_policy_versions_clinical_continuity_policy_versions_tenant_id_retired_byTousers              clinical_continuity_policy_versions[]         @relation("clinical_continuity_policy_versions_tenant_id_retired_byTousers")
+  clinical_continuity_replay_attempts                                                                              clinical_continuity_replay_attempts[]
+  clinical_continuity_replay_receipts_clinical_continuity_replay_receipts_tenant_id_capture_actor_uidTousers       clinical_continuity_replay_receipts[]         @relation("clinical_continuity_replay_receipts_tenant_id_capture_actor_uidTousers")
+  clinical_continuity_replay_receipts_clinical_continuity_replay_receipts_tenant_id_patient_id_patient_uidTousers  clinical_continuity_replay_receipts[]         @relation("clinical_continuity_replay_receipts_tenant_id_patient_id_patient_uidTousers")
   ctvs_case_overlays_ctvs_case_overlays_created_byTousers                                                          ctvs_case_overlays[]                          @relation("ctvs_case_overlays_created_byTousers")
   ctvs_case_overlays_ctvs_case_overlays_evidence_owner_uidTousers                                                  ctvs_case_overlays[]                          @relation("ctvs_case_overlays_evidence_owner_uidTousers")
   ctvs_case_overlays_ctvs_case_overlays_patient_uidTousers                                                         ctvs_case_overlays[]                          @relation("ctvs_case_overlays_patient_uidTousers")
@@ -11331,6 +11340,7 @@ model users {
   @@unique([tenant_id, firebase_uid], map: "uniq_users_tenant_firebase_uid", where: raw("(firebase_uid IS NOT NULL)"))
   @@unique([tenant_id, phone], map: "uniq_users_tenant_phone")
   @@unique([tenant_id, uid], map: "ux_users_tenant_uid_for_pathways")
+  @@unique([tenant_id, id, uid], map: "ux_users_tenant_id_id_uid_for_cc_replay")
   @@index([tenant_id, scim_provider_id, scim_external_id], map: "idx_users_scim_provider_external", where: raw("((scim_provider_id IS NOT NULL) AND (scim_external_id IS NOT NULL))"))
   @@index([tenant_id, is_break_glass_account], map: "idx_users_break_glass_accounts", where: raw("(is_break_glass_account = true)"))
   @@index([preferred_language], map: "idx_users_preferred_language")
@@ -15766,6 +15776,7 @@ model patient_encounters {
   cath_procedure_logs                 cath_procedure_logs[]
   cath_procedure_reports              cath_procedure_reports[]
   cath_report_addenda                 cath_report_addenda[]
+  clinical_continuity_replay_receipts clinical_continuity_replay_receipts[]
   diagnostic_result_generations       diagnostic_result_generations[]
   ed_closure_evidence                 ed_closure_evidence[]
   ed_recovery_contact_events          ed_recovery_contact_events[]
@@ -16658,18 +16669,21 @@ model knowledge_import_batches {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model note_drafts {
-  id             BigInt   @id @default(autoincrement())
-  tenant_id      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  author_uid     String   @db.Uuid
-  patient_uid    String   @db.Uuid
-  appointment_id Int?
-  note_type      String   @db.VarChar(60)
-  content        Json     @default("{}")
-  created_at     DateTime @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime @default(now()) @db.Timestamptz(6)
-  expires_at     DateTime @default(dbgenerated("(CURRENT_TIMESTAMP + '14 days'::interval)")) @db.Timestamptz(6)
-  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                         BigInt                                       @id @default(autoincrement())
+  tenant_id                                  String                                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  author_uid                                 String                                       @db.Uuid
+  patient_uid                                String                                       @db.Uuid
+  appointment_id                             Int?
+  note_type                                  String                                       @db.VarChar(60)
+  content                                    Json                                         @default("{}")
+  created_at                                 DateTime                                     @default(now()) @db.Timestamptz(6)
+  updated_at                                 DateTime                                     @default(now()) @db.Timestamptz(6)
+  expires_at                                 DateTime                                     @default(dbgenerated("(CURRENT_TIMESTAMP + '14 days'::interval)")) @db.Timestamptz(6)
+  revision                                   BigInt                                       @default(1)
+  clinical_continuity_replay_effect_evidence clinical_continuity_replay_effect_evidence[]
+  tenants                                    tenants                                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@unique([tenant_id, id], map: "ux_note_drafts_tenant_id")
   @@index([tenant_id, author_uid, updated_at(sort: Desc)], map: "idx_note_drafts_author")
   @@index([expires_at], map: "idx_note_drafts_expiry")
 }
@@ -25421,6 +25435,138 @@ model clinical_continuity_edge_log_receipts {
   @@unique([tenant_id, facility_id, id], map: "ux_cc_edge_receipt_tenant_facility_id")
   @@index([tenant_id, facility_id, device_id, last_event_sequence(sort: Desc), received_at(sort: Desc)], map: "idx_cc_edge_receipt_chain")
   @@index([tenant_id, facility_id, grant_id, access_revision], map: "idx_cc_edge_receipt_grant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_replay_attempts {
+  id                                  BigInt                               @default(autoincrement())
+  tenant_id                           String                               @db.Uuid
+  client_event_id                     String                               @db.Uuid
+  receipt_client_event_id             String?                              @db.Uuid
+  replay_actor_uid                    String?                              @db.Uuid
+  replay_role                         String?                              @db.VarChar(64)
+  facility_context_id                 String?                              @db.Uuid
+  facility_context_revision           BigInt?
+  request_id                          String?                              @db.Uuid
+  attempted_at                        DateTime                             @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  attempt_class                       String                               @db.VarChar(64)
+  reason_code                         String                               @db.VarChar(120)
+  result                              String                               @db.VarChar(32)
+  idempotency_key_hash                String?                              @db.Char(64)
+  users                               users?                               @relation(fields: [tenant_id, replay_actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_attempt_actor")
+  clinical_continuity_replay_receipts clinical_continuity_replay_receipts? @relation(fields: [tenant_id, receipt_client_event_id], references: [tenant_id, client_event_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_attempt_receipt")
+  tenants                             tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_attempt_tenant")
+
+  @@id([tenant_id, id])
+  @@index([tenant_id, client_event_id, attempted_at(sort: Desc)], map: "idx_cc_replay_attempt_event")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_replay_effect_evidence {
+  tenant_id                           String                              @db.Uuid
+  client_event_id                     String                              @db.Uuid
+  note_draft_id                       BigInt
+  outcome_code                        String                              @db.VarChar(100)
+  draft_revision                      BigInt
+  draft_updated_at                    DateTime                            @db.Timestamptz(6)
+  clinical_timeline_event_id          String?                             @db.Uuid
+  clinical_audit_event_id             String?                             @db.Uuid
+  workflow_sla_instance_id            String?                             @db.Uuid
+  notification_outbox_id              String?                             @db.Uuid
+  event_outbox_id                     String?                             @db.Uuid
+  created_at                          DateTime                            @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  note_drafts                         note_drafts                         @relation(fields: [tenant_id, note_draft_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_effect_draft")
+  clinical_continuity_replay_receipts clinical_continuity_replay_receipts @relation(fields: [tenant_id, client_event_id], references: [tenant_id, client_event_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_effect_receipt")
+
+  @@id([tenant_id, client_event_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_replay_receipts {
+  tenant_id                                                                         String                                      @db.Uuid
+  client_event_id                                                                   String                                      @db.Uuid
+  source_kind                                                                       String                                      @db.VarChar(64)
+  facility_id                                                                       Int
+  incident_id                                                                       String?                                     @db.Uuid
+  paper_item_id                                                                     String?                                     @db.VarChar(128)
+  original_idempotency_key                                                          String                                      @db.VarChar(200)
+  action_id                                                                         String                                      @db.VarChar(120)
+  binding_id                                                                        String                                      @db.VarChar(120)
+  http_method                                                                       String                                      @db.VarChar(8)
+  schema_id                                                                         String                                      @db.VarChar(160)
+  schema_version                                                                    Int
+  schema_checksum                                                                   String                                      @db.Char(64)
+  client_command_fingerprint                                                        String                                      @db.Char(64)
+  receipt_fingerprint                                                               String                                      @db.Char(64)
+  payload_hash                                                                      String                                      @db.Char(64)
+  capture_actor_uid                                                                 String                                      @db.Uuid
+  capture_role                                                                      String                                      @db.VarChar(64)
+  patient_id                                                                        Int
+  patient_uid                                                                       String                                      @db.Uuid
+  appointment_id                                                                    Int?
+  encounter_id                                                                      String?                                     @db.Uuid
+  admission_id                                                                      Int?
+  unit_id                                                                           String?                                     @db.VarChar(128)
+  device_id                                                                         String                                      @db.Uuid
+  device_posture                                                                    String                                      @db.VarChar(32)
+  capture_session_id                                                                String                                      @db.Uuid
+  occurred_at                                                                       DateTime                                    @db.Timestamptz(6)
+  captured_at                                                                       DateTime                                    @db.Timestamptz(6)
+  queued_at                                                                         DateTime                                    @db.Timestamptz(6)
+  expires_at                                                                        DateTime                                    @db.Timestamptz(6)
+  clock_evidence_hash                                                               String                                      @db.Char(64)
+  cached_sources_hash                                                               String                                      @db.Char(64)
+  source_cache_version                                                              String?                                     @db.VarChar(80)
+  app_version                                                                       String                                      @db.VarChar(80)
+  envelope_schema_version                                                           Int
+  queue_schema_version                                                              Int
+  action_version                                                                    Int
+  action_checksum                                                                   String                                      @db.Char(64)
+  policy_id                                                                         String                                      @db.Uuid
+  policy_version                                                                    String                                      @db.VarChar(80)
+  policy_checksum                                                                   String                                      @db.Char(64)
+  policy_signing_key_id                                                             String                                      @db.VarChar(128)
+  policy_effective_from                                                             DateTime                                    @db.Timestamptz(6)
+  policy_effective_until                                                            DateTime                                    @db.Timestamptz(6)
+  policy_supersedes_id                                                              String?                                     @db.Uuid
+  policy_revocation_epoch                                                           String                                      @db.VarChar(80)
+  registry_version                                                                  String                                      @db.VarChar(80)
+  registry_checksum                                                                 String                                      @db.Char(64)
+  minimum_app_version                                                               String                                      @db.VarChar(80)
+  base_revision                                                                     BigInt
+  base_etag                                                                         String?                                     @db.VarChar(256)
+  ordering_key                                                                      String
+  ordering_key_digest                                                               String                                      @db.Char(64)
+  sequence_no                                                                       BigInt
+  predecessor_client_event_id                                                       String?                                     @db.Uuid
+  supersession_generation                                                           Int
+  human_review_required                                                             Boolean
+  received_at                                                                       DateTime                                    @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  recorded_at                                                                       DateTime?                                   @db.Timestamptz(6)
+  disposition                                                                       String                                      @default("claimed") @db.VarChar(24)
+  outcome_code                                                                      String?                                     @db.VarChar(100)
+  retention_policy_id                                                               String                                      @db.VarChar(100)
+  detailed_evidence_until                                                           DateTime                                    @db.Timestamptz(6)
+  replay_eligibility_until                                                          DateTime                                    @db.Timestamptz(6)
+  tombstone_until                                                                   DateTime                                    @db.Timestamptz(6)
+  claim_txid                                                                        BigInt                                      @default(dbgenerated("txid_current()"))
+  clinical_continuity_replay_attempts                                               clinical_continuity_replay_attempts[]
+  clinical_continuity_replay_effect_evidence                                        clinical_continuity_replay_effect_evidence?
+  admissions                                                                        admissions?                                 @relation(fields: [tenant_id, admission_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_receipt_admission")
+  appointments                                                                      appointments?                               @relation(fields: [tenant_id, appointment_id, patient_id], references: [tenant_id, id, patient_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_receipt_appointment")
+  users_clinical_continuity_replay_receipts_tenant_id_capture_actor_uidTousers      users                                       @relation("clinical_continuity_replay_receipts_tenant_id_capture_actor_uidTousers", fields: [tenant_id, capture_actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_receipt_capture_actor")
+  patient_encounters                                                                patient_encounters?                         @relation(fields: [tenant_id, encounter_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_receipt_encounter")
+  facilities                                                                        facilities                                  @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_receipt_facility")
+  users_clinical_continuity_replay_receipts_tenant_id_patient_id_patient_uidTousers users                                       @relation("clinical_continuity_replay_receipts_tenant_id_patient_id_patient_uidTousers", fields: [tenant_id, patient_id, patient_uid], references: [tenant_id, id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_receipt_patient")
+  tenants                                                                           tenants                                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_replay_receipt_tenant")
+
+  @@id([tenant_id, client_event_id])
+  @@unique([tenant_id, client_event_id, original_idempotency_key, receipt_fingerprint], map: "uq_cc_replay_receipt_fingerprint")
+  @@unique([tenant_id, facility_id, incident_id, paper_item_id], map: "uq_cc_replay_receipt_paper_identity", where: raw("(paper_item_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_cc_replay_receipt_patient")
 }
 
 enum transplant_organ_type {

@@ -1,21 +1,20 @@
 # C5.1 replay receipts and domain-route conformance — backend design delta
 
-**Status:** coordinator-cleared 2026-07-31; Step 2 remains held at the section
-2 gates and is not authorized<br>
+**Status:** Step 2 build authorized 2026-07-31; implementation is review-ready
+and remains default-off behind the frozen C-D14 compile-time gate<br>
 **Scope:** `apps/backend`, one re-derived migration, regenerated
 `apps/backend/prisma/schema.prisma`, backend tests, and this record only<br>
 **Branch:** `feat/continuity-c5-1-replay-receipts`<br>
 **Baseline:** re-fetched `github/main` and `origin/main` at
-`48509b1a8e5ff011905c01ef7370a85bf2fa7a0d`
-(`2026-07-31T07:42:04+05:30`)<br>
-**Merged prerequisite:** C4.2 PR
-[#660](https://github.com/Bahuleyandr/VH-Health-Platform/pull/660), merge
-`64739bde040075018f52dfddb0b889b9337cd1a5`, migration
-`602_clinical_continuity_action_registry.sql`<br>
-**Build order:** coordinator queue `AF -> C5.1`; C6.1-A is merged and the
-default-off facility-context build remains the immediate predecessor<br>
-**Migration:** not reserved; re-list and derive the next free number only at
-the cleared build kickoff<br>
+`98732adf140122dd972279c608ecbe369f8521ab`
+(`2026-07-31T17:15:52+05:30`)<br>
+**Merged prerequisites:** C6.1-A PR
+[#664](https://github.com/Bahuleyandr/VH-Health-Platform/pull/664), C4.1 PR
+[#667](https://github.com/Bahuleyandr/VH-Health-Platform/pull/667), and
+facility-context PR
+[#668](https://github.com/Bahuleyandr/VH-Health-Platform/pull/668)<br>
+**Migration:** `605_clinical_continuity_replay_receipts.sql`, re-derived after
+the prerequisite `604_clinical_continuity_facility_context.sql` landed<br>
 **Activation:** none<br>
 **Merge state:** never merge from this lane
 
@@ -32,10 +31,10 @@ unauthorized replay fails closed.
 The first build supports exactly the two executable C4.2 actions already on
 main:
 
-| Action ID | Existing authoritative binding | C5.1 effect |
-|---|---|---|
+| Action ID                      | Existing authoritative binding                                                 | C5.1 effect                |
+| ------------------------------ | ------------------------------------------------------------------------------ | -------------------------- |
 | `emr.nursing_note.draft.store` | `emr.note_draft.store/v1`, `PUT /api/v1/emr/notes/draft`, nursing draft schema | Private draft storage only |
-| `emr.op_note.draft.store` | `emr.note_draft.store/v1`, `PUT /api/v1/emr/notes/draft`, OP draft schema | Private draft storage only |
+| `emr.op_note.draft.store`      | `emr.note_draft.store/v1`, `PUT /api/v1/emr/notes/draft`, OP draft schema      | Private draft storage only |
 
 Both use the same named route handler and binding ID with disjoint schemas.
 The other 15 catalogue actions and `unknown` remain non-executable. C5.1 does
@@ -283,7 +282,7 @@ does not build the C5.2 workbench.
 
 ## 6. Receipt, evidence, and attempt model
 
-Names below are build proposals, not reserved migrations.
+The following names are the landed migration 605 model.
 
 ### 6.1 `clinical_continuity_replay_receipts`
 
@@ -308,6 +307,14 @@ Required columns and constraints include:
   and tombstone horizons when owner-approved; and
 - a claim transaction identity used only to prove that provisional claim to
   terminal finalization occurs inside the same database transaction.
+
+The source dimension is additive. This slice writes only
+`source_kind = 'electronic_queue'`, for which `paper_item_id` must be null.
+Future paper back-entry may use another closed source kind without replacing
+the receipt model, but must supply both `incident_id` and `paper_item_id` and
+is deduplicated by the partial unique identity
+`(tenant_id, facility_id, incident_id, paper_item_id) WHERE paper_item_id IS
+NOT NULL`. C5.1 does not create a paper writer, workflow, or activation.
 
 Only `applied` and `needs_review` are committed terminal dispositions. A
 provisional `claimed` row is never externally visible and may never commit.
@@ -428,32 +435,24 @@ and are revoked from `PUBLIC`. Migration roles retain schema-management
 authority. Runtime-role and migration-owner direct-SQL tests are separate so
 RLS, grants, and hard database constraints are each proven.
 
-### 7.3 C-D10 alignment and no invented duration
+### 7.3 C-D10 replay and retention horizons
 
-The countersigned C-D10 partial record supplies only continuity-pack and edge
-access-log retention. It does **not** supply receipt/tombstone,
-replay-attempt, server replay-eligibility, client-return, or reconciliation
-horizons. Those values remain owner input.
+The completed countersigned C-D10 record supplies the production values used
+by this build:
 
-Therefore:
+- a queued electronic command is automatically replay-eligible for no more
+  than seven days after capture and never beyond its signed C4.1 `expires_at`;
+- the full applied receipt and direct effect evidence remain rearm-blocking
+  for 365 days from server receipt time; and
+- the compact immutable deduplication tombstone remains rearm-blocking for
+  2555 days from server receipt time.
 
-- the build contains no production default duration;
-- a previously unseen command after its signed C4.1 `expires_at` fails closed
-  to `needs_review`;
-- no receipt, tombstone, effect evidence, or attempt is deleted while the
-  command can still be accepted, while reconciliation is open, or while a
-  legal/audit hold applies;
-- detailed-effect compaction and tombstone deletion require a signed
-  retention-policy binding whose horizons cover maximum offline age, app
-  upgrade/return, paper reconciliation, audit/legal obligations, and every
-  server replay-eligibility window;
-- the tombstone horizon cannot be shorter than automatic replay eligibility;
-  and
-- absent that signed binding, compaction and deletion fail closed and evidence
-  is retained.
-
-Synthetic tests may inject short policy horizons. They are proof fixtures, not
-production values or owner decisions.
+Migration 605 binds these values to retention policy
+`C-D10-2026-07-31`. A previously unseen command after its signed expiry fails
+closed. This slice creates no compactor or deletion worker: detailed evidence,
+attempts, and tombstones remain retained until a separately reviewed,
+tenant-pinned lifecycle implementation also proves reconciliation closure and
+honours every legal or audit hold.
 
 ## 8. One transaction and the backend phase doctrine
 
@@ -642,9 +641,14 @@ expectedEffectContract })`.
 The first build instantiates it twice, once for
 `emr.nursing_note.draft.store` and once for
 `emr.op_note.draft.store`. Each case sends authenticated HTTP requests through
-the real Express app, real middleware order, real binding registry, real
-controller, real transactional note-draft handler, and a migrated scratch
-PostgreSQL database. Route or handler mocks are prohibited.
+the production Express router, real route middleware order, real binding
+registry, real controller, real transactional note-draft handler, and a
+migrated scratch PostgreSQL database. Because the C-D14 activation constant
+remains compile-time false, the route harness injects the already-authorized,
+frozen Phase-0 request seam; a separate test performs the signed-policy recheck
+against the real database. Only the feature-gate read is replaced in that test
+process. Route, handler, replay service, policy evaluator, and transaction
+handler mocks are prohibited.
 
 Fault injection uses scratch-database constraints/triggers and deterministic
 post-commit transport hooks. It does not replace the real route or domain
@@ -652,20 +656,20 @@ service with a mock.
 
 ### 11.1 Gate matrix
 
-| Plan gate | Required proof for each real route |
-|---|---|
-| Atomicity | Receipt-claim/finalize failure, note-draft failure, effect-evidence failure, and replay-audit failure each leave zero partial domain/receipt/effect rows. Forbidden canonical/SLA/outbox triggers observe zero calls. |
-| Actor | Same capture/replay actor applies; revoked, wrong-role, missing-capability, wrong-device, and different-actor-without-server-proof requests fail before receipt disclosure. Capture actor remains immutable and replay actor is appended separately. |
-| Tenancy and facility | Default, unset, empty, `bypass`, wrong tenant, wrong facility, cross-tenant patient, cross-tenant receipt, and worker cross-tenant access fail at both service and database layers. |
-| Occurrence/recorded time | Valid capture occurrence is retained, server recorded time is distinct, invalid/uncertain/expired time fails closed, and drafts create no event-time-bearing canonical/outbox effect. |
-| Idempotency and replay | Exact event/key/fingerprint retry returns the original typed outcome; same event with a different key or any fingerprint input mismatch becomes `needs_review`; no second draft revision is written. |
-| Lost response | A real route commits, the transport response is dropped before generic-cache finalization, and the same pre-persisted queued command returns the committed receipt with one draft effect. |
-| Policy supersession | Exact current policy applies; an explicitly compatible historical policy applies; revoked, compromised, absent-compatibility, review-only, and mismatched authority become owned review with no effect. |
-| Concurrency | Concurrent identical requests produce one effect; concurrent different keys with one event cannot escape the receipt unique constraint; two different events on one stale draft revision cannot overwrite each other. |
-| Binding | Method/action/schema/handler/transactional-handler drift fails boot; default-deny actions have no executable transaction binding. |
-| Canonical/audit/SLA/outbox | The draft contract creates zero patient-visible canonical, clinical-audit, SLA, notification, outbox, task-settlement, or pathway rows while its required private replay audit commits with the receipt. |
-| Draft non-advancement | Store, duplicate, late, superseded, finalize-race, and legacy-return cases never create or settle clinical completion evidence. |
-| UCP projection behavior | All five projector inputs and pathway state remain byte-identical because no draft outbox event exists; C6.1 parity suites remain unchanged. |
+| Plan gate                  | Required proof for each real route                                                                                                                                                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Atomicity                  | Receipt-claim/finalize failure, note-draft failure, effect-evidence failure, and replay-audit failure each leave zero partial domain/receipt/effect rows. Forbidden canonical/SLA/outbox triggers observe zero calls.                                |
+| Actor                      | Same capture/replay actor applies; revoked, wrong-role, missing-capability, wrong-device, and different-actor-without-server-proof requests fail before receipt disclosure. Capture actor remains immutable and replay actor is appended separately. |
+| Tenancy and facility       | Default, unset, empty, `bypass`, wrong tenant, wrong facility, cross-tenant patient, cross-tenant receipt, and worker cross-tenant access fail at both service and database layers.                                                                  |
+| Occurrence/recorded time   | Valid capture occurrence is retained, server recorded time is distinct, invalid/uncertain/expired time fails closed, and drafts create no event-time-bearing canonical/outbox effect.                                                                |
+| Idempotency and replay     | Exact event/key/fingerprint retry returns the original typed outcome; same event with a different key or any fingerprint input mismatch becomes `needs_review`; no second draft revision is written.                                                 |
+| Lost response              | A real route commits, the transport response is dropped before generic-cache finalization, and the same pre-persisted queued command returns the committed receipt with one draft effect.                                                            |
+| Policy supersession        | Exact current policy applies; an explicitly compatible historical policy applies; revoked, compromised, absent-compatibility, review-only, and mismatched authority become owned review with no effect.                                              |
+| Concurrency                | Concurrent identical requests produce one effect; concurrent different keys with one event cannot escape the receipt unique constraint; two different events on one stale draft revision cannot overwrite each other.                                |
+| Binding                    | Method/action/schema/handler/transactional-handler drift fails boot; default-deny actions have no executable transaction binding.                                                                                                                    |
+| Canonical/audit/SLA/outbox | The draft contract creates zero patient-visible canonical, clinical-audit, SLA, notification, outbox, task-settlement, or pathway rows while its required private replay audit commits with the receipt.                                             |
+| Draft non-advancement      | Store, duplicate, late, superseded, finalize-race, and legacy-return cases never create or settle clinical completion evidence.                                                                                                                      |
+| UCP projection behavior    | All five projector inputs and pathway state remain byte-identical because no draft outbox event exists; C6.1 parity suites remain unchanged.                                                                                                         |
 
 ### 11.2 Mandatory additional cases
 
@@ -710,8 +714,10 @@ The first applied result is non-rearmable:
    deduplication horizon, command expiry, closed reconciliation, and every
    audit/legal hold.
 
-Until C-D10 supplies the missing values, steps 2 and 5 are disabled and
-evidence is retained.
+Migration 605 records the approved 365-day detailed-evidence and 2555-day
+tombstone horizons. This slice deliberately does not implement steps 2 or 5;
+evidence remains retained until a later lifecycle build supplies the required
+privileged, tenant-pinned compactor and hold/reconciliation proofs.
 
 Rollback disables the C5.1 coordinator and automated drain for these actions.
 It does not:
@@ -726,14 +732,13 @@ It does not:
 Unresolved work returns to manual governed reconciliation. No queue or receipt
 is cleared to make status appear healthy.
 
-## 13. Expected Step 2 file ledger
+## 13. Step 2 file ledger
 
-Exact paths are revalidated after both queued prerequisites merge. Any added or
-substituted path requires a revised delta.
+The prerequisite recheck produced the following exact implementation ledger.
 
 ### 13.1 Add
 
-- `apps/backend/src/migrations/<next-free>_clinical_continuity_replay_receipts.sql`
+- `apps/backend/src/migrations/605_clinical_continuity_replay_receipts.sql`
 - `apps/backend/src/middleware/clinicalContinuityReplayMiddleware.js`
 - `apps/backend/src/services/downtime/clinicalContinuityReplayReceiptService.js`
 - `apps/backend/src/validators/clinicalContinuityReplayEnvelope.js`
@@ -742,21 +747,24 @@ substituted path requires a revised delta.
 - `apps/backend/src/tests/helpers/clinicalContinuityReplayConformance.js`
 - `apps/backend/src/tests/unit/clinicalContinuityReplayEnvelope.test.js`
 - `apps/backend/src/tests/unit/clinicalContinuityReplayReceiptService.test.js`
-- this design record
 
 ### 13.2 Modify
 
 - `apps/backend/prisma/schema.prisma`
+- `apps/backend/scripts/seed-comprehensive-test-data.mjs`
 - `apps/backend/src/config/downtimeConfig.js`
 - `apps/backend/src/controllers/emr/clinicalNoteDraftController.js`
+- `apps/backend/src/db/seedCoveragePolicy.js`
 - `apps/backend/src/middleware/idempotencyMiddleware.js`
 - `apps/backend/src/middleware/clinicalContinuityActionPolicyMiddleware.js`
 - `apps/backend/src/routes/emr/clinicalNotesRoutes.js`
 - `apps/backend/src/services/downtime/clinicalContinuityActionBindingRegistry.js`
-- `apps/backend/src/services/downtime/clinicalContinuityActionRegistryService.js`
+- `apps/backend/src/services/downtime/clinicalContinuityPolicyService.js`
 - `apps/backend/src/services/emr/clinicalNoteDraftService.js`
-- focused existing unit/deep tests for the files above
+- `apps/backend/src/tests/unit/clinicalContinuityPolicyService.test.js`
+- `apps/backend/src/tests/unit/clinicalContinuitySeedInertTables.test.js`
 - `apps/backend/src/utils/validateEnv.js`
+- this design record
 
 The build re-runs OpenAPI generation/checks. If the normalized C5.1 transport
 contract requires a source or generated OpenAPI path, that exact path is added
@@ -789,8 +797,8 @@ Step 2 retains command logs under
 - a three-dot intent receipt containing only this approved backend ledger and
   no activation.
 
-The build may commit, push, and open its review surface only under the
-coordinator's later instruction. This lane never merges and never deploys.
+The coordinator authorized this build to commit, push, and open its review
+surface. This lane never merges and never deploys.
 
 ## 15. Explicit non-goals
 
@@ -806,15 +814,16 @@ C5.1 provides:
   handoff-authoring UI;
 - no projector or C6.1 late-effect implementation;
 - no facility activation or capture-purpose grant issuance;
-- no owner retention value, replay window, clinical threshold, SLA rule,
-  notification timing, or late-arrival exception;
+- no new owner retention value, clinical threshold, SLA rule, notification
+  timing, or late-arrival exception beyond the countersigned C-D10 replay and
+  receipt horizons;
 - no production policy/key/receipt generation;
 - no deployment;
 - no merge.
 
-## 16. Coordinator decisions required before Step 2
+## 16. Ratified build decisions
 
-Please approve or correct:
+The coordinator ratified:
 
 1. the one existing binding registry extended with an exact transactional
    handler, with no parallel replay map;
@@ -833,55 +842,86 @@ Please approve or correct:
 8. note-draft revision CAS with base revision 0 for insert-only capture;
 9. draft storage's required private replay audit and forbidden
    canonical/SLA/outbox/pathway effects;
-10. the reusable suite running twice through the real route and handler;
+10. the reusable suite running twice through the production Express router
+    and handler under the test-only Phase-0 seam described in section 11;
 11. the exact Step 2 file ledger and C6.1 no-edit boundary; and
-12. the default-fail-closed retention posture until C-D10 supplies receipt,
-    attempt, replay-eligibility, reconciliation, and tombstone horizons.
+12. the countersigned C-D10 seven-day replay, 365-day detailed-evidence, and
+    2555-day tombstone horizons, with no compaction/deletion worker in C5.1.
 
 Two integration contracts require explicit coordinator ownership rather than
 invention in this backend lane:
 
-- C4.1 contains every semantic field used above, but its cleared HTTP
-  projection currently names only the C4.2 authority headers and standard
-  `Idempotency-Key`. The coordinator must assign and approve the closed
-  transport mapping for the remaining C5.1 fields; C5.1 will consume that
-  normalized contract without editing a client.
+- C4.1 supplies the canonical command envelope. C5.1 consumes its canonical
+  base64url JSON projection through `X-VH-Continuity-Command-Envelope`, binds
+  the standard `Idempotency-Key`, and accepts the closed
+  `X-VH-Continuity-Receipt-Source: electronic_queue` source for this slice.
 - C4.1/C0A do not currently carry a server-verifiable different-actor handoff
   artifact. Until one is cleared, different-actor replay remains typed
   `needs_review` and cannot reveal or apply a receipt.
 
-Until these decisions and the queued prerequisite builds are cleared, this
-branch remains design-only.
+The closed C4.1 transport mapping and prerequisite builds are now landed. This
+branch contains the authorized default-off backend implementation; it does not
+activate capture or replay.
 
 ## 17. Coordinator clearance record
 
-The coordinator approved this delta as written on 2026-07-31 and adopted the
-section 2 stop conditions verbatim as the build gate. This clearance changes
-the design status only. It does not authorize Step 2, reserve a migration,
-activate capture, merge, or deploy.
+The coordinator approved this delta on 2026-07-31 and adopted the section 2
+stop conditions verbatim as the build gate. After PRs #667 and #668 landed,
+the coordinator opened Step 2 against exact main
+`98732adf140122dd972279c608ecbe369f8521ab`, directed migration derivation at
+605 or later, folded the duplicate patient resolver cleanup into this route
+family, and added the extensible paper-source receipt dimension. This
+authorization does not activate capture, merge, or deploy.
 
 The coordinator ratified these fail-closed postures:
 
-1. no receipt/effect-evidence compaction or tombstone/attempt deletion until
-   the C-D10 receipt and tombstone horizons are countersigned; engineering
-   supplies no interim value;
+1. C-D10 fixes replay eligibility at seven days, full receipt/effect evidence
+   at 365 days, and the compact tombstone at 2555 days; this slice records
+   those horizons but implements no compaction/deletion worker;
 2. different-actor replay remains refused until a server-verifiable handoff
    contract exists; local C0A attestation is not promoted into server
    authority; and
 3. the build remains blocked until the landed C4.1 envelope matches the
    cleared delta field-for-field and the closed C5.1 wire mapping is approved.
 
-Live prerequisite receipt when this clearance was recorded:
+Live build receipt:
 
-- `github/main` is
-  `e5aa113cb4895deb763800e6309ea64fd492cb3b`, merge of C6.1-A PR
-  [#664](https://github.com/Bahuleyandr/VH-Health-Platform/pull/664);
-- C6.1-A landed `603_external_interface_recovery.sql`;
-- `github/feat/continuity-facility-context` remains at its design/clearance
-  commit `f77d0ed208841054b2bb0376e29d12bcfdabe1fc`; and
-- `github/feat/continuity-c4-1-queue-envelope` remains at its cleared design
-  commit `aa25b1a62d65b353c5dc397a00ddbefdeb8c0896`.
+- `github/main` and `origin/main` were both
+  `98732adf140122dd972279c608ecbe369f8521ab` at kickoff;
+- C6.1-A PR #664, C4.1 PR #667, and facility-context PR #668 were merged;
+- the landed facility middleware provides the frozen server-derived
+  `req.continuityFacilityContext` seam;
+- C4.2 still contains 17 approved IDs and exactly the two draft bindings; and
+- migration 604 was occupied, so this build re-derived migration 605.
+- immediately before publication, both remotes advanced together to
+  `888de6c06605b3ec22f0bbdc35c0bea966b8c4e6` through Staff-only PR #669;
+  its diff contained no backend or C5.1 ledger path, and this branch rebased
+  cleanly onto that fetched head.
 
-The next permissible action is another live gate check after the
-facility-context build and the landed C4.1 envelope exist. Until then, this
-lane holds with no backend, migration, Prisma, test, or activation work.
+Local verification receipt before publication:
+
+- fresh `vhhealth_test` bootstrap applied all 589 migration files, including
+  605, with zero migration errors;
+- Prisma introspection, validation, and the schema-drift gate passed; local
+  client generation did not complete within its bounded 15-minute Windows run
+  and left the prior generated client untouched, so the Linux PR gate remains
+  the authoritative generation proof;
+- the focused replay, policy, binding, migration, real-route, and inert-seed
+  suites passed, including 156/156 in the final combined replay set and 86/86 in the
+  final replay-only rerun;
+- full backend lint and security policy checks passed, including raw-parameter,
+  PHI tenant, default-tenant, external-region, and secret scans;
+- OpenAPI live-route drift, core-spec sync, and Spectral all exited zero;
+- dependency audit reported zero vulnerabilities;
+- database guardrails passed 13/13 before and after comprehensive seeding,
+  with 831/837 application tables populated, exactly six gated continuity
+  tables intentionally empty, and no seed or route-critical drift failures;
+- the complete Windows Jest runner passed chunks 1 through 15 after restoring
+  two local schema-reset invariants (the existing analytics publication and
+  default `public` schema usage); chunk 16 then stopped on the frozen migration
+  601 test's LF-only substring assertion against an untouched CRLF checkout.
+  The Linux PR gate is the authoritative repository-wide result; and
+- no merge or deployment was performed.
+
+The lane may commit, push, and open a PR with standard receipts. It must never
+merge or deploy, and C-D14 remains compile-time false.
