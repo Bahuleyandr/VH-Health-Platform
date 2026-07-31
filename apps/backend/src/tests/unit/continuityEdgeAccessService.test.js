@@ -204,14 +204,18 @@ describe('continuity edge access service', () => {
         revokedAt: '2026-07-30T02:00:00.000Z'
       }
     ]);
-    const canonicalMainFixture = fs.readFileSync(
-      new URL('../fixtures/continuity-edge-main-e5aa113cb.json', import.meta.url),
-      'utf8'
-    ).trim();
-    const canonicalCurrent = JSON.stringify(grantSet);
-    expect(canonicalCurrent).toBe(canonicalMainFixture);
+    const canonicalMainFixtureFile = fs.readFileSync(
+      new URL('../fixtures/continuity-edge-main-e5aa113cb.json', import.meta.url)
+    );
+    expect(canonicalMainFixtureFile.at(-1)).toBe(0x0a);
+    const canonicalMainFixture = canonicalMainFixtureFile.subarray(0, -1);
+    const canonicalCurrent = Buffer.from(JSON.stringify(grantSet), 'utf8');
+    expect(canonicalCurrent.equals(canonicalMainFixture)).toBe(true);
     expect(
       createHash('sha256').update(canonicalCurrent).digest('hex')
+    ).toBe('2ffcf965c3d50a8bd8e778217d2c7b53fd3154e120095d6b41f5c1f8fa280667');
+    expect(
+      createHash('sha256').update(canonicalMainFixture).digest('hex')
     ).toBe('2ffcf965c3d50a8bd8e778217d2c7b53fd3154e120095d6b41f5c1f8fa280667');
     for (const [sql] of query.mock.calls) {
       expect(sql).toContain("grant_purpose = 'edge_read'");
