@@ -141,12 +141,14 @@ async function readEventConsumerOffset(db, consumerKey, generation, { lock = fal
             intake_retired_at,
             registered_at,
             updated_at
-       FROM event_consumer_offsets
-      WHERE consumer_key = $1::text
-        AND generation = $2::integer
-      ${lock ? 'FOR UPDATE' : ''}`,
+       FROM public.pathway_projector_offset_get(
+         $1::text,
+         $2::integer,
+         $3::boolean
+       )`,
     consumerKey,
     generation,
+    lock,
   );
   return rows[0] || null;
 }
@@ -178,10 +180,8 @@ export async function registerEventConsumer({
               generation,
               backfill_completed_at,
               intake_retired_at
-         FROM event_consumer_offsets
-        WHERE consumer_key = $1::text
-        ORDER BY generation
-        FOR UPDATE`,
+         FROM public.pathway_projector_offsets_list($1::text, TRUE)
+        ORDER BY generation`,
       safeConsumerKey,
     );
     const highestKnownGeneration = knownRegistrations.at(-1)?.generation ?? 0;
@@ -211,13 +211,11 @@ export async function registerEventConsumer({
 
     if (liveRegistration) {
       const retired = await tx.$queryRawUnsafe(
-        `UPDATE event_consumer_offsets
-            SET intake_retired_at = NOW(),
-                updated_at = NOW()
-          WHERE consumer_key = $1::text
-            AND generation = $2::integer
-            AND intake_retired_at IS NULL
-        RETURNING generation`,
+        `SELECT generation
+           FROM public.pathway_projector_offset_retire(
+             $1::text,
+             $2::integer
+           )`,
         safeConsumerKey,
         liveRegistration.generation,
       );
@@ -229,26 +227,30 @@ export async function registerEventConsumer({
       }
     }
 
+    const cutoffs = await tx.$queryRawUnsafe(
+      `SELECT COALESCE(MAX(id), 0)::text AS cutoff,
+              MAX(id) IS NULL AS completed
+         FROM event_outbox`,
+    );
     const rows = await tx.$queryRawUnsafe(
-      `INSERT INTO event_consumer_offsets
-         (consumer_key, generation, historical_cutoff_event_id,
-          backfill_cursor_event_id, backfill_completed_at)
-       SELECT $1::text,
-              $2::integer,
-              COALESCE(MAX(id), 0),
-              0,
-              CASE WHEN MAX(id) IS NULL THEN NOW() ELSE NULL END
-         FROM event_outbox
-       RETURNING consumer_key,
-                 generation,
-                 historical_cutoff_event_id::text,
-                 backfill_cursor_event_id::text,
-                 backfill_completed_at,
-                 intake_retired_at,
-                 registered_at,
-                 updated_at`,
+      `SELECT consumer_key,
+              generation,
+              historical_cutoff_event_id::text,
+              backfill_cursor_event_id::text,
+              backfill_completed_at,
+              intake_retired_at,
+              registered_at,
+              updated_at
+         FROM public.pathway_projector_offset_register(
+           $1::text,
+           $2::integer,
+           $3::bigint,
+           $4::boolean
+         )`,
       safeConsumerKey,
       safeGeneration,
+      cutoffs[0].cutoff,
+      cutoffs[0].completed,
     );
     return rows[0];
   });
@@ -311,10 +313,11 @@ export async function materializeMissingInboxRows({
     if (scanned.length > 0) {
       inserted = await tx.$queryRawUnsafe(
         `INSERT INTO pathway_projector_inbox
-           (tenant_id, consumer_key, generation, event_id)
-         SELECT source.tenant_id, $1::text, $2::integer, source.event_id
+           (scope_kind, tenant_id, consumer_key, generation, event_id)
+         SELECT 'pathway_registry', source.tenant_id, $1::text,
+                $2::integer, source.event_id
            FROM unnest($3::uuid[], $4::bigint[]) AS source(tenant_id, event_id)
-         ON CONFLICT (tenant_id, consumer_key, generation, event_id) DO NOTHING
+         ON CONFLICT DO NOTHING
          RETURNING event_id::text, tenant_id::text`,
         safeConsumerKey,
         safeGeneration,
@@ -328,18 +331,15 @@ export async function materializeMissingInboxRows({
     const completed = scanned.length === 0
       || lastScannedEventId === offset.historical_cutoff_event_id;
     const progress = await tx.$queryRawUnsafe(
-      `UPDATE event_consumer_offsets
-          SET backfill_cursor_event_id = $3::bigint,
-              backfill_completed_at = CASE
-                WHEN $4::boolean THEN COALESCE(backfill_completed_at, NOW())
-                ELSE backfill_completed_at
-              END,
-              updated_at = NOW()
-        WHERE consumer_key = $1::text
-          AND generation = $2::integer
-        RETURNING historical_cutoff_event_id::text,
-                  backfill_cursor_event_id::text,
-                  backfill_completed_at`,
+      `SELECT historical_cutoff_event_id::text,
+              backfill_cursor_event_id::text,
+              backfill_completed_at
+         FROM public.pathway_projector_offset_advance(
+           $1::text,
+           $2::integer,
+           $3::bigint,
+           $4::boolean
+         )`,
       safeConsumerKey,
       safeGeneration,
       lastScannedEventId,
@@ -372,7 +372,8 @@ export async function claimDueInboxRows({
      `WITH due AS (
        SELECT tenant_id, consumer_key, generation, event_id
          FROM pathway_projector_inbox
-        WHERE consumer_key = $1::text
+        WHERE scope_kind = 'pathway_registry'
+          AND consumer_key = $1::text
           AND generation = $2::integer
           AND status = 'pending'
           AND next_attempt_at <= NOW()
@@ -429,7 +430,8 @@ async function recordProcessingFailure({ claim, error, maxAttempts = DEFAULT_MAX
             END,
              last_error = $8::text,
             outcome_at = CASE WHEN attempts >= $7::integer THEN NOW() ELSE NULL END
-       WHERE consumer_key = $1::text
+       WHERE scope_kind = 'pathway_registry'
+        AND consumer_key = $1::text
         AND generation = $2::integer
         AND event_id = $3::bigint
         AND tenant_id = $4::uuid
@@ -472,12 +474,23 @@ export async function processClaimedInboxRow({
                 e.aggregate_id,
                 e.patient_uid::text,
                 e.payload,
-                e.created_at
+                e.created_at::text AS recorded_at,
+                e.occurred_at::text AS occurred_at,
+                e.occurred_at_source,
+                e.recovery_inbox_id::text,
+                e.recovery_effect_disposition,
+                recovery.status AS recovery_status,
+                recovery.pending_task_id AS recovery_pending_task_id
            FROM pathway_projector_inbox i
            LEFT JOIN event_outbox e
              ON e.id = i.event_id
             AND e.tenant_id = i.tenant_id
-           WHERE i.consumer_key = $1::text
+           LEFT JOIN pathway_projector_inbox recovery
+             ON recovery.inbox_id = e.recovery_inbox_id
+            AND recovery.tenant_id = e.tenant_id
+            AND recovery.scope_kind = 'external_interface'
+           WHERE i.scope_kind = 'pathway_registry'
+            AND i.consumer_key = $1::text
             AND i.generation = $2::integer
             AND i.event_id = $3::bigint
             AND i.tenant_id = $4::uuid
@@ -506,9 +519,32 @@ export async function processClaimedInboxRow({
         );
       }
 
-      const handler = safeRegistry.resolve(row.event_type);
+      const latePendingOnly = row.recovery_effect_disposition === 'late_pending_only';
+      if (
+        latePendingOnly
+        && (
+          !row.recovery_inbox_id
+          || row.recovery_status !== 'handled'
+          || !row.recovery_pending_task_id
+        )
+      ) {
+        throw AppError.internal(
+          'Late recovery event is missing terminal pending-work evidence',
+          'PATHWAY_PROJECTOR_LATE_PENDING_WORK_MISSING',
+        );
+      }
+      const handler = latePendingOnly ? null : safeRegistry.resolve(row.event_type);
       const terminalStatus = handler ? 'handled' : 'ignored';
-      let metadata = null;
+      const outcomeCode = latePendingOnly
+        ? 'late_pending_only_pathway_suppressed'
+        : null;
+      let metadata = latePendingOnly
+        ? {
+          outcome_code: outcomeCode,
+          recovery_inbox_id: row.recovery_inbox_id,
+          pending_task_id: row.recovery_pending_task_id,
+        }
+        : null;
       if (handler) {
         metadata = await handler({
           tx,
@@ -523,7 +559,9 @@ export async function processClaimedInboxRow({
             aggregate_id: row.aggregate_id,
             patient_uid: row.patient_uid,
             payload: row.payload,
-            created_at: row.created_at,
+            occurred_at: row.occurred_at,
+            occurred_at_source: row.occurred_at_source,
+            recorded_at: row.recorded_at,
           }),
         });
       }
@@ -534,15 +572,18 @@ export async function processClaimedInboxRow({
                 lease_owner = NULL,
                 lease_expires_at = NULL,
                 last_error = NULL,
-                outcome_at = NOW()
-          WHERE consumer_key = $1::text
+                outcome_at = NOW(),
+                outcome_code = $8::text
+          WHERE scope_kind = 'pathway_registry'
+            AND consumer_key = $1::text
             AND generation = $2::integer
             AND event_id = $3::bigint
             AND tenant_id = $4::uuid
             AND status = 'pending'
              AND lease_owner = $5::uuid
              AND attempts = $6::integer
-           RETURNING event_id::text, tenant_id::text, status, attempts, outcome_at`,
+           RETURNING event_id::text, tenant_id::text, status, attempts,
+                     outcome_at, outcome_code`,
         normalizedClaim.consumer_key,
         normalizedClaim.generation,
         normalizedClaim.event_id,
@@ -550,6 +591,7 @@ export async function processClaimedInboxRow({
         normalizedClaim.lease_owner,
         normalizedClaim.attempts,
         terminalStatus,
+        outcomeCode,
       );
       if (terminalRows.length !== 1) {
         throw AppError.internal(
@@ -588,7 +630,8 @@ export async function reapStaleInboxLeases({
      `WITH stale AS (
        SELECT tenant_id, consumer_key, generation, event_id, attempts, lease_owner
          FROM pathway_projector_inbox
-        WHERE consumer_key = $1::text
+         WHERE scope_kind = 'pathway_registry'
+           AND consumer_key = $1::text
           AND generation = $2::integer
           AND status = 'pending'
           AND lease_owner IS NOT NULL

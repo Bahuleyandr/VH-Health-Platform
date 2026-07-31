@@ -47,7 +47,7 @@ function legacySummaryEvent() {
     aggregate_id: '27',
     patient_uid: PATIENT_UID,
     payload: {},
-    created_at: new Date('2026-07-23T08:00:00.000Z'),
+    occurred_at: new Date('2026-07-23T08:00:00.000Z'),
   };
 }
 
@@ -130,7 +130,7 @@ describe('inpatient pathway projector', () => {
         occurred_at: '2026-07-23T08:10:00.000Z',
         admission_lineage_version: 1,
       },
-      created_at: new Date('2026-07-23T08:10:01.000Z'),
+      occurred_at: new Date('2026-07-23T08:10:00.000Z'),
     };
     const tx = {
       $queryRawUnsafe: jest.fn()

@@ -160,7 +160,7 @@ export async function projectDiagnosticPathwayEvent({
     tenantId,
     compiled.checksum,
   );
-  const occurredAt = new Date(event.created_at).toISOString();
+  const occurredAt = new Date(event.occurred_at).toISOString();
   const actor = createRegisteredWorkflowSystemActor({
     registry: runtimeRegistry,
     systemKey: 'diagnostics.pathway_projector.v1',

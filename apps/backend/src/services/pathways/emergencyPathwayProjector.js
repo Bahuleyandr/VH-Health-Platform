@@ -213,7 +213,7 @@ export async function projectEmergencyPathwayEvent({
       compiled.version,
     )
     : null;
-  const occurredAt = new Date(event.created_at).toISOString();
+  const occurredAt = new Date(event.occurred_at).toISOString();
   const actor = createRegisteredWorkflowSystemActor({
     registry: runtimeRegistry,
     systemKey: legacyRuntime

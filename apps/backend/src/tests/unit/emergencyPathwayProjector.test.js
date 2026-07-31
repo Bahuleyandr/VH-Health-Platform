@@ -43,7 +43,7 @@ function event(overrides = {}) {
       patient_uid: PATIENT_UID,
       visit_number: 'ED-2026-73',
     },
-    created_at: new Date('2026-07-26T10:00:00.000Z'),
+    occurred_at: new Date('2026-07-26T10:00:00.000Z'),
     ...overrides,
   };
 }

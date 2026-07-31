@@ -452,7 +452,7 @@ export async function projectOpPathwayEvent({
   const runtimeRegistry = workflowRuntimeRegistryV4;
   const compiled = compileOpContactToRecoveryDefinition({ registry: runtimeRegistry });
   const workflowDefinitionId = await approvedDefinitionIdTx(tx, tenantId, compiled.checksum);
-  const occurredAt = new Date(event.created_at).toISOString();
+  const occurredAt = new Date(event.occurred_at).toISOString();
   const actor = createRegisteredWorkflowSystemActor({
     registry: runtimeRegistry,
     systemKey: 'op.pathway_projector.v1',

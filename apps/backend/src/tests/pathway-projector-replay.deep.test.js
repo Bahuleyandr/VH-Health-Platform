@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Client } from 'pg';
 
 import prisma from '../lib/prisma.js';
 import {
@@ -26,6 +27,20 @@ const GENERATION_2_EVENT_TYPE = `test.pathway.replay.added_${RUN_TOKEN}`;
 const consumers = new Set();
 const eventIds = new Set();
 
+function migrationOwnerDatabaseUrl(value) {
+  if (!value) return value;
+  const url = new URL(value);
+  if (
+    url.hostname === '127.0.0.1'
+    && url.port === '55432'
+    && url.username === 'qa_writer'
+  ) {
+    url.username = 'postgres';
+    url.password = '';
+  }
+  return url.toString();
+}
+
 function consumerFor(label) {
   const consumer = `s1a_replay_${RUN_ID}_${label}`;
   consumers.add(consumer);
@@ -34,11 +49,15 @@ function consumerFor(label) {
 
 async function seedEvent(eventType) {
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO event_outbox
-       (event_type, aggregate_type, payload, tenant_id, status, available_at, created_at)
-     VALUES ($1, 's1a_replay_test', $2::jsonb, $3::uuid, 'pending',
-             NOW() - INTERVAL '100 years', NOW())
-     RETURNING id::text, tenant_id::text, event_type`,
+    `WITH clock AS (SELECT NOW() AS inserted_at)
+     INSERT INTO event_outbox
+       (event_type, aggregate_type, payload, tenant_id, status, available_at,
+        created_at, occurred_at, occurred_at_source)
+     SELECT $1, 's1a_replay_test', $2::jsonb, $3::uuid, 'pending',
+            clock.inserted_at - INTERVAL '100 years', clock.inserted_at,
+            clock.inserted_at, 'explicit'
+       FROM clock
+     RETURNING id::text, tenant_id::text, event_type, created_at, occurred_at`,
     eventType,
     JSON.stringify({ test_run: RUN_ID }),
     TENANT_ID,
@@ -72,8 +91,7 @@ async function offsetsFor(consumerKey) {
             intake_retired_at,
             registered_at,
             updated_at
-       FROM event_consumer_offsets
-      WHERE consumer_key = $1
+       FROM public.pathway_projector_offsets_list($1::text, FALSE)
       ORDER BY generation`,
     consumerKey,
   );
@@ -141,10 +159,19 @@ async function cleanup() {
       `DELETE FROM pathway_projector_inbox WHERE consumer_key = ANY($1::text[])`,
       consumerKeys,
     ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM event_consumer_offsets WHERE consumer_key = ANY($1::text[])`,
-      consumerKeys,
-    ).catch(() => {});
+    const owner = new Client({
+      connectionString: migrationOwnerDatabaseUrl(databaseUrl),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `DELETE FROM event_consumer_offsets
+          WHERE consumer_key = ANY($1::text[])`,
+        [consumerKeys],
+      );
+    } finally {
+      await owner.end();
+    }
   }
   if (eventIds.size > 0) {
     const trackedIds = Array.from(eventIds);

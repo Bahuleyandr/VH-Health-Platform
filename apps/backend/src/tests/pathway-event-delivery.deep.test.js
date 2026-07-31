@@ -20,6 +20,20 @@ import {
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
 
+function migrationOwnerDatabaseUrl(value) {
+  if (!value) return value;
+  const url = new URL(value);
+  if (
+    url.hostname === '127.0.0.1'
+    && url.port === '55432'
+    && url.username === 'qa_writer'
+  ) {
+    url.username = 'postgres';
+    url.password = '';
+  }
+  return url.toString();
+}
+
 const RUN_ID = `${process.pid}-${Date.now()}`;
 const RUN_TOKEN = RUN_ID.replaceAll('-', '_');
 const CONSUMER_PREFIX = `s1a_delivery_${RUN_ID}`;
@@ -62,19 +76,21 @@ async function seedOutboxEvent({
   lastError = null,
   deliveredAt = null,
   explicitId = null,
+  occurredAt = null,
   payload = { test_run: RUN_ID },
 } = {}) {
   const commonColumns = `
     event_type, aggregate_type, aggregate_id, patient_uid, payload,
     tenant_id, status, attempts, available_at, last_error, created_at, delivered_at,
-    lease_owner, lease_expires_at
+    lease_owner, lease_expires_at, occurred_at, occurred_at_source
   `;
   const commonValues = `
     $1::text, 's1a_test', NULL, NULL, $2::jsonb,
     $3::uuid, $4::text, $5::integer, NOW() - INTERVAL '100 years',
     $6::text, NOW(), $7::timestamptz,
     CASE WHEN $4::text = 'processing' THEN gen_random_uuid() ELSE NULL END,
-    CASE WHEN $4::text = 'processing' THEN NOW() + INTERVAL '5 minutes' ELSE NULL END
+    CASE WHEN $4::text = 'processing' THEN NOW() + INTERVAL '5 minutes' ELSE NULL END,
+    COALESCE($8::timestamptz, NOW()), 'explicit'
   `;
   const params = [
     eventType,
@@ -84,19 +100,22 @@ async function seedOutboxEvent({
     attempts,
     lastError,
     deliveredAt,
+    occurredAt,
   ];
   const rows = explicitId
     ? await prisma.$queryRawUnsafe(
       `INSERT INTO event_outbox (id, ${commonColumns})
-       VALUES ($8::bigint, ${commonValues})
-       RETURNING id::text, tenant_id::text, event_type, status`,
+      VALUES ($9::bigint, ${commonValues})
+       RETURNING id::text, tenant_id::text, event_type, status,
+                 created_at, occurred_at`,
       ...params,
       String(explicitId),
     )
     : await prisma.$queryRawUnsafe(
       `INSERT INTO event_outbox (${commonColumns})
        VALUES (${commonValues})
-       RETURNING id::text, tenant_id::text, event_type, status`,
+       RETURNING id::text, tenant_id::text, event_type, status,
+                 created_at, occurred_at`,
       ...params,
     );
   eventIds.add(rows[0].id);
@@ -133,8 +152,11 @@ async function consumerOffset(consumerKey, generation = 1) {
             intake_retired_at,
             registered_at,
             updated_at
-       FROM event_consumer_offsets
-      WHERE consumer_key = $1::text AND generation = $2::integer`,
+       FROM public.pathway_projector_offset_get(
+         $1::text,
+         $2::integer,
+         FALSE
+       )`,
     consumerKey,
     generation,
   );
@@ -264,10 +286,19 @@ async function cleanup() {
       `DELETE FROM pathway_projector_inbox WHERE consumer_key = ANY($1::text[])`,
       consumerList,
     ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM event_consumer_offsets WHERE consumer_key = ANY($1::text[])`,
-      consumerList,
-    ).catch(() => {});
+    const owner = new Client({
+      connectionString: migrationOwnerDatabaseUrl(databaseUrl),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `DELETE FROM event_consumer_offsets
+          WHERE consumer_key = ANY($1::text[])`,
+        [consumerList],
+      );
+    } finally {
+      await owner.end();
+    }
   }
   if (idList.length > 0) {
     await prisma.$executeRawUnsafe(
@@ -328,7 +359,7 @@ describeIfDb('pathway projector event delivery (deep)', () => {
     await cleanup();
   }, 60_000);
 
-  it('is backed by migration 578 with durable registration, commit-coupled intake, and forced Pattern-A RLS', async () => {
+  it('preserves migration 578 delivery semantics after the migration 603 substrate extension', async () => {
     const migration = await prisma.$queryRawUnsafe(
       `SELECT name FROM _migrations WHERE name = '578_pathway_projector_inbox.sql'`,
     );
@@ -356,8 +387,8 @@ describeIfDb('pathway projector event delivery (deep)', () => {
         WHERE table_schema = 'public' AND table_name = 'event_consumer_offsets'
         ORDER BY ordinal_position`,
     );
-    expect(offsetColumns).toHaveLength(8);
     expect(offsetColumns.map((column) => column.column_name)).toEqual(expect.arrayContaining([
+      'offset_id', 'scope_kind',
       'consumer_key', 'generation', 'historical_cutoff_event_id',
       'backfill_cursor_event_id', 'backfill_completed_at', 'intake_retired_at',
       'registered_at', 'updated_at',
@@ -414,9 +445,8 @@ describeIfDb('pathway projector event delivery (deep)', () => {
         ORDER BY relation.relname`,
     );
     expect(relationPosture).toHaveLength(3);
-    expect(relationPosture.every(
-      (relation) => relation.relkind === 'r' && relation.owner_is_current_user,
-    )).toBe(true);
+    expect(relationPosture.every((relation) => relation.relkind === 'r')).toBe(true);
+    expect(new Set(relationPosture.map((relation) => relation.owner_name)).size).toBe(1);
     const posture = await prisma.$queryRawUnsafe(
       `SELECT c.relrowsecurity, c.relforcerowsecurity, p.policyname,
               p.qual, p.with_check
@@ -446,7 +476,7 @@ describeIfDb('pathway projector event delivery (deep)', () => {
     );
     const definitions = new Map(constraints.map((row) => [row.conname, row.definition]));
     expect(definitions.get('pathway_projector_inbox_pkey'))
-      .toMatch(/PRIMARY KEY \(tenant_id, consumer_key, generation, event_id\)/i);
+      .toMatch(/PRIMARY KEY \(inbox_id\)/i);
     expect(definitions.get('fk_pathway_projector_inbox_tenant'))
       .toMatch(/FOREIGN KEY \(tenant_id\) REFERENCES tenants\(id\)/i);
     expect(definitions.get('pathway_projector_inbox_status_check')).toMatch(/pending.*handled.*ignored.*dead/i);
@@ -462,6 +492,7 @@ describeIfDb('pathway projector event delivery (deep)', () => {
       'idx_pathway_projector_inbox_stale',
       'idx_pathway_projector_inbox_tenant_ops',
       'idx_pathway_projector_inbox_metrics',
+      'uq_pathway_projector_inbox_pathway_event',
     ]));
     expect(indexes.find((row) => row.indexname === 'idx_pathway_projector_inbox_metrics')?.indexdef)
       .toMatch(/\(consumer_key, generation, status, created_at\) INCLUDE \(lease_owner\).*pending.*dead/i);
@@ -480,7 +511,11 @@ describeIfDb('pathway projector event delivery (deep)', () => {
               pg_get_functiondef(p.oid) AS function_definition,
               p.prosecdef,
               p.proconfig,
-              p.proowner = (current_user::regrole)::oid AS owner_is_current_user,
+              p.proowner = (
+                SELECT relation.relowner
+                  FROM pg_class AS relation
+                 WHERE relation.oid = 'public.event_outbox'::regclass
+              ) AS owner_matches_table,
               NOT has_function_privilege(
                 0::oid,
                 p.oid,
@@ -510,7 +545,7 @@ describeIfDb('pathway projector event delivery (deep)', () => {
     expect(trigger[0].function_definition)
       .toMatch(/TG_OP OPERATOR\(pg_catalog\.<>\).*INSERT.*pg_catalog\.text/is);
     expect(trigger[0].prosecdef).toBe(true);
-    expect(trigger[0].owner_is_current_user).toBe(true);
+    expect(trigger[0].owner_matches_table).toBe(true);
     expect(trigger[0].proconfig).toEqual(expect.arrayContaining([
       expect.stringMatching(/^search_path=pg_catalog, pg_temp$/),
     ]));
@@ -524,7 +559,9 @@ describeIfDb('pathway projector event delivery (deep)', () => {
       'utf8',
     );
     const trackerProbe = `s1a_578_tracker_probe_${RUN_TOKEN}.sql`;
-    const client = new Client({ connectionString: databaseUrl });
+    const client = new Client({
+      connectionString: migrationOwnerDatabaseUrl(databaseUrl),
+    });
     let transactionOpen = false;
     await client.connect();
     try {
@@ -1076,6 +1113,39 @@ describeIfDb('pathway projector event delivery (deep)', () => {
     const ignoredEventId = seeded.find((event) => event.event_type === ignoredEventType)?.id;
     expect(outcomes.find((row) => row.event_id === ignoredEventId)?.status).toBe('ignored');
     expect(await noOpBoundaryCounts()).toEqual(before);
+  }, 60_000);
+
+  it('passes a persisted explicit occurrence unchanged and keeps recorded time separate', async () => {
+    const consumerKey = consumerFor('explicit_occurrence');
+    const generation = 2003;
+    const eventType = `test.pathway.s1a.occurrence_${RUN_TOKEN}`;
+    const occurredAt = '2026-07-28T07:15:00.000Z';
+    const [event] = await prepareClaimableEvents({
+      consumerKey,
+      generation,
+      events: [{ eventType, occurredAt }],
+    });
+    let observedEvent;
+    const registry = createPathwayProjectorRegistry({
+      generation,
+      entries: [[eventType, async ({ event: projectedEvent }) => {
+        observedEvent = projectedEvent;
+        return { observed: true };
+      }]],
+    });
+    const [claim] = await claimDueInboxRows({
+      consumerKey,
+      generation,
+      limit: 1,
+      leaseOwner: randomUUID(),
+    });
+    const outcome = await processClaimedInboxRow({ claim, registry });
+
+    expect(outcome).toMatchObject({ status: 'handled', event_id: event.id });
+    expect(new Date(observedEvent.occurred_at).toISOString()).toBe(occurredAt);
+    expect(new Date(observedEvent.recorded_at).toISOString()).not.toBe(occurredAt);
+    expect(observedEvent.occurred_at_source).toBe('explicit');
+    expect(observedEvent).not.toHaveProperty('created_at');
   }, 60_000);
 
   it('retries handler failures without double-increment and dead-letters the seventh failed claim', async () => {
