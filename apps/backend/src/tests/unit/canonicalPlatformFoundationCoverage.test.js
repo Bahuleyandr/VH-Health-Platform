@@ -22,14 +22,12 @@ describe('canonical clinical platform foundation coverage guard', () => {
       'listMedicationSafetyReviews',
       'evaluateMedicationSafety',
       'getClinicalDocumentationTemplates',
-      'getClinicalDowntimePolicy',
     ]) {
       expect(service).toContain(token);
     }
 
     for (const routeToken of [
       '/documentation/templates',
-      '/downtime-policy',
       '/medication-safety/evaluate',
       '/:id/audit',
       '/:id/slas',
@@ -70,7 +68,6 @@ describe('canonical clinical platform foundation coverage guard', () => {
       'MedicationSafetyEvaluation',
       'WorkflowSlaInstance',
       'ClinicalDocumentationTemplate',
-      'ClinicalDowntimePolicy',
       'RolePolicySnapshot',
     ]) {
       expect(models).toContain(`class ${model}`);
@@ -84,11 +81,90 @@ describe('canonical clinical platform foundation coverage guard', () => {
       'getEncounterMedicationSafety',
       'evaluateMedicationSafety',
       'getClinicalDocumentationTemplates',
-      'getClinicalDowntimePolicy',
       'getRolePolicySnapshot',
     ]) {
       expect(service).toContain(method);
     }
+
+    expect(models).not.toContain('class ClinicalDowntimePolicy');
+    expect(service).not.toContain('getClinicalDowntimePolicy');
+    expect(service).not.toContain('/encounters/downtime-policy');
+  });
+
+  it('keeps Staff signed action-policy models and typed enforcement wired', () => {
+    const policyModel = readRepo(
+      'packages/vhhealth_core/lib/models/clinical_continuity_action_policy.dart',
+    );
+    const actionGate = readRepo(
+      'packages/vhhealth_core/lib/services/clinical_continuity_action_gate.dart',
+    );
+    const verifier = readRepo(
+      'packages/vhhealth_core/lib/services/clinical_continuity_verifier.dart',
+    );
+    const actionIds = readRepo(
+      'packages/vhhealth_core/lib/services/offline_action_ids.dart',
+    );
+    const policySource = readRepo(
+      'apps/staff/lib/core/services/staff_action_policy_source.dart',
+    );
+    const policyRepository = readRepo(
+      'apps/staff/lib/core/services/staff_action_policy_repository.dart',
+    );
+    const actionGateway = readRepo(
+      'apps/staff/lib/core/services/staff_clinical_action_gateway.dart',
+    );
+
+    for (const token of [
+      'class ClinicalContinuityActionRule',
+      'class VerifiedClinicalContinuityActionPolicy',
+    ]) {
+      expect(policyModel).toContain(token);
+    }
+
+    for (const token of [
+      'enum ClinicalContinuityActionGateStage',
+      'class ClinicalContinuityActionDecision',
+      'class ClinicalContinuityActionGate',
+      'OfflineActionIds.isKnown',
+    ]) {
+      expect(actionGate).toContain(token);
+    }
+
+    expect(verifier).toContain(
+      'class ClinicalContinuityActionPolicyVerificationResult',
+    );
+    expect(verifier).toContain(
+      'Future<ClinicalContinuityActionPolicyVerificationResult> verifyActionPolicy',
+    );
+
+    expect(actionIds).toContain('abstract final class OfflineActionIds');
+    expect(actionIds).toContain('static bool isKnown');
+    expect(actionIds).toContain('clientTransportFor');
+
+    expect(policySource).toContain('class StaffActionPolicySourcePayload');
+    expect(policySource).toContain(
+      'abstract interface class StaffActionPolicySource',
+    );
+    expect(policySource).toContain(
+      'Future<StaffActionPolicySourcePayload> fetch',
+    );
+
+    expect(policyRepository).toContain('class StaffActionPolicyRepository');
+    expect(policyRepository).toContain(
+      'VerifiedClinicalContinuityActionPolicy? get verifiedPolicy',
+    );
+    expect(policyRepository).toContain(
+      'ClinicalContinuityActionDecision evaluate',
+    );
+    expect(policyRepository).toContain('verifyActionPolicy');
+
+    expect(actionGateway).toContain('class StaffClinicalActionGateway');
+    expect(actionGateway).toContain('StaffActionPolicyRepository');
+    expect(actionGateway).toContain('ClinicalContinuityActionGateStage.persist');
+    expect(actionGateway).toContain(
+      'ClinicalContinuityActionGateStage.localDraft',
+    );
+    expect(actionGateway).toContain('OfflineActionIds.');
   });
 
   it('keeps role policy feature catalog tied to Staff sidebar fallback', () => {
