@@ -1,6 +1,7 @@
 # C5.2 paper back-entry and reconciliation workbench — design delta
 
-- **Status:** Design only; coordinator review required before build
+- **Status:** Coordinator-cleared 2026-07-31; implementation remains held at
+  the §2 gates
 - **Scope:** Backend, Staff workbench, Admin workbench, and continuity
   documentation
 - **Lane:** `feat/continuity-c5-2-reconciliation`
@@ -938,3 +939,46 @@ C5.2 does not:
 Coordinator acceptance of this delta authorizes only the later build queue
 entry. Production activation remains a separate, two-key governed decision
 after all continuity Gates and owner classifications are complete.
+
+## 17. Coordinator clearance record
+
+The coordinator approved this delta as written on 2026-07-31 and adopted the
+§2 stop conditions verbatim as the build gate. This clearance changes the
+design status only. It does not authorize implementation, reserve a migration,
+activate continuity mode, merge, or deploy.
+
+The coordinator expressly ratified:
+
+1. the §1.1 correction that C-D3 governs action classification while C-D7
+   governs unresolved-work preservation and the immutable `needs_review`
+   handoff;
+2. the two-surface Staff/Admin workbench with server-only authority and shared
+   generated contracts;
+3. the additive paper-source extension to C5.1 as the sole command-effect
+   authority, with no paper-receipt table;
+4. dedicated retrospective fact adapters behind the landed C6.1 late-effect
+   seam and the `occurred_at` / `recorded_at` / `reviewed_at` three-clock
+   contract;
+5. typed reconciliation queues on the existing task engine, preserving the
+   immutable task-to-SLA generation pairing; and
+6. the closure predicate with independent operational-commander and clinical
+   safety-lead attestation.
+
+Live prerequisite receipt when this clearance was recorded:
+
+- `github/main` is
+  `1d602c0acef815b0e533f86b6ef304b8447a80e5`, merge of C4.1 PR
+  [#667](https://github.com/Bahuleyandr/VH-Health-Platform/pull/667);
+- the AF/facility-context worktree is actively building and remains unmerged;
+  its remote branch still points to
+  `f77d0ed208841054b2bb0376e29d12bcfdabe1fc`;
+- the coordinator-cleared C5.1 design branch remains unmerged at
+  `d387b1185f20c52f62e7940fa532211be50bdf6e`; and
+- no open AF, C5.1, or C5.2 pull request exists at this snapshot.
+
+PR #667 does not require a docs-lane rebase. The next permissible C5.2 action
+is a fresh gate check after AF and C5.1 have landed. At build kickoff, fetch
+and rebase onto current `github/main`, revalidate every §2 contract, derive the
+migration number, and only then open the approved file ledger. Until those
+conditions are true, this lane holds with no backend, migration, Prisma, Staff,
+Admin, shared-contract, test, activation, or deployment work.
