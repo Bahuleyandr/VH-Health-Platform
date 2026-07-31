@@ -230,7 +230,7 @@ jobs:
               ;;
             staff-web)
               build_args+=(
-                --build-arg "VH_BASE_URL=${STAFF_WEB_API_URL:-https://clinical.vhhealth.hospital.local}"
+                --build-arg "VH_BASE_URL=${STAFF_WEB_API_URL:-https://api.vhhealth.app/api/v1}"
                 --build-arg "VH_API_KEY=${STAFF_WEB_API_KEY:-}"
                 --build-arg "APP_NAME=${STAFF_WEB_APP_NAME:-VH Health Staff}"
                 --build-arg "SENTRY_DSN=${SENTRY_DSN_STAFF:-}"

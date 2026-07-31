@@ -80,7 +80,7 @@ function escapeRegExp(value) {
 }
 
 function read(relativePath) {
-  return readFileSync(resolve(repoRoot, relativePath), 'utf8');
+  return readFileSync(resolve(repoRoot, relativePath), 'utf8').replace(/\r\n/g, '\n');
 }
 
 function candidateNames(name) {

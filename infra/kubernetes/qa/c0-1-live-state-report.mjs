@@ -98,14 +98,15 @@ function readRepoFile(repoRoot, relativePath) {
 }
 
 export function parseCapture(content) {
-  const firstMarker = content.indexOf('\n---\n');
-  const lastMarker = content.lastIndexOf('\n---\n');
-  const statusMatch = content.match(/\nexit_status=(\d+)\s*$/);
+  const normalized = content.replace(/\r\n/g, '\n');
+  const firstMarker = normalized.indexOf('\n---\n');
+  const lastMarker = normalized.lastIndexOf('\n---\n');
+  const statusMatch = normalized.match(/\nexit_status=(\d+)\s*$/);
   if (firstMarker === -1 || lastMarker === firstMarker || !statusMatch) {
-    return { output: content.trim(), status: null };
+    return { output: normalized.trim(), status: null };
   }
   return {
-    output: content.slice(firstMarker + 5, lastMarker).trim(),
+    output: normalized.slice(firstMarker + 5, lastMarker).trim(),
     status: Number(statusMatch[1]),
   };
 }
