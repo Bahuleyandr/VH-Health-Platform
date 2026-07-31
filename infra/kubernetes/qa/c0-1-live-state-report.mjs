@@ -160,20 +160,36 @@ function successful(capture) {
   return capture?.status === 0;
 }
 
+function headerOnlyTable(output) {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length !== 1) return false;
+
+  const columns = lines[0].split(/\s{2,}|\t+/).filter(Boolean);
+  const identityHeaders = new Set(['KIND', 'NAME', 'NAMESPACE', 'NODE', 'POD']);
+  return (
+    columns.length > 0 &&
+    columns.every((column) => /^[A-Z][A-Z0-9_-]*$/.test(column)) &&
+    columns.some((column) => identityHeaders.has(column))
+  );
+}
+
 function explicitlyEmpty(output) {
   return (
     !output.trim() ||
-    /No resources found|longhorn_installed=false|items:\s*\[\s*\]/i.test(output)
+    /No resources found|longhorn_installed=false|items:\s*\[\s*\]/i.test(output) ||
+    headerOnlyTable(output)
   );
 }
 
 function deriveState(target, relevantCaptures) {
-  const successes = relevantCaptures.filter(successful);
-  if (successes.length > 0) {
-    if (successes.every(({ output }) => explicitlyEmpty(output))) return 'absent';
+  if (relevantCaptures.length > 0) {
+    if (relevantCaptures.some((capture) => !successful(capture))) return 'unknown';
+    if (relevantCaptures.every(({ output }) => explicitlyEmpty(output))) return 'absent';
     return 'live verified';
   }
-  if (relevantCaptures.length > 0) return 'unknown';
   if (target && target !== 'none') return 'repository target';
   return 'unknown';
 }
@@ -190,20 +206,20 @@ function bounded(value, limit = 420) {
 }
 
 function summarizeCaptures(relevantCaptures, options = {}) {
-  const successes = relevantCaptures.filter(successful);
-  if (successes.length === 0) {
-    const failures = relevantCaptures.filter((capture) => capture.status !== 0);
-    if (failures.length === 0) return 'not collected';
-    return failures
-      .map(({ id, status }) => `${id}: unavailable (exit ${status})`)
-      .join('; ');
-  }
-  if (successes.every(({ output }) => explicitlyEmpty(output))) {
+  if (relevantCaptures.length === 0) return 'not collected';
+  if (
+    relevantCaptures.every(successful) &&
+    relevantCaptures.every(({ output }) => explicitlyEmpty(output))
+  ) {
     return options.absent || 'no live object was returned';
   }
   return bounded(
-    successes
-      .map(({ id, output }) => `${id}: ${output}`)
+    relevantCaptures
+      .map(({ id, output, status }) => {
+        if (status !== 0) return `${id}: unavailable (exit ${status})`;
+        if (explicitlyEmpty(output)) return `${id}: no rows returned`;
+        return `${id}: ${output}`;
+      })
       .join(' | '),
     options.limit,
   );
@@ -325,6 +341,48 @@ function c12Capture(inputDir, file) {
   };
 }
 
+function tableColumnValues(output, columnName) {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(/\s+/);
+  const columnIndex = headers.indexOf(columnName);
+  if (columnIndex === -1) return [];
+
+  return lines
+    .slice(1)
+    .map((line) => line.split(/\s+/)[columnIndex])
+    .filter(
+      (value) =>
+        value &&
+        value !== '<none>' &&
+        /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(value),
+    );
+}
+
+function discoverNodeNames(captures, inputDir) {
+  const nodeNames = new Set();
+  const addColumn = (capture, columnName) => {
+    if (!capture || !successful(capture)) return;
+    for (const value of tableColumnValues(capture.output, columnName)) {
+      nodeNames.add(value);
+    }
+  };
+
+  for (const capture of captureList(captures, 'rke2_nodes')) {
+    addColumn(capture, 'NODE');
+  }
+  for (const capture of captureList(captures, 'cloudflared')) {
+    addColumn(capture, 'NODE');
+  }
+  addColumn(c12Capture(inputDir, '03-nodes-placement.txt'), 'NAME');
+  addColumn(c12Capture(inputDir, '10-pod-placement.txt'), 'NODE');
+  return [...nodeNames].sort((left, right) => right.length - left.length);
+}
+
 function row(section, fact, target, captures, liveOverride, stateOverride) {
   const state = stateOverride || deriveState(target, captures);
   if (!STATES.includes(state)) throw new Error(`Invalid evidence state: ${state}`);
@@ -358,6 +416,11 @@ export function buildEvidenceRows({ captures, inputDir, repoRoot }) {
   const c12Replication = c12Capture(inputDir, '12-cnpg-replication.txt');
   const c12Helm = c12Capture(inputDir, '17-helm-releases.txt');
   const c12Longhorn = c12Capture(inputDir, '18-longhorn-state.txt');
+  const longhornEvidence = c12Longhorn
+    ? [c12Longhorn]
+    : c12Helm
+      ? [c12Helm]
+      : c12Fallback;
   const c12Evidence = (capture) => (capture ? [capture] : c12Fallback);
   const rows = [];
 
@@ -431,9 +494,7 @@ export function buildEvidenceRows({ captures, inputDir, repoRoot }) {
       'Kubernetes, database, and storage',
       'Longhorn presence, target version, and health',
       `Longhorn ${target.longhorn} is an unqualified, manual-sync repository target`,
-      [c12Helm, c12Longhorn].filter(Boolean).length > 0
-        ? [c12Helm, c12Longhorn].filter(Boolean)
-        : c12Fallback,
+      longhornEvidence,
     ),
   );
 
@@ -661,7 +722,11 @@ function stableAlias(kind, value) {
   return `${kind}-${digest}`;
 }
 
-export function redactText(value) {
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function redactText(value, nodeNames = []) {
   let redacted = sanitizeSecretValues(value);
 
   redacted = redacted.replace(
@@ -677,6 +742,17 @@ export function redactText(value) {
     /\b(cp|node|worker|server)-[A-Za-z0-9_.-]+\b/gi,
     (hostname) => stableAlias('node', hostname.toLowerCase()),
   );
+  for (const nodeName of [...new Set(nodeNames)].sort(
+    (left, right) => right.length - left.length,
+  )) {
+    const nodePattern = new RegExp(
+      `(?<![A-Za-z0-9_-])${escapeRegExp(nodeName)}(?![A-Za-z0-9_-])`,
+      'gi',
+    );
+    redacted = redacted.replace(nodePattern, (hostname) =>
+      stableAlias('node', hostname.toLowerCase()),
+    );
+  }
   return redacted;
 }
 
@@ -742,8 +818,11 @@ export function renderReport({
   repositorySha,
   generatedAt,
   redacted,
+  nodeNames = [],
 }) {
-  const transform = redacted ? redactText : sanitizeSecretValues;
+  const transform = redacted
+    ? (value) => redactText(value, nodeNames)
+    : sanitizeSecretValues;
   const counts = stateCounts(rows);
   const title = redacted
     ? 'C0.1 Live-State Evidence Summary (Redacted)'
@@ -757,7 +836,7 @@ export function renderReport({
     '- Safety boundary: read-only collection; no production state change; no secret values; no PHI.',
     `- State totals: ${STATES.map((state) => `${state}=${counts[state]}`).join(', ')}.`,
     redacted
-      ? '- Redaction: raw IP addresses and node-like hostnames are replaced with deterministic SHA-256-derived aliases.'
+      ? '- Redaction: raw IP addresses, discovered Kubernetes node names, and conventional node-role hostnames are replaced with deterministic SHA-256-derived aliases; configured service DNS names and workload metadata remain visible.'
       : '- Handling: keep this full copy in the operator artifact directory; it may contain node addresses and topology.',
     '',
     'The state describes the evidence available for that fact. `repository target`',
@@ -838,6 +917,7 @@ export function generateReports({
     inputDir: resolvedInput,
     repoRoot: resolvedRepo,
   });
+  const nodeNames = discoverNodeNames(captures, resolvedInput);
   fs.writeFileSync(
     full,
     renderReport({
@@ -846,6 +926,7 @@ export function generateReports({
       repositorySha,
       generatedAt,
       redacted: false,
+      nodeNames,
     }),
     { mode: 0o600 },
   );
@@ -857,6 +938,7 @@ export function generateReports({
       repositorySha,
       generatedAt,
       redacted: true,
+      nodeNames,
     }),
     { mode: 0o600 },
   );

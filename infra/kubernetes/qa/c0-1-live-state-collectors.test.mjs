@@ -31,6 +31,44 @@ function bashPath(file) {
   return file.replaceAll('\\', '/');
 }
 
+function captureText(command, output, status) {
+  return [
+    'captured_at=2026-07-31T00:00:00Z',
+    `command=${command}`,
+    '---',
+    output,
+    '---',
+    `exit_status=${status}`,
+    '',
+  ].join('\n');
+}
+
+function writeSyntheticEvidence(input, entries) {
+  const capturesDirectory = path.join(input, 'captures');
+  fs.mkdirSync(capturesDirectory, { recursive: true });
+  const indexRows = [
+    'id\tsection\tlabel\tfile\texit_status\tcommand',
+  ];
+  for (const entry of entries) {
+    const relativeFile = `captures/${entry.id}.txt`;
+    fs.writeFileSync(
+      path.join(input, ...relativeFile.split('/')),
+      captureText(entry.command, entry.output, entry.status),
+    );
+    indexRows.push(
+      [
+        entry.id,
+        entry.section,
+        entry.label,
+        relativeFile,
+        entry.status,
+        entry.command,
+      ].join('\t'),
+    );
+  }
+  fs.writeFileSync(path.join(input, 'index.tsv'), `${indexRows.join('\n')}\n`);
+}
+
 function verifySha256ManifestRow(line, outputDirectory) {
   const match = line.match(/^([0-9a-f]{64}) [ *]\.\/(.+)$/);
   assert.ok(match, `malformed SHA256SUMS row: ${line}`);
@@ -81,6 +119,136 @@ test('redactor uses stable aliases and never preserves sensitive named values', 
     sanitizeSecretValues('client_secret=abc123'),
     'client_secret=[REDACTED]',
   );
+});
+
+test('rehearsal regressions preserve absence, partial failure, and arbitrary node redaction', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-c0-1-rehearsal-'));
+  const input = path.join(temp, 'input');
+  const full = path.join(temp, 'full.md');
+  const redacted = path.join(temp, 'redacted.md');
+  fs.mkdirSync(input, { recursive: true });
+  writeSyntheticEvidence(input, [
+    {
+      id: 'rke2_nodes',
+      section: 'Kubernetes, database, and storage',
+      label: 'Node versions',
+      command: 'kubectl get nodes -o custom-columns=...',
+      output:
+        'NODE             KUBELET\norchard-ubuntu   v1.34.6+k3s1',
+      status: 0,
+    },
+    {
+      id: 'ingress_controllers',
+      section: 'Ingress, edge, DNS, and certificates',
+      label: 'Ingress controllers',
+      command: 'kubectl get deployments -o custom-columns=...',
+      output: 'KIND   NAME   IMAGE   DESIRED   READY   AVAILABLE',
+      status: 0,
+    },
+    {
+      id: 'cloudflared',
+      section: 'Ingress, edge, DNS, and certificates',
+      label: 'cloudflared',
+      command: 'kubectl get pods -o custom-columns=...',
+      output: 'POD   NODE   IMAGE   READY   RESTARTS   PHASE',
+      status: 0,
+    },
+    {
+      id: 'backup_jobs_schedules',
+      section: 'Backups and restore',
+      label: 'Backup schedules',
+      command: 'kubectl get cronjobs -o custom-columns=...',
+      output: 'Error from server (NotFound): cronjobs.batch not found',
+      status: 1,
+    },
+    {
+      id: 'backup_jobs_producer',
+      section: 'Backups and restore',
+      label: 'Producer Jobs',
+      command: 'kubectl get jobs -o custom-columns=...',
+      output: 'NAME   START   COMPLETION   SUCCEEDED   FAILED',
+      status: 0,
+    },
+    {
+      id: 'backup_jobs_verifier',
+      section: 'Backups and restore',
+      label: 'Verifier Jobs',
+      command: 'kubectl get jobs -o custom-columns=...',
+      output: 'NAME   START   COMPLETION   SUCCEEDED   FAILED',
+      status: 0,
+    },
+  ]);
+
+  const c12Directory = path.join(
+    input,
+    'raw',
+    'c1-2',
+    'c1-2-ha-evidence-fixture',
+  );
+  fs.mkdirSync(c12Directory, { recursive: true });
+  fs.writeFileSync(
+    path.join(c12Directory, '10-pod-placement.txt'),
+    captureText(
+      'kubectl get pods -A -o wide',
+      'NAMESPACE   NAME   READY   STATUS   RESTARTS   AGE   IP   NODE\nvhhealth   backend-1   1/1   Running   0   1d   192.0.2.1   orchard-ubuntu',
+      0,
+    ),
+  );
+  fs.writeFileSync(
+    path.join(c12Directory, '17-helm-releases.txt'),
+    captureText(
+      'helm list -A',
+      'NAME   NAMESPACE   STATUS\ningress-nginx   ingress-nginx   deployed',
+      0,
+    ),
+  );
+  fs.writeFileSync(
+    path.join(c12Directory, '18-longhorn-state.txt'),
+    captureText('kubectl get namespace longhorn-system', 'longhorn_installed=false', 0),
+  );
+
+  const result = generateReports({
+    input,
+    full,
+    redacted,
+    repoRoot,
+    generatedAt: '2026-07-31T00:10:00.000Z',
+    repositorySha: '48509b1a8e5ff011905c01ef7370a85bf2fa7a0d',
+  });
+  const stateFor = (fact) =>
+    result.rows.find((candidate) => candidate.fact === fact)?.state;
+
+  assert.equal(
+    stateFor('Ingress controller workloads actually running'),
+    'absent',
+  );
+  assert.equal(stateFor('Cloudflare tunnel workload state'), 'absent');
+  assert.equal(
+    stateFor('Application archive/verification CronJobs and latest Jobs'),
+    'unknown',
+  );
+  assert.equal(
+    stateFor('Longhorn presence, target version, and health'),
+    'absent',
+  );
+
+  const backupRow = result.rows.find(
+    ({ fact }) =>
+      fact === 'Application archive/verification CronJobs and latest Jobs',
+  );
+  assert.match(backupRow.live, /backup_jobs_schedules: unavailable \(exit 1\)/);
+  assert.match(backupRow.live, /backup_jobs_producer: no rows returned/);
+
+  const fullText = read(full);
+  const redactedText = read(redacted);
+  const expectedNodeAlias = `node-${crypto
+    .createHash('sha256')
+    .update('orchard-ubuntu')
+    .digest('hex')
+    .slice(0, 10)}`;
+  assert.match(fullText, /orchard-ubuntu/);
+  assert.doesNotMatch(redactedText, /orchard-ubuntu/);
+  assert.match(redactedText, new RegExp(expectedNodeAlias));
 });
 
 test('fixture emission produces both reports and all four evidence states', () => {
@@ -249,6 +417,53 @@ test('collectors are syntactically valid and C0.1 calls the C1.2 prior art', () 
   assert.match(source, /cloudflare_tunnel_api_probe/);
   assert.doesNotMatch(source, /set -x/);
   assert.match(read(reporter), /NO LIVE COMMAND EXECUTION/);
+});
+
+test('read-only guard allows the argocd namespace but rejects the argocd control tool', () => {
+  const source = read(collector);
+  const safetyFunctions = source.slice(
+    source.indexOf('shell_quote_command() {'),
+    source.indexOf('\ncapture() {'),
+  );
+  const temp = fs.mkdtempSync(
+    path.join(path.dirname(repoRoot), 'vh-c0-1-safety-'),
+  );
+  const harness = path.join(temp, 'guard-harness.sh');
+  fs.writeFileSync(
+    harness,
+    `${safetyFunctions}\nassert_safe_command "$@"\n`,
+  );
+  const allowed = spawnSync(
+    'bash',
+    [
+      bashPath(path.relative(repoRoot, harness)),
+      'kubectl',
+      '-n',
+      'argocd',
+      'get',
+      'applications.argoproj.io',
+    ],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+  assert.equal(
+    allowed.status,
+    0,
+    `argocd namespace was rejected:\n${allowed.stdout}\n${allowed.stderr}`,
+  );
+
+  const rejected = spawnSync(
+    'bash',
+    [
+      bashPath(path.relative(repoRoot, harness)),
+      'argocd',
+      'app',
+      'get',
+      'vhhealth',
+    ],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+  assert.equal(rejected.status, 97);
+  assert.match(rejected.stderr, /SAFETY REFUSAL/);
 });
 
 test('grep-style safety check forbids secret-value reads in every evidence collector', () => {

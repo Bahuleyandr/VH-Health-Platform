@@ -64,6 +64,16 @@ The existing
 is called for every field it already owns. The C0.1 collector does not maintain
 a second implementation of those probes.
 
+The production inventory is intentionally cluster-wide. Several probes use
+all-namespace queries, including running images, Ingresses, Services,
+certificates, monitoring resources, and selected CNPG/backup resources, because
+the hospital production cluster is dedicated to this platform. On a shared
+rehearsal or test cluster, unrelated namespace, workload, image, route, and
+Service metadata will therefore appear in the local pack. That is expected
+test-environment divergence, not evidence that those workloads belong to VH
+Health. Keep such a pack local and do not use a shared cluster's summary as a
+repository evidence record.
+
 ## 3. Prepare without exposing credentials
 
 Use a checkout whose `HEAD` is the approved repository authority. Record and
@@ -179,8 +189,12 @@ configuration version, timestamp, and owner attestation instead.
 
 Review `full-report.md` locally. It may contain node addresses and topology, so
 it stays in the protected operator artifact directory and is never committed.
-Review `redacted-summary.md` separately; raw IP addresses and node-like
-hostnames must appear only as stable hash-derived identifiers.
+Review `redacted-summary.md` separately. Raw IP addresses, discovered
+Kubernetes node names, and conventional node-role hostnames must appear only as
+stable hash-derived identifiers. Configured public DNS/TLS endpoint names,
+Kubernetes namespace and workload names, image references, and certificate
+subjects deliberately remain visible because they are inventory facts; the
+summary is review-required, not an anonymous export.
 
 Verify the integrity manifest:
 
