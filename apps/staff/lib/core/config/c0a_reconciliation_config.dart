@@ -41,6 +41,7 @@ class C0AReconciliationConfig {
       tenantIdResolver: () => TenantConfig.id,
       reconciliationOwnerResolver: reconciliationOwnerForTenant,
       currentActorUidResolver: ApiConfig.getStaffUid,
+      currentActorRoleResolver: ApiConfig.getRole,
     );
   }
 

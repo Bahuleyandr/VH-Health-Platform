@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:vhhealth_core/services/offline_action_ids.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -15,6 +17,23 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
+
+@immutable
+class VitalsOfflineQueueIntent {
+  VitalsOfflineQueueIntent.fromBody(Map<String, dynamic> body)
+    : body = Map.unmodifiable(body),
+      actionId = OfflineActionIds.fromLegacyControl(
+        method: method,
+        path: endpoint,
+        body: body,
+      );
+
+  static const endpoint = '/health/records';
+  static const method = 'POST';
+
+  final Map<String, dynamic> body;
+  final String actionId;
+}
 
 /// Vitals Entry screen — for Nursing Staff to record patient vitals.
 ///
@@ -227,10 +246,15 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
           's4.dynamic.vitals.offline_context',
           {'patient': patientId},
         );
+        // Temporary C0A compatibility path. C4.3 replaces this endpoint input
+        // with a verified `vitals.capture` action. It remains legacy-only
+        // until device-to-facility provisioning exists; no tenant, department,
+        // host, or screen value may be inferred as the facility.
+        final queueIntent = VitalsOfflineQueueIntent.fromBody(body);
         await ConnectivitySyncService.instance.enqueue(
-          endpoint: '/health/records',
-          method: 'POST',
-          body: body,
+          endpoint: VitalsOfflineQueueIntent.endpoint,
+          method: VitalsOfflineQueueIntent.method,
+          body: queueIntent.body,
           contextLabel: contextLabel,
         );
         if (mounted) {

@@ -1,7 +1,16 @@
+import 'offline_command_envelope.dart';
 import '../services/offline_write_containment.dart';
 
 enum OfflineWriteStatus {
   pending('pending'),
+  inFlight('in_flight'),
+  retryWait('retry_wait'),
+  applied('applied'),
+  superseded('superseded'),
+  cancelled('cancelled'),
+
+  /// Read-only C0A compatibility projection for a durable v6
+  /// `needs_review/legacy_conflict` row.
   conflict('conflict'),
   needsReview('needs_review');
 
@@ -43,6 +52,22 @@ class OfflineWriteEntry {
     this.isSkipped = false,
     this.blockerRowId,
     this.blockerReasonCode,
+    this.clientEventId,
+    this.actionId,
+    this.commandFingerprint,
+    this.envelopeReady = false,
+    this.orderingKeyDigest,
+    this.sequence,
+    this.predecessorClientEventId,
+    this.supersessionGeneration = 0,
+    this.humanReviewRequired = false,
+    this.leaseId,
+    this.leaseExpiresAt,
+    this.nextAttemptAt,
+    this.attemptCount = 0,
+    this.lastAttemptAt,
+    this.appliedAt,
+    this.stateReasonCode,
   });
 
   final int id;
@@ -65,12 +90,35 @@ class OfflineWriteEntry {
   final bool isSkipped;
   final int? blockerRowId;
   final String? blockerReasonCode;
+  final String? clientEventId;
+  final String? actionId;
+  final String? commandFingerprint;
+  final bool envelopeReady;
+  final String? orderingKeyDigest;
+  final int? sequence;
+  final String? predecessorClientEventId;
+  final int supersessionGeneration;
+  final bool humanReviewRequired;
+  final String? leaseId;
+  final DateTime? leaseExpiresAt;
+  final DateTime? nextAttemptAt;
+  final int attemptCount;
+  final DateTime? lastAttemptAt;
+  final DateTime? appliedAt;
+  final String? stateReasonCode;
 
   String get familyKey => classification.familyKey;
-  String get partitionKey =>
-      '${tenantId ?? '<unknown-tenant>'}\u0000'
-      '${staffId ?? '<unknown-owner>'}\u0000'
-      '$familyKey';
+  String get partitionKey {
+    final tenant = tenantId ?? '<unknown-tenant>';
+    final owner = staffId ?? '<unknown-owner>';
+    if (envelopeReady) {
+      return '$tenant\u0000$owner\u0000'
+          '${actionId ?? '<unknown-action>'}\u0000'
+          '${orderingKeyDigest ?? '<unknown-ordering>'}';
+    }
+    return '$tenant\u0000$owner\u0000$familyKey';
+  }
+
   bool get isHandoffAttested =>
       handoffAttestedAt != null && handoffAttestedBy != null;
   bool get isRetryExhausted =>
@@ -116,6 +164,29 @@ class OfflineWriteEntry {
       isSkipped: true,
       blockerRowId: blockerRowId,
       blockerReasonCode: blockerReasonCode,
+      clientEventId: clientEventId,
+      actionId: actionId,
+      commandFingerprint: commandFingerprint,
+      envelopeReady: envelopeReady,
+      orderingKeyDigest: orderingKeyDigest,
+      sequence: sequence,
+      predecessorClientEventId: predecessorClientEventId,
+      supersessionGeneration: supersessionGeneration,
+      humanReviewRequired: humanReviewRequired,
+      leaseId: leaseId,
+      leaseExpiresAt: leaseExpiresAt,
+      nextAttemptAt: nextAttemptAt,
+      attemptCount: attemptCount,
+      lastAttemptAt: lastAttemptAt,
+      appliedAt: appliedAt,
+      stateReasonCode: stateReasonCode,
     );
+  }
+
+  OfflineCommandState? get durableState {
+    if (status == OfflineWriteStatus.conflict) {
+      return OfflineCommandState.needsReview;
+    }
+    return OfflineCommandState.fromValue(status.value);
   }
 }

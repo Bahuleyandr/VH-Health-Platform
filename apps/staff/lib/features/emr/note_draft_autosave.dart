@@ -114,6 +114,12 @@ class NoteDraftSync {
 
   /// Enqueue an offline write (best-effort). Mirrors
   /// [ConnectivitySyncService.enqueue].
+  ///
+  /// This is the temporary C0A compatibility facade. C4.3 removes this
+  /// endpoint-shaped input and replaces it with verified policy/action models
+  /// plus a typed `emr.*.draft.store` capture. Until device-to-facility
+  /// provisioning exists, this facade must not infer a facility or activate a
+  /// C4-ready command.
   final Future<int> Function({
     required String endpoint,
     required String method,
@@ -416,6 +422,8 @@ class NoteDraftAutosave {
       // Offline: enqueue best-effort if the queue is available, else just flag.
       // NOTE: an offline enqueue does NOT set _lastSavedJson — the write is not
       // yet confirmed, so a later identical retry must not be wrongly skipped.
+      // The C0A facade journals identity before any later attempt but cannot
+      // produce a C4-ready envelope while facility provisioning is absent.
       if (!_sync.isOnline()) {
         try {
           await _sync.enqueue(

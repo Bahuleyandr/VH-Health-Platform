@@ -196,6 +196,8 @@ class AppStrings {
   String get offlineSyncFieldAttestation =>
       _t('offline_sync.field.attestation');
   String get offlineSyncStatePending => _t('offline_sync.state.pending');
+  String get offlineSyncStateInFlight => _t('offline_sync.state.in_flight');
+  String get offlineSyncStateRetryWait => _t('offline_sync.state.retry_wait');
   String get offlineSyncStateConflict => _t('offline_sync.state.conflict');
   String get offlineSyncStateNeedsReview =>
       _t('offline_sync.state.needs_review');
@@ -203,6 +205,7 @@ class AppStrings {
   String get offlineSyncStateAttested => _t('offline_sync.state.attested');
   String get offlineSyncActionRetry => _t('offline_sync.action.retry');
   String get offlineSyncActionDiscard => _t('offline_sync.action.discard');
+  String get offlineSyncActionReconcile => _t('offline_sync.action.reconcile');
   String get offlineSyncActionAttest => _t('offline_sync.action.attest');
   String get offlineSyncActionCancel => _t('offline_sync.action.cancel');
   String get offlineSyncAttestationTitle =>
@@ -3657,6 +3660,8 @@ class AppStrings {
       'offline_sync.field.paper_form_set': 'Paper form set',
       'offline_sync.field.attestation': 'Handoff attestation',
       'offline_sync.state.pending': 'Pending',
+      'offline_sync.state.in_flight': 'Sending',
+      'offline_sync.state.retry_wait': 'Waiting to retry',
       'offline_sync.state.conflict': 'Conflict',
       'offline_sync.state.needs_review': 'Needs review',
       'offline_sync.state.skipped': 'Skipped this pass',
@@ -3665,6 +3670,30 @@ class AppStrings {
       'offline_sync.action.discard': 'Discard',
       'offline_sync.action.attest': 'Record handoff',
       'offline_sync.action.cancel': 'Cancel',
+      'offline_sync.action.reconcile': 'Reconcile',
+      'offline_sync.reconcile.title': 'Reconcile offline item',
+      'offline_sync.reconcile.reason': 'Resolution reason',
+      'offline_sync.reconcile.explanation': 'Explanation',
+      'offline_sync.reconcile.explanation_required':
+          'An explanation is required for this reason.',
+      'offline_sync.reconcile.confirmation':
+          'I verified that this command was not recorded on the server.',
+      'offline_sync.reconcile.submit': 'Record reconciliation',
+      'offline_sync.reconcile.failed':
+          'Reconciliation was not recorded. Refresh and verify the item.',
+      'offline_sync.reconcile.reason.recorded_elsewhere_verified':
+          'Recorded elsewhere and verified',
+      'offline_sync.reconcile.reason.transferred_to_paper':
+          'Transferred to paper',
+      'offline_sync.reconcile.reason.manual_entry_verified':
+          'Manual entry verified',
+      'offline_sync.reconcile.reason.duplicate_confirmed':
+          'Duplicate confirmed',
+      'offline_sync.reconcile.reason.wrong_patient_or_context':
+          'Wrong patient or context',
+      'offline_sync.reconcile.reason.policy_or_schema_conflict':
+          'Policy or schema conflict',
+      'offline_sync.reconcile.reason.draft_cancelled': 'Draft cancelled',
       'offline_sync.attestation.title': 'Record attested handoff?',
       'offline_sync.attestation.body':
           'Confirm: reviewed — transferred to paper / handed to the reconciliation owner. This attestation cannot be changed.',
@@ -9997,6 +10026,8 @@ class AppStrings {
       'offline_sync.field.paper_form_set': 'कागज़ी फ़ॉर्म सेट',
       'offline_sync.field.attestation': 'हैंडऑफ सत्यापन',
       'offline_sync.state.pending': 'लंबित',
+      'offline_sync.state.in_flight': 'भेजा जा रहा है',
+      'offline_sync.state.retry_wait': 'दोबारा प्रयास की प्रतीक्षा',
       'offline_sync.state.conflict': 'विरोध',
       'offline_sync.state.needs_review': 'समीक्षा आवश्यक',
       'offline_sync.state.skipped': 'इस बार छोड़ा गया',
@@ -10005,6 +10036,30 @@ class AppStrings {
       'offline_sync.action.discard': 'त्यागें',
       'offline_sync.action.attest': 'हैंडऑफ दर्ज करें',
       'offline_sync.action.cancel': 'रद्द करें',
+      'offline_sync.action.reconcile': 'मिलान करें',
+      'offline_sync.reconcile.title': 'ऑफ़लाइन आइटम का मिलान करें',
+      'offline_sync.reconcile.reason': 'समाधान का कारण',
+      'offline_sync.reconcile.explanation': 'स्पष्टीकरण',
+      'offline_sync.reconcile.explanation_required':
+          'इस कारण के लिए स्पष्टीकरण आवश्यक है।',
+      'offline_sync.reconcile.confirmation':
+          'मैंने सत्यापित किया कि यह कमांड सर्वर पर दर्ज नहीं हुई थी।',
+      'offline_sync.reconcile.submit': 'मिलान दर्ज करें',
+      'offline_sync.reconcile.failed':
+          'मिलान दर्ज नहीं हुआ। आइटम को रीफ़्रेश करके सत्यापित करें।',
+      'offline_sync.reconcile.reason.recorded_elsewhere_verified':
+          'कहीं और दर्ज और सत्यापित',
+      'offline_sync.reconcile.reason.transferred_to_paper':
+          'कागज़ पर स्थानांतरित',
+      'offline_sync.reconcile.reason.manual_entry_verified':
+          'मैन्युअल प्रविष्टि सत्यापित',
+      'offline_sync.reconcile.reason.duplicate_confirmed':
+          'डुप्लिकेट की पुष्टि',
+      'offline_sync.reconcile.reason.wrong_patient_or_context':
+          'गलत मरीज़ या संदर्भ',
+      'offline_sync.reconcile.reason.policy_or_schema_conflict':
+          'नीति या स्कीमा विरोध',
+      'offline_sync.reconcile.reason.draft_cancelled': 'ड्राफ्ट रद्द',
       'offline_sync.attestation.title': 'सत्यापित हैंडऑफ दर्ज करें?',
       'offline_sync.attestation.body':
           'पुष्टि करें: समीक्षा की गई — कागज़ पर स्थानांतरित / मिलान उत्तरदायी को सौंपा गया। यह सत्यापन बदला नहीं जा सकता।',
@@ -16231,6 +16286,8 @@ class AppStrings {
       'offline_sync.field.paper_form_set': 'காகிதப் படிவத் தொகுப்பு',
       'offline_sync.field.attestation': 'ஒப்படைப்பு சான்றுறுதி',
       'offline_sync.state.pending': 'நிலுவையில்',
+      'offline_sync.state.in_flight': 'அனுப்பப்படுகிறது',
+      'offline_sync.state.retry_wait': 'மீண்டும் முயலக் காத்திருக்கிறது',
       'offline_sync.state.conflict': 'முரண்பாடு',
       'offline_sync.state.needs_review': 'ஆய்வு தேவை',
       'offline_sync.state.skipped': 'இந்த முறையில் தவிர்க்கப்பட்டது',
@@ -16240,6 +16297,31 @@ class AppStrings {
       'offline_sync.action.discard': 'நிராகரிக்கவும்',
       'offline_sync.action.attest': 'ஒப்படைப்பைப் பதிவு செய்யவும்',
       'offline_sync.action.cancel': 'ரத்து செய்யவும்',
+      'offline_sync.action.reconcile': 'ஒத்திசைவைச் சரிபார்க்கவும்',
+      'offline_sync.reconcile.title': 'ஆஃப்லைன் உருப்படியைச் சரிபார்க்கவும்',
+      'offline_sync.reconcile.reason': 'தீர்வு காரணம்',
+      'offline_sync.reconcile.explanation': 'விளக்கம்',
+      'offline_sync.reconcile.explanation_required':
+          'இந்தக் காரணத்திற்கு விளக்கம் தேவை.',
+      'offline_sync.reconcile.confirmation':
+          'இந்தக் கட்டளை சேவையகத்தில் பதிவாகவில்லை என்பதை நான் சரிபார்த்தேன்.',
+      'offline_sync.reconcile.submit': 'சரிபார்ப்பைப் பதிவு செய்க',
+      'offline_sync.reconcile.failed':
+          'சரிபார்ப்பு பதிவாகவில்லை. உருப்படியைப் புதுப்பித்து சரிபார்க்கவும்.',
+      'offline_sync.reconcile.reason.recorded_elsewhere_verified':
+          'வேறிடத்தில் பதிவு செய்யப்பட்டு சரிபார்க்கப்பட்டது',
+      'offline_sync.reconcile.reason.transferred_to_paper':
+          'காகிதத்துக்கு மாற்றப்பட்டது',
+      'offline_sync.reconcile.reason.manual_entry_verified':
+          'கைமுறை பதிவு சரிபார்க்கப்பட்டது',
+      'offline_sync.reconcile.reason.duplicate_confirmed':
+          'நகல் உறுதிப்படுத்தப்பட்டது',
+      'offline_sync.reconcile.reason.wrong_patient_or_context':
+          'தவறான நோயாளர் அல்லது சூழல்',
+      'offline_sync.reconcile.reason.policy_or_schema_conflict':
+          'கொள்கை அல்லது ஸ்கீமா முரண்பாடு',
+      'offline_sync.reconcile.reason.draft_cancelled':
+          'வரைவு ரத்து செய்யப்பட்டது',
       'offline_sync.attestation.title':
           'சான்றளிக்கப்பட்ட ஒப்படைப்பைப் பதிவு செய்யவா?',
       'offline_sync.attestation.body':
@@ -23165,6 +23247,8 @@ class AppStrings {
       'offline_sync.field.paper_form_set': 'కాగిత ఫారమ్ సెట్',
       'offline_sync.field.attestation': 'అప్పగింత ధృవీకరణ',
       'offline_sync.state.pending': 'పెండింగ్‌లో ఉంది',
+      'offline_sync.state.in_flight': 'పంపుతోంది',
+      'offline_sync.state.retry_wait': 'మళ్లీ ప్రయత్నించడానికి వేచి ఉంది',
       'offline_sync.state.conflict': 'విరుద్ధం',
       'offline_sync.state.needs_review': 'సమీక్ష అవసరం',
       'offline_sync.state.skipped': 'ఈసారి దాటవేయబడింది',
@@ -23173,6 +23257,28 @@ class AppStrings {
       'offline_sync.action.discard': 'విస్మరించండి',
       'offline_sync.action.attest': 'అప్పగింతను నమోదు చేయండి',
       'offline_sync.action.cancel': 'రద్దు చేయండి',
+      'offline_sync.action.reconcile': 'సమన్వయించండి',
+      'offline_sync.reconcile.title': 'ఆఫ్‌లైన్ అంశాన్ని సమన్వయించండి',
+      'offline_sync.reconcile.reason': 'పరిష్కార కారణం',
+      'offline_sync.reconcile.explanation': 'వివరణ',
+      'offline_sync.reconcile.explanation_required': 'ఈ కారణానికి వివరణ అవసరం.',
+      'offline_sync.reconcile.confirmation':
+          'ఈ ఆదేశం సర్వర్‌లో నమోదు కాలేదని నేను ధృవీకరించాను.',
+      'offline_sync.reconcile.submit': 'సమన్వయాన్ని నమోదు చేయండి',
+      'offline_sync.reconcile.failed':
+          'సమన్వయం నమోదు కాలేదు. అంశాన్ని రిఫ్రెష్ చేసి ధృవీకరించండి.',
+      'offline_sync.reconcile.reason.recorded_elsewhere_verified':
+          'వేరే చోట నమోదు చేసి ధృవీకరించారు',
+      'offline_sync.reconcile.reason.transferred_to_paper':
+          'కాగితానికి బదిలీ చేశారు',
+      'offline_sync.reconcile.reason.manual_entry_verified':
+          'మాన్యువల్ నమోదు ధృవీకరించారు',
+      'offline_sync.reconcile.reason.duplicate_confirmed': 'నకలు నిర్ధారించారు',
+      'offline_sync.reconcile.reason.wrong_patient_or_context':
+          'తప్పు రోగి లేదా సందర్భం',
+      'offline_sync.reconcile.reason.policy_or_schema_conflict':
+          'విధానం లేదా స్కీమా విరోధం',
+      'offline_sync.reconcile.reason.draft_cancelled': 'డ్రాఫ్ట్ రద్దు చేశారు',
       'offline_sync.attestation.title': 'ధృవీకరించిన అప్పగింతను నమోదు చేయాలా?',
       'offline_sync.attestation.body':
           'నిర్ధారించండి: సమీక్షించబడింది — కాగితంపైకి బదిలీ చేయబడింది / సమన్వయ బాధ్యుడికి అప్పగించబడింది. ఈ ధృవీకరణను మార్చలేరు.',
@@ -30029,6 +30135,8 @@ class AppStrings {
       'offline_sync.field.paper_form_set': 'പേപ്പർ ഫോം സെറ്റ്',
       'offline_sync.field.attestation': 'ഹാൻഡോഫ് സാക്ഷ്യപ്പെടുത്തൽ',
       'offline_sync.state.pending': 'ബാക്കിയാണ്',
+      'offline_sync.state.in_flight': 'അയയ്ക്കുന്നു',
+      'offline_sync.state.retry_wait': 'വീണ്ടും ശ്രമിക്കാൻ കാത്തിരിക്കുന്നു',
       'offline_sync.state.conflict': 'വൈരുദ്ധ്യം',
       'offline_sync.state.needs_review': 'അവലോകനം വേണം',
       'offline_sync.state.skipped': 'ഈ തവണ ഒഴിവാക്കി',
@@ -30037,6 +30145,30 @@ class AppStrings {
       'offline_sync.action.discard': 'ഉപേക്ഷിക്കുക',
       'offline_sync.action.attest': 'ഹാൻഡോഫ് രേഖപ്പെടുത്തുക',
       'offline_sync.action.cancel': 'റദ്ദാക്കുക',
+      'offline_sync.action.reconcile': 'പൊരുത്തപ്പെടുത്തുക',
+      'offline_sync.reconcile.title': 'ഓഫ്‌ലൈൻ ഇനം പൊരുത്തപ്പെടുത്തുക',
+      'offline_sync.reconcile.reason': 'പരിഹാര കാരണം',
+      'offline_sync.reconcile.explanation': 'വിശദീകരണം',
+      'offline_sync.reconcile.explanation_required':
+          'ഈ കാരണത്തിന് വിശദീകരണം ആവശ്യമാണ്.',
+      'offline_sync.reconcile.confirmation':
+          'ഈ കമാൻഡ് സെർവറിൽ രേഖപ്പെടുത്തിയിട്ടില്ലെന്ന് ഞാൻ സ്ഥിരീകരിച്ചു.',
+      'offline_sync.reconcile.submit': 'പൊരുത്തപ്പെടുത്തൽ രേഖപ്പെടുത്തുക',
+      'offline_sync.reconcile.failed':
+          'പൊരുത്തപ്പെടുത്തൽ രേഖപ്പെടുത്തിയില്ല. ഇനം പുതുക്കി സ്ഥിരീകരിക്കുക.',
+      'offline_sync.reconcile.reason.recorded_elsewhere_verified':
+          'മറ്റൊരിടത്ത് രേഖപ്പെടുത്തി സ്ഥിരീകരിച്ചു',
+      'offline_sync.reconcile.reason.transferred_to_paper':
+          'പേപ്പറിലേക്ക് മാറ്റി',
+      'offline_sync.reconcile.reason.manual_entry_verified':
+          'കൈമുറ രേഖപ്പെടുത്തൽ സ്ഥിരീകരിച്ചു',
+      'offline_sync.reconcile.reason.duplicate_confirmed':
+          'തനിപ്പകർപ്പ് സ്ഥിരീകരിച്ചു',
+      'offline_sync.reconcile.reason.wrong_patient_or_context':
+          'തെറ്റായ രോഗി അല്ലെങ്കിൽ സന്ദർഭം',
+      'offline_sync.reconcile.reason.policy_or_schema_conflict':
+          'നയം അല്ലെങ്കിൽ സ്കീമ വൈരുദ്ധ്യം',
+      'offline_sync.reconcile.reason.draft_cancelled': 'ഡ്രാഫ്റ്റ് റദ്ദാക്കി',
       'offline_sync.attestation.title':
           'സാക്ഷ്യപ്പെടുത്തിയ ഹാൻഡോഫ് രേഖപ്പെടുത്തണോ?',
       'offline_sync.attestation.body':
