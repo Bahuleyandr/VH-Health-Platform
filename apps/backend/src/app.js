@@ -1015,7 +1015,11 @@ app.use('/api/v1/clinical/assessments', requireRole(...CLINICAL_ASSESSMENT_ROUTE
 app.use('/api/v1/downtime', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DOWNTIME_PACK'), downtimeRoutes);
 
 // Signed policy authority only; no patient or encounter data is present.
-app.use('/api/v1/clinical-continuity', clinicalContinuityPolicyDeliveryRoutes);
+app.use(
+  '/api/v1/clinical-continuity',
+  requireRole(...ALL_STAFF_MESSAGING_ROUTE_ROLES),
+  clinicalContinuityPolicyDeliveryRoutes
+);
 
 // Terminology service (roadmap B8) — code-system search/validate/map +
 // local-catalog bindings. Reference data only (no PHI → no PHI logger).
