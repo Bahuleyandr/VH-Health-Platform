@@ -199,7 +199,9 @@ export async function upsertNoteDraft(input) {
   // uncounted; any other error increments the counter, then re-throws (never
   // swallowed).
   try {
-    return await setTenantTx(normalized.tenantId, tx => upsertNoteDraftTx(tx, input));
+    const draft = await setTenantTx(normalized.tenantId, tx => upsertNoteDraftTx(tx, input));
+    if (!draft) return null;
+    return { id: draft.id, updated_at: draft.updated_at };
   } catch (err) {
     if (!(err instanceof AppError)) recordNoteDraftSaveError();
     throw err;
