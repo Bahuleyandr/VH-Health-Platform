@@ -4,9 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:vhhealth_core/config/tenant_config.dart';
+import 'package:vhhealth_core/models/client_readiness.dart';
+import 'package:vhhealth_core/models/offline_command_envelope.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/http_client.dart';
+import 'package:vhhealth_core/services/offline_action_ids.dart';
 import 'package:vhhealth_core/services/offline_queue.dart';
 
 import 'helpers/offline_queue_test_harness.dart';
@@ -20,6 +23,13 @@ void main() {
   setUp(() async {
     harness = OfflineQueueTestHarness('connectivity_sync_c0a');
     await harness.setUp();
+    OfflineQueue.registerMetadataResolvers(
+      tenantIdResolver: () => TenantConfig.id,
+      reconciliationOwnerResolver: (_) =>
+          OfflineQueue.fallbackReconciliationRole,
+      currentActorUidResolver: () async => harness.currentActorUid,
+      currentActorRoleResolver: () async => 'doctor',
+    );
     await service.resetForTesting();
     await AuthService.setStaffId('staff-1');
     await AuthService.setJwt('test-jwt');
@@ -101,7 +111,7 @@ void main() {
     expect(rows.map((row) => row['status']), everyElement('needs_review'));
   });
 
-  test('service retry and discard retain queue authorization checks', () async {
+  test('legacy retry and discard never restore transport authority', () async {
     final vitalsId = await service.enqueue(
       endpoint: '/health/records',
       method: 'POST',
@@ -130,7 +140,7 @@ void main() {
     final row = (await OfflineQueue.debugAllRows()).single;
     expect(row['id'], draftId);
     expect(row['status'], 'pending');
-    expect(row['retry_count'], 1);
+    expect(row['retry_count'], 0);
   });
 
   test(
@@ -180,115 +190,143 @@ void main() {
   );
 
   test('persisted conflict blocks only its safe drain partition', () async {
-    final blockerId = await service.enqueue(
-      endpoint: '/health/records',
-      method: 'POST',
-      body: {'pulse': 70},
+    service.setTransportAvailableForTesting(false);
+    final blockerId = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.opNoteDraftStore,
+      orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
+      marker: 'blocker',
     );
-    await OfflineQueue.markConflict(blockerId, 'server newer');
-    final skippedId = await service.enqueue(
-      endpoint: '/health/records',
-      method: 'POST',
-      body: {'pulse': 71},
+    await OfflineQueue.markPreparedNeedsReview(
+      rowId: blockerId,
+      reasonCode: 'server_concurrency_conflict',
     );
-    final draftId = await service.enqueue(
-      endpoint: '/emr/notes/draft',
-      method: 'PUT',
-      body: {'text': 'independent draft'},
+    final skippedId = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.opNoteDraftStore,
+      orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
+      marker: 'skipped',
     );
-    final paths = <String>[];
+    final draftId = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.nursingNoteDraftStore,
+      orderingKey: 'patient-1\u0000admission-1\u0000nursing-note',
+      marker: 'independent',
+    );
+    final actions = <String?>[];
     VHHttpClient.setClientForTesting(
       MockClient((request) async {
-        paths.add(request.url.path);
+        actions.add(request.headers['x-vh-continuity-action-id']);
         return http.Response('{"data":{}}', 200);
       }),
     );
+    _enableDrain(service);
 
     await service.syncPending();
 
-    expect(paths, ['/api/v1/emr/notes/draft']);
+    expect(actions, [OfflineActionIds.nursingNoteDraftStore]);
     final rows = await OfflineQueue.debugAllRows();
     expect(rows.map((row) => row['id']), containsAll([blockerId, skippedId]));
-    expect(rows.map((row) => row['id']), isNot(contains(draftId)));
+    expect(
+      rows.singleWhere((row) => row['id'] == draftId)['status'],
+      'applied',
+    );
   });
 
   test('transient failure blocks its partition for one pass only', () async {
-    final firstVitals = await service.enqueue(
-      endpoint: '/health/records',
-      method: 'POST',
-      body: {'pulse': 70},
+    service.setTransportAvailableForTesting(false);
+    final firstDraft = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.opNoteDraftStore,
+      orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
+      marker: 'first',
     );
-    final laterVitals = await service.enqueue(
-      endpoint: '/health/records',
-      method: 'POST',
-      body: {'pulse': 71},
+    final laterDraft = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.opNoteDraftStore,
+      orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
+      marker: 'later',
+      supersessionGeneration: 1,
     );
-    final draft = await service.enqueue(
-      endpoint: '/emr/notes/draft',
-      method: 'PUT',
-      body: {'text': 'independent'},
+    final independentDraft = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.nursingNoteDraftStore,
+      orderingKey: 'patient-1\u0000admission-1\u0000nursing-note',
+      marker: 'independent',
     );
-    final paths = <String>[];
+    final actions = <String?>[];
     VHHttpClient.setClientForTesting(
       MockClient((request) async {
-        paths.add(request.url.path);
-        if (request.url.path.endsWith('/health/records')) {
+        final action = request.headers['x-vh-continuity-action-id'];
+        actions.add(action);
+        if (action == OfflineActionIds.opNoteDraftStore) {
           return http.Response('{"message":"later"}', 429);
         }
         return http.Response('{"data":{}}', 200);
       }),
     );
+    _enableDrain(service);
 
     await service.syncPending();
 
-    expect(paths, ['/api/v1/health/records', '/api/v1/emr/notes/draft']);
+    expect(actions, [
+      OfflineActionIds.opNoteDraftStore,
+      OfflineActionIds.nursingNoteDraftStore,
+    ]);
     final rows = await OfflineQueue.debugAllRows();
     expect(
-      rows.singleWhere((row) => row['id'] == firstVitals)['retry_count'],
+      rows.singleWhere((row) => row['id'] == firstDraft)['retry_count'],
       1,
     );
     expect(
-      rows.singleWhere((row) => row['id'] == laterVitals)['retry_count'],
+      rows.singleWhere((row) => row['id'] == laterDraft)['retry_count'],
       0,
     );
-    expect(rows.map((row) => row['id']), isNot(contains(draft)));
+    expect(
+      rows.singleWhere((row) => row['id'] == independentDraft)['status'],
+      'applied',
+    );
   });
 
   test('retry 5 to 6 becomes review and preloaded six sends no HTTP', () async {
-    final fiveId = await service.enqueue(
-      endpoint: '/health/records',
-      method: 'POST',
-      body: {'pulse': 70},
+    service.setTransportAvailableForTesting(false);
+    final fiveId = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.opNoteDraftStore,
+      orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
+      marker: 'retry-five',
     );
-    final sixId = await service.enqueue(
-      endpoint: '/emr/notes/draft',
-      method: 'PUT',
-      body: {'text': 'exhausted'},
+    final sixId = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.nursingNoteDraftStore,
+      orderingKey: 'patient-1\u0000admission-1\u0000nursing-note',
+      marker: 'retry-six',
     );
     final db = await OfflineQueue.database;
     await db.update(
       'pending_writes',
-      {'retry_count': 5},
+      {'attempt_count': 5, 'retry_count': 5},
       where: 'id = ?',
       whereArgs: [fiveId],
     );
     await db.update(
       'pending_writes',
-      {'retry_count': 6},
+      {'attempt_count': 6, 'retry_count': 6},
       where: 'id = ?',
       whereArgs: [sixId],
     );
-    final paths = <String>[];
+    final actions = <String?>[];
     VHHttpClient.setClientForTesting(
       MockClient((request) async {
-        paths.add(request.url.path);
+        actions.add(request.headers['x-vh-continuity-action-id']);
         return http.Response('{"message":"later"}', 429);
       }),
     );
+    _enableDrain(service);
 
     await service.syncPending();
 
-    expect(paths, ['/api/v1/health/records']);
+    expect(actions, [OfflineActionIds.opNoteDraftStore]);
     final rows = await OfflineQueue.debugAllRows();
     final five = rows.singleWhere((row) => row['id'] == fiveId);
     final six = rows.singleWhere((row) => row['id'] == sixId);
@@ -302,61 +340,69 @@ void main() {
   test(
     'persistent 401 stops whole pass without clinical retry consumption',
     () async {
-      final vitalsId = await service.enqueue(
-        endpoint: '/health/records',
-        method: 'POST',
-        body: {'pulse': 70},
+      service.setTransportAvailableForTesting(false);
+      final firstId = await _prepareQueued(
+        service,
+        actionId: OfflineActionIds.opNoteDraftStore,
+        orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
+        marker: 'first',
       );
-      final draftId = await service.enqueue(
-        endpoint: '/emr/notes/draft',
-        method: 'PUT',
-        body: {'text': 'must not send'},
+      final secondId = await _prepareQueued(
+        service,
+        actionId: OfflineActionIds.nursingNoteDraftStore,
+        orderingKey: 'patient-1\u0000admission-1\u0000nursing-note',
+        marker: 'must-not-send',
       );
-      final paths = <String>[];
+      final actions = <String?>[];
       VHHttpClient.setClientForTesting(
         MockClient((request) async {
-          paths.add(request.url.path);
+          actions.add(request.headers['x-vh-continuity-action-id']);
           return http.Response('{"message":"expired"}', 401);
         }),
       );
+      _enableDrain(service);
 
       await service.syncPending();
 
-      expect(paths.first, '/api/v1/health/records');
-      expect(paths, contains('/api/v1/auth/refresh-token'));
-      expect(paths, isNot(contains('/api/v1/emr/notes/draft')));
+      expect(actions.first, OfflineActionIds.opNoteDraftStore);
+      expect(actions, contains(null));
+      expect(actions, isNot(contains(OfflineActionIds.nursingNoteDraftStore)));
       final rows = await OfflineQueue.debugAllRows();
+      expect(rows.singleWhere((row) => row['id'] == firstId)['retry_count'], 0);
       expect(
-        rows.singleWhere((row) => row['id'] == vitalsId)['retry_count'],
+        rows.singleWhere((row) => row['id'] == secondId)['retry_count'],
         0,
       );
-      expect(rows.singleWhere((row) => row['id'] == draftId)['retry_count'], 0);
     },
   );
 
   test('owner change during HTTP stops pass without consuming retry', () async {
-    final firstId = await service.enqueue(
-      endpoint: '/health/records',
-      method: 'POST',
-      body: {'pulse': 70},
+    service.setTransportAvailableForTesting(false);
+    final firstId = await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.opNoteDraftStore,
+      orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
+      marker: 'first',
     );
-    await service.enqueue(
-      endpoint: '/emr/notes/draft',
-      method: 'PUT',
-      body: {'text': 'must not send'},
+    await _prepareQueued(
+      service,
+      actionId: OfflineActionIds.nursingNoteDraftStore,
+      orderingKey: 'patient-1\u0000admission-1\u0000nursing-note',
+      marker: 'must-not-send',
     );
-    final paths = <String>[];
+    final actions = <String?>[];
     VHHttpClient.setClientForTesting(
       MockClient((request) async {
-        paths.add(request.url.path);
+        actions.add(request.headers['x-vh-continuity-action-id']);
         await AuthService.setStaffId('staff-2');
         return http.Response('{"message":"later"}', 429);
       }),
     );
+    _enableDrain(service);
 
     await service.syncPending();
 
-    expect(paths, ['/api/v1/health/records']);
+    expect(actions, [OfflineActionIds.opNoteDraftStore]);
     final rows = await OfflineQueue.debugAllRows();
     expect(rows.singleWhere((row) => row['id'] == firstId)['retry_count'], 0);
   });
@@ -364,10 +410,12 @@ void main() {
   test(
     'session barrier blocks enqueue and drain until explicitly released',
     () async {
-      final id = await service.enqueue(
-        endpoint: '/health/records',
-        method: 'POST',
-        body: {'pulse': 70},
+      service.setTransportAvailableForTesting(false);
+      final id = await _prepareQueued(
+        service,
+        actionId: OfflineActionIds.opNoteDraftStore,
+        orderingKey: 'patient-1\u0000appointment-1\u0000op-note',
+        marker: 'barrier',
       );
       var requests = 0;
       VHHttpClient.setClientForTesting(
@@ -380,13 +428,16 @@ void main() {
       await service.beginSessionBarrier();
       expect(service.isSessionBarrierActive, isTrue);
       await expectLater(
-        service.enqueue(
-          endpoint: '/emr/notes/draft',
-          method: 'PUT',
-          body: const {'text': 'blocked'},
+        service.prepareCapture(
+          _draft(
+            actionId: OfflineActionIds.nursingNoteDraftStore,
+            orderingKey: 'patient-1\u0000admission-1\u0000nursing-note',
+            marker: 'blocked',
+          ),
         ),
         throwsA(isA<OfflineSessionBarrierActive>()),
       );
+      _enableDrain(service);
       await service.syncPending();
       expect(requests, 0);
       expect(
@@ -399,7 +450,9 @@ void main() {
       expect(service.isSessionBarrierActive, isFalse);
       await service.syncPending();
       expect(requests, 1);
-      expect(await OfflineQueue.debugAllRows(), isEmpty);
+      final row = (await OfflineQueue.debugAllRows()).single;
+      expect(row['id'], id);
+      expect(row['status'], 'applied');
     },
   );
 
@@ -593,5 +646,90 @@ void main() {
       expect(row['review_reason_code'], 'unknown_encryption_version');
       expect(harness.storedEncryptionKey, isNull);
     },
+  );
+}
+
+Future<int> _prepareQueued(
+  ConnectivitySyncService service, {
+  required String actionId,
+  required String orderingKey,
+  required String marker,
+  int supersessionGeneration = 0,
+}) async {
+  final persisted = await service.prepareCapture(
+    _draft(
+      actionId: actionId,
+      orderingKey: orderingKey,
+      marker: marker,
+      supersessionGeneration: supersessionGeneration,
+    ),
+  );
+  return persisted.rowId;
+}
+
+void _enableDrain(ConnectivitySyncService service) {
+  service.setConnectionStateForTesting(
+    transport: ClientTransportState.available,
+    continuity: ContinuityLifecycleState.notReady,
+  );
+}
+
+OfflineCommandDraft _draft({
+  required String actionId,
+  required String orderingKey,
+  required String marker,
+  int supersessionGeneration = 0,
+}) {
+  final captured = DateTime.now().toUtc();
+  final noteType = actionId == OfflineActionIds.opNoteDraftStore
+      ? 'op_consultation'
+      : 'nursing_note';
+  return OfflineCommandDraft(
+    actionId: actionId,
+    payload: {
+      'patient_uid': 'patient-1',
+      'note_type': noteType,
+      'content': {'marker': marker},
+    },
+    appVersion: '1.2.0+4',
+    actionVersion: 1,
+    actionChecksum: 'action-checksum',
+    actionSchemaId: 'schema.$noteType',
+    actionSchemaVersion: 1,
+    actionSchemaChecksum: 'schema-checksum',
+    policyId: 'policy-1',
+    policyVersion: '1',
+    policyChecksum: 'policy-checksum',
+    policySigningKeyId: 'key-1',
+    policyEffectiveFrom: captured.subtract(const Duration(hours: 1)),
+    policyEffectiveUntil: captured.add(const Duration(days: 1)),
+    policyRevocationEpoch: '1',
+    registryVersion: '1',
+    registryChecksum: 'registry-checksum',
+    minimumAppVersion: '1.2.0',
+    tenantId: TenantConfig.id,
+    facilityId: 17,
+    deviceId: 'device-1',
+    devicePosture: 'desktop',
+    captureSessionId: '11111111-1111-4111-8111-111111111111',
+    captureActorUuid: 'staff-user-uid',
+    captureRole: 'doctor',
+    patientReference: 'patient-1',
+    appointmentId: 'appointment-1',
+    occurredAt: captured,
+    capturedAt: captured,
+    clockEvidence: OfflineClockEvidence(
+      observedAt: captured,
+      serverTime: captured,
+      midpoint: captured,
+      skewMilliseconds: 0,
+      uncertaintyMilliseconds: 10,
+      toleranceMilliseconds: 30000,
+      routeKind: 'public',
+    ),
+    cachedSources: {'patient_identity': captured},
+    expiresAt: captured.add(const Duration(hours: 8)),
+    orderingKey: orderingKey,
+    supersessionGeneration: supersessionGeneration,
   );
 }

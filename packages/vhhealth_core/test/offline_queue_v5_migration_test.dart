@@ -60,7 +60,7 @@ void main() {
   });
 
   test(
-    'v4 fixture preserves fixed identity/order/conflict data semantically',
+    'v4 fixture preserves identity and conflict evidence in visible review',
     () async {
       harness.installFixedEncryptionKey();
       final encryptedBody = await harness.encryptV1(
@@ -88,7 +88,11 @@ void main() {
       expect(row['method'], 'PUT');
       expect(row['created_at'], 1700000000077);
       expect(row['retry_count'], 2);
-      expect(row['status'], 'conflict');
+      expect(row['status'], 'needs_review');
+      expect(
+        row['state_reason_code'],
+        'legacy_client_row_requires_reconciliation',
+      );
       expect(row['idempotency_key'], 'fixed-key-77');
       expect(row['staff_id'], 'staff-77');
       expect(row['tenant_id'], TenantConfig.id);

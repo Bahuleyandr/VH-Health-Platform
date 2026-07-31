@@ -13,7 +13,10 @@ import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/services/staff_clinical_action_gateway.dart';
 import 'package:vhhealth_staff/features/emr/note_draft_autosave.dart';
+
+const _testCaptureCallSite = StaffCaptureCallSite.nursingAssessmentDraftStorage;
 
 /// Records every call the controller makes so assertions can inspect them.
 class _FakeDraftApi {
@@ -83,36 +86,43 @@ class _FakeSync {
 
   /// When set, [enqueue] returns this future instead of completing eagerly, so
   /// a test can hold an enqueue in flight and resolve it after a `clear()`.
-  Completer<int>? enqueueGate;
+  Completer<bool>? enqueueGate;
 
   final List<Map<String, dynamic>> enqueues = [];
   final List<Map<String, dynamic>> removals = [];
 
   NoteDraftSync build() => NoteDraftSync(
     isOnline: () => online,
-    enqueue:
+    capturePrivateDraft:
         ({
-          required String endpoint,
-          required String method,
+          required StaffCaptureCallSite callSite,
+          required String patientReference,
+          int? appointmentId,
           required Map<String, dynamic> body,
           String? contextLabel,
         }) {
           enqueues.add({
-            'endpoint': endpoint,
-            'method': method,
+            'callSite': callSite,
+            'patientReference': patientReference,
+            'appointmentId': appointmentId,
             'body': body,
             'contextLabel': contextLabel,
           });
           if (enqueueThrows) throw Exception('enqueue failed');
           if (enqueueGate != null) return enqueueGate!.future;
-          return Future.value(enqueues.length);
+          return Future.value(true);
         },
-    removePendingWrites:
+    cancelPrivateDrafts:
         ({
-          required String endpoint,
-          required bool Function(Map<String, dynamic> body) matches,
+          required StaffCaptureCallSite callSite,
+          required String patientReference,
+          int? appointmentId,
         }) {
-          removals.add({'endpoint': endpoint, 'matches': matches});
+          removals.add({
+            'callSite': callSite,
+            'patientReference': patientReference,
+            'appointmentId': appointmentId,
+          });
           return Future.value(0);
         },
   );
@@ -130,6 +140,7 @@ void main() {
       fakeAsync((async) {
         var body = 'a';
         final autosave = NoteDraftAutosave(
+          captureCallSite: _testCaptureCallSite,
           patientUid: 'pt-1',
           appointmentId: 42,
           noteType: 'op_consultation',
@@ -170,6 +181,7 @@ void main() {
     test('status transitions idle → saving → saved on a successful save', () {
       fakeAsync((async) {
         final autosave = NoteDraftAutosave(
+          captureCallSite: _testCaptureCallSite,
           patientUid: 'pt-1',
           noteType: 'op_consultation',
           snapshot: () => {'chief_complaint': 'x'},
@@ -193,6 +205,7 @@ void main() {
     test('heartbeat saves while edits keep coming inside the debounce', () {
       fakeAsync((async) {
         final autosave = NoteDraftAutosave(
+          captureCallSite: _testCaptureCallSite,
           patientUid: 'pt-1',
           noteType: 'op_consultation',
           snapshot: () => {'chief_complaint': 'typing'},
@@ -227,6 +240,7 @@ void main() {
         'updated_at': '2026-06-17T09:30:00Z',
       };
       final autosave = NoteDraftAutosave(
+        captureCallSite: _testCaptureCallSite,
         patientUid: 'pt-7',
         appointmentId: 5,
         noteType: 'op_consultation',
@@ -255,6 +269,7 @@ void main() {
     test('restore() returns null when there is no draft', () async {
       fake.getResult = null; // backend { data: null }
       final autosave = NoteDraftAutosave(
+        captureCallSite: _testCaptureCallSite,
         patientUid: 'pt-7',
         noteType: 'nursing_note',
         snapshot: () => const {},
@@ -270,6 +285,7 @@ void main() {
     test('clear() calls deleteNoteDraft and cancels a pending save', () {
       fakeAsync((async) {
         final autosave = NoteDraftAutosave(
+          captureCallSite: _testCaptureCallSite,
           patientUid: 'pt-1',
           appointmentId: 3,
           noteType: 'op_consultation',
@@ -328,6 +344,7 @@ void main() {
               }) async => {'removed': false},
         );
         final autosave = NoteDraftAutosave(
+          captureCallSite: _testCaptureCallSite,
           patientUid: 'pt-1',
           noteType: 'op_consultation',
           snapshot: () => {'chief_complaint': 'x'},
@@ -355,6 +372,7 @@ void main() {
       test('phone/mobile deviceType → zero PUTs, zero enqueues', () {
         fakeAsync((async) {
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'x'},
@@ -392,6 +410,7 @@ void main() {
       test('empty / unknown deviceType → zero PUTs (fail-closed)', () {
         fakeAsync((async) {
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'x'},
@@ -413,6 +432,7 @@ void main() {
       test('desktop/tablet deviceType → saves as before', () {
         fakeAsync((async) {
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'x'},
@@ -441,6 +461,7 @@ void main() {
       test('byte-identical content is saved once, then skipped', () {
         fakeAsync((async) {
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'stable'},
@@ -502,6 +523,7 @@ void main() {
                 }) async => {'removed': false},
           );
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'same'},
@@ -540,6 +562,7 @@ void main() {
           };
           var body = 'chest pain';
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-7',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': body},
@@ -580,6 +603,7 @@ void main() {
       test('all-whitespace before any real save → no PUT', () {
         fakeAsync((async) {
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': '   ', 'plan': ''},
@@ -606,6 +630,7 @@ void main() {
         fakeAsync((async) {
           var body = 'chest pain';
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': body},
@@ -644,6 +669,7 @@ void main() {
           // otherwise skip-empty is defeated and merely opening a scheduled OP
           // patient creates a blank draft on the first heartbeat.
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             appointmentId: 77,
             noteType: 'op_consultation',
@@ -683,6 +709,7 @@ void main() {
       test('status is dirty while editing, saved after the debounce', () {
         fakeAsync((async) {
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'x'},
@@ -751,6 +778,7 @@ void main() {
           );
           var body = 'A';
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': body},
@@ -804,6 +832,7 @@ void main() {
         () {
           fakeAsync((async) {
             final autosave = NoteDraftAutosave(
+              captureCallSite: _testCaptureCallSite,
               patientUid: 'pt-1',
               noteType: 'op_consultation',
               snapshot: () => {'chief_complaint': 'x'},
@@ -839,6 +868,7 @@ void main() {
       test('retyping identical content settles to saved, not dirty', () {
         fakeAsync((async) {
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'stable'},
@@ -880,6 +910,7 @@ void main() {
           fakeAsync((async) {
             var body = 'chest pain';
             final autosave = NoteDraftAutosave(
+              captureCallSite: _testCaptureCallSite,
               patientUid: 'pt-1',
               noteType: 'op_consultation',
               snapshot: () => {'chief_complaint': body},
@@ -952,6 +983,7 @@ void main() {
                 }) async => {'removed': true},
           );
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'x'},
@@ -989,14 +1021,15 @@ void main() {
       });
     });
 
-    // ── Sub-task F: offline branch (enqueue / poison-cache / discard) ──────
+    // ── Sub-task F: offline branch (private draft / cache / discard) ───────
     // The offline path is reachable only through the injected sync seam — the
     // real ConnectivitySyncService.instance reports isOnline==true headless.
     group('offline path (F)', () {
-      test('a debounced save enqueues the draft PUT and shows offline', () {
+      test('a debounced save captures a private draft and shows offline', () {
         fakeAsync((async) {
           final sync = _FakeSync(online: false);
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             appointmentId: 42,
             noteType: 'op_consultation',
@@ -1011,15 +1044,14 @@ void main() {
           async.elapse(const Duration(seconds: 3));
           async.flushMicrotasks();
 
-          expect(sync.enqueues, hasLength(1), reason: 'offline → enqueue');
-          expect(sync.enqueues.single['endpoint'], '/emr/notes/draft');
-          expect(sync.enqueues.single['method'], 'PUT');
+          expect(sync.enqueues, hasLength(1), reason: 'offline draft capture');
+          expect(sync.enqueues.single['callSite'], _testCaptureCallSite);
+          expect(sync.enqueues.single['patientReference'], 'pt-1');
+          expect(sync.enqueues.single['appointmentId'], 42);
           expect(
             sync.enqueues.single['contextLabel'],
             'Note draft (op_consultation)',
-            reason:
-                'the queued write carries an operator-facing label the '
-                'SyncStatusSheet renders per pending draft',
+            reason: 'the local draft carries a human-readable recovery label',
           );
           final body = sync.enqueues.single['body'] as Map;
           expect(body['patient_uid'], 'pt-1');
@@ -1036,6 +1068,7 @@ void main() {
         fakeAsync((async) {
           final sync = _FakeSync(online: false);
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'same'},
@@ -1077,6 +1110,7 @@ void main() {
           fakeAsync((async) {
             final sync = _FakeSync(online: false)..enqueueThrows = true;
             final autosave = NoteDraftAutosave(
+              captureCallSite: _testCaptureCallSite,
               patientUid: 'pt-1',
               noteType: 'op_consultation',
               snapshot: () => {'chief_complaint': 'x'},
@@ -1114,94 +1148,48 @@ void main() {
         },
       );
 
-      test(
-        'offline discard dequeues the pending draft PUT for this context',
-        () {
-          fakeAsync((async) {
-            final sync = _FakeSync(online: false);
-            final autosave = NoteDraftAutosave(
-              patientUid: 'pt-9',
-              appointmentId: 7,
-              noteType: 'op_consultation',
-              snapshot: () => {'chief_complaint': 'typed offline'},
-              api: fake.build(),
-              sync: sync.build(),
-              deviceType: () => 'desktop',
-              debounce: const Duration(seconds: 3),
-            );
+      test('offline discard cancels the private draft for this context', () {
+        fakeAsync((async) {
+          final sync = _FakeSync(online: false);
+          final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
+            patientUid: 'pt-9',
+            appointmentId: 7,
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'typed offline'},
+            api: fake.build(),
+            sync: sync.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
 
-            autosave.onContentChanged();
-            async.elapse(const Duration(seconds: 3));
-            async.flushMicrotasks();
-            expect(sync.enqueues, hasLength(1));
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(sync.enqueues, hasLength(1));
 
-            // Discard while offline → dequeue the queued draft PUT so it can't
-            // recreate the draft on reconnect.
-            autosave.clear();
-            async.flushMicrotasks();
+          // Discard while offline removes only this typed draft context.
+          autosave.clear();
+          async.flushMicrotasks();
 
-            expect(
-              sync.removals,
-              hasLength(1),
-              reason: 'offline clear dequeues',
-            );
-            expect(sync.removals.single['endpoint'], '/emr/notes/draft');
-            // The captured predicate targets THIS context and rejects others.
-            final matches =
-                sync.removals.single['matches']
-                    as bool Function(Map<String, dynamic>);
-            expect(
-              matches({
-                'patient_uid': 'pt-9',
-                'appointment_id': 7,
-                'note_type': 'op_consultation',
-              }),
-              isTrue,
-            );
-            // Each conjunct must be load-bearing: flip ONE field at a time so a
-            // predicate silently narrowed to patient_uid-only (or one that
-            // drops the note_type / appointment_id check) is caught.
-            expect(
-              matches({
-                'patient_uid': 'someone-else',
-                'appointment_id': 7,
-                'note_type': 'op_consultation',
-              }),
-              isFalse,
-              reason: 'a different patient must not be dequeued',
-            );
-            expect(
-              matches({
-                'patient_uid': 'pt-9',
-                'appointment_id': 7,
-                'note_type': 'nursing_note',
-              }),
-              isFalse,
-              reason:
-                  'same patient, DIFFERENT note_type must not be dequeued '
-                  '(note_type is a discriminating conjunct)',
-            );
-            expect(
-              matches({
-                'patient_uid': 'pt-9',
-                'appointment_id': 99,
-                'note_type': 'op_consultation',
-              }),
-              isFalse,
-              reason:
-                  'same patient, DIFFERENT appointment_id must not be dequeued '
-                  '(appointment_id is a discriminating conjunct)',
-            );
+          expect(
+            sync.removals,
+            hasLength(1),
+            reason: 'offline clear cancels the typed draft',
+          );
+          expect(sync.removals.single['callSite'], _testCaptureCallSite);
+          expect(sync.removals.single['patientReference'], 'pt-9');
+          expect(sync.removals.single['appointmentId'], 7);
 
-            autosave.dispose();
-          });
-        },
-      );
+          autosave.dispose();
+        });
+      });
 
       test('an online discard does not touch the offline queue', () {
         fakeAsync((async) {
           final sync = _FakeSync(online: true);
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'x'},
@@ -1232,9 +1220,10 @@ void main() {
 
       test('an enqueue resolving after clear() does not re-assert offline', () {
         fakeAsync((async) {
-          final gate = Completer<int>();
+          final gate = Completer<bool>();
           final sync = _FakeSync(online: false)..enqueueGate = gate;
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'x'},
@@ -1256,7 +1245,7 @@ void main() {
           expect(autosave.status.value.kind, NoteDraftStatusKind.idle);
 
           // The superseded enqueue now resolves — it must NOT flip to offline.
-          gate.complete(1);
+          gate.complete(true);
           async.flushMicrotasks();
           expect(
             autosave.status.value.kind,
@@ -1276,6 +1265,7 @@ void main() {
           // exists to stop 403-spam / unauthorized clinical writes from phones).
           final sync = _FakeSync(online: false);
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             noteType: 'op_consultation',
             snapshot: () => {'chief_complaint': 'x'},
@@ -1309,6 +1299,7 @@ void main() {
           // would recreate an empty scratchpad on reconnect.
           final sync = _FakeSync(online: false);
           final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
             patientUid: 'pt-1',
             appointmentId: 77,
             noteType: 'op_consultation',
@@ -1350,6 +1341,7 @@ void main() {
             // that null context (absent key == null appointmentId).
             final sync = _FakeSync(online: false);
             final autosave = NoteDraftAutosave(
+              captureCallSite: _testCaptureCallSite,
               patientUid: 'pt-1',
               noteType: 'nursing_note',
               snapshot: () => {'free_text': 'obs'},
@@ -1371,26 +1363,11 @@ void main() {
               reason: 'a null appointmentId must be OMITTED, not sent as null',
             );
 
-            // Discard offline → the predicate must match the null-context body.
+            // Discard offline preserves the null appointment in the typed key.
             autosave.clear();
             async.flushMicrotasks();
-            final matches =
-                sync.removals.single['matches']
-                    as bool Function(Map<String, dynamic>);
-            expect(
-              matches({'patient_uid': 'pt-1', 'note_type': 'nursing_note'}),
-              isTrue,
-              reason: 'absent appointment_id key matches a null appointmentId',
-            );
-            expect(
-              matches({
-                'patient_uid': 'pt-1',
-                'note_type': 'nursing_note',
-                'appointment_id': 3,
-              }),
-              isFalse,
-              reason: 'a draft that DID carry an appointment must not match',
-            );
+            expect(sync.removals.single['patientReference'], 'pt-1');
+            expect(sync.removals.single['appointmentId'], isNull);
 
             autosave.dispose();
           });

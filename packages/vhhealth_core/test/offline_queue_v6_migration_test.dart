@@ -1,7 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:vhhealth_core/config/tenant_config.dart';
+import 'package:vhhealth_core/services/auth_service.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/offline_queue.dart';
+import 'package:vhhealth_core/widgets/offline_sync_badge.dart';
 
 import 'helpers/offline_queue_test_harness.dart';
 
@@ -107,6 +111,11 @@ void main() {
     expect(row['staff_id'], 'staff-v5');
     expect(row['idempotency_key'], 'v5-preserved-key');
     expect(row['review_reason_code'], 'retry_exhausted');
+    expect(
+      row['state_reason_code'],
+      'legacy_client_row_requires_reconciliation',
+    );
+    expect(row['human_review_required'], 1);
     expect(row['handoff_attested_at'], 1700000000600);
     expect(row['handoff_attested_by'], 'actor-v5');
     expect(row['status'], 'needs_review');
@@ -236,6 +245,142 @@ void main() {
     expect(rows[0]['idempotency_key'], isNull);
     expect(rows[1]['idempotency_key'], 'duplicate-key');
     expect(rows[2]['idempotency_key'], 'duplicate-key');
+  });
+
+  test(
+    'real v5 vitals, physical, unknown, and undecryptable rows remain visible',
+    () async {
+      final endpoints = <String>[
+        '/health/records',
+        '/clinical/mar/71/administer-with-scan',
+        '/lab/samples/72/collect',
+        '/blood-bank/73/verify-bedside',
+        '/unregistered/clinical/action',
+        '/health/records',
+      ];
+      final bodies = <String>[];
+      for (var index = 0; index < endpoints.length - 1; index++) {
+        bodies.add(
+          await harness.encryptV1(
+            '{"fixture":$index,"patient_uid":"patient-$index"}',
+            nonce: List<int>.filled(12, index + 20),
+          ),
+        );
+      }
+      bodies.add('not-a-valid-aes-gcm-envelope');
+
+      await harness.createV5Fixture([
+        for (var index = 0; index < endpoints.length; index++)
+          {
+            'id': 800 + index,
+            'endpoint': endpoints[index],
+            'method': 'POST',
+            'body': bodies[index],
+            'created_at': 1700000000800 + index,
+            'retry_count': index,
+            'context_label': index == endpoints.length - 1
+                ? null
+                : await harness.encryptV1(
+                    'Fixture $index',
+                    nonce: List<int>.filled(12, index + 40),
+                  ),
+            'status': 'pending',
+            'idempotency_key': 'v5-category-$index',
+            'staff_id': 'staff-v5',
+            'tenant_id': TenantConfig.id,
+            'encryption_version': 1,
+            'reconciliation_owner_id': 'staff-v5',
+          },
+      ]);
+
+      final db = await OfflineQueue.database;
+      final rows = await db.query('pending_writes', orderBy: 'id');
+
+      expect(rows, hasLength(endpoints.length));
+      expect(rows.map((row) => row['endpoint']), endpoints);
+      expect(rows.map((row) => row['body']), bodies);
+      expect(rows.map((row) => row['status']), everyElement('needs_review'));
+      expect(rows.map((row) => row['review_reason_code']), [
+        'legacy_client_row_requires_reconciliation',
+        'contained_mar_administration',
+        'contained_specimen_collection',
+        'contained_transfusion_verification',
+        'unknown_action',
+        'decrypt_failed',
+      ]);
+      expect(
+        rows.map((row) => row['state_reason_code']),
+        everyElement('legacy_client_row_requires_reconciliation'),
+      );
+      expect(rows.map((row) => row['human_review_required']), everyElement(1));
+      expect(rows.first['action_id'], 'vitals.capture');
+      expect(
+        rows.skip(1).map((row) => row['action_id']),
+        everyElement('unknown'),
+      );
+      expect(rows.last['encryption_version'], isNull);
+
+      final events = await db.query(
+        'offline_write_state_events',
+        where: 'reason_code = ?',
+        whereArgs: ['legacy_client_row_requires_reconciliation'],
+      );
+      expect(events, hasLength(endpoints.length));
+    },
+  );
+
+  testWidgets('real v5 row is visible in the legacy review UX', (tester) async {
+    await tester.runAsync(() async {
+      final body = await harness.encryptV1(
+        '{"patient_id":52,"vital_signs":{"pulse":72}}',
+      );
+      await harness.createV5Fixture([
+        {
+          'id': 890,
+          'endpoint': '/health/records',
+          'method': 'POST',
+          'body': body,
+          'created_at': 1700000000890,
+          'status': 'pending',
+          'idempotency_key': 'v5-visible-review',
+          'staff_id': 'staff-v5',
+          'tenant_id': TenantConfig.id,
+          'encryption_version': 1,
+          'reconciliation_owner_id': 'staff-v5',
+        },
+      ]);
+      await AuthService.setStaffId('staff-v5');
+      final service = ConnectivitySyncService.instance;
+      await service.resetForTesting();
+      await service.refreshCounts();
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: Center(child: OfflineSyncBadge())),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('1 need review'), findsOneWidget);
+
+    await tester.tap(find.text('1 need review'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+
+    expect(find.text('Created by an older Staff app — not sent'), findsWidgets);
+    expect(
+      find.text(
+        'Created by an older Staff app — not sent. Review against the server or paper record.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('/health/records'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.text('Discard'), findsNothing);
   });
 
   test('interrupted v5 upgrade rolls back schema and row mutations', () async {

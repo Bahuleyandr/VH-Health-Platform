@@ -10,6 +10,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -979,13 +980,20 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         return Row(
           children: [
             Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () => _showUploadResultDialog(id),
-                icon: const Icon(Icons.upload_file, size: 16),
-                label: Text(s.labBookingsUploadResult),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  foregroundColor: Colors.white,
+              child: OnlineOnlyActionState(
+                builder: (context, isOnline, offlineMessage) => Tooltip(
+                  message: isOnline ? '' : offlineMessage,
+                  child: ElevatedButton.icon(
+                    onPressed: isOnline
+                        ? () => _showUploadResultDialog(id)
+                        : null,
+                    icon: const Icon(Icons.upload_file, size: 16),
+                    label: Text(s.labBookingsUploadResult),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1241,6 +1249,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   }
 
   Future<void> _showUploadResultDialog(int id) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     final s = AppStrings.of(context);
     final notesCtrl = TextEditingController();
     PlatformFile? pickedFile;

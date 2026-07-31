@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:vhhealth_core/services/offline_action_ids.dart';
 
 import '../../../core/config/api_config.dart';
 import '../../../core/services/connectivity_sync_service.dart';
@@ -17,23 +16,6 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
-
-@immutable
-class VitalsOfflineQueueIntent {
-  VitalsOfflineQueueIntent.fromBody(Map<String, dynamic> body)
-    : body = Map.unmodifiable(body),
-      actionId = OfflineActionIds.fromLegacyControl(
-        method: method,
-        path: endpoint,
-        body: body,
-      );
-
-  static const endpoint = '/health/records';
-  static const method = 'POST';
-
-  final Map<String, dynamic> body;
-  final String actionId;
-}
 
 /// Vitals Entry screen — for Nursing Staff to record patient vitals.
 ///
@@ -149,6 +131,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
   @override
   void initState() {
     super.initState();
+    ConnectivitySyncService.instance.addListener(_connectivityChanged);
     if ((widget.prefillPatientId ?? '').isNotEmpty) {
       _patientIdCtrl.text = widget.prefillPatientId!;
     }
@@ -165,6 +148,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
 
   @override
   void dispose() {
+    ConnectivitySyncService.instance.removeListener(_connectivityChanged);
     _patientIdCtrl.dispose();
     _bpSysCtrl.dispose();
     _bpDiaCtrl.dispose();
@@ -174,6 +158,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
     _weightCtrl.dispose();
     _notesCtrl.dispose();
     super.dispose();
+  }
+
+  void _connectivityChanged() {
+    if (mounted) setState(() {});
   }
 
   void _focusNextField() {
@@ -197,6 +185,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
 
   Future<void> _submit() async {
     if (_submitting) return;
+    if (!ConnectivitySyncService.instance.isOnline) {
+      await _showOfflineVitalsRetirement();
+      return;
+    }
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     final strings = AppStrings.of(context);
@@ -232,50 +224,16 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
       }
 
       final patientId = int.parse(_patientIdCtrl.text.trim());
-      final body = <String, dynamic>{
-        'patient_id': patientId,
-        'record_type': 'VITALS',
-        if (vitalSigns.isNotEmpty) 'vital_signs': vitalSigns,
-        if (measurements.isNotEmpty) 'measurements': measurements,
-        if (_notesCtrl.text.trim().isNotEmpty) 'notes': _notesCtrl.text.trim(),
-        if (staffId != null) 'recorded_by': int.tryParse(staffId),
-      };
 
-      if (!ConnectivitySyncService.instance.isOnline) {
-        final contextLabel = strings.format(
-          's4.dynamic.vitals.offline_context',
-          {'patient': patientId},
-        );
-        // Temporary C0A compatibility path. C4.3 replaces this endpoint input
-        // with a verified `vitals.capture` action. It remains legacy-only
-        // until device-to-facility provisioning exists; no tenant, department,
-        // host, or screen value may be inferred as the facility.
-        final queueIntent = VitalsOfflineQueueIntent.fromBody(body);
-        await ConnectivitySyncService.instance.enqueue(
-          endpoint: VitalsOfflineQueueIntent.endpoint,
-          method: VitalsOfflineQueueIntent.method,
-          body: queueIntent.body,
-          contextLabel: contextLabel,
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(strings.vitalsOfflineQueued),
-              backgroundColor: AppTheme.warningAmber,
-            ),
-          );
-        }
-      } else {
-        await MedicalApiService.recordVitals(
-          patientId: patientId,
-          vitalSigns: vitalSigns.isNotEmpty ? vitalSigns : null,
-          measurements: measurements.isNotEmpty ? measurements : null,
-          notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-          recordedBy: staffId != null ? int.tryParse(staffId) : null,
-        );
-        if (mounted) {
-          SuccessToast.show(context, strings.vitalsRecordedSuccess);
-        }
+      await MedicalApiService.recordVitals(
+        patientId: patientId,
+        vitalSigns: vitalSigns.isNotEmpty ? vitalSigns : null,
+        measurements: measurements.isNotEmpty ? measurements : null,
+        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        recordedBy: staffId != null ? int.tryParse(staffId) : null,
+      );
+      if (mounted) {
+        SuccessToast.show(context, strings.vitalsRecordedSuccess);
       }
 
       if (mounted) {
@@ -298,9 +256,28 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
     }
   }
 
+  Future<void> _showOfflineVitalsRetirement() {
+    final strings = AppStrings.of(context);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.description_outlined),
+        title: Text(strings.vitalsOfflineRetiredTitle),
+        content: Text(strings.vitalsOfflineRetiredMessage),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(strings.actionClose),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final isOnline = ConnectivitySyncService.instance.isOnline;
     final content = SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -348,6 +325,45 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
             ),
           ),
           const SizedBox(height: 24),
+          if (!isOnline) ...[
+            Semantics(
+              liveRegion: true,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.warningAmber.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.warningAmber),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.description_outlined,
+                      color: AppTheme.warningAmber,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s.vitalsOfflineRetiredTitle,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(s.vitalsOfflineRetiredMessage),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           FocusTraversalGroup(
             child: Form(
@@ -606,7 +622,11 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                   const SizedBox(height: 24),
 
                   ElevatedButton.icon(
-                    onPressed: _submitting ? null : _submit,
+                    onPressed: _submitting
+                        ? null
+                        : isOnline
+                        ? _submit
+                        : _showOfflineVitalsRetirement,
                     icon: _submitting
                         ? const SizedBox(
                             width: 18,
@@ -616,9 +636,16 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                               strokeWidth: 2,
                             ),
                           )
-                        : const Icon(Icons.save, color: Colors.white),
+                        : Icon(
+                            isOnline ? Icons.save : Icons.description_outlined,
+                            color: Colors.white,
+                          ),
                     label: Text(
-                      _submitting ? s.bedSheetSavingLabel : s.vitalsSaveButton,
+                      _submitting
+                          ? s.bedSheetSavingLabel
+                          : isOnline
+                          ? s.vitalsSaveButton
+                          : s.vitalsOfflinePaperButton,
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFC62828),

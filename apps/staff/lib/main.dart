@@ -30,6 +30,7 @@ import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/phi_scrubber.dart';
 import 'core/services/staff_local_notifications.dart';
+import 'core/services/staff_clinical_action_gateway.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/windows_screen_capture.dart';
 import 'core/widgets/patient_search_sheet.dart';
@@ -262,6 +263,14 @@ void main() async {
       ),
     );
   };
+
+  // C4.3 installs the fail-closed signed-action decision before the queue can
+  // inspect a prepared command. The production policy source is deliberately
+  // unavailable until the separately approved delivery slice exists, so
+  // prepared rows are preserved without lease or send.
+  ConnectivitySyncService.instance.registerPreparedDrainGate(
+    StaffClinicalActionGateway.instance.preparedDrainDecision,
+  );
 
   // Start connectivity monitoring and sync any queued offline writes.
   ConnectivitySyncService.instance.startListening();

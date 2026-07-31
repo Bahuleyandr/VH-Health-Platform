@@ -11,9 +11,11 @@ import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/recent_patients_service.dart';
 import '../../../core/services/schedule_api_service.dart';
+import '../../../core/services/staff_clinical_action_gateway.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/coded_diagnosis_picker.dart';
 import '../../../core/widgets/dictation_review_sheet.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -158,6 +160,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       patientUid: widget.patientUid,
       appointmentId: widget.appointmentId,
       noteType: 'op_consultation',
+      captureCallSite: StaffCaptureCallSite.opConsultationDraftStorage,
       snapshot: _currentOpContent,
     );
     for (final ctrl in [
@@ -875,11 +878,12 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
   Future<void> _completeAppointment() async {
     final id = widget.appointmentId;
     if (id == null || !_canComplete) return;
-    if (!ConnectivitySyncService.instance.isOnline) {
-      ErrorToast.show(
-        context,
-        _label('s4.lib.op_doctor_workspace.completion_requires_connection'),
-      );
+    if (!OnlineOnlyActionGuard.require(
+      context,
+      message: _label(
+        's4.lib.op_doctor_workspace.completion_requires_connection',
+      ),
+    )) {
       return;
     }
     setState(() => _completing = true);
@@ -1110,6 +1114,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     bool signAfter = false,
   }) async {
     if (_savingNote || _opNoteSigned) return;
+    if (signAfter && !OnlineOnlyActionGuard.require(context)) return;
     if (_opSessionClosed) {
       ErrorToast.show(context, _opSessionClosedReason);
       return;
@@ -1425,16 +1430,24 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                     's4.lib.op_doctor_workspace.save_then_investigations',
                   ),
                 ),
-                OutlinedButton.icon(
-                  onPressed:
-                      _savingNote ||
-                          _opNoteSigned ||
-                          _opSessionClosed ||
-                          _opNoteId == null
-                      ? null
-                      : () => _saveOpNote(signAfter: true),
-                  icon: const Icon(Icons.verified_outlined, size: 18),
-                  label: const AppText('s4.lib.op_doctor_workspace.sign_note'),
+                OnlineOnlyActionState(
+                  builder: (context, isOnline, offlineMessage) => Tooltip(
+                    message: isOnline ? '' : offlineMessage,
+                    child: OutlinedButton.icon(
+                      onPressed:
+                          _savingNote ||
+                              _opNoteSigned ||
+                              _opSessionClosed ||
+                              _opNoteId == null ||
+                              !isOnline
+                          ? null
+                          : () => _saveOpNote(signAfter: true),
+                      icon: const Icon(Icons.verified_outlined, size: 18),
+                      label: const AppText(
+                        's4.lib.op_doctor_workspace.sign_note',
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -1524,31 +1537,38 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
               _buildPathwayWorkPanel(),
               const SizedBox(height: 12),
             ],
-            FilledButton.icon(
-              onPressed: _canComplete ? _completeAppointment : null,
-              icon: _completing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check_circle_outline, size: 18),
-              label: Text(
-                _isTerminalStatus(_status)
-                    ? _format(
-                        's4.dynamic.op_doctor_workspace.consultation_status',
-                        {
-                          'status': AppStrings.of(
-                            context,
-                          ).frontOfficeAppointmentStatusLabel(_status),
-                        },
-                      )
-                    : _label(
-                        's4.lib.op_doctor_workspace.complete_consultation',
-                      ),
-              ),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(44),
+            OnlineOnlyActionState(
+              builder: (context, isOnline, offlineMessage) => Tooltip(
+                message: isOnline ? '' : offlineMessage,
+                child: FilledButton.icon(
+                  onPressed: _canComplete && isOnline
+                      ? _completeAppointment
+                      : null,
+                  icon: _completing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_circle_outline, size: 18),
+                  label: Text(
+                    _isTerminalStatus(_status)
+                        ? _format(
+                            's4.dynamic.op_doctor_workspace.consultation_status',
+                            {
+                              'status': AppStrings.of(
+                                context,
+                              ).frontOfficeAppointmentStatusLabel(_status),
+                            },
+                          )
+                        : _label(
+                            's4.lib.op_doctor_workspace.complete_consultation',
+                          ),
+                  ),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                  ),
+                ),
               ),
             ),
           ],

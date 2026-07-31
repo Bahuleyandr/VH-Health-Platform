@@ -6,9 +6,11 @@ import 'package:timezone/data/latest.dart' as timezone_data;
 import 'package:timezone/timezone.dart' as timezone;
 
 import '../models/clinical_continuity.dart';
+import '../models/clinical_continuity_action_policy.dart';
 import 'clinical_continuity_canonical_json.dart';
 import 'clinical_continuity_source.dart';
 import 'clinical_continuity_trust_store.dart';
+import 'offline_action_ids.dart';
 
 class ClinicalContinuityVerificationReasons {
   ClinicalContinuityVerificationReasons._();
@@ -44,6 +46,8 @@ class ClinicalContinuityVerificationReasons {
   static const edgeAccessMismatch = 'EDGE_ACCESS_MISMATCH';
   static const accessRevisionRollback = 'ACCESS_REVISION_ROLLBACK';
   static const policyUnavailable = 'POLICY_UNAVAILABLE';
+  static const actionPolicyInvalid = 'ACTION_POLICY_INVALID';
+  static const actionRegistryInvalid = 'ACTION_REGISTRY_INVALID';
 }
 
 class ClinicalContinuityVerificationResult {
@@ -65,6 +69,25 @@ class ClinicalContinuityVerificationResult {
   ) : this._(ok: true, verifiedSet: set);
 }
 
+class ClinicalContinuityActionPolicyVerificationResult {
+  const ClinicalContinuityActionPolicyVerificationResult._({
+    required this.ok,
+    this.reason,
+    this.verifiedPolicy,
+  });
+
+  const ClinicalContinuityActionPolicyVerificationResult.rejected(String reason)
+    : this._(ok: false, reason: reason);
+
+  const ClinicalContinuityActionPolicyVerificationResult.accepted(
+    VerifiedClinicalContinuityActionPolicy policy,
+  ) : this._(ok: true, verifiedPolicy: policy);
+
+  final bool ok;
+  final String? reason;
+  final VerifiedClinicalContinuityActionPolicy? verifiedPolicy;
+}
+
 class ClinicalContinuityVerifier {
   static const _maxAssets = 512;
   static const _maxFacilityBytes = 256 * 1024 * 1024;
@@ -72,6 +95,7 @@ class ClinicalContinuityVerifier {
   static const _hashPattern = r'^[0-9a-f]{64}$';
   static const _uuidPattern =
       r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+  static const _keyIdPattern = r'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$';
   static const _safeSegmentPattern = r'^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$';
   static const _tenantPattern =
       r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
@@ -98,6 +122,632 @@ class ClinicalContinuityVerifier {
         ClinicalContinuityVerificationReasons.invalidEnvelope,
       );
     }
+  }
+
+  Future<ClinicalContinuityActionPolicyVerificationResult> verifyActionPolicy({
+    required Uint8List envelopeBytes,
+    required String policyId,
+    required ClinicalContinuityAudience expectedAudience,
+    required ClinicalContinuityClockAssessment clock,
+    ClinicalContinuityFloors? persistedFloors,
+  }) async {
+    try {
+      final verified = await _verifyActionPolicy(
+        envelopeBytes: envelopeBytes,
+        policyId: policyId,
+        expectedAudience: expectedAudience,
+        clock: clock,
+        persistedFloors: persistedFloors,
+      );
+      return ClinicalContinuityActionPolicyVerificationResult.accepted(
+        verified,
+      );
+    } on _VerificationFailure catch (failure) {
+      return ClinicalContinuityActionPolicyVerificationResult.rejected(
+        failure.reason,
+      );
+    } catch (_) {
+      return const ClinicalContinuityActionPolicyVerificationResult.rejected(
+        ClinicalContinuityVerificationReasons.actionPolicyInvalid,
+      );
+    }
+  }
+
+  Future<VerifiedClinicalContinuityActionPolicy> _verifyActionPolicy({
+    required Uint8List envelopeBytes,
+    required String policyId,
+    required ClinicalContinuityAudience expectedAudience,
+    required ClinicalContinuityClockAssessment clock,
+    required ClinicalContinuityFloors? persistedFloors,
+  }) async {
+    if (!_matches(_uuidPattern, policyId)) {
+      _reject(ClinicalContinuityVerificationReasons.actionPolicyInvalid);
+    }
+    if (!clock.trusted || clock.trustedNow == null) {
+      _reject(ClinicalContinuityVerificationReasons.clockUncertain);
+    }
+    final trustedNow = clock.trustedNow!.toUtc();
+    final previousTrustedNow = _latestTime([
+      persistedFloors?.trustedNow,
+      clock.minimumTrustedNow,
+    ]);
+    if (previousTrustedNow != null &&
+        trustedNow.isBefore(previousTrustedNow.toUtc())) {
+      _reject(ClinicalContinuityVerificationReasons.clockUncertain);
+    }
+
+    final trust = await _trustStore.load(expectedAudience: expectedAudience);
+    if (trust == null) {
+      _reject(ClinicalContinuityVerificationReasons.policyUnavailable);
+    }
+    final envelope = _parseMap(
+      envelopeBytes,
+      ClinicalContinuityVerificationReasons.actionPolicyInvalid,
+    );
+    if (!_exactKeys(envelope, const {
+          'actionRegistryChecksum',
+          'actionRegistrySchemaVersion',
+          'actionRegistryVersion',
+          'algorithm',
+          'audience',
+          'canonicalization',
+          'currentPackSigningKeyId',
+          'currentPackSigningPublicKeySha256',
+          'effectiveFrom',
+          'effectiveUntil',
+          'nextPackSigningKeyId',
+          'nextPackSigningPublicKeySha256',
+          'policyChecksum',
+          'policyDocument',
+          'policySchemaVersion',
+          'policySignature',
+          'policySigningKeyId',
+          'policySigningPublicKeySha256',
+          'policyVersion',
+          'revocationEpoch',
+          'revokedKeyIds',
+          'supersedesPolicyId',
+        }) ||
+        envelope['algorithm'] != 'Ed25519' ||
+        envelope['canonicalization'] != 'rfc8785-jcs' ||
+        envelope['policySchemaVersion'] != 3 ||
+        envelope['actionRegistrySchemaVersion'] != 1 ||
+        !_matches(_hashPattern, envelope['policyChecksum']) ||
+        !_matches(_hashPattern, envelope['actionRegistryChecksum']) ||
+        !_matches(_keyIdPattern, envelope['policySigningKeyId']) ||
+        !_matches(_hashPattern, envelope['policySigningPublicKeySha256']) ||
+        !_matches(_keyIdPattern, envelope['currentPackSigningKeyId']) ||
+        !_matches(
+          _hashPattern,
+          envelope['currentPackSigningPublicKeySha256'],
+        ) ||
+        !_canonicalTimestamp(envelope['effectiveFrom']) ||
+        !_canonicalTimestamp(envelope['effectiveUntil'])) {
+      _reject(ClinicalContinuityVerificationReasons.actionPolicyInvalid);
+    }
+    final nextPackKeyId = envelope['nextPackSigningKeyId'];
+    final nextPackKeyHash = envelope['nextPackSigningPublicKeySha256'];
+    if ((nextPackKeyId == null) != (nextPackKeyHash == null) ||
+        (nextPackKeyId != null &&
+            (!_matches(_keyIdPattern, nextPackKeyId) ||
+                !_matches(_hashPattern, nextPackKeyHash))) ||
+        nextPackKeyId == envelope['currentPackSigningKeyId']) {
+      _reject(ClinicalContinuityVerificationReasons.actionPolicyInvalid);
+    }
+    final audience = _map(envelope['audience']);
+    if (audience == null ||
+        !_exactKeys(audience, const {'facilityId', 'tenantId'}) ||
+        audience['tenantId'] != expectedAudience.tenantId ||
+        audience['facilityId'] != expectedAudience.facilityId) {
+      _reject(ClinicalContinuityVerificationReasons.audienceMismatch);
+    }
+    final policyVersion = _governance(envelope['policyVersion']);
+    final outerRegistryVersion = _governance(envelope['actionRegistryVersion']);
+    final revocationEpoch = _governance(
+      envelope['revocationEpoch'],
+      allowZero: true,
+    );
+    final revokedKeyIdsRaw = envelope['revokedKeyIds'];
+    if (policyVersion == null ||
+        outerRegistryVersion == null ||
+        revocationEpoch == null ||
+        revokedKeyIdsRaw is! List ||
+        revokedKeyIdsRaw.any(
+          (value) =>
+              value is! String || value.trim().isEmpty || value != value.trim(),
+        ) ||
+        revokedKeyIdsRaw.toSet().length != revokedKeyIdsRaw.length ||
+        (envelope['supersedesPolicyId'] != null &&
+            !_matches(_uuidPattern, envelope['supersedesPolicyId']))) {
+      _reject(ClinicalContinuityVerificationReasons.actionPolicyInvalid);
+    }
+    final policyFloor = _maxGovernance([
+      trust.minimumPolicyVersion,
+      persistedFloors?.policyVersion,
+    ]);
+    final revocationFloor = _maxGovernance([
+      trust.minimumRevocationEpoch,
+      trust.revocationEpoch,
+      persistedFloors?.revocationEpoch,
+    ], allowZero: true);
+    if (BigInt.parse(policyVersion) < BigInt.parse(policyFloor)) {
+      _reject(ClinicalContinuityVerificationReasons.policyRollback);
+    }
+    if (BigInt.parse(revocationEpoch) < BigInt.parse(revocationFloor)) {
+      _reject(ClinicalContinuityVerificationReasons.revocationEpochRollback);
+    }
+
+    final keyId = envelope['policySigningKeyId'];
+    final policyKey = trust.policySigningKey;
+    if (keyId != policyKey.keyId ||
+        envelope['policySigningPublicKeySha256'] != policyKey.publicKeySha256) {
+      _reject(ClinicalContinuityVerificationReasons.keyIdMismatch);
+    }
+    if (trust.revokedKeyIds.contains(keyId) ||
+        revokedKeyIdsRaw.contains(keyId)) {
+      _reject(ClinicalContinuityVerificationReasons.keyRevoked);
+    }
+    final signature = _signature(envelope['policySignature']);
+    if (signature == null) {
+      _reject(ClinicalContinuityVerificationReasons.signatureInvalid);
+    }
+    final unsigned = Map<String, Object?>.from(envelope)
+      ..remove('policySignature');
+    final signatureValid = await Ed25519().verify(
+      ClinicalContinuityCanonicalJson.canonicalBytes(unsigned),
+      signature: Signature(
+        signature,
+        publicKey: SimplePublicKey(
+          policyKey.rawPublicKey,
+          type: KeyPairType.ed25519,
+        ),
+      ),
+    );
+    if (!signatureValid) {
+      _reject(ClinicalContinuityVerificationReasons.signatureInvalid);
+    }
+
+    final document = _map(envelope['policyDocument']);
+    final documentAudience = _map(document?['audience']);
+    if (document == null ||
+        !_exactKeys(document, const {
+          'actionRegistry',
+          'audience',
+          'edgeAccess',
+          'fieldPolicy',
+          'generation',
+          'includedAreas',
+          'medicationsDueWindow',
+          'packSchemaVersion',
+          'policySchemaVersion',
+          'policyType',
+          'recentReleasedResults',
+          'requiredCoverage',
+          'retention',
+        }) ||
+        document['policySchemaVersion'] != 3 ||
+        document['policyType'] != 'clinical_continuity_pack' ||
+        documentAudience == null ||
+        !_exactKeys(documentAudience, const {'facilityId', 'tenantId'}) ||
+        documentAudience['tenantId'] != expectedAudience.tenantId ||
+        documentAudience['facilityId'] != expectedAudience.facilityId ||
+        document['actionRegistry'] is! Map) {
+      _reject(ClinicalContinuityVerificationReasons.actionPolicyInvalid);
+    }
+    if (await _sha256Hex(
+          ClinicalContinuityCanonicalJson.canonicalBytes(document),
+        ) !=
+        envelope['policyChecksum']) {
+      _reject(ClinicalContinuityVerificationReasons.contentHashMismatch);
+    }
+
+    final effectiveFrom = DateTime.parse(envelope['effectiveFrom']! as String);
+    final effectiveUntil = DateTime.parse(
+      envelope['effectiveUntil']! as String,
+    );
+    if (!effectiveFrom.isBefore(effectiveUntil) ||
+        trustedNow.isBefore(effectiveFrom) ||
+        !trustedNow.isBefore(effectiveUntil)) {
+      _reject(ClinicalContinuityVerificationReasons.packExpired);
+    }
+
+    final registry = _map(document['actionRegistry'])!;
+    final registryVersion = _governance(registry['registryVersion']);
+    final registryChecksum = registry['registryChecksum'];
+    final registrySchemaVersion = registry['registrySchemaVersion'];
+    final registryIssuedAt = registry['issuedAt'];
+    final registryExpiresAt = registry['expiresAt'];
+    if (!_exactKeys(registry, const {
+          'actions',
+          'activation',
+          'approvalEvidence',
+          'audience',
+          'compatibilityRules',
+          'expiresAt',
+          'issuedAt',
+          'minimumAppVersions',
+          'registryChecksum',
+          'registrySchemaVersion',
+          'registryVersion',
+        }) ||
+        registrySchemaVersion != 1 ||
+        registryVersion == null ||
+        !_matches(_hashPattern, registryChecksum) ||
+        registrySchemaVersion != envelope['actionRegistrySchemaVersion'] ||
+        registryVersion != outerRegistryVersion ||
+        registryChecksum != envelope['actionRegistryChecksum'] ||
+        registryIssuedAt != envelope['effectiveFrom'] ||
+        registryExpiresAt != envelope['effectiveUntil']) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+    final registryProjection = Map<String, Object?>.from(registry)
+      ..remove('registryChecksum');
+    if (await _sha256Hex(
+          ClinicalContinuityCanonicalJson.canonicalBytes(registryProjection),
+        ) !=
+        registryChecksum) {
+      _reject(ClinicalContinuityVerificationReasons.contentHashMismatch);
+    }
+    final registryAudience = _map(registry['audience']);
+    final posturesRaw = registryAudience?['devicePostures'];
+    final minimumVersionsRaw = _map(registry['minimumAppVersions']);
+    final activation = _map(registry['activation']);
+    final approvalEvidence = _map(registry['approvalEvidence']);
+    final enforcedRaw = activation?['enforcedActionIds'];
+    final actionsRaw = registry['actions'];
+    final compatibilityRaw = registry['compatibilityRules'];
+    if (registryAudience == null ||
+        !_exactKeys(registryAudience, const {'devicePostures'}) ||
+        posturesRaw is! List ||
+        posturesRaw.isEmpty ||
+        posturesRaw.any(
+          (value) =>
+              value is! String ||
+              value.trim().isEmpty ||
+              value != value.toLowerCase() ||
+              !const {'desktop', 'tablet'}.contains(value),
+        ) ||
+        posturesRaw.toSet().length != posturesRaw.length ||
+        minimumVersionsRaw == null ||
+        !_exactKeys(minimumVersionsRaw, const {'desktop', 'tablet'}) ||
+        minimumVersionsRaw.values.any(
+          (value) =>
+              value is! String || !_validSemanticVersion(value, minimum: true),
+        ) ||
+        activation == null ||
+        !_exactKeys(activation, const {'enforcedActionIds', 'mode'}) ||
+        !const {'shadow', 'enforce'}.contains(activation['mode']) ||
+        enforcedRaw is! List ||
+        enforcedRaw.any(
+          (value) =>
+              value is! String ||
+              !OfflineActionIds.isKnown(value) ||
+              value == OfflineActionIds.unknown,
+        ) ||
+        enforcedRaw.toSet().length != enforcedRaw.length ||
+        (activation['mode'] == 'shadow' && enforcedRaw.isNotEmpty) ||
+        !_validCD3Approval(approvalEvidence) ||
+        actionsRaw is! List ||
+        compatibilityRaw is! List) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+
+    final actions = <String, ClinicalContinuityActionRule>{};
+    for (final rawAction in actionsRaw) {
+      final rule = await _parseActionRule(rawAction);
+      if (actions.containsKey(rule.actionId)) {
+        _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+      }
+      actions[rule.actionId] = rule;
+    }
+    final approvedActionIds = OfflineActionIds.values.difference(const {
+      OfflineActionIds.unknown,
+    });
+    if (actions.keys.toSet().length != approvedActionIds.length ||
+        actions.keys.toSet().difference(approvedActionIds).isNotEmpty ||
+        approvedActionIds.difference(actions.keys.toSet()).isNotEmpty) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+    final enforced = enforcedRaw.cast<String>().toSet();
+    if (enforced.contains(OfflineActionIds.unknown)) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+    final compatibilityRules = <ClinicalContinuityCompatibilityRule>[];
+    final compatibilityKeys = <String>{};
+    for (final rawCompatibility in compatibilityRaw) {
+      final compatibility = _parseCompatibilityRule(rawCompatibility);
+      if (!actions.containsKey(compatibility.actionId)) {
+        _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+      }
+      final key = [
+        compatibility.fromPolicyId,
+        compatibility.fromPolicyVersion,
+        compatibility.fromRegistryVersion,
+        compatibility.actionId,
+        compatibility.actionVersion,
+      ].join(':');
+      if (!compatibilityKeys.add(key)) {
+        _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+      }
+      compatibilityRules.add(compatibility);
+    }
+
+    return VerifiedClinicalContinuityActionPolicy(
+      audience: expectedAudience,
+      policyId: policyId,
+      policyVersion: policyVersion,
+      policyChecksum: envelope['policyChecksum']! as String,
+      policySigningKeyId: policyKey.keyId,
+      effectiveFrom: effectiveFrom,
+      effectiveUntil: effectiveUntil,
+      policySupersedesId: envelope['supersedesPolicyId'] as String?,
+      policyRevocationEpoch: revocationEpoch,
+      registryVersion: registryVersion,
+      registryChecksum: registryChecksum! as String,
+      activationMode: activation['mode']! as String,
+      enforcedActionIds: Set.unmodifiable(enforced),
+      allowedDevicePostures: Set.unmodifiable(
+        posturesRaw.cast<String>().toSet(),
+      ),
+      minimumAppVersions: Map.unmodifiable(
+        minimumVersionsRaw.map((key, value) => MapEntry(key, value! as String)),
+      ),
+      actions: Map.unmodifiable(actions),
+      compatibilityRules: List.unmodifiable(compatibilityRules),
+      revokedKeyIds: Set.unmodifiable(revokedKeyIdsRaw.cast<String>()),
+      trustedAt: trustedNow,
+    );
+  }
+
+  Future<ClinicalContinuityActionRule> _parseActionRule(Object? raw) async {
+    final action = _map(raw);
+    if (action == null ||
+        !_exactKeys(action, const {
+          'actionChecksum',
+          'actionId',
+          'actionSchema',
+          'actionVersion',
+          'allowedRoles',
+          'approvalEvidence',
+          'breakGlass',
+          'cachedSourceContract',
+          'classification',
+          'conflictOwnership',
+          'idempotency',
+          'notifications',
+          'occurrence',
+          'optimisticConcurrency',
+          'quarantineOwnership',
+          'replayEndpoint',
+          'requiredCapabilities',
+          'requiredIdentity',
+          'scope',
+          'sla',
+          'witness',
+        })) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+    final actionId = action['actionId'];
+    final schema = _map(action['actionSchema']);
+    final approval = _map(action['approvalEvidence']);
+    final cachedSource = _map(action['cachedSourceContract']);
+    final classification = _map(action['classification']);
+    final conflict = _map(action['conflictOwnership']);
+    final idempotency = _map(action['idempotency']);
+    final notifications = _map(action['notifications']);
+    final occurrence = _map(action['occurrence']);
+    final concurrency = _map(action['optimisticConcurrency']);
+    final quarantine = _map(action['quarantineOwnership']);
+    final replay = _map(action['replayEndpoint']);
+    final scope = _map(action['scope']);
+    final sla = _map(action['sla']);
+    final rolesRaw = action['allowedRoles'];
+    final capabilitiesRaw = action['requiredCapabilities'];
+    final identityRaw = action['requiredIdentity'];
+    final sourcesRaw = cachedSource?['sources'];
+    final actionVersion = action['actionVersion'];
+    final captureReady = classification?['captureReady'];
+    final replayBindingId = replay?['bindingId'];
+    final disposition = switch (classification?['offlineClass']) {
+      'queueable_capture' =>
+        ClinicalContinuityActionDisposition.queueableCapture,
+      'local_draft_only' => ClinicalContinuityActionDisposition.localDraftOnly,
+      'paper_only_backfill' =>
+        ClinicalContinuityActionDisposition.paperOnlyBackfill,
+      'unknown_default_deny' => ClinicalContinuityActionDisposition.defaultDeny,
+      _ => null,
+    };
+    final schemaChecksum = schema?['checksum'];
+    final validSchemaChecksum =
+        schemaChecksum == null || _matches(_hashPattern, schemaChecksum);
+    if (actionId is! String ||
+        !OfflineActionIds.isKnown(actionId) ||
+        actionId == OfflineActionIds.unknown ||
+        actionVersion is! int ||
+        actionVersion <= 0 ||
+        !_matches(_hashPattern, action['actionChecksum']) ||
+        schema == null ||
+        !_exactKeys(schema, const {'checksum', 'id', 'version'}) ||
+        schema['id'] is! String ||
+        (schema['id']! as String).isEmpty ||
+        schema['version'] is! int ||
+        (schema['version']! as int) < 0 ||
+        !validSchemaChecksum ||
+        !_validCD3Approval(approval) ||
+        cachedSource == null ||
+        !_exactKeys(cachedSource, const {'mode', 'sources'}) ||
+        cachedSource['mode'] is! String ||
+        sourcesRaw is! List ||
+        classification == null ||
+        !_exactKeys(classification, const {
+          'captureReady',
+          'clinicalObjectClass',
+          'offlineClass',
+        }) ||
+        captureReady is! bool ||
+        classification['clinicalObjectClass'] is! String ||
+        disposition == null ||
+        !_validStringMap(conflict, const {'outcome', 'owner'}) ||
+        !_validStringMap(idempotency, const {'contract', 'fingerprint'}) ||
+        !_validStringMap(notifications, const {'contract'}) ||
+        !_validStringMap(occurrence, const {'lateArrival', 'occurrenceTime'}) ||
+        !_validStringMap(concurrency, const {'contract'}) ||
+        !_validStringMap(quarantine, const {'durableState', 'owner'}) ||
+        !_validStringMap(replay, const {'bindingId', 'disposition'}) ||
+        !_validStringMap(
+          scope,
+          const {'client', 'domain'},
+          also: {'facilityScoped': true},
+        ) ||
+        !_validStringMap(sla, const {'contract'}) ||
+        action['breakGlass'] is! String ||
+        action['witness'] is! String ||
+        rolesRaw is! List ||
+        rolesRaw.any(
+          (value) =>
+              value is! String ||
+              value.trim().isEmpty ||
+              value != value.toUpperCase(),
+        ) ||
+        rolesRaw.toSet().length != rolesRaw.length ||
+        capabilitiesRaw is! List ||
+        capabilitiesRaw.any(
+          (value) => value is! String || value.trim().isEmpty,
+        ) ||
+        capabilitiesRaw.toSet().length != capabilitiesRaw.length ||
+        identityRaw is! List ||
+        identityRaw.any((value) => value is! String || value.trim().isEmpty) ||
+        identityRaw.toSet().length != identityRaw.length ||
+        !_validCachedSources(sourcesRaw) ||
+        (captureReady &&
+            (disposition !=
+                    ClinicalContinuityActionDisposition.queueableCapture ||
+                rolesRaw.isEmpty ||
+                schema['id'] == 'none' ||
+                schema['version'] == 0 ||
+                schemaChecksum == null ||
+                replayBindingId == 'none')) ||
+        (!captureReady &&
+            (schema['id'] != 'none' ||
+                schema['version'] != 0 ||
+                schemaChecksum != null ||
+                replayBindingId != 'none'))) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+    final projection = Map<String, Object?>.from(action)
+      ..remove('actionChecksum');
+    if (await _sha256Hex(
+          ClinicalContinuityCanonicalJson.canonicalBytes(projection),
+        ) !=
+        action['actionChecksum']) {
+      _reject(ClinicalContinuityVerificationReasons.contentHashMismatch);
+    }
+    return ClinicalContinuityActionRule(
+      actionId: actionId,
+      disposition: disposition,
+      captureReady: captureReady,
+      actionVersion: actionVersion,
+      actionChecksum: action['actionChecksum']! as String,
+      actionSchemaId: schema['id']! as String,
+      actionSchemaVersion: schema['version']! as int,
+      actionSchemaChecksum: schemaChecksum as String?,
+      allowedRoles: Set.unmodifiable(rolesRaw.cast<String>().toSet()),
+      requiredCapabilityGroups: Set.unmodifiable(
+        capabilitiesRaw.cast<String>().toSet(),
+      ),
+    );
+  }
+
+  ClinicalContinuityCompatibilityRule _parseCompatibilityRule(Object? raw) {
+    final value = _map(raw);
+    if (value == null ||
+        !_exactKeys(value, const {
+          'actionChecksum',
+          'actionId',
+          'actionSchemaChecksum',
+          'actionSchemaVersion',
+          'actionVersion',
+          'fromPolicyChecksum',
+          'fromPolicyEffectiveFrom',
+          'fromPolicyEffectiveUntil',
+          'fromPolicyId',
+          'fromPolicySigningKeyId',
+          'fromPolicySupersedesId',
+          'fromPolicyVersion',
+          'fromRevocationEpoch',
+          'fromRegistryChecksum',
+          'fromRegistryVersion',
+          'maximumCaptureAgeMinutes',
+          'outcome',
+        })) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+    final schemaChecksum = value['actionSchemaChecksum'];
+    final schemaVersion = value['actionSchemaVersion'];
+    final actionVersion = value['actionVersion'];
+    final maximumAge = value['maximumCaptureAgeMinutes'];
+    final fromPolicyVersion = _governance(value['fromPolicyVersion']);
+    final fromRevocationEpoch = _governance(
+      value['fromRevocationEpoch'],
+      allowZero: true,
+    );
+    final fromRegistryVersion = _governance(value['fromRegistryVersion']);
+    if (value['actionId'] is! String ||
+        !OfflineActionIds.isKnown(value['actionId']! as String) ||
+        value['actionId'] == OfflineActionIds.unknown ||
+        !_matches(_hashPattern, value['actionChecksum']) ||
+        (schemaChecksum != null && !_matches(_hashPattern, schemaChecksum)) ||
+        schemaVersion is! int ||
+        schemaVersion < 0 ||
+        actionVersion is! int ||
+        actionVersion <= 0 ||
+        !_matches(_hashPattern, value['fromPolicyChecksum']) ||
+        !_canonicalTimestamp(value['fromPolicyEffectiveFrom']) ||
+        !_canonicalTimestamp(value['fromPolicyEffectiveUntil']) ||
+        !_matches(_uuidPattern, value['fromPolicyId']) ||
+        value['fromPolicySigningKeyId'] is! String ||
+        (value['fromPolicySigningKeyId']! as String).trim().isEmpty ||
+        (value['fromPolicySupersedesId'] != null &&
+            !_matches(_uuidPattern, value['fromPolicySupersedesId'])) ||
+        fromPolicyVersion == null ||
+        fromRevocationEpoch == null ||
+        !_matches(_hashPattern, value['fromRegistryChecksum']) ||
+        fromRegistryVersion == null ||
+        maximumAge is! int ||
+        maximumAge <= 0 ||
+        maximumAge > 525600 ||
+        !const {'allow', 'needs_review'}.contains(value['outcome']) ||
+        (value['outcome'] == 'allow' && schemaChecksum == null)) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+    final effectiveFrom = DateTime.parse(
+      value['fromPolicyEffectiveFrom']! as String,
+    );
+    final effectiveUntil = DateTime.parse(
+      value['fromPolicyEffectiveUntil']! as String,
+    );
+    if (!effectiveFrom.isBefore(effectiveUntil)) {
+      _reject(ClinicalContinuityVerificationReasons.actionRegistryInvalid);
+    }
+    return ClinicalContinuityCompatibilityRule(
+      actionChecksum: value['actionChecksum']! as String,
+      actionId: value['actionId']! as String,
+      actionSchemaChecksum: schemaChecksum as String?,
+      actionSchemaVersion: schemaVersion,
+      actionVersion: actionVersion,
+      fromPolicyChecksum: value['fromPolicyChecksum']! as String,
+      fromPolicyEffectiveFrom: effectiveFrom,
+      fromPolicyEffectiveUntil: effectiveUntil,
+      fromPolicyId: value['fromPolicyId']! as String,
+      fromPolicySigningKeyId: value['fromPolicySigningKeyId']! as String,
+      fromPolicySupersedesId: value['fromPolicySupersedesId'] as String?,
+      fromPolicyVersion: fromPolicyVersion,
+      fromRevocationEpoch: fromRevocationEpoch,
+      fromRegistryChecksum: value['fromRegistryChecksum']! as String,
+      fromRegistryVersion: fromRegistryVersion,
+      maximumCaptureAge: Duration(minutes: maximumAge),
+      outcome: value['outcome']! as String,
+    );
   }
 
   Future<ClinicalContinuityVerificationResult> _verify(
@@ -1207,6 +1857,57 @@ Map<String, Object?>? _map(Object? value) =>
 bool _exactKeys(Map<String, Object?> value, Set<String> expected) =>
     value.length == expected.length && value.keys.toSet().containsAll(expected);
 
+bool _validStringMap(
+  Map<String, Object?>? value,
+  Set<String> stringKeys, {
+  Map<String, Object?> also = const {},
+}) {
+  if (value == null ||
+      !_exactKeys(value, {...stringKeys, ...also.keys}) ||
+      stringKeys.any(
+        (key) =>
+            value[key] is! String ||
+            (value[key]! as String).trim().isEmpty ||
+            value[key] != (value[key]! as String).trim(),
+      )) {
+    return false;
+  }
+  return also.entries.every((entry) => value[entry.key] == entry.value);
+}
+
+bool _validCD3Approval(Map<String, Object?>? value) {
+  return value != null &&
+      _exactKeys(value, const {'countersignedAt', 'decisionId', 'source'}) &&
+      value['countersignedAt'] == '2026-07-30' &&
+      value['decisionId'] == 'C-D3' &&
+      value['source'] ==
+          'docs/continuity/c0-4-owner-decision-dossier.md#c-d3--offline-action-matrix';
+}
+
+bool _validCachedSources(List<Object?> values) {
+  final sourceIds = <String>{};
+  for (final raw in values) {
+    final value = _map(raw);
+    if (value == null ||
+        !_exactKeys(value, const {
+          'maxAgeMinutes',
+          'sourceId',
+          'staleAtMinutes',
+        }) ||
+        value['sourceId'] is! String ||
+        (value['sourceId']! as String).trim().isEmpty ||
+        !sourceIds.add(value['sourceId']! as String) ||
+        value['maxAgeMinutes'] is! int ||
+        (value['maxAgeMinutes']! as int) <= 0 ||
+        value['staleAtMinutes'] is! int ||
+        (value['staleAtMinutes']! as int) <= 0 ||
+        (value['staleAtMinutes']! as int) > (value['maxAgeMinutes']! as int)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool _matches(String pattern, Object? value) =>
     value is String && RegExp(pattern).hasMatch(value);
 
@@ -1244,6 +1945,14 @@ bool _canonicalTimestamp(Object? value) {
       expected.second == second &&
       expected.millisecond == milliseconds &&
       parsed == expected;
+}
+
+bool _validSemanticVersion(Object? value, {required bool minimum}) {
+  if (value is! String) return false;
+  final pattern = minimum
+      ? r'^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$'
+      : r'^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:\+[0-9A-Za-z.-]+)?$';
+  return RegExp(pattern).hasMatch(value);
 }
 
 String? _governance(Object? value, {bool allowZero = false}) {

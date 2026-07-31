@@ -1,29 +1,25 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vhhealth_core/services/offline_action_ids.dart';
-import 'package:vhhealth_staff/features/nursing/screens/vitals_screen.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
-  test('vitals compatibility intent has one frozen identity projection', () {
-    final body = <String, dynamic>{
-      'patient_id': 42,
-      'record_type': 'VITALS',
-      'vital_signs': {
-        'blood_pressure': {'systolic': 120, 'diastolic': 80},
-        'pulse': 72,
-      },
-      'recorded_by': 7,
-    };
+  test('offline vitals exposes the governed paper and back-entry workflow', () {
+    final strings = AppStrings.forLocale(const Locale('en'));
 
-    final intent = VitalsOfflineQueueIntent.fromBody(body);
+    expect(strings.vitalsOfflineRetiredTitle, contains('paper'));
+    expect(strings.vitalsOfflineRetiredMessage, contains('paper chart'));
+    expect(strings.vitalsOfflineRetiredMessage, contains('back-entry'));
+  });
 
-    expect(VitalsOfflineQueueIntent.endpoint, '/health/records');
-    expect(VitalsOfflineQueueIntent.method, 'POST');
-    expect(intent.actionId, OfflineActionIds.vitalsCapture);
-    expect(intent.body, body);
-    expect(
-      () => intent.body['patient_id'] = 99,
-      throwsUnsupportedError,
-      reason: 'the queued snapshot must not be mutable after construction',
-    );
+  test('vitals screen has no offline queue compatibility path', () {
+    final source = File(
+      'lib/features/nursing/screens/vitals_screen.dart',
+    ).readAsStringSync();
+
+    expect(source, isNot(contains('VitalsOfflineQueueIntent')));
+    expect(source, isNot(contains('OfflineQueue.')));
+    expect(source, contains('vitalsOfflineRetiredMessage'));
   });
 }

@@ -338,9 +338,14 @@ void main() {
       await OfflineQueue.resetForTesting();
       entries = await OfflineQueue.unresolvedEntriesForCurrentOwner();
       expect(
-        entries.singleWhere((entry) => entry.id == skippedId).isSkipped,
-        isTrue,
-        reason: 'restart reconstructs the blocker from durable rows',
+        entries.map((entry) => entry.status),
+        everyElement(OfflineWriteStatus.needsReview),
+        reason: 'restart exposes every legacy row for reconciliation',
+      );
+      expect(
+        entries.map((entry) => entry.isSkipped),
+        everyElement(isFalse),
+        reason: 'no legacy row retains executable drain authority',
       );
     },
   );

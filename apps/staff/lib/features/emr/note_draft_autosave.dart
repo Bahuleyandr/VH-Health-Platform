@@ -10,9 +10,9 @@
 // Design notes:
 //  - Autosave NEVER throws to the UI. Any failure sets status=error and the
 //    next debounce/heartbeat retries. Typing is never blocked.
-//  - When the device is offline and an offline queue is available, the draft
-//    PUT is enqueued best-effort (status=offline); otherwise we just mark
-//    status=offline and let the next online tick catch up.
+//  - When the device is offline, only the C4.3 typed action gateway may persist
+//    a signed private-draft command. Missing policy/facility authority leaves
+//    the form dirty for a later online save.
 //  - The API surface is injected as plain function fields so screens use the
 //    real `MedicalApiService` static methods while tests pass fakes without
 //    touching HTTP.
@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/platform_info.dart';
 import '../../core/services/connectivity_sync_service.dart';
 import '../../core/services/medical_api_service.dart';
+import '../../core/services/staff_clinical_action_gateway.dart';
 
 /// Lifecycle state surfaced to the screen so it can render a small
 /// "Unsaved changes… / Saving… / Saved 2m ago / Offline / Couldn't save"
@@ -103,8 +104,8 @@ class NoteDraftApi {
   );
 }
 
-/// Injectable connectivity + offline-queue surface. Defaults forward to
-/// [ConnectivitySyncService.instance]; tests pass fakes to drive the offline
+/// Injectable connectivity + typed-capture surface. Defaults forward to the
+/// C4.3 gateway; tests pass fakes to drive the offline
 /// branch — which is otherwise unreachable, since the real singleton reports
 /// `isOnline == true` in a headless test VM and its state cannot be faked
 /// (private ctor, no setter). Mirrors [NoteDraftApi]'s function-field injection.
@@ -112,43 +113,58 @@ class NoteDraftSync {
   /// Whether the device currently has connectivity.
   final bool Function() isOnline;
 
-  /// Enqueue an offline write (best-effort). Mirrors
-  /// [ConnectivitySyncService.enqueue].
-  ///
-  /// This is the temporary C0A compatibility facade. C4.3 removes this
-  /// endpoint-shaped input and replaces it with verified policy/action models
-  /// plus a typed `emr.*.draft.store` capture. Until device-to-facility
-  /// provisioning exists, this facade must not infer a facility or activate a
-  /// C4-ready command.
-  final Future<int> Function({
-    required String endpoint,
-    required String method,
+  final Future<bool> Function({
+    required StaffCaptureCallSite callSite,
+    required String patientReference,
+    int? appointmentId,
     required Map<String, dynamic> body,
     String? contextLabel,
   })
-  enqueue;
+  capturePrivateDraft;
 
-  /// Drop queued (not-yet-synced) writes for `endpoint` whose decoded body
-  /// satisfies `matches`. Mirrors [ConnectivitySyncService.removePendingWrites].
   final Future<int> Function({
-    required String endpoint,
-    required bool Function(Map<String, dynamic> body) matches,
+    required StaffCaptureCallSite callSite,
+    required String patientReference,
+    int? appointmentId,
   })
-  removePendingWrites;
+  cancelPrivateDrafts;
 
   const NoteDraftSync({
     required this.isOnline,
-    required this.enqueue,
-    required this.removePendingWrites,
+    required this.capturePrivateDraft,
+    required this.cancelPrivateDrafts,
   });
 
   /// Production wiring against the shared connectivity/offline-queue service.
   factory NoteDraftSync.live() {
     final svc = ConnectivitySyncService.instance;
+    final gateway = StaffClinicalActionGateway.instance;
     return NoteDraftSync(
       isOnline: () => svc.isOnline,
-      enqueue: svc.enqueue,
-      removePendingWrites: svc.removePendingWrites,
+      capturePrivateDraft:
+          ({
+            required callSite,
+            required patientReference,
+            appointmentId,
+            required body,
+            contextLabel,
+          }) async {
+            final result = await gateway.capturePrivateDraft(
+              callSite: callSite,
+              patientReference: patientReference,
+              appointmentId: appointmentId?.toString(),
+              payload: body,
+              contextLabel: contextLabel,
+            );
+            return result.allowed;
+          },
+      cancelPrivateDrafts:
+          ({required callSite, required patientReference, appointmentId}) =>
+              svc.cancelPreparedDrafts(
+                actionId: callSite.actionId,
+                patientReference: patientReference,
+                appointmentId: appointmentId?.toString(),
+              ),
     );
   }
 }
@@ -172,6 +188,7 @@ class NoteDraftAutosave {
   NoteDraftAutosave({
     required this.patientUid,
     required this.noteType,
+    required this.captureCallSite,
     required Map<String, dynamic> Function() snapshot,
     this.appointmentId,
     NoteDraftApi? api,
@@ -189,6 +206,7 @@ class NoteDraftAutosave {
   final String patientUid;
   final int? appointmentId;
   final String noteType;
+  final StaffCaptureCallSite captureCallSite;
   final Duration debounce;
   final Duration heartbeat;
 
@@ -322,9 +340,10 @@ class NoteDraftAutosave {
     // on the 14-day TTL janitor. Best-effort — never throws to the caller.
     if (!_sync.isOnline()) {
       try {
-        await _sync.removePendingWrites(
-          endpoint: _draftEndpoint(),
-          matches: _isThisDraftContext,
+        await _sync.cancelPrivateDrafts(
+          callSite: captureCallSite,
+          patientReference: patientUid,
+          appointmentId: appointmentId,
         );
       } catch (e) {
         if (kDebugMode) {
@@ -343,15 +362,6 @@ class NoteDraftAutosave {
     }
     if (!_disposed) status.value = const NoteDraftStatus.idle();
   }
-
-  /// True when [body] is a queued draft PUT for THIS controller's exact
-  /// context. The enqueued body carries `patient_uid` / `note_type` and, when
-  /// present, `appointment_id` (omitted when null, so a null [appointmentId]
-  /// matches a body with no such key).
-  bool _isThisDraftContext(Map<String, dynamic> body) =>
-      body['patient_uid'] == patientUid &&
-      body['note_type'] == noteType &&
-      body['appointment_id'] == appointmentId;
 
   /// Force an immediate save (e.g. on field blur or app-lifecycle pause).
   /// No-op when there are no unsaved changes.
@@ -419,16 +429,15 @@ class NoteDraftAutosave {
     final generation = _clearGeneration;
 
     try {
-      // Offline: enqueue best-effort if the queue is available, else just flag.
-      // NOTE: an offline enqueue does NOT set _lastSavedJson — the write is not
-      // yet confirmed, so a later identical retry must not be wrongly skipped.
-      // The C0A facade journals identity before any later attempt but cannot
-      // produce a C4-ready envelope while facility provisioning is absent.
+      // Offline: only the typed C4.3 gateway may persist a private draft. A
+      // missing signed policy or provisioned facility leaves the form dirty
+      // for a later online retry.
       if (!_sync.isOnline()) {
         try {
-          await _sync.enqueue(
-            endpoint: _draftEndpoint(),
-            method: 'PUT',
+          final captured = await _sync.capturePrivateDraft(
+            callSite: captureCallSite,
+            patientReference: patientUid,
+            appointmentId: appointmentId,
             body: {
               'patient_uid': patientUid,
               if (appointmentId != null) 'appointment_id': appointmentId,
@@ -437,8 +446,9 @@ class NoteDraftAutosave {
             },
             contextLabel: 'Note draft ($noteType)',
           );
+          if (!captured) _dirty = true;
         } catch (e) {
-          if (kDebugMode) debugPrint('NoteDraftAutosave enqueue failed: $e');
+          if (kDebugMode) debugPrint('NoteDraftAutosave capture failed: $e');
           // The draft is still safe in the in-memory form; mark dirty so the
           // next heartbeat/debounce retries once connectivity returns.
           _dirty = true;
@@ -522,11 +532,6 @@ class NoteDraftAutosave {
     }
     return true;
   }
-
-  /// The offline-queue endpoint string with the draft context encoded — the
-  /// queue replays it verbatim via `VHHttpClient.put`, so the body carries the
-  /// payload and the path stays the canonical draft route.
-  String _draftEndpoint() => '/emr/notes/draft';
 
   void dispose() {
     _disposed = true;

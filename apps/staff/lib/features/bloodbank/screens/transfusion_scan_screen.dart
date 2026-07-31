@@ -112,7 +112,10 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
         );
         return;
       }
-      final response = await ApiClient.post(intent.endpoint, body: intent.body);
+      final response = await ApiClient.post(
+        '/blood-bank/${widget.requestId}/verify-bedside',
+        body: intent.body,
+      );
       if (!mounted) return;
       if (response.isSuccess) {
         setState(() => _step = _TransfusionScanStep.done);

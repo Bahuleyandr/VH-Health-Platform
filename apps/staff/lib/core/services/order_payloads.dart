@@ -1,9 +1,8 @@
 // lib/core/services/order_payloads.dart
 //
 // Pure POST /emr/orders request-body builders, shared by the online API method
-// (MedicalApiService.createInpatientMedicationOrder) and the offline enqueue
-// path (buildOfflineOrderIntent). Keeping the body in ONE place guarantees the
-// queued offline request is byte-identical to the online one. No Flutter imports.
+// and encrypted local-draft serialization. Local drafts are never submitted or
+// queued automatically; reopening requires a new online user action.
 
 /// Build the POST /emr/orders body for a single inpatient MEDICATION order.
 /// Field shape matches the canonical nested-`details` contract in

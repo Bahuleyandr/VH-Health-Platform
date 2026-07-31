@@ -120,18 +120,6 @@ class ClinicalPlatformApiService {
     ).map(ClinicalDocumentationTemplate.fromJson).toList();
   }
 
-  static Future<ClinicalDowntimePolicy> getClinicalDowntimePolicy({
-    String? role,
-  }) async {
-    final resp = await ApiClient.get(
-      '/encounters/downtime-policy',
-      queryParameters: {
-        if (role != null && role.trim().isNotEmpty) 'role': role.trim(),
-      },
-    );
-    return ClinicalDowntimePolicy.fromJson(_dataMap(resp));
-  }
-
   static Future<RolePolicySnapshot> getRolePolicySnapshot() async {
     final resp = await ApiClient.get('/rbac/policy');
     return RolePolicySnapshot.fromJson(_dataMap(resp));

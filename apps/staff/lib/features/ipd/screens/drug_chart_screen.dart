@@ -6,6 +6,8 @@ import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/order_payloads.dart';
+import '../../../core/services/staff_clinical_action_gateway.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/constrained_content.dart';
@@ -172,12 +174,56 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
       if (drugChartSubmissionDisposition(
             isOnline: ConnectivitySyncService.instance.isOnline,
           ) ==
-          DrugChartSubmissionDisposition.usePaperFallback) {
+          DrugChartSubmissionDisposition.attemptLocalDraft) {
         if (!mounted) return;
-        await showOfflineClinicalFallbackDialog(
-          context,
-          paperFormSet: s.offlineClinicalFallbackInpatientDrugCharts,
+        final patientUid = _text(_admission['patient_uid']);
+        final encounterId = _text(_admission['encounter_id']).isEmpty
+            ? null
+            : _text(_admission['encounter_id']);
+        final localBody = buildInpatientMedicationOrderBody(
+          patientUid: patientUid,
+          encounterId: encounterId,
+          medicationName: drug,
+          dose: dose,
+          route: row.route,
+          frequency: _frequencyForTimes(doseTimes),
+          doseTimes: doseTimes,
+          foodTiming: row.foodTiming.isEmpty ? null : row.foodTiming,
+          instructions: row.notesCtrl.text.trim().isEmpty
+              ? null
+              : row.notesCtrl.text.trim(),
+          catalogId: row.catalogId,
+          originalCatalogId: row.originalCatalogId,
+          compositionId: row.compositionId,
+          compositionLabel: row.compositionLabel,
+          compositionConfidence: row.compositionConfidence,
+          genericName: row.genericName,
+          strength: row.strength,
+          strengthKey: row.strengthKey,
+          form: row.form,
+          formKey: row.formKey,
+          releaseKey: row.releaseKey,
+          doNotSubstitute: row.daw,
+          startDate: DateTime.now(),
         );
+        final saved = await StaffClinicalActionGateway.instance.saveLocalDraft(
+          callSite: StaffCaptureCallSite.ipDrugChartLocalDraft,
+          patientReference: patientUid,
+          encounterId: encounterId,
+          admissionId: _text(_admission['id']).isEmpty
+              ? null
+              : _text(_admission['id']),
+          payload: Map<String, Object?>.from(localBody),
+        );
+        if (!mounted) return;
+        if (saved.allowed) {
+          _showSnack(s.localClinicalDraftSavedMessage);
+        } else {
+          await showOfflineClinicalFallbackDialog(
+            context,
+            paperFormSet: s.offlineClinicalFallbackInpatientDrugCharts,
+          );
+        }
         return;
       }
       await MedicalApiService.createInpatientMedicationOrder(

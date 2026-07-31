@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/config/tenant_config.dart';
+import 'package:vhhealth_core/models/offline_write_entry.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/offline_queue.dart';
 
@@ -22,7 +23,7 @@ void main() {
     expect(OfflineQueue.pendingDrainOrderBy, 'created_at ASC, id ASC');
   });
 
-  test('same-created_at controls return in ascending id order', () async {
+  test('same-created_at legacy reviews return in ascending id order', () async {
     harness.installFixedEncryptionKey();
     final draft = await harness.encryptV1('{"text":"draft"}');
     final vitals = await harness.encryptV1('{"pulse":70}');
@@ -57,7 +58,12 @@ void main() {
       },
     ]);
 
-    expect((await OfflineQueue.getPending()).map((row) => row['id']), [10, 30]);
+    final entries = await OfflineQueue.unresolvedEntriesForCurrentOwner();
+    expect(entries.map((entry) => entry.id), [10, 30]);
+    expect(
+      entries.map((entry) => entry.status),
+      everyElement(OfflineWriteStatus.needsReview),
+    );
   });
 
   test('created_at remains primary across milliseconds', () async {

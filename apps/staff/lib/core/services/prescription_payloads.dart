@@ -1,9 +1,9 @@
 // lib/core/services/prescription_payloads.dart
 //
-// Pure POST /prescriptions/create request-body builder, shared by the online e-Rx
-// submit path (prescriptions_screen._submit) and the offline enqueue path
-// (buildOfflineRxIntent). Keeping the body in ONE place guarantees the queued offline
-// request is byte-identical to the online one. No Flutter imports.
+// Pure POST /prescriptions/create request-body builder, shared by the online
+// e-Rx submit path and encrypted local-draft serialization. Local drafts are
+// never submitted or queued automatically; reopening requires a new online
+// user action and current safety checks.
 //
 // Reproduces the screen's CURRENT inline body EXACTLY: the screen does NOT send
 // admission_id or visit_type; `diagnosis` is always present (may be empty); `clinical_notes`

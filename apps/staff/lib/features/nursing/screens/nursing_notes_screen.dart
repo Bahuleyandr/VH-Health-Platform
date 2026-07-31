@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth_core/widgets/data_state_builder.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/staff_clinical_action_gateway.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
@@ -247,6 +248,7 @@ class _AddNoteTabState extends State<_AddNoteTab> with WidgetsBindingObserver {
     final autosave = NoteDraftAutosave(
       patientUid: widget.prefillPatientUid!,
       noteType: _nursingDraftNoteType,
+      captureCallSite: StaffCaptureCallSite.nursingAssessmentDraftStorage,
       snapshot: () => {
         'free_text': _noteCtrl.text.trim(),
         if (_noteType != null) 'note_category': _noteType,

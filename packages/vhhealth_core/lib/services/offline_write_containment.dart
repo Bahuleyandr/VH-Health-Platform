@@ -31,7 +31,10 @@ enum OfflineWriteReviewReason {
   unknownOwner('unknown_owner'),
   unknownEncryptionVersion('unknown_encryption_version'),
   decryptFailed('decrypt_failed'),
-  retryExhausted('retry_exhausted');
+  retryExhausted('retry_exhausted'),
+  legacyClientRowRequiresReconciliation(
+    'legacy_client_row_requires_reconciliation',
+  );
 
   const OfflineWriteReviewReason(this.code);
 

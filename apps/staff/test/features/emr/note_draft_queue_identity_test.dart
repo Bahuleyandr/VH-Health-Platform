@@ -1,14 +1,15 @@
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vhhealth_core/services/offline_action_ids.dart';
+import 'package:vhhealth_staff/core/services/staff_clinical_action_gateway.dart';
 import 'package:vhhealth_staff/features/emr/note_draft_autosave.dart';
 
 void main() {
-  test('offline OP draft enters the temporary facade exactly once', () {
+  test('offline OP draft enters the typed local-draft facade exactly once', () {
     fakeAsync((async) {
       var onlinePuts = 0;
-      final enqueues = <Map<String, dynamic>>[];
+      final captures = <Map<String, dynamic>>[];
       final autosave = NoteDraftAutosave(
+        captureCallSite: StaffCaptureCallSite.opConsultationDraftStorage,
         patientUid: 'patient-uid-1',
         appointmentId: 17,
         noteType: 'op_consultation',
@@ -35,23 +36,29 @@ void main() {
         ),
         sync: NoteDraftSync(
           isOnline: () => false,
-          enqueue:
+          capturePrivateDraft:
               ({
-                required endpoint,
-                required method,
+                required callSite,
+                required patientReference,
+                appointmentId,
                 required body,
                 contextLabel,
               }) async {
-                enqueues.add({
-                  'endpoint': endpoint,
-                  'method': method,
+                captures.add({
+                  'call_site': callSite,
+                  'patient_reference': patientReference,
+                  'appointment_id': appointmentId,
                   'body': body,
                   'context_label': contextLabel,
                 });
-                return 1;
+                return true;
               },
-          removePendingWrites: ({required endpoint, required matches}) async =>
-              0,
+          cancelPrivateDrafts:
+              ({
+                required callSite,
+                required patientReference,
+                appointmentId,
+              }) async => 0,
         ),
       );
 
@@ -60,19 +67,15 @@ void main() {
       async.flushMicrotasks();
 
       expect(onlinePuts, 0);
-      expect(enqueues, hasLength(1));
-      final queued = enqueues.single;
-      expect(queued['endpoint'], '/emr/notes/draft');
-      expect(queued['method'], 'PUT');
+      expect(captures, hasLength(1));
+      final captured = captures.single;
       expect(
-        OfflineActionIds.fromLegacyControl(
-          method: queued['method'] as String,
-          path: queued['endpoint'] as String,
-          body: Map<String, dynamic>.from(queued['body'] as Map),
-        ),
-        OfflineActionIds.opNoteDraftStore,
+        captured['call_site'],
+        StaffCaptureCallSite.opConsultationDraftStorage,
       );
-      expect(queued['body'], {
+      expect(captured['patient_reference'], 'patient-uid-1');
+      expect(captured['appointment_id'], 17);
+      expect(captured['body'], {
         'patient_uid': 'patient-uid-1',
         'appointment_id': 17,
         'note_type': 'op_consultation',

@@ -75,6 +75,114 @@ void main() {
     );
   }
 
+  test('action policy advances shared floors monotonically', () async {
+    final subject = cache();
+    final firstTrustedAt = DateTime.parse('2026-07-30T00:10:00.000Z');
+
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '7',
+        registryVersion: '5',
+        registryChecksum: 'a' * 64,
+        revocationEpoch: '3',
+        trustedNow: firstTrustedAt,
+      ),
+      isTrue,
+    );
+    var floors = await subject.readFloors(
+      tenantId: _tenantId,
+      facilityId: '41',
+    );
+    expect(floors!.policyVersion, '7');
+    expect(floors.manifestVersion, '0');
+    expect(floors.revocationEpoch, '3');
+    expect(floors.trustedNow, firstTrustedAt);
+    expect(
+      (await subject.store(
+        _verifiedSet(trustedNow: '2026-07-30T00:11:00.000Z'),
+      )).stored,
+      isTrue,
+    );
+
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '6',
+        registryVersion: '5',
+        registryChecksum: 'a' * 64,
+        revocationEpoch: '3',
+        trustedNow: firstTrustedAt.add(const Duration(minutes: 1)),
+      ),
+      isFalse,
+    );
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '8',
+        registryVersion: '6',
+        registryChecksum: 'b' * 64,
+        revocationEpoch: '2',
+        trustedNow: firstTrustedAt.add(const Duration(minutes: 1)),
+      ),
+      isFalse,
+    );
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '8',
+        registryVersion: '4',
+        registryChecksum: 'b' * 64,
+        revocationEpoch: '3',
+        trustedNow: firstTrustedAt.add(const Duration(minutes: 1)),
+      ),
+      isFalse,
+    );
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '8',
+        registryVersion: '5',
+        registryChecksum: 'b' * 64,
+        revocationEpoch: '3',
+        trustedNow: firstTrustedAt.add(const Duration(minutes: 1)),
+      ),
+      isFalse,
+    );
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '8',
+        registryVersion: '6',
+        registryChecksum: 'a' * 64,
+        revocationEpoch: '3',
+        trustedNow: firstTrustedAt.add(const Duration(minutes: 1)),
+      ),
+      isFalse,
+    );
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '8',
+        registryVersion: '6',
+        registryChecksum: 'b' * 64,
+        revocationEpoch: '3',
+        trustedNow: firstTrustedAt.add(const Duration(minutes: 2)),
+      ),
+      isTrue,
+    );
+    floors = await subject.readFloors(tenantId: _tenantId, facilityId: '41');
+    expect(floors!.policyVersion, '8');
+    expect(floors.revocationEpoch, '3');
+  });
+
   test('stores and opens one opaque, encrypted facility slot', () async {
     final subject = cache();
     final set = _verifiedSet();

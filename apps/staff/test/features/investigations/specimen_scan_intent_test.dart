@@ -5,7 +5,7 @@ import 'package:vhhealth_staff/features/investigations/specimen_scan_intent.dart
 void main() {
   const patientUid = 'a1b2c3d4-0000-4000-8000-000000000001';
 
-  test('matching specimen scan builds a collect-sample request', () {
+  test('matching specimen scan builds an online-only request body', () {
     final intent = buildSpecimenScanIntent(
       investigationId: 77,
       scannedPatientUid: patientUid,
@@ -16,8 +16,6 @@ void main() {
 
     expect(intent.hardStop, isFalse);
     expect(intent.submit, isTrue);
-    expect(intent.enqueue, isTrue);
-    expect(intent.endpoint, '/lab/samples/77/collect');
     expect(intent.body['scanned_patient_uid'], patientUid);
     expect(intent.body['sample_barcode'], 'tube-0007');
     expect(intent.body['collected_notes'], 'Collected at bedside');
@@ -36,7 +34,6 @@ void main() {
 
     expect(intent.hardStop, isTrue);
     expect(intent.submit, isFalse);
-    expect(intent.enqueue, isFalse);
     expect(intent.failedRights, contains('patient'));
 
     await tester.pumpWidget(
@@ -51,7 +48,7 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
-  test('blank tube barcode does not enqueue', () {
+  test('blank tube barcode does not submit', () {
     final intent = buildSpecimenScanIntent(
       investigationId: 77,
       scannedPatientUid: patientUid,
@@ -61,6 +58,5 @@ void main() {
 
     expect(intent.hardStop, isFalse);
     expect(intent.submit, isFalse);
-    expect(intent.enqueue, isFalse);
   });
 }

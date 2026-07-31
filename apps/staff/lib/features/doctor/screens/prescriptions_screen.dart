@@ -15,11 +15,13 @@ import '../../../core/services/api_client.dart';
 import '../../../core/services/clinical_print_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/prescription_payloads.dart';
+import '../../../core/services/staff_clinical_action_gateway.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/clinical_print_pdf_action.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -921,6 +923,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   Future<void> _signLastPrescription() async {
     final id = _lastCreatedPrescriptionId;
     if (id == null || _lastCreatedPrescriptionSigned) return;
+    if (!OnlineOnlyActionGuard.require(context)) return;
     setState(() => _signingLastPrescription = true);
     try {
       await MedicalApiService.signEPrescription(id);
@@ -1014,13 +1017,43 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       if (prescriptionSubmissionDisposition(
             isOnline: ConnectivitySyncService.instance.isOnline,
           ) ==
-          PrescriptionSubmissionDisposition.usePaperFallback) {
+          PrescriptionSubmissionDisposition.attemptLocalDraft) {
         if (!mounted) return;
         final strings = AppStrings.of(context);
-        await showOfflineClinicalFallbackDialog(
-          context,
-          paperFormSet: strings.offlineClinicalFallbackOpdPrescriptionPads,
+        final localBody = buildPrescriptionBody(
+          patientId: _patientId!,
+          doctorId: _doctorId!,
+          appointmentId: _appointmentId,
+          diagnosis: _diagnosisCtrl.text.trim(),
+          clinicalNotes: _clinicalNotesCtrl.text.trim().isEmpty
+              ? null
+              : _clinicalNotesCtrl.text.trim(),
+          medications: meds,
+          followUpDate: _followUpDate != null
+              ? DateFormat('yyyy-MM-dd').format(_followUpDate!)
+              : null,
+          followUpNotes: _followUpNotesCtrl.text.trim().isEmpty
+              ? null
+              : _followUpNotesCtrl.text.trim(),
+          vitals: _buildVitals(),
         );
+        final saved = await StaffClinicalActionGateway.instance.saveLocalDraft(
+          callSite: StaffCaptureCallSite.opPrescriptionLocalDraft,
+          patientReference: _patientId!.toString(),
+          appointmentId: _appointmentId?.toString(),
+          payload: Map<String, Object?>.from(localBody),
+        );
+        if (!mounted) return;
+        if (saved.allowed) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(strings.localClinicalDraftSavedMessage)),
+          );
+        } else {
+          await showOfflineClinicalFallbackDialog(
+            context,
+            paperFormSet: strings.offlineClinicalFallbackOpdPrescriptionPads,
+          );
+        }
         return;
       }
 
@@ -3112,23 +3145,31 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                     ),
                   ),
                 if (_lastCreatedPrescriptionId != null)
-                  OutlinedButton.icon(
-                    onPressed:
-                        _signingLastPrescription ||
-                            _lastCreatedPrescriptionSigned
-                        ? null
-                        : _signLastPrescription,
-                    icon: _signingLastPrescription
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.verified_outlined, size: 18),
-                    label: Text(
-                      _lastCreatedPrescriptionSigned
-                          ? s.lookup('s4.lib.prescriptions.rx_signed')
-                          : s.lookup('s4.lib.prescriptions.sign_lock_rx'),
+                  OnlineOnlyActionState(
+                    builder: (context, isOnline, offlineMessage) => Tooltip(
+                      message: isOnline ? '' : offlineMessage,
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            !isOnline ||
+                                _signingLastPrescription ||
+                                _lastCreatedPrescriptionSigned
+                            ? null
+                            : _signLastPrescription,
+                        icon: _signingLastPrescription
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.verified_outlined, size: 18),
+                        label: Text(
+                          _lastCreatedPrescriptionSigned
+                              ? s.lookup('s4.lib.prescriptions.rx_signed')
+                              : s.lookup('s4.lib.prescriptions.sign_lock_rx'),
+                        ),
+                      ),
                     ),
                   ),
                 ClinicalPrintPdfAction(
@@ -3880,6 +3921,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
   Future<void> _signPrescription(Map<String, dynamic> rx) async {
     final id = _rxId(rx);
     if (id == null || _signing.contains(id)) return;
+    if (!OnlineOnlyActionGuard.require(context)) return;
     setState(() => _signing.add(id));
     try {
       await MedicalApiService.signEPrescription(id);
@@ -4078,28 +4120,35 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
               runSpacing: 10,
               children: [
                 if (id != null)
-                  OutlinedButton.icon(
-                    onPressed: signed || _signing.contains(id)
-                        ? null
-                        : () async {
-                            Navigator.of(ctx).pop();
-                            await _signPrescription(rx);
-                          },
-                    icon: _signing.contains(id)
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.verified_outlined, size: 18),
-                    label: Text(
-                      signed
-                          ? AppStrings.of(
-                              ctx,
-                            ).lookup('s4.lib.prescriptions.signed')
-                          : AppStrings.of(
-                              ctx,
-                            ).lookup('s4.lib.prescriptions.sign_lock'),
+                  OnlineOnlyActionState(
+                    builder: (context, isOnline, offlineMessage) => Tooltip(
+                      message: isOnline ? '' : offlineMessage,
+                      child: OutlinedButton.icon(
+                        onPressed: !isOnline || signed || _signing.contains(id)
+                            ? null
+                            : () async {
+                                Navigator.of(ctx).pop();
+                                await _signPrescription(rx);
+                              },
+                        icon: _signing.contains(id)
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.verified_outlined, size: 18),
+                        label: Text(
+                          signed
+                              ? AppStrings.of(
+                                  ctx,
+                                ).lookup('s4.lib.prescriptions.signed')
+                              : AppStrings.of(
+                                  ctx,
+                                ).lookup('s4.lib.prescriptions.sign_lock'),
+                        ),
+                      ),
                     ),
                   ),
                 if (rx['pdf_url'] != null || rx['id'] != null)

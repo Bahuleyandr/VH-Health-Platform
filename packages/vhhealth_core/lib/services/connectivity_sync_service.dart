@@ -16,6 +16,40 @@ import 'offline_write_containment.dart';
 
 enum SyncDisposition { success, conflict, retry }
 
+enum PreparedDrainGateDisposition { allow, pause, needsReview }
+
+@immutable
+class PreparedDrainGateDecision {
+  const PreparedDrainGateDecision._({
+    required this.disposition,
+    required this.reasonCode,
+  });
+
+  const PreparedDrainGateDecision.allow()
+    : this._(
+        disposition: PreparedDrainGateDisposition.allow,
+        reasonCode: 'allowed',
+      );
+
+  const PreparedDrainGateDecision.pause(String reasonCode)
+    : this._(
+        disposition: PreparedDrainGateDisposition.pause,
+        reasonCode: reasonCode,
+      );
+
+  const PreparedDrainGateDecision.needsReview(String reasonCode)
+    : this._(
+        disposition: PreparedDrainGateDisposition.needsReview,
+        reasonCode: reasonCode,
+      );
+
+  final PreparedDrainGateDisposition disposition;
+  final String reasonCode;
+}
+
+typedef PreparedDrainGate =
+    Future<PreparedDrainGateDecision> Function(OfflineCommandEnvelope envelope);
+
 SyncDisposition dispositionForStatus(int statusCode) {
   if (statusCode >= 200 && statusCode < 300) return SyncDisposition.success;
   if (statusCode == 400 ||
@@ -116,8 +150,13 @@ class ConnectivitySyncService extends ChangeNotifier {
   int _sessionBarrierDepth = 0;
   int _activeEnqueues = 0;
   Completer<void>? _quiescent;
+  PreparedDrainGate? _preparedDrainGate;
 
   bool get isSessionBarrierActive => _sessionBarrierDepth > 0;
+
+  void registerPreparedDrainGate(PreparedDrainGate gate) {
+    _preparedDrainGate = gate;
+  }
 
   void startListening() {
     _subscription ??= Connectivity().onConnectivityChanged.listen((results) {
@@ -227,6 +266,10 @@ class ConnectivitySyncService extends ChangeNotifier {
   Future<int> pendingWriteCountForCurrentOwner() =>
       unresolvedWriteCountForCurrentOwner();
 
+  /// Legacy fixture hook retained solely for the unchanged C0A migration and
+  /// safety suites. Production Staff code is statically forbidden from
+  /// attaching to this endpoint-classified path.
+  @visibleForTesting
   Future<int> enqueue({
     required String endpoint,
     required String method,
@@ -311,13 +354,19 @@ class ConnectivitySyncService extends ChangeNotifier {
     return discarded;
   }
 
-  Future<int> removePendingWrites({
-    required String endpoint,
-    required bool Function(Map<String, dynamic> body) matches,
+  Future<int> cancelPreparedDrafts({
+    required String actionId,
+    required String patientReference,
+    String? appointmentId,
+    String? encounterId,
+    String? admissionId,
   }) async {
-    final removed = await OfflineQueue.removePendingMatching(
-      endpoint: endpoint,
-      matches: matches,
+    final removed = await OfflineQueue.cancelPreparedDrafts(
+      actionId: actionId,
+      patientReference: patientReference,
+      appointmentId: appointmentId,
+      encounterId: encounterId,
+      admissionId: admissionId,
     );
     if (removed > 0) await refreshCounts();
     return removed;
@@ -409,6 +458,39 @@ class ConnectivitySyncService extends ChangeNotifier {
               transientlyBlockedPartitions.contains(entry.partitionKey)) {
             continue;
           }
+          if (entry.attemptCount >= OfflineQueue.maxRetryCount) {
+            await OfflineQueue.markPreparedNeedsReview(
+              rowId: entry.id,
+              reasonCode: 'retry_exhausted',
+            );
+            transientlyBlockedPartitions.add(entry.partitionKey);
+            continue;
+          }
+          final inspected = await OfflineQueue.inspectPreparedCommand(entry.id);
+          if (inspected == null) {
+            transientlyBlockedPartitions.add(entry.partitionKey);
+            continue;
+          }
+          final drainGate = _preparedDrainGate;
+          // The shared core also serves Patient, whose queue contract is
+          // unchanged. Staff registers its fail-closed policy gate before
+          // starting connectivity orchestration.
+          final gateDecision = drainGate == null
+              ? const PreparedDrainGateDecision.allow()
+              : await drainGate(inspected.envelope);
+          if (gateDecision.disposition == PreparedDrainGateDisposition.pause) {
+            transientlyBlockedPartitions.add(entry.partitionKey);
+            continue;
+          }
+          if (gateDecision.disposition ==
+              PreparedDrainGateDisposition.needsReview) {
+            await OfflineQueue.markPreparedNeedsReview(
+              rowId: entry.id,
+              reasonCode: gateDecision.reasonCode,
+            );
+            transientlyBlockedPartitions.add(entry.partitionKey);
+            continue;
+          }
           final transport = entry.actionId == null
               ? null
               : OfflineActionIds.clientTransportFor(entry.actionId!);
@@ -431,6 +513,14 @@ class ConnectivitySyncService extends ChangeNotifier {
               path: transport.path,
               method: transport.method,
             );
+            if (isSessionBarrierActive ||
+                await AuthService.getStaffId() != ownerAtStart) {
+              await OfflineQueue.releasePreparedLeaseForAuthentication(
+                rowId: command.rowId,
+                leaseId: command.leaseId!,
+              );
+              break;
+            }
             if (result.response.statusCode == 401) {
               await OfflineQueue.releasePreparedLeaseForAuthentication(
                 rowId: command.rowId,
@@ -491,90 +581,9 @@ class ConnectivitySyncService extends ChangeNotifier {
           }
           continue;
         }
-        if (entry.status != OfflineWriteStatus.pending ||
-            entry.isSkipped ||
-            transientlyBlockedPartitions.contains(entry.partitionKey)) {
-          continue;
-        }
-        if (!entry.classification.isControl ||
-            entry.encryptionVersion != OfflineQueue.currentEncryptionVersion ||
-            entry.tenantId == null ||
-            entry.staffId != ownerAtStart ||
-            entry.retryCount >= OfflineQueue.maxRetryCount) {
-          continue;
-        }
-
-        final body = await OfflineQueue.readBodyForReplay(entry);
-        if (body == null) {
-          transientlyBlockedPartitions.add(entry.partitionKey);
-          continue;
-        }
-        if (isSessionBarrierActive ||
-            await AuthService.getStaffId() != ownerAtStart) {
-          break;
-        }
-
-        try {
-          final response = switch (entry.method) {
-            'POST' => await VHHttpClient.post(
-              entry.endpoint,
-              body: body,
-              idempotencyKey: entry.idempotencyKey,
-            ),
-            'PUT' => await VHHttpClient.put(
-              entry.endpoint,
-              body: body,
-              idempotencyKey: entry.idempotencyKey,
-            ),
-            _ => null,
-          };
-          if (response == null) {
-            transientlyBlockedPartitions.add(entry.partitionKey);
-            continue;
-          }
-
-          if (response.statusCode == 401 ||
-              isSessionBarrierActive ||
-              await AuthService.getStaffId() != ownerAtStart) {
-            break;
-          }
-          if (response.isSuccess) {
-            await OfflineQueue.removeAfterSuccessfulSync(
-              id: entry.id,
-              expectedStaffId: ownerAtStart,
-              expectedTenantId: entry.tenantId!,
-            );
-            if (kDebugMode) {
-              debugPrint(
-                'ConnectivitySync: synced id=${entry.id} '
-                '(${logSafePath(entry.endpoint)})',
-              );
-            }
-          } else if (dispositionForStatus(response.statusCode) ==
-              SyncDisposition.conflict) {
-            await OfflineQueue.markConflict(
-              entry.id,
-              response.message ?? 'Resource was modified on the server',
-            );
-            transientlyBlockedPartitions.add(entry.partitionKey);
-          } else {
-            await OfflineQueue.incrementRetryOrExhaust(entry.id);
-            transientlyBlockedPartitions.add(entry.partitionKey);
-          }
-        } catch (error) {
-          if (isSessionBarrierActive ||
-              await AuthService.getStaffId() != ownerAtStart) {
-            break;
-          }
-          if (kDebugMode) {
-            debugPrint(
-              'ConnectivitySync: error id=${entry.id}: '
-              '${logSafeError(error)}',
-            );
-          }
-          await OfflineQueue.incrementRetryOrExhaust(entry.id);
-          transientlyBlockedPartitions.add(entry.partitionKey);
-        }
+        // C4.3 never executes endpoint/method authority from a legacy row.
+        // All unresolved envelope_ready=0 rows are preserved as visible
+        // needs_review evidence during queue open.
       }
     } finally {
       _isEvaluatingReadiness = false;

@@ -11,11 +11,13 @@ class ClinicalContinuityTrustedKey {
   final String keyId;
   final ClinicalContinuityKeyState state;
   final Uint8List rawPublicKey;
+  final String publicKeySha256;
 
   const ClinicalContinuityTrustedKey({
     required this.keyId,
     required this.state,
     required this.rawPublicKey,
+    required this.publicKeySha256,
   });
 }
 
@@ -24,6 +26,7 @@ class ClinicalContinuityTrustBundle {
   final String minimumPolicyVersion;
   final String minimumRevocationEpoch;
   final String revocationEpoch;
+  final ClinicalContinuityTrustedKey policySigningKey;
   final Map<String, ClinicalContinuityTrustedKey> packSigningKeys;
   final Set<String> revokedKeyIds;
 
@@ -32,6 +35,7 @@ class ClinicalContinuityTrustBundle {
     required this.minimumPolicyVersion,
     required this.minimumRevocationEpoch,
     required this.revocationEpoch,
+    required this.policySigningKey,
     required this.packSigningKeys,
     required this.revokedKeyIds,
   });
@@ -148,9 +152,11 @@ class ClinicalContinuityTrustStore {
     }
     final revoked = revokedRaw.cast<String>().toSet();
 
-    final policyKey = _map(json['policySigningKey']);
-    if (policyKey == null ||
-        await _readKey(policyKey, requireState: false) == null) {
+    final policyKeyMap = _map(json['policySigningKey']);
+    final policyKey = policyKeyMap == null
+        ? null
+        : await _readKey(policyKeyMap, requireState: false);
+    if (policyKey == null) {
       return null;
     }
 
@@ -176,6 +182,7 @@ class ClinicalContinuityTrustStore {
       minimumPolicyVersion: minimumPolicyVersion,
       minimumRevocationEpoch: minimumRevocationEpoch,
       revocationEpoch: revocationEpoch,
+      policySigningKey: policyKey,
       packSigningKeys: Map.unmodifiable(keys),
       revokedKeyIds: Set.unmodifiable(revoked),
     );
@@ -218,6 +225,7 @@ class ClinicalContinuityTrustStore {
       keyId: json['keyId']! as String,
       state: state,
       rawPublicKey: raw,
+      publicKeySha256: json['publicKeySha256']! as String,
     );
   }
 }

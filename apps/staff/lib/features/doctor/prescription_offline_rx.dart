@@ -1,12 +1,12 @@
 // lib/features/doctor/prescription_offline_rx.dart
 //
 // Pure routing decision for prescription submission. Offline prescription
-// creation is contained in C0A and therefore has no enqueue disposition.
+// work may enter only the encrypted local-draft gate; it is never enqueued.
 
-enum PrescriptionSubmissionDisposition { submitOnline, usePaperFallback }
+enum PrescriptionSubmissionDisposition { submitOnline, attemptLocalDraft }
 
 PrescriptionSubmissionDisposition prescriptionSubmissionDisposition({
   required bool isOnline,
 }) => isOnline
     ? PrescriptionSubmissionDisposition.submitOnline
-    : PrescriptionSubmissionDisposition.usePaperFallback;
+    : PrescriptionSubmissionDisposition.attemptLocalDraft;

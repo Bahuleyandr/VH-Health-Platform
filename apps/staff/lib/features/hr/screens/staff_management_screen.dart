@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -180,11 +181,16 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     final s = AppStrings.of(context);
     return StaffScaffold(
       title: s.staffMgmtTitle,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showEditDialog(context, null),
-        icon: const Icon(Icons.person_add),
-        label: Text(s.staffMgmtAddStaff),
-        backgroundColor: AppTheme.primaryBlue,
+      floatingActionButton: OnlineOnlyActionState(
+        builder: (context, isOnline, offlineMessage) => Tooltip(
+          message: isOnline ? '' : offlineMessage,
+          child: FloatingActionButton.extended(
+            onPressed: isOnline ? () => _showEditDialog(context, null) : null,
+            icon: const Icon(Icons.person_add),
+            label: Text(s.staffMgmtAddStaff),
+            backgroundColor: AppTheme.primaryBlue,
+          ),
+        ),
       ),
       body: Column(
         children: [
@@ -269,9 +275,14 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   : ListView.builder(
                       padding: const EdgeInsets.all(12),
                       itemCount: _filtered.length,
-                      itemBuilder: (ctx, i) => _StaffCard(
-                        staff: _filtered[i],
-                        onEdit: () => _showEditDialog(context, _filtered[i]),
+                      itemBuilder: (ctx, i) => OnlineOnlyActionState(
+                        builder: (context, isOnline, offlineMessage) =>
+                            _StaffCard(
+                              staff: _filtered[i],
+                              onEdit: isOnline
+                                  ? () => _showEditDialog(context, _filtered[i])
+                                  : null,
+                            ),
                       ),
                     ),
             ),
@@ -303,15 +314,17 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     }
   }
 
-  void _showEditDialog(BuildContext context, dynamic staff) {
-    showDialog(
+  Future<void> _showEditDialog(BuildContext context, dynamic staff) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
+    await showDialog(
       context: context,
       builder: (_) => _StaffFormDialog(
         staff: staff,
         departmentOptions: _departmentOptions,
         roleOptions: _roleOptions,
       ),
-    ).then((_) => _load());
+    );
+    await _load();
   }
 }
 
@@ -366,7 +379,7 @@ class _PolicyRuntimeStrip extends StatelessWidget {
 
 class _StaffCard extends StatelessWidget {
   final dynamic staff;
-  final VoidCallback onEdit;
+  final VoidCallback? onEdit;
 
   const _StaffCard({required this.staff, required this.onEdit});
 
@@ -612,6 +625,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
   }
 
   Future<void> _submit() async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
@@ -828,9 +842,14 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(s.actionCancel),
         ),
-        ElevatedButton(
-          onPressed: _submitting ? null : _submit,
-          child: Text(_submitting ? s.profileSavingButton : s.actionSave),
+        OnlineOnlyActionState(
+          builder: (context, isOnline, offlineMessage) => Tooltip(
+            message: isOnline ? '' : offlineMessage,
+            child: ElevatedButton(
+              onPressed: _submitting || !isOnline ? null : _submit,
+              child: Text(_submitting ? s.profileSavingButton : s.actionSave),
+            ),
+          ),
         ),
       ],
     );

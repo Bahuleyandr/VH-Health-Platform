@@ -9,6 +9,7 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_flow.dart';
+import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -16,6 +17,7 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   Future<void> _showSetupPinDialog(BuildContext context) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     final s = AppStrings.of(context);
     final pinCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
@@ -88,6 +90,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _showChangePasswordDialog(BuildContext context) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     final s = AppStrings.of(context);
     final currentCtrl = TextEditingController();
     final newCtrl = TextEditingController();
@@ -207,6 +210,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _showManageDevicesSheet(BuildContext context) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -393,39 +397,55 @@ class SettingsScreen extends StatelessWidget {
           _SectionHeader(title: s.settingsSectionSecurity),
           _SettingsCard(
             children: [
-              _SettingsTile(
-                icon: Icons.pin_outlined,
-                title: s.settingsSetupPin,
-                subtitle: s.settingsSetupPinSubtitle,
-                trailing: Icon(
-                  Icons.chevron_right,
-                  color: AppTheme.textSecondary,
+              OnlineOnlyActionState(
+                builder: (context, isOnline, offlineMessage) => _SettingsTile(
+                  icon: Icons.pin_outlined,
+                  title: s.settingsSetupPin,
+                  subtitle: isOnline
+                      ? s.settingsSetupPinSubtitle
+                      : offlineMessage,
+                  trailing: Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary,
+                  ),
+                  onTap: isOnline ? () => _showSetupPinDialog(context) : null,
                 ),
-                onTap: () => _showSetupPinDialog(context),
               ),
               const Divider(height: 1, indent: 56),
-              _SettingsTile(
-                icon: Icons.lock_reset_outlined,
-                title: s.settingsChangePassword,
-                subtitle: s.settingsChangePasswordSubtitle,
-                trailing: Icon(
-                  Icons.chevron_right,
-                  color: AppTheme.textSecondary,
+              OnlineOnlyActionState(
+                builder: (context, isOnline, offlineMessage) => _SettingsTile(
+                  icon: Icons.lock_reset_outlined,
+                  title: s.settingsChangePassword,
+                  subtitle: isOnline
+                      ? s.settingsChangePasswordSubtitle
+                      : offlineMessage,
+                  trailing: Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary,
+                  ),
+                  onTap: isOnline
+                      ? () => _showChangePasswordDialog(context)
+                      : null,
                 ),
-                onTap: () => _showChangePasswordDialog(context),
               ),
               const Divider(height: 1, indent: 56),
               _BiometricToggleTile(),
               const Divider(height: 1, indent: 56),
-              _SettingsTile(
-                icon: Icons.devices,
-                title: s.settingsManageDevices,
-                subtitle: s.settingsManageDevicesSubtitle,
-                trailing: Icon(
-                  Icons.chevron_right,
-                  color: AppTheme.textSecondary,
+              OnlineOnlyActionState(
+                builder: (context, isOnline, offlineMessage) => _SettingsTile(
+                  icon: Icons.devices,
+                  title: s.settingsManageDevices,
+                  subtitle: isOnline
+                      ? s.settingsManageDevicesSubtitle
+                      : offlineMessage,
+                  trailing: Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary,
+                  ),
+                  onTap: isOnline
+                      ? () => _showManageDevicesSheet(context)
+                      : null,
                 ),
-                onTap: () => _showManageDevicesSheet(context),
               ),
             ],
           ),
@@ -586,6 +606,7 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
   bool _loading = false;
 
   Future<void> _toggle(bool value) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     setState(() => _loading = true);
     try {
       final deviceToken = await AuthService.getDeviceToken() ?? '';
@@ -635,17 +656,22 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
         s.settingsBiometricSubtitle,
         style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
       ),
-      trailing: _loading
-          ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Switch(
-              value: _enabled,
-              activeThumbColor: AppTheme.primaryBlue,
-              onChanged: _toggle,
-            ),
+      trailing: OnlineOnlyActionState(
+        builder: (context, isOnline, offlineMessage) => Tooltip(
+          message: isOnline ? '' : offlineMessage,
+          child: _loading
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Switch(
+                  value: _enabled,
+                  activeThumbColor: AppTheme.primaryBlue,
+                  onChanged: isOnline ? _toggle : null,
+                ),
+        ),
+      ),
     );
   }
 }
@@ -684,6 +710,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
   }
 
   Future<void> _removeDevice(String deviceId) async {
+    if (!OnlineOnlyActionGuard.require(context)) return;
     try {
       await HrApiService.removeRegisteredDevice(deviceId);
       if (mounted) {
@@ -784,12 +811,20 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
                                 ),
                               )
                             : null,
-                        trailing: IconButton(
-                          icon: const Icon(
-                            Icons.delete_outline,
-                            color: AppTheme.errorRed,
-                          ),
-                          onPressed: () => _removeDevice(id),
+                        trailing: OnlineOnlyActionState(
+                          builder: (context, isOnline, offlineMessage) =>
+                              Tooltip(
+                                message: isOnline ? '' : offlineMessage,
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    color: AppTheme.errorRed,
+                                  ),
+                                  onPressed: isOnline
+                                      ? () => _removeDevice(id)
+                                      : null,
+                                ),
+                              ),
                         ),
                       );
                     },

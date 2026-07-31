@@ -73,6 +73,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
   }
 
   Future<void> acknowledge(String id, {int? breakGlassId}) async {
+    _requireOnlineMutation();
     if (_mutatingIds.contains(id)) return;
     _mutatingIds.add(id);
     notifyListeners();
@@ -95,6 +96,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
   }
 
   Future<ClinicalInboxTask> claimForReview(String id) async {
+    _requireOnlineMutation();
     if (_mutatingIds.contains(id)) {
       throw StateError('This task is already being updated');
     }
@@ -117,6 +119,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   ) async {
+    _requireOnlineMutation();
     if (_mutatingIds.contains(command.taskId)) {
       throw StateError('This task is already being updated');
     }
@@ -139,6 +142,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
   Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
     PostDischargeCrossSignCommand command,
   ) async {
+    _requireOnlineMutation();
     if (_mutatingIds.contains(command.actionTaskId)) {
       throw StateError('This task is already being updated');
     }
@@ -165,6 +169,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
     required String generationId,
     required String reason,
   }) async {
+    _requireOnlineMutation();
     final mutationId = 'generation:$generationId';
     if (_mutatingIds.contains(mutationId)) {
       throw StateError('This result is already being updated');
@@ -222,6 +227,12 @@ class ClinicalInboxProvider extends ChangeNotifier {
     };
   }
 
+  void _requireOnlineMutation() {
+    if (!ConnectivitySyncService.instance.isOnline) {
+      throw const ClinicalInboxOfflineMutation();
+    }
+  }
+
   @override
   void dispose() {
     _pollTimer?.cancel();
@@ -230,4 +241,11 @@ class ClinicalInboxProvider extends ChangeNotifier {
     }
     super.dispose();
   }
+}
+
+class ClinicalInboxOfflineMutation implements Exception {
+  const ClinicalInboxOfflineMutation();
+
+  @override
+  String toString() => 'Online connection required for clinical inbox action';
 }
