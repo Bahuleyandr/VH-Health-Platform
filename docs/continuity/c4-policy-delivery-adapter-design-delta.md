@@ -1,6 +1,7 @@
 # Signed continuity-policy delivery adapter — design delta
 
-**Status:** Step 1 design delta; coordinator clearance requested
+**Status:** Step 1 approved with conditions; Step 2 held for AF merge and
+coordinator GO
 
 **Branch:** `feat/continuity-policy-delivery`
 
@@ -15,6 +16,44 @@ tests, and this record
 **Migration DDL:** zero
 
 **Prisma regeneration:** zero
+
+## 0. Coordinator clearance and build hold
+
+The coordinator approved this delta on 2026-07-31. The following decisions are
+ratified as written:
+
+- the closed `format` / `policyId` / `payload` / `signature` wire envelope;
+- the exact reconstructed C3.1/C4.2 signing payload, with unknown, duplicate,
+  and non-canonical fields rejected;
+- `policyId` as an unsigned carrier/replay pin, with any requirement to sign the
+  current UUID treated as an upstream C4.2 revision and a stop condition;
+- explicit pack-composition v2 because pack v1 is closed;
+- the checksum-plus-full-representation ETag;
+- typed absence states and the rejected-source inventory; and
+- deferral of a readiness checksum echo to AF's readiness v2 ownership.
+
+Clearance adds four merge-blocking conditions:
+
+1. Step 2 starts only after AF PR #668 merges and the coordinator supplies the
+   post-merge SHA as explicit GO. This lane then rebases onto that SHA and
+   re-runs all of section 2 against C5.1's current or landed implementation.
+   Zero overlap permits parallel build; any overlap queues this lane.
+2. Pack-composition compatibility is proved in both directions with real
+   fixtures. An unupgraded client receives v2 through its existing pack-invalid
+   path without a crash or partial acceptance. A v2-capable client rejects a v1
+   pack containing masquerading policy-delivery fields. Pack-composition
+   version joins the persisted anti-rollback witness.
+3. The byte proof runs through the real authenticated middleware stack,
+   including compression, content type, and transfer encoding. A service-level
+   return-value unit test is insufficient.
+4. Zero DDL and zero Prisma regeneration become pre-write build assertions. If
+   implementation discovery indicates either is required, the build stops and
+   surfaces that conflict before any schema or runtime file is written.
+
+At the clearance re-check, `github/main` remains
+`1d602c0acef815b0e533f86b6ef304b8447a80e5`; AF PR #668 remains open and draft
+at `3464b349cdfc294e4440973123e4067305bb2d46`; and no Step 2 GO SHA has been
+supplied. This branch therefore remains documentation-only.
 
 ## 1. Purpose and authority
 
@@ -33,7 +72,7 @@ The authority order for this design is:
    `74cd8074e5c0a45cb778abb940fded74f16db8dd`;
 4. the committed AF facility-context implementation on
    `github/feat/continuity-facility-context` at
-   `5e0e25bd1857c74dfb9250fb62a9cdbb7abe38c8` (draft PR #668);
+   `3464b349cdfc294e4440973123e4067305bb2d46` (draft PR #668);
 5. the committed C5.1 design on
    `github/feat/continuity-c5-1-replay-receipts` at
    `d387b1185f20c52f62e7940fa532211be50bdf6e`; and
@@ -76,6 +115,17 @@ Therefore:
 
 Step 2 still runs Prisma validation and schema-drift checks as unchanged
 evidence. It does not run `prisma db pull` to manufacture a schema change.
+
+After the post-AF rebase and before the first runtime edit, Step 2 records:
+
+```text
+git diff --exit-code <post-AF-base> -- apps/backend/prisma/schema.prisma
+git diff --name-only <post-AF-base> -- apps/backend/src/migrations
+```
+
+Both must be empty at kickoff and remain empty in the final three-dot intent
+diff. If code discovery suggests adding or regenerating either surface, work
+stops before writing that change and returns to the coordinator.
 
 ### 2.2 C5.1 route and middleware overlap
 
@@ -266,6 +316,26 @@ Step 2 proves both byte properties separately:
 4. Hash the full response representation independently and publish that value
    as `Content-Digest`.
 
+This proof is merge-blocking and runs through the real Express application,
+not by invoking the service or controller directly. The test provisions an
+existing policy row, authenticates with a valid API key, Staff JWT, tenant/RLS
+context, RBAC role, and AF facility-context header, and requests the mounted
+route twice:
+
+- with `Accept-Encoding: identity`, it captures the raw response bytes and
+  proves canonical envelope equality plus the stored inner policy checksum;
+- with `Accept-Encoding: gzip`, it captures the actual compressed wire bytes,
+  verifies `Content-Encoding`, decompresses them according to the response
+  header, and proves the recovered representation is byte-identical to the
+  identity response.
+
+Both requests assert the exact vendor content type, UTF-8 interpretation,
+`Content-Length`/transfer behavior produced by the real stack,
+checksum-plus-representation ETag, and `Content-Digest`. The strict parser then
+hashes `JCS(payload.policyDocument)` from those served bytes and compares it to
+the row's stored `policy_checksum`. A direct service-return unit test remains
+useful but cannot satisfy this gate.
+
 The response uses RFC 9530 form:
 
 ```text
@@ -415,7 +485,7 @@ authority.
 | Source | When usable | Transport and authorization | Required provenance | Governing records |
 |---|---|---|---|---|
 | Authenticated backend route | Stable authenticated readiness reports public or internal backend reachability | Existing API key + Staff JWT; AF server-owned facility context; HTTPS through the C2.1 same-host endpoint state | Source kind, route posture, endpoint revision, tenant/facility audience, Staff/device/session context, fetch time, trusted time, ETag, full-body digest, HTTP status | C-D3 action classification; C-D4 normal backend auth; C-D13 split-horizon hostname/certificate/flat current-next pins; C-D14 facility context |
-| C3.3 verified encrypted cache | The complete set was previously verified and atomically cached; current user is reauthorized; pack and policy windows remain valid | No network transport at open; secure cache binding, named session/local unlock rules, trust bundle, and secure witness are rechecked | Publication set, manifest/policy/registry/revocation floors, pack content hash, envelope digest, original authenticated source provenance, cache binding, current unlock/session evidence, trusted-time witness | C-D2 pack freshness; C-D3 action classification; C-D4 named-user and 12-hour offline authorization; C-D10 device loss/wipe and at-most-24-hour pack expiry; C-D14 facility context |
+| C3.3 verified encrypted cache | The complete set was previously verified and atomically cached; current user is reauthorized; pack and policy windows remain valid | No network transport at open; secure cache binding, named session/local unlock rules, trust bundle, and secure witness are rechecked | Publication set, composition/manifest/policy/registry/revocation floors, pack content hash, envelope digest, original authenticated source provenance, cache binding, current unlock/session evidence, trusted-time witness | C-D2 pack freshness; C-D3 action classification; C-D4 named-user and 12-hour offline authorization; C-D10 device loss/wipe and at-most-24-hour pack expiry; C-D14 facility context |
 | Existing C3.2b LAN edge mirror | Backend readiness is unavailable, the exact location pack is reachable, and provisioned mTLS/facility/location authorization is complete | Existing HTTPS GET/HEAD `pack.json` surface only; mandatory client certificate; exact unrevoked signed grant matching tenant/facility/location/Staff/device/certificate/policy/access revision | Edge source kind, gateway identity/trust revision, certificate fingerprint, grant/access revision, location, pack hash/signing key, envelope digest, trusted time | C-D2 pack freshness; C-D3 action classification; C-D4 named-user/no-generic-account posture; C-D10 device loss; C-D14 facility binding; the landed C3.2b mTLS/grant contract |
 
 C-D13 governs the public/internal backend origin. It is not silently reused as
@@ -534,6 +604,28 @@ v2 composition change.
 No policy row is authored or activated by this slice. Pack v2 generation starts
 only when a separately approved signed policy says `packSchemaVersion = 2`.
 
+### 6.3 Merge-blocking compatibility fixtures
+
+Step 2 checks in real serialized fixture sets, not map literals assembled
+inside one test:
+
+1. a valid signed v2 facility set generated by the backend producer and
+   publication path, presented unchanged to the unmodified pre-Step2 C3.3
+   verifier in a clean baseline worktree; the result must be its existing
+   stable pack-invalid reason, with no exception, pack display, cache write,
+   witness advance, or partially accepted asset; and
+2. a correctly signed pack declaring `pack_schema_version = 1` whose nested
+   `policy` object contains v2 delivery fields; the upgraded verifier must
+   reject it as a closed-v1 shape violation even when all hashes and signatures
+   are otherwise valid.
+
+The fixture generator also emits an exact valid v1 control and valid v2 control
+so the negative results cannot be explained by broken signing data. Backend and
+Dart tests consume the same checked-in byte fixtures and assert the same
+composition decision. The receipt records the baseline SHA used for the
+unupgraded-client run. These four fixtures and their cross-runtime results are
+merge-blocking receipts.
+
 ## 7. One C3.3/C4.3 trust path
 
 This lane extends, and never forks:
@@ -566,18 +658,30 @@ requires:
 
 One opaque tenant/facility witness persists the greatest accepted:
 
+- pack-composition version;
 - policy version;
 - action-registry version;
 - revocation epoch; and
 - trusted time.
 
+The composition value is the positive integer `packSchemaVersion` signed inside
+the policy document and repeated as `pack_schema_version` in each signed pack.
+Before v2 has been witnessed, a v2-capable client may continue to accept an
+exact closed v1 pack for its existing read-only display path, but v1 supplies
+no action-policy authority. Once v2 is verified from any approved source, the
+witness advances to 2 and every later v1 pack is rejected as a composition
+rollback even if its other signatures and versions remain valid.
+
 Manifest and access-revision floors remain in their existing C3.3/C3.2b
-locations and are checked when the source is a pack. No source-specific policy
-floor, registry floor, revocation floor, clock, trust store, or cache is added.
+locations and are checked when the source is a pack. No source-specific
+composition, policy, registry, revocation, clock, trust store, or cache is
+added.
 
 Source change, cache eviction, logout, application update, `304`, network
-failure, or a lower signed response never lowers a witness. An irreconcilable
-witness loss or rollback fails closed.
+failure, or a lower signed response never lowers a witness. A v1-shaped pack
+with v2 fields, a v2-shaped pack without its exact closed delivery object, an
+irreconcilable witness loss, or any rollback fails through the existing
+pack-invalid/unavailable path without partial persistence or display.
 
 ### 7.2 Last-known-good behavior
 
@@ -679,6 +783,7 @@ C4.3 merge. A substituted or additional runtime path requires a revised delta.
 - `apps/backend/src/validators/clinicalContinuityPolicyDeliveryValidator.js`
 - `apps/backend/scripts/openapi/schemas/clinicalContinuityPolicyDelivery.mjs`
 - `apps/backend/src/tests/clinical-continuity-policy-delivery.deep.test.js`
+- `apps/backend/src/tests/helpers/clinicalContinuityPolicyDeliveryFixtures.js`
 - `apps/backend/src/tests/unit/clinicalContinuityPolicyDeliveryService.test.js`
 
 ### 11.2 Modify — backend
@@ -702,6 +807,10 @@ verifier, gateway, or route.
 
 - `packages/vhhealth_core/lib/services/clinical_continuity_policy_delivery.dart`
 - `packages/vhhealth_core/test/clinical_continuity_policy_delivery_test.dart`
+- `packages/vhhealth_core/test/fixtures/continuity_policy_delivery/v1_valid.snapshot.json`
+- `packages/vhhealth_core/test/fixtures/continuity_policy_delivery/v2_valid.snapshot.json`
+- `packages/vhhealth_core/test/fixtures/continuity_policy_delivery/v1_masquerading_v2.snapshot.json`
+- `packages/vhhealth_core/test/fixtures/continuity_policy_delivery/v2_missing_delivery.snapshot.json`
 
 ### 11.4 Modify — core
 
@@ -762,6 +871,9 @@ D:\Dev\_codex\artifacts\logs\<date>\continuity-policy-delivery\
   including atomic publication refusal rather than a partial set;
 - stored inner policy checksum, full-body `Content-Digest`, and Ed25519
   verification proofs;
+- merge-blocking identity and gzip wire captures through the mounted Express
+  stack, including API key, JWT, tenant/RLS, RBAC, AF facility context,
+  compression, content type, transfer encoding, and stored-checksum equality;
 - exact content type, checksum-plus-representation `ETag`, cache headers,
   conditional-list/weak/`*` semantics, same-checksum/new-representation
   behavior, and `304` no-body tests;
@@ -773,8 +885,10 @@ D:\Dev\_codex\artifacts\logs\<date>\continuity-policy-delivery\
 - no success-envelope wrapping and no PHI logger/body logging;
 - OpenAPI generation, drift, core sync, Spectral, and contract tests;
 - unchanged C4.2 policy/action-binding tests;
-- pack v1 compatibility, pack v2 strictness, full-set byte agreement, and
-  unchanged C3.2b edge verification/gateway surface;
+- the four real v1/v2 cross-runtime compatibility fixtures from section 6.3,
+  including an unmodified baseline-client run, masquerading-v1 rejection,
+  controls, and composition-version witness rollback;
+- full-set byte agreement and unchanged C3.2b edge verification/gateway surface;
 - backend format/lint, raw-parameter lint, Prisma validation, schema drift,
   focused unit/deep tests, and full backend Jest shards; and
 - dependency, secret, Semgrep, and CodeQL checks applicable to the diff.
@@ -784,8 +898,8 @@ D:\Dev\_codex\artifacts\logs\<date>\continuity-policy-delivery\
 - strict delivery-envelope JSON, canonicalization, duplicate-key, size/depth,
   signature, checksum, audience, effective-window, supersession, registry,
   revocation, and app/posture tests;
-- policy/registry/revocation/trusted-time rollback tests across every source
-  transition;
+- composition/policy/registry/revocation/trusted-time rollback tests across
+  every source transition;
 - v1 pack display without policy authority and v2 exact envelope extraction;
 - online, edge, cached, and last-known-good source selection with no byte
   merging;
@@ -825,16 +939,18 @@ route and pack-v2 producer support. It does not:
 
 - delete or rewrite a policy row, approval, signature, trust root, pack,
   witness, queue row, receipt, or audit evidence;
-- lower a policy, registry, manifest, access, revocation, or trusted-time floor;
+- lower a composition, policy, registry, manifest, access, revocation, or
+  trusted-time floor;
 - reinterpret a v2 pack as v1;
 - re-enable the unsigned downtime-policy getter;
 - fall back from mTLS to ordinary edge HTTP; or
 - activate capture.
 
 Existing pack-schema-v1 read-only cache behavior remains available under its
-own signed window. A device that has witnessed a higher policy/registry/
-revocation floor remains fail-closed after rollback until compatible signed
-authority is restored.
+own signed window only before the device has witnessed composition v2. A device
+that has witnessed composition v2 or a higher policy/registry/revocation floor
+remains fail-closed after rollback until compatible signed authority is
+restored.
 
 ## 14. Explicit non-goals
 
@@ -859,9 +975,9 @@ This slice provides:
 - no deployment; and
 - no merge.
 
-## 15. Coordinator clearance requested
+## 15. Coordinator clearance record
 
-Please approve or correct these Step 2 decisions:
+The coordinator approved these Step 2 decisions on 2026-07-31:
 
 1. one canonical delivery envelope containing the exact existing signed
    payload and stored signature, with the current UUID explicitly
@@ -886,6 +1002,7 @@ Please approve or correct these Step 2 decisions:
 11. zero DDL/Prisma expectation and zero C5.1 overlap; and
 12. the exact file ceiling, receipt matrix, rollback behavior, and non-goals.
 
-Until clearance is recorded and AF/C4.3 prerequisites have landed, this branch
-remains documentation-only. It may be committed and pushed for review, but it
-must not be merged or deployed by this lane.
+Approval is subject to the four merge-blocking conditions in section 0.
+Clearance of the design is not Step 2 GO. Until AF #668 and the C4.3 seam have
+landed and the coordinator supplies the exact post-merge GO SHA, this branch
+remains documentation-only and must not be merged or deployed by this lane.
