@@ -1,7 +1,7 @@
 # C4 device and session facility context — design delta
 
-**Status:** Step 1 design packet; awaiting coordinator clearance and owner
-decision
+**Status:** Step 1 approved; Step 2 authorized default-off and inert, queued
+after PR #660 and C6.1-A; C-D14 gates activation, not build
 
 **Authority:** clinical service continuity design §§5.4, 6.7, 6.8, and 7;
 the committed C4.1 queue-envelope delta decision 3 at
@@ -48,9 +48,9 @@ immutable grant and current context revision. The grant, revocation state,
 authenticated Staff session, signed context envelope, and exact facility
 policy must all agree.
 
-This is documentation only. There is no backend, Prisma, migration, Staff,
-Admin, shared-package, action-registry, edge-access, or activation change in
-this step.
+The original Step 1 commit is documentation only. Step 2 may add the
+default-off substrate described here only after the backend sequencing gate;
+it never adds action-registry entries, edge-read behavior, or activation.
 
 ## 2. Re-derived repository facts and handoff corrections
 
@@ -399,10 +399,12 @@ release.
 | Decision date | OWNER INPUT — engineering must not fill |
 | Approval or signature references | OWNER INPUT — engineering must not fill |
 
-No implementation or activation may treat the recommendation as approved until
-the required roles countersign the populated record. C-D10 remains authority
-for the broader break-glass, device-loss, remote-wipe, and communications
-policy; C-D14 must reference rather than contradict it.
+No capture-purpose grant may be issued and no activation may treat the
+recommendation as approved until the required roles countersign the populated
+record. Default-off, flag-gated plumbing may be built while the values remain
+open. C-D10 remains authority for the broader break-glass, device-loss,
+remote-wipe, and communications policy; C-D14 must reference rather than
+contradict it.
 
 ## 8. Verification at every use
 
@@ -510,7 +512,14 @@ Fresh-apply, re-run, schema-drift, and direct-SQL tests must prove:
 - global uniqueness does not block tenant B and cross-tenant collision does
   not resolve to tenant A;
 - only one active fixed-device facility grant exists;
+- a canonical `edge_read` export fixture and SHA-256 captured from the actual
+  rebased `main` are byte-for-byte identical after migration/backfill;
 - capture rows cannot appear in edge exports or authorization;
+- capture rows cannot affect edge verifier inputs, mTLS authorization,
+  access-revision floors, or log-receipt lookup/ingest;
+- a privileged application role cannot direct-SQL insert an unknown purpose,
+  an `edge_read` row missing any currently mandatory value, or a malformed
+  fixed-device/Staff-facility capture row;
 - edge canonical exports and existing grant/revocation behavior are unchanged;
 - grant/revocation immutability survives application-role and owner attempts;
 - runtime roles have only the required columns/operations; and
@@ -532,8 +541,8 @@ Exact paths are revalidated after #660 merges. The expected ledger is:
 - shared Flutter facility-context model, secure store, verifier, and API client
 - Staff tests for restart, refresh, fixed-device resolution, session
   confirmation, user switch, facility switch, and loss/revocation
-- a narrow Admin enrollment/revocation surface and tests if C-D14 approves
-  fixed-device enrollment
+- a narrow, admin-RBAC'd, default-off Admin enrollment/revocation surface and
+  tests; it cannot issue a capture grant while C-D14 is open
 
 ### 10.2 Modify
 
@@ -583,7 +592,11 @@ The Step 2 receipt must include:
 - device-loss revocation blocking readiness, new capture, refresh, and replay;
 - C2.2 v1/v2 compatibility and no-PHI/closed-response assertions;
 - C4.2 client facility-header mismatch proving the header is evidence only;
-- existing C3.2 edge export/authorization/log-receipt tests unchanged; and
+- the rebased-main canonical C3.2 edge export fixture retaining its exact
+  SHA-256 after migration/backfill;
+- existing C3.2 edge verifier, mTLS authorization, access-revision floor,
+  export, and log-receipt tests unchanged and capture-row blind;
+- privileged direct-SQL purpose/missing-field negative tests;
 - a full diff check proving no activation, policy publication, registry entry,
   or new capture action was added.
 
@@ -592,18 +605,22 @@ Synthetic data only is used before owner clearance.
 
 ## 12. Sequencing and gates
 
-1. coordinator reviews this delta and routes proposed C-D14;
-2. C-D14 and the applicable open C-D10 values are countersigned;
-3. PR #660 / C4.2 merges;
+1. coordinator clearance is recorded and proposed C-D14 is routed;
+2. PR #660 / C4.2 merges;
+3. C6.1-A merges;
 4. fetch `github/main`, rebase this lane, re-derive the migration number, and
    re-check C4.1/C4.2 file overlap;
-5. build the backend plus client facility-context substrate inert;
+5. build the backend plus client facility-context substrate default-off and
+   inert;
 6. prove every gate in §11; and
 7. land before C4.3.
 
 The build does not wait for C6.3's facility activation projection to be
 designed, but capture remains impossible: absence of that later activation
 record means `off`, and this slice publishes no active capture policy.
+C-D14 and the applicable open C-D10 values must be countersigned before any
+enrollment/confirmation flag can be enabled or any capture-purpose grant can
+be issued.
 
 ## 13. Explicit non-goals
 
@@ -621,25 +638,31 @@ This delta provides:
 - no Patient client change;
 - no production policy/key/grant issuance;
 - no deployment or activation;
-- no merge; and
-- no Step 2 implementation.
+- no merge.
 
-## 14. Coordinator clearance requested
+## 14. Coordinator clearance record
 
-Please approve, correct, or route these exact decisions:
+The coordinator approved Step 1 and authorized Step 2 on 2026-07-31:
 
-1. the combination recommendation: fixed-device enrollment plus explicit
-   mobile/session confirmation;
+1. the combination recommendation is accepted: fixed-device enrollment plus
+   explicit mobile/session confirmation;
 2. convergence on `user_devices` as current projection and the existing edge
-   grant/revocation ledger as immutable authority, with no third mechanism;
-3. purpose isolation that leaves every C3.2 edge-read behavior unchanged;
-4. a separate signed provisioning call, a device-only access-JWT claim,
-   C2.2 readiness v2 as verifier/echo, and the signed C3.1 policy as mandatory
-   cross-check;
-5. the exact queue rule that a facility switch never re-scopes captured work;
-6. proposed C-D14 and its required sign-off roles;
-7. the live-baseline corrections: no `care_teams.facility_id`, C-D11 still
-   marked open, and C4.1 referenced from its committed branch rather than
-   `main`; and
-8. the Step 2 gates: countersigned owner inputs, #660 merged, fresh migration
-   number, inert delivery before C4.3, and no merge from this lane.
+   grant/revocation ledger as immutable authority is accepted, with no third
+   mechanism;
+3. the closed purpose discriminator and `edge_read` backfill are accepted;
+4. the separate issuer, device-only access-JWT claim, readiness verifier/echo,
+   and signed-policy cross-check layering is accepted;
+5. byte-for-byte edge-export non-regression is merge-blocking: a canonical
+   fixture from the actual build baseline must hash identically after the
+   migration, and capture rows must be invisible to export, verifier, mTLS,
+   revision-floor, and log-receipt surfaces;
+6. the closed purpose set and every purpose-dependent mandatory field are
+   database `CHECK` constraints, with privileged direct-SQL negative tests;
+7. backend sequencing is PR #660, then C6.1-A, then this build; the migration
+   number is re-derived only after both prerequisites merge;
+8. C-D14 gates activation rather than build: all endpoints and Admin surfaces
+   are default-off, flag-gated, and RBAC'd; no capture-purpose grant is
+   issuable while owner values remain open; and
+9. the PR description must state the inert/activation boundary, include
+   standard receipts and a three-dot intent diff, and the branch must never be
+   merged by this lane.
