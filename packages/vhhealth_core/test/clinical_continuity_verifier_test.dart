@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -333,11 +334,13 @@ void main() {
     final baseline = await _actionPolicyEnvelope(fixture.signingPair);
 
     final registryExtra = _mutableJson(baseline);
-    final registryDocument = _mapForTest(registryExtra['policyDocument']);
+    final registryPayload = _mapForTest(registryExtra['payload']);
+    final registryDocument = _mapForTest(registryPayload['policyDocument']);
     final registry = _mapForTest(registryDocument['actionRegistry']);
     registry['unexpected'] = true;
     registryDocument['actionRegistry'] = registry;
-    registryExtra['policyDocument'] = registryDocument;
+    registryPayload['policyDocument'] = registryDocument;
+    registryExtra['payload'] = registryPayload;
     await _rehashAndSignActionPolicy(registryExtra, fixture.signingPair);
     final rejectedRegistry = await fixture.verifier.verifyActionPolicy(
       envelopeBytes: ClinicalContinuityCanonicalJson.canonicalBytes(
@@ -356,7 +359,8 @@ void main() {
     );
 
     final actionExtra = _mutableJson(baseline);
-    final actionDocument = _mapForTest(actionExtra['policyDocument']);
+    final actionPayload = _mapForTest(actionExtra['payload']);
+    final actionDocument = _mapForTest(actionPayload['policyDocument']);
     final actionRegistry = _mapForTest(actionDocument['actionRegistry']);
     final actions = actionRegistry['actions']! as List<dynamic>;
     final action = _mapForTest(actions.first);
@@ -365,7 +369,8 @@ void main() {
     actions[0] = action;
     actionRegistry['actions'] = actions;
     actionDocument['actionRegistry'] = actionRegistry;
-    actionExtra['policyDocument'] = actionDocument;
+    actionPayload['policyDocument'] = actionDocument;
+    actionExtra['payload'] = actionPayload;
     await _rehashAndSignActionPolicy(actionExtra, fixture.signingPair);
     final rejectedAction = await fixture.verifier.verifyActionPolicy(
       envelopeBytes: ClinicalContinuityCanonicalJson.canonicalBytes(
@@ -383,6 +388,139 @@ void main() {
       ClinicalContinuityVerificationReasons.actionRegistryInvalid,
     );
   });
+
+  test('accepts closed composition v1 and v2 controls', () async {
+    final v1 = await _SerializedFixture.load('v1_valid');
+    final v2 = await _SerializedFixture.load('v2_valid');
+
+    final acceptedV1 = await v1.verifier.verify(v1.snapshot);
+    final acceptedV2 = await v2.verifier.verify(v2.snapshot);
+
+    expect(v1.upgradedDecision, 'accepted');
+    expect(v2.upgradedDecision, 'accepted');
+    expect(acceptedV1.ok, isTrue);
+    expect(acceptedV1.verifiedSet!.packCompositionVersion, '1');
+    expect(acceptedV1.verifiedSet!.policyEnvelopeBytes, isNull);
+    expect(acceptedV2.ok, isTrue);
+    expect(acceptedV2.verifiedSet!.packCompositionVersion, '2');
+    expect(acceptedV2.verifiedSet!.policyEnvelopeBytes, isNotEmpty);
+  });
+
+  test('rejects both composition-direction shape violations', () async {
+    final masquerading = await _SerializedFixture.load('v1_masquerading_v2');
+    final missing = await _SerializedFixture.load('v2_missing_delivery');
+
+    final masqueradingResult = await masquerading.verifier.verify(
+      masquerading.snapshot,
+    );
+    final missingResult = await missing.verifier.verify(missing.snapshot);
+
+    expect(
+      masqueradingResult.reason,
+      ClinicalContinuityVerificationReasons.coverageMismatch,
+    );
+    expect(masquerading.upgradedDecision, 'coverage_mismatch');
+    expect(
+      missingResult.reason,
+      ClinicalContinuityVerificationReasons.coverageMismatch,
+    );
+    expect(missing.upgradedDecision, 'coverage_mismatch');
+  });
+
+  test('composition v2 witness rejects a later v1 rollback', () async {
+    final fixture = await _SerializedFixture.load('v1_valid');
+    final result = await fixture.verifier.verify(
+      fixture.snapshot,
+      persistedFloors: ClinicalContinuityFloors(
+        packCompositionVersion: '2',
+        policyVersion: '7',
+        manifestVersion: '9',
+        revocationEpoch: '3',
+        trustedNow: DateTime.parse('2026-07-29T06:00:00.000Z'),
+      ),
+    );
+
+    expect(
+      result.reason,
+      ClinicalContinuityVerificationReasons.packCompositionRollback,
+    );
+  });
+}
+
+class _SerializedFixture {
+  final ClinicalContinuityVerifier verifier;
+  final ClinicalContinuitySourceSnapshot snapshot;
+  final String baselineDecision;
+  final String upgradedDecision;
+
+  const _SerializedFixture({
+    required this.verifier,
+    required this.snapshot,
+    required this.baselineDecision,
+    required this.upgradedDecision,
+  });
+
+  static Future<_SerializedFixture> load(String name) async {
+    final raw = await File(
+      'test/fixtures/continuity_policy_delivery/$name.snapshot.json',
+    ).readAsString();
+    final fixture = Map<String, Object?>.from(
+      jsonDecode(raw)! as Map<dynamic, dynamic>,
+    );
+    final expected = _mapForTest(fixture['expected']);
+    final serialized = _mapForTest(fixture['snapshot']);
+    final session = _mapForTest(serialized['session']);
+    final clock = _mapForTest(serialized['clock']);
+    final provenance = _mapForTest(serialized['provenance']);
+    final serializedAssets = List<Object?>.from(
+      serialized['assets']! as List<dynamic>,
+    );
+    final assets = <String, Uint8List>{
+      for (final value in serializedAssets)
+        _mapForTest(value)['path']! as String: base64Decode(
+          _mapForTest(value)['contentBase64']! as String,
+        ),
+    };
+    final trustBundle = _mapForTest(serialized['trustBundle']);
+    final verifier = ClinicalContinuityVerifier(
+      trustStore: ClinicalContinuityTrustStore(
+        reader: _TrustReader(jsonEncode(trustBundle)),
+      ),
+    );
+    return _SerializedFixture(
+      verifier: verifier,
+      baselineDecision: expected['baselineDecision']! as String,
+      upgradedDecision: expected['upgradedDecision']! as String,
+      snapshot: ClinicalContinuitySourceSnapshot(
+        manifestEnvelopeBytes: base64Decode(
+          serialized['manifestEnvelopeBase64']! as String,
+        ),
+        assets: assets,
+        session: ClinicalContinuitySessionContext(
+          tenantId: session['tenantId']! as String,
+          facilityId: session['facilityId']! as String,
+          staffId: session['staffId']! as String,
+          role: session['role']! as String,
+          deviceId: session['deviceId']! as String,
+          authenticatedAt: DateTime.parse(
+            session['authenticatedAt']! as String,
+          ),
+        ),
+        clock: ClinicalContinuityClockAssessment(
+          trusted: clock['trusted']! as bool,
+          trustedNow: DateTime.parse(clock['trustedNow']! as String),
+          minimumTrustedNow: DateTime.parse(
+            clock['minimumTrustedNow']! as String,
+          ),
+        ),
+        provenance: ClinicalContinuitySourceProvenance(
+          sourceRevision: provenance['sourceRevision']! as String,
+          sourceWatermark: provenance['sourceWatermark']! as String,
+          accessRevision: provenance['accessRevision']! as String,
+        ),
+      ),
+    );
+  }
 }
 
 class _Fixture {
@@ -408,10 +546,24 @@ class _Fixture {
     String emergencyReadPosture = 'disabled',
     bool includeBloodGroup = false,
     String locationType = 'ward',
+    int packCompositionVersion = 1,
+    bool masqueradingDelivery = false,
+    bool missingDelivery = false,
   }) async {
     final algorithm = Ed25519();
     final signingPair = await algorithm.newKeyPair();
     final signingPublic = await signingPair.extractPublicKey();
+    final policyDelivery = packCompositionVersion == 2 || masqueradingDelivery
+        ? await _actionPolicyEnvelope(signingPair)
+        : null;
+    final policyDeliveryBytes = policyDelivery == null
+        ? null
+        : ClinicalContinuityCanonicalJson.canonicalBytes(policyDelivery);
+    final policyPayload = policyDelivery == null
+        ? null
+        : _mapForTest(policyDelivery['payload']);
+    final policyChecksum =
+        policyPayload?['policyChecksum'] as String? ?? 'b' * 64;
     final audience = {'tenantId': _tenantId, 'facilityId': envelopeFacilityId};
     final locationId = switch (locationType) {
       'ward' => 'ward-10',
@@ -451,7 +603,7 @@ class _Fixture {
       'reason': reason,
     };
     final packContent = <String, Object?>{
-      'pack_schema_version': 1,
+      'pack_schema_version': packCompositionVersion,
       'tenant_id': _tenantId,
       'facility': {
         'id': _facilityId,
@@ -469,7 +621,23 @@ class _Fixture {
           'area_profile': locationType,
         },
       },
-      'policy': {'id': _policyId, 'version': '7', 'revocation_epoch': '3'},
+      'policy': packCompositionVersion == 2 || masqueradingDelivery
+          ? {
+              'checksum': policyChecksum,
+              if (!missingDelivery)
+                'delivery': {
+                  'envelope_base64': base64Encode(policyDeliveryBytes!),
+                  'envelope_format':
+                      'vhhealth_clinical_continuity_policy_delivery/v1',
+                  'envelope_sha256': await _sha256Hex(policyDeliveryBytes),
+                  'media_type':
+                      'application/vnd.vhhealth.clinical-continuity-policy+json',
+                },
+              'id': _policyId,
+              'version': '7',
+              'revocation_epoch': '3',
+            }
+          : {'id': _policyId, 'version': '7', 'revocation_epoch': '3'},
       'source_watermark': {
         'captured_at': issuedAt,
         'txid_snapshot': '100:100:',
@@ -609,7 +777,7 @@ class _Fixture {
       'manifestVersion': '9',
       'publicationSetId': _publicationSetId,
       'policy': {
-        'checksum': 'b' * 64,
+        'checksum': policyChecksum,
         'id': _policyId,
         'revocationEpoch': '3',
         'version': '7',
@@ -843,7 +1011,7 @@ Future<Map<String, Object?>> _actionPolicyEnvelope(KeyPair keyPair) async {
     'generation': const <String, Object?>{},
     'includedAreas': const <String, Object?>{},
     'medicationsDueWindow': const <String, Object?>{},
-    'packSchemaVersion': 1,
+    'packSchemaVersion': 2,
     'policySchemaVersion': 3,
     'policyType': 'clinical_continuity_pack',
     'recentReleasedResults': const <String, Object?>{},
@@ -883,7 +1051,12 @@ Future<Map<String, Object?>> _actionPolicyEnvelope(KeyPair keyPair) async {
     ClinicalContinuityCanonicalJson.canonicalBytes(payload),
     keyPair: keyPair,
   );
-  return {...payload, 'policySignature': base64Encode(signature.bytes)};
+  return {
+    'format': 'vhhealth_clinical_continuity_policy_delivery/v1',
+    'payload': payload,
+    'policyId': _policyId,
+    'signature': base64Encode(signature.bytes),
+  };
 }
 
 const _cD3Approval = <String, Object?>{
@@ -1006,24 +1179,24 @@ Future<void> _rehashAndSignActionPolicy(
   Map<String, Object?> envelope,
   KeyPair keyPair,
 ) async {
-  final document = _mapForTest(envelope['policyDocument']);
+  final payload = _mapForTest(envelope['payload']);
+  final document = _mapForTest(payload['policyDocument']);
   final registry = _mapForTest(document['actionRegistry']);
   final registryProjection = Map<String, Object?>.from(registry)
     ..remove('registryChecksum');
   registry['registryChecksum'] = await _sha256Hex(
     ClinicalContinuityCanonicalJson.canonicalBytes(registryProjection),
   );
-  envelope['actionRegistryChecksum'] = registry['registryChecksum'];
+  payload['actionRegistryChecksum'] = registry['registryChecksum'];
   document['actionRegistry'] = registry;
-  envelope['policyDocument'] = document;
-  envelope['policyChecksum'] = await _sha256Hex(
+  payload['policyDocument'] = document;
+  payload['policyChecksum'] = await _sha256Hex(
     ClinicalContinuityCanonicalJson.canonicalBytes(document),
   );
-  final unsigned = Map<String, Object?>.from(envelope)
-    ..remove('policySignature');
   final signature = await Ed25519().sign(
-    ClinicalContinuityCanonicalJson.canonicalBytes(unsigned),
+    ClinicalContinuityCanonicalJson.canonicalBytes(payload),
     keyPair: keyPair,
   );
-  envelope['policySignature'] = base64Encode(signature.bytes);
+  envelope['payload'] = payload;
+  envelope['signature'] = base64Encode(signature.bytes);
 }

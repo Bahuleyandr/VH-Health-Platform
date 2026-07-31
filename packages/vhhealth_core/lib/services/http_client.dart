@@ -119,11 +119,15 @@ class VHHttpClient {
   static Future<http.Response> getBytes(
     String path, {
     Map<String, String>? queryParameters,
+    Map<String, String>? additionalHeaders,
     bool auth = true,
     Duration? timeout,
   }) async {
     final uri = _buildUri(path, queryParameters);
-    final headers = await _headers(auth: auth);
+    final headers = _withAdditionalHeaders(
+      await _headers(auth: auth),
+      additionalHeaders,
+    );
     final response = await _sendWithRetry(
       () => _client
           .get(uri, headers: headers)
@@ -135,7 +139,10 @@ class VHHttpClient {
         _checkUnauthorized(parsed);
         return response;
       }
-      final retryHeaders = await _headers(auth: true);
+      final retryHeaders = _withAdditionalHeaders(
+        await _headers(auth: true),
+        additionalHeaders,
+      );
       final retry = await _sendWithRetry(
         () => _client
             .get(uri, headers: retryHeaders)
@@ -556,6 +563,25 @@ class VHHttpClient {
       base['X-Device-Type'] = deviceType;
     }
 
+    return base;
+  }
+
+  static Map<String, String> _withAdditionalHeaders(
+    Map<String, String> base,
+    Map<String, String>? additions,
+  ) {
+    if (additions == null || additions.isEmpty) return base;
+    const allowed = {
+      'accept',
+      'if-none-match',
+      'x-vh-continuity-facility-context',
+    };
+    for (final entry in additions.entries) {
+      if (!allowed.contains(entry.key.toLowerCase()) || entry.value.isEmpty) {
+        throw ArgumentError.value(entry.key, 'additionalHeaders');
+      }
+      base[entry.key] = entry.value;
+    }
     return base;
   }
 

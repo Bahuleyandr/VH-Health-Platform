@@ -79,4 +79,27 @@ class MtlsClientService {
     final httpClient = HttpClient(context: ctx);
     return IOClient(httpClient);
   }
+
+  /// Builds the edge-mirror client without an ordinary-TLS fallback.
+  /// Policy delivery must stay unavailable until device mTLS provisioning is
+  /// complete; silently substituting the default client would change the
+  /// approved source's authentication contract.
+  Future<http.Client> buildRequiredClient({String? password}) async {
+    final client = await buildClient(password: password);
+    if (client == null) {
+      throw const MtlsClientUnavailable(
+        'clinical_continuity_edge_mtls_unavailable',
+      );
+    }
+    return client;
+  }
+}
+
+class MtlsClientUnavailable implements Exception {
+  const MtlsClientUnavailable(this.reasonCode);
+
+  final String reasonCode;
+
+  @override
+  String toString() => 'MtlsClientUnavailable($reasonCode)';
 }

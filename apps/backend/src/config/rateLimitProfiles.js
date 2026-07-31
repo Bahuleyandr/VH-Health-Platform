@@ -33,6 +33,12 @@ export const RATE_LIMIT_PROFILES = {
     enforceOnHealthRoutes: true,
     enforceInTest: true
   },
+  clinicalContinuityPolicyDelivery: {
+    windowMs: 60 * 1000,
+    max: 30,
+    message: 'Too many clinical continuity policy requests. Please try again shortly.',
+    enforceInTest: true
+  },
 
   // Auth login rate limiting — max 5 login attempts per IP per 15 minutes
   auth: {

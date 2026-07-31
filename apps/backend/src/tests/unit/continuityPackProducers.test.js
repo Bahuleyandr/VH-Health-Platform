@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -7,6 +8,10 @@ import {
   normalizeContinuityDbValue,
   produceFacilityContinuityPacks,
 } from '../../services/downtime/continuityPackProducers.js';
+import {
+  generateClinicalContinuityPolicyDeliveryFixtures,
+  readClinicalContinuityPolicyDeliveryFixtures,
+} from '../helpers/clinicalContinuityPolicyDeliveryFixtures.js';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const PATIENT_UID = '22222222-2222-4222-8222-222222222222';
@@ -142,6 +147,42 @@ function identityRow() {
   };
 }
 
+function upgradedCompositionDecision(fixture) {
+  const serializedPack = fixture.snapshot.assets.find(
+    asset => asset.path === 'locations/ward/ward-8/pack.json',
+  )?.contentBase64;
+  const pack = JSON.parse(Buffer.from(
+    serializedPack,
+    'base64',
+  ).toString('utf8'))?.content;
+  const policy = pack?.policy;
+  if (!pack || !policy || ![1, 2].includes(pack.pack_schema_version)) {
+    return 'coverage_mismatch';
+  }
+  const policyKeys = Object.keys(policy).sort();
+  if (pack.pack_schema_version === 1) {
+    return JSON.stringify(policyKeys) === JSON.stringify([
+      'id',
+      'revocation_epoch',
+      'version',
+    ]) ? 'accepted' : 'coverage_mismatch';
+  }
+  const delivery = policy.delivery;
+  const deliveryKeys = Object.keys(delivery || {}).sort();
+  return JSON.stringify(policyKeys) === JSON.stringify([
+    'checksum',
+    'delivery',
+    'id',
+    'revocation_epoch',
+    'version',
+  ]) && JSON.stringify(deliveryKeys) === JSON.stringify([
+    'envelope_base64',
+    'envelope_format',
+    'envelope_sha256',
+    'media_type',
+  ]) ? 'accepted' : 'coverage_mismatch';
+}
+
 function patientSourceResponders(overrides = {}) {
   return {
     'patient-identities': [identityRow()],
@@ -185,6 +226,31 @@ describe('continuity-pack source watermark', () => {
     await expect(captureContinuitySourceWatermark(tx)).rejects.toMatchObject({
       code: 'CONTINUITY_PACK_COVERAGE_FAILED',
     });
+  });
+});
+
+describe('checked-in continuity policy-delivery compatibility fixtures', () => {
+  it('matches fresh backend producer and publication readback byte-for-byte', async () => {
+    const fixtureRoot = fileURLToPath(new URL(
+      '../../../../../packages/vhhealth_core/test/fixtures/continuity_policy_delivery/',
+      import.meta.url,
+    ));
+    const [checkedIn, generated] = await Promise.all([
+      readClinicalContinuityPolicyDeliveryFixtures(fixtureRoot),
+      generateClinicalContinuityPolicyDeliveryFixtures(),
+    ]);
+
+    expect(checkedIn).toEqual(generated);
+    for (const fixture of Object.values(checkedIn)) {
+      expect(upgradedCompositionDecision(fixture)).toBe(
+        fixture.expected.upgradedDecision,
+      );
+      expect(fixture.generator).toEqual({
+        producer: 'produceFacilityContinuityPacks',
+        publication: 'publishContinuityPackSet',
+        signing: 'createSignedPackEnvelope',
+      });
+    }
   });
 });
 
@@ -237,6 +303,79 @@ describe('continuity-pack required coverage', () => {
       expires_at: '2026-07-30T05:30:00.000Z',
       historical_mode: false,
     });
+  });
+
+  it('embeds the exact verified policy representation only in closed pack v2', async () => {
+    const coverage = requiredCoverage({
+      wards: [{ wardId: 8, locationIdentifier: 'ward-8', label: 'Ward 8' }],
+    });
+    const tx = fakeTx({
+      'ward-definition': [{
+        id: 8,
+        name: 'Ward 8',
+        floor: 1,
+        facility_id: FACILITY_ID,
+        updated_at: GENERATED_AT,
+        department_name: 'Medicine',
+      }],
+      'ward-census': [],
+    });
+    const canonicalBody = '{"format":"vhhealth_clinical_continuity_policy_delivery/v1"}';
+    const policy = policyFor(coverage);
+    policy.policyDocument.policySchemaVersion = 3;
+    policy.policyDocument.packSchemaVersion = 2;
+    policy.policyChecksum = 'a'.repeat(64);
+    const envelopeSha256 = createHash('sha256').update(canonicalBody).digest('hex');
+    policy.policyDelivery = {
+      canonicalBody,
+      envelopeFormat: 'vhhealth_clinical_continuity_policy_delivery/v1',
+      envelopeSha256,
+      mediaType: 'application/vnd.vhhealth.clinical-continuity-policy+json',
+    };
+
+    const result = await produceFacilityContinuityPacks({
+      tx,
+      tenantId: TENANT_ID,
+      facilityId: FACILITY_ID,
+      policy,
+    });
+
+    expect(result.packs[0].pack_schema_version).toBe(2);
+    expect(result.packs[0].policy).toEqual({
+      checksum: 'a'.repeat(64),
+      delivery: {
+        envelope_base64: Buffer.from(canonicalBody).toString('base64'),
+        envelope_format: 'vhhealth_clinical_continuity_policy_delivery/v1',
+        envelope_sha256: envelopeSha256,
+        media_type: 'application/vnd.vhhealth.clinical-continuity-policy+json',
+      },
+      id: policy.id,
+      revocation_epoch: policy.revocationEpoch,
+      version: policy.policyVersion,
+    });
+  });
+
+  it('rejects a v2 policy delivery whose claimed envelope hash is stale', async () => {
+    const coverage = requiredCoverage({
+      wards: [{ wardId: 8, locationIdentifier: 'ward-8', label: 'Ward 8' }],
+    });
+    const policy = policyFor(coverage);
+    policy.policyDocument.policySchemaVersion = 3;
+    policy.policyDocument.packSchemaVersion = 2;
+    policy.policyChecksum = 'a'.repeat(64);
+    policy.policyDelivery = {
+      canonicalBody: '{"format":"vhhealth_clinical_continuity_policy_delivery/v1"}',
+      envelopeFormat: 'vhhealth_clinical_continuity_policy_delivery/v1',
+      envelopeSha256: 'b'.repeat(64),
+      mediaType: 'application/vnd.vhhealth.clinical-continuity-policy+json',
+    };
+
+    await expect(produceFacilityContinuityPacks({
+      tx: fakeTx(),
+      tenantId: TENANT_ID,
+      facilityId: FACILITY_ID,
+      policy,
+    })).rejects.toThrow('requires verified policy delivery bytes');
   });
 
   it('fails when a policy-required ward is not mapped to the facility', async () => {

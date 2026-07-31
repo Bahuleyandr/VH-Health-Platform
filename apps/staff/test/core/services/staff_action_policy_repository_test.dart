@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/models/clinical_continuity.dart';
 import 'package:vhhealth_core/services/clinical_continuity_action_gate.dart';
@@ -50,4 +52,100 @@ void main() {
       'program_level_activation_prerequisite',
     });
   });
+
+  test(
+    'coalesces one audience refresh and preserves bounded retry metadata',
+    () async {
+      final source = _PendingSource();
+      final repository = StaffActionPolicyRepository(source: source);
+      addTearDown(repository.dispose);
+      const audience = ClinicalContinuityAudience(
+        tenantId: 'tenant-1',
+        facilityId: '41',
+      );
+
+      final first = repository.refresh(audience: audience);
+      final second = repository.refresh(audience: audience);
+      source.completer.completeError(
+        const StaffActionPolicySourceUnavailable(
+          'policy_delivery_http_503',
+          allowFallback: true,
+          retryAfter: Duration(minutes: 5),
+        ),
+      );
+
+      expect(await first, isFalse);
+      expect(await second, isFalse);
+      expect(source.calls, 1);
+      expect(repository.retryableFailure, isTrue);
+      expect(repository.retryAfter, const Duration(minutes: 5));
+    },
+  );
+
+  test('invalidation discards a late source completion', () async {
+    final source = _PendingSource();
+    final repository = StaffActionPolicyRepository(source: source);
+    addTearDown(repository.dispose);
+    final refresh = repository.refresh(
+      audience: const ClinicalContinuityAudience(
+        tenantId: 'tenant-1',
+        facilityId: '41',
+      ),
+    );
+
+    repository.invalidate('application_backgrounded');
+    source.completer.completeError(
+      const StaffActionPolicySourceUnavailable(
+        'policy_delivery_transport_unavailable',
+        allowFallback: true,
+      ),
+    );
+
+    expect(await refresh, isFalse);
+    expect(repository.state, StaffActionPolicyState.unavailable);
+    expect(repository.reasonCode, 'application_backgrounded');
+  });
+
+  test(
+    'retries only transport status classes, never signed lifecycle denials',
+    () {
+      expect(
+        StaffActionPolicyRepository.isRetryableReason(
+          'policy_delivery_transport_unavailable',
+        ),
+        isTrue,
+      );
+      expect(
+        StaffActionPolicyRepository.isRetryableReason(
+          'policy_delivery_http_429',
+        ),
+        isTrue,
+      );
+      expect(
+        StaffActionPolicyRepository.isRetryableReason(
+          'CONTINUITY_POLICY_REVOKED',
+        ),
+        isFalse,
+      );
+      expect(
+        StaffActionPolicyRepository.isRetryableReason(
+          'CONTINUITY_POLICY_DELIVERY_INTEGRITY_FAILED',
+        ),
+        isFalse,
+      );
+    },
+  );
+}
+
+class _PendingSource implements StaffActionPolicySource {
+  final completer = Completer<StaffActionPolicySourcePayload>();
+  int calls = 0;
+
+  @override
+  Future<StaffActionPolicySourcePayload> fetch({
+    required ClinicalContinuityAudience audience,
+  }) {
+    calls += 1;
+    return completer.future;
+  }
 }

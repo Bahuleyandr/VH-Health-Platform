@@ -30,6 +30,7 @@ import * as lab from './openapi/schemas/lab.mjs';
 import * as carePathways from './openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from './openapi/schemas/outboxRecovery.mjs';
 import * as clientReadiness from './openapi/schemas/clientReadiness.mjs';
+import * as clinicalContinuityPolicyDelivery from './openapi/schemas/clinicalContinuityPolicyDelivery.mjs';
 
 const SCHEMA_MODULES = [
   money,
@@ -48,6 +49,7 @@ const SCHEMA_MODULES = [
   lab,
   carePathways,
   outboxRecovery,
+  clinicalContinuityPolicyDelivery,
   clientReadiness
 ];
 

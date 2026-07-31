@@ -172,6 +172,29 @@ describe('buildOpenApiDocument overlay', () => {
     });
   });
 
+  it('documents vendor-media success bytes and additional lifecycle responses', () => {
+    const routes = [{ method: 'get', path: '/api/v1/x' }];
+    const overlay = {
+      'GET /api/v1/x': {
+        response: 'SignedBytes',
+        responseContentType: 'application/vnd.example.signed+json',
+        additionalResponses: {
+          304: { description: 'Not modified' },
+          410: { description: 'Revoked' },
+        },
+      },
+    };
+    const doc = buildOpenApiDocument(routes, base, overlay);
+    const responses = doc.paths['/api/v1/x'].get.responses;
+    expect(responses[200].content).toEqual({
+      'application/vnd.example.signed+json': {
+        schema: { $ref: '#/components/schemas/SignedBytes' },
+      },
+    });
+    expect(responses[304]).toEqual({ description: 'Not modified' });
+    expect(responses[410]).toEqual({ description: 'Revoked' });
+  });
+
   it('attaches overlay summary, description, and response description', () => {
     const routes = [{ method: 'get', path: '/api/v1/x' }];
     const overlay = {
