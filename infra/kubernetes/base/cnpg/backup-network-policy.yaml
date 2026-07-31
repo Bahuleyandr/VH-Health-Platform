@@ -129,6 +129,42 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: cnpg-retention-remover-egress
+  namespace: vhhealth-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cnpg-retention-removal
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: restore-proof-default-deny
   namespace: vhhealth-restore-proof
 spec:
@@ -168,6 +204,76 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+    # The same Pod contains the separated evidence writer and reader
+    # containers; NetworkPolicy is Pod-scoped, so their action separation is
+    # enforced by credentials while this rule allows R2 HTTPS.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restore-object-proof-egress
+  namespace: vhhealth-restore-proof
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cnpg-restore-object-proof
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restore-sql-proof-egress
+  namespace: vhhealth-restore-proof
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cnpg-restore-sql-proof
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: vhhealth-pg-restore-proof
+      ports:
+        - protocol: TCP
+          port: 5432
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -257,6 +363,13 @@ spec:
                   - vhhealth-pg-restore-proof
                   - vhhealth-pg-drill
                   - vhhealth-pg18-upgrade-rehearsal
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cnpg-restore-sql-proof
       ports:
         - protocol: TCP
           port: 5432

@@ -1,7 +1,8 @@
 # DR Restore Drill — CNPG PITR (REL-2 / B2.2)
 
-> Last updated: 2026-07-28 — Barman Cloud Plugin recovery, split
-> producer/reader credentials, and the inert restore-proof contract recorded.
+> Last updated: 2026-07-31 — C6.2 action-scoped identities, provider bucket
+> locks, timed target-time restore-only evidence, and separate C-D1/C-D9
+> measurement contracts recorded.
 > Script at
 > `infra/kubernetes/base/cnpg/dr-restore-drill.sh`.
 
@@ -27,14 +28,17 @@ secondary site.
 
 ---
 
-## Targets (confirmed with hospital leadership — sign off date: TBD)
+## Objective rows — do not conflate them
 
-| Objective | Target | Source |
+| Scenario | Target/measurement | Decision authority |
 |---|---|---|
-| RPO (max data loss) | ≤ 5 minutes | continuous WAL archiving to R2 |
-| RTO (time to restored service) | ≤ 60 minutes | drill-verified, below |
-| Backup freshness rule | base backup > 30h old | C1.1 definition is inert; evaluation and delivery evidence are C1.3 |
-| Drill cadence | quarterly, timed, logged | this document |
+| Immutable-backup restore-only | The first timed target-time drill measures RTO through the application clinical-read gate and RPO from source safe point to approved PITR target | C-D1 ratifies the measured values |
+| Warm-standby end-to-end promotion | Approximately one hour to restored service and seconds of data loss; not measured by this document | C-D9 is evaluated separately in Phase 2 |
+| Backup freshness | Base backup older than 30 hours is an alert condition, not RTO/RPO | C1.1 rule; C1.3 delivery |
+| Restore drill cadence | Quarterly, timed, logged, and shipped `suspend: true` | Operator-approved window |
+
+A restore-only result of 12 hours does not fail C-D9. It provides the measured
+justification for the warm site. Every evidence record has two rows, never one.
 
 ---
 
@@ -49,18 +53,30 @@ active.
 | Control | Status | Notes |
 |---|---|---|
 | R2 object versioning | UNAVAILABLE | No supported R2 operation or current Wrangler command; do not invent a non-current-version retention policy |
-| CNPG producer identity | OPERATOR ACTION | `cnpg-backup-producer-credentials`; bucket-scoped Object Read & Write because Barman retention requires deletion |
-| Read-only DR identity | OPERATOR ACTION | Separate bucket-scoped `cnpg-dr-reader-credentials`; verifier, drill, and restore workloads only |
+| R2 bucket lock | OPERATOR GATE | Native R2 bucket-lock rules prevent overwrite/deletion; trial on a synthetic bucket before a separate legal/security-approved production change |
+| CNPG producer identity | OPERATOR ACTION | Short-lived prefix/action-scoped writer; delete actions forbidden |
+| Read-only DR identity | OPERATOR ACTION | Separate short-lived list/head/get identity for verifier, drill, and restore only |
+| Retention remover | MANIFESTED, SUSPENDED | Exact approved eligible-object inventory only; put/overwrite denied; execution defaults false |
+| Lock administrator | OUTSIDE KUBERNETES | Exact bucket-configuration authority; no object or Kubernetes Secret access |
 | Base-backup verification | MANIFESTED, INERT | `cnpg-backup-verify` runs after the daily backup and uses only the DR reader |
 | Scheduled restore proof | MANIFESTED, SUSPENDED | `scheduled-restore-proof.yaml` stays `suspend: true` until an approved synthetic proof window |
-| Brokered prefix/put-only enforcement, bucket locks, lifecycle, and independent retention/deletion authority | DEFERRED | C6.2; not delivered or implied by C1.1 |
+| Evidence writer/reader | OPERATOR ACTION | Separate off-site upload/readback identities; neither can access the database archive |
 
-Ordinary long-lived Cloudflare R2 tokens are Object Read & Write or Object
-Read-only at bucket scope; they are not prefix-scoped or true
-`object:put`-only credentials. The configured prefix is workload/application
-routing only. Never weaken Barman retention by removing delete authority from
-the producer, and never put the producer identity into a verification or
-restore workload. Brokered prefix/put-only enforcement remains C6.2.
+Cloudflare R2 temporary credentials can be constrained by bucket, prefix or
+object path, lifetime, and locally signed action list. C6.2 qualifies the
+Barman writer without `DeleteObject` or `DeleteObjects`, and moves eligible
+deletion to the suspended remover. The parent signing credential never enters
+a workload.
+
+The production recovery boundary remains 30 days, but effective retention is
+the longer of that boundary, every applicable bucket lock, and legal hold.
+C-D10's 7-day post-expiry continuity-pack and 365-day edge-access-log values
+govern different data. The PG18 upgrade rehearsal's coincidental `7d` is only
+for a disposable synthetic archive and must not be harmonized with any of
+them.
+
+The detailed operator sequence is
+[`runbooks/C6_2_R2_LOCK_AND_RESTORE_DRILL.md`](runbooks/C6_2_R2_LOCK_AND_RESTORE_DRILL.md).
 
 ---
 
@@ -121,47 +137,41 @@ Also required:
 
 ---
 
-## Automated latest-backup proof (recommended)
+## Timed target-time restore-only proof
 
 The fixed namespace `vhhealth-restore-proof` and its reader Secret must already
 exist from reviewed manifests. The script never creates, copies, exports, or
 deletes credentials.
 
 ```bash
-# From the repo root; capture stdout/stderr as drill evidence.
-bash infra/kubernetes/base/cnpg/dr-restore-drill.sh 2>&1 \
-  | tee "docs/qa-findings/$(date +%Y-%m-%d)-dr-drill.log"
+# From the repo root after setting every approved input described in the C6.2
+# runbook. EVIDENCE_OUTPUT must be outside the repository and protected.
+bash infra/kubernetes/base/cnpg/dr-restore-drill.sh
 ```
 
 The script:
 
-1. verifies `kubectl`, `curl`, `grep`, `head`, `seq`, `mktemp`, and `awk`, then
-   checks the restricted namespace and namespace-local
-   `cnpg-dr-reader-credentials` Secret;
+1. validates the approved target/safe-point, baseline, application probe,
+   lock-proof, source-commit, run-ID, and evidence-output inputs;
 2. refuses to overwrite an existing `vhhealth-pg-drill` Cluster or
    `vhhealth-pg18-reader` ObjectStore;
-3. applies the excluded reader-only `ObjectStore` and disposable PostgreSQL 18
-   recovery Cluster from `dr-restore-drill.yaml`;
+3. patches only a temporary copy of the excluded manifest with the target time
+   and applies the reader-only `ObjectStore` and disposable recovery Cluster;
 4. waits up to 50 minutes for `Cluster in healthy state`;
-5. proves the exact qualified PostgreSQL 18.4 image, required roles, a non-empty
-   schema checksum, data checksums, pgvector availability/distance query, and a
-   representative application read;
-6. prints schema/role checksums and query results; and
+5. proves the exact image, roles, approved schema/migration baselines, data
+   checksums, pgvector, tenant-isolated admissions/timeline/audit reads, and a
+   read-only application clinical probe;
+6. writes a PHI-free evidence file containing separate C-D1 restore-only and
+   C-D9 `NOT_RUN_PHASE_2` rows; and
 7. removes only the Cluster and ObjectStore carrying
    `vhhealth.app/disposable-restore-proof=true` and the UIDs captured when the
    script created them, using UID delete preconditions and waiting for Cluster
    deletion before ObjectStore deletion.
 
-It restores the latest available `vhhealth-pg18` archive. It does not calculate
-RPO/RTO, create a Markdown result, or execute a target-time PITR. The operator
-must capture timestamps, compare database freshness with the production
-baseline, run the additional clinical checks below, and complete the results
-template. Use a separately reviewed incident manifest for target-time recovery.
-
-The suspended `cnpg-scheduled-restore-proof` CronJob is a second inert path. Do
-not unsuspend it until an approved synthetic proof window; it also creates and
-removes only its labeled Cluster/ObjectStore and uses the namespace-local
-reader Secret.
+Upload the evidence through the separate evidence writer and read it back
+through the evidence reader. The suspended `cnpg-scheduled-restore-proof`
+CronJob performs the same target-time, SQL/application, upload/readback, and
+UID-bound cleanup contract after every `OWNER_INPUT` is supplied out-of-band.
 
 ---
 
@@ -306,60 +316,11 @@ checksums, or captured evidence.
 
 ## Results capture template
 
-Copy this block, fill in values, save to `docs/qa-findings/YYYY-MM-DD-dr-drill.md`.
-
-```markdown
-# DR Restore Drill — YYYY-MM-DD
-
-## Drill metadata
-
-| Field | Value |
-|---|---|
-| Drill date | YYYY-MM-DD |
-| Drill start | HH:MM IST |
-| Recovery target | latest available archive, or approved RFC3339 target |
-| Cluster ready at | HH:MM IST |
-| Operator | Name |
-
-## Timing results
-
-| Metric | Measured | Target | Status |
-|---|---|---|---|
-| Cluster ready (recovery elapsed) | Xs (Xm) | N/A | — |
-| RPO (max event lag vs prod) | Xs | ≤ 300s (5m) | PASS/FAIL |
-| RTO (total drill wall time) | Xs (Xm) | ≤ 3600s (60m) | PASS/FAIL |
-
-## Clinical invariants
-
-| Check | Drill value | Prod baseline | Assessment |
-|---|---|---|---|
-| admissions (admitted) | X | X | PASS/FAIL |
-| max(clinical_timeline_events.created_at) | TIMESTAMP | PROD_TIMESTAMP | PASS: ≤ T |
-| migration count | X | X | PASS: equal |
-| users count | X | X | PLAUSIBLE |
-| tenants | X | X | PASS: equal |
-
-## Backend smoke test
-
-- [ ] `GET /health/deep` → 200
-- [ ] Timeline chart read → data present up to T
-- [ ] Admission endpoint → count matches invariant
-
-## Findings
-
-(None / list issues)
-
-## Actions
-
-(None / ticket refs)
-
-## Teardown confirmed
-
-- [x] Labeled `Cluster/vhhealth-pg-drill` and
-      `ObjectStore/vhhealth-pg18-reader` deleted at HH:MM IST
-- [x] `vhhealth-restore-proof` namespace and
-      `cnpg-dr-reader-credentials` retained
-```
+Use
+[`qa-findings/c6-2-restore-evidence-template.md`](qa-findings/c6-2-restore-evidence-template.md).
+It requires two distinct objective rows, lock and identity-negative proof,
+clinical invariants, off-site upload/readback, UID cleanup, and C-D1
+ratification.
 
 ---
 
@@ -400,14 +361,12 @@ promotion evidence template.
 
 ## Open items (owner-gated)
 
-- [ ] Bucket-scoped Object Read & Write producer and separate bucket-scoped
-      Object Read-only DR tokens created and sealed; configured prefixes remain
-      workload routing rather than token scope (operator).
-- [ ] First quarterly drill: scheduled and on ops calendar.
-- [ ] RPO/RTO targets signed off by hospital leadership.
-- [ ] C6.2 decides brokered prefix/put-only enforcement, bucket locks,
-      lifecycle, and independent retention/deletion authority; it must not
-      assume R2 object versioning.
+- [ ] Non-production bucket-lock and credential-negative trial accepted.
+- [ ] Legal/security-approved production database lock applied and retrieved.
+- [ ] Short-lived writer, reader, remover, and evidence identities qualified.
+- [ ] First timed restore-only drill scheduled and completed.
+- [ ] C-D1 restore-only values ratified.
+- [ ] Phase 1 evidence accepted before site-specific Phase 2 work.
 
 ## Rollback and evidence invariants
 

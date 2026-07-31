@@ -1,8 +1,10 @@
 # C6.2 immutable backup, restore proof, and warm-standby design delta
 
-**Status:** Step 1 design delta; implementation is not cleared
+**Status:** Step 2 inert repository implementation cleared 2026-07-31;
+activation remains blocked
 
-**Scope:** `infra/kubernetes`, `infra/ansible`, and `docs` only
+**Scope:** `infra/kubernetes`, `infra/ansible`, `docs`, and the single stale
+C1.1 manifest-validator assertion required by the C6.2 identity split
 
 **Branch:** `infra/c6-2-backup-dr`
 
@@ -35,9 +37,13 @@ The binding authority is:
 
 C-D9 is closed and is not reopened. A warm standby second site is selected,
 targeting approximately one hour to service restoration and seconds of data
-loss. Those are owner-selected targets, not measured claims. Phase 1 must
-produce the first measured RTO and RPO figures; C-D1 requires those figures to
-be ratified after the first timed drill.
+loss. Those are owner-selected **warm-standby promotion** targets, not measured
+claims. Phase 1 instead measures **restore-only** RTO and RPO from immutable
+backup. C-D1 ratifies the restore-only figures after the first timed restore;
+C-D9's targets are ratified separately from a Phase 2 end-to-end promotion
+drill. A Phase 1 restore that takes, for example, 12 hours does not mean C-D9
+is unmet. It quantifies why the warm site is required. Evidence always records
+the two scenarios as separate rows and never rolls them into one figure.
 
 The concurrent C4.2 work in PR 660 is backend-only. C6.2 owns only
 infrastructure and documentation paths. There is no file overlap, and this
@@ -94,7 +100,7 @@ C6.2 extends C1.1 rather than creating a second backup stack.
 | `scheduled-restore-proof.{yaml,sh}` | Keep the quarterly schedule suspended; make it the operator-unlocked timed proof rather than adding a competing CronJob |
 | `backup-network-policy.yaml` | Extend egress only for the exact evidence and DR contracts; do not expose PostgreSQL publicly |
 | `pg18-upgrade-rehearsal.{yaml,sh}` | Preserve the separate upgrade qualification path; C6.2 does not duplicate it or imply that production has upgraded |
-| C3.2b continuity-edge rules and C1.3 Alertmanager routing | Consume their monitoring contract; do not create a second alert family or receiver path |
+| C3.2b continuity-edge rules and C1.3 Alertmanager routing | Add C6.2 rule expressions with the existing `team` labels; do not create a receiver, route, or parallel delivery path |
 
 Two older documents require explicit correction during implementation:
 
@@ -189,6 +195,12 @@ Before production activation, legal, security, privacy, infrastructure, and
 the backup/recovery owner approve the exact database prefix and lock duration.
 C6.2 preserves the current 30-day recovery policy as repository truth but does
 not silently convert it into legal approval.
+
+The `7d` retention policy in
+`infra/kubernetes/base/cnpg/pg18-upgrade-rehearsal.yaml` belongs only to a
+disposable synthetic upgrade-rehearsal archive. It is neither the production
+database policy nor C-D10's continuity-pack value, despite the coincidental
+number, and must not be “harmonized” with either.
 
 ## 6. Phase 1C — identity and deletion-authority split
 
@@ -297,9 +309,11 @@ The clinical checks are gates, not plausibility-only decoration:
 No production traffic or write is sent to the disposable cluster. Evidence
 contains aggregate or synthetic results and no direct patient identifiers.
 
-This first timed drill is the measurement event C-D1 deferred to. Repository
-CI, database-ready time alone, the existing latest-backup script, or a
-synthetic manifest render cannot produce or ratify the RTO/RPO numbers.
+This first timed drill is the **restore-only** measurement event C-D1 deferred
+to. Repository CI, database-ready time alone, the existing latest-backup
+script, or a synthetic manifest render cannot produce or ratify those
+restore-only RTO/RPO numbers. It does not measure the separate C-D9
+warm-standby promotion target.
 
 ## 8. Phase 1 acceptance record
 
@@ -320,6 +334,13 @@ The off-site evidence pack must state:
 - every operator and owner approval;
 - evidence-object checksum, off-site location, and retention/lock state; and
 - findings, aborted steps, cleanup receipts, and unresolved holds.
+
+Its objective table always has two rows:
+
+| Scenario | Evidence source | Decision authority | Status in Phase 1 |
+| --- | --- | --- | --- |
+| Immutable-backup restore-only RTO/RPO | Timed disposable PITR, ending after required application-role clinical reads | C-D1 | Measured in Phase 1 and submitted for ratification |
+| Warm-standby service-restoration RTO/RPO | Phase 2 promotion drill, including fencing, promotion, secret/trust restoration, application validation, continuity-source transition, and traffic change | C-D9 | `NOT_RUN_PHASE_2`; never inferred from the restore-only row |
 
 Any missing value is a failed gate, not `N/A`, unless the runbook names and
 justifies that field as structurally inapplicable.
@@ -415,6 +436,31 @@ HEAD/GET/list for the approved archive, Barman server identity, base-backup
 catalogue, WAL reachability, and reader-denied write/delete. A second-provider
 or air-gapped copy remains an owner/security decision; this delta does not
 silently choose one.
+
+### 9.3.1 Continuity-edge source transition
+
+The continuity edge remains pull-only during site failover. After the DR site
+is promoted and its application publication path passes the clinical and
+signature gates, the DR site becomes the authoritative continuity-pack
+publication and pull source. DNS/tunnel routing changes only after that
+publication proves the same logical facility identity, trusted signing chain,
+monotonic manifest/policy/revocation generations, and an access revision not
+below the edge's persisted floor.
+
+Changing site or transport identity does **not** reset edge state. The edge
+retains its highest accepted manifest, policy, revocation, access-revision, and
+trusted-time floors, along with its last valid signed set. It rejects a DR
+publication that rolls any floor backward, even if the TLS endpoint or
+publication host is new. A source change uses an owner-approved endpoint and
+trust mapping; it never bootstraps a new empty anti-rollback ledger.
+
+If neither site is reachable, the edge continues serving only its last
+cryptographically valid set and only until that set's signed expiry. It stops
+serving the expired set; loss of both pull sources does not extend
+`fresh_until`, reset access revision, or authorize a local override. The
+promotion evidence records the old and new source identities, source-switch
+time, preserved floors, first accepted DR manifest, and any interval in which
+the edge was serving its last valid set.
 
 ### 9.4 C1.2 and C2.1 at the second site
 
@@ -549,6 +595,10 @@ After coordinator clearance, the intended inert implementation ledger is:
 - `infra/kubernetes/base/cnpg/scheduled-restore-proof.yaml`;
 - `infra/kubernetes/base/cnpg/scheduled-restore-proof.sh`;
 - `infra/kubernetes/base/cnpg/kustomization.yaml`;
+- `infra/kubernetes/base/monitoring/alert-rules.yaml`;
+- `scripts/check-c1-1-manifest-contract.mjs` (validator-only: move the 30-day
+  assertion from Barman's writer-owned deletion field to C6.2's external
+  remover boundary);
 - `infra/ansible/README.md`;
 - `docs/DR_RESTORE_DRILL.md`;
 - `docs/CROSS_SITE_DR_FAILOVER_PLAN.md`;
@@ -596,6 +646,10 @@ Step 2 repository receipts must include:
 - assertions that all production Argo Applications remain manual-sync;
 - assertions that the restore and retention-removal schedules remain
   suspended;
+- assertions that evidence contains distinct C-D1 restore-only and C-D9
+  warm-promotion rows, with Phase 1 unable to populate the C-D9 row;
+- assertions that C6.2 alerts use C1.3's existing `backup`/`database` team
+  routes and add no receiver or routing resource;
 - assertions that the held DR template is unreferenced by production;
 - assertions that no real credential, site, jurisdiction, IP address, private
   link, DNS change, tunnel token, bucket-lock activation, or automatic sync is

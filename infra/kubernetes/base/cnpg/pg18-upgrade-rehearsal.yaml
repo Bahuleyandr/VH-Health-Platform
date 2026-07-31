@@ -36,6 +36,8 @@ spec:
       compression: gzip
       immediateCheckpoint: false
       jobs: 1
+  # Disposable synthetic rehearsal only. This coincidental 7d value is not
+  # the production database boundary and is unrelated to C-D10 pack retention.
   retentionPolicy: "7d"
 ---
 apiVersion: postgresql.cnpg.io/v1

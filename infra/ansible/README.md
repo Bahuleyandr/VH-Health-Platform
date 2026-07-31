@@ -173,6 +173,29 @@ The repository implementation is inert. Follow
 `docs/runbooks/C2_1_INTERNAL_INGRESS_DRILL.md` only after every activation hold
 has owner approval.
 
+## C6.2 second-site preflight
+
+`playbooks/c6-2-dr-site-preflight.yml` is a localhost-only, check-mode,
+assertion playbook. It cannot provision RKE2, change a route, open a private
+link, apply Kubernetes resources, or promote PostgreSQL. Its repository
+defaults all fail.
+
+Run it only after the Phase 1 immutable-backup evidence is accepted:
+
+```bash
+ansible-playbook -i localhost, -c local \
+  playbooks/c6-2-dr-site-preflight.yml \
+  -e @/secure/operator-owned/c6-2-preflight-inputs.yml
+```
+
+The operator-owned input file is never committed. It contains the accepted
+evidence digest, C-D1 restore-only ratification, the separate C-D9 promotion
+target ratification, site/legal/budget/private-link/drill decisions, distinct
+site-local control-plane and ingress VIPs, and continuity-edge anti-rollback
+floor evidence. Phase 1 restore-only measurements never populate the C-D9
+promotion row. The DR site duplicates C1.2/C2.1 locally; etcd, VRRP, and
+Longhorn are never stretched across sites.
+
 ---
 
 ## Quickstart — fresh production cluster

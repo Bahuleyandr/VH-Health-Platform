@@ -1,0 +1,138 @@
+# Generic held topology only. It is forbidden to replace these sentinels or
+# reference this directory from production until Phase 1 evidence is accepted.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-dr-held
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    vhhealth.app/activation-state: blocked
+  annotations:
+    vhhealth.app/phase1-evidence: OWNER_INPUT_ACCEPTED_EVIDENCE_ID
+    vhhealth.app/site-selection: OWNER_INPUT_OWNER_LEGAL_DECISION
+    vhhealth.app/jurisdiction: OWNER_INPUT_OWNER_LEGAL_DECISION
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: vhhealth-pg-dr-reader-held
+  namespace: vhhealth-dr-held
+  labels:
+    app.kubernetes.io/component: warm-standby-archive-reader
+    vhhealth.app/activation-state: blocked
+spec:
+  configuration:
+    destinationPath: "s3://OWNER_INPUT_DATABASE_ARCHIVE/cluster/"
+    endpointURL: "https://OWNER_INPUT_ACCOUNT.r2.cloudflarestorage.com"
+    s3Credentials:
+      accessKeyId:
+        name: cnpg-dr-site-reader-credentials
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: cnpg-dr-site-reader-credentials
+        key: SECRET_ACCESS_KEY
+      sessionToken:
+        name: cnpg-dr-site-reader-credentials
+        key: ACCESS_SESSION_TOKEN
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: vhhealth-pg-dr-producer-held
+  namespace: vhhealth-dr-held
+  labels:
+    app.kubernetes.io/component: warm-standby-archive-writer
+    vhhealth.app/activation-state: blocked
+  annotations:
+    vhhealth.app/database-retention-boundary: "30d"
+spec:
+  configuration:
+    destinationPath: "s3://OWNER_INPUT_DR_DATABASE_ARCHIVE/cluster/"
+    endpointURL: "https://OWNER_INPUT_DR_ACCOUNT.r2.cloudflarestorage.com"
+    s3Credentials:
+      accessKeyId:
+        name: cnpg-dr-site-writer-credentials
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: cnpg-dr-site-writer-credentials
+        key: SECRET_ACCESS_KEY
+      sessionToken:
+        name: cnpg-dr-site-writer-credentials
+        key: ACCESS_SESSION_TOKEN
+    wal:
+      compression: gzip
+      maxParallel: 8
+    data:
+      compression: gzip
+      jobs: 2
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vhhealth-pg-dr-held
+  namespace: vhhealth-dr-held
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: warm-standby
+    app.kubernetes.io/part-of: vhhealth
+    vhhealth.app/activation-state: blocked
+  annotations:
+    vhhealth.app/phase1-evidence: OWNER_INPUT_ACCEPTED_EVIDENCE_ID
+    vhhealth.app/private-link: OWNER_INPUT_APPROVED_PRIVATE_LINK
+    vhhealth.app/promotion-drill-window: OWNER_INPUT_APPROVED_WINDOW
+spec:
+  description: "HELD C6.2 CNPG distributed-topology replica cluster"
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8
+  instances: 3
+  storage:
+    size: 110Gi
+    storageClass: OWNER_INPUT_DR_SITE_STORAGE_CLASS
+  walStorage:
+    size: 25Gi
+    storageClass: OWNER_INPUT_DR_SITE_STORAGE_CLASS
+  bootstrap:
+    recovery:
+      source: vhhealth-pg-primary
+  replica:
+    self: vhhealth-pg-dr
+    primary: vhhealth-pg-primary
+    source: vhhealth-pg-primary
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: vhhealth-pg-dr-producer-held
+  externalClusters:
+    - name: vhhealth-pg-primary
+      connectionParameters:
+        host: primary-postgresql.OWNER_INPUT_PRIVATE_LINK.invalid
+        user: OWNER_INPUT_REPLICATION_ROLE
+        sslmode: verify-full
+        dbname: postgres
+      sslKey:
+        name: cnpg-dr-site-replication-client
+        key: tls.key
+      sslCert:
+        name: cnpg-dr-site-replication-client
+        key: tls.crt
+      sslRootCert:
+        name: cnpg-dr-site-replication-trust
+        key: ca.crt
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: vhhealth-pg-dr-reader-held
+          serverName: OWNER_INPUT_PRIMARY_BARMAN_SERVER
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+  monitoring:
+    enablePodMonitor: true
+    customQueriesConfigMap:
+      - name: vhhealth-cnpg-custom-queries
+        key: queries
