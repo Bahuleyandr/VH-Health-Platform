@@ -256,3 +256,59 @@ spec:
             summary: "The operator-gated CNPG restore proof is not suspended"
             description: "C1.1 ships this CronJob suspended. Suspend it immediately unless a recorded synthetic restore drill is actively in progress."
             runbook: "docs/DR_RESTORE_DRILL.md"
+
+    # C6.2 adds rule expressions only. C1.3's existing team=backup and
+    # team=database routing tree owns receivers and delivery activation.
+    - name: c6-2-backup-dr
+      interval: 1m
+      rules:
+        - alert: C6BackupLockNotEffective
+          expr: (vhhealth_c6_2_backup_lock_effective == 0) or absent(vhhealth_c6_2_backup_lock_effective)
+          for: 5m
+          labels:
+            severity: critical
+            team: backup
+          annotations:
+            summary: "The approved C6.2 database backup lock is not effective"
+            description: "The operator-published lock attestation metric reports that the approved production archive prefix is not protected. Preserve the last recoverable generation and follow the C6.2 lock runbook."
+            runbook: "docs/runbooks/C6_2_R2_LOCK_AND_RESTORE_DRILL.md"
+        - alert: C6RestoreProofFailed
+          expr: max(kube_job_status_failed{namespace="vhhealth-restore-proof", job_name=~"^cnpg-scheduled-restore-proof.*"}) > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: backup
+          annotations:
+            summary: "The C6.2 timed restore-only proof failed"
+            description: "This is a C-D1 restore-only evidence failure. It does not measure or fail C-D9's separate warm-promotion target."
+            runbook: "docs/runbooks/C6_2_R2_LOCK_AND_RESTORE_DRILL.md"
+        - alert: C6RetentionRemovalUnexpectedlyEnabled
+          expr: kube_cronjob_spec_suspend{namespace="vhhealth-platform", cronjob="cnpg-retention-removal"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: backup
+          annotations:
+            summary: "The operator-gated C6.2 retention remover is not suspended"
+            description: "Suspend it unless a named legal/security/backup-approved exact-object removal window is active. Never retry a lock-denied deletion by widening authority."
+            runbook: "docs/runbooks/C6_2_R2_LOCK_AND_RESTORE_DRILL.md"
+        - alert: C6RetentionRemovalFailed
+          expr: max(kube_job_status_failed{namespace="vhhealth-platform", job_name=~"^cnpg-retention-removal.*"}) > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: backup
+          annotations:
+            summary: "The C6.2 approved-object retention-removal job failed"
+            description: "Inspect the immutable approval inventory, Barman boundary, legal-hold and bucket-lock proof. Do not grant the database writer delete authority."
+            runbook: "docs/runbooks/C6_2_R2_LOCK_AND_RESTORE_DRILL.md"
+        - alert: C6WarmStandbyReplicationLagHigh
+          expr: vhhealth_replication_lag_seconds{application_name=~"(?i).*dr.*"} > 30
+          for: 5m
+          labels:
+            severity: critical
+            team: database
+          annotations:
+            summary: "C6.2 warm-standby streaming lag exceeds 30 seconds"
+            description: "The Phase 2 target is evaluated only by a promotion drill; this signal protects the async stream and does not itself prove RPO."
+            runbook: "docs/runbooks/C6_2_WARM_STANDBY_PROMOTION_FAILBACK.md"

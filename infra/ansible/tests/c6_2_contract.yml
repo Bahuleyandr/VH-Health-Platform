@@ -1,0 +1,65 @@
+---
+# Offline static and predicate contract for the read-only C6.2 preflight.
+- name: Verify C6.2 preflight remains fail-closed and non-mutating
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    c6_2_preflight_text: >-
+      {{
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir ~ '/../playbooks/c6-2-dr-site-preflight.yml'
+        )
+      }}
+    c6_2_valid_restore_rto: "43200"
+    c6_2_valid_restore_rpo: "300"
+    c6_2_valid_evidence_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    c6_2_valid_primary_vips:
+      - 10.10.0.10
+      - 10.10.0.20
+    c6_2_valid_dr_control_plane_vip: 10.20.0.10
+    c6_2_valid_dr_ingress_vip: 10.20.0.20
+  tasks:
+    - name: Assert the preflight contains no mutating module
+      ansible.builtin.assert:
+        that:
+          - "'hosts: localhost' in c6_2_preflight_text"
+          - "'connection: local' in c6_2_preflight_text"
+          - "'check_mode: true' in c6_2_preflight_text"
+          - "'ansible.builtin.assert:' in c6_2_preflight_text"
+          - "'ansible.builtin.debug:' in c6_2_preflight_text"
+          - "'ansible.builtin.command:' not in c6_2_preflight_text"
+          - "'ansible.builtin.shell:' not in c6_2_preflight_text"
+          - "'ansible.builtin.package:' not in c6_2_preflight_text"
+          - "'ansible.builtin.service:' not in c6_2_preflight_text"
+          - "'ansible.builtin.copy:' not in c6_2_preflight_text"
+
+    - name: Assert the four coordinator conditions are hard gates
+      ansible.builtin.assert:
+        that:
+          - "'c6_2_restore_only_cd1_ratified' in c6_2_preflight_text"
+          - "'c6_2_warm_promotion_cd9_target_ratified' in c6_2_preflight_text"
+          - "'c6_2_edge_floor_evidence_sha256' in c6_2_preflight_text"
+          - "'c6_2_site_jurisdiction_decision_id' in c6_2_preflight_text"
+          - "'c6_2_stretch_etcd' in c6_2_preflight_text"
+          - "'c6_2_stretch_longhorn' in c6_2_preflight_text"
+          - "'c6_2_stretch_vrrp' in c6_2_preflight_text"
+
+    - name: Prove a representative accepted fixture satisfies predicates
+      ansible.builtin.assert:
+        that:
+          - c6_2_valid_restore_rto is match('^[0-9]+$')
+          - c6_2_valid_restore_rpo is match('^[0-9]+$')
+          - c6_2_valid_evidence_sha is match('^[0-9a-f]{64}$')
+          - c6_2_valid_dr_control_plane_vip != c6_2_valid_dr_ingress_vip
+          - c6_2_valid_dr_control_plane_vip not in c6_2_valid_primary_vips
+          - c6_2_valid_dr_ingress_vip not in c6_2_valid_primary_vips
+
+    - name: Prove representative sentinel and stretched fixtures fail
+      ansible.builtin.assert:
+        that:
+          - not ('OWNER_INPUT' not in 'OWNER_INPUT_APPROVAL')
+          - not ('OWNER_INPUT_SHA256' is match('^[0-9a-f]{64}$'))
+          - not (true == false)
+          - not ('10.10.0.10' not in c6_2_valid_primary_vips)

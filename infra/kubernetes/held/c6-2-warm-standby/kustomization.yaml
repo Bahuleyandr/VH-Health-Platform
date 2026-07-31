@@ -1,0 +1,9 @@
+# C6.2 held template. No production or Argo Kustomization references this
+# directory. OWNER_INPUT values are deliberate activation blockers.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: c6-2-warm-standby-held
+resources:
+  - cluster-template.yaml
+  - network-policy.yaml

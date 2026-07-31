@@ -449,10 +449,20 @@ function assertScheduleObjectStoreAndEndpoint(platformDocs, appsDocs) {
     /^\s{4}destinationPath:\s*["']?s3:\/\/vhhealth-db-backups\/cluster\/["']?\s*$/m,
     `ObjectStore/${objectStore.name} must keep the distinct PG18 archive destination`,
   );
+  rejectText(
+    objectStore.raw,
+    /^\s{2}retentionPolicy:\s*/m,
+    `ObjectStore/${objectStore.name} must not give the no-delete writer Barman retention authority`,
+  );
   requireText(
     objectStore.raw,
-    /^\s{2}retentionPolicy:\s*["']?30d["']?\s*$/m,
-    `ObjectStore/${objectStore.name} must retain backups for 30d`,
+    /^\s{4}vhhealth\.app\/database-retention-boundary:\s*["']?30d["']?\s*$/m,
+    `ObjectStore/${objectStore.name} must preserve the external remover's 30d eligibility boundary`,
+  );
+  requireText(
+    objectStore.raw,
+    /^\s{6}sessionToken:\s*$[\s\S]*?^\s{8}name:\s*cnpg-backup-producer-credentials\s*$/m,
+    `ObjectStore/${objectStore.name} must use the qualified temporary writer credential`,
   );
   requireText(
     objectStore.raw,

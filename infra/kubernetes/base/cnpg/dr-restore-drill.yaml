@@ -20,6 +20,9 @@ spec:
       secretAccessKey:
         name: cnpg-dr-reader-credentials
         key: SECRET_ACCESS_KEY
+      sessionToken:
+        name: cnpg-dr-reader-credentials
+        key: ACCESS_SESSION_TOKEN
     wal:
       compression: gzip
     data:
@@ -59,6 +62,10 @@ spec:
   bootstrap:
     recovery:
       source: vhhealth-pg18-r2
+      # Required before a drill. The script rejects this sentinel and patches
+      # only its temporary input stream; production manifests remain inert.
+      recoveryTarget:
+        targetTime: "2000-01-01T00:00:00Z"
   externalClusters:
     - name: vhhealth-pg18-r2
       plugin:

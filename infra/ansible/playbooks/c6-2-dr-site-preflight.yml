@@ -1,0 +1,103 @@
+---
+# Read-only C6.2 gate. It targets localhost, gathers no facts, changes no host,
+# and fails on every repository default. Site-specific work remains forbidden
+# until an operator supplies an accepted Phase 1 evidence record.
+- name: C6.2 warm-standby site preflight
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  check_mode: true
+  vars:
+    c6_2_phase1_evidence_accepted: false
+    c6_2_phase1_evidence_sha256: OWNER_INPUT_SHA256
+    c6_2_restore_only_cd1_ratified: false
+    c6_2_restore_only_rto_seconds: OWNER_INPUT_INTEGER
+    c6_2_restore_only_rpo_seconds: OWNER_INPUT_INTEGER
+    c6_2_warm_promotion_cd9_target_ratified: false
+    c6_2_site_selection_decision_id: OWNER_INPUT_DECISION
+    c6_2_site_jurisdiction_decision_id: OWNER_INPUT_OWNER_LEGAL_DECISION
+    c6_2_budget_procurement_approval_id: OWNER_INPUT_APPROVAL
+    c6_2_private_link_approval_id: OWNER_INPUT_APPROVAL
+    c6_2_private_link_cidrs: []
+    c6_2_dr_control_plane_vip: OWNER_INPUT_SITE_LOCAL_VIP
+    c6_2_dr_internal_ingress_vip: OWNER_INPUT_SITE_LOCAL_VIP
+    c6_2_primary_site_vips: []
+    c6_2_drill_window_approval_id: OWNER_INPUT_APPROVAL
+    c6_2_edge_source_transition_approval_id: OWNER_INPUT_APPROVAL
+    c6_2_edge_floor_evidence_sha256: OWNER_INPUT_SHA256
+    c6_2_stretch_etcd: false
+    c6_2_stretch_longhorn: false
+    c6_2_stretch_vrrp: false
+  tasks:
+    - name: Require accepted immutable-backup and restore-only evidence
+      ansible.builtin.assert:
+        that:
+          - c6_2_phase1_evidence_accepted | bool
+          - c6_2_phase1_evidence_sha256 is match('^[0-9a-f]{64}$')
+          - c6_2_restore_only_cd1_ratified | bool
+          - c6_2_restore_only_rto_seconds | string is match('^[0-9]+$')
+          - c6_2_restore_only_rpo_seconds | string is match('^[0-9]+$')
+        fail_msg: >-
+          Phase 1 acceptance and C-D1 restore-only ratification are mandatory
+          before site-specific warm-standby work.
+
+    - name: Keep C-D9 promotion targets separate from C-D1 restore figures
+      ansible.builtin.assert:
+        that:
+          - c6_2_warm_promotion_cd9_target_ratified | bool
+          - c6_2_restore_only_rto_seconds is defined
+          - c6_2_restore_only_rpo_seconds is defined
+        fail_msg: >-
+          C-D9's warm-promotion target must be ratified separately; Phase 1
+          restore-only measurements cannot populate the promotion row.
+
+    - name: Require owner, legal, budget, link, and drill decisions
+      ansible.builtin.assert:
+        that:
+          - "'OWNER_INPUT' not in c6_2_site_selection_decision_id"
+          - "'OWNER_INPUT' not in c6_2_site_jurisdiction_decision_id"
+          - "'OWNER_INPUT' not in c6_2_budget_procurement_approval_id"
+          - "'OWNER_INPUT' not in c6_2_private_link_approval_id"
+          - "'OWNER_INPUT' not in c6_2_drill_window_approval_id"
+          - c6_2_private_link_cidrs | length > 0
+        fail_msg: >-
+          Engineering does not choose the second site, jurisdiction, budget,
+          private link, or drill window.
+
+    - name: Require distinct site-local control-plane and ingress VIPs
+      ansible.builtin.assert:
+        that:
+          - "'OWNER_INPUT' not in c6_2_dr_control_plane_vip"
+          - "'OWNER_INPUT' not in c6_2_dr_internal_ingress_vip"
+          - c6_2_dr_control_plane_vip != c6_2_dr_internal_ingress_vip
+          - c6_2_dr_control_plane_vip not in c6_2_primary_site_vips
+          - c6_2_dr_internal_ingress_vip not in c6_2_primary_site_vips
+        fail_msg: >-
+          C1.2 and C2.1 VIPs are duplicated per site and may not collide with
+          each other or the primary site.
+
+    - name: Forbid stretched site-local failure domains
+      ansible.builtin.assert:
+        that:
+          - not (c6_2_stretch_etcd | bool)
+          - not (c6_2_stretch_longhorn | bool)
+          - not (c6_2_stretch_vrrp | bool)
+        fail_msg: >-
+          etcd, Longhorn replication, and VRRP are site-local and must never be
+          stretched across the inter-site link.
+
+    - name: Require continuity-edge source-transition evidence
+      ansible.builtin.assert:
+        that:
+          - "'OWNER_INPUT' not in c6_2_edge_source_transition_approval_id"
+          - c6_2_edge_floor_evidence_sha256 is match('^[0-9a-f]{64}$')
+        fail_msg: >-
+          The edge source switch must preserve manifest, policy, revocation,
+          access-revision, and trusted-time floors.
+
+    - name: Report read-only preflight success
+      ansible.builtin.debug:
+        msg: >-
+          C6.2 preflight passed. This check did not provision a site, open a
+          private link, apply Kubernetes resources, or promote a database.
+      changed_when: false

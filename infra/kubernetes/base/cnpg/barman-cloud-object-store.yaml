@@ -1,6 +1,7 @@
-# Barman Cloud Plugin ObjectStores. The producer has Object Read/Write
-# authority because Barman retention requires deletion; readers are separate
-# Object Read-only identities and never participate in backup production.
+# Barman Cloud Plugin producer. C6.2 removes retention deletion from the
+# database sidecar: this identity writes and reads the exact archive prefix but
+# its temporary action list excludes DeleteObject/DeleteObjects. Eligible
+# deletion is performed only by the separate suspended retention remover.
 ---
 apiVersion: barmancloud.cnpg.io/v1
 kind: ObjectStore
@@ -12,8 +13,12 @@ metadata:
     app.kubernetes.io/component: database-backup
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # This remains the production recovery boundary. It is enforced by the
+    # separately approved remover because a no-delete writer cannot execute
+    # the Barman plugin's built-in retention deletion.
+    vhhealth.app/database-retention-boundary: "30d"
 spec:
-  retentionPolicy: "30d"
   configuration:
     destinationPath: "s3://vhhealth-db-backups/cluster/"
     endpointURL: "https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com"
@@ -24,6 +29,9 @@ spec:
       secretAccessKey:
         name: cnpg-backup-producer-credentials
         key: SECRET_ACCESS_KEY
+      sessionToken:
+        name: cnpg-backup-producer-credentials
+        key: ACCESS_SESSION_TOKEN
     wal:
       compression: gzip
       maxParallel: 8

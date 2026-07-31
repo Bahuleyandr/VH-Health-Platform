@@ -30,6 +30,7 @@ resources:
   - scheduled-backup.yaml
   - r2-backup-hardening.yaml
   - scheduled-restore-proof.yaml
+  - c6-2-retention-removal.yaml
   - backup-network-policy.yaml
 
 # DR drill and PG18 upgrade rehearsal manifests remain operator-owned,
@@ -45,3 +46,11 @@ configMapGenerator:
     namespace: vhhealth-restore-proof
     files:
       - scheduled-restore-proof.sh
+  - name: cnpg-restore-object-verification-scripts
+    namespace: vhhealth-restore-proof
+    files:
+      - verify-cnpg-backup.sh
+  - name: cnpg-retention-removal-scripts
+    namespace: vhhealth-platform
+    files:
+      - c6-2-retention-removal.sh
