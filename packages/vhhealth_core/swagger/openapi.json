@@ -76843,6 +76843,23 @@
         }
       }
     },
+    "/api/v1/devices/vitals/recovery/resume-state": {
+      "get": {
+        "operationId": "get_api_v1_devices_vitals_recovery_resume_state",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/devices/vitals/resolve": {
       "post": {
         "operationId": "post_api_v1_devices_vitals_resolve",
@@ -84583,6 +84600,23 @@
       },
       "post": {
         "operationId": "post_api_v1_fhir_Observation",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fhir/Observation/$recover": {
+      "post": {
+        "operationId": "post_api_v1_fhir_Observation_recover",
         "responses": {
           "200": {
             "description": "Successful response",

@@ -6,7 +6,7 @@
 // may send an optional patient_uid or rely on an active device association; the
 // service never guesses a patient from bed/location context.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { parseHL7 } from '../hl7/hl7Parser.js';
@@ -21,6 +21,12 @@ import {
 } from '../devices/deviceRegistryService.js';
 import { resolveActiveAssociation } from '../devices/deviceAssociationService.js';
 import { classifyVitalAnomalyCandidates } from '../../utils/clinical/vitalSignMonitor.js';
+import {
+  enqueueExternalRecoveryItem,
+  processNextItemTx,
+  readExternalRecoveryResumeState,
+} from '../integrations/externalInterfaceRecoveryService.js';
+import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecoveryService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEVICE_GATEWAY_ROLE = 'DEVICE_GATEWAY';
@@ -570,6 +576,96 @@ export async function ingestDeviceVitals({
   }
 }
 
+export async function ingestSequencedDeviceVitalsRecovery(input = {}, context = {}) {
+  if (!gatewayContext(context)) {
+    throw AppError.forbidden(
+      'I09 recovery is accepted only from DEVICE_GATEWAY callers',
+      'EXTERNAL_RECOVERY_GATEWAY_REQUIRED',
+    );
+  }
+  const prepared = await setTenantTx(input.tenantId, (tx) => validateI09GatewayRecovery({
+    tenantId: input.tenantId,
+    message: input.message,
+    deviceCode: input.deviceCode,
+    patientUid: input.patientUid,
+    channel: input.channel,
+    recovery: input.recovery,
+  }, { tx }));
+  const operation = {
+    tenantId: input.tenantId,
+    offsetId: prepared.offsetId,
+    interfaceFamily: prepared.interfaceFamily,
+    sourcePartition: prepared.sourcePartition,
+    generation: prepared.generation,
+    sourcePosition: prepared.sourcePosition,
+    sourceToken: prepared.sourceToken,
+    predecessorToken: prepared.predecessorToken,
+    duplicateKey: prepared.duplicateKey,
+    occurredAt: prepared.occurredAt,
+    command: {
+      ...prepared.command,
+      actor_uid: context.actorUid || null,
+    },
+    commandFingerprint: prepared.commandFingerprint,
+  };
+  const queued = await enqueueExternalRecoveryItem(operation);
+  if (queued.held) {
+    throw AppError.conflict(
+      'Canonical I09 recovery marker is missing; owner reconciliation is required',
+      'EXTERNAL_RECOVERY_MARKER_MISSING',
+    );
+  }
+  if (queued.duplicate) return queued;
+  return processNextItemTx(operation);
+}
+
+export async function readI09GatewayRecoveryResumeState({
+  tenantId,
+  gatewayRegistryId,
+  deviceRegistryId,
+} = {}, context = {}) {
+  if (!gatewayContext(context)) {
+    throw AppError.forbidden(
+      'I09 recovery resume state is available only to DEVICE_GATEWAY callers',
+      'EXTERNAL_RECOVERY_GATEWAY_REQUIRED',
+    );
+  }
+  const gatewayId = Number(gatewayRegistryId);
+  const deviceId = Number(deviceRegistryId);
+  if (!Number.isSafeInteger(gatewayId) || gatewayId < 1
+    || !Number.isSafeInteger(deviceId) || deviceId < 1) {
+    throw AppError.badRequest(
+      'gateway_registry_id and device_registry_id must be positive integers',
+      'EXTERNAL_RECOVERY_INPUT_INVALID',
+    );
+  }
+  await setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id, kind FROM device_registry
+        WHERE tenant_id = $1::uuid AND id IN ($2::integer, $3::integer)
+          AND status = 'active'`,
+      tenantId, gatewayId, deviceId,
+    );
+    const gateway = rows.find((row) => Number(row.id) === gatewayId);
+    const device = rows.find((row) => Number(row.id) === deviceId);
+    if (
+      gatewayId === deviceId
+      || gateway?.kind !== 'monitor_gateway'
+      || device?.kind !== 'monitor'
+    ) {
+      throw AppError.forbidden(
+        'Distinct monitor_gateway and monitor device identities must be active in the authenticated tenant',
+        'EXTERNAL_RECOVERY_DEVICE_REFUSED',
+      );
+    }
+  });
+  return readExternalRecoveryResumeState({
+    tenantId,
+    interfaceFamily: 'I09',
+    sourcePartition: `i09/gateway/${gatewayId}/device/${deviceId}`,
+  });
+}
+
 export async function resolveDeviceForGateway({
   tenantId,
   sourceIp = null,
@@ -654,6 +750,8 @@ export default {
   extractVitalsFromOru,
   extractDeviceMessageMeta,
   ingestDeviceVitals,
+  ingestSequencedDeviceVitalsRecovery,
+  readI09GatewayRecoveryResumeState,
   resolveDeviceForGateway,
   listUnverifiedDeviceVitals,
   verifyDeviceVitals,

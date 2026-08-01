@@ -24,6 +24,11 @@ let taskId;
 let offsetId;
 let recoveryInboxId;
 let eventId;
+const PATIENT_UID = randomUUID();
+let patientId;
+let emergencyVisitId;
+let appointmentId;
+let vitalsId;
 
 async function guardedInsert(statement, params = []) {
   const client = new Client({ connectionString: databaseUrl });
@@ -70,6 +75,47 @@ describeIfDb('late external-recovery effect fences', () => {
       `C61-LATE-${SUFFIX}`,
     );
     facilityId = facilities[0].id;
+    const patients = await prisma.$queryRawUnsafe(
+      `INSERT INTO users
+         (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::text, 'C6.1 late patient', 'PATIENT', true, NOW())
+       RETURNING id`,
+      PATIENT_UID,
+      TENANT_ID,
+      `93${SUFFIX.slice(0, 10)}`,
+    );
+    patientId = patients[0].id;
+    const emergency = await prisma.$queryRawUnsafe(
+      `INSERT INTO emergency_visits
+         (tenant_id, visit_number, patient_uid, arrival_mode, chief_complaint, status)
+       VALUES ($1::uuid, $2::text, $3::uuid, 'walk_in', 'Late fence fixture', 'arriving')
+       RETURNING id`,
+      TENANT_ID,
+      `C61-LATE-${SUFFIX}`,
+      PATIENT_UID,
+    );
+    emergencyVisitId = emergency[0].id;
+    const appointments = await prisma.$queryRawUnsafe(
+      `INSERT INTO appointments
+         (tenant_id, phone, patient_id, patient_name, doctor_name,
+          appointment_date, appointment_time, status, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, $3::integer, 'C6.1 late patient', '',
+               CURRENT_DATE, '09:15', 'CONFIRMED', NOW(), NOW())
+       RETURNING id`,
+      TENANT_ID,
+      `93${SUFFIX.slice(0, 10)}`,
+      patientId,
+    );
+    appointmentId = appointments[0].id;
+    const vitals = await prisma.$queryRawUnsafe(
+      `INSERT INTO vitals_chart
+         (tenant_id, patient_uid, heart_rate, source, device_verified)
+       VALUES ($1::uuid, $2::uuid, 88, 'staff', NULL)
+       RETURNING id`,
+      TENANT_ID,
+      PATIENT_UID,
+    );
+    vitalsId = vitals[0].id;
     const tasks = await prisma.$queryRawUnsafe(
       `INSERT INTO tasks
          (tenant_id, task_kind, title, related_resource_type,
@@ -200,6 +246,22 @@ describeIfDb('late external-recovery effect fences', () => {
       TENANT_ID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
+      `DELETE FROM vitals_chart WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM appointments WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM emergency_visits WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
       `DELETE FROM facilities WHERE tenant_id = $1::uuid`,
       TENANT_ID,
     ).catch(() => {});
@@ -229,12 +291,57 @@ describeIfDb('late external-recovery effect fences', () => {
        VALUES ('push', 'blocked', 'blocked')`,
       [],
     ],
+    [
+      'NEWS2 score',
+      'INSERT INTO news2_scores DEFAULT VALUES',
+      [],
+    ],
+    [
+      'clinical alert',
+      'INSERT INTO clinical_alerts DEFAULT VALUES',
+      [],
+    ],
+    [
+      'vitals triage',
+      `INSERT INTO vitals_chart
+         (tenant_id, patient_uid, heart_rate, source, triage_acuity)
+       VALUES ($1::uuid, $2::uuid, 170, 'staff', 1)`,
+      [TENANT_ID, PATIENT_UID],
+    ],
   ])('database guard rejects retrospective %s creation', async (
     _label,
     statement,
     params,
   ) => {
     await guardedInsert(statement, params);
+  });
+
+  it.each([
+    [
+      'emergency triage',
+      `UPDATE emergency_visits
+          SET triage_priority = 'esi_1', triage_started_at = NOW(), status = 'in_triage'
+        WHERE id = $1::integer AND tenant_id = $2::uuid`,
+      () => [emergencyVisitId, TENANT_ID],
+    ],
+    [
+      'appointment triage',
+      `UPDATE appointments SET triage_acuity = 1
+        WHERE id = $1::integer AND tenant_id = $2::uuid`,
+      () => [appointmentId, TENANT_ID],
+    ],
+    [
+      'vitals triage',
+      `UPDATE vitals_chart SET triage_acuity = 1
+        WHERE id = $1::integer AND tenant_id = $2::uuid`,
+      () => [vitalsId, TENANT_ID],
+    ],
+  ])('database guard rejects retrospective %s mutation', async (
+    _label,
+    statement,
+    params,
+  ) => {
+    await guardedInsert(statement, params());
   });
 
   it('records a typed ignored projector outcome without invoking the handler', async () => {

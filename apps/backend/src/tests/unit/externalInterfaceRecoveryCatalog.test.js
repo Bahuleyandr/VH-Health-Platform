@@ -13,12 +13,19 @@ describe('external interface recovery catalog', () => {
       .toEqual(EXTERNAL_INTERFACE_RECOVERY_FAMILIES);
   });
 
-  it('implements only I10 in C6.1-A and keeps its late default explicit', () => {
+  it('implements I09, I10, and I15 in C6.1-B with explicit scopes', () => {
     expect(
       Object.values(EXTERNAL_INTERFACE_RECOVERY_CATALOG)
         .filter((item) => item.implemented)
         .map((item) => item.id),
-    ).toEqual(['I10']);
+    ).toEqual(['I09', 'I10', 'I15']);
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I09' }))
+      .toMatchObject({
+        id: 'I09',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        facilityScope: 'tenant',
+      });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'i10' }))
       .toMatchObject({
         id: 'I10',
@@ -26,6 +33,21 @@ describe('external interface recovery catalog', () => {
         defaultEffectDisposition: 'late_pending_only',
         facilityScope: 'facility',
       });
+    expect(resolveExternalInterfaceDisposition({
+      interfaceFamily: 'I15',
+      subpath: 'fhir_write',
+    })).toMatchObject({
+      id: 'I15',
+      selectedDisposition: 'hwm_required',
+      defaultEffectDisposition: 'late_pending_only',
+      facilityScope: 'tenant',
+    });
+    expect(resolveExternalInterfaceDisposition({
+      interfaceFamily: 'I15',
+      subpath: 'smart_oauth',
+    })).toMatchObject({
+      selectedDisposition: 'not_applicable_no_replayable_stream',
+    });
   });
 
   it('requires exact mixed-subpath selection without fallthrough', () => {

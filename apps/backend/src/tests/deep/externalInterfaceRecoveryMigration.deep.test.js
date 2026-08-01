@@ -46,6 +46,10 @@ describeIfDb('migration 603 external recovery substrate', () => {
   let otherFacilityId;
   let offsetId;
   let pathwayOffsetId;
+  const patientUid = randomUUID();
+  const otherPatientUid = randomUUID();
+  let i09InboxId;
+  let otherI09InboxId;
 
   beforeAll(async () => {
     await client.connect();
@@ -77,6 +81,20 @@ describeIfDb('migration 603 external recovery substrate', () => {
     otherFacilityId = Number(
       facilities.rows.find((row) => row.tenant_id === otherTenantId).id,
     );
+    await client.query(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES
+         ($1::uuid, $3::uuid, $5::text, 'C6.1 recovery patient', 'PATIENT', true, NOW()),
+         ($2::uuid, $4::uuid, $6::text, 'C6.1 other patient', 'PATIENT', true, NOW())`,
+      [
+        patientUid,
+        otherPatientUid,
+        tenantId,
+        otherTenantId,
+        `91${suffix.slice(0, 10)}`,
+        `92${suffix.slice(0, 10)}`,
+      ],
+    );
     const valid = await client.query(
       `INSERT INTO event_consumer_offsets
          (scope_kind, tenant_id, facility_scope, facility_id, interface_family,
@@ -103,6 +121,44 @@ describeIfDb('migration 603 external recovery substrate', () => {
       [`c61-migration-pathway-${suffix}`],
     );
     pathwayOffsetId = pathway.rows[0].offset_id;
+    for (const [rowTenantId, partition, assign] of [
+      [tenantId, `i09/gateway/41/device/42/${suffix}`, (value) => { i09InboxId = value; }],
+      [otherTenantId, `i09/gateway/51/device/52/${suffix}`, (value) => { otherI09InboxId = value; }],
+    ]) {
+      const tenantOffset = await client.query(
+        `INSERT INTO event_consumer_offsets
+           (scope_kind, tenant_id, facility_scope, facility_id, interface_family,
+            direction, source_partition, consumer_key, generation, cursor_kind,
+            high_water_position, high_water_token, recovery_state,
+            policy_version, policy_signature, retention_policy, retention_until,
+            historical_cutoff_event_id, backfill_cursor_event_id)
+         VALUES
+           ('external_interface', $1::uuid, 'tenant', NULL, 'I09', 'inbound',
+            $2::text, 'external:I09', 1, 'monotonic_position_and_predecessor',
+            10, 'token-10', 'paused', 'c-d8-v1', 'synthetic-signature',
+            'retain-730d', NOW() + INTERVAL '730 days', NULL, NULL)
+         RETURNING offset_id::text`,
+        [rowTenantId, partition],
+      );
+      const tenantInbox = await client.query(
+        `INSERT INTO pathway_projector_inbox
+           (scope_kind, tenant_id, consumer_key, generation, offset_id, facility_id,
+            interface_family, direction, source_partition, source_position,
+            source_token, predecessor_token, duplicate_key, command_fingerprint,
+            occurred_at, received_at, recorded_at, arrival_class,
+            effect_disposition, status, next_attempt_at, policy_version,
+            policy_signature, retention_policy, retention_until)
+         VALUES
+           ('external_interface', $1::uuid, 'external:I09', 1, $2::uuid, NULL,
+            'I09', 'inbound', $3::text, 11, 'token-11', 'token-10', $4::text,
+            repeat('a', 64), NOW(), NOW(), NOW(), 'recovery_backlog',
+            'late_pending_only', 'pending', NOW(), 'c-d8-v1',
+            'synthetic-signature', 'retain-730d', NOW() + INTERVAL '730 days')
+         RETURNING inbox_id::text`,
+        [rowTenantId, tenantOffset.rows[0].offset_id, partition, `i09-${rowTenantId}`],
+      );
+      assign(tenantInbox.rows[0].inbox_id);
+    }
   });
 
   afterAll(async () => {
@@ -237,6 +293,67 @@ describeIfDb('migration 603 external recovery substrate', () => {
     ), {
       code: '23503',
       constraint: 'fk_event_consumer_offsets_facility',
+    });
+  });
+
+  it('accepts tenant-only I09 partitions without manufacturing a facility', async () => {
+    const result = await client.query(
+      `SELECT facility_scope, facility_id, interface_family
+         FROM event_consumer_offsets
+        WHERE tenant_id = $1::uuid AND interface_family = 'I09'`,
+      [tenantId],
+    );
+    expect(result.rows).toEqual([{
+      facility_scope: 'tenant',
+      facility_id: null,
+      interface_family: 'I09',
+    }]);
+  });
+
+  it('direct SQL rejects late-vitals source/family and triage violations', async () => {
+    for (const [source, family, deviceVerified, triageAcuity] of [
+      ['fhir', 'I09', null, null],
+      ['device', 'I15', false, null],
+      ['device', 'I09', false, 2],
+    ]) {
+      await expectFailure(client, () => client.query(
+        `INSERT INTO vitals_chart
+           (tenant_id, patient_uid, heart_rate, source, device_verified,
+            triage_acuity, recovery_inbox_id, recovery_interface_family)
+         VALUES ($1::uuid, $2::uuid, 88, $3::text, $4::boolean,
+                 $5::smallint, $6::uuid, $7::text)`,
+        [tenantId, patientUid, source, deviceVerified, triageAcuity, i09InboxId, family],
+      ), {
+        code: '23514',
+        constraint: 'chk_vitals_chart_recovery_late_boundary',
+      });
+    }
+  });
+
+  it('direct SQL rejects cross-tenant canonical-inbox references', async () => {
+    await expectFailure(client, () => client.query(
+      `INSERT INTO vitals_chart
+         (tenant_id, patient_uid, heart_rate, source, device_verified,
+          recovery_inbox_id, recovery_interface_family)
+       VALUES ($1::uuid, $2::uuid, 88, 'device', false, $3::uuid, 'I09')`,
+      [tenantId, patientUid, otherI09InboxId],
+    ), {
+      code: '23503',
+      constraint: 'fk_vitals_chart_recovery_inbox',
+    });
+  });
+
+  it('direct SQL rejects an I09 raw receipt with drifted protocol shape', async () => {
+    await expectFailure(client, () => client.query(
+      `INSERT INTO lab_interface_messages
+         (tenant_id, direction, protocol, message_type, raw_message, status,
+          recovery_inbox_id, recovery_interface_family)
+       VALUES ($1::uuid, 'inbound', 'fhir-json', 'ORU^VITALS', 'raw', 'received',
+               $2::uuid, 'I09')`,
+      [tenantId, i09InboxId],
+    ), {
+      code: '23514',
+      constraint: 'chk_lab_interface_messages_i09_recovery_shape',
     });
   });
 
