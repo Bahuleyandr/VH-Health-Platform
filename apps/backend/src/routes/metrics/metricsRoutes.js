@@ -7,6 +7,7 @@ import { serializeMetrics } from '../../middleware/prometheusMiddleware.js';
 import { serializeReliabilityMetrics } from '../../observability/reliabilityMetrics.js';
 import { serializeTeleconsultOpsMetrics } from '../../observability/teleconsultOpsMetrics.js';
 import { serializeContinuityMetrics } from '../../observability/continuityMetrics.js';
+import { serializeStaffPushFanoutMetrics } from '../../observability/staffPushFanoutMetrics.js';
 
 const router = Router();
 
@@ -19,7 +20,9 @@ router.get('/', (_req, res) => {
       + '\n'
       + serializeTeleconsultOpsMetrics()
       + '\n'
-      + serializeContinuityMetrics(),
+      + serializeContinuityMetrics()
+      + '\n'
+      + serializeStaffPushFanoutMetrics(),
   );
 });
 

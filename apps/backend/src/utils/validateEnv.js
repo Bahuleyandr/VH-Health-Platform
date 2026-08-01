@@ -33,6 +33,14 @@ export const envSchema = Joi.object({
   RATE_LIMIT_WINDOW_MS: Joi.number().optional().label('RATE_LIMIT_WINDOW_MS'),
   RATE_LIMIT_MAX: Joi.number().optional().label('RATE_LIMIT_MAX'),
 
+  // Cap on tenant-scoped staff push fan-out (staffPushRecipientService).
+  // .max(500) is the Firebase multicast ceiling: sendPushNotification THROWS
+  // above 500 tokens, so an operator raising this to "stop dropping recipients"
+  // would flip the path from notifying 500 staff to notifying zero. Failing at
+  // boot is better than that. The service clamps again at runtime.
+  STAFF_PUSH_FANOUT_CAP: Joi.number().integer().min(1).max(500).optional()
+    .label('STAFF_PUSH_FANOUT_CAP'),
+
   // ── Clinical credential-gate enforcement flags (see config/privilegeGates.js) ──
   // Each turns ON credential enforcement for one clinical act; default OFF.
   // Registered here so the canonical flag names are documented in ONE place.
