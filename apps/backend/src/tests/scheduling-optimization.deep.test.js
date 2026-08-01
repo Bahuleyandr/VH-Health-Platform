@@ -10,10 +10,20 @@ const PHONE = `+9199918${String(Date.now() % 10000).padStart(4, '0')}`;
 let patientUid;
 let doctorUserId;
 let templateId;
-// A Wednesday far in the future (predictable weekday=3, no collisions).
-const DATE = '2027-01-06';
-const LEAVE_DATE = '2027-01-13'; // following Wednesday
-const EXCEPTION_DATE = '2027-01-20';
+// Future Wednesdays (predictable weekday=3, no collisions), computed
+// relative to today: the slot grid only honours templates whose
+// effective_from (CURRENT_DATE at creation time) is on/before the queried
+// date, so a fixed calendar date would flip the whole grid to capacity 0
+// once real time passed it.
+function futureWednesday(minDaysAhead) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + minDaysAhead);
+  while (d.getUTCDay() !== 3) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+const DATE = futureWednesday(90);
+const LEAVE_DATE = futureWednesday(97); // following Wednesday
+const EXCEPTION_DATE = futureWednesday(104);
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(`DELETE FROM scheduling_overbook_audit_events WHERE doctor_id IN (SELECT id FROM users WHERE name = 'D2TEST Doctor')`).catch(() => {});

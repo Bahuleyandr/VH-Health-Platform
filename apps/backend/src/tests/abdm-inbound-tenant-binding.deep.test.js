@@ -34,6 +34,10 @@ const PHONE_C = '+919000010c01';
 const CONSENT_ID = 'ab100000-consent-0000-0000-00000000c1';
 const SIGNED_CONSENT_ID = 'ab100000-signed-consent-0000-00000000c1';
 const TXN_ID = 'ab100000-txn-0000-0000-00000000f1';
+// Consent expiry must stay ahead of the run date: handleDataRequest
+// hard-expires the consent (CONSENT_EXPIRED) once expiry_date < NOW(),
+// which would shadow the tenant-binding assertions below.
+const CONSENT_EXPIRY = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
 const SIGNED_ARTEFACT = {
   schemaVersion: '1.0',
   consentId: SIGNED_CONSENT_ID,
@@ -146,7 +150,7 @@ d('ABDM inbound tenant binding (C-4)', () => {
         hiu: { id: 'HIU-TEST' },
         requester: { name: 'Test HIU' },
         dateRange: { from: '2026-01-01', to: '2026-12-31' },
-        expiry: '2027-01-01',
+        expiry: CONSENT_EXPIRY,
       });
     } finally {
       restoreEnv('ABDM_VERIFY_CONSENT_ARTEFACT', previousVerification);
@@ -174,7 +178,7 @@ d('ABDM inbound tenant binding (C-4)', () => {
         hiu: { id: 'HIU-TEST' },
         requester: { name: 'Test HIU' },
         dateRange: { from: '2026-01-01', to: '2026-12-31' },
-        expiry: '2027-01-01',
+        expiry: CONSENT_EXPIRY,
       }),
     ).rejects.toMatchObject({ statusCode: expect.any(Number) });
 

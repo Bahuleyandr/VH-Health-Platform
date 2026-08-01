@@ -32,9 +32,12 @@ d('ABDM data-request callback-tenant equality (CAN-007)', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid,$2::uuid,'+919000207701','ABDM Eq Patient','PATIENT',true,NOW())`, PATIENT_B, TENANT_B);
+    // Expiry must stay ahead of the run date: handleDataRequest hard-expires
+    // the consent (CONSENT_EXPIRED) once expiry_date < NOW(), which would
+    // shadow both the mismatch code and the happy path asserted below.
     await prisma.$executeRawUnsafe(
       `INSERT INTO abdm_consents (consent_id, tenant_id, patient_uid, status, hi_types, date_range_from, date_range_to, expiry_date, granted_at, created_at)
-       VALUES ($1,$2::uuid,$3::uuid,'GRANTED', ARRAY['Prescription'], '2026-01-01'::timestamptz,'2026-12-31'::timestamptz,'2027-01-01'::timestamptz, NOW(), NOW())`,
+       VALUES ($1,$2::uuid,$3::uuid,'GRANTED', ARRAY['Prescription'], '2026-01-01'::timestamptz,'2026-12-31'::timestamptz, NOW() + interval '365 days', NOW(), NOW())`,
       CONSENT_ID, TENANT_B, PATIENT_B);
   }, 30000);
   afterAll(async () => { await cleanup(); }, 30000);
