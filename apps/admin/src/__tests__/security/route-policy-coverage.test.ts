@@ -103,8 +103,12 @@ describe("H6/M8 — admin route policy", () => {
       },
     );
 
-    test("tenants + feature-flags are SUPER_ADMIN only", () => {
-      for (const p of ["/dashboard/tenants", "/dashboard/feature-flags"]) {
+    test("platform control planes are SUPER_ADMIN only", () => {
+      for (const p of [
+        "/dashboard/tenants",
+        "/dashboard/feature-flags",
+        "/dashboard/continuity-facility-context",
+      ]) {
         const policy = policyForPath(p);
         expect(policy).toBeTruthy();
         expect(roleSatisfiesPolicy("ADMIN", policy!)).toBe(false);

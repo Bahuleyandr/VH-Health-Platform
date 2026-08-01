@@ -19,6 +19,8 @@ export interface APIResponse<T = unknown> {
   success?: boolean;
   message?: string;
   data?: T;
+  requestId?: string;
+  code?: string;
   [key: string]: unknown;
 }
 
@@ -133,13 +135,21 @@ interface InternalOptions extends RequestInit {
   useAuth?: boolean;
   /** Internal — prevents infinite 401 loops on retried requests. */
   _retried?: boolean;
+  /** Internal — keeps the backend envelope for callers that need request IDs. */
+  _preserveEnvelope?: boolean;
 }
 
 async function requestJSON<T = unknown>(
   endpoint: string,
   options: InternalOptions = {},
 ): Promise<T> {
-  const { useAuth = true, _retried = false, headers, ...rest } = options;
+  const {
+    useAuth = true,
+    _retried = false,
+    _preserveEnvelope = false,
+    headers,
+    ...rest
+  } = options;
   const apiEndpoint = toApiV1Endpoint(endpoint);
 
   // Auth is carried via the httpOnly auth_token cookie handled server-side by
@@ -186,6 +196,7 @@ async function requestJSON<T = unknown>(
 
   if (isJson) {
     const body = payload as APIResponse<T>;
+    if (_preserveEnvelope) return body as T;
     return (
       "data" in body && body.data !== undefined ? body.data : (body as unknown)
     ) as T;
@@ -217,6 +228,19 @@ export function getJSON<T = unknown>(
   return requestJSON<T>(`${endpoint}${qs}`, { method: "GET", useAuth });
 }
 
+export function getJSONEnvelope<T = unknown>(
+  endpoint: string,
+  params?: QueryParams,
+  useAuth = true,
+): Promise<APIResponse<T>> {
+  const qs = params ? buildQueryString(params) : "";
+  return requestJSON<APIResponse<T>>(`${endpoint}${qs}`, {
+    method: "GET",
+    useAuth,
+    _preserveEnvelope: true,
+  });
+}
+
 export function postJSON<T = unknown>(
   endpoint: string,
   body?: unknown,
@@ -227,6 +251,20 @@ export function postJSON<T = unknown>(
     body: serializeJsonBody(body),
     headers: { "Content-Type": "application/json" },
     useAuth,
+  });
+}
+
+export function postJSONEnvelope<T = unknown>(
+  endpoint: string,
+  body?: unknown,
+  useAuth = true,
+): Promise<APIResponse<T>> {
+  return requestJSON<APIResponse<T>>(endpoint, {
+    method: "POST",
+    body: serializeJsonBody(body),
+    headers: { "Content-Type": "application/json" },
+    useAuth,
+    _preserveEnvelope: true,
   });
 }
 

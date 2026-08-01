@@ -8,14 +8,26 @@
 import {
   APIError,
   getJSON,
+  getJSONEnvelope,
   postJSON,
+  postJSONEnvelope,
   putJSON,
   deleteJSON,
   fetchAdminAPI,
   API_ENDPOINTS,
 } from "./core";
 export type { APIResponse, QueryParams } from "./core";
-export { APIError, getJSON, postJSON, putJSON, deleteJSON, fetchAdminAPI, API_ENDPOINTS };
+export {
+  APIError,
+  getJSON,
+  getJSONEnvelope,
+  postJSON,
+  postJSONEnvelope,
+  putJSON,
+  deleteJSON,
+  fetchAdminAPI,
+  API_ENDPOINTS,
+};
 
 // Auth
 import { generateOTP, verifyOTP, loginAdmin, getAuthStats } from "./auth";
@@ -157,6 +169,7 @@ export { getDatabaseOverview, getDatabaseTableRows };
 // Clinical governance
 export * from "./clinicalGovernance";
 export * from "./entitlements";
+export * from "./continuityFacilityContext";
 
 // Infrastructure & Logs
 import { getAuditLogs, toggleUserStatus } from "./infrastructure";

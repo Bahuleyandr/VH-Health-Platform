@@ -277,6 +277,12 @@ steps have authoritative receipts. It must not tell an operator to assume that
 grant revocation revoked sessions, issued a wipe order, deleted local work, or
 routed reconciliation.
 
+Step 2 links
+[the device-loss operator runbook](c4-device-loss-operator-runbook.md) for the
+session, C3 `edge_read`, signed-wipe, offline-risk, and `needs_review` duties.
+Those duties are completed and evidenced in their owning controls; the portal
+does not manufacture a completion state for them.
+
 There is no “revoke all” button. Multiple grants are displayed as an explicit
 enumeration and confirmed one at a time. A failed or unavailable call stops the
 sequence and leaves the remaining grants visibly pending.
@@ -418,9 +424,15 @@ Expected modifications:
 - `apps/admin/src/lib/api/index.ts` for the typed domain export;
 - `apps/admin/src/app/(with-auth)/dashboard/layout.tsx` for the separate Admin
   navigation entry; and
+- `apps/admin/src/lib/routePolicy.ts` for the default-deny `SUPER_ADMIN` route
+  gate;
 - `apps/admin/src/app/(with-auth)/dashboard/devices/page.tsx` only to remove the
   stale continuity placeholder/tab while preserving FCM and clinical-device
   behavior.
+
+Step 2 also adds
+`docs/continuity/c4-device-loss-operator-runbook.md` and may update this delta
+to record the implementation clearance without changing C-D14 or C-D10 values.
 
 No other file is pre-authorized. Step 2 revalidates this ledger against the
 then-current `github/main` before editing.
@@ -453,10 +465,12 @@ Portal visibility and buttons then mirror the server result. Whether
 receive either capability is owner input. That backend slice is outside this
 ledger and is an activation prerequisite.
 
-While the compile-time C-D14 gate remains false, Step 2 may expose the inert
-status page to the currently admitted Admin roles so they can see the truthful
-typed absence. It must not present that temporary visibility as the approved
-operational role mapping.
+The Step 2 implementation clearance selects the strictest existing portal role:
+both middleware and navigation limit this page to `SUPER_ADMIN`. This is a
+temporary technical restriction, not an organizational decision or proof that
+every `SUPER_ADMIN` is a C-D14 IT/security operator. Loosening visibility or
+execution later requires the owner mapping plus the separate deny-by-default
+backend capability slice.
 
 ### 8.3 Draft dossier-format owner sub-question
 
@@ -522,7 +536,8 @@ The Step 2 commit is not ready to push until all of these run from
 - the focused authenticated Playwright journey against the real disabled
   backend, following the portal's existing setup/storage-state convention
 - `git diff --check`
-- a three-dot intent diff proving only `apps/admin/**` and this document changed
+- a three-dot intent diff proving only `apps/admin/**` and the approved
+  continuity docs changed
 
 No mocked backend success, deployment, facility activation, policy publication,
 grant issuance, wipe execution, or clinical device drill counts as a receipt.
