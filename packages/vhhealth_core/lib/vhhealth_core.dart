@@ -20,6 +20,7 @@ export 'services/clinical_continuity_cache.dart';
 export 'services/clinical_continuity_action_gate.dart';
 export 'services/clinical_continuity_canonical_json.dart';
 export 'services/clinical_continuity_facility_context.dart';
+export 'services/clinical_continuity_policy_delivery.dart';
 export 'services/clinical_continuity_source.dart';
 export 'services/clinical_continuity_trust_store.dart';
 export 'services/clinical_continuity_verifier.dart';

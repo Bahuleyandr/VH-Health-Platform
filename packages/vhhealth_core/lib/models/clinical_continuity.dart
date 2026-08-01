@@ -182,6 +182,8 @@ class ClinicalContinuityPack {
   final DateTime generatedAt;
   final DateTime expiresAt;
   final ClinicalContinuityFreshness freshness;
+  final Uint8List? policyEnvelopeBytes;
+  final String? policyEnvelopeSha256;
 
   const ClinicalContinuityPack({
     required this.locationType,
@@ -192,6 +194,8 @@ class ClinicalContinuityPack {
     required this.generatedAt,
     required this.expiresAt,
     required this.freshness,
+    this.policyEnvelopeBytes,
+    this.policyEnvelopeSha256,
   });
 
   Map<String, Object?> toJson() => {
@@ -203,6 +207,10 @@ class ClinicalContinuityPack {
     'generatedAt': generatedAt.toUtc().toIso8601String(),
     'expiresAt': expiresAt.toUtc().toIso8601String(),
     'freshness': freshness.name,
+    if (policyEnvelopeBytes != null)
+      'policyEnvelope': base64Encode(policyEnvelopeBytes!),
+    if (policyEnvelopeSha256 != null)
+      'policyEnvelopeSha256': policyEnvelopeSha256,
   };
 
   factory ClinicalContinuityPack.fromJson(Map<String, Object?> json) {
@@ -217,17 +225,23 @@ class ClinicalContinuityPack {
       freshness: ClinicalContinuityFreshness.values.byName(
         json['freshness']! as String,
       ),
+      policyEnvelopeBytes: json['policyEnvelope'] == null
+          ? null
+          : Uint8List.fromList(base64Decode(json['policyEnvelope']! as String)),
+      policyEnvelopeSha256: json['policyEnvelopeSha256'] as String?,
     );
   }
 }
 
 class ClinicalContinuityFloors {
+  final String packCompositionVersion;
   final String policyVersion;
   final String manifestVersion;
   final String revocationEpoch;
   final DateTime trustedNow;
 
   const ClinicalContinuityFloors({
+    this.packCompositionVersion = '1',
     required this.policyVersion,
     required this.manifestVersion,
     required this.revocationEpoch,
@@ -235,6 +249,7 @@ class ClinicalContinuityFloors {
   });
 
   Map<String, Object?> toJson() => {
+    'packCompositionVersion': packCompositionVersion,
     'policyVersion': policyVersion,
     'manifestVersion': manifestVersion,
     'revocationEpoch': revocationEpoch,
@@ -243,6 +258,8 @@ class ClinicalContinuityFloors {
 
   factory ClinicalContinuityFloors.fromJson(Map<String, Object?> json) =>
       ClinicalContinuityFloors(
+        packCompositionVersion:
+            (json['packCompositionVersion'] as String?) ?? '1',
         policyVersion: json['policyVersion']! as String,
         manifestVersion: json['manifestVersion']! as String,
         revocationEpoch: json['revocationEpoch']! as String,
@@ -255,6 +272,9 @@ class VerifiedClinicalContinuitySet {
   final String facilityName;
   final String facilityTimezone;
   final String policyId;
+  final String packCompositionVersion;
+  final Uint8List? policyEnvelopeBytes;
+  final String? policyEnvelopeSha256;
   final String publicationSetId;
   final ClinicalContinuityLocalUnlockPolicy localUnlockPolicy;
   final List<ClinicalContinuityLocalGrant> localGrants;
@@ -285,6 +305,9 @@ class VerifiedClinicalContinuitySet {
     required this.evaluatedAt,
     required this.packs,
     required this.verifiedByteLength,
+    this.packCompositionVersion = '1',
+    this.policyEnvelopeBytes,
+    this.policyEnvelopeSha256,
   });
 
   Set<String> get signingKeyIds =>
@@ -295,6 +318,11 @@ class VerifiedClinicalContinuitySet {
     'facilityName': facilityName,
     'facilityTimezone': facilityTimezone,
     'policyId': policyId,
+    'packCompositionVersion': packCompositionVersion,
+    if (policyEnvelopeBytes != null)
+      'policyEnvelope': base64Encode(policyEnvelopeBytes!),
+    if (policyEnvelopeSha256 != null)
+      'policyEnvelopeSha256': policyEnvelopeSha256,
     'publicationSetId': publicationSetId,
     'localUnlockPolicy': localUnlockPolicy.toJson(),
     'localGrants': localGrants.map((grant) => grant.toJson()).toList(),
@@ -322,6 +350,12 @@ class VerifiedClinicalContinuitySet {
       facilityName: json['facilityName']! as String,
       facilityTimezone: json['facilityTimezone']! as String,
       policyId: json['policyId']! as String,
+      packCompositionVersion:
+          (json['packCompositionVersion'] as String?) ?? '1',
+      policyEnvelopeBytes: json['policyEnvelope'] == null
+          ? null
+          : Uint8List.fromList(base64Decode(json['policyEnvelope']! as String)),
+      policyEnvelopeSha256: json['policyEnvelopeSha256'] as String?,
       publicationSetId: json['publicationSetId']! as String,
       localUnlockPolicy: ClinicalContinuityLocalUnlockPolicy.fromJson(
         Map<String, Object?>.from(json['localUnlockPolicy']! as Map),

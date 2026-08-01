@@ -41,11 +41,13 @@ class ApiClient {
   static Future<http.Response> getBytes(
     String path, {
     Map<String, String>? queryParameters,
+    Map<String, String>? additionalHeaders,
     bool auth = true,
     Duration? timeout,
   }) => VHHttpClient.getBytes(
     path,
     queryParameters: queryParameters,
+    additionalHeaders: additionalHeaders,
     auth: auth,
     timeout: timeout,
   );

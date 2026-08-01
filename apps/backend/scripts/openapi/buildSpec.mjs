@@ -43,12 +43,13 @@ export function operationId(method, openApiPath) {
  * requestBody and/or typed success response; otherwise the generic Success envelope. */
 function buildOperation(method, openApiPath, opId, ov) {
   const responseStatus = String(ov?.responseStatus ?? 200);
+  const responseContentType = ov?.responseContentType ?? 'application/json';
   const op = {
     operationId: opId,
     responses: {
       [responseStatus]: {
         description: 'Successful response',
-        content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } },
+        content: { [responseContentType]: { schema: { $ref: '#/components/schemas/Success' } } },
       },
     },
   };
@@ -68,9 +69,14 @@ function buildOperation(method, openApiPath, opId, ov) {
     op.parameters = [...params, ...ov.parameters];
   }
   if (ov && ov.response) {
-    op.responses[responseStatus].content['application/json'].schema = {
+    op.responses[responseStatus].content[responseContentType].schema = {
       $ref: `#/components/schemas/${ov.response}`,
     };
+  }
+  if (ov && ov.additionalResponses) {
+    for (const [status, response] of Object.entries(ov.additionalResponses)) {
+      op.responses[String(status)] = response;
+    }
   }
   if (ov && ov.request) {
     op.requestBody = {

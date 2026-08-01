@@ -48,6 +48,7 @@ class ClinicalContinuityVerificationReasons {
   static const policyUnavailable = 'POLICY_UNAVAILABLE';
   static const actionPolicyInvalid = 'ACTION_POLICY_INVALID';
   static const actionRegistryInvalid = 'ACTION_REGISTRY_INVALID';
+  static const packCompositionRollback = 'PACK_COMPOSITION_ROLLBACK';
 }
 
 class ClinicalContinuityVerificationResult {
@@ -180,11 +181,28 @@ class ClinicalContinuityVerifier {
     if (trust == null) {
       _reject(ClinicalContinuityVerificationReasons.policyUnavailable);
     }
-    final envelope = _parseMap(
+    final deliveryEnvelope = _parseMap(
       envelopeBytes,
       ClinicalContinuityVerificationReasons.actionPolicyInvalid,
     );
-    if (!_exactKeys(envelope, const {
+    if (!_exactKeys(deliveryEnvelope, const {
+          'format',
+          'payload',
+          'policyId',
+          'signature',
+        }) ||
+        deliveryEnvelope['format'] !=
+            'vhhealth_clinical_continuity_policy_delivery/v1' ||
+        deliveryEnvelope['policyId'] != policyId ||
+        !_bytesEqual(
+          ClinicalContinuityCanonicalJson.canonicalBytes(deliveryEnvelope),
+          envelopeBytes,
+        )) {
+      _reject(ClinicalContinuityVerificationReasons.actionPolicyInvalid);
+    }
+    final envelope = _map(deliveryEnvelope['payload']);
+    if (envelope == null ||
+        !_exactKeys(envelope, const {
           'actionRegistryChecksum',
           'actionRegistrySchemaVersion',
           'actionRegistryVersion',
@@ -200,7 +218,6 @@ class ClinicalContinuityVerifier {
           'policyChecksum',
           'policyDocument',
           'policySchemaVersion',
-          'policySignature',
           'policySigningKeyId',
           'policySigningPublicKeySha256',
           'policyVersion',
@@ -265,11 +282,15 @@ class ClinicalContinuityVerifier {
       trust.minimumPolicyVersion,
       persistedFloors?.policyVersion,
     ]);
+    final compositionFloor = persistedFloors?.packCompositionVersion ?? '1';
     final revocationFloor = _maxGovernance([
       trust.minimumRevocationEpoch,
       trust.revocationEpoch,
       persistedFloors?.revocationEpoch,
     ], allowZero: true);
+    if (BigInt.from(2) < BigInt.parse(compositionFloor)) {
+      _reject(ClinicalContinuityVerificationReasons.packCompositionRollback);
+    }
     if (BigInt.parse(policyVersion) < BigInt.parse(policyFloor)) {
       _reject(ClinicalContinuityVerificationReasons.policyRollback);
     }
@@ -287,14 +308,12 @@ class ClinicalContinuityVerifier {
         revokedKeyIdsRaw.contains(keyId)) {
       _reject(ClinicalContinuityVerificationReasons.keyRevoked);
     }
-    final signature = _signature(envelope['policySignature']);
+    final signature = _signature(deliveryEnvelope['signature']);
     if (signature == null) {
       _reject(ClinicalContinuityVerificationReasons.signatureInvalid);
     }
-    final unsigned = Map<String, Object?>.from(envelope)
-      ..remove('policySignature');
     final signatureValid = await Ed25519().verify(
-      ClinicalContinuityCanonicalJson.canonicalBytes(unsigned),
+      ClinicalContinuityCanonicalJson.canonicalBytes(envelope),
       signature: Signature(
         signature,
         publicKey: SimplePublicKey(
@@ -326,6 +345,7 @@ class ClinicalContinuityVerifier {
           'retention',
         }) ||
         document['policySchemaVersion'] != 3 ||
+        document['packSchemaVersion'] != 2 ||
         document['policyType'] != 'clinical_continuity_pack' ||
         documentAudience == null ||
         !_exactKeys(documentAudience, const {'facilityId', 'tenantId'}) ||
@@ -475,6 +495,7 @@ class ClinicalContinuityVerifier {
     return VerifiedClinicalContinuityActionPolicy(
       audience: expectedAudience,
       policyId: policyId,
+      packCompositionVersion: '2',
       policyVersion: policyVersion,
       policyChecksum: envelope['policyChecksum']! as String,
       policySigningKeyId: policyKey.keyId,
@@ -943,12 +964,38 @@ class ClinicalContinuityVerifier {
           minimumPolicyVersion: policyFloor,
           minimumRevocationEpoch: revocationFloor,
           expectedPolicyId: policy['id']! as String,
+          expectedPolicyChecksum: policy['checksum']! as String,
+          persistedFloors: persistedFloors,
           trustedNow: trustedNow,
           minimumTrustedNow: previousTrustedNow,
           facilityName: facility['name']! as String,
           facilityTimezone: facility['timezone']! as String,
         ),
       );
+    }
+
+    final compositionVersions = packs
+        .map((pack) => pack.content['pack_schema_version'].toString())
+        .toSet();
+    if (compositionVersions.length != 1) {
+      _reject(ClinicalContinuityVerificationReasons.coverageMismatch);
+    }
+    final packCompositionVersion = compositionVersions.single;
+    Uint8List? policyEnvelopeBytes;
+    String? policyEnvelopeSha256;
+    if (packCompositionVersion == '2') {
+      final digests = packs.map((pack) => pack.policyEnvelopeSha256).toSet();
+      final envelopes = packs.map((pack) => pack.policyEnvelopeBytes).toList();
+      if (digests.length != 1 ||
+          digests.single == null ||
+          envelopes.any((bytes) => bytes == null) ||
+          envelopes
+              .skip(1)
+              .any((bytes) => !_bytesEqual(envelopes.first!, bytes!))) {
+        _reject(ClinicalContinuityVerificationReasons.coverageMismatch);
+      }
+      policyEnvelopeBytes = Uint8List.fromList(envelopes.first!);
+      policyEnvelopeSha256 = digests.single;
     }
 
     final expiresAt = packs
@@ -970,6 +1017,9 @@ class ClinicalContinuityVerifier {
       facilityName: facility['name']! as String,
       facilityTimezone: facility['timezone']! as String,
       policyId: policy['id']! as String,
+      packCompositionVersion: packCompositionVersion,
+      policyEnvelopeBytes: policyEnvelopeBytes,
+      policyEnvelopeSha256: policyEnvelopeSha256,
       publicationSetId: content['publicationSetId']! as String,
       localUnlockPolicy: edge.localUnlockPolicy,
       localGrants: edge.localGrants,
@@ -983,6 +1033,7 @@ class ClinicalContinuityVerifier {
       ),
       signingKeyFingerprints: Map.unmodifiable(signingKeyFingerprints),
       floors: ClinicalContinuityFloors(
+        packCompositionVersion: packCompositionVersion,
         policyVersion: manifest.policyVersion,
         manifestVersion: manifest.manifestVersion,
         revocationEpoch: manifest.revocationEpoch,
@@ -1006,6 +1057,8 @@ class ClinicalContinuityVerifier {
     required String minimumPolicyVersion,
     required String minimumRevocationEpoch,
     required String expectedPolicyId,
+    required String expectedPolicyChecksum,
+    required ClinicalContinuityFloors? persistedFloors,
     required DateTime trustedNow,
     required DateTime? minimumTrustedNow,
     required String facilityName,
@@ -1047,6 +1100,7 @@ class ClinicalContinuityVerifier {
           audience: audience,
           envelope: envelope,
           expectedPolicyId: expectedPolicyId,
+          expectedPolicyChecksum: expectedPolicyChecksum,
           facilityName: facilityName,
           facilityTimezone: facilityTimezone,
         ) ||
@@ -1054,6 +1108,63 @@ class ClinicalContinuityVerifier {
       _reject(ClinicalContinuityVerificationReasons.coverageMismatch);
     }
     final location = _map(content!['location'])!;
+    final packCompositionVersion = content['pack_schema_version']! as int;
+    final compositionFloor = persistedFloors?.packCompositionVersion ?? '1';
+    if (BigInt.from(packCompositionVersion) < BigInt.parse(compositionFloor)) {
+      _reject(ClinicalContinuityVerificationReasons.packCompositionRollback);
+    }
+    Uint8List? policyEnvelopeBytes;
+    String? policyEnvelopeSha256;
+    if (packCompositionVersion == 2) {
+      final policy = _map(content['policy'])!;
+      final delivery = _map(policy['delivery']);
+      if (delivery == null ||
+          !_exactKeys(delivery, const {
+            'envelope_base64',
+            'envelope_format',
+            'envelope_sha256',
+            'media_type',
+          }) ||
+          delivery['envelope_format'] !=
+              'vhhealth_clinical_continuity_policy_delivery/v1' ||
+          delivery['media_type'] !=
+              'application/vnd.vhhealth.clinical-continuity-policy+json' ||
+          !_matches(_hashPattern, delivery['envelope_sha256']) ||
+          delivery['envelope_base64'] is! String) {
+        _reject(ClinicalContinuityVerificationReasons.coverageMismatch);
+      }
+      try {
+        policyEnvelopeBytes = Uint8List.fromList(
+          base64Decode(delivery['envelope_base64']! as String),
+        );
+      } catch (_) {
+        _reject(ClinicalContinuityVerificationReasons.coverageMismatch);
+      }
+      if (policyEnvelopeBytes.length > 256 * 1024 ||
+          base64Encode(policyEnvelopeBytes) != delivery['envelope_base64'] ||
+          await _sha256Hex(policyEnvelopeBytes) !=
+              delivery['envelope_sha256']) {
+        _reject(ClinicalContinuityVerificationReasons.contentHashMismatch);
+      }
+      final policyVerification = await _verifyActionPolicy(
+        envelopeBytes: policyEnvelopeBytes,
+        policyId: expectedPolicyId,
+        expectedAudience: audience,
+        clock: ClinicalContinuityClockAssessment(
+          trusted: true,
+          trustedNow: trustedNow,
+          minimumTrustedNow: minimumTrustedNow,
+        ),
+        persistedFloors: persistedFloors,
+      );
+      if (policyVerification.policyChecksum != expectedPolicyChecksum ||
+          policyVerification.policyVersion != envelope.policyVersion ||
+          policyVerification.policyRevocationEpoch !=
+              envelope.revocationEpoch) {
+        _reject(ClinicalContinuityVerificationReasons.coverageMismatch);
+      }
+      policyEnvelopeSha256 = delivery['envelope_sha256']! as String;
+    }
     if (entry.locationType == 'opd_day') {
       final handling = _map(content['handling']);
       if (handling?['printed_sheet'] != 'DESTROY AFTER CLINIC DAY') {
@@ -1069,6 +1180,8 @@ class ClinicalContinuityVerifier {
       generatedAt: DateTime.parse(envelope.issuedAt),
       expiresAt: DateTime.parse(envelope.expiresAt),
       freshness: envelope.freshness,
+      policyEnvelopeBytes: policyEnvelopeBytes,
+      policyEnvelopeSha256: policyEnvelopeSha256,
     );
   }
 
@@ -1078,6 +1191,7 @@ class ClinicalContinuityVerifier {
     required ClinicalContinuityAudience audience,
     required _VerifiedEnvelope envelope,
     required String expectedPolicyId,
+    required String expectedPolicyChecksum,
     required String facilityName,
     required String facilityTimezone,
   }) {
@@ -1097,8 +1211,9 @@ class ClinicalContinuityVerifier {
       'tenant_id',
       if (entry.locationType == 'opd_day') 'handling',
     };
+    final packCompositionVersion = content['pack_schema_version'];
     if (!_exactKeys(content, expectedKeys) ||
-        content['pack_schema_version'] != 1 ||
+        !const {1, 2}.contains(packCompositionVersion) ||
         content['tenant_id'] != audience.tenantId ||
         content['historical_mode'] != false) {
       return false;
@@ -1117,8 +1232,21 @@ class ClinicalContinuityVerifier {
         facility['timezone'] != facilityTimezone ||
         location == null ||
         policy == null ||
-        !_exactKeys(policy, const {'id', 'revocation_epoch', 'version'}) ||
+        !_exactKeys(
+          policy,
+          packCompositionVersion == 2
+              ? const {
+                  'checksum',
+                  'delivery',
+                  'id',
+                  'revocation_epoch',
+                  'version',
+                }
+              : const {'id', 'revocation_epoch', 'version'},
+        ) ||
         policy['id'] != expectedPolicyId ||
+        (packCompositionVersion == 2 &&
+            policy['checksum'] != expectedPolicyChecksum) ||
         policy['version'] != envelope.policyVersion ||
         policy['revocation_epoch'] != envelope.revocationEpoch ||
         watermark == null ||
@@ -1847,6 +1975,14 @@ class _VerificationFailure implements Exception {
   final String reason;
 
   const _VerificationFailure(this.reason);
+}
+
+bool _bytesEqual(List<int> left, List<int> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }
 
 Never _reject(String reason) => throw _VerificationFailure(reason);

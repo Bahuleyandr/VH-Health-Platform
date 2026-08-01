@@ -118,11 +118,13 @@ class VerifiedClinicalContinuityActionPolicy {
     required this.compatibilityRules,
     required this.revokedKeyIds,
     required this.trustedAt,
+    this.packCompositionVersion = '2',
     this.policySupersedesId,
   });
 
   final ClinicalContinuityAudience audience;
   final String policyId;
+  final String packCompositionVersion;
   final String policyVersion;
   final String policyChecksum;
   final String policySigningKeyId;

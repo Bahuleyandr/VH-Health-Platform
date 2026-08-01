@@ -10881,6 +10881,67 @@
           }
         }
       },
+      "ClinicalContinuityPolicyDelivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "format",
+          "policyId",
+          "payload",
+          "signature"
+        ],
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "vhhealth_clinical_continuity_policy_delivery/v1"
+            ]
+          },
+          "policyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payload": {
+            "type": "object",
+            "description": "Exact closed C4.2 policy signing payload covered by signature."
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{86}==$|^[A-Za-z0-9+/]{87}=$"
+          }
+        }
+      },
+      "ClinicalContinuityPolicyDeliveryError": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success",
+          "message",
+          "code"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "CONTINUITY_POLICY_FACILITY_FORBIDDEN",
+              "CONTINUITY_POLICY_NOT_PUBLISHED",
+              "CONTINUITY_POLICY_NOT_ACTIVATED",
+              "CONTINUITY_POLICY_SUPERSEDED",
+              "CONTINUITY_POLICY_REVOKED",
+              "CONTINUITY_POLICY_DELIVERY_INTEGRITY_FAILED"
+            ]
+          }
+        }
+      },
       "ClinicalInboxTaskAcknowledgeRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -70323,6 +70384,108 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/clinical-continuity/facilities/{facilityId}/policy": {
+      "get": {
+        "operationId": "get_api_v1_clinical_continuity_facilities_by_facilityId_policy",
+        "responses": {
+          "200": {
+            "description": "Canonical delivery envelope bytes",
+            "content": {
+              "application/vnd.vhhealth.clinical-continuity-policy+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityPolicyDelivery"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Current representation is unchanged"
+          },
+          "403": {
+            "description": "CONTINUITY_POLICY_FACILITY_FORBIDDEN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityPolicyDeliveryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CONTINUITY_POLICY_NOT_PUBLISHED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityPolicyDeliveryError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CONTINUITY_POLICY_NOT_ACTIVATED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityPolicyDeliveryError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "CONTINUITY_POLICY_SUPERSEDED or CONTINUITY_POLICY_REVOKED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityPolicyDeliveryError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CONTINUITY_POLICY_DELIVERY_INTEGRITY_FAILED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityPolicyDeliveryError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Fetch exact signed clinical continuity action-policy bytes",
+        "description": "Authenticated Staff delivery of the canonical signed policy envelope for one AF-authorized facility.",
+        "parameters": [
+          {
+            "name": "facilityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          },
+          {
+            "name": "X-VH-Continuity-Facility-Context",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/clinical-inbox/diagnostic-results/{generationId}/actions": {

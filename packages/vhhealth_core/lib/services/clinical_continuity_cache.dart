@@ -110,13 +110,20 @@ class ClinicalContinuityCache {
       );
       final witness = Map<String, Object?>.from(parsed! as Map);
       const floorKeys = {
+        'packCompositionVersion',
         'policyVersion',
         'manifestVersion',
         'revocationEpoch',
         'trustedNow',
       };
       const actionKeys = {'actionRegistryVersion', 'actionRegistryChecksum'};
-      if (!witness.keys.toSet().containsAll(floorKeys) ||
+      const legacyFloorKeys = {
+        'policyVersion',
+        'manifestVersion',
+        'revocationEpoch',
+        'trustedNow',
+      };
+      if (!witness.keys.toSet().containsAll(legacyFloorKeys) ||
           witness.keys.any(
             (key) => !floorKeys.contains(key) && !actionKeys.contains(key),
           )) {
@@ -158,12 +165,14 @@ class ClinicalContinuityCache {
     required String registryVersion,
     required String registryChecksum,
     required String revocationEpoch,
+    String packCompositionVersion = '2',
     required DateTime trustedNow,
   }) async {
     if (_governanceFloor(policyVersion, allowZero: false) == null ||
         _governanceFloor(registryVersion, allowZero: false) == null ||
         !RegExp(r'^[0-9a-f]{64}$').hasMatch(registryChecksum) ||
-        _governanceFloor(revocationEpoch, allowZero: true) == null) {
+        _governanceFloor(revocationEpoch, allowZero: true) == null ||
+        _governanceFloor(packCompositionVersion, allowZero: false) == null) {
       return false;
     }
     final namespace = await _namespace(tenantId, facilityId);
@@ -173,7 +182,8 @@ class ClinicalContinuityCache {
         existingWitness?.actionRegistryVersion ?? '0';
     final existingRegistryChecksum = existingWitness?.actionRegistryChecksum;
     if (existing != null &&
-        (_lower(policyVersion, existing.policyVersion) ||
+        (_lower(packCompositionVersion, existing.packCompositionVersion) ||
+            _lower(policyVersion, existing.policyVersion) ||
             _lower(registryVersion, existingRegistryVersion) ||
             (registryVersion == existingRegistryVersion &&
                 existingRegistryChecksum != null &&
@@ -185,6 +195,7 @@ class ClinicalContinuityCache {
       return false;
     }
     final floors = ClinicalContinuityFloors(
+      packCompositionVersion: packCompositionVersion,
       policyVersion: policyVersion,
       manifestVersion: existing?.manifestVersion ?? '0',
       revocationEpoch: revocationEpoch,
@@ -225,7 +236,11 @@ class ClinicalContinuityCache {
     final existingWitness = await _readWitness(namespace);
     final existingFloors = existingWitness?.floors;
     if (existingFloors != null &&
-        (_lower(set.floors.policyVersion, existingFloors.policyVersion) ||
+        (_lower(
+              set.floors.packCompositionVersion,
+              existingFloors.packCompositionVersion,
+            ) ||
+            _lower(set.floors.policyVersion, existingFloors.policyVersion) ||
             _lower(
               set.floors.manifestVersion,
               existingFloors.manifestVersion,
@@ -253,6 +268,7 @@ class ClinicalContinuityCache {
           'role': set.prefetchSession.role,
           'deviceId': set.prefetchSession.deviceId,
           'policyId': set.policyId,
+          'packCompositionVersion': set.floors.packCompositionVersion,
           'policyVersion': set.floors.policyVersion,
           'manifestVersion': set.floors.manifestVersion,
           'publicationSetId': set.publicationSetId,
@@ -417,6 +433,8 @@ class ClinicalContinuityCache {
           binding['role'] != set.prefetchSession.role ||
           binding['deviceId'] != session.deviceId ||
           binding['policyId'] != set.policyId ||
+          (binding['packCompositionVersion'] ?? '1') !=
+              set.floors.packCompositionVersion ||
           binding['policyVersion'] != set.floors.policyVersion ||
           binding['manifestVersion'] != set.floors.manifestVersion ||
           binding['publicationSetId'] != set.publicationSetId ||
@@ -431,7 +449,11 @@ class ClinicalContinuityCache {
           'CACHE_BINDING_MISMATCH',
         );
       }
-      if (_lower(set.floors.policyVersion, witness.policyVersion) ||
+      if (_lower(
+            set.floors.packCompositionVersion,
+            witness.packCompositionVersion,
+          ) ||
+          _lower(set.floors.policyVersion, witness.policyVersion) ||
           _lower(set.floors.manifestVersion, witness.manifestVersion) ||
           _lower(set.floors.revocationEpoch, witness.revocationEpoch) ||
           set.floors.trustedNow.isBefore(witness.trustedNow)) {

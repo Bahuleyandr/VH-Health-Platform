@@ -101,7 +101,10 @@ void main() {
     expect(floors.trustedNow, firstTrustedAt);
     expect(
       (await subject.store(
-        _verifiedSet(trustedNow: '2026-07-30T00:11:00.000Z'),
+        _verifiedSet(
+          packCompositionVersion: '2',
+          trustedNow: '2026-07-30T00:11:00.000Z',
+        ),
       )).stored,
       isTrue,
     );
@@ -602,6 +605,7 @@ void _installSecureStorageFake(Map<String, String> store) {
 }
 
 VerifiedClinicalContinuitySet _verifiedSet({
+  String packCompositionVersion = '1',
   String facilityId = '41',
   String policyVersion = '7',
   String manifestVersion = '9',
@@ -645,6 +649,7 @@ VerifiedClinicalContinuitySet _verifiedSet({
     facilityName: 'VH Central',
     facilityTimezone: 'Asia/Kolkata',
     policyId: '55555555-5555-4555-8555-555555555555',
+    packCompositionVersion: packCompositionVersion,
     publicationSetId: '66666666-6666-4666-8666-${facilityId.padLeft(12, '0')}',
     localUnlockPolicy: const ClinicalContinuityLocalUnlockPolicy(
       authenticationMode: 'mtls_client_certificate',
@@ -672,6 +677,7 @@ VerifiedClinicalContinuitySet _verifiedSet({
           '0000000000000000000000000000000000000000000000000000000000000000',
     },
     floors: ClinicalContinuityFloors(
+      packCompositionVersion: packCompositionVersion,
       policyVersion: policyVersion,
       manifestVersion: manifestVersion,
       revocationEpoch: revocationEpoch,

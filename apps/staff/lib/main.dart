@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -31,15 +32,20 @@ import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/phi_scrubber.dart';
 import 'core/services/staff_local_notifications.dart';
 import 'core/services/staff_clinical_action_gateway.dart';
+import 'core/services/staff_action_policy_repository.dart';
+import 'core/services/staff_action_policy_source.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/windows_screen_capture.dart';
 import 'core/widgets/patient_search_sheet.dart';
 import 'core/widgets/logout_flow.dart';
 import 'core/widgets/session_timeout_warning_layer.dart';
 import 'features/emr/widgets/patient_summary_sheet.dart';
+import 'features/clinical_continuity/services/staff_continuity_repository.dart';
 import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
+import 'package:vhhealth_core/models/clinical_continuity.dart';
+import 'package:vhhealth_core/services/clinical_continuity_facility_context.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
     show RealtimeProvider, SecurityConfig, VHHttpClient;
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -264,10 +270,21 @@ void main() async {
     );
   };
 
-  // C4.3 installs the fail-closed signed-action decision before the queue can
-  // inspect a prepared command. The production policy source is deliberately
-  // unavailable until the separately approved delivery slice exists, so
-  // prepared rows are preserved without lease or send.
+  StaffActionPolicyRepository.instance = StaffActionPolicyRepository(
+    source: CompositeStaffActionPolicySource([
+      BackendStaffActionPolicySource(),
+      VerifiedPackStaffActionPolicySource(
+        verifiedSetProvider: () =>
+            StaffContinuityRepository.instance.currentSet,
+        trustedClockProvider: () =>
+            StaffContinuityRepository.instance.trustedClockAssessment,
+      ),
+    ]),
+  );
+
+  // Install the fail-closed signed-action decision before the queue can
+  // inspect a prepared command. Delivery remains inert until AF has issued a
+  // verified facility context or a complete v2 pack set is already verified.
   ConnectivitySyncService.instance.registerPreparedDrainGate(
     StaffClinicalActionGateway.instance.preparedDrainDecision,
   );
@@ -350,6 +367,18 @@ class VHHealthStaffApp extends StatefulWidget {
 
 class _VHHealthStaffAppState extends State<VHHealthStaffApp>
     with WidgetsBindingObserver {
+  static const _policyRetryCeilings = <Duration>[
+    Duration(seconds: 5),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+    Duration(minutes: 1),
+    Duration(minutes: 5),
+  ];
+  final Random _policyRefreshRandom = Random.secure();
+  Timer? _policyPeriodicTimer;
+  Timer? _policyRetryTimer;
+  int _policyRetryIndex = 0;
+
   @override
   void initState() {
     super.initState();
@@ -357,6 +386,67 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
     // STF-1: block screenshots and suppress the app-switcher thumbnail
     // so clinical PHI cannot leak via Android recents or iOS Exposé.
     _applyScreenProtection();
+    unawaited(_refreshActionPolicy());
+    _scheduleActionPolicyRefresh();
+  }
+
+  Future<void> _refreshActionPolicy() async {
+    final context = await const ClinicalContinuityFacilityContextClient()
+        .current();
+    if (context == null) {
+      _policyRetryTimer?.cancel();
+      _policyRetryIndex = 0;
+      StaffActionPolicyRepository.instance.invalidate(
+        'facility_context_unavailable',
+      );
+      return;
+    }
+    final refreshed = await StaffActionPolicyRepository.instance.refresh(
+      audience: ClinicalContinuityAudience(
+        tenantId: context.tenantId,
+        facilityId: context.facilityId,
+      ),
+    );
+    if (refreshed) {
+      _policyRetryTimer?.cancel();
+      _policyRetryIndex = 0;
+    } else if (StaffActionPolicyRepository.instance.retryableFailure) {
+      _scheduleActionPolicyRetry();
+    }
+  }
+
+  void _scheduleActionPolicyRefresh() {
+    _policyPeriodicTimer?.cancel();
+    final minutes = 13 + _policyRefreshRandom.nextInt(5);
+    _policyPeriodicTimer = Timer(Duration(minutes: minutes), () {
+      unawaited(_refreshActionPolicy());
+      _scheduleActionPolicyRefresh();
+    });
+  }
+
+  void _scheduleActionPolicyRetry() {
+    if (_policyRetryTimer?.isActive ?? false) return;
+    final ceiling =
+        _policyRetryCeilings[min(
+          _policyRetryIndex,
+          _policyRetryCeilings.length - 1,
+        )];
+    _policyRetryIndex = min(
+      _policyRetryIndex + 1,
+      _policyRetryCeilings.length - 1,
+    );
+    final serverDelay = StaffActionPolicyRepository.instance.retryAfter;
+    final delay =
+        serverDelay ??
+        Duration(
+          milliseconds: _policyRefreshRandom.nextInt(
+            ceiling.inMilliseconds + 1,
+          ),
+        );
+    _policyRetryTimer = Timer(delay, () {
+      _policyRetryTimer = null;
+      unawaited(_refreshActionPolicy());
+    });
   }
 
   Future<void> _applyScreenProtection() async {
@@ -400,6 +490,11 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _policyPeriodicTimer?.cancel();
+    _policyRetryTimer?.cancel();
+    StaffActionPolicyRepository.instance.invalidate(
+      'action_policy_repository_disposed',
+    );
     super.dispose();
   }
 
@@ -411,8 +506,15 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       ConnectivitySyncService.instance.stopListening();
+      _policyPeriodicTimer?.cancel();
+      _policyRetryTimer?.cancel();
+      StaffActionPolicyRepository.instance.invalidate(
+        'application_backgrounded',
+      );
     } else if (state == AppLifecycleState.resumed) {
       ConnectivitySyncService.instance.startListening();
+      unawaited(_refreshActionPolicy());
+      _scheduleActionPolicyRefresh();
       unawaited(context.read<RealtimeProvider>().ensureConnected());
     }
   }

@@ -55,6 +55,8 @@ class StaffContinuityRepository extends ChangeNotifier {
   VerifiedClinicalContinuitySet? _currentSet;
   Future<bool>? _refreshInFlight;
   Timer? _refreshTimer;
+  DateTime? _trustedAnchor;
+  Stopwatch? _trustedElapsed;
   bool _disposed = false;
 
   StaffContinuityRepository({
@@ -83,6 +85,17 @@ class StaffContinuityRepository extends ChangeNotifier {
   VerifiedClinicalContinuitySet? get currentSet => _currentSet;
   bool get cacheEnabled => _cacheEnabled;
   bool get localUnlockEnabled => _localUnlockEnabled;
+  ClinicalContinuityClockAssessment get trustedClockAssessment {
+    final anchor = _trustedAnchor;
+    final elapsed = _trustedElapsed;
+    return ClinicalContinuityClockAssessment(
+      trusted: anchor != null && elapsed != null,
+      trustedNow: anchor == null || elapsed == null
+          ? null
+          : anchor.add(elapsed.elapsed),
+      minimumTrustedNow: anchor,
+    );
+  }
 
   Future<bool> requestRefresh() {
     if (!_cacheEnabled || _disposed) return Future.value(false);
@@ -126,6 +139,7 @@ class StaffContinuityRepository extends ChangeNotifier {
         return false;
       }
       _currentSet = verification.verifiedSet;
+      _anchorTrustedClock(verification.verifiedSet!.evaluatedAt);
       _setState(StaffContinuityState.ready);
       _startPeriodicRefresh();
       return true;
@@ -199,6 +213,7 @@ class StaffContinuityRepository extends ChangeNotifier {
         );
       }
       _currentSet = set;
+      _anchorTrustedClock(clock.trustedNow!);
       _setState(StaffContinuityState.ready);
       return ClinicalContinuityAccessDecision.allowed(
         mode: ClinicalContinuityAccessMode.onlineAuthenticated,
@@ -258,6 +273,7 @@ class StaffContinuityRepository extends ChangeNotifier {
       );
     }
     _currentSet = set;
+    _anchorTrustedClock(clock.trustedNow!);
     _setState(StaffContinuityState.ready);
     return ClinicalContinuityAccessDecision.allowed(
       mode: ClinicalContinuityAccessMode.localUnlock,
@@ -278,6 +294,7 @@ class StaffContinuityRepository extends ChangeNotifier {
 
   Future<void> clearDecryptedState() async {
     _currentSet = null;
+    _clearTrustedClock();
     _stopPeriodicRefresh();
     await _source.cancel();
     if (_cacheEnabled) _setState(StaffContinuityState.idle);
@@ -312,6 +329,18 @@ class StaffContinuityRepository extends ChangeNotifier {
     _state = state;
     _refusalReason = reason;
     if (!_disposed) notifyListeners();
+  }
+
+  void _anchorTrustedClock(DateTime value) {
+    _trustedElapsed?.stop();
+    _trustedAnchor = value.toUtc();
+    _trustedElapsed = Stopwatch()..start();
+  }
+
+  void _clearTrustedClock() {
+    _trustedElapsed?.stop();
+    _trustedElapsed = null;
+    _trustedAnchor = null;
   }
 
   static bool _sameNamedSession(
@@ -360,6 +389,7 @@ class StaffContinuityRepository extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _currentSet = null;
+    _clearTrustedClock();
     _stopPeriodicRefresh();
     unawaited(_source.cancel());
     unawaited(_cache.close());

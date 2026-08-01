@@ -1,4 +1,5 @@
 import { AppError } from '../../utils/AppError.js';
+import { createHash } from 'node:crypto';
 import { setTenantTx } from '../../lib/prisma.js';
 import {
   KEY_STATES,
@@ -17,6 +18,11 @@ export const CLINICAL_CONTINUITY_POLICY_CANONICALIZATION = 'rfc8785-jcs';
 export const CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION = 1;
 export const CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION = 2;
 export const CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION = 3;
+export const CLINICAL_CONTINUITY_POLICY_DELIVERY_FORMAT =
+  'vhhealth_clinical_continuity_policy_delivery/v1';
+export const CLINICAL_CONTINUITY_POLICY_DELIVERY_MEDIA_TYPE =
+  'application/vnd.vhhealth.clinical-continuity-policy+json';
+export const CLINICAL_CONTINUITY_POLICY_DELIVERY_MAX_BYTES = 256 * 1024;
 export const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 export const ALLERGY_UNKNOWN_TEXT = 'Allergy status UNKNOWN — not recorded';
 export const CODE_STATUS_UNKNOWN_TEXT = 'Code status NOT RECORDED — confirm per hospital policy';
@@ -1149,6 +1155,38 @@ function maximumVersion(left, right, { allowZero = false } = {}) {
   return BigInt(normalizedLeft) >= BigInt(normalizedRight) ? normalizedLeft : normalizedRight;
 }
 
+function buildPolicyDeliveryRepresentation({ policyId, payload, signature }) {
+  const deliveryEnvelope = {
+    format: CLINICAL_CONTINUITY_POLICY_DELIVERY_FORMAT,
+    policyId: String(policyId).toLowerCase(),
+    payload,
+    signature
+  };
+  const canonicalBody = canonicalizeJson(deliveryEnvelope);
+  const byteLength = Buffer.byteLength(canonicalBody, 'utf8');
+  if (byteLength > CLINICAL_CONTINUITY_POLICY_DELIVERY_MAX_BYTES) {
+    policyConflict(
+      'Clinical continuity policy delivery envelope exceeds its byte limit',
+      'CONTINUITY_POLICY_DELIVERY_INTEGRITY_FAILED'
+    );
+  }
+  const envelopeDigest = createHash('sha256').update(canonicalBody, 'utf8').digest();
+  const envelopeSha256 = envelopeDigest.toString('hex');
+  return {
+    byteLength,
+    canonicalBody,
+    contentDigest: `sha-256=:${envelopeDigest.toString('base64')}:`,
+    envelopeFormat: CLINICAL_CONTINUITY_POLICY_DELIVERY_FORMAT,
+    envelopeSha256,
+    etag: `"pc-${payload.policyChecksum}.rep-${envelopeSha256}"`,
+    mediaType: CLINICAL_CONTINUITY_POLICY_DELIVERY_MEDIA_TYPE
+  };
+}
+
+export const __clinicalContinuityPolicyDeliveryRepresentationForTests = Object.freeze({
+  build: buildPolicyDeliveryRepresentation
+});
+
 function activePolicyFromRow(
   row,
   { minimumPolicyVersion, minimumRevocationEpoch, trustedNow, clockTrusted = false } = {}
@@ -1252,13 +1290,8 @@ function activePolicyFromRow(
           label: 'Next pack signing key'
         });
 
-  if (
-    !verifyCanonicalValue(
-      payload,
-      signatureBase64(row.policy_signature),
-      policyRegistryKey.publicKey
-    )
-  ) {
+  const policySignature = signatureBase64(row.policy_signature);
+  if (!verifyCanonicalValue(payload, policySignature, policyRegistryKey.publicKey)) {
     policyConflict(
       'Clinical continuity policy signature is invalid',
       'CONTINUITY_POLICY_SIGNATURE_INVALID'
@@ -1295,6 +1328,12 @@ function activePolicyFromRow(
     }
   }
 
+  const policyDelivery = buildPolicyDeliveryRepresentation({
+    policyId: row.id,
+    payload,
+    signature: policySignature
+  });
+
   const policy = {
     id: String(row.id).toLowerCase(),
     ...(payload.policySchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
@@ -1313,6 +1352,7 @@ function activePolicyFromRow(
     packSchemaVersion: payload.policyDocument.packSchemaVersion,
     policyDocument: payload.policyDocument,
     policyChecksum: payload.policyChecksum,
+    policyDelivery,
     policySigningKeyId: payload.policySigningKeyId,
     policySigningPublicKeySha256: payload.policySigningPublicKeySha256,
     currentPackSigningKeyId: payload.currentPackSigningKeyId,

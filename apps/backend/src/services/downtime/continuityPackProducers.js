@@ -5,6 +5,8 @@
 // RepeatableRead isolation. Every cutoff is derived from that transaction's
 // one database watermark, so a published set cannot mix source moments.
 
+import { createHash } from 'node:crypto';
+
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CLOSED_ED_STATUSES = [
@@ -345,11 +347,18 @@ function normalizePolicy(policy, tenantId, facilityId) {
   if (!document || typeof document !== 'object' || Array.isArray(document)) {
     throw coverageError('A normalized signed continuity policy document is required');
   }
-  if (document.policyType !== 'clinical_continuity_pack' || document.policySchemaVersion !== 1) {
+  if (
+    document.policyType !== 'clinical_continuity_pack' ||
+    ![1, 2, 3].includes(document.policySchemaVersion)
+  ) {
     throw coverageError('Unsupported continuity policy type or schema version');
   }
-  if (positiveInt(document.packSchemaVersion, 'packSchemaVersion') !== 1) {
+  const packSchemaVersion = positiveInt(document.packSchemaVersion, 'packSchemaVersion');
+  if (![1, 2].includes(packSchemaVersion)) {
     throw coverageError('Unsupported continuity pack schema version');
+  }
+  if (packSchemaVersion === 2 && document.policySchemaVersion !== 3) {
+    throw coverageError('Continuity pack schema v2 requires action-policy schema v3');
   }
   if (
     String(document.audience?.tenantId || '').toLowerCase() !== tenantId
@@ -476,10 +485,38 @@ function normalizePolicy(policy, tenantId, facilityId) {
   if (!/^(?:0|[1-9]\d*)$/.test(revocationEpoch)) {
     throw coverageError('A non-negative decimal revocation epoch is required');
   }
+  const policyChecksum = String(policy?.policyChecksum ?? policy?.policy_checksum ?? '');
+  let policyDelivery = null;
+  if (packSchemaVersion === 2) {
+    const delivery = policy?.policyDelivery;
+    const computedEnvelopeSha256 = typeof delivery?.canonicalBody === 'string'
+      ? createHash('sha256').update(delivery.canonicalBody, 'utf8').digest('hex')
+      : null;
+    if (
+      !/^[a-f0-9]{64}$/.test(policyChecksum) ||
+      !delivery ||
+      delivery.envelopeFormat !== 'vhhealth_clinical_continuity_policy_delivery/v1' ||
+      delivery.mediaType !== 'application/vnd.vhhealth.clinical-continuity-policy+json' ||
+      !/^[a-f0-9]{64}$/.test(String(delivery.envelopeSha256 || '')) ||
+      delivery.envelopeSha256 !== computedEnvelopeSha256 ||
+      typeof delivery.canonicalBody !== 'string' ||
+      Buffer.byteLength(delivery.canonicalBody, 'utf8') > 256 * 1024
+    ) {
+      throw coverageError('Continuity pack schema v2 requires verified policy delivery bytes');
+    }
+    policyDelivery = Object.freeze({
+      envelope_base64: Buffer.from(delivery.canonicalBody, 'utf8').toString('base64'),
+      envelope_format: delivery.envelopeFormat,
+      envelope_sha256: delivery.envelopeSha256,
+      media_type: delivery.mediaType,
+    });
+  }
 
   return Object.freeze({
     document,
-    packSchemaVersion: 1,
+    packSchemaVersion,
+    policyChecksum,
+    policyDelivery,
     policyVersion,
     policyVersionId,
     revocationEpoch,
@@ -1472,11 +1509,19 @@ function basePack({
     tenant_id: tenantId,
     facility,
     location,
-    policy: {
-      id: policy.policyVersionId,
-      version: policy.policyVersion,
-      revocation_epoch: policy.revocationEpoch,
-    },
+    policy: policy.packSchemaVersion === 2
+      ? {
+          checksum: policy.policyChecksum,
+          delivery: policy.policyDelivery,
+          id: policy.policyVersionId,
+          revocation_epoch: policy.revocationEpoch,
+          version: policy.policyVersion,
+        }
+      : {
+          id: policy.policyVersionId,
+          version: policy.policyVersion,
+          revocation_epoch: policy.revocationEpoch,
+        },
     source_watermark: watermark,
     generated_at: watermark.captured_at,
     fresh_until: addMinutes(watermark.captured_at, 15),
