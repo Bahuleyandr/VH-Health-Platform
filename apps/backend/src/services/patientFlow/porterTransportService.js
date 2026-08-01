@@ -66,6 +66,11 @@ const VALID_SOURCE_TYPES = new Set(Object.keys(SOURCE_RULE_CODES));
 const VALID_PRIORITIES = new Set(['low', 'medium', 'high', 'urgent']);
 const DEFAULT_ESCALATION_LIMIT = 100;
 
+// Cap on the role-fallback recipient fan-out. Distinct from the task-page cap
+// above (DEFAULT_ESCALATION_LIMIT): this one bounds WHO is told, not how many
+// transports are evaluated.
+const TRANSPORT_RECIPIENT_CAP = 80;
+
 function cleanText(value, max = 255) {
   const text = value == null ? '' : String(value).trim();
   return text ? text.slice(0, max) : '';
@@ -546,24 +551,45 @@ async function findFallbackRecipients(db, { tenantId, settings, kind = 'assigned
     ? settings.escalation_role_codes
     : settings.recipient_role_codes;
   if (!roleList.length) return [];
-  return db.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT id,
             uid,
             name,
             phone,
             role,
             $3::text AS recipient_kind,
-            CASE WHEN $3::text = 'escalation' THEN 'transport_escalation_role' ELSE 'transport_role_fallback' END AS source
+            CASE WHEN $3::text = 'escalation' THEN 'transport_escalation_role' ELSE 'transport_role_fallback' END AS source,
+            COUNT(*) OVER () AS total_matched
        FROM users
       WHERE tenant_id = $1::uuid
         AND COALESCE(is_active, true) = true
         AND UPPER(role) = ANY($2::text[])
       ORDER BY name NULLS LAST, id
-      LIMIT 80`,
+      LIMIT $4::int`,
     tenantId,
     roleList,
     kind,
+    TRANSPORT_RECIPIENT_CAP,
   );
+
+  // The ordering here is ALPHABETICAL BY NAME, which is not a clinical ranking —
+  // it means a trim always evicts the same staff at the end of the alphabet. The
+  // escalation path stamps metadata.escalated_at and is not retried, so an evicted
+  // recipient is dropped permanently rather than picked up next sweep. Report the
+  // exact loss rather than letting it pass silently.
+  const totalMatched = rows.length ? Number(rows[0].total_matched) : 0;
+  if (totalMatched > rows.length) {
+    logger.warn('Porter transport recipient fan-out truncated by cap', {
+      tenantId,
+      kind,
+      roles: roleList,
+      cap: TRANSPORT_RECIPIENT_CAP,
+      totalMatched,
+      notified: rows.length,
+      dropped: totalMatched - rows.length,
+    });
+  }
+  return rows;
 }
 
 async function resolveRecipients(db, {
