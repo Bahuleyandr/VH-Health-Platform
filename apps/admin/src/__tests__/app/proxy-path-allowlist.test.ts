@@ -21,10 +21,10 @@ beforeEach(() => {
 
 afterEach(() => fetchMock.mockRestore());
 
-function request(path: string) {
+function request(path: string, headers: Record<string, string> = {}) {
   return new NextRequest(`http://localhost:3001/api/proxy/api/v1/${path}`, {
     method: "GET",
-    headers: { cookie: "auth_token=test-token" },
+    headers: { cookie: "auth_token=test-token", ...headers },
   });
 }
 
@@ -48,6 +48,30 @@ describe("proxy path allowlist", () => {
     expect(await response.json()).toEqual({
       message: "Proxy path not allowed",
     });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards only the exact reconciliation family and its signed facility context", async () => {
+    const response = await GET(
+      request("downtime/reconciliation/workbench", {
+        "x-vh-continuity-facility-id": "17",
+        "x-vh-continuity-facility-context": "signed-envelope",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get("x-vh-continuity-facility-id")).toBe("17");
+    expect(headers.get("x-vh-continuity-facility-context")).toBe(
+      "signed-envelope",
+    );
+
+    fetchMock.mockClear();
+    const lookalike = await GET(
+      request("downtime/reconciliation-internal/workbench"),
+    );
+    expect(lookalike.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

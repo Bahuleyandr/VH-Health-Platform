@@ -88,6 +88,7 @@ describe("H6/M8 — admin route policy", () => {
       "/dashboard/settings",
       "/dashboard/payroll",
       "/dashboard/records",
+      "/dashboard/continuity-reconciliation",
     ];
 
     test.each(SENSITIVE_ADMIN_PATHS)(
@@ -95,7 +96,13 @@ describe("H6/M8 — admin route policy", () => {
       (p) => {
         const policy = policyForPath(p);
         expect(policy).toBeTruthy();
-        for (const role of ["RECEPTIONIST", "NURSING_STAFF", "DRIVER", "DOCTOR", "HR_STAFF"]) {
+        for (const role of [
+          "RECEPTIONIST",
+          "NURSING_STAFF",
+          "DRIVER",
+          "DOCTOR",
+          "HR_STAFF",
+        ]) {
           expect(roleSatisfiesPolicy(role, policy!)).toBe(false);
         }
         expect(roleSatisfiesPolicy("ADMIN", policy!)).toBe(true);
@@ -161,9 +168,9 @@ describe("H6/M8 — admin route policy", () => {
     test("every ROUTE_POLICY entry is well-formed", () => {
       for (const [key, policy] of Object.entries(ROUTE_POLICY)) {
         expect(typeof key).toBe("string");
-        expect(
-          policy.roles !== undefined || policy.minRank !== undefined,
-        ).toBe(true);
+        expect(policy.roles !== undefined || policy.minRank !== undefined).toBe(
+          true,
+        );
       }
     });
   });

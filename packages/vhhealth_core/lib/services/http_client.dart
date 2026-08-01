@@ -88,9 +88,15 @@ class VHHttpClient {
     Map<String, String>? queryParameters,
     bool auth = true,
     Duration? timeout,
+    String? continuityFacilityId,
+    String? continuityFacilityContext,
   }) async {
     final uri = _buildUri(path, queryParameters);
-    final headers = await _headers(auth: auth);
+    final headers = await _headers(
+      auth: auth,
+      continuityFacilityId: continuityFacilityId,
+      continuityFacilityContext: continuityFacilityContext,
+    );
     final response = await _sendWithRetry(
       () => _client
           .get(uri, headers: headers)
@@ -100,7 +106,11 @@ class VHHttpClient {
 
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
       // Token was refreshed — retry with new headers
-      final retryHeaders = await _headers(auth: true);
+      final retryHeaders = await _headers(
+        auth: true,
+        continuityFacilityId: continuityFacilityId,
+        continuityFacilityContext: continuityFacilityContext,
+      );
       final retry = await _sendWithRetry(
         () => _client
             .get(uri, headers: retryHeaders)
@@ -170,6 +180,8 @@ class VHHttpClient {
     bool auth = true,
     Duration? timeout,
     String? idempotencyKey,
+    String? continuityFacilityId,
+    String? continuityFacilityContext,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
@@ -181,6 +193,8 @@ class VHHttpClient {
       auth: auth,
       json: true,
       idempotencyKey: effectiveKey,
+      continuityFacilityId: continuityFacilityId,
+      continuityFacilityContext: continuityFacilityContext,
     );
     final response = await _sendWithRetry(
       () => _client
@@ -194,6 +208,8 @@ class VHHttpClient {
         auth: true,
         json: true,
         idempotencyKey: effectiveKey,
+        continuityFacilityId: continuityFacilityId,
+        continuityFacilityContext: continuityFacilityContext,
       );
       final retry = await _sendWithRetry(
         () => _client
@@ -217,6 +233,8 @@ class VHHttpClient {
     bool auth = true,
     Duration? timeout,
     String? idempotencyKey,
+    String? continuityFacilityId,
+    String? continuityFacilityContext,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
@@ -225,6 +243,8 @@ class VHHttpClient {
       auth: auth,
       json: true,
       idempotencyKey: effectiveKey,
+      continuityFacilityId: continuityFacilityId,
+      continuityFacilityContext: continuityFacilityContext,
     );
     final response = await _sendWithRetry(
       () => _client
@@ -238,6 +258,8 @@ class VHHttpClient {
         auth: true,
         json: true,
         idempotencyKey: effectiveKey,
+        continuityFacilityId: continuityFacilityId,
+        continuityFacilityContext: continuityFacilityContext,
       );
       final retry = await _sendWithRetry(
         () => _client
@@ -261,6 +283,8 @@ class VHHttpClient {
     bool auth = true,
     Duration? timeout,
     String? idempotencyKey,
+    String? continuityFacilityId,
+    String? continuityFacilityContext,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
@@ -269,6 +293,8 @@ class VHHttpClient {
       auth: auth,
       json: true,
       idempotencyKey: effectiveKey,
+      continuityFacilityId: continuityFacilityId,
+      continuityFacilityContext: continuityFacilityContext,
     );
     final response = await _sendWithRetry(
       () => _client
@@ -282,6 +308,8 @@ class VHHttpClient {
         auth: true,
         json: true,
         idempotencyKey: effectiveKey,
+        continuityFacilityId: continuityFacilityId,
+        continuityFacilityContext: continuityFacilityContext,
       );
       final retry = await _sendWithRetry(
         () => _client
@@ -527,6 +555,8 @@ class VHHttpClient {
     bool auth = true,
     bool json = false,
     String? idempotencyKey,
+    String? continuityFacilityId,
+    String? continuityFacilityContext,
   }) async {
     final Map<String, String> base;
     if (auth && json) {
@@ -545,6 +575,23 @@ class VHHttpClient {
     // retries and offline-queue redrains (finding #15).
     if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
       base['Idempotency-Key'] = idempotencyKey;
+    }
+
+    final facilityId = continuityFacilityId?.trim();
+    final facilityContext = continuityFacilityContext?.trim();
+    if ((facilityId == null) != (facilityContext == null) ||
+        (facilityId?.isEmpty ?? false) ||
+        (facilityContext?.isEmpty ?? false)) {
+      throw ArgumentError(
+        'Continuity facility ID and server-issued context must be supplied together',
+      );
+    }
+    if (facilityId != null && facilityContext != null) {
+      if (!RegExp(r'^[1-9][0-9]*$').hasMatch(facilityId)) {
+        throw ArgumentError.value(facilityId, 'continuityFacilityId');
+      }
+      base['X-VH-Continuity-Facility-Id'] = facilityId;
+      base['X-VH-Continuity-Facility-Context'] = facilityContext;
     }
 
     // Acting-as delegation header — only attached on authenticated calls.

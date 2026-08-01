@@ -28,6 +28,7 @@ import '../../features/reception/screens/front_office_workbench_screen.dart';
 import '../../features/reception/screens/billing_desk_screen.dart';
 import '../../features/ward/screens/ward_mode_screen.dart';
 import '../../features/clinical_continuity/screens/continuity_cache_screen.dart';
+import '../../features/clinical_continuity/screens/paper_reconciliation_workbench_screen.dart';
 
 // Doctor
 import '../../features/doctor/screens/patient_records_screen.dart';
@@ -249,6 +250,13 @@ final GoRouter appRouter = GoRouter(
           name: 'clinical-continuity',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: ContinuityCacheScreen()),
+        ),
+        GoRoute(
+          path: '/clinical-continuity/reconciliation',
+          name: 'clinical-continuity-reconciliation',
+          pageBuilder: (context, state) => const NoTransitionPage(
+            child: PaperReconciliationWorkbenchScreen(),
+          ),
         ),
         GoRoute(
           path: '/dashboard',

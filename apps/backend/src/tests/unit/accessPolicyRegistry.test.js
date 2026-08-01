@@ -101,6 +101,27 @@ describe('policyCodeForRecordType — CareTeam ABAC family mappings (LOW-1)', ()
 });
 
 describe('policyCodeForRecordType — safe fallback is unchanged', () => {
+  it('registers three exact continuity back-entry write policies', () => {
+    const expected = new Map([
+      [ACCESS_POLICY_CODES.PATIENT_CONTINUITY_MAR_BACK_ENTRY, ['ip_flow', 'nursing_governance', 'theatre', 'cath_lab']],
+      [ACCESS_POLICY_CODES.PATIENT_CONTINUITY_SPECIMEN_BACK_ENTRY, ['diagnostics', 'ip_flow', 'nursing_governance']],
+      [ACCESS_POLICY_CODES.PATIENT_CONTINUITY_TRANSFUSION_BACK_ENTRY, ['diagnostics', 'ip_flow', 'theatre', 'cath_lab', 'specialty_services']],
+    ]);
+    for (const [code, capabilityGroups] of expected) {
+      expect(getAccessPolicy(code)).toMatchObject({
+        code,
+        resource_type: 'clinical_continuity_paper_fact',
+        action: 'CREATE',
+        required_phi_level: 'patient_relationship_required',
+        capability_groups: capabilityGroups,
+        audit_required: true,
+      });
+      expect(getAccessPolicy(code).relationship_checks).toEqual(
+        expect.arrayContaining(['care_team', 'referral', 'clinical_authorship', 'appointment', 'admission']),
+      );
+    }
+  });
+
   it('adds pathway ownership to workflow policies and exact transfer-recipient access only to its three bounded policies', () => {
     expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS).relationship_checks)
       .toContain('care_pathway_owner');

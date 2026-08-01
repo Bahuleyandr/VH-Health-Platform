@@ -20,6 +20,9 @@ export const ACCESS_POLICY_CODES = Object.freeze({
   PATIENT_CARE_PATHWAY_TRANSFER_READ: 'patient.care_pathway.transfer_read',
   PATIENT_CARE_PATHWAY_TRANSFER_DECLINE: 'patient.care_pathway.transfer_decline',
   PATIENT_MEDICATION_RECONCILIATION_WRITE: 'patient.medication_reconciliation.write',
+  PATIENT_CONTINUITY_MAR_BACK_ENTRY: 'patient.continuity.mar_back_entry',
+  PATIENT_CONTINUITY_SPECIMEN_BACK_ENTRY: 'patient.continuity.specimen_back_entry',
+  PATIENT_CONTINUITY_TRANSFUSION_BACK_ENTRY: 'patient.continuity.transfusion_back_entry',
   // CareTeam ABAC family policies (LOW-1). Each previously-shadow PHI route
   // family resolves to a family-appropriate policy here instead of falling
   // through to the generic patient.record.view rules. All clinical families sit
@@ -236,6 +239,30 @@ export const ACCESS_POLICIES = Object.freeze({
     action: 'UPDATE',
     requiredPhiLevel: 'patient_relationship_required',
     capabilityGroups: ['ip_flow', 'pharmacy'],
+  }),
+  [ACCESS_POLICY_CODES.PATIENT_CONTINUITY_MAR_BACK_ENTRY]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_CONTINUITY_MAR_BACK_ENTRY,
+    title: 'Record retrospective continuity medication administration',
+    resourceType: 'clinical_continuity_paper_fact',
+    action: 'CREATE',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow', 'nursing_governance', 'theatre', 'cath_lab'],
+  }),
+  [ACCESS_POLICY_CODES.PATIENT_CONTINUITY_SPECIMEN_BACK_ENTRY]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_CONTINUITY_SPECIMEN_BACK_ENTRY,
+    title: 'Record retrospective continuity specimen collection',
+    resourceType: 'clinical_continuity_paper_fact',
+    action: 'CREATE',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['diagnostics', 'ip_flow', 'nursing_governance'],
+  }),
+  [ACCESS_POLICY_CODES.PATIENT_CONTINUITY_TRANSFUSION_BACK_ENTRY]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_CONTINUITY_TRANSFUSION_BACK_ENTRY,
+    title: 'Record retrospective continuity transfusion verification',
+    resourceType: 'clinical_continuity_paper_fact',
+    action: 'CREATE',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['diagnostics', 'ip_flow', 'theatre', 'cath_lab', 'specialty_services'],
   }),
   // ---- CareTeam ABAC family policies (LOW-1) ----
   // Generic clinical-record family: encounters, problem lists, allergies,

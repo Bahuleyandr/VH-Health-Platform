@@ -170,6 +170,7 @@ export { getDatabaseOverview, getDatabaseTableRows };
 export * from "./clinicalGovernance";
 export * from "./entitlements";
 export * from "./continuityFacilityContext";
+export * from "./clinicalContinuityReconciliation";
 
 // Infrastructure & Logs
 import { getAuditLogs, toggleUserStatus } from "./infrastructure";
