@@ -1,6 +1,6 @@
 # C0.4 Clinical Service Continuity Owner Decision Dossier
 
-**Status:** C-D1, C-D2, C-D3, C-D4, C-D6 (full record and fallback-principal partial record), C-D7 (decision table and needs_review addendum), C-D9, C-D13, and the C-D10 retention partial record were countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D5 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D8 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; the remaining C-D10 fields were countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner, completing C-D10 together with its 2026-07-30 retention partial record; C-D14 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; the three delegated C-D2 values were ratified 2026-07-30; C-D11 and C-D12 remain open
+**Status:** C-D1, C-D2, C-D3, C-D4, C-D6 (full record and fallback-principal partial record), C-D7 (decision table and needs_review addendum), C-D9, C-D13, and the C-D10 retention partial record were countersigned 2026-07-30 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D5 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D8 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; the remaining C-D10 fields were countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner, completing C-D10 together with its 2026-07-30 retention partial record; C-D14 was countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner; C-D12 and C-D15, together with the C-D14 portal role mapping addendum, were countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner; the three delegated C-D2 values were ratified 2026-07-30; C-D11 remains open.
 
 **Repository baseline:** `d52daac2c60eb921b327c80c886f35f6e603b528`
 
@@ -267,11 +267,11 @@ communications, product.
 
 | Owner-input field | Value |
 |---|---|
-| Decision | OWNER INPUT — engineering must not fill |
-| Approved values or policy | OWNER INPUT — engineering must not fill |
-| Owner names and roles | OWNER INPUT — engineering must not fill |
-| Decision date | OWNER INPUT — engineering must not fill |
-| Approval or signature references | OWNER INPUT — engineering must not fill |
+| Decision | The C-D12 recommendation is adopted. — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approved values or policy | During an outage the patient app and portal show only previously released cached data, each view carrying a prominent last-updated state. High-risk patient mutations — booking, cancellation, and medical requests — are not accepted offline and resume only when systems return. Patients see one approved support and communication message stating what is happening and whom to contact; the message is maintained alongside the C-D6 incident-packet materials on the same print/refresh cycle as the C-D10 phone-tree. — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the roles listed for this decision. — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Decision date | 2026-08-02 — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 
 ### C-D13 — LAN hostname, certificate, pin, and trust boundary
 
@@ -332,6 +332,28 @@ release.
 | Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the roles listed for this decision. — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 | Decision date | 2026-07-31 — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 | Approval or signature references | pending — recorded by engineering from the owner's 2026-07-31 statement; countersigned 2026-07-31 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+
+#### Addendum (2026-08-02) — portal role mapping
+
+Portal role mapping (2026-08-02): the admin-portal facility and device management surfaces are exercised through SUPER_ADMIN only; IT/security staff performing C-D14 duties use SUPER_ADMIN accounts. A dedicated device-and-access-manager role remains an optional later engineering slice and is not required for activation. — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner
+
+### C-D15 — late identity-command security exception
+
+> **Recommendation:** late external-recovery commands default to pending review
+> (C-D8), but leaving a late staff deactivation pending leaves a terminated
+> employee's access live; a narrow revocation-only exception is the recommended
+> resolution.
+
+**Required sign-off roles:** security, clinical governance, privacy,
+IT/identity, operations.
+
+| Owner-input field | Value |
+|---|---|
+| Decision | The narrow security-only exception is approved. — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approved values or policy | A cryptographically authenticated, tenant- and provider-bound late SCIM deactivation or delete executes its access shut-off immediately even when it arrives late: user and staff sessions are deleted, tokens revoked, device PINs and biometric login disabled, and staff devices disabled, exactly as the live path does today. The executed event still enters the identity pending-review queue for after-the-fact confirmation. All other late identity commands — enables, reactivations, role changes, and profile updates — remain pending review with no automatic access mutation. Named break-glass accounts remain excluded from automatic deprovisioning. Wrongly revoked access is restored through review; this asymmetry is the deciding rationale. This record is binding design authority for the C6.1-F letter. — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Owner names and roles | Dr Bahuleyan S, Medical Director & Accountable Owner, signing as the single accountable owner across the roles listed for this decision. — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Decision date | 2026-08-02 — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
+| Approval or signature references | pending — recorded by engineering from the owner's 2026-08-02 statement; countersigned 2026-08-02 by Dr Bahuleyan S, Medical Director & Accountable Owner |
 
 ## 3. C0A gate evidence freeze
 
