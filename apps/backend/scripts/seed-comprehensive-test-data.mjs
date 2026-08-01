@@ -596,6 +596,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // exact I09/I15 canonical-inbox row. Generic coverage data has no such
   // occurrence, so keep both sides of the optional composite link absent.
   lab_interface_messages: {
+    protocol: 'hl7v2',
     recovery_inbox_id: null,
     recovery_interface_family: null,
   },
