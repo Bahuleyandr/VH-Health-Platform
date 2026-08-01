@@ -1,8 +1,10 @@
 # C-D12 patient app and portal outage behavior — client design delta
 
-**Status:** Step 1 design delta; implementation is not cleared
-**Scope:** `apps/patient` plus one named additive model field in
-`packages/vhhealth_core`
+**Status:** Step 1 approved; Step 2 cleared on 2026-08-02 subject to the dated
+ledger amendment in section 1A
+**Scope:** `apps/patient`, one named additive model field in
+`packages/vhhealth_core`, and the exact additive public-config backend ledger in
+section 1A
 **Branch:** `feat/continuity-c-d12-patient-outage`
 **Baseline:** `github/main` and `origin/main` at
 `a45b2c98faf216b12a71a177589e8351794c3ec3` (2026-08-02 01:30:29 +05:30)
@@ -11,7 +13,8 @@ continuity activation or facility-activation coupling
 **Merge state:** never merge from this lane
 **Declared overlap:** zero with every current or queued lane; the only proposed
 shared-core edit is the additive `CachedApiResponse.cachedAt` field named in
-section 11
+section 11. The concurrent C6.1-C/AZ lane uses backend lab services, while this
+lane uses only the public app-config files named in section 1A.
 
 ## 1. Outcome and authority
 
@@ -38,6 +41,101 @@ authority to weaken or gate this behavior. This lane does not edit the tracker.
 
 No implementation begins until the coordinator clears this delta, the message
 source in section 8, and the exact file ledger in section 11.
+
+## 1A. 2026-08-02 coordinator amendment — operational-copy transport
+
+The coordinator cleared Step 2, accepted the patient readiness adapter and all
+other contracts in this delta, and recorded that the earlier relay instruction
+requiring update without an app release was a coordinator-side tightening of
+section 8. The following narrow amendment is authorized and was recorded before
+implementation.
+
+### Approved bundled wording
+
+The owner approved this exact English outage message on 2026-08-02. It is the
+bundled English floor and is translated through the normal five-language
+patient i18n path:
+
+> Hospital systems are temporarily unavailable. The information shown here was
+> saved earlier — check the 'last updated' time on each page. New bookings,
+> cancellations, and medical requests are paused until service is restored. For
+> urgent needs, please contact the hospital directly at [facility contact
+> number]. In an emergency, call your local emergency number or come straight
+> to the Emergency Department.
+
+The C-D12 dossier record itself is not edited. Its countersigned wording remains
+the policy authority; this amendment changes transport only.
+
+### Payload ceiling and policy fence
+
+The existing public `GET /api/v1/config` response gains one optional additive
+`outage_communication` object. That object contains exactly:
+
+- `revision`: a positive integer;
+- `messages`: exactly `en`, `hi`, `ta`, `te`, and `ml`, each carrying the
+  approved operational copy in that language; and
+- `facility_contact_number`: the print-cycle facility contact value.
+
+No other key is accepted or emitted inside the object. In particular, it may
+not carry a feature gate, security control, authentication or authorization
+input, clinical rule, retention/freshness rule, patient identifier or data,
+staff data, tenant policy, facility-activation state, signed-policy material,
+or executable action. It is operational copy, not a policy channel. The signed
+C4 policy-delivery adapter remains the only policy transport; this endpoint may
+never become a second policy-delivery path.
+
+The endpoint remains public, additive, and non-PHI. The operator update path is
+the existing environment/configuration mechanism that already supplies
+`/api/v1/config`; there is no admin UI, CMS, database row, migration, or new
+write endpoint. Strict server parsing rejects extra object/message keys,
+missing locales, invalid revisions, empty/oversized text, and invalid contact
+values. An absent or invalid operator value omits `outage_communication` while
+preserving the existing version-gate response.
+
+### Isolated last-validated snapshot
+
+The patient client validates the same exact shape and persists the last valid
+operator record in a dedicated non-PHI SharedPreferences keyspace. The snapshot
+is separate from `ApiCacheManager`, `RecordCacheManager`, downloaded PHI files,
+the mutation queue, secure patient storage, and every patient/clinical cache.
+It is bound to the configured API base URL and tenant cache namespace, survives
+logout and app restart by construction, and contains no personal value.
+
+A fetched record replaces the snapshot only when its revision is strictly
+higher. Equal, lower, malformed, cross-source, over-ceiling, or incomplete
+records cannot replace it. If no valid snapshot exists, the app renders the
+bundled five-language default with the literal `[facility contact number]`
+placeholder. A failed fetch never deletes or re-dates a valid snapshot.
+
+This isolated operational-copy snapshot is the only exception to section 2's
+“no new cache” wording. That prohibition remains absolute for patient data,
+clinical data, API response caches, files, readiness state, mutations, policy,
+and every other message or endpoint.
+
+### Additive backend/config ledger
+
+The authorized backend/config files are exactly:
+
+- `apps/backend/src/routes/configRoutes.js`;
+- `apps/backend/src/utils/validateEnv.js`;
+- `apps/backend/.env.example`;
+- `apps/backend/src/tests/unit/configRoutes.test.js`;
+- `apps/backend/src/tests/unit/configEnv.test.js`;
+- `apps/backend/scripts/openapi/schemas/config.mjs`;
+- generated `apps/backend/src/docs/openapi.json`; and
+- synchronized `packages/vhhealth_core/swagger/openapi.json`.
+
+The patient ledger additionally gains
+`apps/patient/lib/core/outage/patient_outage_config.dart`, its focused tests,
+and an additive integration point in
+`apps/patient/lib/core/services/minimum_version_gate_service.dart`, which
+already fetches the public config at boot. The compiled JSON asset and validator
+proposed in sections 8 and 11.4 are superseded; bundled defaults live in ARB,
+while runtime operator copy comes only from the bounded public config object.
+
+Expected overlap with AZ/C6.1-C is zero: this lane touches public config and AZ
+touches lab services. Whichever lane lands second must rebase on current main
+and rerun its focused suites, OpenAPI drift checks, and applicable full gates.
 
 ## 2. Fixed boundaries and non-goals
 
