@@ -9,7 +9,12 @@ import { uploadFileToR2, getSignedFileUrl, deleteObject } from '../../utils/r2St
 import { success, error } from '../../utils/responseHelper.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
 import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalClinicalPlatformService.js';
+import { resolveStaffPushRecipients } from '../../services/notification/staffPushRecipientService.js';
+import { recordStaffPushFanoutFailure } from '../../observability/staffPushFanoutMetrics.js';
 import { AppError } from '../../utils/AppError.js';
+
+// Roles alerted when a patient books an investigation.
+const LAB_ALERT_ROLES = ['LAB_STAFF', 'NURSING_STAFF'];
 
 async function recordRequiredBookingEvent(tx, booking, {
   eventType,
@@ -260,14 +265,20 @@ export const createBooking = async (req, res) => {
     }
 
     // Alert lab staff (fire-and-forget)
+    //
+    // CAN-032 follow-up: this fan-out is scoped to the booking's OWN tenant by an
+    // explicit predicate inside resolveStaffPushRecipients. The push body carries
+    // the patient's name, so an unscoped lookup here delivered one tenant's PHI to
+    // another tenant's staff devices. RLS is deliberately NOT the control — the
+    // migration-075 policy on `users` is permissive whenever the tenant GUC is
+    // unset, which is every non-production environment.
     setImmediate(async () => {
       try {
-        const labStaff = await prisma.$queryRawUnsafe(`
-          SELECT device_token, name FROM users
-          WHERE role IN ('LAB_STAFF', 'NURSING_STAFF')
-            AND device_token IS NOT NULL AND is_active = TRUE LIMIT 20
-        `);
-        const tokens = labStaff.map(r => r.device_token).filter(Boolean);
+        const { tokens } = await resolveStaffPushRecipients(prisma, {
+          tenantId,
+          roles: LAB_ALERT_ROLES,
+          alert: 'investigation_booking',
+        });
         if (tokens.length) {
           await sendPushNotification({
             tokens,
@@ -276,7 +287,18 @@ export const createBooking = async (req, res) => {
             data: { type: 'investigation_booking', booking_id: String(result[0].id) }
           }).catch(e => logger.warn('Failed to send new booking push notification:', e.message));
         }
-      } catch (e) { logger.warn('Lab alert failed:', e.message); }
+      } catch (e) {
+        // Fire-and-forget: this catch is the only thing between a failed fan-out
+        // and total silence, so it logs at error level with correlating ids and
+        // records a counter rather than emitting a bare warn.
+        recordStaffPushFanoutFailure('investigation_booking');
+        logger.error('Lab alert failed for investigation booking', {
+          bookingId: String(result[0]?.id),
+          tenantId,
+          requestId: req.id,
+          message: e.message,
+        });
+      }
     });
 
     success(res, result[0], `Investigation booked. ${result[0].booking_number}`);
