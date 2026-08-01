@@ -84614,9 +84614,9 @@
         }
       }
     },
-    "/api/v1/fhir/Observation/$recover": {
+    "/api/v1/fhir/Observation/recovery": {
       "post": {
-        "operationId": "post_api_v1_fhir_Observation_recover",
+        "operationId": "post_api_v1_fhir_Observation_recovery",
         "responses": {
           "200": {
             "description": "Successful response",

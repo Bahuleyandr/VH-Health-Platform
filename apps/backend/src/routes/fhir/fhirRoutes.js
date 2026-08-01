@@ -1095,7 +1095,7 @@ router.post(
 // timeline events fire through the standard vitals write path.
 // ---------------------------------------------------------------------------
 router.post(
-  '/Observation/$recover',
+  '/Observation/recovery',
   wrapAsync(async (req, res) => {
     requireFhirWriteRole(req, 'Observation');
     if (req.smart) {
