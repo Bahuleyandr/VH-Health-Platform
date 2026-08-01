@@ -10881,6 +10881,1082 @@
           }
         }
       },
+      "ClinicalContinuityAdminCommandResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResult"
+          }
+        }
+      },
+      "ClinicalContinuityAdminCommandResult": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "ClinicalContinuityAttestationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "attestation_kind"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "attestation_kind": {
+            "type": "string",
+            "enum": [
+              "operational",
+              "clinical"
+            ]
+          }
+        }
+      },
+      "ClinicalContinuityCloseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ClinicalContinuityClosure": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "eligible",
+          "incident",
+          "predicate_snapshot_hash",
+          "blockers",
+          "attestations"
+        ],
+        "properties": {
+          "eligible": {
+            "type": "boolean"
+          },
+          "incident": {
+            "$ref": "#/components/schemas/ClinicalContinuityIncident"
+          },
+          "predicate_snapshot_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "code"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "attestations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "ClinicalContinuityClosureResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalContinuityClosure"
+          }
+        }
+      },
+      "ClinicalContinuityCommandResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalContinuityCommandResult"
+          }
+        }
+      },
+      "ClinicalContinuityCommandResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "declared",
+              "split_brain_needs_review",
+              "registered",
+              "applied",
+              "needs_review",
+              "exact_duplicate"
+            ]
+          },
+          "client_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "outcome_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "replayed": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "incident": {
+            "$ref": "#/components/schemas/ClinicalContinuityIncident"
+          },
+          "paper_item": {
+            "$ref": "#/components/schemas/ClinicalContinuityPaperItem"
+          }
+        }
+      },
+      "ClinicalContinuityDecisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "decision",
+          "reason_code"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "exclude",
+              "assign",
+              "handoff",
+              "reopen",
+              "supersede"
+            ]
+          },
+          "reason_code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        }
+      },
+      "ClinicalContinuityDeclareRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "packet_id",
+          "reserved_incident_id",
+          "signed_canonical_hash",
+          "signature",
+          "occurred_at"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "packet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reserved_incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "signed_canonical_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "signature": {
+            "type": "string",
+            "minLength": 1
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClinicalContinuityDeviceOffset": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "incident_id",
+          "device_id",
+          "required_high_water_mark",
+          "disposition",
+          "owner_principal",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "required_high_water_mark": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              }
+            ]
+          },
+          "observed_high_water_mark": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              }
+            ],
+            "nullable": true
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "reconciled",
+              "lost_assigned",
+              "not_applicable"
+            ]
+          },
+          "assigned_to_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "owner_principal": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ClinicalContinuityDeviceOffsetRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "required_high_water_mark",
+          "disposition"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required_high_water_mark": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "observed_high_water_mark": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "reconciled",
+              "lost_assigned",
+              "not_applicable"
+            ]
+          }
+        }
+      },
+      "ClinicalContinuityIdentityApprovalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityIdentityMatchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "packet_id",
+          "paper_item_row_id",
+          "temporary_identity_id",
+          "target_patient_uid"
+        ],
+        "properties": {
+          "packet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "paper_item_row_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "temporary_identity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "target_patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityIncident": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "facility_id",
+          "commander_uid",
+          "lifecycle_state",
+          "version",
+          "declared_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "facility_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "packet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canonical_incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "commander_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "commander_role": {
+            "type": "string"
+          },
+          "lifecycle_state": {
+            "$ref": "#/components/schemas/ClinicalContinuityIncidentState"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "declared_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "restored_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reconciliation_started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "closed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "closure_snapshot_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityIncidentAliasRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observed_incident_id",
+          "canonical_incident_id",
+          "expected_version",
+          "reason_code"
+        ],
+        "properties": {
+          "observed_incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canonical_incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason_code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "supersedes_alias_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityIncidentPacket": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "facility_id",
+          "reserved_incident_id",
+          "range_prefix",
+          "range_first",
+          "range_last",
+          "status",
+          "valid_from",
+          "valid_until"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "facility_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reserved_incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "range_prefix": {
+            "type": "string"
+          },
+          "range_first": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ]
+          },
+          "range_last": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unused",
+              "used",
+              "revoked",
+              "expired"
+            ]
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "revocation_reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityIncidentState": {
+        "type": "string",
+        "enum": [
+          "declared",
+          "restored",
+          "reconciling",
+          "closed"
+        ]
+      },
+      "ClinicalContinuityIncidentTransitionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "next_state"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "next_state": {
+            "$ref": "#/components/schemas/ClinicalContinuityIncidentState"
+          }
+        }
+      },
+      "ClinicalContinuityInterfaceRequirement": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "incident_id",
+          "interface_family",
+          "direction",
+          "source_partition",
+          "disposition",
+          "owner_principal",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "offset_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "interface_family": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "source_partition": {
+            "type": "string"
+          },
+          "required_generation": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "required_high_water_position": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              }
+            ],
+            "nullable": true
+          },
+          "required_high_water_token": {
+            "type": "string",
+            "nullable": true
+          },
+          "observed_generation": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "observed_high_water_position": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              }
+            ],
+            "nullable": true
+          },
+          "observed_high_water_token": {
+            "type": "string",
+            "nullable": true
+          },
+          "observed_recovery_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "reconciled",
+              "not_applicable",
+              "assigned_gap"
+            ]
+          },
+          "owner_principal": {
+            "type": "string"
+          },
+          "assigned_to_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ClinicalContinuityInterfaceRequirementRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "interface_family",
+          "direction",
+          "source_partition",
+          "disposition"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "offset_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "interface_family": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8
+          },
+          "direction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "source_partition": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "required_generation": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "required_high_water_position": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "required_high_water_token": {
+            "type": "string",
+            "maxLength": 255,
+            "nullable": true
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "reconciled",
+              "not_applicable",
+              "assigned_gap"
+            ]
+          }
+        }
+      },
+      "ClinicalContinuityLabBackfillRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "occurred_at",
+          "original_actor_uid",
+          "original_actor_role",
+          "patient_uid",
+          "encounter_id",
+          "evidence_hash",
+          "investigation_id",
+          "specimen_barcode"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "original_actor_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_actor_role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "evidence_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "investigation_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "specimen_barcode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "collection_notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          }
+        }
+      },
+      "ClinicalContinuityMarBackfillRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "occurred_at",
+          "original_actor_uid",
+          "original_actor_role",
+          "patient_uid",
+          "encounter_id",
+          "evidence_hash",
+          "medication_administration_id"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "original_actor_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_actor_role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "evidence_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "medication_administration_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          }
+        }
+      },
+      "ClinicalContinuityPaperDisposition": {
+        "type": "string",
+        "enum": [
+          "unentered",
+          "claimed",
+          "applied",
+          "needs_review",
+          "excluded",
+          "voided",
+          "lost_revoked"
+        ]
+      },
+      "ClinicalContinuityPaperItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "incident_id",
+          "paper_item_id",
+          "item_kind",
+          "evidence_hash",
+          "reconciliation_disposition",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "paper_item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "item_kind": {
+            "type": "string",
+            "enum": [
+              "temporary_identity",
+              "medication_administration",
+              "specimen_collection",
+              "transfusion_verification",
+              "other"
+            ]
+          },
+          "action_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "temporary_identity_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "evidence_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "payload_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          },
+          "reconciliation_disposition": {
+            "$ref": "#/components/schemas/ClinicalContinuityPaperDisposition"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ClinicalContinuityPaperRange": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "incident_id",
+          "range_prefix",
+          "range_first",
+          "range_last",
+          "status",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "range_prefix": {
+            "type": "string"
+          },
+          "range_first": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ]
+          },
+          "range_last": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "allocated",
+              "in_use",
+              "accounted",
+              "lost",
+              "revoked",
+              "exhausted"
+            ]
+          },
+          "last_accounted_number": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ],
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
       "ClinicalContinuityPolicyDelivery": {
         "type": "object",
         "additionalProperties": false,
@@ -10939,6 +12015,440 @@
               "CONTINUITY_POLICY_REVOKED",
               "CONTINUITY_POLICY_DELIVERY_INTEGRITY_FAILED"
             ]
+          }
+        }
+      },
+      "ClinicalContinuityQueueType": {
+        "type": "string",
+        "enum": [
+          "needs_review",
+          "identity",
+          "interface"
+        ]
+      },
+      "ClinicalContinuityRangeDispositionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "disposition",
+          "reason_code"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "in_use",
+              "accounted",
+              "lost",
+              "revoked",
+              "exhausted"
+            ]
+          },
+          "reason_code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "last_accounted_number": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityReconciliationItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "incident_id",
+          "queue_type",
+          "disposition",
+          "reason_code",
+          "safety_critical",
+          "owner_principal",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "queue_type": {
+            "$ref": "#/components/schemas/ClinicalContinuityQueueType"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_progress",
+              "resolved",
+              "excluded",
+              "superseded"
+            ]
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "paper_item_row_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "temporary_identity_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "safety_critical": {
+            "type": "boolean"
+          },
+          "owner_principal": {
+            "type": "string"
+          },
+          "assigned_to_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "task_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "task_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sla_completion_semantics": {
+            "type": "string",
+            "enum": [
+              "none",
+              "acknowledgement",
+              "domain_evidence"
+            ],
+            "nullable": true
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ClinicalContinuityRegisterPaperItemRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "item_kind",
+          "evidence_hash"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "item_kind": {
+            "type": "string",
+            "enum": [
+              "temporary_identity",
+              "medication_administration",
+              "specimen_collection",
+              "transfusion_verification",
+              "other"
+            ]
+          },
+          "action_id": {
+            "type": "string",
+            "enum": [
+              "mar.administration.backfill",
+              "lab.specimen_collection.backfill",
+              "blood.transfusion_verification.backfill"
+            ],
+            "nullable": true
+          },
+          "original_actor_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "original_actor_role": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 80
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "temporary_identity_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "evidence_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "ClinicalContinuityTemporaryIdentity": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "incident_id",
+          "paper_item_id",
+          "display_identifier",
+          "identity_status",
+          "safety_critical",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "paper_item_id": {
+            "type": "string"
+          },
+          "display_identifier": {
+            "type": "string"
+          },
+          "identity_status": {
+            "type": "string",
+            "enum": [
+              "unresolved",
+              "proposed",
+              "matched",
+              "retained_temporary"
+            ]
+          },
+          "matched_patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "merge_request_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "safety_critical": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ClinicalContinuityTransfusionBackfillRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "occurred_at",
+          "original_actor_uid",
+          "original_actor_role",
+          "patient_uid",
+          "encounter_id",
+          "evidence_hash",
+          "blood_request_id",
+          "blood_unit_id",
+          "first_verifier_uid",
+          "second_verifier_uid",
+          "scanned_unit_number",
+          "unit_match",
+          "patient_match",
+          "group_compatible",
+          "expiry_ok"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "original_actor_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_actor_role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "evidence_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "blood_request_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "blood_unit_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "first_verifier_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "second_verifier_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scanned_unit_number": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "unit_match": {
+            "type": "boolean"
+          },
+          "patient_match": {
+            "type": "boolean"
+          },
+          "group_compatible": {
+            "type": "boolean"
+          },
+          "expiry_ok": {
+            "type": "boolean"
+          },
+          "override_reason": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          }
+        }
+      },
+      "ClinicalContinuityWorkbench": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "incidents",
+          "packets",
+          "paper_ranges",
+          "paper_items",
+          "reconciliation_items",
+          "temporary_identities",
+          "device_offsets",
+          "interfaces"
+        ],
+        "properties": {
+          "incidents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityIncident"
+            }
+          },
+          "packets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityIncidentPacket"
+            }
+          },
+          "paper_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityPaperRange"
+            }
+          },
+          "paper_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityPaperItem"
+            }
+          },
+          "reconciliation_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityReconciliationItem"
+            }
+          },
+          "temporary_identities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityTemporaryIdentity"
+            }
+          },
+          "device_offsets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityDeviceOffset"
+            }
+          },
+          "interfaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityInterfaceRequirement"
+            }
+          }
+        }
+      },
+      "ClinicalContinuityWorkbenchResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalContinuityWorkbench"
           }
         }
       },
@@ -77214,6 +78724,703 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/identity-matches/{mergeId}/approve": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_identity_matches_by_mergeId_approve",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "mergeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIdentityApprovalRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/identity-matches/{mergeId}/execute": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_identity_matches_by_mergeId_execute",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "mergeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/downtime/reconciliation/incident-aliases": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incident_aliases",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIncidentAliasRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/declare": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_declare",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityDeclareRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/import": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_import",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityDeclareRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/closure": {
+      "get": {
+        "operationId": "get_api_v1_downtime_reconciliation_incidents_by_incidentId_closure",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityClosureResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/closure/attestations": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_closure_attestations",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityAttestationRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/closure/close": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_closure_close",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityCloseRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/devices/{deviceId}/offset": {
+      "put": {
+        "operationId": "put_api_v1_downtime_reconciliation_incidents_by_incidentId_devices_by_deviceId_offset",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityDeviceOffsetRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/identity-matches": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_identity_matches",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIdentityMatchRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/interfaces/requirement": {
+      "put": {
+        "operationId": "put_api_v1_downtime_reconciliation_incidents_by_incidentId_interfaces_requirement",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityInterfaceRequirementRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/paper-items/{paperItemId}": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_paper_items_by_paperItemId",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "paperItemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityRegisterPaperItemRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/paper-items/{paperItemId}/blood-transfusion-verification": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_paper_items_by_paperItemId_blood_transfusion_verification",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "paperItemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityTransfusionBackfillRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/paper-items/{paperItemId}/lab-specimen-collection": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_paper_items_by_paperItemId_lab_specimen_collection",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "paperItemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityLabBackfillRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/paper-items/{paperItemId}/mar-administration": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_paper_items_by_paperItemId_mar_administration",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "paperItemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityMarBackfillRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/range-disposition": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_range_disposition",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityRangeDispositionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/state": {
+      "patch": {
+        "operationId": "patch_api_v1_downtime_reconciliation_incidents_by_incidentId_state",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityAdminCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIncidentTransitionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/reconciliation-items/{itemId}/decision": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_reconciliation_items_by_itemId_decision",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityDecisionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/workbench": {
+      "get": {
+        "operationId": "get_api_v1_downtime_reconciliation_workbench",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityWorkbenchResponse"
                 }
               }
             }

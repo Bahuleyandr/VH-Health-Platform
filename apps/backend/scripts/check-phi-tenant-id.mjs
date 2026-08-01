@@ -112,7 +112,7 @@ function readPoliciedTables() {
     }
 
     // (b) %I loop form — harvest ARRAY[...] quoted identifiers.
-    if (/CREATE\s+POLICY\s+tenant_isolation\s+ON\s+%I/i.test(text)) {
+    if (/CREATE\s+POLICY\s+tenant_isolation\s+ON\s+(?:public\.)?%I/i.test(text)) {
       const arrRe = /ARRAY\s*\[([\s\S]*?)\]/g;
       let a;
       while ((a = arrRe.exec(text)) !== null) {

@@ -71,7 +71,7 @@ describe("fetchAdminAPI body serialization", () => {
       expect.objectContaining({
         method: "POST",
         body: '{"name":"x"}',
-        headers: { "Content-Type": "application/json" },
+        headers: expect.any(Headers),
       }),
     );
   });
@@ -92,7 +92,7 @@ describe("fetchAdminAPI body serialization", () => {
       expect.objectContaining({
         method: "POST",
         body: '{"name":"x"}',
-        headers: { "Content-Type": "application/json" },
+        headers: expect.any(Headers),
       }),
     );
   });
@@ -116,6 +116,24 @@ describe("fetchAdminAPI body serialization", () => {
     expect(call.body).toBeUndefined();
     expect(call.headers).toBeUndefined();
   });
+
+  it("forwards a server-issued continuity context with JSON requests", async () => {
+    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
+
+    await fetchAdminAPI("/downtime/reconciliation/workbench", {
+      headers: {
+        "X-VH-Continuity-Facility-Id": "17",
+        "X-VH-Continuity-Facility-Context": "signed-envelope",
+      },
+    });
+
+    const call = mockedApiFetch.mock.calls[0][1] as RequestInit;
+    const headers = new Headers(call.headers);
+    expect(headers.get("X-VH-Continuity-Facility-Id")).toBe("17");
+    expect(headers.get("X-VH-Continuity-Facility-Context")).toBe(
+      "signed-envelope",
+    );
+  });
 });
 
 describe("fetchAdminAPI response/error behavior", () => {
@@ -124,7 +142,9 @@ describe("fetchAdminAPI response/error behavior", () => {
   });
 
   it("unwraps success envelopes with data", async () => {
-    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ success: true, data: { ok: true } }));
+    mockedApiFetch.mockResolvedValueOnce(
+      jsonResponse({ success: true, data: { ok: true } }),
+    );
 
     const result = await fetchAdminAPI<{ ok: boolean }>("/admin/appointments");
 
@@ -136,7 +156,9 @@ describe("fetchAdminAPI response/error behavior", () => {
   });
 
   it("keeps already-prefixed endpoints and returns raw payload when no data envelope exists", async () => {
-    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ ok: true, source: "raw" }));
+    mockedApiFetch.mockResolvedValueOnce(
+      jsonResponse({ ok: true, source: "raw" }),
+    );
 
     const result = await fetchAdminAPI<{ ok: boolean; source: string }>(
       "/api/v1/admin/test",
@@ -162,7 +184,9 @@ describe("fetchAdminAPI response/error behavior", () => {
       await fetchAdminAPI("/users", { method: "POST", body: { name: "x" } });
       throw new Error("Expected fetchAdminAPI to throw APIError");
     } catch (err) {
-      expect((err as APIError).message).toContain("HTTP 502 calling POST /users");
+      expect((err as APIError).message).toContain(
+        "HTTP 502 calling POST /users",
+      );
       expect((err as APIError).status).toBe(502);
     }
   });

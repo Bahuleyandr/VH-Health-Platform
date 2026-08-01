@@ -72,6 +72,7 @@ import {
   COLD_CHAIN_ROUTE_ROLES,
   CLINICAL_ASSESSMENT_ROUTE_ROLES,
   CLINICAL_INBOX_ROUTE_ROLES,
+  CLINICAL_CONTINUITY_RECONCILIATION_ROUTE_ROLES,
   CLINICAL_STAFF_ROUTE_ROLES,
   COMPLIANCE_ROUTE_ROLES,
   CONSENT_ROUTE_ROLES,
@@ -289,6 +290,7 @@ import nursingAssessmentRoutes from './routes/clinical/nursingAssessmentRoutes.j
 import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 import downtimeRoutes from './routes/downtime/downtimeRoutes.js';
 import clinicalContinuityPolicyDeliveryRoutes from './routes/downtime/clinicalContinuityPolicyDeliveryRoutes.js';
+import clinicalContinuityReconciliationRoutes from './routes/downtime/clinicalContinuityReconciliationRoutes.js';
 import staticDowntimeRoutes from './routes/downtime/staticDowntimeRoutes.js';
 import terminologyRoutes from './routes/terminology/terminologyRoutes.js';
 import problemListRoutes from './routes/clinical/problemListRoutes.js';
@@ -1012,6 +1014,12 @@ app.use('/api/v1/clinical/assessments', requireRole(...CLINICAL_ASSESSMENT_ROUTE
 
 // Downtime-mode ward packs (roadmap A3) — scheduled printable census/MAR
 // packs for outage operation. PHI by definition → clinical gate + PHI log.
+app.use(
+  '/api/v1/downtime/reconciliation',
+  requireRole(...CLINICAL_CONTINUITY_RECONCILIATION_ROUTE_ROLES),
+  phiAccessLogger('DOWNTIME_RECONCILIATION'),
+  clinicalContinuityReconciliationRoutes,
+);
 app.use('/api/v1/downtime', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DOWNTIME_PACK'), downtimeRoutes);
 
 // Signed policy authority only; no patient or encounter data is present.

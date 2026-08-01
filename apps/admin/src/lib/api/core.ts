@@ -250,18 +250,22 @@ export function deleteJSON<T = unknown>(endpoint: string, useAuth = true) {
 /** Back-compat helper used widely across pages */
 export async function fetchAdminAPI<T = unknown>(
   endpoint: string,
-  init?: { method?: string; body?: unknown; token?: string },
+  init?: { method?: string; body?: unknown; token?: string; headers?: HeadersInit },
 ): Promise<T> {
-  const { method = "GET", body, token } = init ?? {};
+  const { method = "GET", body, token, headers } = init ?? {};
   const prefixedEndpoint = toApiV1Endpoint(endpoint);
   // Note: `token` arg is legacy — client-side requests are authenticated via
   // the httpOnly auth_token cookie handled by /api/proxy. Passing a token here
   // is a no-op for security, kept only for API-shape compatibility.
   const serializedBody = serializeJsonBody(body);
+  const requestHeaders = new Headers(headers);
+  if (serializedBody !== undefined) {
+    requestHeaders.set("Content-Type", "application/json");
+  }
   const res = await apiFetch(prefixedEndpoint, {
     method,
     token,
-    headers: serializedBody !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: Array.from(requestHeaders.keys()).length > 0 ? requestHeaders : undefined,
     body: serializedBody,
   });
   if (!res.ok) {

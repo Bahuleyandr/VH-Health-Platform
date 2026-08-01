@@ -8,7 +8,7 @@ const describeIfDb = databaseUrl ? describe : describe.skip;
 const migrationSql = readFileSync(
   new URL('../../migrations/601_clinical_continuity_edge_access.sql', import.meta.url),
   'utf8',
-);
+).replaceAll('\r\n', '\n');
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const RLS_TEST_ROLE = 'rls_test_app';
