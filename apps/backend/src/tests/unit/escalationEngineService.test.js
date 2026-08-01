@@ -86,7 +86,51 @@ jest.unstable_mockModule('../../services/patientFlow/porterTransportService.js',
   runTransportEscalationSweep: runTransportEscalationSweepMock,
 }));
 
-const { runEscalationSweep } = await import('../../services/workflow/escalationEngineService.js');
+// The fan-out cap is resolved at module load, so overriding it BEFORE the import
+// both shrinks these fixtures to something readable and proves the env knob is
+// actually wired. The default (500) and the clamp are asserted separately below.
+process.env.ESCALATION_RECIPIENT_FANOUT_CAP = '3';
+
+const { runEscalationSweep, __testing__ } = await import('../../services/workflow/escalationEngineService.js');
+
+// Unset it again the moment the constant has been captured. jest runs test files
+// sequentially in ONE process (maxWorkers: 1 / --runInBand), so process.env
+// mutations outlive the file that made them — left set, this would silently
+// re-cap escalationRecipientFanout.deep.test.js at 3 and break assertions that
+// have nothing to do with this suite.
+delete process.env.ESCALATION_RECIPIENT_FANOUT_CAP;
+// The metrics module is pure in-process counters with no DB or network, so it is
+// deliberately NOT mocked: asserting on the real serializer proves the counter is
+// actually wired to the scrape output, not merely that a spy was called.
+const { serializeEscalationMetrics } = await import('../../observability/escalationMetrics.js');
+
+const CAP = __testing__.RECIPIENT_FANOUT_CAP;
+
+// Read one labelled counter out of the Prometheus exposition text. Counters are
+// process-global and accumulate across tests in this file, so every assertion
+// below is a before/after DELTA rather than an absolute value.
+function counterValue(name, labels) {
+  const labelPart = Object.entries(labels)
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(',');
+  const line = `${name}{${labelPart}}`;
+  const match = serializeEscalationMetrics()
+    .split('\n')
+    .find((l) => l.startsWith(`${line} `));
+  return match ? Number(match.slice(line.length + 1)) : 0;
+}
+
+// A page of resolved recipients as the engine's SELECT returns it: the page rows
+// PLUS the COUNT(*) OVER () total that reports how many matched before LIMIT.
+function recipientPage({ size, totalMatched, role }) {
+  return Array.from({ length: size }, (_, i) => ({
+    id: 1000 + i,
+    uid: `aaaaaaaa-0000-4000-8000-${String(i).padStart(12, '0')}`,
+    phone: `+9198${String(i).padStart(8, '0')}`,
+    role,
+    total_matched: totalMatched,
+  }));
+}
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -633,5 +677,200 @@ describe('runEscalationSweep', () => {
     queryRawMock.mockResolvedValueOnce([]); // q1 → no tenants with rules
     const res = await runEscalationSweep({ now: NOW });
     expect(res).toMatchObject({ scanned: 0, escalated: 0, autoResolved: 0, backfilled: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recipient fan-out honesty.
+//
+// Before this change both arms of resolveRecipientsForRole ended in a bare
+// `LIMIT 50` with `ORDER BY id`: recipient 51+ was dropped from a critical-result
+// page with no warning, no metric, and no clinically meaningful ordering to say
+// WHICH 50 survived. Dropping staff from a critical-result escalation is
+// clinical-safety-adjacent, so the cap is now named + configurable, the order is
+// a documented availability proxy, and every trim is logged AND counted.
+// ---------------------------------------------------------------------------
+
+const TRIM_METRIC = 'vhhealth_escalation_recipients_trimmed_total';
+const PAGE_FULL_METRIC = 'vhhealth_escalation_candidate_page_full_total';
+const TRIM_WARNING = 'escalation notify: recipient fan-out exceeded cap — tail of the role was NOT notified';
+
+// A tier-2 notify rule whose window has elapsed by NOW — the shortest path to
+// exercising resolveRecipientsForRole through the real sweep.
+function notifyRule(extra = {}) {
+  return rule({
+    id: 6,
+    trigger_window_minutes: 10,
+    action_kind: 'notify',
+    action_payload: { tier: 2, notify_role: 'DUTY' },
+    ...extra,
+  });
+}
+
+describe('escalation recipient fan-out cap', () => {
+  it('pages with the configured cap, not a hardcoded 50, ordered by a documented availability proxy', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([notifyRule()])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(recipientPage({ size: 1, totalMatched: 1, role: 'DUTY_DOCTOR' }))
+      .mockResolvedValueOnce([]);
+
+    await runEscalationSweep({ now: NOW });
+
+    const [sql, , , boundCap] = queryRawMock.mock.calls[4];
+    // The magic number is gone and the bound is a real parameter.
+    expect(sql).not.toMatch(/LIMIT\s+50\b/i);
+    expect(sql).toMatch(/LIMIT\s+\$3::int/i);
+    expect(boundCap).toBe(CAP);
+    // COUNT(*) OVER () is evaluated before LIMIT, so it reports the TRUE match
+    // count — that is what makes the dropped count exact rather than a guess.
+    expect(sql).toMatch(/COUNT\(\*\)\s+OVER\s*\(\)\s+AS\s+total_matched/i);
+    // Never-signed-in accounts sort last, so a trim sheds the least reachable
+    // clinicians first; id ASC makes the order total and therefore deterministic.
+    expect(sql).toMatch(/ORDER BY\s+last_sign_in_at\s+DESC\s+NULLS\s+LAST,\s*id\s+ASC/i);
+    expect(sql).not.toMatch(/ORDER BY\s+id\s*\n/i);
+  });
+
+  it('exact-role arm over the cap → warns with the exact dropped count and counts the trim', async () => {
+    const dropped = 7;
+    const before = counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'exact' });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([notifyRule()])
+      .mockResolvedValueOnce([task()])
+      // A full page (LIMIT CAP returned CAP rows) while CAP + 7 users matched.
+      .mockResolvedValueOnce(recipientPage({
+        size: CAP, totalMatched: CAP + dropped, role: 'DUTY_DOCTOR',
+      }))
+      .mockResolvedValueOnce([]);
+
+    const res = await runEscalationSweep({ now: NOW });
+
+    // The tier still fires and still pages everyone it could.
+    expect(res.escalated).toBe(1);
+    expect(queueNotificationMock).toHaveBeenCalledTimes(CAP);
+
+    // ...but the seven it could NOT page are stated, not inferred from silence.
+    expect(loggerWarnMock).toHaveBeenCalledWith(TRIM_WARNING, expect.objectContaining({
+      tenantId: TENANT,
+      role: 'DUTY_DOCTOR',
+      arm: 'exact',
+      matched: CAP + dropped,
+      notified: CAP,
+      dropped,
+      cap: CAP,
+    }));
+    expect(counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'exact' }))
+      .toBe(before + dropped);
+  });
+
+  it('family-fallback arm over the cap → warns and counts under the family arm label', async () => {
+    const dropped = 5;
+    const before = counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'family' });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([notifyRule()])
+      .mockResolvedValueOnce([task()])
+      // Nobody holds DUTY_DOCTOR exactly → widen to DOCTOR_TIERS, which overflows.
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(recipientPage({
+        size: CAP, totalMatched: CAP + dropped, role: 'DOCTOR',
+      }))
+      .mockResolvedValueOnce([]);
+
+    await runEscalationSweep({ now: NOW });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(TRIM_WARNING, expect.objectContaining({
+      role: 'DUTY_DOCTOR', arm: 'family', dropped,
+    }));
+    expect(counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'family' }))
+      .toBe(before + dropped);
+    // The widened query is capped and ordered identically to the exact arm.
+    const [familySql, , , boundCap] = queryRawMock.mock.calls[5];
+    expect(familySql).toMatch(/role\s*=\s*ANY\(\$2::text\[\]\)/i);
+    expect(familySql).not.toMatch(/LIMIT\s+50\b/i);
+    expect(boundCap).toBe(CAP);
+  });
+
+  it('a role that fits under the cap is delivered whole, with no warning and no metric movement', async () => {
+    const before = counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'exact' });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([notifyRule()])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(recipientPage({ size: 3, totalMatched: 3, role: 'DUTY_DOCTOR' }))
+      .mockResolvedValueOnce([]);
+
+    await runEscalationSweep({ now: NOW });
+
+    expect(queueNotificationMock).toHaveBeenCalledTimes(3);
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(TRIM_WARNING, expect.anything());
+    expect(counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'exact' })).toBe(before);
+  });
+
+  it('a full candidate-task page is reported, because tasks behind it go unevaluated', async () => {
+    // The candidate page is ordered by a stable t.id ASC and the once-per-rule
+    // guard runs in JS AFTER the page is fetched, so already-fired tasks keep
+    // their slots: a tenant sitting on `limit` escalatable tasks starves
+    // everything behind them rather than deferring it to the next sweep.
+    const limit = 2;
+    const before = counterValue(PAGE_FULL_METRIC, { trigger_condition: 'sla_breach' });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([notifyRule()])
+      .mockResolvedValueOnce([task({ id: 77 }), task({ id: 78 })]) // page came back FULL
+      .mockResolvedValueOnce(recipientPage({ size: 1, totalMatched: 1, role: 'DUTY_DOCTOR' }))
+      .mockResolvedValueOnce(recipientPage({ size: 1, totalMatched: 1, role: 'DUTY_DOCTOR' }))
+      .mockResolvedValueOnce([]);
+
+    await runEscalationSweep({ now: NOW, limit });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'escalation sweep: candidate page full — tasks beyond the page were NOT evaluated',
+      expect.objectContaining({ tenantId: TENANT, ruleId: 6, triggerCondition: 'sla_breach', cap: limit }),
+    );
+    expect(counterValue(PAGE_FULL_METRIC, { trigger_condition: 'sla_breach' })).toBe(before + 1);
+  });
+
+  it('a page with no total_matched column reports nothing dropped', async () => {
+    // Every pre-existing case in this file mocks the resolver query and returns
+    // rows WITHOUT the COUNT(*) OVER () column. Those pages were never truncated,
+    // so the correct answer is "nothing dropped" — this pins that the fallback
+    // cannot start manufacturing phantom warnings on a partial row shape.
+    const before = counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'exact' });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([notifyRule()])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce([{ id: 51, uid: CLINICIAN, phone: '+919800000051', role: 'DUTY_DOCTOR' }])
+      .mockResolvedValueOnce([]);
+
+    await runEscalationSweep({ now: NOW });
+
+    expect(queueNotificationMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(TRIM_WARNING, expect.anything());
+    expect(counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'exact' })).toBe(before);
+  });
+
+  it('honours the ESCALATION_RECIPIENT_FANOUT_CAP override set before module load', () => {
+    expect(CAP).toBe(3);
+  });
+
+  it('clampFanoutCap defaults, clamps to the ceiling, and rejects nonsense', () => {
+    const { clampFanoutCap } = __testing__;
+    expect(clampFanoutCap('250')).toBe(250);
+    expect(clampFanoutCap(undefined)).toBe(500); // documented default
+    expect(clampFanoutCap('')).toBe(500);
+    expect(clampFanoutCap('not-a-number')).toBe(500);
+    expect(clampFanoutCap('0')).toBe(500);
+    expect(clampFanoutCap('-5')).toBe(500);
+    expect(clampFanoutCap('999999')).toBe(5000); // ceiling
   });
 });

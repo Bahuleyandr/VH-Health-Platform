@@ -8,6 +8,7 @@ import { serializeReliabilityMetrics } from '../../observability/reliabilityMetr
 import { serializeTeleconsultOpsMetrics } from '../../observability/teleconsultOpsMetrics.js';
 import { serializeContinuityMetrics } from '../../observability/continuityMetrics.js';
 import { serializeStaffPushFanoutMetrics } from '../../observability/staffPushFanoutMetrics.js';
+import { serializeEscalationMetrics } from '../../observability/escalationMetrics.js';
 
 const router = Router();
 
@@ -22,7 +23,9 @@ router.get('/', (_req, res) => {
       + '\n'
       + serializeContinuityMetrics()
       + '\n'
-      + serializeStaffPushFanoutMetrics(),
+      + serializeStaffPushFanoutMetrics()
+      + '\n'
+      + serializeEscalationMetrics(),
   );
 });
 
