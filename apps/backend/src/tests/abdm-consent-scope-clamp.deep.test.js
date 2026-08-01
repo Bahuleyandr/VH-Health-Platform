@@ -43,12 +43,15 @@ d('ABDM consent-scope clamp (#1)', () => {
        VALUES ($1::uuid, $2, 'ABDM Clamp Patient', 'PATIENT', true, NOW())`,
       PATIENT_UID, PATIENT_PHONE,
     );
+    // Expiry must stay ahead of the run date: handleDataRequest hard-expires
+    // the consent (CONSENT_EXPIRED) once expiry_date < NOW(), so a fixed
+    // calendar expiry would flip this suite red when real time crossed it.
     await prisma.$queryRawUnsafe(
       `INSERT INTO abdm_consents
          (consent_id, patient_uid, hip_id, hiu_id, purpose, hi_types,
           date_range_from, date_range_to, expiry_date, status, requester_name, created_at)
        VALUES ($1, $2::uuid, 'HIP-TEST', 'HIU-TEST', 'CAREMGT', $3,
-               $4::date, $5::date, '2027-01-01'::date, 'GRANTED', 'Test HIU', NOW())`,
+               $4::date, $5::date, (NOW() + interval '365 days')::date, 'GRANTED', 'Test HIU', NOW())`,
       CONSENT_ID, PATIENT_UID, ['Prescription'], GRANT_FROM, GRANT_TO,
     );
   });
