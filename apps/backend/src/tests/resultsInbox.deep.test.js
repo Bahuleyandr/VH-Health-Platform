@@ -1,7 +1,8 @@
 // Results-inbox safety net — END-TO-END deep test (real producer + engine + DB).
 //
 // Design docs/RESULTS_INBOX_ESCALATION_DESIGN.md §4 + §9. Proves the full
-// pipeline against the REAL services + the QA DB under the default tenant:
+// pipeline against the REAL services + the QA DB, inside a tenant this suite
+// creates and drops:
 //
 //   1. enqueueCriticalResultTask (the producer) turns a critical lab result into
 //      an assigned, ack-tracked `tasks` row linked to a mig-269
@@ -19,6 +20,45 @@
 // `now` is injected into runEscalationSweep so the test does not have to wait the
 // real 15-minute SLA + tier windows. The SLA instance + escalation tiers are the
 // real pre-seeded rows (mig-269 critical_result_ack @ 15min; mig-312 T1/T2/T3).
+//
+// ---------------------------------------------------------------------------
+// TENANT OWNERSHIP (post-#675/#678 pattern — see cath-scheduling-registry and
+// nabh-indicators). This suite used to run on the DEFAULT tenant, where three of
+// its assertions were hostage to state the comprehensive seeder and every
+// cohabiting suite can write:
+//
+//   * listInboxTasks pages the assignee's tasks UNION the unassigned queue for
+//     the actor's role, ORDER BY priority, due_at, created_at DESC LIMIT 50
+//     (taskService DEFAULT_LIST_LIMIT). Fifty critical DOCTOR-queue tasks in the
+//     default tenant evict this suite's task from the page and
+//     `toContain(taskId)` fails.
+//   * the exact COUNT(*) assertions over (tenant, resource_type, resource_id)
+//     only hold while no cohabiting suite writes the same synthetic resource id;
+//     SUFFIX is `Date.now() % 100000`, which recycles every 100 seconds.
+//   * runEscalationSweep is global over every tenant holding active task-scope
+//     escalation rules, so the exact `tiersOf(task)` assertions were coupled to
+//     the sibling suite resultsInboxC3Escalation.deep, which pinned its SLA to
+//     the SAME 2026-06-15 breach literal — the structural near-miss the
+//     2026-08-01 fixed-date sweep flagged (PR #676).
+//
+// The suite now creates TENANT (+ TENANT_DECOY) in beforeAll and drops both in
+// afterAll; nothing is read or written outside them. The mig-312 tier rules are
+// CLONED from the default tenant rather than restated, so the fixture cannot
+// drift from the migration, and the clone is asserted to be the 0/10/30 triple.
+//
+// TENANT_DECOY carries an identically-shaped task — same resource id, same
+// breach instant, same critical priority — so the isolation guarantee stays
+// honest: were tenant scoping to regress, the exact counts and the exact tier
+// arrays below would move rather than hold. The tier-1 test PRE-ASSERTS that the
+// decoy task really is a sweep candidate at that same injected `now`, so the
+// guard cannot go silently vacuous.
+//
+// Residual, engine-level and deliberately out of scope for a test file:
+// runEscalationSweep still iterates every tenant with active rules, so a foreign
+// sweep running CONCURRENTLY against this database could still advance these
+// tiers. CI and the chunked local runner both drive jest with --runInBand
+// (scripts/run-ci-jest.mjs), so no second suite is ever in flight; the tenant
+// split is what removes the shared-state coupling a serial run can actually hit.
 
 import { jest } from '@jest/globals';
 
@@ -35,24 +75,58 @@ const taskService = await import('../services/workflow/taskService.js');
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
+// This suite's own tenant + its decoy. Both satisfy tenantContextMiddleware's
+// UUID shape (version nibble [1-5], variant [89ab]) even though this suite calls
+// the services directly rather than over HTTP, so the ids stay reusable if these
+// paths ever grow an HTTP surface.
+const TENANT = 'd5100000-0000-4000-8000-00000000c110';
+const TENANT_DECOY = 'd5100000-0000-4000-8000-00000000dec0';
+
+// tenants(id) is referenced by ~685 foreign keys, so every tenant DELETE pays a
+// check per constraint (~2s each here). Both hooks below therefore carry an
+// explicit timeout: jest's 5s default is not enough, and a standalone run must
+// not silently depend on the CI runner's --testTimeout=60000.
+const HOOK_TIMEOUT_MS = 120000;
+
 const SUFFIX = String(Date.now() % 100000).padStart(5, '0');
 const PATIENT_UID = `c1100000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
 // The ordering clinician — becomes the task assignee (assigned_to_uid).
 const DOCTOR_UID = `c1200000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
 const PATIENT_PHONE = `+9198001${SUFFIX}`;
 const DOCTOR_PHONE = `+9198002${SUFFIX}`;
+// T2/T3 notify targets. Not asserted here (resultsInboxC3Escalation.deep owns
+// recipient resolution) but seeded so the notify tiers below resolve to real
+// people, exactly as they did on the default tenant. Without them the engine
+// takes its "tier resolved to NO recipient" branch and pages the security
+// webhook on every sweep — a behaviour change this refactor must not introduce.
+const DUTY_UID = `c1500000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
+const CMO_UID = `c1600000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
+const DUTY_PHONE = `+9198005${SUFFIX}`;
+const CMO_PHONE = `+9198006${SUFFIX}`;
+// Decoy-tenant mirror of the same two actors (users.uid and users.phone are
+// globally unique, so the decoy needs its own).
+const DECOY_PATIENT_UID = `c1300000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
+const DECOY_DOCTOR_UID = `c1400000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
+const DECOY_DUTY_UID = `c1700000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
+const DECOY_CMO_UID = `c1800000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
+const DECOY_PATIENT_PHONE = `+9198003${SUFFIX}`;
+const DECOY_DOCTOR_PHONE = `+9198004${SUFFIX}`;
+const DECOY_DUTY_PHONE = `+9198007${SUFFIX}`;
+const DECOY_CMO_PHONE = `+9198008${SUFFIX}`;
 // A unique resource id per run so the open-task idempotency index never collides
-// with a previous run's leftover row.
+// with a previous run's leftover row. Deliberately SHARED with the decoy tenant:
+// uq_task_open_per_resource is keyed (tenant_id, type, id), so the same id living
+// in both tenants is exactly what makes the COUNT assertions probative.
 const RESOURCE_ID = `9${SUFFIX}`;
 const RESOURCE_TYPE = 'lab_result';
 
 // Helpers to read a task's escalation tiers + SLA instance directly.
-async function readTask(taskId) {
+async function readTask(taskId, tenantId = TENANT) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, status, priority, assigned_to_uid,
             due_at, workflow_sla_instance_id, sla_completion_semantics, metadata
        FROM tasks WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
-    taskId, DEFAULT_TENANT_ID,
+    taskId, tenantId,
   );
   return rows[0] || null;
 }
@@ -72,70 +146,128 @@ function tiersOf(taskRow) {
 // injected `now` we pass to runEscalationSweep is a real UTC Date, so to compare
 // apples-to-apples we anchor the tier windows to the SAME read-back value the
 // engine will use, not to the literal we wrote.
-async function setSlaBreachedAt(slaInstanceId, whenIso) {
-  await setTenantTx(DEFAULT_TENANT_ID, async (tx) => {
+async function setSlaBreachedAt(slaInstanceId, whenIso, tenantId = TENANT) {
+  await setTenantTx(tenantId, async (tx) => {
     await tx.$executeRawUnsafe(
       `UPDATE tasks
           SET due_at = $2::timestamptz, updated_at = NOW()
         WHERE workflow_sla_instance_id = $1::uuid
           AND tenant_id = $3::uuid`,
-      slaInstanceId, whenIso, DEFAULT_TENANT_ID,
+      slaInstanceId, whenIso, tenantId,
     );
     await tx.$executeRawUnsafe(
       `UPDATE workflow_sla_instances
           SET status = 'breached', breached_at = $2::timestamptz,
               due_at = $2::timestamptz, updated_at = NOW()
         WHERE id = $1::uuid AND tenant_id = $3::uuid`,
-      slaInstanceId, whenIso, DEFAULT_TENANT_ID,
+      slaInstanceId, whenIso, tenantId,
     );
   });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT breached_at FROM workflow_sla_instances WHERE id = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
-    slaInstanceId, DEFAULT_TENANT_ID,
+    slaInstanceId, tenantId,
   );
   return new Date(rows[0].breached_at);
 }
 
+// Copy the mig-312 critical_result_ack tier rules (T1 @0 / T2 @10 / T3 @30) into
+// a suite-owned tenant. Cloned FROM the default-tenant rows rather than restated
+// so the fixture cannot drift from the migration, and so runEscalationSweep's
+// tenant discovery (SELECT DISTINCT tenant_id FROM escalation_rules WHERE
+// is_active AND scope='task') actually reaches this tenant at all.
+async function cloneCriticalResultEscalationRules(tenantId) {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO escalation_rules
+       (tenant_id, display_name, description, scope, match_filter, trigger_condition,
+        trigger_window_minutes, action_kind, action_payload, is_active)
+     SELECT $2::uuid, display_name, description, scope, match_filter, trigger_condition,
+            trigger_window_minutes, action_kind, action_payload, is_active
+       FROM escalation_rules
+      WHERE tenant_id = $1::uuid
+        AND scope = 'task'
+        AND is_active = TRUE
+        AND (match_filter->>'sla_key') = 'critical_result_ack'`,
+    DEFAULT_TENANT_ID, tenantId,
+  );
+  const cloned = await prisma.$queryRawUnsafe(
+    `SELECT trigger_window_minutes AS win FROM escalation_rules
+      WHERE tenant_id = $1::uuid AND scope = 'task' AND is_active = TRUE
+      ORDER BY trigger_window_minutes`,
+    tenantId,
+  );
+  return cloned.map((r) => Number(r.win));
+}
+
 async function cleanup() {
+  // Escalation notifications are queued on the outbox singleton (outside the
+  // tenant transaction), so those rows land on the DEFAULT tenant regardless of
+  // the task's tenant — clean them by this run's unique patient uids, not by
+  // tenant.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM notification_outbox
+      WHERE (payload->>'kind') = 'results_inbox_escalation'
+        AND (payload->>'patient_uid') IN ($1::text, $2::text)`,
+    PATIENT_UID, DECOY_PATIENT_UID,
+  ).catch(() => {});
+
   // Typed tasks and their SLA clocks are intentionally delete-protected. This
-  // teardown is confined to the disposable superuser test database and exact
-  // synthetic fixture identifiers; no production cleanup path gets a bypass.
-  await setTenantTx(DEFAULT_TENANT_ID, async (tx) => {
-    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-    await tx.$executeRawUnsafe(
-      `DELETE FROM task_comments WHERE task_id IN (
-         SELECT id FROM tasks WHERE tenant_id = $1::uuid
-           AND related_resource_type = $2 AND related_resource_id = $3)`,
-      DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM tasks WHERE tenant_id = $1::uuid
-         AND related_resource_type = $2 AND related_resource_id = $3`,
-      DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid
-         AND rule_code = 'critical_result_ack' AND source_table = $2 AND source_id = $3`,
-      DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM users
-        WHERE tenant_id = $1::uuid
-          AND uid IN ($2::uuid, $3::uuid)`,
-      DEFAULT_TENANT_ID, PATIENT_UID, DOCTOR_UID,
-    );
-  });
+  // teardown is confined to the disposable superuser test database and to
+  // tenants this suite created; no production cleanup path gets a bypass.
+  for (const tenantId of [TENANT, TENANT_DECOY]) {
+    await setTenantTx(tenantId, async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      // Children before parents, every statement scoped to this suite's tenant.
+      await tx.$executeRawUnsafe(
+        `DELETE FROM task_comments WHERE tenant_id = $1::uuid`, tenantId,
+      );
+      await tx.$executeRawUnsafe(`DELETE FROM tasks WHERE tenant_id = $1::uuid`, tenantId);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid`, tenantId,
+      );
+      // The producer emits neither of these today, but the sibling suite's
+      // clinical path emits both, and pathway_projector_inbox only materialises
+      // once the comprehensive seeder has installed pathway definitions. Kept
+      // here so a future producer change cannot leak a tenant past this teardown.
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pathway_projector_inbox WHERE tenant_id = $1::uuid`, tenantId,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM event_outbox WHERE tenant_id = $1::uuid`, tenantId,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM escalation_rules WHERE tenant_id = $1::uuid`, tenantId,
+      );
+      await tx.$executeRawUnsafe(`DELETE FROM users WHERE tenant_id = $1::uuid`, tenantId);
+    }).catch(() => {});
+  }
+  // Parent last — every child above carries an FK to tenants(id).
+  //
+  // Deliberately NOT swallowed. A tenant this suite cannot drop is a leak, and a
+  // leaked tenant here is worse than a leaked row: it keeps ACTIVE escalation
+  // rules, so every later runEscalationSweep in the same database would go on
+  // visiting it. The FK error names the offending child table, which is the most
+  // actionable signal available, so let it surface as a failed hook.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`, TENANT, TENANT_DECOY,
+  );
 }
 
 d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
   let taskId = null;
   let slaInstanceId = null;
-  // The breach moment the test pins the SLA instance to. The ENGINE-VISIBLE
-  // breach Date (after timestamptz→JS round-trip, see setSlaBreachedAt) is
-  // captured at breach time and the tier windows are measured forward from it,
-  // so the comparison against the injected `now` is consistent regardless of the
-  // server-TZ deserialization quirk.
-  const breachLiteral = '2026-06-15T00:00:00.000Z';
+  let decoyTaskId = null;
+  // The breach moment the test pins the SLA instance to. This is a WINDOW
+  // BOUNDARY, not a stable fixture attribute — the engine measures every
+  // trigger_window_minutes forward from it — so it is anchored relative to run
+  // time rather than to a calendar literal. The old fixed '2026-06-15T00:00:00Z'
+  // was shared verbatim with resultsInboxC3Escalation.deep, which aliased the
+  // two suites' tier windows under the global sweep.
+  //
+  // The ENGINE-VISIBLE breach Date (after timestamptz→JS round-trip, see
+  // setSlaBreachedAt) is captured at breach time and the tier windows are
+  // measured forward from it, so the comparison against the injected `now` is
+  // consistent regardless of the server-TZ deserialization quirk.
+  const breachLiteral = new Date(Date.now() - 45 * 24 * 60 * 60_000).toISOString();
   let breachSeen = null; // set in the tier-1 test once the instance is breached
   let afterT1 = null;
   let afterT2 = null;
@@ -144,21 +276,74 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
   beforeAll(async () => {
     await cleanup();
     await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name, region, compliance_profile, status)
+       VALUES ($1::uuid, 'ritest-inbox', 'RITEST Results Inbox Tenant', 'IN', 'DPDP', 'active'),
+              ($2::uuid, 'ritest-inbox-decoy', 'RITEST Results Inbox Decoy', 'IN', 'DPDP', 'active')
+       ON CONFLICT (id) DO NOTHING`,
+      TENANT, TENANT_DECOY,
+    );
+    // Every fixture row sets tenant_id EXPLICITLY: raw inserts run with
+    // app.current_tenant_id unset, so an omitted tenant_id silently falls to the
+    // column DEFAULT (the default tenant) and the suite would measure nothing it
+    // created.
+    await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
        VALUES ($1::uuid, $2, 'RI Patient [test]', 'PATIENT', true, $3::uuid, NOW()),
-              ($4::uuid, $5, 'RI Doctor [test]', 'DOCTOR', true, $3::uuid, NOW())`,
-      PATIENT_UID, PATIENT_PHONE, DEFAULT_TENANT_ID, DOCTOR_UID, DOCTOR_PHONE,
+              ($4::uuid, $5, 'RI Doctor [test]', 'DOCTOR', true, $3::uuid, NOW()),
+              ($6::uuid, $7, 'RI Duty Doc [test]', 'DUTY_DOCTOR', true, $3::uuid, NOW()),
+              ($8::uuid, $9, 'RI CMO [test]', 'CMO', true, $3::uuid, NOW())`,
+      PATIENT_UID, PATIENT_PHONE, TENANT, DOCTOR_UID, DOCTOR_PHONE,
+      DUTY_UID, DUTY_PHONE, CMO_UID, CMO_PHONE,
     );
-  });
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'RI Decoy Patient [test]', 'PATIENT', true, $3::uuid, NOW()),
+              ($4::uuid, $5, 'RI Decoy Doctor [test]', 'DOCTOR', true, $3::uuid, NOW()),
+              ($6::uuid, $7, 'RI Decoy Duty Doc [test]', 'DUTY_DOCTOR', true, $3::uuid, NOW()),
+              ($8::uuid, $9, 'RI Decoy CMO [test]', 'CMO', true, $3::uuid, NOW())`,
+      DECOY_PATIENT_UID, DECOY_PATIENT_PHONE, TENANT_DECOY,
+      DECOY_DOCTOR_UID, DECOY_DOCTOR_PHONE,
+      DECOY_DUTY_UID, DECOY_DUTY_PHONE, DECOY_CMO_UID, DECOY_CMO_PHONE,
+    );
+
+    // The tier rules must exist in BOTH tenants: in TENANT so this suite's tiers
+    // fire at all, and in TENANT_DECOY so the decoy is a genuine sweep candidate
+    // rather than a row the engine never looks at.
+    const windows = await cloneCriticalResultEscalationRules(TENANT);
+    const decoyWindows = await cloneCriticalResultEscalationRules(TENANT_DECOY);
+    // Non-vacuity guard on the clone itself: if mig-312's tiers ever change, this
+    // is where you find out, instead of inside a confusing tier assertion below.
+    expect(windows).toEqual([0, 10, 30]);
+    expect(decoyWindows).toEqual([0, 10, 30]);
+
+    // Decoy fixture: identical shape, identical resource id, identical breach
+    // instant — in a different tenant. Created here (not lazily) so it is already
+    // in flight for the very first assertion.
+    const decoy = await enqueueCriticalResultTask({
+      tenantId: TENANT_DECOY,
+      patientUid: DECOY_PATIENT_UID,
+      source: 'lab_result',
+      resourceType: RESOURCE_TYPE,
+      resourceId: RESOURCE_ID,
+      severity: 'critical',
+      title: 'Critical lab: Potassium (decoy)',
+      summary: 'Decoy-tenant critical potassium.',
+      orderingClinicianUid: DECOY_DOCTOR_UID,
+    });
+    expect(decoy.created).toBe(true);
+    decoyTaskId = decoy.taskId;
+    const decoyTask = await readTask(decoyTaskId, TENANT_DECOY);
+    await setSlaBreachedAt(decoyTask.workflow_sla_instance_id, breachLiteral, TENANT_DECOY);
+  }, HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, HOOK_TIMEOUT_MS);
 
   it('producer creates an assigned, SLA-linked critical-result task', async () => {
     const res = await enqueueCriticalResultTask({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT,
       patientUid: PATIENT_UID,
       source: 'lab_result',
       resourceType: RESOURCE_TYPE,
@@ -172,6 +357,10 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
     expect(res.created).toBe(true);
     expect(res.taskId).toBeTruthy();
     taskId = res.taskId;
+    // The decoy already holds an OPEN task for the SAME (type, id) pair; the
+    // producer still created ours, proving uq_task_open_per_resource is keyed by
+    // tenant and the producer's conflict probe is tenant-scoped.
+    expect(taskId).not.toBe(decoyTaskId);
 
     const task = await readTask(taskId);
     expect(task.status).toBe('open');
@@ -195,7 +384,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
           AND sla.id = t.workflow_sla_instance_id
         WHERE t.tenant_id = $1::uuid
           AND t.id = $2::int`,
-      DEFAULT_TENANT_ID,
+      TENANT,
       taskId,
     );
     expect(deadlineRows[0].task_due_at).toBeTruthy();
@@ -207,7 +396,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
 
   it('is idempotent: a second producer call for the same resource creates no new task', async () => {
     const again = await enqueueCriticalResultTask({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT,
       patientUid: PATIENT_UID,
       source: 'lab_result',
       resourceType: RESOURCE_TYPE,
@@ -221,14 +410,24 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
       `SELECT COUNT(*)::int AS n FROM tasks
         WHERE tenant_id = $1::uuid AND related_resource_type = $2 AND related_resource_id = $3
           AND status IN ('open', 'in_progress', 'overdue', 'blocked')`,
-      DEFAULT_TENANT_ID, RESOURCE_TYPE, RESOURCE_ID,
+      TENANT, RESOURCE_TYPE, RESOURCE_ID,
     );
     expect(rows[0].n).toBe(1);
+    // Pre-assertion: the decoy tenant really does hold its own open task for the
+    // very same resource id. The count above staying at 1 is what proves scoping,
+    // and this is what stops that proof from being vacuous.
+    const decoyRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM tasks
+        WHERE tenant_id = $1::uuid AND related_resource_type = $2 AND related_resource_id = $3
+          AND status IN ('open', 'in_progress', 'overdue', 'blocked')`,
+      TENANT_DECOY, RESOURCE_TYPE, RESOURCE_ID,
+    );
+    expect(decoyRows[0].n).toBe(1);
   });
 
   it('appears in the ordering clinician inbox (me)', async () => {
     const inbox = await taskService.listInboxTasks({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT,
       assigneeUid: DOCTOR_UID,
       roles: ['DOCTOR'],
       primaryRole: 'DOCTOR',
@@ -238,6 +437,11 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
     expect(ids).toContain(taskId);
     const mine = inbox.tasks.find((t) => t.id === taskId);
     expect(mine.status).toBe('open');
+    // The identically-shaped decoy task is not on this page. The inbox is a
+    // tenant-scoped LIMIT 50 page ordered by priority/due_at, so this is the
+    // assertion that would have failed first once the shared default tenant
+    // accumulated fifty critical DOCTOR-queue tasks.
+    expect(ids).not.toContain(decoyTaskId);
   });
 
   it('SLA breach → tier-1 escalation recorded (priority bump + metadata.escalations[tier:1])', async () => {
@@ -257,6 +461,12 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
     const t1 = task.metadata.escalations.find((e) => e.tier === 1);
     expect(t1.action).toBe('escalate_priority');
     expect(t1.rule_id).toBeTruthy();
+
+    // Pre-assertion that keeps the isolation guard honest: the decoy tenant's
+    // task, breached at the SAME instant, IS a candidate at this same injected
+    // `now` and escalated too. Without it the exact tier arrays above could be
+    // passing merely because the sweep never reached a second tenant.
+    expect(tiersOf(await readTask(decoyTaskId, TENANT_DECOY))).toEqual([1]);
   });
 
   it('does not re-fire tier-1 on a repeat sweep at the same window', async () => {
@@ -284,7 +494,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
     // The task may be 'overdue' by now (sweeps mark past-due open tasks). Ack
     // moves open|overdue → in_progress and stops the clock.
     const acked = await taskService.acknowledgeTask({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT,
       id: taskId,
       actorUid: DOCTOR_UID,
       actorRoles: ['DOCTOR'],
@@ -305,7 +515,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
 
   it('resolve closes the task (→ completed)', async () => {
     const done = await taskService.transitionTask({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT,
       id: taskId,
       nextStatus: 'completed',
     });
@@ -314,7 +524,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
 
     // A completed task is no longer in the inbox.
     const inbox = await taskService.listInboxTasks({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT,
       assigneeUid: DOCTOR_UID,
       roles: ['DOCTOR'],
       primaryRole: 'DOCTOR',
@@ -325,7 +535,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
 
   it('plain enqueue never creates a fresh task behind the completed SLA', async () => {
     const again = await enqueueCriticalResultTask({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT,
       patientUid: PATIENT_UID,
       source: 'lab_result',
       resourceType: RESOURCE_TYPE,
@@ -346,7 +556,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
         WHERE tenant_id = $1::uuid
           AND related_resource_type = $2
           AND related_resource_id = $3`,
-      DEFAULT_TENANT_ID,
+      TENANT,
       RESOURCE_TYPE,
       RESOURCE_ID,
     );
@@ -361,7 +571,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
           AND related_resource_type = $2
           AND related_resource_id = $3
         ORDER BY id`,
-      DEFAULT_TENANT_ID,
+      TENANT,
       RESOURCE_TYPE,
       RESOURCE_ID,
     );
@@ -370,7 +580,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
          FROM workflow_sla_instances
         WHERE tenant_id = $1::uuid
           AND id = $2::uuid`,
-      DEFAULT_TENANT_ID,
+      TENANT,
       slaInstanceId,
     );
     const beforeComments = await prisma.$queryRawUnsafe(
@@ -378,12 +588,12 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
          FROM task_comments
         WHERE tenant_id = $1::uuid
           AND task_id = $2::int`,
-      DEFAULT_TENANT_ID,
+      TENANT,
       taskId,
     );
 
     await expect(ensureCriticalResultTaskOpen({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT,
       patientUid: PATIENT_UID,
       source: 'lab_result',
       resourceType: RESOURCE_TYPE,
@@ -405,7 +615,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
           AND related_resource_type = $2
           AND related_resource_id = $3
         ORDER BY id`,
-      DEFAULT_TENANT_ID,
+      TENANT,
       RESOURCE_TYPE,
       RESOURCE_ID,
     );
@@ -414,7 +624,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
          FROM workflow_sla_instances
         WHERE tenant_id = $1::uuid
           AND id = $2::uuid`,
-      DEFAULT_TENANT_ID,
+      TENANT,
       slaInstanceId,
     );
     const afterComments = await prisma.$queryRawUnsafe(
@@ -422,7 +632,7 @@ d('Results-inbox pipeline (deep, real producer + engine + DB)', () => {
          FROM task_comments
         WHERE tenant_id = $1::uuid
           AND task_id = $2::int`,
-      DEFAULT_TENANT_ID,
+      TENANT,
       taskId,
     );
     expect(afterTasks).toEqual(beforeTasks);
