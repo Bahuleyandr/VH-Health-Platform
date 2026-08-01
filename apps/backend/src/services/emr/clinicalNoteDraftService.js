@@ -13,13 +13,13 @@
 //
 // Design: docs/superpowers/specs/2026-06-17-clinical-notes-autosave-design.md
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import prisma, { isTenantTransactionClient, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import {
   recordNoteDraftJanitorDeletions,
-  recordNoteDraftSaveError,
+  recordNoteDraftSaveError
 } from '../../observability/reliabilityMetrics.js';
 
 // Serialized-size cap for a draft's content. 256 KB is ample for a text note
@@ -65,19 +65,23 @@ function normAppointmentId(appointmentId) {
   if (appointmentId === undefined || appointmentId === null || appointmentId === '') return null;
   const n = Number.parseInt(appointmentId, 10);
   if (
-    !Number.isInteger(n)
-    || n <= 0
-    || n > INT4_MAX
-    || String(n) !== String(appointmentId).trim()
+    !Number.isInteger(n) ||
+    n <= 0 ||
+    n > INT4_MAX ||
+    String(n) !== String(appointmentId).trim()
   ) {
-    throw AppError.badRequest('appointment_id must be an integer', 'NOTE_DRAFT_APPOINTMENT_INVALID');
+    throw AppError.badRequest(
+      'appointment_id must be an integer',
+      'NOTE_DRAFT_APPOINTMENT_INVALID'
+    );
   }
   return n;
 }
 
 function requireContext({ authorUid, patientUid, noteType }) {
   if (!authorUid) throw AppError.badRequest('author is required', 'NOTE_DRAFT_AUTHOR_REQUIRED');
-  if (!patientUid) throw AppError.badRequest('patient_uid is required', 'NOTE_DRAFT_PATIENT_REQUIRED');
+  if (!patientUid)
+    throw AppError.badRequest('patient_uid is required', 'NOTE_DRAFT_PATIENT_REQUIRED');
   if (!noteType) throw AppError.badRequest('note_type is required', 'NOTE_DRAFT_TYPE_REQUIRED');
 }
 
@@ -86,13 +90,13 @@ function requireContext({ authorUid, patientUid, noteType }) {
  * One row per context (uq_note_drafts_context); re-saving overwrites content
  * and refreshes updated_at + expires_at. Emits NO canonical events.
  */
-export async function upsertNoteDraft({
+function normalizeDraftInput({
   tenantId,
   authorUid,
   patientUid,
   appointmentId = null,
   noteType,
-  content,
+  content
 }) {
   requireContext({ authorUid, patientUid, noteType });
   const tid = requireTenantId(tenantId);
@@ -101,29 +105,103 @@ export async function upsertNoteDraft({
   if (Buffer.byteLength(json, 'utf8') > MAX_DRAFT_CONTENT_BYTES) {
     throw AppError.badRequest('draft content too large', 'NOTE_DRAFT_CONTENT_TOO_LARGE');
   }
+  return {
+    apptId,
+    authorUid,
+    json,
+    noteType: String(noteType),
+    patientUid,
+    tenantId: tid
+  };
+}
+
+export async function upsertNoteDraftTx(tx, input, { baseRevision = null } = {}) {
+  if (!isTenantTransactionClient(tx)) {
+    throw new Error('Note draft mutation requires a tenant-scoped transaction');
+  }
+  const normalized = normalizeDraftInput(input);
+  const params = [
+    normalized.tenantId,
+    normalized.authorUid,
+    normalized.patientUid,
+    normalized.apptId,
+    normalized.noteType,
+    normalized.json
+  ];
+  if (baseRevision === null || baseRevision === undefined) {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO note_drafts
+         (tenant_id, author_uid, patient_uid, appointment_id, note_type, content,
+          revision, updated_at, expires_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5, $6::jsonb,
+               1, NOW(), NOW() + INTERVAL '14 days')
+       ON CONFLICT (tenant_id, author_uid, patient_uid, COALESCE(appointment_id, 0), note_type)
+       DO UPDATE SET content = EXCLUDED.content,
+                     revision = note_drafts.revision + 1,
+                     updated_at = NOW(),
+                     expires_at = NOW() + INTERVAL '14 days'
+       RETURNING id, revision, updated_at`,
+      ...params
+    );
+    return rows[0] || null;
+  }
+  const revision = Number(baseRevision);
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    throw AppError.badRequest(
+      'base_revision must be a non-negative integer',
+      'CONTINUITY_REPLAY_BASE_REVISION_INVALID'
+    );
+  }
+  const rows =
+    revision === 0
+      ? await tx.$queryRawUnsafe(
+          `INSERT INTO note_drafts
+         (tenant_id, author_uid, patient_uid, appointment_id, note_type, content,
+          revision, updated_at, expires_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5, $6::jsonb,
+               1, NOW(), NOW() + INTERVAL '14 days')
+       ON CONFLICT (tenant_id, author_uid, patient_uid, COALESCE(appointment_id, 0), note_type)
+       DO NOTHING
+       RETURNING id, revision, updated_at`,
+          ...params
+        )
+      : await tx.$queryRawUnsafe(
+          `UPDATE note_drafts
+          SET content = $6::jsonb,
+              revision = revision + 1,
+              updated_at = NOW(),
+              expires_at = NOW() + INTERVAL '14 days'
+        WHERE tenant_id = $1::uuid
+          AND author_uid = $2::uuid
+          AND patient_uid = $3::uuid
+          AND COALESCE(appointment_id, 0) = COALESCE($4::int, 0)
+          AND note_type = $5
+          AND revision = $7::bigint
+        RETURNING id, revision, updated_at`,
+          ...params,
+          revision
+        );
+  if (rows.length !== 1) {
+    throw AppError.conflict(
+      'Clinical continuity replay requires manual review',
+      'CONTINUITY_REPLAY_CONCURRENCY_NEEDS_REVIEW',
+      { decision: 'needs_review', safe: true }
+    );
+  }
+  return rows[0];
+}
+
+export async function upsertNoteDraft(input) {
+  const normalized = normalizeDraftInput(input);
   // Everything above this line is deliberate 400 validation (client fault) and
   // is NOT a save error. Only an UNEXPECTED failure of the DB write below counts
   // toward note_draft_save_errors_total — a validation AppError is re-thrown
   // uncounted; any other error increments the counter, then re-throws (never
   // swallowed).
   try {
-    return await setTenantTx(tid, async (tx) => {
-      const rows = await tx.$queryRawUnsafe(
-        `INSERT INTO note_drafts
-           (tenant_id, author_uid, patient_uid, appointment_id, note_type, content, updated_at, expires_at)
-         VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5, $6::jsonb, NOW(), NOW() + INTERVAL '14 days')
-         ON CONFLICT (tenant_id, author_uid, patient_uid, COALESCE(appointment_id, 0), note_type)
-         DO UPDATE SET content = EXCLUDED.content, updated_at = NOW(), expires_at = NOW() + INTERVAL '14 days'
-         RETURNING id, updated_at`,
-        tid,
-        authorUid,
-        patientUid,
-        apptId,
-        String(noteType),
-        json,
-      );
-      return rows[0] || null;
-    });
+    const draft = await setTenantTx(normalized.tenantId, tx => upsertNoteDraftTx(tx, input));
+    if (!draft) return null;
+    return { id: draft.id, updated_at: draft.updated_at };
   } catch (err) {
     if (!(err instanceof AppError)) recordNoteDraftSaveError();
     throw err;
@@ -139,12 +217,12 @@ export async function getNoteDraft({
   authorUid,
   patientUid,
   appointmentId = null,
-  noteType,
+  noteType
 }) {
   requireContext({ authorUid, patientUid, noteType });
   const tid = requireTenantId(tenantId);
   const apptId = normAppointmentId(appointmentId);
-  return setTenantTx(tid, async (tx) => {
+  return setTenantTx(tid, async tx => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT id, content, updated_at, expires_at
          FROM note_drafts
@@ -155,7 +233,7 @@ export async function getNoteDraft({
       authorUid,
       patientUid,
       apptId,
-      String(noteType),
+      String(noteType)
     );
     return rows[0] || null;
   });
@@ -170,12 +248,12 @@ export async function deleteNoteDraft({
   authorUid,
   patientUid,
   appointmentId = null,
-  noteType,
+  noteType
 }) {
   requireContext({ authorUid, patientUid, noteType });
   const tid = requireTenantId(tenantId);
   const apptId = normAppointmentId(appointmentId);
-  return setTenantTx(tid, async (tx) => {
+  return setTenantTx(tid, async tx => {
     const rows = await tx.$queryRawUnsafe(
       `DELETE FROM note_drafts
         WHERE tenant_id = $1::uuid AND author_uid = $2::uuid AND patient_uid = $3::uuid
@@ -185,7 +263,7 @@ export async function deleteNoteDraft({
       authorUid,
       patientUid,
       apptId,
-      String(noteType),
+      String(noteType)
     );
     return rows.length;
   });
@@ -202,7 +280,7 @@ export async function clearDraftForFinalizedNote({
   authorUid,
   patientUid,
   appointmentId = null,
-  noteType,
+  noteType
 }) {
   if (!authorUid || !patientUid || !noteType) return;
   try {
@@ -211,7 +289,7 @@ export async function clearDraftForFinalizedNote({
     logger.warn('clinicalNoteDraftService: failed to clear draft after finalize (non-fatal)', {
       patientUid,
       noteType,
-      error: err?.message || String(err),
+      error: err?.message || String(err)
     });
   }
 }
@@ -224,7 +302,7 @@ export async function clearDraftForFinalizedNote({
  */
 export async function purgeExpiredNoteDrafts() {
   const rows = await prisma.$queryRawUnsafe(
-    'DELETE FROM note_drafts WHERE expires_at < NOW() RETURNING id',
+    'DELETE FROM note_drafts WHERE expires_at < NOW() RETURNING id'
   );
   recordNoteDraftJanitorDeletions(rows.length);
   return rows.length;

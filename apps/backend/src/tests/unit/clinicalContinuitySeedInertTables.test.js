@@ -10,12 +10,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const seederPath = path.resolve(__dirname, '../../../scripts/seed-comprehensive-test-data.mjs');
 const contractsPath = path.resolve(__dirname, '../../db/schemaContracts.js');
 
-describe('C3.2a comprehensive seed boundary', () => {
-  test('keeps the exact edge credential and evidence tables intentionally empty', () => {
+describe('clinical continuity comprehensive seed boundary', () => {
+  test('keeps the exact gated credential and receipt tables intentionally empty', () => {
     expect(INTENTIONALLY_EMPTY_SEED_TABLES).toEqual([
       'clinical_continuity_edge_access_grants',
       'clinical_continuity_edge_access_revocations',
       'clinical_continuity_edge_log_receipts',
+      'clinical_continuity_replay_attempts',
+      'clinical_continuity_replay_effect_evidence',
+      'clinical_continuity_replay_receipts',
     ]);
   });
 
@@ -32,14 +35,16 @@ describe('C3.2a comprehensive seed boundary', () => {
     expect(contractsSource).toContain('ok: unexpectedEmptyAppTables.length === 0');
   });
 
-  test('allows only the three explicit tables and still reports any other empty table', () => {
+  test('allows only the explicit gated tables and still reports any other empty table', () => {
     expect(partitionSeedCoverageEmptyTables([
       'clinical_continuity_edge_access_grants',
+      'clinical_continuity_replay_receipts',
       'unexpected_table',
       'clinical_continuity_edge_log_receipts',
     ])).toEqual({
       intentionallyEmptyAppTables: [
         'clinical_continuity_edge_access_grants',
+        'clinical_continuity_replay_receipts',
         'clinical_continuity_edge_log_receipts',
       ],
       unexpectedEmptyAppTables: ['unexpected_table'],

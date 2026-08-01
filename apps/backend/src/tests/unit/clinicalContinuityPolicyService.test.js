@@ -21,9 +21,7 @@ import {
   requireClinicalContinuityEdgePolicy,
   verifyActiveClinicalContinuityPolicyRow
 } from '../../services/downtime/clinicalContinuityPolicyService.js';
-import {
-  CLINICAL_CONTINUITY_ACTION_CATALOG
-} from '../../config/clinicalContinuityActionCatalog.js';
+import { CLINICAL_CONTINUITY_ACTION_CATALOG } from '../../config/clinicalContinuityActionCatalog.js';
 import {
   KEY_STATES,
   hashCanonicalValue,
@@ -367,9 +365,7 @@ describe('clinical continuity policy document', () => {
   });
 
   test('keeps a verified schema-v1 policy insufficient for edge operations', () => {
-    expect(() => requireClinicalContinuityEdgePolicy(verifyRow())).toThrow(
-      'policy-schema v2'
-    );
+    expect(() => requireClinicalContinuityEdgePolicy(verifyRow())).toThrow('policy-schema v2');
   });
 
   test('allows edge decisions only from the verified active schema-v2 object', () => {
@@ -396,9 +392,11 @@ describe('clinical continuity policy document', () => {
       edgeAccess: policy_document.edgeAccess,
       retention: policy_document.retention
     });
-    expect(() => requireClinicalContinuityEdgePolicy({
-      ...verified
-    })).toThrow('policy-schema v2');
+    expect(() =>
+      requireClinicalContinuityEdgePolicy({
+        ...verified
+      })
+    ).toThrow('policy-schema v2');
   });
 
   test('verifies schema v3 through the existing signature, approval, and key substrate', () => {
@@ -929,6 +927,21 @@ describe('explicit tenant enumeration and loading', () => {
     expect(query.mock.calls[1][0]).toContain('policy.facility_id = $2::integer');
     expect(query.mock.calls[1][0]).toContain('policy.current_pack_signing_public_key_sha256');
     expect(query.mock.calls[1].slice(1)).toEqual([TENANT, FACILITY]);
+  });
+
+  test('accepts a Serializable caller as stronger than the required RepeatableRead snapshot', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce([{ tenant_scope: TENANT, isolation_level: 'serializable' }])
+      .mockResolvedValueOnce([signedPolicyRow()]);
+
+    await expect(
+      loadActiveClinicalContinuityPolicyForFacilityTx({
+        tx: { $queryRawUnsafe: query },
+        tenantId: TENANT,
+        facilityId: FACILITY
+      })
+    ).resolves.toMatchObject({ tenantId: TENANT, facilityId: FACILITY });
   });
 
   test.each([

@@ -6,10 +6,14 @@ import {
   CLINICAL_CONTINUITY_NOTE_DRAFT_BINDING_ID
 } from '../../config/clinicalContinuityActionCatalog.js';
 import { saveClinicalNoteDraft } from '../../controllers/emr/clinicalNoteDraftController.js';
+import { upsertNoteDraftTx } from '../emr/clinicalNoteDraftService.js';
 import {
+  CLINICAL_CONTINUITY_ACTION_SCHEMAS,
   NURSING_NOTE_DRAFT_ACTION_SCHEMA,
   OP_NOTE_DRAFT_ACTION_SCHEMA
 } from '../../validators/clinicalContinuityActionSchemas.js';
+
+export const CLINICAL_CONTINUITY_PRIVATE_DRAFT_EFFECT = 'private_draft_storage_only';
 
 const registrations = [];
 
@@ -17,20 +21,26 @@ const EXPECTED_BINDINGS = Object.freeze([
   Object.freeze({
     actionId: 'emr.nursing_note.draft.store',
     bindingId: CLINICAL_CONTINUITY_NOTE_DRAFT_BINDING_ID,
+    effectContract: CLINICAL_CONTINUITY_PRIVATE_DRAFT_EFFECT,
     fullRoutePath: '/api/v1/emr/notes/draft',
     handler: saveClinicalNoteDraft,
     method: 'PUT',
     routePath: '/notes/draft',
-    schema: NURSING_NOTE_DRAFT_ACTION_SCHEMA
+    schema: NURSING_NOTE_DRAFT_ACTION_SCHEMA,
+    schemaRecord: CLINICAL_CONTINUITY_ACTION_SCHEMAS['emr.nursing_note.draft.store/v1'],
+    transactionalHandler: upsertNoteDraftTx
   }),
   Object.freeze({
     actionId: 'emr.op_note.draft.store',
     bindingId: CLINICAL_CONTINUITY_NOTE_DRAFT_BINDING_ID,
+    effectContract: CLINICAL_CONTINUITY_PRIVATE_DRAFT_EFFECT,
     fullRoutePath: '/api/v1/emr/notes/draft',
     handler: saveClinicalNoteDraft,
     method: 'PUT',
     routePath: '/notes/draft',
-    schema: OP_NOTE_DRAFT_ACTION_SCHEMA
+    schema: OP_NOTE_DRAFT_ACTION_SCHEMA,
+    schemaRecord: CLINICAL_CONTINUITY_ACTION_SCHEMAS['emr.op_note.draft.store/v1'],
+    transactionalHandler: upsertNoteDraftTx
   })
 ]);
 
@@ -59,11 +69,14 @@ function cloneRegistration(value) {
   return {
     actionId: value.actionId,
     bindingId: value.bindingId,
+    effectContract: value.effectContract,
     fullRoutePath: value.fullRoutePath,
     handler: value.handler,
     method: value.method,
     routePath: value.routePath,
-    schema: value.schema
+    schema: value.schema,
+    schemaRecord: value.schemaRecord,
+    transactionalHandler: value.transactionalHandler
   };
 }
 
@@ -73,6 +86,8 @@ export function registerClinicalContinuityActionRoute({
   routePath,
   fullRoutePath,
   handler,
+  transactionalHandler,
+  effectContract,
   beforeHandlers = [],
   actions
 }) {
@@ -92,11 +107,14 @@ export function registerClinicalContinuityActionRoute({
     registrations.push({
       actionId: action.actionId,
       bindingId: action.bindingId,
+      effectContract,
       fullRoutePath,
       handler,
       method: normalizedMethod,
       routePath,
-      schema: action.schema
+      schema: action.schema,
+      schemaRecord: CLINICAL_CONTINUITY_ACTION_SCHEMAS[action.schemaRecordId],
+      transactionalHandler
     });
   }
 
@@ -173,6 +191,15 @@ export function assertClinicalContinuityActionBindings({
     }
     if (mounted.handler !== expected.handler) bindingError(actionId, 'handler reference mismatch');
     if (mounted.schema !== expected.schema) bindingError(actionId, 'schema reference mismatch');
+    if (mounted.schemaRecord !== expected.schemaRecord) {
+      bindingError(actionId, 'schema record reference mismatch');
+    }
+    if (mounted.transactionalHandler !== expected.transactionalHandler) {
+      bindingError(actionId, 'transactional handler reference mismatch');
+    }
+    if (mounted.effectContract !== expected.effectContract) {
+      bindingError(actionId, 'effect contract mismatch');
+    }
   }
 
   for (const expected of expectedBindings) {
@@ -232,13 +259,15 @@ export function resolveClinicalContinuityActionBinding({ actionId, method, path 
 }
 
 function routePatternMatches(routePattern, path) {
-  const expected = String(routePattern || '').split('/').filter(Boolean);
-  const actual = String(path || '').split('/').filter(Boolean);
+  const expected = String(routePattern || '')
+    .split('/')
+    .filter(Boolean);
+  const actual = String(path || '')
+    .split('/')
+    .filter(Boolean);
   return (
     expected.length === actual.length &&
-    expected.every(
-      (segment, index) => segment.startsWith(':') || segment === actual[index]
-    )
+    expected.every((segment, index) => segment.startsWith(':') || segment === actual[index])
   );
 }
 

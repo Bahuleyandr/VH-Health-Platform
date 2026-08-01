@@ -1,21 +1,17 @@
 import {
   clinicalContinuityActionRegistryEnabled,
-  clinicalContinuityFacilityContextEnabled,
+  clinicalContinuityFacilityContextEnabled
 } from '../config/downtimeConfig.js';
-import {
-  CLINICAL_CONTINUITY_ACTIONS_BY_ID
-} from '../config/clinicalContinuityActionCatalog.js';
+import { CLINICAL_CONTINUITY_ACTIONS_BY_ID } from '../config/clinicalContinuityActionCatalog.js';
 import { getRolePolicy } from '../config/rolePolicyGraph.js';
 import {
   resolveClinicalContinuityActionBinding,
   resolveClinicalContinuityRouteTemplate
 } from '../services/downtime/clinicalContinuityActionBindingRegistry.js';
-import {
-  evaluateClinicalContinuityActionRequest
-} from '../services/downtime/clinicalContinuityActionRegistryService.js';
+import { evaluateClinicalContinuityActionRequest } from '../services/downtime/clinicalContinuityActionRegistryService.js';
 import {
   decodeClinicalContinuityFacilityContextHeader,
-  resolveClinicalContinuityFacilityContext,
+  resolveClinicalContinuityFacilityContext
 } from '../services/downtime/clinicalContinuityFacilityContextService.js';
 import { error } from '../utils/responseHelper.js';
 
@@ -39,7 +35,9 @@ function numericHeader(req, suffix) {
 }
 
 function roleCapabilities(role) {
-  const normalizedRole = String(role || '').trim().toUpperCase();
+  const normalizedRole = String(role || '')
+    .trim()
+    .toUpperCase();
   const entry = getRolePolicy().roles.find(candidate => candidate.role_code === normalizedRole);
   return entry?.access?.route_capability_groups || [];
 }
@@ -71,11 +69,7 @@ function cachedSourcesSatisfied(action, req, capturedAt) {
     const timestamp = supplied.get(source.sourceId);
     const sourceMillis = Date.parse(timestamp);
     const ageMinutes = (capturedMillis - sourceMillis) / 60_000;
-    return (
-      Number.isFinite(sourceMillis) &&
-      ageMinutes >= 0 &&
-      ageMinutes <= source.maxAgeMinutes
-    );
+    return Number.isFinite(sourceMillis) && ageMinutes >= 0 && ageMinutes <= source.maxAgeMinutes;
   });
 }
 
@@ -90,8 +84,7 @@ function authorityClaims(req) {
     policyEffectiveUntil: nullableHeader(req, 'policy-effective-until'),
     policyId: nullableHeader(req, 'policy-id')?.toLowerCase() || null,
     policySigningKeyId: nullableHeader(req, 'policy-signing-key-id'),
-    policySupersedesId:
-      nullableHeader(req, 'policy-supersedes-id')?.toLowerCase() || null,
+    policySupersedesId: nullableHeader(req, 'policy-supersedes-id')?.toLowerCase() || null,
     policyVersion: header(req, 'policy-version'),
     registryChecksum: nullableHeader(req, 'registry-checksum'),
     registryVersion: header(req, 'registry-version'),
@@ -117,58 +110,71 @@ export async function clinicalContinuityActionPolicyMiddleware(req, res, next) {
 
   try {
     if (!clinicalContinuityFacilityContextEnabled()) {
-      return error(
-        res,
-        'Clinical continuity action was not authorized',
-        403,
-        {
-          code: 'CONTINUITY_FACILITY_CONTEXT_UNAVAILABLE',
-          decision: 'deny',
-          safe: true,
-        },
-      );
+      return error(res, 'Clinical continuity action was not authorized', 403, {
+        code: 'CONTINUITY_FACILITY_CONTEXT_UNAVAILABLE',
+        decision: 'deny',
+        safe: true
+      });
     }
-    const clientFacilityId = header(req, 'facility-id')
-      ? numericHeader(req, 'facility-id')
-      : null;
-    const envelope = decodeClinicalContinuityFacilityContextHeader(
-      header(req, 'facility-context'),
-    );
+    const clientFacilityId = header(req, 'facility-id') ? numericHeader(req, 'facility-id') : null;
+    const envelope = decodeClinicalContinuityFacilityContextHeader(header(req, 'facility-context'));
     const facilityContext = await resolveClinicalContinuityFacilityContext({
       req,
       envelope,
-      clientFacilityId,
+      clientFacilityId
     });
     const facilityId = facilityContext.facilityId;
+    const requestContext = {
+      actionId,
+      actorCapabilities: roleCapabilities(req.user?.role),
+      actorRole: req.user?.role,
+      actorUid: req.user?.uid,
+      authorityClaims: claims,
+      binding,
+      body: req.body,
+      cachedSourcesSatisfied: action ? cachedSourcesSatisfied(action, req, capturedAt) : false,
+      capturedAt,
+      clientAppVersion: header(req, 'client-app-version'),
+      devicePosture: String(req.user?.deviceType || '').toLowerCase(),
+      identitySatisfied: action ? identitySatisfied(action, req, facilityId) : false,
+      requestId: req.id,
+      routeTemplate: resolveClinicalContinuityRouteTemplate({
+        actionId,
+        method: req.method,
+        path
+      })
+    };
     const result = await evaluateClinicalContinuityActionRequest({
       tenantId: req.tenantId,
       facilityId,
       capturedPolicyId: claims.policyId,
       capturedPolicyVersion: claims.policyVersion,
-      requestContext: {
-        actionId,
-        actorCapabilities: roleCapabilities(req.user?.role),
-        actorRole: req.user?.role,
-        actorUid: req.user?.uid,
-        authorityClaims: claims,
-        binding,
-        body: req.body,
-        cachedSourcesSatisfied: action
-          ? cachedSourcesSatisfied(action, req, capturedAt)
-          : false,
-        capturedAt,
-        clientAppVersion: header(req, 'client-app-version'),
-        devicePosture: String(req.user?.deviceType || '').toLowerCase(),
-        identitySatisfied: action ? identitySatisfied(action, req, facilityId) : false,
-        requestId: req.id,
-        routeTemplate: resolveClinicalContinuityRouteTemplate({
-          actionId,
-          method: req.method,
-          path
-        })
-      }
+      requestContext
     });
-    if (result.proceed) return next();
+    if (result.proceed) {
+      Object.defineProperty(req, 'clinicalContinuityActionAuthorization', {
+        configurable: false,
+        enumerable: true,
+        value: Object.freeze({
+          actionId,
+          authorityClaims: Object.freeze({ ...claims }),
+          binding,
+          cachedSourcesHeader: header(req, 'cached-sources'),
+          captureSessionId: header(req, 'capture-session-id'),
+          capturedAt,
+          clientAppVersion: requestContext.clientAppVersion,
+          facilityContext,
+          facilityEnvelope: envelope,
+          requestContext: Object.freeze({
+            ...requestContext,
+            actorCapabilities: Object.freeze([...requestContext.actorCapabilities])
+          }),
+          result
+        }),
+        writable: false
+      });
+      return next();
+    }
     const status = result.decision === 'needs_review' ? 409 : 403;
     return error(res, 'Clinical continuity action was not authorized', status, {
       code: result.reasonCode,
@@ -178,16 +184,11 @@ export async function clinicalContinuityActionPolicyMiddleware(req, res, next) {
     });
   } catch (err) {
     if (String(err?.code || '').startsWith('CONTINUITY_FACILITY_CONTEXT_')) {
-      return error(
-        res,
-        'Clinical continuity action was not authorized',
-        403,
-        {
-          code: 'CONTINUITY_FACILITY_CONTEXT_DENIED',
-          decision: 'deny',
-          safe: true,
-        },
-      );
+      return error(res, 'Clinical continuity action was not authorized', 403, {
+        code: 'CONTINUITY_FACILITY_CONTEXT_DENIED',
+        decision: 'deny',
+        safe: true
+      });
     }
     return next(err);
   }

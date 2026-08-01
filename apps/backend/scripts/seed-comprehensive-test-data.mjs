@@ -14,9 +14,9 @@ const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
 const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
 const SEED_TAG = 'vh_seed';
-// C3.2a edge authorization is inert until a countersigned v2 policy and an
-// operator-supplied client certificate exist. Synthetic grants, revocations,
-// or log receipts would violate that activation boundary.
+// Continuity authorization and replay remain inert until their approval gates
+// are satisfied. Synthetic credentials or immutable receipts would violate
+// those activation boundaries.
 const INTENTIONALLY_EMPTY_TABLES = new Set(INTENTIONALLY_EMPTY_SEED_TABLES);
 const MANUAL_SEED_TABLES = new Set([
   // Care-pathway and lab-ingest coverage must be coherent evidence graphs.

@@ -78,11 +78,11 @@ const POLICY_SELECT_BASE_SQL = `
          policy.revoked_key_ids,
          policy.approval_id,
          policy.approved_by,
-         policy.approved_at,
-         policy.effective_from,
-         policy.effective_until,
+         policy.approved_at::text AS approved_at,
+         policy.effective_from::text AS effective_from,
+         policy.effective_until::text AS effective_until,
          policy.supersedes_policy_id,
-         policy.created_at,
+         policy.created_at::text AS created_at,
          facility.display_name AS facility_display_name,
          facility.timezone AS facility_timezone,
          facility.status AS facility_status,
@@ -102,9 +102,9 @@ const POLICY_SELECT_BASE_SQL = `
          approval.required_approvers AS approval_required_approvers,
          approval.approved_by AS approval_approved_by,
          approval.decided_by AS approval_decided_by,
-         approval.decided_at AS approval_decided_at,
+         approval.decided_at::text AS approval_decided_at,
          approval.metadata AS approval_metadata,
-         transaction_timestamp() AS trusted_now,
+         transaction_timestamp()::text AS trusted_now,
          (
            SELECT MAX(committed.policy_version)
              FROM clinical_continuity_policy_versions AS committed
@@ -623,11 +623,7 @@ function normalizeRetention(value) {
   const retention = objectValue(value, 'policyDocument.retention');
   exactKeys(
     retention,
-    [
-      'accessLogRetentionHours',
-      'edgePackRetentionHours',
-      'sourcePackRetentionHours'
-    ],
+    ['accessLogRetentionHours', 'edgePackRetentionHours', 'sourcePackRetentionHours'],
     'policyDocument.retention'
   );
   return {
@@ -696,11 +692,7 @@ export function parseClinicalContinuityPolicyDocument(
   if (expectedSchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
     expectedKeys.push('actionRegistry');
   }
-  exactKeys(
-    document,
-    expectedKeys,
-    'policyDocument'
-  );
+  exactKeys(document, expectedKeys, 'policyDocument');
 
   if (
     document.policyType !== CLINICAL_CONTINUITY_POLICY_TYPE ||
@@ -1430,7 +1422,9 @@ async function assertTenantScopeTx(tx, expectedScope, { requireRepeatableRead = 
   }
   if (
     requireRepeatableRead &&
-    String(rows[0]?.isolation_level || '').toLowerCase() !== 'repeatable read'
+    !['repeatable read', 'serializable'].includes(
+      String(rows[0]?.isolation_level || '').toLowerCase()
+    )
   ) {
     policyConflict(
       'Clinical continuity policy reads require a RepeatableRead transaction',
@@ -1544,11 +1538,7 @@ function historicalActionPolicyFromRow(row, { capturedAt }) {
     String(row.policy_key_algorithm || '').toLowerCase() !== 'ed25519' ||
     parsedKey.metadata.purpose !== POLICY_KEY_PURPOSE ||
     sha256Hex(parsedKey.publicKey) !== payload.policySigningPublicKeySha256 ||
-    !verifyCanonicalValue(
-      payload,
-      signatureBase64(row.policy_signature),
-      parsedKey.publicKey
-    )
+    !verifyCanonicalValue(payload, signatureBase64(row.policy_signature), parsedKey.publicKey)
   ) {
     policyConflict(
       'Captured action policy signature or key binding is invalid',
