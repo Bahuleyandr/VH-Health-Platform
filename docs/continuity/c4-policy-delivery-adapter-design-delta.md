@@ -1,8 +1,7 @@
 # Signed continuity-policy delivery adapter — design delta
 
-**Status:** Step 2 implemented and locally verified from `5f96f39fe`; draft
-publication remains held for the mandatory post-C5.1 rebase and combined-file
-focused-suite receipt
+**Status:** Step 2 implemented, rebased onto landed C5.1, and locally verified;
+the combined-file readiness gate is complete
 
 **Branch:** `feat/continuity-policy-delivery`
 
@@ -12,6 +11,10 @@ focused-suite receipt
 **Pinned Step 2 base:** `github/main` at
 `888de6c06605b3ec22f0bbdc35c0bea966b8c4e6` (landed C4.3
 `4b79df3759c5b41c03dae70f53bfb3ed0d4a382c`)
+
+**Final integration base:** `github/main` at
+`37e137096a6dddaa3735a1bf6ac5cf3f141237d4` (landed C5.1
+`f0030a889926fd964ff4e074af86ac3f24359efa`)
 
 **Scope:** `apps/backend`, `packages/vhhealth_core`, `apps/staff`, OpenAPI,
 tests, and this record
@@ -1022,17 +1025,18 @@ The coordinator approved these Step 2 decisions on 2026-07-31:
 12. the exact file ceiling, receipt matrix, rollback behavior, and non-goals.
 
 Approval remains subject to the four merge-blocking conditions in section 0.
-AF #668 and C4.3 have since landed and the coordinator supplied the Step 2 GO
-SHA. The remaining serialization gate is C5.1: this branch stays draft, must
-rebase onto C5.1 if it lands first, and must rerun the combined shared-service
-focused suites before readiness. It must not be merged or deployed by this
-lane.
+AF #668, C4.3, and C5.1 have landed. This branch was rebased onto C5.1's merge
+SHA and the combined shared-service focused suites passed, satisfying the
+readiness gate. It must not be merged or deployed by this lane.
 
 ## 16. Step 2 implementation receipts
 
 The implementation was built from `5f96f39fe`, whose parent chain is pinned to
-`888de6c06605b3ec22f0bbdc35c0bea966b8c4e6`. Logs are under
-`D:\Dev\_codex\artifacts\logs\2026-07-31\continuity-policy-delivery\`.
+`888de6c06605b3ec22f0bbdc35c0bea966b8c4e6`, then rebased onto
+`37e137096a6dddaa3735a1bf6ac5cf3f141237d4`. Original logs are under
+`D:\Dev\_codex\artifacts\logs\2026-07-31\continuity-policy-delivery\`; final
+integration logs are under
+`D:\Dev\_codex\artifacts\logs\2026-08-01\continuity-policy-delivery-rebase\`.
 
 ### 16.1 Contract and focused gates
 
@@ -1048,6 +1052,13 @@ The implementation was built from `5f96f39fe`, whose parent chain is pinned to
 - Twelve continuity-focused backend suites pass 214 tests. The exact grouped
   CI contact chunk passes 60 tests after removing an unnecessary delivery-size
   export dependency from a commonly mocked policy module.
+- After the C5.1 rebase, 22 combined backend suites pass 500 tests across C5.1
+  replay, the shared policy service, delivery middleware, pack production,
+  action-policy enforcement, route-role coverage, OpenAPI, and every direct
+  service consumer. They run in four fresh Jest processes, matching the
+  repository's chunked CI strategy.
+- The rebased changed-file core suite and Staff source/repository suite pass
+  53 and 10 tests respectively.
 - Core focused tests pass 115 tests. Staff focused tests pass 30 tests. The
   Staff i18n guard passes 24 tests.
 - `melos run format`, `melos run analyze`, and `melos run test` pass. The Staff
@@ -1092,24 +1103,22 @@ The intent diff is empty for both tests and the referenced migration. These are
 reported, not adapted in this scope; GitHub's Linux/UTC checks remain the
 authoritative broad gate after draft publication.
 
-### 16.3 Intent, overlap, and hold
+### 16.3 Intent, overlap, and readiness
 
-- The tracked diff from `5f96f39fe` contains no Prisma schema or migration
-  path. Prisma and DDL remain zero as a build-time assertion.
+- The tracked delivery delta rebased onto `37e137096` contains no Prisma schema
+  or migration path. Prisma and DDL remain zero as a build-time assertion.
 - `generate-openapi.mjs` changes by exactly two added lines: one module import
   and one `SCHEMA_MODULES` entry. `buildSpec.mjs` remains necessary for the
   vendor response content type and typed `304` response; it was not touched for
   symmetry.
-- Against C5.1 PR #670 at
-  `6b297a78a0f465102a545fd0bea0d04e267aa759`, this lane has 42 files and C5.1
-  has 24. The sole overlap is the coordinator-declared
-  `clinicalContinuityPolicyService.js`; this lane's representation builder is
-  additive. The formerly overlapping existing unit test is restored to its
-  Step 2 base content.
-- C5.1 is still open and unmerged at this receipt. This branch therefore stays
-  draft. If C5.1 lands first, the second-lane rule requires a rebase onto its
-  merge SHA and a focused combined-service rerun before the draft may be
-  marked ready. Any non-additive collision is surfaced rather than resolved
-  locally.
+- C5.1 landed as `f0030a889926fd964ff4e074af86ac3f24359efa` through main
+  `37e137096a6dddaa3735a1bf6ac5cf3f141237d4`. The rebase completed without a
+  conflict. C5.1's timestamp and transaction-isolation changes and this lane's
+  delivery representation remain separate additive hunks in
+  `clinicalContinuityPolicyService.js`; `range-diff` shows only landed context
+  and formatting movement.
+- The combined C5.1/shared-service tests pass 144/144 as part of the final
+  500-test backend focused receipt. The second-lane readiness rule is
+  satisfied.
 - No policy, registry, activation, migration, Prisma, deployment, or merge
   action was performed.
