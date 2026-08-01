@@ -8,7 +8,9 @@
 import express from 'express';
 import {
   ingestDeviceVitals,
+  ingestSequencedDeviceVitalsRecovery,
   listUnverifiedDeviceVitals,
+  readI09GatewayRecoveryResumeState,
   resolveDeviceForGateway,
   verifyDeviceVitals,
 } from '../../services/emr/deviceVitalsService.js';
@@ -21,6 +23,7 @@ import {
   listAssociations,
 } from '../../services/devices/deviceAssociationService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { AppError } from '../../utils/AppError.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isClinical, isAdmin, isDoctor } from '../../utils/roleHelpers.js';
 
@@ -32,7 +35,10 @@ const requestTenantId = (req) => req.tenantId || req.user?.tenant_id || req.user
 
 function gatewaySurfaceGuard(req, res, next) {
   if (!isGateway(req.user?.role)) return next();
-  const allowed = req.method === 'POST' && (req.path === '/vitals/ingest' || req.path === '/vitals/resolve');
+  const allowed = (
+    req.method === 'POST'
+    && (req.path === '/vitals/ingest' || req.path === '/vitals/resolve')
+  ) || (req.method === 'GET' && req.path === '/vitals/recovery/resume-state');
   if (!allowed) {
     return error(res, 'DEVICE_GATEWAY can only access device ingest endpoints', HTTP_STATUS.FORBIDDEN);
   }
@@ -47,20 +53,48 @@ router.use(gatewaySurfaceGuard);
 
 router.post('/vitals/ingest', async (req, res) => {
   try {
+    if (req.body.recovery !== undefined) {
+      const allowed = new Set(['message', 'device_code', 'patient_uid', 'channel', 'recovery']);
+      const unknown = Object.keys(req.body || {}).filter((key) => !allowed.has(key));
+      if (unknown.length > 0) {
+        throw AppError.conflict(
+          `I09 recovery request contains unknown fields: ${unknown.join(', ')}`,
+          'EXTERNAL_RECOVERY_ENVELOPE_REFUSED',
+        );
+      }
+    }
     if (!isGateway(req.user?.role) && req.body.patient_uid) {
       return error(res, 'patient_uid is only accepted from DEVICE_GATEWAY callers', HTTP_STATUS.BAD_REQUEST);
     }
-    const result = await ingestDeviceVitals({
+    const input = {
       message: req.body.message,
       deviceCode: req.body.device_code || null,
       patientUid: req.body.patient_uid || null,
       channel: req.body.channel || null,
       tenantId: requestTenantId(req), // CAN-045: scope to the caller's tenant (no default)
-    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+      recovery: req.body.recovery,
+    };
+    const context = { actorUid: req.user?.uid || null, actorRole: req.user?.role || null };
+    const result = req.body.recovery === undefined
+      ? await ingestDeviceVitals(input, context)
+      : await ingestSequencedDeviceVitalsRecovery(input, context);
     const status = result?.duplicate || result?.suppressed ? HTTP_STATUS.OK : HTTP_STATUS.CREATED;
     return success(res, result, 'Device vitals ingested (unverified)', status);
   } catch (err) {
     return handleFailure(res, err, 'ingest device vitals');
+  }
+});
+
+router.get('/vitals/recovery/resume-state', async (req, res) => {
+  try {
+    const result = await readI09GatewayRecoveryResumeState({
+      tenantId: requestTenantId(req),
+      gatewayRegistryId: req.query.gateway_registry_id,
+      deviceRegistryId: req.query.device_registry_id,
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    return success(res, result, 'I09 recovery resume state');
+  } catch (err) {
+    return handleFailure(res, err, 'read I09 recovery resume state');
   }
 });
 

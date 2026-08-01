@@ -1095,6 +1095,82 @@ router.post(
 // timeline events fire through the standard vitals write path.
 // ---------------------------------------------------------------------------
 router.post(
+  '/Observation/recovery',
+  wrapAsync(async (req, res) => {
+    requireFhirWriteRole(req, 'Observation');
+    if (req.smart) {
+      throw AppError.conflict(
+        'SMART OAuth exchanges are not replayable I15 streams',
+        'EXTERNAL_RECOVERY_NOT_APPLICABLE',
+      );
+    }
+    if (!req.apiClientId) {
+      throw AppError.forbidden(
+        'I15 recovery requires a database-backed API client identity',
+        'EXTERNAL_RECOVERY_CLIENT_REQUIRED',
+      );
+    }
+    const allowed = new Set(['resource', 'recovery']);
+    const unknown = Object.keys(req.body || {}).filter((key) => !allowed.has(key));
+    if (unknown.length > 0) {
+      throw AppError.conflict(
+        `I15 recovery request contains unknown fields: ${unknown.join(', ')}`,
+        'EXTERNAL_RECOVERY_ENVELOPE_REFUSED',
+      );
+    }
+    const tenantId = tenantOf(req);
+    const resource = req.body?.resource;
+    assertValidInbound(resource, 'Observation');
+    const [recoveryService, vitalsRecoveryService] = await Promise.all([
+      import('../../services/integrations/externalInterfaceRecoveryService.js'),
+      import('../../services/integrations/externalVitalsRecoveryService.js'),
+    ]);
+    const {
+      enqueueExternalRecoveryItem,
+      processNextItemTx,
+    } = recoveryService;
+    const { validateI15FhirRecovery } = vitalsRecoveryService;
+    const prepared = validateI15FhirRecovery({
+      tenantId,
+      apiClientId: req.apiClientId,
+      resource,
+      recovery: req.body?.recovery,
+    });
+    await assertPatientInTenant(prepared.command.patient_uid, tenantId);
+    const operation = {
+      tenantId,
+      offsetId: prepared.offsetId,
+      interfaceFamily: prepared.interfaceFamily,
+      subpath: prepared.subpath,
+      sourcePartition: prepared.sourcePartition,
+      generation: prepared.generation,
+      sourcePosition: prepared.sourcePosition,
+      sourceToken: prepared.sourceToken,
+      predecessorToken: prepared.predecessorToken,
+      duplicateKey: prepared.duplicateKey,
+      occurredAt: prepared.occurredAt,
+      command: {
+        ...prepared.command,
+        actor_uid: req.user?.uid || null,
+      },
+      commandFingerprint: prepared.commandFingerprint,
+    };
+    const queued = await enqueueExternalRecoveryItem(operation);
+    if (queued.held) {
+      throw AppError.conflict(
+        'Canonical I15 recovery marker is missing; owner reconciliation is required',
+        'EXTERNAL_RECOVERY_MARKER_MISSING',
+      );
+    }
+    const result = queued.duplicate ? queued : await processNextItemTx(operation);
+    return res.status(202).json({
+      resourceType: 'Parameters',
+      parameter: [{ name: 'recovery', valueString: JSON.stringify(result) }],
+    });
+  }),
+);
+
+router.post(
   '/Observation',
   wrapAsync(async (req, res) => {
     requireFhirWriteRole(req, 'Observation');

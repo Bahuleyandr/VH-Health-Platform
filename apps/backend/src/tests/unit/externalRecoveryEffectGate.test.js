@@ -25,6 +25,9 @@ describe('external recovery effect capability', () => {
       facilityId: 18,
     })).toThrow('facility does not match');
     expect(() => requireExternalRecoveryCapability(capability, {
+      interfaceFamily: 'I09',
+    })).toThrow('interface family does not match');
+    expect(() => requireExternalRecoveryCapability(capability, {
       effectDisposition: 'normal',
     })).toThrow('effect disposition does not match');
   });
@@ -40,8 +43,30 @@ describe('external recovery effect capability', () => {
     expect(requireExternalRecoveryCapability(capability, {
       tenantId,
       facilityId: 17,
+      interfaceFamily: 'I10',
       effectDisposition: 'late_pending_only',
     })).toBe(capability);
+  });
+
+  it('preserves tenant-only null facility scope without weakening I10', () => {
+    const tenantId = randomUUID();
+    const capability = mintExternalRecoveryCapability({
+      inboxId: randomUUID(),
+      tenantId,
+      facilityId: null,
+      interfaceFamily: 'I15',
+      effectDisposition: 'late_pending_only',
+    });
+    expect(capability.facilityId).toBeNull();
+    expect(requireExternalRecoveryCapability(capability, {
+      tenantId,
+      facilityId: null,
+      interfaceFamily: 'I15',
+      effectDisposition: 'late_pending_only',
+    })).toBe(capability);
+    expect(() => requireExternalRecoveryCapability(capability, {
+      facilityId: 17,
+    })).toThrow('facility does not match');
   });
 
   it('keeps provider and notification delivery imports outside the recovery adapter', () => {

@@ -11564,17 +11564,23 @@ model vitals_chart {
   device_verified              Boolean?
   verified_by                  String?                        @db.Uuid
   verified_at                  DateTime?                      @db.Timestamptz(6)
+  recovery_inbox_id            String?                        @db.Uuid
+  recovery_interface_family    String?                        @db.VarChar(8)
   ed_encounter_evidence        ed_encounter_evidence[]
   icu_device_observation_links icu_device_observation_links[]
   resuscitation_device_links   resuscitation_device_links[]
   resuscitation_events         resuscitation_events[]
+  pathway_projector_inbox      pathway_projector_inbox?       @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_vitals_chart_recovery_inbox")
   tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_vitals_chart_tenant")
 
+  @@unique([tenant_id, recovery_inbox_id], map: "uq_vitals_chart_recovery_inbox", where: raw("(recovery_inbox_id IS NOT NULL)"))
+  @@unique([tenant_id, recovery_inbox_id, recovery_interface_family], map: "ux_vitals_chart_recovery_contract")
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_patient_recorded")
   @@index([tenant_id], map: "idx_vitals_chart_tenant_id")
   @@index([encounter_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_encounter_uid", where: raw("(encounter_uid IS NOT NULL)"))
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_triage_acuity", where: raw("(triage_acuity IS NOT NULL)"))
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_device_unverified", where: raw("(((source)::text = 'device'::text) AND (device_verified = false))"))
+  @@index([tenant_id, recovery_interface_family, recorded_at(sort: Desc)], map: "idx_vitals_chart_recovery_pending", where: raw("(recovery_inbox_id IS NOT NULL)"))
 }
 
 model wards {
@@ -16160,14 +16166,19 @@ model lab_interface_messages {
   analyzer_binding_mode     String?                     @db.VarChar(40)
   analyzer_binding_identity String?                     @db.VarChar(120)
   analyzer_sender_identity  String?                     @db.VarChar(120)
+  recovery_inbox_id         String?                     @db.Uuid
+  recovery_interface_family String?                     @db.VarChar(8)
   device_vitals_control_ids device_vitals_control_ids[]
   authenticated_actor       users?                      @relation("lab_interface_messages_authenticated_actor", fields: [tenant_id, authenticated_actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_astm_authenticated_actor")
+  pathway_projector_inbox   pathway_projector_inbox?    @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_messages_recovery_inbox")
   tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_messages_tenant")
   lab_analyzers             lab_analyzers?              @relation(fields: [analyzer_id], references: [id], onUpdate: NoAction)
   lab_specimens             lab_specimens?              @relation(fields: [specimen_id], references: [id], onUpdate: NoAction)
   lab_results               lab_results[]
 
   @@unique([tenant_id, id], map: "ux_lab_interface_messages_tenant_id")
+  @@unique([tenant_id, recovery_inbox_id], map: "uq_lab_interface_messages_recovery_inbox", where: raw("(recovery_inbox_id IS NOT NULL)"))
+  @@unique([tenant_id, recovery_inbox_id, recovery_interface_family], map: "ux_lab_interface_messages_recovery_contract")
   @@index([analyzer_id, created_at(sort: Desc)], map: "idx_lab_interface_messages_analyzer", where: raw("(analyzer_id IS NOT NULL)"))
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_lab_interface_messages_status")
 }
@@ -24563,15 +24574,18 @@ model pathway_projector_inbox {
   retention_until        DateTime?               @db.Timestamptz(6)
   cold_chain_readings    cold_chain_readings[]
   event_outbox           event_outbox[]
+  lab_interface_messages lab_interface_messages?
   facilities             facilities?             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
   event_consumer_offsets event_consumer_offsets? @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")
   tasks                  tasks?                  @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_pending_task")
   tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
+  vitals_chart           vitals_chart?
 
   @@unique([tenant_id, interface_family, direction, source_partition, duplicate_key], map: "uq_pathway_projector_inbox_external_duplicate", where: raw("((scope_kind)::text = 'external_interface'::text)"))
   @@unique([tenant_id, offset_id, generation, source_position], map: "uq_pathway_projector_inbox_external_position", where: raw("((scope_kind)::text = 'external_interface'::text)"))
   @@unique([tenant_id, consumer_key, generation, event_id], map: "uq_pathway_projector_inbox_pathway_event", where: raw("((scope_kind)::text = 'pathway_registry'::text)"))
   @@unique([tenant_id, inbox_id, facility_id], map: "ux_pathway_projector_inbox_facility_identity")
+  @@unique([tenant_id, inbox_id, interface_family], map: "ux_pathway_projector_inbox_tenant_family_identity")
   @@unique([tenant_id, inbox_id, occurred_at, command_fingerprint, effect_disposition], map: "ux_pathway_projector_inbox_recovery_contract")
   @@index([consumer_key, generation, next_attempt_at, event_id], map: "idx_pathway_projector_inbox_pending", where: raw("(((status)::text = 'pending'::text) AND (lease_owner IS NULL))"))
   @@index([consumer_key, generation, lease_expires_at, event_id], map: "idx_pathway_projector_inbox_stale", where: raw("(((status)::text = 'pending'::text) AND (lease_owner IS NOT NULL))"))

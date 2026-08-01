@@ -30,6 +30,20 @@ const VITAL_CORRECTION_FIELDS = [
   'consciousness', 'notes', 'fhr', 'fundal_height_cm',
 ];
 
+export function assertLateRecoveryVitalsBoundary({
+  interfaceFamily,
+  source,
+  deviceVerified,
+  triageAcuity,
+} = {}) {
+  const validSource = interfaceFamily === 'I09'
+    ? source === 'device' && deviceVerified === false
+    : interfaceFamily === 'I15' && source === 'fhir' && deviceVerified === null;
+  if (!validSource || triageAcuity !== null) {
+    throw new TypeError('Late recovered vitals must remain observation-only pending review');
+  }
+}
+
 // Urine dipstick (migration 211). Five-step scale used on both the
 // vitals_chart entry and the ANC visit composer. Stored as plain text
 // so the strip-reader UI can round-trip the value without an enum
