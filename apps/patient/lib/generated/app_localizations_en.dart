@@ -3895,4 +3895,49 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get referralsAppointmentLinked =>
       'A follow-up appointment is linked to this referral.';
+
+  @override
+  String get patientOutageTitle => 'Hospital service temporarily unavailable';
+
+  @override
+  String get patientOutageChecking => 'Checking hospital service…';
+
+  @override
+  String patientOutageMessage(String facilityContactNumber) {
+    return 'Hospital systems are temporarily unavailable. The information shown here was saved earlier — check the \'last updated\' time on each page. New bookings, cancellations, and medical requests are paused until service is restored. For urgent needs, please contact the hospital directly at $facilityContactNumber. In an emergency, call your local emergency number or come straight to the Emergency Department.';
+  }
+
+  @override
+  String get patientOutageRetry => 'Retry';
+
+  @override
+  String get patientOutageCallHospital => 'Call hospital';
+
+  @override
+  String get patientOutageMutationNotSent => 'This request was not sent.';
+
+  @override
+  String get patientOutageEmergencyNotSent =>
+      'The hospital emergency alert was not sent.';
+
+  @override
+  String patientOutageCachedAt(String timestamp) {
+    return 'Saved on this device $timestamp';
+  }
+
+  @override
+  String patientOutageDownloadedAt(String timestamp) {
+    return 'Downloaded on this device $timestamp';
+  }
+
+  @override
+  String get patientOutageCacheUnavailable =>
+      'This information is not available on this device.';
+
+  @override
+  String get patientOutageDialogTitle => 'Service unavailable';
+
+  @override
+  String get patientOutageContactUnavailable =>
+      'The facility contact number is not configured on this device.';
 }

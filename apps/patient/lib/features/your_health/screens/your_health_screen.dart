@@ -15,6 +15,7 @@ import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/offline/record_cache_manager.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/your_health/models/patient_explainer.dart';
 import 'package:vhhealth/features/your_health/services/patient_explainers_repository.dart';
 import 'package:vhhealth/features/your_health/services/whats_next_repository.dart';
@@ -55,6 +56,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
   bool _isLoadingRecords = true;
   String _selectedType = 'All';
   bool _newestFirst = true;
+  DateTime? _recordsCachedAt;
 
   late final bool _isGuest;
   late final String _phone;
@@ -145,11 +147,12 @@ class _YourHealthScreenState extends State<YourHealthScreen>
             ? rawData
             : (rawData is Map ? (rawData['records'] ?? rawData ?? []) : [])
                   as List<dynamic>;
-        await RecordCacheManager.saveManifest(_phone, data);
+        final cachedAt = await RecordCacheManager.saveManifest(_phone, data);
         if (!mounted) return;
         setState(() {
           records = _newestFirst ? data : data.reversed.toList();
           _isLoadingRecords = false;
+          _recordsCachedAt = cachedAt;
         });
       } else {
         _tryLoadFromCache(messenger, theme, l10n.recordsLoadFailed);
@@ -170,9 +173,12 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     final l10n = AppLocalizations.of(context)!;
 
     if (!mounted) return;
-    if (cached != null && cached.isNotEmpty) {
+    if (cached != null && cached.records.isNotEmpty) {
       setState(() {
-        records = _newestFirst ? cached : cached.reversed.toList();
+        records = _newestFirst
+            ? cached.records
+            : cached.records.reversed.toList();
+        _recordsCachedAt = cached.cachedAt;
         _isLoadingRecords = false;
       });
       messenger.showSnackBar(
@@ -489,6 +495,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
     return Column(
       children: [
+        OfflineBanner(cachedAt: _recordsCachedAt),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: DropdownButtonFormField<String>(
@@ -561,9 +568,11 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                       child: ListTile(
                         leading: Icon(_iconFor(type), color: cs.primary),
                         title: Text(l10n.recordTypeLabel(type)),
-                        subtitle: Text(
-                          '${l10n.yourHealthUploaded}: '
-                          '${uploaded != null ? dateFmt.format(uploaded) : l10n.notAvailable}',
+                        subtitle: _RecordTimestamp(
+                          uploadedLabel:
+                              '${l10n.yourHealthUploaded}: '
+                              '${uploaded != null ? dateFmt.format(uploaded) : l10n.notAvailable}',
+                          fileKey: fileKey.split('/').last,
                         ),
                         trailing: IconButton(
                           icon: const Icon(Icons.download_for_offline_outlined),
@@ -591,6 +600,32 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       default:
         return Icons.insert_drive_file_outlined;
     }
+  }
+}
+
+class _RecordTimestamp extends StatelessWidget {
+  const _RecordTimestamp({required this.uploadedLabel, required this.fileKey});
+
+  final String uploadedLabel;
+  final String fileKey;
+
+  @override
+  Widget build(BuildContext context) {
+    if (fileKey.isEmpty) return Text(uploadedLabel);
+    return FutureBuilder<DateTime?>(
+      future: CacheFileUtils.cachedFileTimestamp(fileKey),
+      builder: (context, snapshot) {
+        final cachedAt = snapshot.data;
+        if (cachedAt == null) return Text(uploadedLabel);
+        final locale = Localizations.localeOf(context).toLanguageTag();
+        final timestamp = DateFormat.yMMMd(
+          locale,
+        ).add_jm().format(cachedAt.toLocal());
+        return Text(
+          '$uploadedLabel\n${AppLocalizations.of(context)!.patientOutageDownloadedAt(timestamp)}',
+        );
+      },
+    );
   }
 }
 

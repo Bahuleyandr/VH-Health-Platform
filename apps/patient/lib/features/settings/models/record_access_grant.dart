@@ -3,12 +3,14 @@ class RecordAccessGrantsPage {
     required this.grantedByMe,
     required this.heldByMe,
     this.staleLabel,
+    this.cachedAt,
     this.onFresh,
   });
 
   final List<RecordAccessGrant> grantedByMe;
   final List<HeldRecordAccessGrant> heldByMe;
   final String? staleLabel;
+  final DateTime? cachedAt;
   final Future<RecordAccessGrantsSnapshot>? onFresh;
 
   bool get isEmpty => grantedByMe.isEmpty && heldByMe.isEmpty;

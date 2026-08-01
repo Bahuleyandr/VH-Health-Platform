@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
@@ -68,6 +69,7 @@ class DashboardProvider extends ChangeNotifier {
   int? _stepGoal;
   double? _distanceTodayMeters;
   String? _activityLevelLabel;
+  DateTime? _appointmentCachedAt;
 
   Map<String, dynamic>? get todayAppointment => _todayAppointment;
   Map<String, dynamic>? get nextAppointmentDetail => _nextAppointmentDetail;
@@ -76,10 +78,12 @@ class DashboardProvider extends ChangeNotifier {
   int? get stepGoal => _stepGoal;
   double? get distanceTodayMeters => _distanceTodayMeters;
   String? get activityLevelLabel => _activityLevelLabel;
+  DateTime? get appointmentCachedAt => _appointmentCachedAt;
 
   void start() {
     if (_started || _isGuestSession) return;
     _started = true;
+    PatientOutageController.instance.addListener(_handleOutageChanged);
     unawaited(refreshAppointments());
     _scheduleNextAppointmentFallback();
     unawaited(refreshSmartWidgets());
@@ -111,6 +115,7 @@ class DashboardProvider extends ChangeNotifier {
       if (_disposed) return;
 
       if (result.isSuccess) {
+        _appointmentCachedAt = result.cachedAt;
         _applyAppointments(result.data);
         _appointmentPollFailures = 0;
 
@@ -118,8 +123,10 @@ class DashboardProvider extends ChangeNotifier {
         if (freshFuture != null) {
           unawaited(
             freshFuture
-                .then((fresh) {
+                .then((fresh) async {
+                  final cached = await ApiCacheManager.load(path);
                   if (_disposed || !fresh.isSuccess) return;
+                  _appointmentCachedAt = cached?.cachedAt;
                   _applyAppointments(fresh.data);
                 })
                 .catchError((Object e) {
@@ -240,6 +247,7 @@ class DashboardProvider extends ChangeNotifier {
     _stepGoal = null;
     _distanceTodayMeters = null;
     _activityLevelLabel = null;
+    _appointmentCachedAt = null;
     _appointmentPollFailures = 0;
     _smartPollFailures = 0;
     _notifySafely();
@@ -252,6 +260,17 @@ class DashboardProvider extends ChangeNotifier {
 
     _webSocketProvider?.clearAppointmentEvent();
     unawaited(refreshAppointments(invalidateCache: true));
+  }
+
+  void _handleOutageChanged() {
+    final outage = PatientOutageController.instance;
+    if ((!outage.isOutage && !outage.isChecking) || _disposed) return;
+    _wellnessScore = null;
+    _stepsToday = null;
+    _stepGoal = null;
+    _distanceTodayMeters = null;
+    _activityLevelLabel = null;
+    _notifySafely();
   }
 
   void _scheduleNextAppointmentFallback() {
@@ -314,6 +333,9 @@ class DashboardProvider extends ChangeNotifier {
     _appointmentPoller?.cancel();
     _smartWidgetPoller?.cancel();
     _webSocketProvider?.removeListener(_handleAppointmentEvent);
+    if (_started) {
+      PatientOutageController.instance.removeListener(_handleOutageChanged);
+    }
     super.dispose();
   }
 

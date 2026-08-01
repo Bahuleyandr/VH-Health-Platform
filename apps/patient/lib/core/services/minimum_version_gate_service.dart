@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/config/store_urls.dart';
+import 'package:vhhealth/core/outage/patient_outage_config.dart';
 
 class MinimumVersionGateResult {
   const MinimumVersionGateResult({
@@ -59,6 +60,11 @@ class MinimumVersionGateService {
       final data = payload['data'] is Map<String, dynamic>
           ? payload['data'] as Map<String, dynamic>
           : payload;
+      if (data.containsKey('outage_communication')) {
+        await PatientOutageConfigStore.instance.accept(
+          data['outage_communication'],
+        );
+      }
       final minCode = _parseConfigInt(
         data['min_patient_version_code'] ?? data['minPatientVersionCode'],
       );

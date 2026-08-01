@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'api_client.dart';
@@ -202,6 +203,7 @@ class HealthSyncService {
   /// Silent path — does **not** prompt for permissions. Background/resume
   /// callers rely on this behaviour to avoid spurious prompts.
   Future<int> syncNow() async {
+    if (PatientOutageController.instance.blocksHospitalMutations) return 0;
     if (!_isSupportedPlatform) return 0;
     var types = _availableReadTypes();
     if (types.isEmpty) return 0;

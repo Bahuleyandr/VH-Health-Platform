@@ -34,6 +34,7 @@ class ApiRecordAccessRepository implements RecordAccessRepository {
       grantedByMe: snapshot.grantedByMe,
       heldByMe: snapshot.heldByMe,
       staleLabel: result.staleLabel,
+      cachedAt: result.cachedAt,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
           throw Exception(

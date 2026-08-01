@@ -2,11 +2,31 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/portal/models/lab_result.dart';
 
 class LabResultsPage {
-  const LabResultsPage({required this.results, this.staleLabel, this.onFresh});
+  const LabResultsPage({
+    required this.results,
+    this.staleLabel,
+    this.cachedAt,
+    this.onFresh,
+  });
 
   final List<LabResult> results;
   final String? staleLabel;
+  final DateTime? cachedAt;
   final Future<List<LabResult>>? onFresh;
+}
+
+class LabResultSnapshot {
+  const LabResultSnapshot({required this.result, this.cachedAt});
+
+  final LabResult result;
+  final DateTime? cachedAt;
+}
+
+class LabResultTrendSnapshot {
+  const LabResultTrendSnapshot({required this.trend, this.cachedAt});
+
+  final LabResultTrend trend;
+  final DateTime? cachedAt;
 }
 
 abstract class LabResultsRepository {
@@ -28,6 +48,7 @@ class ApiLabResultsRepository implements LabResultsRepository {
     return LabResultsPage(
       results: _parseResults(result.data),
       staleLabel: result.staleLabel,
+      cachedAt: result.cachedAt,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
           throw Exception(
@@ -40,19 +61,38 @@ class ApiLabResultsRepository implements LabResultsRepository {
   }
 
   @override
-  Future<LabResult> getResult(int id) async {
+  Future<LabResult> getResult(int id) async =>
+      (await getResultSnapshot(id)).result;
+
+  Future<LabResultSnapshot> getResultSnapshot(int id) async {
     final result = await ApiClient.cachedGet('/portal/lab-results/$id');
     if (!result.isSuccess) {
       throw Exception(result.failureMessage('Failed to load lab result'));
     }
     final data = result.data;
-    if (data is Map<String, dynamic>) return LabResult.fromJson(data);
-    if (data is Map) return LabResult.fromJson(Map<String, dynamic>.from(data));
+    if (data is Map<String, dynamic>) {
+      return LabResultSnapshot(
+        result: LabResult.fromJson(data),
+        cachedAt: result.cachedAt,
+      );
+    }
+    if (data is Map) {
+      return LabResultSnapshot(
+        result: LabResult.fromJson(Map<String, dynamic>.from(data)),
+        cachedAt: result.cachedAt,
+      );
+    }
     throw Exception('Invalid lab result response');
   }
 
   @override
-  Future<LabResultTrend> getTrend(LabResult result, {int months = 24}) async {
+  Future<LabResultTrend> getTrend(LabResult result, {int months = 24}) async =>
+      (await getTrendSnapshot(result, months: months)).trend;
+
+  Future<LabResultTrendSnapshot> getTrendSnapshot(
+    LabResult result, {
+    int months = 24,
+  }) async {
     final key = result.trendQueryKey;
     final value = result.trendQueryValue;
     if (key == null || value == null) {
@@ -67,9 +107,17 @@ class ApiLabResultsRepository implements LabResultsRepository {
       throw Exception(response.failureMessage('Failed to load lab trend'));
     }
     final data = response.data;
-    if (data is Map<String, dynamic>) return LabResultTrend.fromJson(data);
+    if (data is Map<String, dynamic>) {
+      return LabResultTrendSnapshot(
+        trend: LabResultTrend.fromJson(data),
+        cachedAt: response.cachedAt,
+      );
+    }
     if (data is Map) {
-      return LabResultTrend.fromJson(Map<String, dynamic>.from(data));
+      return LabResultTrendSnapshot(
+        trend: LabResultTrend.fromJson(Map<String, dynamic>.from(data)),
+        cachedAt: response.cachedAt,
+      );
     }
     throw Exception('Invalid lab trend response');
   }

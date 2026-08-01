@@ -5,11 +5,13 @@ class PatientReferralsPage {
   const PatientReferralsPage({
     required this.referrals,
     this.staleLabel,
+    this.cachedAt,
     this.onFresh,
   });
 
   final List<PatientReferral> referrals;
   final String? staleLabel;
+  final DateTime? cachedAt;
   final Future<List<PatientReferral>>? onFresh;
 }
 
@@ -29,6 +31,7 @@ class ApiPatientReferralsRepository implements PatientReferralsRepository {
     return PatientReferralsPage(
       referrals: _parse(response.data),
       staleLabel: response.staleLabel,
+      cachedAt: response.cachedAt,
       onFresh: response.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
           throw Exception(fresh.failureMessage('Failed to refresh referrals'));

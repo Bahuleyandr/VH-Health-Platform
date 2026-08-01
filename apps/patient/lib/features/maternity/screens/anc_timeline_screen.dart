@@ -314,7 +314,7 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
       children: [
-        OfflineBanner(staleLabel: data.staleLabel),
+        OfflineBanner(staleLabel: data.staleLabel, cachedAt: data.cachedAt),
         _pregnancyHeader(theme, l, data.pregnancy!),
         const SizedBox(height: 16),
         _dangerSignsSection(theme, l, data),

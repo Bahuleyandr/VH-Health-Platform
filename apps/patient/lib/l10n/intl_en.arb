@@ -4353,5 +4353,39 @@
   "referralsAppointmentLinked": "A follow-up appointment is linked to this referral.",
   "@referralsAppointmentLinked": {
     "description": "Patient referral linked appointment message."
-  }
+  },
+  "patientOutageTitle": "Hospital service temporarily unavailable",
+  "patientOutageChecking": "Checking hospital service…",
+  "patientOutageMessage": "Hospital systems are temporarily unavailable. The information shown here was saved earlier — check the 'last updated' time on each page. New bookings, cancellations, and medical requests are paused until service is restored. For urgent needs, please contact the hospital directly at {facilityContactNumber}. In an emergency, call your local emergency number or come straight to the Emergency Department.",
+  "@patientOutageMessage": {
+    "description": "Owner-approved C-D12 patient outage message, approved 2026-08-02.",
+    "placeholders": {
+      "facilityContactNumber": {
+        "type": "String"
+      }
+    }
+  },
+  "patientOutageRetry": "Retry",
+  "patientOutageCallHospital": "Call hospital",
+  "patientOutageMutationNotSent": "This request was not sent.",
+  "patientOutageEmergencyNotSent": "The hospital emergency alert was not sent.",
+  "patientOutageCachedAt": "Saved on this device {timestamp}",
+  "@patientOutageCachedAt": {
+    "placeholders": {
+      "timestamp": {
+        "type": "String"
+      }
+    }
+  },
+  "patientOutageDownloadedAt": "Downloaded on this device {timestamp}",
+  "@patientOutageDownloadedAt": {
+    "placeholders": {
+      "timestamp": {
+        "type": "String"
+      }
+    }
+  },
+  "patientOutageCacheUnavailable": "This information is not available on this device.",
+  "patientOutageDialogTitle": "Service unavailable",
+  "patientOutageContactUnavailable": "The facility contact number is not configured on this device."
 }

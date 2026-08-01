@@ -5,12 +5,24 @@ class StructuredDiagnosticResultsPage {
   const StructuredDiagnosticResultsPage({
     required this.results,
     this.staleLabel,
+    this.cachedAt,
     this.onFresh,
   });
 
   final List<StructuredDiagnosticResult> results;
   final String? staleLabel;
+  final DateTime? cachedAt;
   final Future<List<StructuredDiagnosticResult>>? onFresh;
+}
+
+class StructuredDiagnosticResultSnapshot {
+  const StructuredDiagnosticResultSnapshot({
+    required this.result,
+    this.cachedAt,
+  });
+
+  final StructuredDiagnosticResult result;
+  final DateTime? cachedAt;
 }
 
 abstract class StructuredDiagnosticResultsRepository {
@@ -34,6 +46,7 @@ class ApiStructuredDiagnosticResultsRepository
     return StructuredDiagnosticResultsPage(
       results: _parseResults(response.data),
       staleLabel: response.staleLabel,
+      cachedAt: response.cachedAt,
       onFresh: response.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
           throw Exception(
@@ -46,7 +59,12 @@ class ApiStructuredDiagnosticResultsRepository
   }
 
   @override
-  Future<StructuredDiagnosticResult> getResult(String id) async {
+  Future<StructuredDiagnosticResult> getResult(String id) async =>
+      (await getResultSnapshot(id)).result;
+
+  Future<StructuredDiagnosticResultSnapshot> getResultSnapshot(
+    String id,
+  ) async {
     final response = await ApiClient.cachedGet(
       '/portal/diagnostic-results/$id',
     );
@@ -57,11 +75,17 @@ class ApiStructuredDiagnosticResultsRepository
     }
     final data = response.data;
     if (data is Map<String, dynamic>) {
-      return StructuredDiagnosticResult.fromJson(data);
+      return StructuredDiagnosticResultSnapshot(
+        result: StructuredDiagnosticResult.fromJson(data),
+        cachedAt: response.cachedAt,
+      );
     }
     if (data is Map) {
-      return StructuredDiagnosticResult.fromJson(
-        Map<String, dynamic>.from(data),
+      return StructuredDiagnosticResultSnapshot(
+        result: StructuredDiagnosticResult.fromJson(
+          Map<String, dynamic>.from(data),
+        ),
+        cachedAt: response.cachedAt,
       );
     }
     throw Exception('Invalid diagnostic result response');

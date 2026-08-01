@@ -8,6 +8,7 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
@@ -56,6 +57,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Offline support
   String? _staleLabel;
+  DateTime? _commandCenterCachedAt;
   StreamSubscription<bool>? _connectivitySub;
   late final DashboardProvider _dashboardProvider;
 
@@ -267,13 +269,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (result.isSuccess) {
         final data = _asStringMap(result.data);
-        _applyCommandCenter(data, staleLabel: result.staleLabel);
+        _applyCommandCenter(
+          data,
+          staleLabel: result.staleLabel,
+          cachedAt: result.cachedAt,
+        );
 
         // Listen for fresh network data if cache was served first
-        result.onFresh?.then((fresh) {
+        result.onFresh?.then((fresh) async {
+          final cached = await ApiCacheManager.load('/portal/command-center');
           if (!mounted) return;
           if (fresh.isSuccess) {
-            _applyCommandCenter(_asStringMap(fresh.data), staleLabel: null);
+            _applyCommandCenter(
+              _asStringMap(fresh.data),
+              staleLabel: null,
+              cachedAt: cached?.cachedAt,
+            );
           }
         });
       } else {
@@ -295,45 +306,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _fetchAndStoreDashboardFresh() async {
-    if (_isGuestSession) return;
-    if (mounted) {
-      setState(() {
-        _commandCenterLoading = true;
-        _commandCenterError = null;
-      });
-    }
-    try {
-      final response = await ApiClient.get(
-        '/portal/command-center',
-        timeout: const Duration(seconds: 10),
-      );
-      if (!mounted) return;
-
-      if (response.isSuccess) {
-        _applyCommandCenter(_asStringMap(response.data), staleLabel: null);
-      } else {
-        setState(() {
-          _commandCenterLoading = false;
-          _commandCenterError = response.failureMessage(
-            'Today could not refresh right now.',
-          );
-        });
-      }
-    } catch (e) {
-      debugPrint('Dashboard fresh fetch error: $e');
-      if (mounted) {
-        setState(() {
-          _commandCenterLoading = false;
-          _commandCenterError = 'Today could not refresh right now.';
-        });
-      }
-    }
-  }
+  Future<void> _fetchAndStoreDashboardFresh() => _fetchAndStoreDashboard();
 
   void _applyCommandCenter(
     Map<String, dynamic> data, {
     required String? staleLabel,
+    required DateTime? cachedAt,
   }) {
     final profile = _asStringMap(data['profile']);
     final services = _asStringMap(data['services']);
@@ -348,6 +326,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     setState(() {
       _staleLabel = staleLabel;
+      _commandCenterCachedAt = cachedAt;
       _commandCenterLoading = false;
       _commandCenterError = null;
       _todayCards = today;
@@ -732,6 +711,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (!mounted) return;
         setState(() {
           _commandCenterProfile = null;
+          _commandCenterCachedAt = null;
           _cycleTrackerSnapshot = null;
           if (_expandedStatPanel == _DashboardStatPanel.period) {
             _expandedStatPanel = null;
@@ -787,7 +767,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (!isGuest) const ProfileSwitcher(),
 
               // Offline / stale-data banner (pinned, stays visible on scroll).
-              OfflineBanner(staleLabel: _staleLabel),
+              OfflineBanner(
+                staleLabel: _staleLabel,
+                cachedAt: _oldestCachedAt(
+                  _commandCenterCachedAt,
+                  _dashboardProvider.appointmentCachedAt,
+                ),
+              ),
 
               Expanded(
                 child: RefreshIndicator(
@@ -955,6 +941,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _formatLastVitalsLabel() {
     return null;
   }
+}
+
+DateTime? _oldestCachedAt(DateTime? first, DateTime? second) {
+  if (first == null) return second;
+  if (second == null) return first;
+  return first.isBefore(second) ? first : second;
 }
 
 class _LiftedEndFloatLocation extends StandardFabLocation

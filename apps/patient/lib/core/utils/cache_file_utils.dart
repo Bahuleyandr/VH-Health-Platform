@@ -43,6 +43,17 @@ class CacheFileUtils {
     return file.exists();
   }
 
+  static Future<DateTime?> cachedFileTimestamp(String fileKey) async {
+    try {
+      final file = await _getLocalFile(fileKey);
+      if (!await file.exists()) return null;
+      return (await file.stat()).modified;
+    } catch (e) {
+      debugPrint('Read cached file timestamp failed: $e');
+      return null;
+    }
+  }
+
   static Future<File?> downloadAndCacheFile(String fileKey, String url) async {
     try {
       final file = await _getLocalFile(fileKey);

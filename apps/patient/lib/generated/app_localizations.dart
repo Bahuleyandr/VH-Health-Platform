@@ -7309,6 +7309,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'A follow-up appointment is linked to this referral.'**
   String get referralsAppointmentLinked;
+
+  /// No description provided for @patientOutageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital service temporarily unavailable'**
+  String get patientOutageTitle;
+
+  /// No description provided for @patientOutageChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking hospital service…'**
+  String get patientOutageChecking;
+
+  /// Owner-approved C-D12 patient outage message, approved 2026-08-02.
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital systems are temporarily unavailable. The information shown here was saved earlier — check the \'last updated\' time on each page. New bookings, cancellations, and medical requests are paused until service is restored. For urgent needs, please contact the hospital directly at {facilityContactNumber}. In an emergency, call your local emergency number or come straight to the Emergency Department.'**
+  String patientOutageMessage(String facilityContactNumber);
+
+  /// No description provided for @patientOutageRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get patientOutageRetry;
+
+  /// No description provided for @patientOutageCallHospital.
+  ///
+  /// In en, this message translates to:
+  /// **'Call hospital'**
+  String get patientOutageCallHospital;
+
+  /// No description provided for @patientOutageMutationNotSent.
+  ///
+  /// In en, this message translates to:
+  /// **'This request was not sent.'**
+  String get patientOutageMutationNotSent;
+
+  /// No description provided for @patientOutageEmergencyNotSent.
+  ///
+  /// In en, this message translates to:
+  /// **'The hospital emergency alert was not sent.'**
+  String get patientOutageEmergencyNotSent;
+
+  /// No description provided for @patientOutageCachedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this device {timestamp}'**
+  String patientOutageCachedAt(String timestamp);
+
+  /// No description provided for @patientOutageDownloadedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloaded on this device {timestamp}'**
+  String patientOutageDownloadedAt(String timestamp);
+
+  /// No description provided for @patientOutageCacheUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This information is not available on this device.'**
+  String get patientOutageCacheUnavailable;
+
+  /// No description provided for @patientOutageDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Service unavailable'**
+  String get patientOutageDialogTitle;
+
+  /// No description provided for @patientOutageContactUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The facility contact number is not configured on this device.'**
+  String get patientOutageContactUnavailable;
 }
 
 class _AppLocalizationsDelegate

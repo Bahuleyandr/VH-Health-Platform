@@ -38,6 +38,7 @@ class ApiMaternityRepository implements MaternityRepository {
         packagesData: const [],
         adviceData: const {'advice': []},
         staleLabel: timelineResult.staleLabel,
+        cachedAt: timelineResult.cachedAt,
       );
     }
 
@@ -61,6 +62,11 @@ class ApiMaternityRepository implements MaternityRepository {
           : const [],
       adviceData: adviceResult.data,
       staleLabel: timelineResult.staleLabel,
+      cachedAt: _oldestTimestamp([
+        timelineResult.cachedAt,
+        packagesResult.cachedAt,
+        adviceResult.cachedAt,
+      ]),
       adviceLoadFailed: adviceResult.loadFailed,
     );
   }
@@ -81,7 +87,7 @@ class ApiMaternityRepository implements MaternityRepository {
     final primaryData = asStringMap(primary.response.data);
     if (primary.response.isSuccess &&
         listOfMaps(primaryData?['advice']).isNotEmpty) {
-      return _AdviceLoadResult(data: primaryData);
+      return _AdviceLoadResult(data: primaryData, cachedAt: primary.cachedAt);
     }
 
     if (languageCode != 'hi') {
@@ -93,13 +99,17 @@ class ApiMaternityRepository implements MaternityRepository {
         },
       );
       if (fallback.response.isSuccess) {
-        return _AdviceLoadResult(data: asStringMap(fallback.response.data));
+        return _AdviceLoadResult(
+          data: asStringMap(fallback.response.data),
+          cachedAt: fallback.cachedAt,
+        );
       }
     }
 
     return _AdviceLoadResult(
       data: primaryData ?? const {'advice': []},
       loadFailed: !primary.response.isSuccess,
+      cachedAt: primary.cachedAt,
     );
   }
 
@@ -153,8 +163,20 @@ class MaternityRepositoryException implements Exception {
 }
 
 class _AdviceLoadResult {
-  const _AdviceLoadResult({required this.data, this.loadFailed = false});
+  const _AdviceLoadResult({
+    required this.data,
+    this.loadFailed = false,
+    this.cachedAt,
+  });
 
   final Map<String, dynamic>? data;
   final bool loadFailed;
+  final DateTime? cachedAt;
+}
+
+DateTime? _oldestTimestamp(Iterable<DateTime?> values) {
+  final timestamps = values.whereType<DateTime>().toList();
+  if (timestamps.isEmpty) return null;
+  timestamps.sort();
+  return timestamps.first;
 }

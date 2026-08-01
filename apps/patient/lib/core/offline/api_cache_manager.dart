@@ -178,23 +178,23 @@ class ApiCacheManager {
   }
 
   /// Save JSON data to cache for a given API path.
-  static Future<void> save(String path, dynamic data) async {
+  static Future<DateTime?> save(String path, dynamic data) async {
     try {
       final dir = await _getCacheDir();
       final fileKey = _keyForPath(path);
       final file = File('$dir/$fileKey.json');
-      final envelope = {
-        'cachedAt': DateTime.now().toIso8601String(),
-        'data': data,
-      };
+      final cachedAt = DateTime.now();
+      final envelope = {'cachedAt': cachedAt.toIso8601String(), 'data': data};
       final encrypted = await _encrypt(jsonEncode(envelope));
       await file.writeAsString(encrypted);
+      return cachedAt;
     } catch (e) {
       if (kDebugMode) {
         debugPrint(
           'ApiCacheManager.save failed for ${logSafePath(path)}: ${logSafeError(e)}',
         );
       }
+      return null;
     }
   }
 

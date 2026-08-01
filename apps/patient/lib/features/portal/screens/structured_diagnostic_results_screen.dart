@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -27,6 +28,7 @@ class _StructuredDiagnosticResultsScreenState
   bool _loading = true;
   String? _error;
   String? _staleLabel;
+  DateTime? _cachedAt;
   List<StructuredDiagnosticResult> _results = const [];
 
   @override
@@ -49,14 +51,19 @@ class _StructuredDiagnosticResultsScreenState
       setState(() {
         _results = page.results;
         _staleLabel = page.staleLabel;
+        _cachedAt = page.cachedAt;
         _loading = false;
       });
       page.onFresh
-          ?.then((fresh) {
+          ?.then((fresh) async {
+            final cached = await ApiCacheManager.load(
+              '/portal/diagnostic-results',
+            );
             if (!mounted) return;
             setState(() {
               _results = fresh;
               _staleLabel = null;
+              _cachedAt = cached?.cachedAt;
             });
           })
           .catchError((Object error) {
@@ -82,7 +89,7 @@ class _StructuredDiagnosticResultsScreenState
       color: colors.tertiary,
       child: Column(
         children: [
-          OfflineBanner(staleLabel: _staleLabel),
+          OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
           Expanded(
             child: RefreshIndicator(
               onRefresh: _fetch,
@@ -196,6 +203,7 @@ class _StructuredDiagnosticResultDetailScreenState
   StructuredDiagnosticResult? _result;
   bool _loading = true;
   String? _error;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -212,10 +220,18 @@ class _StructuredDiagnosticResultDetailScreenState
     });
     final l10n = AppLocalizations.of(context)!;
     try {
-      final result = await widget.repository.getResult(widget.resultId);
+      final snapshot =
+          widget.repository is ApiStructuredDiagnosticResultsRepository
+          ? await (widget.repository
+                    as ApiStructuredDiagnosticResultsRepository)
+                .getResultSnapshot(widget.resultId)
+          : StructuredDiagnosticResultSnapshot(
+              result: await widget.repository.getResult(widget.resultId),
+            );
       if (!mounted) return;
       setState(() {
-        _result = result;
+        _result = snapshot.result;
+        _cachedAt = snapshot.cachedAt;
         _loading = false;
       });
     } catch (error) {
@@ -241,15 +257,23 @@ class _StructuredDiagnosticResultDetailScreenState
           ? Icons.biotech
           : Icons.image_outlined,
       color: colors.tertiary,
-      child: DataStateBuilder<StructuredDiagnosticResult>(
-        isLoading: _loading,
-        error: _error,
-        data: _result == null ? const [] : [_result!],
-        onRetry: _fetch,
-        emptyIcon: Icons.description_outlined,
-        emptyTitle: l10n.diagnosticResultDetailsTitle,
-        emptySubtitle: l10n.diagnosticResultDetailLoadFailed,
-        builder: (context, results) => _ResultDetail(result: results.first),
+      child: Column(
+        children: [
+          OfflineBanner(cachedAt: _cachedAt),
+          Expanded(
+            child: DataStateBuilder<StructuredDiagnosticResult>(
+              isLoading: _loading,
+              error: _error,
+              data: _result == null ? const [] : [_result!],
+              onRetry: _fetch,
+              emptyIcon: Icons.description_outlined,
+              emptyTitle: l10n.diagnosticResultDetailsTitle,
+              emptySubtitle: l10n.diagnosticResultDetailLoadFailed,
+              builder: (context, results) =>
+                  _ResultDetail(result: results.first),
+            ),
+          ),
+        ],
       ),
     );
   }

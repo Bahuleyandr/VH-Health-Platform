@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
     show SignaturePadController, SignaturePadField;
 
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -50,6 +51,7 @@ class _RecordAccessBodyState extends State<RecordAccessBody> {
   bool _isSaving = false;
   String? _error;
   String? _staleLabel;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -73,15 +75,18 @@ class _RecordAccessBodyState extends State<RecordAccessBody> {
         _grantedByMe = page.grantedByMe;
         _heldByMe = page.heldByMe;
         _staleLabel = page.staleLabel;
+        _cachedAt = page.cachedAt;
         _isLoading = false;
       });
       page.onFresh
-          ?.then((fresh) {
+          ?.then((fresh) async {
+            final cached = await ApiCacheManager.load('/portal/proxy/grants');
             if (!mounted) return;
             setState(() {
               _grantedByMe = fresh.grantedByMe;
               _heldByMe = fresh.heldByMe;
               _staleLabel = null;
+              _cachedAt = cached?.cachedAt;
             });
           })
           .catchError((Object e) {
@@ -208,7 +213,7 @@ class _RecordAccessBodyState extends State<RecordAccessBody> {
       children: [
         Column(
           children: [
-            OfflineBanner(staleLabel: _staleLabel),
+            OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
             _ConsentHeader(onGrant: _isSaving ? null : _openGrantSheet),
             Expanded(
               child: RefreshIndicator(

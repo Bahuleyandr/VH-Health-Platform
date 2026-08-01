@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/your_health/models/consultation_note.dart';
@@ -26,6 +27,7 @@ class _ConsultationNotesTabState extends State<ConsultationNotesTab> {
   bool _isLoading = true;
   String? _error;
   String? _staleLabel;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -51,15 +53,18 @@ class _ConsultationNotesTabState extends State<ConsultationNotesTab> {
       setState(() {
         _notes = page.notes;
         _staleLabel = page.staleLabel;
+        _cachedAt = page.cachedAt;
         _isLoading = false;
       });
 
       page.onFresh
-          ?.then((freshNotes) {
+          ?.then((freshNotes) async {
+            final cached = await ApiCacheManager.load('/portal/clinical-notes');
             if (!mounted) return;
             setState(() {
               _notes = freshNotes;
               _staleLabel = null;
+              _cachedAt = cached?.cachedAt;
             });
           })
           .catchError((Object e) {
@@ -91,7 +96,7 @@ class _ConsultationNotesTabState extends State<ConsultationNotesTab> {
 
     return Column(
       children: [
-        OfflineBanner(staleLabel: _staleLabel),
+        OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _fetchNotes,
@@ -210,6 +215,7 @@ class _ConsultationNoteDetailScreenState
   ConsultationNote? _note;
   bool _isLoading = true;
   String? _error;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -230,10 +236,16 @@ class _ConsultationNoteDetailScreenState
 
     final l10n = AppLocalizations.of(context)!;
     try {
-      final note = await widget.repository.getNote(widget.noteId);
+      final snapshot = widget.repository is ApiConsultationNotesRepository
+          ? await (widget.repository as ApiConsultationNotesRepository)
+                .getNoteSnapshot(widget.noteId)
+          : ConsultationNoteSnapshot(
+              note: await widget.repository.getNote(widget.noteId),
+            );
       if (!mounted) return;
       setState(() {
-        _note = note;
+        _note = snapshot.note;
+        _cachedAt = snapshot.cachedAt;
         _isLoading = false;
       });
     } catch (e) {
@@ -256,15 +268,23 @@ class _ConsultationNoteDetailScreenState
 
     return Scaffold(
       appBar: AppBar(title: Text(fallbackTitle)),
-      body: DataStateBuilder<ConsultationNote>(
-        isLoading: _isLoading,
-        error: _error,
-        data: _note == null ? const [] : [_note!],
-        onRetry: _fetchNote,
-        emptyIcon: Icons.description_outlined,
-        emptyTitle: l10n.consultationNotesUntitled,
-        emptySubtitle: l10n.consultationNotesNoDetails,
-        builder: (context, notes) => _ConsultationNoteDetail(note: notes.first),
+      body: Column(
+        children: [
+          OfflineBanner(cachedAt: _cachedAt),
+          Expanded(
+            child: DataStateBuilder<ConsultationNote>(
+              isLoading: _isLoading,
+              error: _error,
+              data: _note == null ? const [] : [_note!],
+              onRetry: _fetchNote,
+              emptyIcon: Icons.description_outlined,
+              emptyTitle: l10n.consultationNotesUntitled,
+              emptySubtitle: l10n.consultationNotesNoDetails,
+              builder: (context, notes) =>
+                  _ConsultationNoteDetail(note: notes.first),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -24,6 +25,7 @@ class _PatientReferralsScreenState extends State<PatientReferralsScreen> {
   bool _loading = true;
   String? _error;
   String? _staleLabel;
+  DateTime? _cachedAt;
   List<PatientReferral> _referrals = const [];
 
   @override
@@ -45,14 +47,17 @@ class _PatientReferralsScreenState extends State<PatientReferralsScreen> {
       setState(() {
         _referrals = page.referrals;
         _staleLabel = page.staleLabel;
+        _cachedAt = page.cachedAt;
         _loading = false;
       });
       page.onFresh
-          ?.then((fresh) {
+          ?.then((fresh) async {
+            final cached = await ApiCacheManager.load('/portal/referrals');
             if (!mounted) return;
             setState(() {
               _referrals = fresh;
               _staleLabel = null;
+              _cachedAt = cached?.cachedAt;
             });
           })
           .catchError((Object _) {});
@@ -75,7 +80,7 @@ class _PatientReferralsScreenState extends State<PatientReferralsScreen> {
       color: colors.primary,
       child: Column(
         children: [
-          OfflineBanner(staleLabel: _staleLabel),
+          OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
           Expanded(
             child: RefreshIndicator(
               onRefresh: _fetch,

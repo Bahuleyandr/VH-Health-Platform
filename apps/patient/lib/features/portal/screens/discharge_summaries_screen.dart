@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -81,6 +82,7 @@ class _DischargeSummariesListState extends State<DischargeSummariesList> {
   bool _isLoading = true;
   String? _error;
   String? _staleLabel;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -104,15 +106,20 @@ class _DischargeSummariesListState extends State<DischargeSummariesList> {
       setState(() {
         _summaries = page.summaries;
         _staleLabel = page.staleLabel;
+        _cachedAt = page.cachedAt;
         _isLoading = false;
       });
 
       page.onFresh
-          ?.then((fresh) {
+          ?.then((fresh) async {
+            final cached = await ApiCacheManager.load(
+              '/portal/discharge-summaries',
+            );
             if (!mounted) return;
             setState(() {
               _summaries = fresh;
               _staleLabel = null;
+              _cachedAt = cached?.cachedAt;
             });
           })
           .catchError((Object e) {
@@ -144,7 +151,7 @@ class _DischargeSummariesListState extends State<DischargeSummariesList> {
     final l10n = AppLocalizations.of(context)!;
     return Column(
       children: [
-        OfflineBanner(staleLabel: _staleLabel),
+        OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _fetch,
@@ -255,6 +262,7 @@ class _DischargeSummaryDetailScreenState
   bool _isLoading = true;
   bool _isOpeningPdf = false;
   String? _error;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -273,10 +281,16 @@ class _DischargeSummaryDetailScreenState
 
     final l10n = AppLocalizations.of(context)!;
     try {
-      final summary = await widget.repository.getSummary(widget.summaryId);
+      final snapshot = widget.repository is ApiDischargeSummariesRepository
+          ? await (widget.repository as ApiDischargeSummariesRepository)
+                .getSummarySnapshot(widget.summaryId)
+          : DischargeSummarySnapshot(
+              summary: await widget.repository.getSummary(widget.summaryId),
+            );
       if (!mounted) return;
       setState(() {
-        _summary = summary;
+        _summary = snapshot.summary;
+        _cachedAt = snapshot.cachedAt;
         _isLoading = false;
       });
     } catch (e) {
@@ -325,19 +339,26 @@ class _DischargeSummaryDetailScreenState
       title: title,
       icon: Icons.assignment_returned_outlined,
       color: colors.tertiary,
-      child: DataStateBuilder<DischargeSummary>(
-        isLoading: _isLoading,
-        error: _error,
-        data: _summary == null ? const [] : [_summary!],
-        onRetry: _fetch,
-        emptyIcon: Icons.assignment_returned_outlined,
-        emptyTitle: l10n.dischargeSummaryUntitled,
-        emptySubtitle: l10n.dischargeSummaryNoSections,
-        builder: (context, summaries) => _DischargeSummaryDetail(
-          summary: summaries.first,
-          openingPdf: _isOpeningPdf,
-          onOpenPdf: () => _openPdf(summaries.first),
-        ),
+      child: Column(
+        children: [
+          OfflineBanner(cachedAt: _cachedAt),
+          Expanded(
+            child: DataStateBuilder<DischargeSummary>(
+              isLoading: _isLoading,
+              error: _error,
+              data: _summary == null ? const [] : [_summary!],
+              onRetry: _fetch,
+              emptyIcon: Icons.assignment_returned_outlined,
+              emptyTitle: l10n.dischargeSummaryUntitled,
+              emptySubtitle: l10n.dischargeSummaryNoSections,
+              builder: (context, summaries) => _DischargeSummaryDetail(
+                summary: summaries.first,
+                openingPdf: _isOpeningPdf,
+                onOpenPdf: () => _openPdf(summaries.first),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

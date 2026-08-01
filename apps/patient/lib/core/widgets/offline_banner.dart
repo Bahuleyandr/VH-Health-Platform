@@ -1,7 +1,8 @@
 // lib/core/widgets/offline_banner.dart
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:vhhealth/core/services/connectivity_service.dart';
+import 'package:intl/intl.dart';
+import 'package:vhhealth/core/outage/patient_outage_controller.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// A banner that appears at the top of the screen when the device is offline.
 ///
@@ -10,43 +11,53 @@ import 'package:vhhealth/core/services/connectivity_service.dart';
 class OfflineBanner extends StatefulWidget {
   /// Optional label shown alongside the offline indicator (e.g., "Updated 5 min ago").
   final String? staleLabel;
+  final DateTime? cachedAt;
 
-  const OfflineBanner({super.key, this.staleLabel});
+  const OfflineBanner({super.key, this.staleLabel, this.cachedAt});
 
   @override
   State<OfflineBanner> createState() => _OfflineBannerState();
 }
 
 class _OfflineBannerState extends State<OfflineBanner> {
-  late bool _isOffline;
-  StreamSubscription<bool>? _sub;
+  late final PatientOutageController _controller;
 
   @override
   void initState() {
     super.initState();
-    _isOffline = !ConnectivityService.isOnline;
-    _sub = ConnectivityService.onChange.listen((isOnline) {
-      if (mounted) {
-        setState(() => _isOffline = !isOnline);
-      }
-    });
+    _controller = PatientOutageController.instance..addListener(_onChange);
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
+    _controller.removeListener(_onChange);
     super.dispose();
+  }
+
+  void _onChange() {
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_isOffline && widget.staleLabel == null) {
+    final isUnavailable = _controller.isOutage || _controller.isChecking;
+    if (!isUnavailable &&
+        widget.cachedAt == null &&
+        widget.staleLabel == null) {
       return const SizedBox.shrink();
     }
 
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final timestamp = widget.cachedAt == null
+        ? null
+        : DateFormat.yMMMd(locale).add_jm().format(widget.cachedAt!.toLocal());
+    final label = timestamp == null
+        ? (isUnavailable ? l.patientOutageCacheUnavailable : widget.staleLabel)
+        : l.patientOutageCachedAt(timestamp);
 
-    if (_isOffline) {
+    if (isUnavailable) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -61,9 +72,7 @@ class _OfflineBannerState extends State<OfflineBanner> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                widget.staleLabel != null
-                    ? 'You\'re offline · Showing cached data (${widget.staleLabel})'
-                    : 'You\'re offline',
+                label ?? l.patientOutageCacheUnavailable,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onErrorContainer,
                 ),
@@ -75,13 +84,13 @@ class _OfflineBannerState extends State<OfflineBanner> {
     }
 
     // Online but showing stale label (data is from cache, network refresh pending)
-    if (widget.staleLabel != null) {
+    if (label != null) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         color: theme.colorScheme.surfaceContainerHighest,
         child: Text(
-          'Last updated ${widget.staleLabel}',
+          label,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),

@@ -3971,4 +3971,49 @@ class AppLocalizationsTa extends AppLocalizations {
   @override
   String get referralsAppointmentLinked =>
       'A follow-up appointment is linked to this referral.';
+
+  @override
+  String get patientOutageTitle => 'மருத்துவமனை சேவை தற்காலிகமாக கிடைக்கவில்லை';
+
+  @override
+  String get patientOutageChecking => 'மருத்துவமனை சேவை சரிபார்க்கப்படுகிறது…';
+
+  @override
+  String patientOutageMessage(String facilityContactNumber) {
+    return 'மருத்துவமனை அமைப்புகள் தற்காலிகமாக கிடைக்கவில்லை. இங்கே காட்டப்படும் தகவல் முன்பு சேமிக்கப்பட்டது — ஒவ்வொரு பக்கத்திலும் உள்ள \'கடைசியாக புதுப்பிக்கப்பட்டது\' நேரத்தைப் பார்க்கவும். சேவை மீளும் வரை புதிய முன்பதிவுகள், ரத்துசெய்தல்கள் மற்றும் மருத்துவக் கோரிக்கைகள் இடைநிறுத்தப்பட்டுள்ளன. அவசரத் தேவைகளுக்கு, மருத்துவமனையை $facilityContactNumber என்ற எண்ணில் நேரடியாக தொடர்புகொள்ளவும். அவசரநிலையில், உங்கள் உள்ளூர் அவசர எண்ணை அழைக்கவும் அல்லது நேராக அவசர சிகிச்சைப் பிரிவுக்கு வரவும்.';
+  }
+
+  @override
+  String get patientOutageRetry => 'மீண்டும் முயலவும்';
+
+  @override
+  String get patientOutageCallHospital => 'மருத்துவமனையை அழைக்கவும்';
+
+  @override
+  String get patientOutageMutationNotSent => 'இந்த கோரிக்கை அனுப்பப்படவில்லை.';
+
+  @override
+  String get patientOutageEmergencyNotSent =>
+      'மருத்துவமனைக்கு அவசர எச்சரிக்கை அனுப்பப்படவில்லை.';
+
+  @override
+  String patientOutageCachedAt(String timestamp) {
+    return 'இந்தச் சாதனத்தில் $timestamp அன்று சேமிக்கப்பட்டது';
+  }
+
+  @override
+  String patientOutageDownloadedAt(String timestamp) {
+    return 'இந்தச் சாதனத்தில் $timestamp அன்று பதிவிறக்கப்பட்டது';
+  }
+
+  @override
+  String get patientOutageCacheUnavailable =>
+      'இந்தத் தகவல் இந்தச் சாதனத்தில் கிடைக்கவில்லை.';
+
+  @override
+  String get patientOutageDialogTitle => 'சேவை கிடைக்கவில்லை';
+
+  @override
+  String get patientOutageContactUnavailable =>
+      'இந்தச் சாதனத்தில் மருத்துவமனை தொடர்பு எண் அமைக்கப்படவில்லை.';
 }

@@ -132,6 +132,10 @@ and an additive integration point in
 already fetches the public config at boot. The compiled JSON asset and validator
 proposed in sections 8 and 11.4 are superseded; bundled defaults live in ARB,
 while runtime operator copy comes only from the bounded public config object.
+Accordingly, the old asset-validator receipt in section 12.4 is replaced by the
+bounded server/client config-validation receipt recorded there. The coordinator
+confirmations requested in section 13 were supplied on 2026-08-02; its former
+pre-clearance closing condition no longer applies.
 
 Expected overlap with AZ/C6.1-C is zero: this lane touches public config and AZ
 touches lab services. Whichever lane lands second must rebase on current main
@@ -600,10 +604,11 @@ commit.
    `melos run gen-l10n` followed by
    `node apps/patient/scripts/i18n-verify.mjs`, with all five locales and no new
    hardcoded outage copy.
-4. Message receipt:
-   `dart run apps/patient/tool/validate_patient_outage_message.dart`, recording
-   only revision, review date, approval reference, and SHA-256 for comparison
-   with the C-D6 packet print receipt.
+4. Operational-copy receipt: focused backend and patient config tests prove the
+   exact five-language shape, policy fence, facility contact validation,
+   higher-revision replacement, source isolation, restart persistence, and ARB
+   fallback. `openapi:check` and core-spec drift checks prove the additive wire
+   contract.
 5. Patient mobile builds on the repository's current release platform:
    Android debug APK plus release APK and AAB using non-secret receipt-safe
    configuration equivalent to `.github/workflows/release-patient.yml`.
@@ -617,9 +622,9 @@ commit.
 8. Git receipts: clean worktree, exact baseline and implementation SHAs, scoped
    diff, branch push, and CI links/status. Never merge.
 
-## 13. Coordinator clearance record requested
+## 13. Coordinator clearance record — fulfilled 2026-08-02
 
-Step 1 asks the coordinator to record four explicit confirmations:
+The coordinator recorded these four explicit confirmations:
 
 1. C-D12 is implemented default-ON as ordinary patient-client safety behavior,
    with no facility/continuity activation coupling.
@@ -632,4 +637,4 @@ Step 1 asks the coordinator to record four explicit confirmations:
 4. The exact approved message, translations, contact URI, packet revision, and
    approval reference are supplied before Step 2.
 
-Until those confirmations are recorded, this branch contains design text only.
+Those confirmations cleared Step 2 subject to the section 1A amendment.

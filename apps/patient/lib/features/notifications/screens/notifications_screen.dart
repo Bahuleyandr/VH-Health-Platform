@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -22,6 +23,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool loading = true;
   String? _error;
   String? _staleLabel;
+  DateTime? _cachedAt;
   late final String _phone;
 
   @override
@@ -53,6 +55,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       if (!mounted) return;
       _staleLabel = result.staleLabel;
+      _cachedAt = result.cachedAt;
 
       if (result.isSuccess) {
         final data = result.data;
@@ -75,9 +78,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         });
       }
       // Listen for fresh data from background refresh
-      result.onFresh?.then((fresh) {
-        if (!mounted) return;
+      result.onFresh?.then((fresh) async {
         if (fresh.isSuccess) {
+          final cached = await ApiCacheManager.load('/notifications/my');
+          if (!mounted) return;
           final data = fresh.data;
           final List<dynamic> list;
           if (data is List) {
@@ -89,6 +93,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           }
           setState(() {
             _staleLabel = null;
+            _cachedAt = cached?.cachedAt;
             notifications = list;
           });
         }
@@ -154,11 +159,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
-  Future<void> _markAsRead(int id) async {
+  Future<bool> _markAsRead(int id) async {
     try {
-      await ApiClient.patch('/notifications/$id/read');
+      final response = await ApiClient.patch('/notifications/$id/read');
+      return response.isSuccess;
     } catch (e) {
       debugPrint('Error marking notification as read: $e');
+      return false;
     }
   }
 
@@ -175,7 +182,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       heroTag: 'notifications',
       child: Column(
         children: [
-          OfflineBanner(staleLabel: _staleLabel),
+          OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
           Expanded(
             child: DataStateBuilder<dynamic>(
               isLoading: loading,
@@ -201,6 +208,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     return Dismissible(
                       key: Key('${notif['id']}'),
                       direction: DismissDirection.endToStart,
+                      confirmDismiss: (_) => _markAsRead(notif['id']),
                       background: Container(
                         alignment: Alignment.centerRight,
                         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -208,7 +216,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         child: Icon(Icons.done, color: colors.onPrimary),
                       ),
                       onDismissed: (_) async {
-                        await _markAsRead(notif['id']);
                         if (!mounted) return;
                         setState(() => notifications.removeAt(index));
                         // ignore: use_build_context_synchronously

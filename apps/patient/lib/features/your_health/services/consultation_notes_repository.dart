@@ -5,12 +5,21 @@ class ConsultationNotesPage {
   const ConsultationNotesPage({
     required this.notes,
     this.staleLabel,
+    this.cachedAt,
     this.onFresh,
   });
 
   final List<ConsultationNote> notes;
   final String? staleLabel;
+  final DateTime? cachedAt;
   final Future<List<ConsultationNote>>? onFresh;
+}
+
+class ConsultationNoteSnapshot {
+  const ConsultationNoteSnapshot({required this.note, this.cachedAt});
+
+  final ConsultationNote note;
+  final DateTime? cachedAt;
 }
 
 abstract class ConsultationNotesRepository {
@@ -33,6 +42,7 @@ class ApiConsultationNotesRepository implements ConsultationNotesRepository {
     return ConsultationNotesPage(
       notes: _parseNotes(result.data),
       staleLabel: result.staleLabel,
+      cachedAt: result.cachedAt,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
           throw Exception(fresh.failureMessage('Failed to refresh notes'));
@@ -43,7 +53,10 @@ class ApiConsultationNotesRepository implements ConsultationNotesRepository {
   }
 
   @override
-  Future<ConsultationNote> getNote(int id) async {
+  Future<ConsultationNote> getNote(int id) async =>
+      (await getNoteSnapshot(id)).note;
+
+  Future<ConsultationNoteSnapshot> getNoteSnapshot(int id) async {
     final result = await ApiClient.cachedGet('/portal/clinical-notes/$id');
     if (!result.isSuccess) {
       throw Exception(
@@ -53,10 +66,16 @@ class ApiConsultationNotesRepository implements ConsultationNotesRepository {
 
     final data = result.data;
     if (data is Map<String, dynamic>) {
-      return ConsultationNote.fromJson(data);
+      return ConsultationNoteSnapshot(
+        note: ConsultationNote.fromJson(data),
+        cachedAt: result.cachedAt,
+      );
     }
     if (data is Map) {
-      return ConsultationNote.fromJson(Map<String, dynamic>.from(data));
+      return ConsultationNoteSnapshot(
+        note: ConsultationNote.fromJson(Map<String, dynamic>.from(data)),
+        cachedAt: result.cachedAt,
+      );
     }
     throw Exception('Invalid consultation note response');
   }
