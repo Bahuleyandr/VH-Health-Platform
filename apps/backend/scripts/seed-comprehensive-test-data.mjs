@@ -592,6 +592,17 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     facility_id: null,
     pending_task_id: null,
   },
+  // mig 607: a recovery link is immutable occurrence evidence backed by an
+  // exact I09/I15 canonical-inbox row. Generic coverage data has no such
+  // occurrence, so keep both sides of the optional composite link absent.
+  lab_interface_messages: {
+    recovery_inbox_id: null,
+    recovery_interface_family: null,
+  },
+  vitals_chart: {
+    recovery_inbox_id: null,
+    recovery_interface_family: null,
+  },
   // mig 604: legacy staff-device rows remain valid only when both identity
   // pointers are absent, while user_devices must not infer continuity or
   // facility authority for an ordinary pre-enrollment device.
