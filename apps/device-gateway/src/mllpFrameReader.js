@@ -9,6 +9,18 @@ export const CR = 0x0d;
 // the socket handler drops the connection.
 export const DEFAULT_MAX_FRAME_BYTES = 1024 * 1024; // 1 MiB
 
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
+
+export function decodeStrictUtf8(bytes) {
+  try {
+    return strictUtf8.decode(Buffer.from(bytes));
+  } catch {
+    const err = new Error('MLLP payload is not valid UTF-8');
+    err.code = 'MLLP_INVALID_UTF8';
+    throw err;
+  }
+}
+
 export class MllpFrameReader {
   constructor({ maxFrameBytes = DEFAULT_MAX_FRAME_BYTES } = {}) {
     this.inFrame = false;
@@ -38,7 +50,9 @@ export class MllpFrameReader {
       }
       if (this.afterFs) {
         if (byte === CR) {
-          out.push(Buffer.from(this.buffer).toString('utf8'));
+          const frame = Buffer.from(this.buffer);
+          decodeStrictUtf8(frame);
+          out.push(frame);
           this.inFrame = false;
           this.afterFs = false;
           this.buffer = [];
@@ -61,7 +75,7 @@ export class MllpFrameReader {
 export function frameMessage(message) {
   return Buffer.concat([
     Buffer.from([VT]),
-    Buffer.from(String(message), 'utf8'),
+    Buffer.isBuffer(message) ? message : Buffer.from(String(message), 'utf8'),
     Buffer.from([FS, CR]),
   ]);
 }

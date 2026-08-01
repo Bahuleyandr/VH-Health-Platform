@@ -12,6 +12,7 @@ shared Dart package they all consume.
 | `apps/admin` | Next.js 16 + React 19 + TypeScript | Admin/super-admin web portal |
 | `apps/patient` | Flutter 3.44.0 + Firebase OTP | Patient mobile app |
 | `apps/staff` | Flutter 3.44.0 + staff JWT | Staff/clinical mobile app |
+| `apps/device-gateway` | Node.js 26 + MLLP/HL7v2 | Held bedside-device ingress and durable recovery spool |
 | `packages/vhhealth_core` | Dart shared package | API client, shared types, codegen target |
 
 ## History

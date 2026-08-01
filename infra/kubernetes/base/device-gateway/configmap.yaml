@@ -17,3 +17,7 @@ data:
   DEVICE_GATEWAY_METRICS_PORT: "9108"
   DEVICE_GATEWAY_SPOOL_DIR: "/var/spool/vhhealth-device-gateway"
   DEVICE_GATEWAY_MAX_SPOOL_BYTES: "1073741824"
+  # Held until every per-source identity, capacity, clock, retention, and
+  # enrollment input has been supplied and owner-cleared.
+  DEVICE_GATEWAY_I09_ENROLLMENTS: "[]"
+  DEVICE_GATEWAY_DRAIN_INTERVAL_MS: "5000"

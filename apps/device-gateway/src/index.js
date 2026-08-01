@@ -1,5 +1,11 @@
 import { BackendClient } from './backendClient.js';
-import { defaultSpoolDir, GatewayRuntime, listenerConfigFromEnv, startGateway } from './gateway.js';
+import {
+  defaultSpoolDir,
+  enrollmentConfigFromEnv,
+  GatewayRuntime,
+  listenerConfigFromEnv,
+  startGateway,
+} from './gateway.js';
 
 const backendClient = new BackendClient({
   baseUrl: process.env.BACKEND_BASE_URL || 'http://localhost:3000',
@@ -11,6 +17,7 @@ const runtime = new GatewayRuntime({
   spoolDir: defaultSpoolDir(),
   backendClient,
   maxSpoolBytes: Number(process.env.DEVICE_GATEWAY_MAX_SPOOL_BYTES || 50 * 1024 * 1024),
+  enrollments: enrollmentConfigFromEnv(),
 });
 
 await startGateway({
