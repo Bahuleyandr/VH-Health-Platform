@@ -157,6 +157,7 @@ export { getDatabaseOverview, getDatabaseTableRows };
 // Clinical governance
 export * from "./clinicalGovernance";
 export * from "./entitlements";
+export * from "./clinicalContinuityReconciliation";
 
 // Infrastructure & Logs
 import { getAuditLogs, toggleUserStatus } from "./infrastructure";

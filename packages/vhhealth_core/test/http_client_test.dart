@@ -515,6 +515,54 @@ void main() {
     });
   });
 
+  group('VHHttpClient - server-issued continuity facility context', () {
+    test('sends the facility ID and signed context together', () async {
+      await AuthService.setJwt('staff-access');
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.headers['X-VH-Continuity-Facility-Id'], '17');
+          expect(
+            req.headers['X-VH-Continuity-Facility-Context'],
+            'signed-envelope',
+          );
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final response = await VHHttpClient.get(
+        '/downtime/reconciliation/workbench',
+        continuityFacilityId: '17',
+        continuityFacilityContext: 'signed-envelope',
+      );
+      expect(response.isSuccess, isTrue);
+    });
+
+    test(
+      'rejects partial or malformed facility authority before transport',
+      () async {
+        await expectLater(
+          VHHttpClient.get(
+            '/downtime/reconciliation/workbench',
+            continuityFacilityId: '17',
+          ),
+          throwsArgumentError,
+        );
+        await expectLater(
+          VHHttpClient.get(
+            '/downtime/reconciliation/workbench',
+            continuityFacilityId: 'client-facility',
+            continuityFacilityContext: 'signed-envelope',
+          ),
+          throwsArgumentError,
+        );
+      },
+    );
+  });
+
   group('VHHttpClient — idempotency key (#10)', () {
     test(
       'auto-mints a stable Idempotency-Key reused across a 5xx retry',

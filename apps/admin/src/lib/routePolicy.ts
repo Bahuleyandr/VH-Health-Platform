@@ -222,6 +222,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   departments: { minRank: ADMIN_ONLY },
   "clinical-governance": { minRank: ADMIN_ONLY },
   "care-pathways": { minRank: ADMIN_ONLY },
+  "continuity-reconciliation": { minRank: ADMIN_ONLY },
   payroll: { minRank: ADMIN_ONLY },
   analytics: { minRank: ADMIN_ONLY },
   operations: { minRank: ADMIN_ONLY },
@@ -277,7 +278,10 @@ export function policyForPath(pathname: string): RoutePolicy | null {
 }
 
 /** True when `role` satisfies `policy`. SUPER_ADMIN always passes. */
-export function roleSatisfiesPolicy(role: string | null, policy: RoutePolicy): boolean {
+export function roleSatisfiesPolicy(
+  role: string | null,
+  policy: RoutePolicy,
+): boolean {
   const normalized = (role ?? "").trim().toUpperCase();
   if (normalized === "SUPER_ADMIN") return true;
 

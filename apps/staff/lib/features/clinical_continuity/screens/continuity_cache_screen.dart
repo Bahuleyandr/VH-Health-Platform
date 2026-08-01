@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 
 import '../../../core/widgets/staff_scaffold.dart';
@@ -71,6 +72,11 @@ class _ContinuityCacheScreenState extends State<ContinuityCacheScreen> {
     return StaffScaffold(
       title: strings.lookup('continuity.title'),
       actions: [
+        IconButton(
+          tooltip: strings.lookup('continuity.reconciliation.open'),
+          onPressed: () => context.push('/clinical-continuity/reconciliation'),
+          icon: const Icon(Icons.fact_check_outlined),
+        ),
         IconButton(
           tooltip: strings.lookup('continuity.action.refresh'),
           onPressed: _opening ? null : _refresh,

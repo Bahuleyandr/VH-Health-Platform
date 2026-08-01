@@ -82,6 +82,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/staff-messaging",
   "api/v1/stemi-pathway",
   "api/v1/stroke-pathway",
+  "api/v1/downtime/reconciliation/",
 ];
 
 // Headers that must not be forwarded by proxies

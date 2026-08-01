@@ -66,6 +66,20 @@ describe('routeRolePolicy', () => {
     expect(routePolicy.CLINICAL_STAFF_ROUTE_ROLES).not.toContain('PATHOLOGIST');
     expect(routePolicy.CLINICAL_STAFF_ROUTE_ROLES).not.toContain('PHYSIOTHERAPIST');
     expect(routePolicy.CLINICAL_STAFF_ROUTE_ROLES).not.toContain('COUNSELLOR');
+    expect(routePolicy.CLINICAL_CONTINUITY_RECONCILIATION_ROUTE_ROLES).toEqual(
+      expect.arrayContaining([
+        'ADMIN',
+        'NURSING_STAFF',
+        'LAB_STAFF',
+        'LAB_INCHARGE',
+        'PATHOLOGIST',
+        'BLOOD_BANK_TECHNICIAN',
+        'MEDICAL_RECORDS',
+        'RECEPTIONIST',
+        'RECEPTION_INCHARGE',
+        'QUALITY_OFFICER',
+      ]),
+    );
 
     const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/app.js'), 'utf8');
     expect(appSource).toMatch(
@@ -73,6 +87,9 @@ describe('routeRolePolicy', () => {
     );
     expect(appSource).toMatch(
       /app\.use\('\/api\/v1\/care-pathways', requireRole\(\.\.\.CARE_PATHWAY_ROUTE_ROLES\)/,
+    );
+    expect(appSource).toMatch(
+      /'\/api\/v1\/downtime\/reconciliation',[\s\S]*requireRole\(\.\.\.CLINICAL_CONTINUITY_RECONCILIATION_ROUTE_ROLES\)/,
     );
   });
 

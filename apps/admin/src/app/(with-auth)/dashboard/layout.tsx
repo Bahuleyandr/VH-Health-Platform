@@ -53,6 +53,7 @@ const navigation: NavItem[] = [
   { name: 'System Audit Log', href: '/dashboard/system-audit', requiredRole: 'ADMIN' },
   { name: 'Audit Explorer', href: '/dashboard/audit-explorer', requiredRole: 'ADMIN' },
   { name: 'Clinical Governance', href: '/dashboard/clinical-governance', requiredRole: 'ADMIN' },
+  { name: 'Continuity Reconciliation', href: '/dashboard/continuity-reconciliation', requiredRole: 'ADMIN' },
   { name: 'Attendance Audit', href: '/dashboard/attendance-audit', requiredRole: 'ADMIN' },
   { name: 'Incident Reports', href: '/dashboard/incidents', minRole: 'HR' },
   { name: 'Housekeeping', href: '/dashboard/housekeeping', minRole: 'HR' },
