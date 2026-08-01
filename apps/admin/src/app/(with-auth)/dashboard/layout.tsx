@@ -73,6 +73,7 @@ const navigation: NavItem[] = [
   { name: 'Consent', href: '/dashboard/consent', requiredPermissions: ['userManagement'] },
   { name: 'Feedback', href: '/dashboard/feedback', requiredPermissions: ['userManagement'] },
   { name: 'Devices', href: '/dashboard/devices', requiredRole: 'ADMIN' },
+  { name: 'Facility Context', href: '/dashboard/continuity-facility-context', requiredRole: 'SUPER_ADMIN' },
   { name: 'Cold Chain', href: '/dashboard/cold-chain', minRole: 'STAFF' },
   { name: 'Adoption & LMS', href: '/dashboard/adoption', requiredRole: 'ADMIN' },
   { name: 'Developer Portal', href: '/dashboard/developer-portal', requiredRole: 'ADMIN' },

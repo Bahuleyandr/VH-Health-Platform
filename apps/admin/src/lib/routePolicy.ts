@@ -257,6 +257,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   // ── Platform operations (SUPER_ADMIN only) ────────────────────────────────
   tenants: { minRank: SUPER_ADMIN_ONLY },
   "feature-flags": { minRank: SUPER_ADMIN_ONLY },
+  "continuity-facility-context": { minRank: SUPER_ADMIN_ONLY },
 };
 
 /**
