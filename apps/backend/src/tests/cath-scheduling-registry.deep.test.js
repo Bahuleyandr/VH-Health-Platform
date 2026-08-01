@@ -25,7 +25,8 @@ import { listDatasetCatalog } from '../services/dashboards/analyticsCatalogServi
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const describeIfDb = hasDatabaseUrl ? describe : describe.skip;
 
-const TENANT_A = '00000000-0000-4000-8000-000000000001';
+// Keep rollup fixtures off the default tenant, whose comprehensive seed rows use NOW().
+const TENANT_A = 'f1f00000-0000-4000-8000-00000000a000';
 const TENANT_B = '00000000-0000-4000-8000-00000000f1fb';
 const PATIENT_A = 'f1f00000-0000-4000-8000-00000000a001';
 const PATIENT_A2 = 'f1f00000-0000-4000-8000-00000000a004';
@@ -118,7 +119,10 @@ async function maintenanceCleanup() {
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
       PATIENT_A, PATIENT_A2, DOCTOR_A, PATIENT_B,
     );
-    await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_B);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`,
+      TENANT_A, TENANT_B,
+    );
   });
 }
 
@@ -203,6 +207,12 @@ describeIfDb('NL-13 P1f cath scheduling + registries deep integration', () => {
       `GRANT USAGE ON SEQUENCE cath_complication_registry_id_seq TO ${RLS_ROLE}`,
     );
 
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO tenants (id, slug, name, region, compliance_profile, status)
+       VALUES ($1::uuid, 'p1f-tenant-a', 'P1F Tenant A', 'IN', 'DPDP', 'active')
+       ON CONFLICT (id) DO NOTHING`,
+      TENANT_A,
+    );
     await prisma.$queryRawUnsafe(
       `INSERT INTO users (tenant_id, uid, phone, name, role, is_active, updated_at)
        VALUES
