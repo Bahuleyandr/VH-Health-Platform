@@ -26,6 +26,10 @@ const PATHOLOGIST_UID = 'f5555555-5555-4555-8555-555555550009';
 
 let adultResultId;
 let minorResultId;
+// Every result insertResult() creates, registered as it is created. Teardown
+// drains this rather than a hand-listed pair, so a result a test seeds midway
+// is still cleaned up when an earlier assertion in that test throws first.
+const createdResultIds = [];
 const allUids = [ADULT_UID, GUARDIAN_UID, MINOR_UID, PATHOLOGIST_UID];
 let previousReleaseDelay;
 
@@ -75,7 +79,9 @@ async function insertResult(patientUid) {
      RETURNING id`,
     TENANT, patientUid, investigationRows[0].id,
   );
-  return rows[0].id;
+  const resultId = Number(rows[0].id);
+  createdResultIds.push(resultId);
+  return resultId;
 }
 
 describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
@@ -116,11 +122,19 @@ describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM notifications WHERE uid = ANY($1::uuid[])`, allUids,
     ).catch(() => {});
-    for (const rid of [adultResultId, minorResultId]) {
-      if (rid) {
-        await prisma.$executeRawUnsafe(`DELETE FROM lab_pathologist_signoffs WHERE $1 = ANY(result_ids)`, rid).catch(() => {});
-        await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE id = $1::int`, rid).catch(() => {});
-      }
+    if (createdResultIds.length > 0) {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM lab_pathologist_signoffs
+          WHERE tenant_id = $1::uuid AND result_ids && $2::int[]`,
+        TENANT,
+        createdResultIds,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM lab_results
+          WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+        TENANT,
+        createdResultIds,
+      ).catch(() => {});
     }
     await prisma.$executeRawUnsafe(
       `DELETE FROM investigations WHERE patient_uid = ANY($1::uuid[])`,
@@ -198,7 +212,7 @@ describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
       ADULT_UID,
     );
     expect(notifs.length).toBe(1); // from test 1 only, not this rejected one
-    await prisma.$executeRawUnsafe(`DELETE FROM lab_pathologist_signoffs WHERE $1 = ANY(result_ids)`, rid).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE id = $1::int`, rid).catch(() => {});
+    // No cleanup here on purpose: insertResult registered `rid`, so afterAll
+    // removes it whether or not this test reaches its end.
   });
 });
