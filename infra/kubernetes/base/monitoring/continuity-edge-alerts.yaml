@@ -1,5 +1,13 @@
 # C3.2b continuity-edge rules. Delivery is intentionally inert until the C1.3
 # lane wires and proves Alertmanager routing.
+#
+# Every expression aggregates `by (facility_id)`. A bare max()/min() collapses
+# every facility into one series, so a single healthy facility supplies the
+# max()/min() that hides a sick one (and the `and` arms could pair one
+# facility's freshness with another facility's incomplete coverage). Both
+# emitters — infra/continuity-edge/lib/metrics.mjs and
+# apps/backend/src/observability/continuityMetrics.js — stamp facility_id on
+# every sample, so each facility alerts, and is named, independently.
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -18,47 +26,47 @@ spec:
       interval: 30s
       rules:
         - alert: ContinuityPackExpired
-          expr: max(vhhealth_continuity_pack_fresh_until_timestamp_seconds) > 0 and time() > max(vhhealth_continuity_pack_fresh_until_timestamp_seconds)
+          expr: max by (facility_id) (vhhealth_continuity_pack_fresh_until_timestamp_seconds) > 0 and time() > max by (facility_id) (vhhealth_continuity_pack_fresh_until_timestamp_seconds)
           for: 5m
           labels:
             severity: critical
             team: continuity
           annotations:
-            summary: "The latest signed continuity publication is past fresh_until"
+            summary: "The latest signed continuity publication for facility {{ $labels.facility_id }} is past fresh_until"
             runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"
         - alert: ContinuityVerificationFailed
-          expr: sum by (reason) (increase(vhhealth_continuity_verification_failures_total[15m])) > 0
+          expr: sum by (facility_id, reason) (increase(vhhealth_continuity_verification_failures_total[15m])) > 0
           for: 0m
           labels:
             severity: critical
             team: continuity
           annotations:
-            summary: "Continuity verification rejected one or more artifacts ({{ $labels.reason }})"
+            summary: "Continuity verification rejected one or more artifacts for facility {{ $labels.facility_id }} ({{ $labels.reason }})"
             runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"
         - alert: ContinuityCoverageIncomplete
-          expr: max(vhhealth_continuity_pack_fresh_until_timestamp_seconds) > 0 and min(vhhealth_continuity_coverage_complete) == 0
+          expr: max by (facility_id) (vhhealth_continuity_pack_fresh_until_timestamp_seconds) > 0 and min by (facility_id) (vhhealth_continuity_coverage_complete) == 0
           for: 5m
           labels:
             severity: critical
             team: continuity
           annotations:
-            summary: "The latest continuity publication does not have exact required coverage"
+            summary: "The latest continuity publication for facility {{ $labels.facility_id }} does not have exact required coverage"
             runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"
         - alert: ContinuityEdgeSyncStale
-          expr: max(vhhealth_continuity_edge_last_sync_success_timestamp_seconds) > 0 and time() - max(vhhealth_continuity_edge_last_sync_success_timestamp_seconds) > 1800
+          expr: max by (facility_id) (vhhealth_continuity_edge_last_sync_success_timestamp_seconds) > 0 and time() - max by (facility_id) (vhhealth_continuity_edge_last_sync_success_timestamp_seconds) > 1800
           for: 10m
           labels:
             severity: critical
             team: continuity
           annotations:
-            summary: "No successful continuity-edge replication has completed for 30 minutes"
+            summary: "No successful continuity-edge replication has completed for facility {{ $labels.facility_id }} for 30 minutes"
             runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"
         - alert: ContinuityEdgeReplicationLagHigh
-          expr: max(vhhealth_continuity_edge_replication_lag_seconds) > 900
+          expr: max by (facility_id) (vhhealth_continuity_edge_replication_lag_seconds) > 900
           for: 10m
           labels:
             severity: warning
             team: continuity
           annotations:
-            summary: "Continuity-edge replication lag is above 15 minutes"
+            summary: "Continuity-edge replication lag for facility {{ $labels.facility_id }} is above 15 minutes"
             runbook: "docs/runbooks/CONTINUITY_EDGE_MIRROR.md#verification-and-failure-handling"

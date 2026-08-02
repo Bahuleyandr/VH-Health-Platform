@@ -34,7 +34,11 @@ export async function main(env = process.env) {
     const reason = error.reason || error.message || 'INVALID_ENVELOPE';
     if (/^[A-Z][A-Z0-9_]{0,79}$/.test(reason)) {
       await recordVerificationFailure(
-        defaultMetricPaths(config.dataRoot, config.prometheusPath),
+        defaultMetricPaths(
+          config.dataRoot,
+          config.prometheusPath,
+          config.scope.facilityId,
+        ),
         reason,
       ).catch(() => {});
     }

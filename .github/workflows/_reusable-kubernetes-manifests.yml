@@ -65,6 +65,12 @@ jobs:
       - name: Validate rendered Kubernetes manifests
         run: node scripts/validate-kubernetes-manifests.mjs
 
+      # The continuity-edge rules aggregate `by (facility_id)`; this proves the
+      # edge textfile emitter actually stamps that label, so the rule side and
+      # the emitter side of the contract are gated in one job.
+      - name: Test continuity-edge metric emitter labels
+        run: node --test infra/continuity-edge/test/metrics.test.mjs
+
       - name: Validate monitoring rules + dashboards
         run: |
           PROM_VER=2.55.1

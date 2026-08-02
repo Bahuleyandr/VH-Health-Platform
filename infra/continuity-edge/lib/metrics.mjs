@@ -7,6 +7,20 @@ import { withDirectoryLock } from './lock.mjs';
 const FORMAT = 'vhhealth_continuity_edge_metrics_state/v1';
 const REASON_PATTERN = /^[A-Z][A-Z0-9_]{0,79}$/;
 
+// Every rendered series carries facility_id. The continuity-edge alert rules
+// aggregate `by (facility_id)`, so an unlabelled sample lands in a phantom
+// group where one facility's max()/min() masks another facility's failure.
+// The edge already knows its own identity (config.scope.facilityId), so the
+// label costs nothing and is bounded by the facility count. tenant_id stays out
+// of the label set on purpose — unbounded in a multi-tenant deployment, and the
+// audit log already carries it.
+function facilityLabel(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return 'unknown';
+  const normalized = Number(value);
+  if (!Number.isSafeInteger(normalized) || normalized < 1) return 'unknown';
+  return String(normalized);
+}
+
 function initialState() {
   return {
     format: FORMAT,
@@ -38,41 +52,44 @@ async function loadState(statePath) {
   }
 }
 
-function renderPrometheus(state) {
+function renderPrometheus(state, facilityId) {
+  const facility = `facility_id="${facilityLabel(facilityId)}"`;
   const lines = [
     '# HELP vhhealth_continuity_pack_fresh_until_timestamp_seconds Unix timestamp through which the selected continuity pack remains valid.',
     '# TYPE vhhealth_continuity_pack_fresh_until_timestamp_seconds gauge',
-    `vhhealth_continuity_pack_fresh_until_timestamp_seconds ${state.packFreshUntilTimestampSeconds}`,
+    `vhhealth_continuity_pack_fresh_until_timestamp_seconds{${facility}} ${state.packFreshUntilTimestampSeconds}`,
     '# HELP vhhealth_continuity_verification_failures_total Continuity verification failures by stable reason.',
     '# TYPE vhhealth_continuity_verification_failures_total counter',
   ];
   for (const [reason, value] of Object.entries(state.verificationFailures).sort()) {
     lines.push(
-      `vhhealth_continuity_verification_failures_total{reason="${reason}"} ${value}`,
+      `vhhealth_continuity_verification_failures_total{${facility},reason="${reason}"} ${value}`,
     );
   }
   lines.push(
     '# HELP vhhealth_continuity_coverage_complete Whether the selected publication has exact required coverage.',
     '# TYPE vhhealth_continuity_coverage_complete gauge',
-    `vhhealth_continuity_coverage_complete ${state.coverageComplete}`,
+    `vhhealth_continuity_coverage_complete{${facility}} ${state.coverageComplete}`,
     '# HELP vhhealth_continuity_edge_last_sync_success_timestamp_seconds Unix timestamp of the latest successful edge sync.',
     '# TYPE vhhealth_continuity_edge_last_sync_success_timestamp_seconds gauge',
-    `vhhealth_continuity_edge_last_sync_success_timestamp_seconds ${state.edgeLastSyncSuccessTimestampSeconds}`,
+    `vhhealth_continuity_edge_last_sync_success_timestamp_seconds{${facility}} ${state.edgeLastSyncSuccessTimestampSeconds}`,
     '# HELP vhhealth_continuity_edge_replication_lag_seconds Observed continuity-edge replication lag.',
     '# TYPE vhhealth_continuity_edge_replication_lag_seconds gauge',
-    `vhhealth_continuity_edge_replication_lag_seconds ${state.edgeReplicationLagSeconds}`,
+    `vhhealth_continuity_edge_replication_lag_seconds{${facility}} ${state.edgeReplicationLagSeconds}`,
     '',
   );
   return lines.join('\n');
 }
 
-async function updateMetrics({ statePath, prometheusPath }, mutate) {
+async function updateMetrics({ statePath, prometheusPath, facilityId }, mutate) {
   const lockPath = `${statePath}.lock`;
   return withDirectoryLock(lockPath, async () => {
     const state = await loadState(statePath);
     await mutate(state);
     await atomicWriteFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
-    await atomicWriteFile(prometheusPath, renderPrometheus(state), { mode: 0o644 });
+    await atomicWriteFile(prometheusPath, renderPrometheus(state, facilityId), {
+      mode: 0o644,
+    });
     return state;
   });
 }
@@ -107,9 +124,10 @@ export async function recordSyncSuccess(
   });
 }
 
-export function defaultMetricPaths(dataRoot, prometheusPath) {
+export function defaultMetricPaths(dataRoot, prometheusPath, facilityId) {
   return {
     statePath: path.join(dataRoot, 'state', 'metrics.json'),
     prometheusPath,
+    facilityId,
   };
 }
