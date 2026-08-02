@@ -192,7 +192,7 @@ describeIfDb('migration 612 I05 CSV adapter', () => {
                repeat('a', 64), 'received', 'live', 'live', 'live_authorized', false)`,
       [tenantId, otherChannelId, otherVersionId, `cross-${suffix}`],
     ), { code: '23503', constraint: 'fk_interop_messages_channel_tenant' });
-    for (const [protocol, adapter] of [['json', 'backend.interop.json'], ['csv', 'backend.interop.preview']]) {
+    for (const [protocol, adapter] of [['fhir_json', 'backend.interop.fhir-json'], ['csv', 'backend.interop.preview']]) {
       await expectFailure(client, () => client.query(
         `INSERT INTO interop_backend_delivery_receipts
            (tenant_id, message_id, channel_id, channel_version_id, protocol,
