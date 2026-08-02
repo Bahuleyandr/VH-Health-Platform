@@ -104,7 +104,7 @@ ALTER TABLE public.lab_interface_messages
   DROP CONSTRAINT IF EXISTS chk_lab_interface_messages_i09_recovery_shape,
   DROP CONSTRAINT IF EXISTS chk_lab_interface_messages_recovery_shape,
   DROP CONSTRAINT IF EXISTS fk_lab_interface_messages_recovery_task,
-  ADD CONSTRAINT chk_lab_interface_messages_recovery_shape
+  ADD CONSTRAINT chk_lab_interface_messages_i09_recovery_shape
     CHECK (
       (
         recovery_inbox_id IS NULL
