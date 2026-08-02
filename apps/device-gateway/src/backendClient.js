@@ -21,9 +21,7 @@ export class BackendClient {
       headers: this.headers(),
       body: JSON.stringify(payload),
     });
-    const body = await readJson(res);
-    if (!res.ok) throw Object.assign(new Error(body?.message || `resolve failed ${res.status}`), { status: res.status, body });
-    return body.data || body;
+    return readResponse(res, 'device resolve');
   }
 
   async ingest(payload) {
@@ -32,9 +30,28 @@ export class BackendClient {
       headers: this.headers(),
       body: JSON.stringify(payload),
     });
-    const body = await readJson(res);
-    if (!res.ok) throw Object.assign(new Error(body?.message || `ingest failed ${res.status}`), { status: res.status, body });
-    return body.data || body;
+    return readResponse(res, 'device ingest');
+  }
+
+  async readI09ResumeState({ gatewayRegistryId, deviceRegistryId }) {
+    const query = new URLSearchParams({
+      gateway_registry_id: String(gatewayRegistryId),
+      device_registry_id: String(deviceRegistryId),
+    });
+    const res = await this.fetchImpl(
+      `${this.baseUrl}/api/v1/devices/vitals/recovery/resume-state?${query}`,
+      { method: 'GET', headers: this.headers() },
+    );
+    return readResponse(res, 'resume-state read');
+  }
+
+  async ingestI09Recovery(payload) {
+    const res = await this.fetchImpl(`${this.baseUrl}/api/v1/devices/vitals/ingest`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify(payload),
+    });
+    return readResponse(res, 'I09 recovery ingest');
   }
 
   async ingestColdChain(payload, { deviceToken, tenantId = null } = {}) {
@@ -61,4 +78,17 @@ async function readJson(res) {
   } catch {
     return null;
   }
+}
+
+async function readResponse(res, operation) {
+  const body = await readJson(res);
+  if (!res.ok) {
+    const err = new Error(body?.message || `${operation} failed ${res.status}`);
+    err.status = res.status;
+    err.code = body?.code || 'BACKEND_REQUEST_FAILED';
+    err.body = body;
+    err.ambiguous = res.status >= 500;
+    throw err;
+  }
+  return body?.data ?? body;
 }

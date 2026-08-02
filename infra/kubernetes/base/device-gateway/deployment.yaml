@@ -19,6 +19,8 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -50,8 +52,9 @@ spec:
             - name: spool
               mountPath: /var/spool/vhhealth-device-gateway
           readinessProbe:
-            tcpSocket:
-              port: mllp
+            httpGet:
+              path: /readyz
+              port: metrics
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
@@ -69,6 +72,7 @@ spec:
               memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
       volumes:
