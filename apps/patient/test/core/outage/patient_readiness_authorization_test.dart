@@ -29,62 +29,53 @@ void main() {
     controller.dispose();
   });
 
-  test(
-    'the readiness body a PATIENT now receives opens the client and never '
-    'enters outage',
-    () async {
-      var requests = 0;
-      controller = PatientOutageController.forTesting(
-        request: () async {
-          requests++;
-          return _response(_patientReady(now, tenant));
-        },
-        authentication: () async => 'patient-session',
-        tenantId: () async => tenant,
-        maxClockSkew: const Duration(seconds: 5),
-        clock: () => now,
-        delay: (_) async {},
-      );
+  test('the readiness body a PATIENT now receives opens the client and never '
+      'enters outage', () async {
+    var requests = 0;
+    controller = PatientOutageController.forTesting(
+      request: () async {
+        requests++;
+        return _response(_patientReady(now, tenant));
+      },
+      authentication: () async => 'patient-session',
+      tenantId: () async => tenant,
+      maxClockSkew: const Duration(seconds: 5),
+      clock: () => now,
+      delay: (_) async {},
+    );
 
-      expect(await controller.probeNow(), isTrue);
-      expect(controller.status, PatientOutageStatus.available);
-      expect(controller.isOutage, isFalse);
-      // The default-deny mutation gate must be open, or SOS stays refused.
-      expect(controller.blocksHospitalMutations, isFalse);
-      expect(controller.reason, PatientOutageReason.none);
-      expect(requests, 2);
-    },
-  );
+    expect(await controller.probeNow(), isTrue);
+    expect(controller.status, PatientOutageStatus.available);
+    expect(controller.isOutage, isFalse);
+    // The default-deny mutation gate must be open, or SOS stays refused.
+    expect(controller.blocksHospitalMutations, isFalse);
+    expect(controller.reason, PatientOutageReason.none);
+    expect(requests, 2);
+  });
 
-  test(
-    'a forbidden readiness probe is reported as an authorization refusal, '
-    'not a malformed body',
-    () async {
-      controller = PatientOutageController.forTesting(
-        request: () async => const ApiResponse(
-          statusCode: 403,
-          isSuccess: false,
-          raw: {
-            'success': false,
-            'message': 'Access denied: insufficient role',
-          },
-        ),
-        authentication: () async => 'patient-session',
-        tenantId: () async => tenant,
-        maxClockSkew: const Duration(seconds: 5),
-        clock: () => now,
-        delay: (_) async {},
-      );
+  test('a forbidden readiness probe is reported as an authorization refusal, '
+      'not a malformed body', () async {
+    controller = PatientOutageController.forTesting(
+      request: () async => const ApiResponse(
+        statusCode: 403,
+        isSuccess: false,
+        raw: {'success': false, 'message': 'Access denied: insufficient role'},
+      ),
+      authentication: () async => 'patient-session',
+      tenantId: () async => tenant,
+      maxClockSkew: const Duration(seconds: 5),
+      clock: () => now,
+      delay: (_) async {},
+    );
 
-      expect(await controller.probeNow(), isFalse);
-      // C-D12 section 5.2 keeps an invalid readiness answer fail-closed, so
-      // this stays an outage. What must never happen again is the silent
-      // mislabelling that disguised a role gate as a parser fault.
-      expect(controller.status, PatientOutageStatus.outage);
-      expect(controller.reason, PatientOutageReason.probeForbidden);
-      expect(controller.reason, isNot(PatientOutageReason.malformedReadiness));
-    },
-  );
+    expect(await controller.probeNow(), isFalse);
+    // C-D12 section 5.2 keeps an invalid readiness answer fail-closed, so
+    // this stays an outage. What must never happen again is the silent
+    // mislabelling that disguised a role gate as a parser fault.
+    expect(controller.status, PatientOutageStatus.outage);
+    expect(controller.reason, PatientOutageReason.probeForbidden);
+    expect(controller.reason, isNot(PatientOutageReason.malformedReadiness));
+  });
 
   test('a 403 is not mistaken for a signed-out session', () async {
     controller = PatientOutageController.forTesting(
