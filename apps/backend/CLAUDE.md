@@ -494,18 +494,47 @@ SQL, JWT auth, or test infrastructure:
   bound-value-set violations. Slicing/terminology/profile invariants
   deferred to the official IG Publisher run in CI's `fhir-conformance`
   job (non-blocking; sample bundles in `src/services/fhir/__samples__/`).
-- **RLS enforcement is opt-in via `setTenant(tenantId, fn, { superAdmin })`**
+- **RLS enforcement centres on `setTenant(tenantId, fn, { superAdmin })`**
   from `src/lib/prisma.js`. The callback receives a Prisma client scoped
   to a transaction with `SET LOCAL app.current_tenant_id = $1` already
   issued (via `set_config(..., true)` — auto-cleared at COMMIT/ROLLBACK,
-  no pool-session leak). Plain `prisma.$queryRaw*` bypasses RLS by design
-  (matches the permissive policy in migration 075 when the GUC is unset).
+  no pool-session leak).
   Use `setTenant` for any tenant-scoped read/write on the 11 tables
   listed in `migrations/075_tenant_rls_policies.sql`; pass
   `{ superAdmin: true }` to set the GUC to `'bypass'` for
   cross-tenant admin reads. Batch 31 deleted `DatabaseManager` and
   its `db.queryAsTenant()`; `src/tests/tenant-rls.deep.test.js` now
   calls `setTenant` + a local `ownerQuery` helper directly.
+  - **Calling it yourself is no longer the only way it fires** (corrected
+    2026-08-02 — this bullet previously read "Plain `prisma.$queryRaw*` bypasses
+    RLS by design", which was batch-31-era wording and is wrong for production).
+    `maybeRunUnderTenant` / `shouldTenantWrap` in `src/lib/prisma.js` auto-wrap
+    the raw-SQL methods (`$queryRaw`, `$queryRawUnsafe`, `$executeRaw`,
+    `$executeRawUnsafe`) **and** model-delegate calls
+    (`prisma.appointments.findMany(...)`) in `setTenant` when **all** of:
+    `isTenantRlsEnforcementEnabled()` is true (`src/config/tenantRlsConfig.js`
+    — `AUTH_ENFORCE_TENANT_RLS` when explicitly set, else
+    `NODE_ENV === 'production'`; prod sets it `"true"` in
+    `infra/kubernetes/apps/backend/configmap.yaml`); an AsyncLocalStorage tenant
+    context is active (seeded per request by `tenantRlsMiddleware`; cron and
+    bootstrap code must opt in via `runInTenantContext()` / `runWithSuperAdmin()`
+    from `src/lib/tenantContext.js`); that context carries a `tenantId` or
+    `superAdmin`; and the call is not already inside a `setTenant` transaction.
+    Everything else passes through unwrapped — including calls on the `tx`
+    client inside a plain `prisma.$transaction(async (tx) => ...)`, which cannot
+    nest another transaction.
+  - **Dev, QA and CI leave the flag off**, so their queries are unwrapped, the
+    GUC stays unset, and 075's policy hits its permissive branch — no scoping at
+    all. Rate an unscoped query accordingly: it is neither automatically a live
+    prod leak nor safe locally. Check the flag first (mis-reading this bullet
+    overstated the severity in the PR #684 brief).
+  - **An explicit `AND tenant_id = $1::uuid` predicate remains the house
+    pattern** wherever scoping has to be *provable* (PR #684). It holds in every
+    environment and a test can observe it, whereas adding `setTenant` to a
+    request-path call changes nothing in prod (the proxy already wrapped it) and
+    is inert in dev/QA/CI — flag off, plus 075 deliberately omits `FORCE ROW
+    LEVEL SECURITY`, so the table owner is exempt and CI connects as `vhhealth`,
+    which both owns the tables and is the service container's superuser.
 
 ## Future Directions
 
