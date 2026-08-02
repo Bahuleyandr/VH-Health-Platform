@@ -29,6 +29,8 @@ jobs:
     env:
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
+      VH_TENANT_SLUG: ${{ vars.VH_TENANT_SLUG }}
+      VH_TENANT_ID: ${{ vars.VH_TENANT_ID }}
       STAFF_CERT_PIN_HASHES: ${{ vars.STAFF_CERT_PIN_HASHES }}
       CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS: ${{ vars.CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS }}
       STAFF_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAFF_ANDROID_KEYSTORE_BASE64 }}
@@ -95,6 +97,43 @@ jobs:
             --clock-skew-seconds "${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
           exit "${missing}"
 
+      # See release-patient.yml for the full rationale. In short: never stamp an
+      # empty define (`--dart-define=VH_TENANT_ID=` sets TenantConfig.id to ''
+      # rather than the default, matching no tenant), and require slug + id to
+      # be stamped together and coherently. TenantConfig.verifyOrThrow enforces
+      # the same invariant at app startup.
+      - name: Resolve and validate tenant build stamp
+        run: |
+          set -euo pipefail
+          slug="${VH_TENANT_SLUG:-}"
+          tenant_id="${VH_TENANT_ID:-}"
+          default_tenant='00000000-0000-4000-8000-000000000001'
+          uuid_re='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+          defines=''
+          if [ -n "${slug}" ] || [ -n "${tenant_id}" ]; then
+            if [ -z "${slug}" ] || [ -z "${tenant_id}" ]; then
+              echo "::error::A per-tenant staff build needs BOTH VH_TENANT_SLUG and VH_TENANT_ID. Got slug='${slug}', VH_TENANT_ID $( [ -n "${tenant_id}" ] && echo 'set' || echo 'empty' )."
+              exit 1
+            fi
+            if ! printf '%s' "${tenant_id}" | grep -Eq "${uuid_re}"; then
+              echo "::error::VH_TENANT_ID is not a tenant UUID: '${tenant_id}'."
+              exit 1
+            fi
+            if [ "${tenant_id}" = "${default_tenant}" ]; then
+              echo "::error::VH_TENANT_SLUG='${slug}' is stamped but VH_TENANT_ID is the platform default tenant. Stamp that tenant's own UUID, or clear VH_TENANT_SLUG for a default single-tenant build."
+              exit 1
+            fi
+            defines="--dart-define=VH_TENANT_SLUG=${slug} --dart-define=VH_TENANT_ID=${tenant_id}"
+            echo "Per-tenant staff build for slug '${slug}'."
+          else
+            case "${VH_BASE_URL:-}" in
+              ''|https://api.vhhealth.app/api/v1) ;;
+              *) echo "::warning::VH_BASE_URL is '${VH_BASE_URL}' but no VH_TENANT_SLUG/VH_TENANT_ID is stamped, so this build claims the platform default tenant." ;;
+            esac
+            echo 'Default single-tenant staff build: no tenant defines stamped.'
+          fi
+          echo "VH_TENANT_DEFINES=${defines}" >> "${GITHUB_ENV}"
+
       - name: Configure Android signing
         run: |
           set -euo pipefail
@@ -115,6 +154,7 @@ jobs:
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${STAFF_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
+          ${VH_TENANT_DEFINES}
 
       - name: Build release AAB
         working-directory: apps/staff
@@ -125,6 +165,7 @@ jobs:
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${STAFF_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
+          ${VH_TENANT_DEFINES}
 
       - uses: softprops/action-gh-release@v3
         with:
@@ -144,6 +185,8 @@ jobs:
     env:
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
+      VH_TENANT_SLUG: ${{ vars.VH_TENANT_SLUG }}
+      VH_TENANT_ID: ${{ vars.VH_TENANT_ID }}
       STAFF_CERT_PIN_HASHES: ${{ vars.STAFF_CERT_PIN_HASHES }}
       CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS: ${{ vars.CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS }}
     steps:
@@ -206,16 +249,50 @@ jobs:
             --clock-skew-seconds "$env:CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Same tenant-stamp invariant as the Android job. PowerShell does not
+      # word-split an expanded variable, so the optional defines are built as an
+      # array and splatted rather than interpolated as one string.
+      - name: Validate tenant build stamp
+        shell: pwsh
+        run: |
+          $slug = "$env:VH_TENANT_SLUG"
+          $tenantId = "$env:VH_TENANT_ID"
+          $defaultTenant = '00000000-0000-4000-8000-000000000001'
+          $uuidRe = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+          if ($slug -or $tenantId) {
+            if (-not $slug -or -not $tenantId) {
+              Write-Error "A per-tenant staff build needs BOTH VH_TENANT_SLUG and VH_TENANT_ID."
+              exit 1
+            }
+            if ($tenantId -notmatch $uuidRe) {
+              Write-Error "VH_TENANT_ID is not a tenant UUID: '$tenantId'."
+              exit 1
+            }
+            if ($tenantId -eq $defaultTenant) {
+              Write-Error "VH_TENANT_SLUG='$slug' is stamped but VH_TENANT_ID is the platform default tenant."
+              exit 1
+            }
+            Write-Host "Per-tenant staff Windows build for slug '$slug'."
+          } else {
+            Write-Host 'Default single-tenant staff Windows build: no tenant defines stamped.'
+          }
+
       - name: Build Windows release
         working-directory: apps/staff
         shell: pwsh
         run: |
+          $tenantArgs = @()
+          if ($env:VH_TENANT_SLUG) {
+            $tenantArgs += "--dart-define=VH_TENANT_SLUG=$env:VH_TENANT_SLUG"
+            $tenantArgs += "--dart-define=VH_TENANT_ID=$env:VH_TENANT_ID"
+          }
           flutter build windows --release `
             --dart-define=VH_BASE_URL="$env:VH_BASE_URL" `
             --dart-define=VH_API_KEY="$env:VH_API_KEY" `
             --dart-define=PRODUCTION=true `
             --dart-define=CERT_PIN_HASHES="$env:STAFF_CERT_PIN_HASHES" `
-            --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="$env:CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS"
+            --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="$env:CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS" `
+            @tenantArgs
 
       - name: Create unsigned MSIX
         working-directory: apps/staff
