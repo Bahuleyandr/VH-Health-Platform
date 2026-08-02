@@ -5727,46 +5727,73 @@ model india_compliance_evidence {
 }
 
 model hl7_feed_subscriptions {
-  id                    Int                     @id @default(autoincrement())
-  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  name                  String                  @db.VarChar(120)
-  endpoint_url          String
-  auth_header           String?
-  message_types         String[]                @default(["ADT^A01", "ADT^A03", "ORU^R01"])
-  is_active             Boolean                 @default(true)
-  last_delivery_at      DateTime?               @db.Timestamptz(6)
-  created_by            String?                 @db.Uuid
-  metadata              Json                    @default("{}")
-  created_at            DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
-  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_feed_subscriptions_tenant")
-  hl7_outbound_messages hl7_outbound_messages[]
+  id                            Int                            @id @default(autoincrement())
+  tenant_id                     String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  name                          String                         @db.VarChar(120)
+  endpoint_url                  String
+  auth_header                   String?
+  message_types                 String[]                       @default(["ADT^A01", "ADT^A03", "ORU^R01"])
+  is_active                     Boolean                        @default(true)
+  last_delivery_at              DateTime?                      @db.Timestamptz(6)
+  created_by                    String?                        @db.Uuid
+  metadata                      Json                           @default("{}")
+  created_at                    DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                       @default(now()) @db.Timestamptz(6)
+  tenants                       tenants                        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_feed_subscriptions_tenant")
+  hl7_outbound_delivery_cursors hl7_outbound_delivery_cursors?
+  hl7_outbound_messages         hl7_outbound_messages[]
 
   @@unique([tenant_id, name], map: "uq_hl7_feed_subscriptions_name")
+  @@unique([tenant_id, id], map: "ux_hl7_feed_subscriptions_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model hl7_outbound_messages {
-  id                     Int                    @id @default(autoincrement())
-  tenant_id              String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  subscription_id        Int
-  message_type           String                 @db.VarChar(20)
-  message_control_id     String?                @db.VarChar(60)
-  hl7_payload            String
-  source_table           String?                @db.VarChar(60)
-  source_id              String?                @db.VarChar(60)
-  patient_uid            String?                @db.Uuid
-  status                 String                 @default("queued") @db.VarChar(12)
-  attempts               Int                    @default(0)
-  last_error             String?
-  next_attempt_at        DateTime               @default(now()) @db.Timestamptz(6)
-  sent_at                DateTime?              @db.Timestamptz(6)
-  created_at             DateTime               @default(now()) @db.Timestamptz(6)
-  tenants                tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_messages_tenant")
-  hl7_feed_subscriptions hl7_feed_subscriptions @relation(fields: [subscription_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                                                                      Int                               @id @default(autoincrement())
+  tenant_id                                                                                                                               String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  subscription_id                                                                                                                         Int
+  message_type                                                                                                                            String                            @db.VarChar(20)
+  message_control_id                                                                                                                      String?                           @db.VarChar(60)
+  hl7_payload                                                                                                                             String
+  source_table                                                                                                                            String?                           @db.VarChar(60)
+  source_id                                                                                                                               String?                           @db.VarChar(60)
+  patient_uid                                                                                                                             String?                           @db.Uuid
+  status                                                                                                                                  String                            @default("queued") @db.VarChar(32)
+  attempts                                                                                                                                Int                               @default(0)
+  last_error                                                                                                                              String?
+  next_attempt_at                                                                                                                         DateTime                          @default(now()) @db.Timestamptz(6)
+  sent_at                                                                                                                                 DateTime?                         @db.Timestamptz(6)
+  created_at                                                                                                                              DateTime                          @default(now()) @db.Timestamptz(6)
+  source_event_key                                                                                                                        String                            @db.VarChar(255)
+  payload_sha256                                                                                                                          String                            @db.Char(64)
+  ledger_version                                                                                                                          Int                               @default(1) @db.SmallInt
+  transport_state                                                                                                                         String                            @default("not_attempted") @db.VarChar(32)
+  acknowledgement_state                                                                                                                   String                            @default("pending") @db.VarChar(32)
+  send_authority                                                                                                                          String                            @default("authorized") @db.VarChar(40)
+  claim_token                                                                                                                             String?                           @db.Uuid
+  claim_generation                                                                                                                        Int                               @default(0)
+  claimed_at                                                                                                                              DateTime?                         @db.Timestamptz(6)
+  lease_expires_at                                                                                                                        DateTime?                         @db.Timestamptz(6)
+  recovery_inbox_id                                                                                                                       String?                           @db.Uuid
+  recovery_interface_family                                                                                                               String?                           @db.VarChar(8)
+  owner_release_actor_uid                                                                                                                 String?                           @db.Uuid
+  owner_release_reason                                                                                                                    String?                           @db.VarChar(500)
+  owner_released_at                                                                                                                       DateTime?                         @db.Timestamptz(6)
+  hl7_outbound_acknowledgements                                                                                                           hl7_outbound_acknowledgements[]
+  hl7_outbound_delivery_cursors_hl7_outbound_delivery_cursors_tenant_id_blocked_message_id_subscription_idTohl7_outbound_messages         hl7_outbound_delivery_cursors?    @relation("hl7_outbound_delivery_cursors_tenant_id_blocked_message_id_subscription_idTohl7_outbound_messages")
+  hl7_outbound_delivery_cursors_hl7_outbound_delivery_cursors_tenant_id_inflight_message_id_subscription_idTohl7_outbound_messages        hl7_outbound_delivery_cursors?    @relation("hl7_outbound_delivery_cursors_tenant_id_inflight_message_id_subscription_idTohl7_outbound_messages")
+  hl7_outbound_delivery_cursors_hl7_outbound_delivery_cursors_tenant_id_last_contiguous_message_id_subscription_idTohl7_outbound_messages hl7_outbound_delivery_cursors?    @relation("hl7_outbound_delivery_cursors_tenant_id_last_contiguous_message_id_subscription_idTohl7_outbound_messages")
+  pathway_projector_inbox                                                                                                                 pathway_projector_inbox?          @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_message_recovery_inbox")
+  hl7_feed_subscriptions                                                                                                                  hl7_feed_subscriptions            @relation(fields: [tenant_id, subscription_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hl7_outbound_messages_subscription_tenant")
+  tenants                                                                                                                                 tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_messages_tenant")
+  hl7_outbound_transport_attempts                                                                                                         hl7_outbound_transport_attempts[]
 
+  @@unique([tenant_id, subscription_id, message_control_id], map: "ux_hl7_outbound_message_control_id", where: raw("((ledger_version = 1) AND (message_control_id IS NOT NULL))"))
+  @@unique([tenant_id, subscription_id, source_event_key, message_type], map: "ux_hl7_outbound_message_source")
+  @@unique([tenant_id, id, subscription_id], map: "ux_hl7_outbound_messages_contract")
   @@index([subscription_id, created_at(sort: Desc)], map: "idx_hl7_outbound_messages_subscription")
-  @@index([status, next_attempt_at], map: "idx_hl7_outbound_messages_due", where: raw("((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[]))"))
+  @@index([tenant_id, subscription_id, status, next_attempt_at, id], map: "idx_hl7_outbound_messages_due", where: raw("(((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[])) AND ((send_authority)::text = 'authorized'::text))"))
+  @@index([tenant_id, lease_expires_at, id], map: "idx_hl7_outbound_messages_expired_claim", where: raw("((status)::text = 'claimed'::text)"))
 }
 
 model hipaa_access_log {
@@ -24606,6 +24633,8 @@ model pathway_projector_inbox {
   retention_until                DateTime?                        @db.Timestamptz(6)
   cold_chain_readings            cold_chain_readings[]
   event_outbox                   event_outbox[]
+  hl7_outbound_acknowledgements  hl7_outbound_acknowledgements[]
+  hl7_outbound_messages          hl7_outbound_messages[]
   lab_interface_messages         lab_interface_messages?
   lab_oru_ingest_messages        lab_oru_ingest_messages?
   notification_provider_receipts notification_provider_receipts[]
@@ -26291,6 +26320,100 @@ model notification_provider_receipts {
 
   @@unique([tenant_id, receipt_id, notification_outbox_id, channel], map: "ux_notification_provider_receipt_identity")
   @@index([tenant_id, notification_outbox_id, channel, observed_at(sort: Desc)], map: "idx_notification_provider_receipt_outbox")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model hl7_outbound_acknowledgements {
+  acknowledgement_id              String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                       String                           @db.Uuid
+  attempt_id                      String?                          @db.Uuid
+  transport_result_id             String?                          @db.Uuid
+  message_id                      Int
+  subscription_id                 Int
+  msa_code                        String                           @db.Char(2)
+  acknowledged_control_id         String                           @db.VarChar(60)
+  correlation_matches             Boolean
+  acknowledgement_payload_sha256  String                           @db.Char(64)
+  receipt_source                  String                           @db.VarChar(32)
+  evidence                        Json                             @default("{}")
+  observed_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  recovery_inbox_id               String?                          @db.Uuid
+  recovery_interface_family       String?                          @db.VarChar(8)
+  owner_actor_uid                 String?                          @db.Uuid
+  owner_reason                    String?                          @db.VarChar(500)
+  hl7_outbound_transport_attempts hl7_outbound_transport_attempts? @relation(fields: [tenant_id, attempt_id, message_id, subscription_id], references: [tenant_id, attempt_id, message_id, subscription_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_acknowledgement_attempt")
+  hl7_outbound_messages           hl7_outbound_messages            @relation(fields: [tenant_id, message_id, subscription_id], references: [tenant_id, id, subscription_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_acknowledgement_message")
+  pathway_projector_inbox         pathway_projector_inbox?         @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_acknowledgement_recovery_inbox")
+  hl7_outbound_transport_results  hl7_outbound_transport_results?  @relation(fields: [tenant_id, transport_result_id, attempt_id, message_id, subscription_id], references: [tenant_id, transport_result_id, attempt_id, message_id, subscription_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_acknowledgement_transport_result")
+
+  @@unique([tenant_id, acknowledgement_id, message_id, subscription_id], map: "ux_hl7_outbound_acknowledgement_contract")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model hl7_outbound_delivery_cursors {
+  tenant_id                                                                                                                       String                 @db.Uuid
+  subscription_id                                                                                                                 Int
+  last_contiguous_message_id                                                                                                      Int?
+  state                                                                                                                           String                 @default("ready") @db.VarChar(32)
+  blocked_message_id                                                                                                              Int?
+  inflight_message_id                                                                                                             Int?
+  updated_at                                                                                                                      DateTime               @default(now()) @db.Timestamptz(6)
+  hl7_outbound_messages_hl7_outbound_delivery_cursors_tenant_id_blocked_message_id_subscription_idTohl7_outbound_messages         hl7_outbound_messages? @relation("hl7_outbound_delivery_cursors_tenant_id_blocked_message_id_subscription_idTohl7_outbound_messages", fields: [tenant_id, blocked_message_id, subscription_id], references: [tenant_id, id, subscription_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_delivery_cursor_blocked")
+  hl7_outbound_messages_hl7_outbound_delivery_cursors_tenant_id_inflight_message_id_subscription_idTohl7_outbound_messages        hl7_outbound_messages? @relation("hl7_outbound_delivery_cursors_tenant_id_inflight_message_id_subscription_idTohl7_outbound_messages", fields: [tenant_id, inflight_message_id, subscription_id], references: [tenant_id, id, subscription_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_delivery_cursor_inflight")
+  hl7_outbound_messages_hl7_outbound_delivery_cursors_tenant_id_last_contiguous_message_id_subscription_idTohl7_outbound_messages hl7_outbound_messages? @relation("hl7_outbound_delivery_cursors_tenant_id_last_contiguous_message_id_subscription_idTohl7_outbound_messages", fields: [tenant_id, last_contiguous_message_id, subscription_id], references: [tenant_id, id, subscription_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_delivery_cursor_last")
+  hl7_feed_subscriptions                                                                                                          hl7_feed_subscriptions @relation(fields: [tenant_id, subscription_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_delivery_cursor_subscription")
+
+  @@id([tenant_id, subscription_id])
+  @@unique([tenant_id, blocked_message_id, subscription_id], map: "ux_hl7_outbound_delivery_cursor_blocked")
+  @@unique([tenant_id, inflight_message_id, subscription_id], map: "ux_hl7_outbound_delivery_cursor_inflight")
+  @@unique([tenant_id, last_contiguous_message_id, subscription_id], map: "ux_hl7_outbound_delivery_cursor_last")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model hl7_outbound_transport_attempts {
+  attempt_id                     String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                      String                          @db.Uuid
+  message_id                     Int
+  subscription_id                Int
+  claim_token                    String                          @db.Uuid
+  claim_generation               Int
+  attempt_number                 Int
+  payload_sha256                 String                          @db.Char(64)
+  started_at                     DateTime                        @default(now()) @db.Timestamptz(6)
+  hl7_outbound_acknowledgements  hl7_outbound_acknowledgements[]
+  hl7_outbound_messages          hl7_outbound_messages           @relation(fields: [tenant_id, message_id, subscription_id], references: [tenant_id, id, subscription_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_transport_attempt_message")
+  hl7_outbound_transport_results hl7_outbound_transport_results?
+
+  @@unique([tenant_id, message_id, claim_token], map: "ux_hl7_outbound_transport_attempt_claim")
+  @@unique([tenant_id, attempt_id, message_id, subscription_id], map: "ux_hl7_outbound_transport_attempt_contract")
+  @@unique([tenant_id, message_id, attempt_number], map: "ux_hl7_outbound_transport_attempt_number")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model hl7_outbound_transport_results {
+  transport_result_id             String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                       String                          @db.Uuid
+  attempt_id                      String                          @db.Uuid
+  message_id                      Int
+  subscription_id                 Int
+  outcome                         String                          @db.VarChar(32)
+  http_status                     Int?
+  response_body_sha256            String?                         @db.Char(64)
+  error_code                      String?                         @db.VarChar(160)
+  evidence                        Json                            @default("{}")
+  observed_at                     DateTime                        @default(now()) @db.Timestamptz(6)
+  hl7_outbound_acknowledgements   hl7_outbound_acknowledgements[]
+  hl7_outbound_transport_attempts hl7_outbound_transport_attempts @relation(fields: [tenant_id, attempt_id, message_id, subscription_id], references: [tenant_id, attempt_id, message_id, subscription_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_transport_result_attempt")
+
+  @@unique([tenant_id, attempt_id], map: "ux_hl7_outbound_transport_result_attempt")
+  @@unique([tenant_id, attempt_id, message_id, subscription_id], map: "ux_hl7_outbound_transport_result_attempt_contract")
+  @@unique([tenant_id, transport_result_id, attempt_id, message_id, subscription_id], map: "ux_hl7_outbound_transport_result_contract")
 }
 
 enum transplant_organ_type {

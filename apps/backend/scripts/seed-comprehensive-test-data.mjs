@@ -62,6 +62,12 @@ const MANUAL_SEED_TABLES = new Set([
   'notification_delivery_attempts',
   'notification_provider_receipts',
   'notification_delivery_cursors',
+  // C6.1-E I04 outbound HL7 evidence is append-only and claim-fenced. Seed
+  // one correlated MSA|AA graph without performing provider egress.
+  'hl7_outbound_transport_attempts',
+  'hl7_outbound_transport_results',
+  'hl7_outbound_acknowledgements',
+  'hl7_outbound_delivery_cursors',
   'referrals',
   'referral_transition_events',
   'referral_responses',
@@ -2974,6 +2980,148 @@ async function seedNotificationDeliveryEvidence() {
   );
 }
 
+async function seedHl7OutboundDeliveryEvidence() {
+  if (!await tableExists('hl7_outbound_transport_attempts')) return;
+  if (await tableCount('hl7_outbound_transport_attempts')) return;
+  await client.query(
+    "SELECT set_config('app.current_tenant_id', $1::text, true)",
+    [DEFAULT_TENANT_ID],
+  );
+
+  const claimToken = randomUUID();
+  const controlId = 'VH-SEED-I04-AA';
+  const payload = [
+    `MSH|^~\\&|VH|VH|SEED|SEED|20260802000000||ADT^A01|${controlId}|P|2.5`,
+    'PID|1||SEED-I04^^^VH^MR||Recovery^Evidence',
+  ].join('\r');
+  const payloadHash = createHash('sha256').update(payload, 'utf8').digest('hex');
+  const acknowledgement = [
+    `MSH|^~\\&|SEED|SEED|VH|VH|20260802000001||ACK^A01|SEED-ACK-I04|P|2.5`,
+    `MSA|AA|${controlId}|Seed acceptance without provider egress`,
+  ].join('\r');
+  const acknowledgementHash = createHash('sha256')
+    .update(acknowledgement, 'utf8')
+    .digest('hex');
+
+  const subscription = await client.query(
+    `INSERT INTO hl7_feed_subscriptions
+       (tenant_id, name, endpoint_url, message_types, is_active, metadata)
+     VALUES
+       ($1::uuid, 'VH seed I04 delivery', 'https://example.invalid/no-egress',
+        ARRAY['ADT^A01']::text[], FALSE,
+        '{"seed":true,"provider_egress":false}'::jsonb)
+     ON CONFLICT (tenant_id, name) DO UPDATE
+       SET is_active = FALSE, metadata = EXCLUDED.metadata
+     RETURNING id`,
+    [DEFAULT_TENANT_ID],
+  );
+  const message = await client.query(
+    `INSERT INTO hl7_outbound_messages
+       (tenant_id, subscription_id, message_type, message_control_id,
+        hl7_payload, source_table, source_id, status, source_event_key,
+        payload_sha256, ledger_version, transport_state,
+        acknowledgement_state, send_authority)
+     VALUES
+       ($1::uuid, $2::integer, 'ADT^A01', $3::text, $4::text,
+        'seed-comprehensive-test-data', 'VH-SEED-I04', 'queued',
+        'seed:hl7-outbound-delivery-aa', $5::char(64), 1,
+        'not_attempted', 'pending', 'authorized')
+     ON CONFLICT ON CONSTRAINT ux_hl7_outbound_message_source
+     DO NOTHING
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, subscription.rows[0].id, controlId, payload, payloadHash],
+  );
+  const messageId = message.rows[0]?.id || (await client.query(
+    `SELECT id
+       FROM hl7_outbound_messages
+      WHERE tenant_id = $1::uuid
+        AND subscription_id = $2::integer
+        AND source_event_key = 'seed:hl7-outbound-delivery-aa'
+        AND message_type = 'ADT^A01'`,
+    [DEFAULT_TENANT_ID, subscription.rows[0].id],
+  )).rows[0].id;
+
+  await client.query(
+    `UPDATE hl7_outbound_messages
+        SET status = 'claimed', claim_token = $3::uuid,
+            claim_generation = claim_generation + 1,
+            claimed_at = NOW(), lease_expires_at = NOW() + INTERVAL '2 minutes'
+      WHERE tenant_id = $1::uuid AND id = $2::integer
+        AND status = 'queued' AND send_authority = 'authorized'`,
+    [DEFAULT_TENANT_ID, messageId, claimToken],
+  );
+  const attempt = await client.query(
+    `INSERT INTO hl7_outbound_transport_attempts
+       (tenant_id, message_id, subscription_id, claim_token,
+        claim_generation, attempt_number, payload_sha256)
+     SELECT tenant_id, id, subscription_id, claim_token,
+            claim_generation, 1, payload_sha256
+       FROM hl7_outbound_messages
+      WHERE tenant_id = $1::uuid AND id = $2::integer
+     RETURNING attempt_id`,
+    [DEFAULT_TENANT_ID, messageId],
+  );
+  const transport = await client.query(
+    `INSERT INTO hl7_outbound_transport_results
+       (tenant_id, attempt_id, message_id, subscription_id, outcome,
+        http_status, response_body_sha256, evidence)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::integer, 'http_response',
+        200, $5::char(64), '{"seed":true,"provider_egress":false}'::jsonb)
+     RETURNING transport_result_id`,
+    [
+      DEFAULT_TENANT_ID,
+      attempt.rows[0].attempt_id,
+      messageId,
+      subscription.rows[0].id,
+      acknowledgementHash,
+    ],
+  );
+  await client.query(
+    `INSERT INTO hl7_outbound_acknowledgements
+       (tenant_id, attempt_id, transport_result_id, message_id,
+        subscription_id, msa_code, acknowledged_control_id,
+        correlation_matches, acknowledgement_payload_sha256,
+        receipt_source, evidence)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::integer,
+        'AA', $6::text, TRUE, $7::char(64), 'provider_response',
+        '{"seed":true,"provider_egress":false,"parsed_msa":true}'::jsonb)`,
+    [
+      DEFAULT_TENANT_ID,
+      attempt.rows[0].attempt_id,
+      transport.rows[0].transport_result_id,
+      messageId,
+      subscription.rows[0].id,
+      controlId,
+      acknowledgementHash,
+    ],
+  );
+  await client.query(
+    `INSERT INTO hl7_outbound_delivery_cursors (tenant_id, subscription_id)
+     VALUES ($1::uuid, $2::integer)
+     ON CONFLICT (tenant_id, subscription_id) DO NOTHING`,
+    [DEFAULT_TENANT_ID, subscription.rows[0].id],
+  );
+  await client.query(
+    `UPDATE hl7_outbound_delivery_cursors
+        SET last_contiguous_message_id = $3::integer, state = 'ready',
+            blocked_message_id = NULL, inflight_message_id = NULL,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND subscription_id = $2::integer`,
+    [DEFAULT_TENANT_ID, subscription.rows[0].id, messageId],
+  );
+  await client.query(
+    `UPDATE hl7_outbound_messages
+        SET status = 'sent', attempts = attempts + 1,
+            transport_state = 'http_response', acknowledgement_state = 'aa',
+            claim_token = NULL, claimed_at = NULL, lease_expires_at = NULL,
+            sent_at = NOW(), last_error = NULL
+      WHERE tenant_id = $1::uuid AND id = $2::integer`,
+    [DEFAULT_TENANT_ID, messageId],
+  );
+}
+
 function stableSeedStringify(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableSeedStringify).join(',')}]`;
@@ -5460,6 +5608,7 @@ try {
   await seedDiagnosticResultEvidence();
   await seedDiagnosticResultPatientNotificationEvidence();
   await seedNotificationDeliveryEvidence();
+  await seedHl7OutboundDeliveryEvidence();
   await seedReferralClosedLoopGraph();
   const { seeded, failed } = await seedRemainingTables();
   await seedEdClosureRecoveryEvidence();

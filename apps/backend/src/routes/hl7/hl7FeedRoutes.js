@@ -85,8 +85,10 @@ router.post('/messages/:id/replay', async (req, res) => {
     }
     const message = await replayFeedMessage(Number.parseInt(req.params.id, 10), {
       tenantId: requestTenantId(req),
+      actorUid: req.user?.uid || null,
+      ownerReason: req.body?.owner_reason,
     });
-    return success(res, { message }, 'Message requeued');
+    return success(res, { message }, 'Owner-authorized send release recorded');
   } catch (err) {
     return handleFailure(res, err, 'replay message');
   }

@@ -18,7 +18,8 @@
 //   5. The host allowlist (HL7_FEED_HOST_ALLOWLIST) restricts hosts when set.
 
 import http from 'node:http';
-import prisma from '../lib/prisma.js';
+import { createHash, randomUUID } from 'node:crypto';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import { isBlockedAddress, assertSafeFeedUrl } from '../utils/ssrfGuard.js';
 import {
   createSubscription,
@@ -26,24 +27,19 @@ import {
 } from '../services/hl7/hl7OutboundService.js';
 
 const SUB_NAME = 'h4-ssrf-test-subscription';
-
-async function cleanup() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM hl7_outbound_messages WHERE subscription_id IN
-       (SELECT id FROM hl7_feed_subscriptions WHERE name LIKE 'h4-ssrf-test%')`,
-  );
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM hl7_feed_subscriptions WHERE name LIKE 'h4-ssrf-test%'`,
-  );
-}
+const TENANT_ID = randomUUID();
+const SUFFIX = TENANT_ID.slice(0, 8);
 
 describe('H4 — SSRF guard', () => {
-  afterAll(cleanup);
-  beforeAll(() => {
+  beforeAll(async () => {
     // Other suites (hl7-outbound.deep) set the test-only escape hatch; this
     // suite tests the guard itself, so it must be OFF here.
     delete process.env.HL7_FEED_ALLOW_PRIVATE_TARGETS;
-    return cleanup();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name)
+       VALUES ($1::uuid, $2::text, 'H4 SSRF HL7 test tenant')`,
+      TENANT_ID, `h4-ssrf-hl7-${SUFFIX}`,
+    );
   });
   afterEach(() => {
     delete process.env.HL7_FEED_HOST_ALLOWLIST;
@@ -133,7 +129,7 @@ describe('H4 — SSRF guard', () => {
       'http://localhost:9999/hl7',
     ])('refuses unsafe endpoint %s', async (endpointUrl) => {
       await expect(
-        createSubscription({ name: SUB_NAME, endpointUrl }),
+        createSubscription({ tenantId: TENANT_ID, name: SUB_NAME, endpointUrl }),
       ).rejects.toMatchObject({ code: 'SSRF_BLOCKED' });
     });
   });
@@ -150,38 +146,45 @@ describe('H4 — SSRF guard', () => {
         // Insert the subscription directly in SQL — simulating a legacy row
         // created before the guard, or a host that re-resolved to an internal
         // address after create-time validation passed.
-        const subRows = await prisma.$queryRawUnsafe(
+        const subRows = await setTenantTx(TENANT_ID, tx => tx.$queryRawUnsafe(
           // Pin is_active TRUE explicitly so the delivery JOIN
           // (s.id = m.subscription_id AND s.is_active) always matches this row,
           // independent of any column default.
-          `INSERT INTO hl7_feed_subscriptions (name, endpoint_url, auth_header, message_types, is_active)
-           VALUES ($1, $2, 'Bearer attacker-controlled', ARRAY['ADT^A01']::text[], TRUE)
+          `INSERT INTO hl7_feed_subscriptions
+             (tenant_id, name, endpoint_url, auth_header, message_types, is_active)
+           VALUES ($1::uuid, $2, $3, 'Bearer attacker-controlled',
+                   ARRAY['ADT^A01']::text[], TRUE)
            RETURNING id`,
-          `${SUB_NAME}-poisoned`, `http://127.0.0.1:${port}/internal`,
-        );
+          TENANT_ID, `${SUB_NAME}-poisoned-${SUFFIX}`, `http://127.0.0.1:${port}/internal`,
+        ));
         const subId = subRows[0].id;
-        const msgRows = await prisma.$queryRawUnsafe(
+        const payload = 'MSH|^~\\&|VH|VH|||20260610||ADT^A01|H4TEST1|P|2.5';
+        const msgRows = await setTenantTx(TENANT_ID, tx => tx.$queryRawUnsafe(
           // Pin status 'queued' + next_attempt_at in the past so the message is
           // unambiguously due for the delivery pass.
           `INSERT INTO hl7_outbound_messages
-             (subscription_id, message_type, message_control_id, hl7_payload, status, next_attempt_at)
-           VALUES ($1, 'ADT^A01', 'H4TEST1', 'MSH|^~\\&|VH|VH|||20260610||ADT^A01|H4TEST1|P|2.5', 'queued', NOW() - INTERVAL '1 second')
+             (tenant_id, subscription_id, message_type, message_control_id,
+              hl7_payload, status, next_attempt_at, source_event_key,
+              payload_sha256)
+           VALUES ($1::uuid, $2::integer, 'ADT^A01', 'H4TEST1', $3::text,
+                   'queued', NOW() - INTERVAL '1 second', $4::text, $5::char(64))
            RETURNING id`,
-          subId,
-        );
+          TENANT_ID, subId, payload, `h4-ssrf:${SUFFIX}`,
+          createHash('sha256').update(payload, 'utf8').digest('hex'),
+        ));
         const msgId = msgRows[0].id;
 
-        // Run the delivery pass until THIS message is processed (its last_error is
-        // recorded). A single pass can intermittently pick up nothing on a busy
-        // shared CI DB; re-calling is safe (the row stays queued + due until
-        // processed) and makes the assertion deterministic instead of racing one
-        // pass. Condition-based wait (superpowers:systematic-debugging).
+        // Run the tenant-scoped delivery pass until this message is held with
+        // durable transport evidence. No automatic retry is authorized.
         let after;
         for (let attempt = 0; attempt < 20; attempt += 1) {
-          await deliverPendingFeedMessages({ limit: 50 });
-          after = await prisma.$queryRawUnsafe(
-            `SELECT status, last_error FROM hl7_outbound_messages WHERE id = $1`, msgId,
-          );
+          await deliverPendingFeedMessages({ limit: 50, tenantId: TENANT_ID });
+          after = await setTenantTx(TENANT_ID, tx => tx.$queryRawUnsafe(
+            `SELECT status, last_error
+               FROM hl7_outbound_messages
+              WHERE tenant_id = $1::uuid AND id = $2::integer`,
+            TENANT_ID, msgId,
+          ));
           if (after[0].last_error) break;
           await new Promise((resolve) => setTimeout(resolve, 25));
         }

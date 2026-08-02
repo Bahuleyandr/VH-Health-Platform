@@ -13,12 +13,12 @@ describe('external interface recovery catalog', () => {
       .toEqual(EXTERNAL_INTERFACE_RECOVERY_FAMILIES);
   });
 
-  it('includes the landed laboratory and C6.1-D notification adapters with explicit scopes', () => {
+  it('includes the landed laboratory, I04, and notification adapters with explicit scopes', () => {
     expect(
       Object.values(EXTERNAL_INTERFACE_RECOVERY_CATALOG)
         .filter((item) => item.implemented)
         .map((item) => item.id),
-    ).toEqual(['I01', 'I02', 'I09', 'I10', 'I15', 'I17']);
+    ).toEqual(['I01', 'I02', 'I04', 'I09', 'I10', 'I15', 'I17']);
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I01' }))
       .toMatchObject({
         id: 'I01',
@@ -34,6 +34,18 @@ describe('external interface recovery catalog', () => {
         defaultEffectDisposition: 'late_pending_only',
         facilityScope: 'tenant',
         duplicateKeyKind: 'tenant_analyzer_canonical_astm_sha256',
+      });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I04' }))
+      .toMatchObject({
+        id: 'I04',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'outbound',
+        cursorKind: 'monotonic_position_and_predecessor',
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_subscription',
+        duplicateKeyKind: 'tenant_subscription_source_event_message_type_payload_sha256',
       });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I09' }))
       .toMatchObject({

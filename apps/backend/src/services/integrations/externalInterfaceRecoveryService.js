@@ -428,6 +428,14 @@ function matchesQueuedItem(row, expected) {
 }
 
 async function persistLateDomain({ tx, capability, config, inbox, tenantId, command }) {
+  if (config.id === 'I04') {
+    const { persistLateHl7OutboundRecovery } = await import('./externalHl7OutboundRecoveryService.js');
+    return persistLateHl7OutboundRecovery({
+      tx, capability, tenantId,
+      recoveryInboxId: inbox.inbox_id,
+      command,
+    });
+  }
   if (config.id === 'I17') {
     const { persistLateNotificationRecovery } = await import('./externalNotificationRecoveryService.js');
     return persistLateNotificationRecovery({
@@ -553,7 +561,9 @@ export async function processNextItemTx({
     const domain = await persistLateDomain({ tx, capability, config, inbox, tenantId: tid, command });
     const evidence = config.id === 'I17'
       ? domain?.receipt
-      : domain?.reading || domain?.observation || domain?.result;
+      : config.id === 'I04'
+        ? domain?.acknowledgement || domain?.authority
+        : domain?.reading || domain?.observation || domain?.result;
     if (!evidence?.id || !domain?.task?.id) {
       throw AppError.internal('Late recovery did not produce domain evidence and pending work', 'EXTERNAL_RECOVERY_PENDING_WORK_MISSING');
     }
@@ -596,6 +606,10 @@ export async function processNextItemTx({
       ...terminal[0], cursor: advanced[0],
       ...(config.id === 'I17'
         ? { receipt_id: String(evidence.id || evidence.receipt_id) }
+        : config.id === 'I04'
+          ? domain?.acknowledgement
+            ? { acknowledgement_id: String(evidence.acknowledgement_id || evidence.id) }
+            : { message_id: String(evidence.id) }
         : config.id === 'I10'
         ? { reading_id: String(evidence.id) }
         : (config.id === 'I01' || config.id === 'I02')

@@ -9,16 +9,25 @@
 // MLLP listeners owner-side terminate into the same bridge — mirroring the
 // B3 inbound pattern.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField, encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
 import { assertSafeFeedUrl, safeFetch } from '../../utils/ssrfGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js';
+import {
+  authorizeOwnerRetry,
+  beginTransportAttempt,
+  claimPendingFeedMessages,
+  reconcileExpiredClaims,
+  recordTransportOutcome,
+  sha256Bytes,
+} from './hl7OutboundDeliveryLedgerService.js';
 
 export const MAX_DELIVERY_ATTEMPTS = 7;
 const REQUEST_TIMEOUT_MS = 10000;
+const MAX_ACK_BODY_BYTES = 64 * 1024;
 const SUPPORTED_TYPES = ['ADT^A01', 'ADT^A03', 'ORM^O01', 'ORU^R01'];
 
 function encryptOptionalSecret(value) {
@@ -45,13 +54,14 @@ function extractControlId(hl7) {
 // ── Subscriptions ──────────────────────────────────────────────────────────
 
 export async function listSubscriptions({ tenantId = null } = {}) {
-  return prisma.$queryRawUnsafe(
+  const tid = requireTenantId(tenantId);
+  return setTenantTx(tid, tx => tx.$queryRawUnsafe(
     `SELECT id, name, endpoint_url, message_types, is_active, last_delivery_at, created_at
        FROM hl7_feed_subscriptions
-      WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
+      WHERE tenant_id = $1::uuid
       ORDER BY id`,
-    tenantId,
-  );
+    tid,
+  ));
 }
 
 export async function createSubscription({
@@ -77,7 +87,7 @@ export async function createSubscription({
       'HL7_FEED_BAD_TYPES',
     );
   }
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
     `INSERT INTO hl7_feed_subscriptions (tenant_id, name, endpoint_url, auth_header, message_types, created_by)
      VALUES ($1::uuid, $2, $3, $4, $5::text[], $6::uuid)
      ON CONFLICT (tenant_id, name) DO UPDATE SET
@@ -88,17 +98,18 @@ export async function createSubscription({
        updated_at = NOW()
      RETURNING id, tenant_id, name, endpoint_url, message_types, is_active, created_at`,
     tenantId, cleanedName, cleanedUrl, encryptOptionalSecret(authHeader), types, context.actorUid || null,
-  );
+  ));
   return rows[0];
 }
 
 export async function deactivateSubscription(id, { tenantId = null } = {}) {
-  const rows = await prisma.$queryRawUnsafe(
+  const tid = requireTenantId(tenantId);
+  const rows = await setTenantTx(tid, tx => tx.$queryRawUnsafe(
     `UPDATE hl7_feed_subscriptions SET is_active = false, updated_at = NOW()
-      WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      WHERE id = $1 AND tenant_id = $2::uuid
       RETURNING id, name, is_active`,
-    id, tenantId,
-  );
+    id, tid,
+  ));
   if (!rows.length) throw AppError.notFound('Subscription not found');
   return rows[0];
 }
@@ -118,18 +129,62 @@ export async function queueFeedMessage({
   if (!hl7Payload || !String(hl7Payload).startsWith('MSH|')) {
     throw AppError.badRequest('hl7_payload must start with an MSH segment', 'HL7_FEED_BAD_PAYLOAD');
   }
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO hl7_outbound_messages
-       (tenant_id, subscription_id, message_type, message_control_id, hl7_payload, source_table, source_id, patient_uid)
-     SELECT s.tenant_id, s.id, $1::text, $2, $3, $4, $5, $6::uuid
-       FROM hl7_feed_subscriptions s
-      WHERE s.is_active AND $1::text = ANY(s.message_types)
-        AND ($7::uuid IS NULL OR s.tenant_id = $7::uuid)
-     RETURNING id`,
-    messageType, extractControlId(hl7Payload), String(hl7Payload),
-    sourceTable, sourceId, patientUid, tenantId,
-  );
-  return rows.length;
+  const tid = requireTenantId(tenantId);
+  const payload = String(hl7Payload);
+  const controlId = extractControlId(payload);
+  if (!controlId) throw AppError.badRequest('MSH-10 message control ID is required', 'HL7_FEED_CONTROL_ID_REQUIRED');
+  const sourceEventKey = sourceTable && sourceId !== null && sourceId !== undefined
+    ? `${String(sourceTable).trim()}:${String(sourceId).trim()}`
+    : `message-control:${controlId}`;
+  const payloadSha256 = sha256Bytes(payload);
+  return setTenantTx(tid, async (tx) => {
+    const subscriptions = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM hl7_feed_subscriptions
+        WHERE tenant_id = $1::uuid AND is_active
+          AND $2::text = ANY(message_types)
+        ORDER BY id`,
+      tid, messageType,
+    );
+    let created = 0;
+    for (const subscription of subscriptions) {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO hl7_outbound_messages
+           (tenant_id, subscription_id, message_type, message_control_id,
+            hl7_payload, source_table, source_id, patient_uid,
+            source_event_key, payload_sha256, ledger_version,
+            status, transport_state, acknowledgement_state, send_authority)
+         VALUES ($1::uuid, $2::integer, $3::text, $4::text, $5::text,
+                 $6::text, $7::text, $8::uuid, $9::text, $10::char(64),
+                 1, 'queued', 'not_attempted', 'pending', 'authorized')
+         ON CONFLICT (tenant_id, subscription_id, source_event_key, message_type)
+         DO NOTHING
+         RETURNING id`,
+        tid, subscription.id, messageType, controlId, payload,
+        sourceTable, sourceId, patientUid, sourceEventKey, payloadSha256,
+      );
+      if (rows.length === 1) {
+        created += 1;
+        continue;
+      }
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT payload_sha256, message_control_id
+           FROM hl7_outbound_messages
+          WHERE tenant_id = $1::uuid AND subscription_id = $2::integer
+            AND source_event_key = $3::text AND message_type = $4::text`,
+        tid, subscription.id, sourceEventKey, messageType,
+      );
+      if (existing.length !== 1
+        || existing[0].payload_sha256 !== payloadSha256
+        || existing[0].message_control_id !== controlId) {
+        throw AppError.conflict(
+          'Outbound HL7 source identity was reused with different bytes or MSH-10',
+          'HL7_OUTBOUND_SOURCE_IDENTITY_CONFLICT',
+        );
+      }
+    }
+    return created;
+  }, { isolationLevel: 'Serializable' });
 }
 
 // ── Emission hooks (Phase 1.5 — never throw into the clinical write) ──────
@@ -269,6 +324,37 @@ export async function emitSignedResultsOru({ resultIds = [], patientUid = null, 
 
 // ── Delivery worker ────────────────────────────────────────────────────────
 
+async function readBoundedResponseBody(response) {
+  const contentLength = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > MAX_ACK_BODY_BYTES) {
+    try { await response.body?.cancel?.(); } catch { /* best effort */ }
+    return Object.freeze({ body: '', tooLarge: true, bytes: contentLength });
+  }
+  if (!response.body?.getReader) {
+    const body = await response.text();
+    const bytes = Buffer.byteLength(body, 'utf8');
+    return Object.freeze({
+      body: bytes <= MAX_ACK_BODY_BYTES ? body : '',
+      tooLarge: bytes > MAX_ACK_BODY_BYTES,
+      bytes,
+    });
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_ACK_BODY_BYTES) {
+      try { await reader.cancel(); } catch { /* best effort */ }
+      return Object.freeze({ body: '', tooLarge: true, bytes: total });
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Object.freeze({ body: Buffer.concat(chunks).toString('utf8'), tooLarge: false, bytes: total });
+}
+
 async function deliverOne(message, subscription) {
   // SSRF guard (audit finding H4): re-validate immediately before EVERY
   // delivery — not just at create time — so a stored-but-unsafe URL (legacy
@@ -282,7 +368,11 @@ async function deliverOne(message, subscription) {
       subscription_id: subscription.subscription_id ?? subscription.id,
       error: guardErr?.message,
     });
-    return { ok: false, error: `SSRF_BLOCKED: ${guardErr?.message || 'unsafe endpoint_url'}` };
+    return Object.freeze({
+      outcome: 'transport_failure',
+      errorCode: `SSRF_BLOCKED: ${guardErr?.message || 'unsafe endpoint_url'}`,
+      evidence: { ssrf_blocked: true },
+    });
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -299,91 +389,104 @@ async function deliverOne(message, subscription) {
       body: message.hl7_payload,
       signal: controller.signal,
     });
-    if (!response.ok) {
-      return { ok: false, error: `HTTP ${response.status}` };
-    }
-    return { ok: true };
+    const responseBody = await readBoundedResponseBody(response);
+    return Object.freeze({
+      outcome: 'http_response',
+      httpStatus: response.status,
+      responseBody: responseBody.body,
+      evidence: {
+        http_ok: response.ok,
+        response_body_bytes: responseBody.bytes,
+        response_body_too_large: responseBody.tooLarge,
+      },
+    });
   } catch (err) {
-    return { ok: false, error: err?.name === 'AbortError' ? 'timeout' : (err?.message || 'network error') };
+    return Object.freeze({
+      outcome: 'transport_failure',
+      errorCode: err?.name === 'AbortError' ? 'timeout' : (err?.message || 'network error'),
+      evidence: { aborted: err?.name === 'AbortError' },
+    });
   } finally {
     clearTimeout(timer);
   }
 }
 
 export async function deliverPendingFeedMessages({ limit = 25, tenantId = null } = {}) {
-  const due = await prisma.$queryRawUnsafe(
-    `SELECT m.id, m.subscription_id, m.hl7_payload, m.attempts, m.message_type,
-            s.endpoint_url, s.auth_header
-       FROM hl7_outbound_messages m
-       JOIN hl7_feed_subscriptions s ON s.id = m.subscription_id AND s.is_active
-      WHERE m.status IN ('queued', 'failed') AND m.next_attempt_at <= NOW()
-        AND ($2::uuid IS NULL OR m.tenant_id = $2::uuid)
-      ORDER BY m.id
-      LIMIT $1::int`,
-    Math.min(Number.parseInt(limit, 10) || 25, 200),
-    tenantId,
-  );
-  const stats = { picked: due.length, sent: 0, failed: 0, dead: 0 };
+  const tid = requireTenantId(tenantId);
+  const expired = await reconcileExpiredClaims({ tenantId: tid, limit });
+  const due = await claimPendingFeedMessages({ tenantId: tid, limit });
+  const stats = {
+    picked: due.length,
+    acknowledged: 0,
+    rejected: 0,
+    uncertain: 0,
+    deferred: 0,
+    expired,
+  };
   for (const message of due) {
-    const outcome = await deliverOne(message, message);
-    if (outcome.ok) {
-      stats.sent += 1;
-      await prisma.$executeRawUnsafe(
-        `UPDATE hl7_outbound_messages SET status = 'sent', sent_at = NOW(), last_error = NULL WHERE id = $1`,
-        message.id,
-      );
-      await prisma.$executeRawUnsafe(
-        `UPDATE hl7_feed_subscriptions SET last_delivery_at = NOW() WHERE id = $1`,
-        message.subscription_id,
-      );
-    } else {
-      const attempts = message.attempts + 1;
-      const dead = attempts >= MAX_DELIVERY_ATTEMPTS;
-      if (dead) stats.dead += 1; else stats.failed += 1;
-      await prisma.$executeRawUnsafe(
-        `UPDATE hl7_outbound_messages SET
-           status = $2, attempts = $3, last_error = $4,
-           next_attempt_at = NOW() + ($5::int * INTERVAL '1 minute')
-         WHERE id = $1`,
-        message.id, dead ? 'dead' : 'failed', attempts, outcome.error,
-        nextAttemptDelayMinutes(attempts),
-      );
+    const attempt = await beginTransportAttempt({
+      tenantId: tid,
+      messageId: message.id,
+      subscriptionId: message.subscription_id,
+      claimToken: message.claim_token,
+      claimGeneration: message.claim_generation,
+      payloadSha256: message.payload_sha256,
+    });
+    if (attempt.state !== 'ready') {
+      stats.deferred += 1;
+      continue;
     }
+    const transport = await deliverOne(message, message);
+    const recorded = await recordTransportOutcome({
+      tenantId: tid,
+      messageId: message.id,
+      claimToken: message.claim_token,
+      claimGeneration: message.claim_generation,
+      attemptId: attempt.attempt_id,
+      transport,
+    });
+    if (recorded.message.acknowledgement_state === 'aa') stats.acknowledged += 1;
+    else if (['ae', 'ar'].includes(recorded.message.acknowledgement_state)) stats.rejected += 1;
+    else stats.uncertain += 1;
   }
   if (stats.picked > 0) logger.info('HL7 outbound delivery pass', stats);
   return stats;
 }
 
 export async function listFeedMessages({ status = null, limit = 50, tenantId = null } = {}) {
+  const tid = requireTenantId(tenantId);
   const params = [];
   let where = '1=1';
   if (status) { params.push(status); where += ` AND m.status = $${params.length}`; }
-  if (tenantId) { params.push(tenantId); where += ` AND m.tenant_id = $${params.length}::uuid`; }
+  params.push(tid); where += ` AND m.tenant_id = $${params.length}::uuid`;
   params.push(Math.min(Number.parseInt(limit, 10) || 50, 200));
-  return prisma.$queryRawUnsafe(
+  return setTenantTx(tid, tx => tx.$queryRawUnsafe(
     `SELECT m.id, m.subscription_id, s.name AS subscription_name, m.message_type,
             m.message_control_id, m.status, m.attempts, m.last_error, m.next_attempt_at,
-            m.sent_at, m.source_table, m.source_id, m.created_at
+            m.sent_at, m.source_table, m.source_id, m.source_event_key,
+            m.payload_sha256, m.transport_state, m.acknowledgement_state,
+            m.send_authority, m.recovery_inbox_id::text, m.created_at
        FROM hl7_outbound_messages m
-       JOIN hl7_feed_subscriptions s ON s.id = m.subscription_id
+       JOIN hl7_feed_subscriptions s
+         ON s.tenant_id = m.tenant_id AND s.id = m.subscription_id
       WHERE ${where}
       ORDER BY m.created_at DESC
       LIMIT $${params.length}::int`,
     ...params,
-  );
+  ));
 }
 
-export async function replayFeedMessage(id, { tenantId = null } = {}) {
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE hl7_outbound_messages SET
-       status = 'queued', attempts = 0, last_error = NULL, next_attempt_at = NOW()
-     WHERE id = $1 AND status IN ('failed', 'dead', 'sent')
-       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
-     RETURNING id, status`,
-    id, tenantId,
-  );
-  if (!rows.length) throw AppError.notFound('Message not found or not replayable');
-  return rows[0];
+export async function replayFeedMessage(id, {
+  tenantId = null,
+  actorUid = null,
+  ownerReason = null,
+} = {}) {
+  return authorizeOwnerRetry({
+    tenantId,
+    messageId: id,
+    actorUid,
+    ownerReason,
+  });
 }
 
 export default {
@@ -400,3 +503,5 @@ export default {
   listFeedMessages,
   replayFeedMessage,
 };
+
+export const __testing__ = Object.freeze({ deliverOne, readBoundedResponseBody });
