@@ -46,7 +46,12 @@ jobs:
 
       - uses: https://github.com/subosito/flutter-action@v2
         with:
-          channel: stable
+          # Pinned to the workspace toolchain (_reusable-flutter-workspace.yml
+          # + ci.yml + the .github release workflows) — bump all together. The
+          # floating `stable` channel tracks whatever Dart ships that week, so
+          # this lane could build a different Flutter than CI validated and, on
+          # the release workflows, ship it.
+          flutter-version: 3.44.0
           cache: true
 
       - name: Resolve release tag

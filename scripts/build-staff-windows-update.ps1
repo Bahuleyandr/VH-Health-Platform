@@ -146,6 +146,25 @@ try {
     throw "dart pub get failed with exit code $LASTEXITCODE"
   }
 
+  # Regenerate the OpenAPI Dart client. packages/vhhealth_core/lib/api/generated/
+  # is gitignored, so it does not exist on a fresh clone — yet the tracked barrel
+  # lib/api/vhhealth_api.dart re-exports it and apps/staff imports generated
+  # symbols, so both the analyze below and msix:publish fail without it. Must run
+  # after `pub get` (build_runner is resolved by it). Same step CI runs as
+  # `melos run codegen`. scripts/codegen.mjs spawns a bare `dart`, so put the
+  # resolved SDK on PATH for the call instead of trusting the operator's PATH.
+  $codegenScript = Join-Path $PSScriptRoot "codegen.mjs"
+  $previousPath = $env:PATH
+  $env:PATH = "$(Split-Path -Parent $dartCommand);$env:PATH"
+  try {
+    & node $codegenScript
+    if ($LASTEXITCODE -ne 0) {
+      throw "scripts/codegen.mjs failed with exit code $LASTEXITCODE"
+    }
+  } finally {
+    $env:PATH = $previousPath
+  }
+
   if (-not $SkipAnalyze.IsPresent) {
     & $flutterCommand analyze --no-fatal-infos
     if ($LASTEXITCODE -ne 0) {

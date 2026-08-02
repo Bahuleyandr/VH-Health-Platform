@@ -210,6 +210,25 @@ Get-Process -Name "vhhealth_staff" -ErrorAction SilentlyContinue | Stop-Process 
 if (-not $SkipBuild.IsPresent) {
   Push-Location $staffDir
   try {
+    # Regenerate the OpenAPI Dart client. packages/vhhealth_core/lib/api/generated/
+    # is gitignored, so it does not exist on a fresh clone — yet the tracked barrel
+    # lib/api/vhhealth_api.dart re-exports it and apps/staff imports generated
+    # symbols, so both the analyze and the windows build below fail without it.
+    # Same step CI runs as `melos run codegen`. scripts/codegen.mjs spawns a bare
+    # `dart`, so put the resolved SDK on PATH for the call instead of trusting the
+    # operator's PATH. Assumes deps are already resolved, as analyze/build do.
+    $codegenScript = Join-Path $PSScriptRoot "codegen.mjs"
+    $previousPath = $env:PATH
+    $env:PATH = "$(Split-Path -Parent $flutterCommand);$env:PATH"
+    try {
+      & node $codegenScript
+      if ($LASTEXITCODE -ne 0) {
+        throw "scripts/codegen.mjs failed with exit code $LASTEXITCODE"
+      }
+    } finally {
+      $env:PATH = $previousPath
+    }
+
     if (-not $SkipAnalyze.IsPresent) {
       & $flutterCommand analyze --no-fatal-infos
       if ($LASTEXITCODE -ne 0) {
