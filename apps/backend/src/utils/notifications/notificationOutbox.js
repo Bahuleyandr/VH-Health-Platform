@@ -1,60 +1,204 @@
-import prisma from '../../lib/prisma.js';
+import { createHash } from 'node:crypto';
+
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 
-// notification_outbox.recipient_id is a TEXT column that may carry either an
-// integer users.id or a uuid users.uid — the delivery path resolves both forms
-// (id::text / uid::text matches in notificationOutboxDelivery.js). Preserve any
-// non-blank identifier verbatim as text; blank / null / unsupported types
-// normalize to NULL (phone-only rows are valid).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CHANNELS = new Set(['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print']);
+
 const toRecipientIdTextOrNull = (value) => {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     return trimmed === '' ? null : trimmed;
   }
-  if (typeof value === 'number') {
-    return Number.isInteger(value) ? String(value) : null;
-  }
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : null;
   if (typeof value === 'bigint') return value.toString();
   return null;
 };
 
-/**
- * Notification outbox — persist notification intent before sending.
- * Failed notifications can be retried by a background job.
- *
- * Usage:
- *   await notificationOutbox.queue({ type: 'push', recipientId: userIdOrUid, title, body, data: {...} });
- *   // Then attempt to send immediately
- *   // If send fails, the outbox entry remains for retry
- */
+function canonicalize(value) {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new TypeError('Notification intent contains a non-finite number');
+    return value;
+  }
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw new TypeError('Notification intent contains an invalid date');
+    return value.toISOString();
+  }
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalize(value[key])]));
+  }
+  throw new TypeError('Notification intent contains an unsupported value');
+}
+
+export function canonicalRenderedIntentBytes(intent) {
+  return Buffer.from(JSON.stringify(canonicalize(intent)), 'utf8');
+}
+
+export function renderedIntentHash(intent) {
+  return createHash('sha256').update(canonicalRenderedIntentBytes(intent)).digest('hex');
+}
+
+function normalizeTenantId(value) {
+  const tenantId = String(value || '').trim().toLowerCase();
+  return UUID_RE.test(tenantId) ? tenantId : null;
+}
+
+function normalizeChannel(notification) {
+  const requested = String(notification.channel || notification.type || 'push').trim().toLowerCase();
+  const channel = requested === 'in_app' ? 'inapp' : requested;
+  if (CHANNELS.has(channel)) return channel;
+  if (notification.recipientPhone && !notification.recipientId) return 'sms';
+  return 'push';
+}
+
+function sha256(value) {
+  return createHash('sha256').update(String(value), 'utf8').digest('hex');
+}
+
+function sourceEventKey(notification, hash) {
+  const data = notification.data || {};
+  const explicit = notification.sourceEventKey
+    || data.source_event_key
+    || data.event_id
+    || data.message_id
+    || data.task_id
+    || data.generation_id
+    || data.campaign_recipient_id;
+  if (explicit !== null && explicit !== undefined && String(explicit).trim()) {
+    return String(explicit).trim().slice(0, 255);
+  }
+  return `direct:${hash.slice(0, 64)}`;
+}
+
+function recipientKey(recipientId, recipientPhone, sourceKey) {
+  if (recipientId) return `id:${recipientId}`.slice(0, 320);
+  if (recipientPhone) return `phone-sha256:${sha256(recipientPhone)}`;
+  return `broadcast:${sourceKey}`.slice(0, 320);
+}
+
+function templateVersion(notification) {
+  const data = notification.data || {};
+  const value = notification.templateVersion || data.template_version || `${notification.type || 'push'}.v1`;
+  return String(value).trim().slice(0, 80) || 'push.v1';
+}
+
+async function resolveTenantId(notification, db) {
+  const data = notification.data || {};
+  const explicit = normalizeTenantId(notification.tenantId || notification.tenant_id);
+  const contextual = normalizeTenantId(getCurrentTenantId());
+  const payload = normalizeTenantId(data.tenantId || data.tenant_id);
+  const selected = explicit || contextual || payload;
+  if (selected) return selected;
+
+  const recipientId = toRecipientIdTextOrNull(notification.recipientId);
+  const phone = String(notification.recipientPhone || '').trim();
+  if (!recipientId && !phone) return null;
+  try {
+    const rows = await db.$queryRawUnsafe(
+      `SELECT tenant_id::text
+         FROM users
+        WHERE ($1::text IS NOT NULL AND (id::text = $1::text OR uid::text = $1::text))
+           OR ($2::text <> '' AND phone = $2::text)
+        ORDER BY CASE WHEN id::text = $1::text OR uid::text = $1::text THEN 0 ELSE 1 END
+        LIMIT 2`,
+      recipientId, phone,
+    );
+    const tenants = [...new Set(rows.map(row => normalizeTenantId(row.tenant_id)).filter(Boolean))];
+    return tenants.length === 1 ? tenants[0] : null;
+  } catch (err) {
+    logger.warn('Notification outbox tenant resolution failed:', err.message);
+    return null;
+  }
+}
+
+function buildIntent(notification) {
+  const recipientId = toRecipientIdTextOrNull(notification.recipientId);
+  const recipientPhone = String(notification.recipientPhone || '').trim() || null;
+  const channel = normalizeChannel(notification);
+  const version = templateVersion(notification);
+  const data = canonicalize(notification.data || {});
+  const hashInput = {
+    type: String(notification.type || channel),
+    channel,
+    recipient_id: recipientId,
+    recipient_phone: recipientPhone,
+    template_version: version,
+    title: String(notification.title || ''),
+    body: String(notification.body || ''),
+    payload: data,
+  };
+  const hash = renderedIntentHash(hashInput);
+  const sourceKey = sourceEventKey(notification, hash);
+  return Object.freeze({
+    type: hashInput.type,
+    recipientId,
+    recipientPhone,
+    title: hashInput.title,
+    body: hashInput.body,
+    data,
+    channel,
+    sourceKey,
+    recipientKey: recipientKey(recipientId, recipientPhone, sourceKey),
+    templateVersion: version,
+    renderedIntentHash: hash,
+    renderedIntentBytes: canonicalRenderedIntentBytes(hashInput),
+  });
+}
+
+async function queueTx(db, tenantId, intent) {
+  const rows = await db.$queryRawUnsafe(
+    `WITH inserted AS (
+       INSERT INTO notification_outbox
+         (tenant_id, type, recipient_id, recipient_phone, title, body, payload,
+          status, created_at, channel, source_event_key, recipient_key,
+          template_version, rendered_intent_hash, ledger_version)
+       VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::text,
+               $7::jsonb, 'PENDING', NOW(), $8::text, $9::text, $10::text,
+               $11::text, $12::char(64), 1)
+       ON CONFLICT ON CONSTRAINT ux_notification_outbox_delivery_intent DO NOTHING
+       RETURNING id, status, tenant_id::text, channel, source_event_key,
+                 recipient_key, template_version, rendered_intent_hash, false AS duplicate
+     )
+     SELECT * FROM inserted
+     UNION ALL
+     SELECT id, status, tenant_id::text, channel, source_event_key,
+            recipient_key, template_version, rendered_intent_hash, true AS duplicate
+       FROM notification_outbox
+      WHERE tenant_id = $1::uuid AND source_event_key = $9::text
+        AND recipient_key = $10::text AND channel = $8::text
+        AND template_version = $11::text AND rendered_intent_hash = $12::char(64)
+        AND NOT EXISTS (SELECT 1 FROM inserted)
+     LIMIT 1`,
+    tenantId, intent.type, intent.recipientId, intent.recipientPhone,
+    intent.title, intent.body, JSON.stringify(intent.data), intent.channel,
+    intent.sourceKey, intent.recipientKey, intent.templateVersion, intent.renderedIntentHash,
+  );
+  return rows[0] || null;
+}
+
 class NotificationOutbox {
-  /**
-   * Queue a notification for delivery.
-   * @param {Object} notification - { type: 'push'|'sms'|'email', recipientId, recipientPhone, title, body, data, channel }
-   *   `recipientId` accepts an integer users.id or a uuid users.uid and is
-   *   persisted as text; blank/null normalizes to NULL.
-   * @returns {Object} The queued notification record
-   */
   async queue(notification, { tx = null, strict = false } = {}) {
     try {
-      const recipientId = toRecipientIdTextOrNull(notification.recipientId);
-      const db = tx || prisma;
-
-      const result = await db.$queryRawUnsafe(
-        `INSERT INTO notification_outbox
-          (type, recipient_id, recipient_phone, title, body, payload, status, created_at)
-         VALUES ($1, $2::text, $3, $4, $5, $6::jsonb, 'PENDING', NOW())
-         RETURNING id, status`,
-
-          notification.type || 'push',
-          recipientId,
-          notification.recipientPhone || null,
-          notification.title || '',
-          notification.body || '',
-          JSON.stringify(notification.data || {}),
-
-      );
-      return result[0];
+      const intent = buildIntent(notification || {});
+      const tenantId = await resolveTenantId(notification || {}, tx || prisma);
+      if (!tenantId) throw new Error('Notification outbox requires one explicit tenant');
+      if (tx) {
+        const contexts = await tx.$queryRawUnsafe(
+          `SELECT NULLIF(current_setting('app.current_tenant_id', true), '') AS tenant_id`,
+        );
+        if (contexts[0]?.tenant_id !== tenantId) {
+          throw new Error('Notification outbox transaction tenant does not match intent tenant');
+        }
+        return await queueTx(tx, tenantId, intent);
+      }
+      return await setTenantTx(tenantId, db => queueTx(db, tenantId, intent), {
+        isolationLevel: 'Serializable',
+      });
     } catch (err) {
       if (strict) throw err;
       logger.warn('Notification outbox queue failed:', err.message);
@@ -62,111 +206,159 @@ class NotificationOutbox {
     }
   }
 
-  /**
-   * Mark a notification as sent.
-   */
-  async markSent(outboxId) {
-    try {
-      await prisma.$queryRawUnsafe(
+  async claimPendingBatch({ tenantId, limit = 50, leaseSeconds = 120 } = {}) {
+    const tid = normalizeTenantId(tenantId || getCurrentTenantId());
+    if (!tid) throw new Error('Notification outbox claim requires tenantId');
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 250);
+    const safeLeaseSeconds = Math.min(Math.max(Number(leaseSeconds) || 120, 30), 900);
+    return setTenantTx(tid, tx => tx.$queryRawUnsafe(
+      `WITH candidates AS (
+         SELECT outbox.id
+           FROM notification_outbox AS outbox
+          WHERE outbox.tenant_id = $1::uuid
+            AND outbox.status IN ('PENDING', 'FAILED')
+            AND outbox.retry_count < 3
+            AND (outbox.last_attempt_at IS NULL
+              OR outbox.last_attempt_at < NOW() - INTERVAL '5 minutes')
+            AND NOT EXISTS (
+              SELECT 1 FROM notification_delivery_cursors AS cursor
+               WHERE cursor.tenant_id = outbox.tenant_id
+                 AND cursor.channel = outbox.channel
+                 AND cursor.state IN ('delivering', 'paused_rejected', 'paused_uncertain')
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM notification_outbox AS earlier
+               WHERE earlier.tenant_id = outbox.tenant_id
+                 AND earlier.channel = outbox.channel
+                 AND earlier.ledger_version = 1 AND earlier.id < outbox.id
+                 AND earlier.status NOT IN ('SENT', 'SUPPRESSED')
+                 AND NOT EXISTS (
+                   SELECT 1 FROM notification_provider_receipts AS resolved
+                    WHERE resolved.tenant_id = earlier.tenant_id
+                      AND resolved.notification_outbox_id = earlier.id
+                      AND resolved.channel = earlier.channel
+                      AND resolved.outcome = 'acknowledged'
+                 )
+            )
+          ORDER BY outbox.id
+          LIMIT $2::integer
+          FOR UPDATE OF outbox SKIP LOCKED
+       )
+       UPDATE notification_outbox AS outbox
+          SET status = 'CLAIMED', claim_token = gen_random_uuid(),
+              claim_generation = outbox.claim_generation + 1,
+              claimed_at = NOW(),
+              lease_expires_at = NOW() + make_interval(secs => $3::integer),
+              failure_reason = NULL
+         FROM candidates
+        WHERE outbox.tenant_id = $1::uuid AND outbox.id = candidates.id
+        RETURNING outbox.id, outbox.tenant_id::text, outbox.type,
+                  outbox.recipient_id, outbox.recipient_phone, outbox.title,
+                  outbox.body, outbox.payload, outbox.retry_count, outbox.channel,
+                  outbox.source_event_key, outbox.recipient_key,
+                  outbox.template_version, outbox.rendered_intent_hash,
+                  outbox.claim_token::text, outbox.claim_generation,
+                  outbox.claimed_at, outbox.lease_expires_at`,
+      tid, safeLimit, safeLeaseSeconds,
+    ), { isolationLevel: 'Serializable' });
+  }
+
+  async markSent(outboxId, { tenantId, claimToken, claimGeneration } = {}) {
+    return this.#finalizeClaim(outboxId, {
+      tenantId, claimToken, claimGeneration, status: 'SENT', reason: null,
+    });
+  }
+
+  async markFailed(outboxId, reason, { tenantId, claimToken, claimGeneration } = {}) {
+    return this.#finalizeClaim(outboxId, {
+      tenantId,
+      claimToken,
+      claimGeneration,
+      status: 'FAILED',
+      reason: String(reason || 'provider_rejected').slice(0, 500),
+    });
+  }
+
+  async markReconciliationRequired(outboxId, reason, { tenantId, claimToken, claimGeneration } = {}) {
+    return this.#finalizeClaim(outboxId, {
+      tenantId,
+      claimToken,
+      claimGeneration,
+      status: 'RECONCILIATION_REQUIRED',
+      reason: String(reason || 'provider_state_uncertain').slice(0, 500),
+    });
+  }
+
+  async releaseClaim(outboxId, reason, { tenantId, claimToken, claimGeneration } = {}) {
+    return this.#finalizeClaim(outboxId, {
+      tenantId,
+      claimToken,
+      claimGeneration,
+      status: 'PENDING',
+      reason: String(reason || 'delivery_deferred').slice(0, 500),
+      incrementRetry: false,
+    });
+  }
+
+  async suppressLate(outboxId, { tenantId } = {}) {
+    const tid = normalizeTenantId(tenantId || getCurrentTenantId());
+    if (!tid) throw new Error('Notification suppression requires tenantId');
+    return setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
         `UPDATE notification_outbox
-         SET status = 'SENT',
-             sent_at = NOW(),
-             last_attempt_at = NOW()
-         WHERE id = $1`,
-        outboxId
+            SET status = 'SUPPRESSED', failure_reason = 'late_recovery_suppressed',
+                last_attempt_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::integer
+            AND status IN ('PENDING', 'FAILED')
+          RETURNING id, status`,
+        tid, Number(outboxId),
       );
-    } catch (err) {
-      logger.warn('Failed to mark outbox entry as sent:', err.message);
-    }
+      return rows[0] || null;
+    });
   }
 
-  /**
-   * Mark a notification as failed with reason.
-   */
-  async markFailed(outboxId, reason) {
-    try {
-      await prisma.$queryRawUnsafe(
+  async #finalizeClaim(outboxId, {
+    tenantId,
+    claimToken,
+    claimGeneration,
+    status,
+    reason,
+    incrementRetry = status === 'FAILED',
+  }) {
+    const tid = normalizeTenantId(tenantId || getCurrentTenantId());
+    if (!tid || !claimToken || !Number.isSafeInteger(Number(claimGeneration))) {
+      throw new Error('Notification finalization requires the exact tenant claim fence');
+    }
+    return setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
         `UPDATE notification_outbox
-         SET status = 'FAILED',
-             failure_reason = $2,
-             retry_count = retry_count + 1,
-             last_attempt_at = NOW()
-         WHERE id = $1`,
-        outboxId, reason
+            SET status = $5::text, claim_token = NULL, claimed_at = NULL,
+                lease_expires_at = NULL, last_attempt_at = NOW(),
+                sent_at = CASE WHEN $5::text = 'SENT' THEN NOW() ELSE sent_at END,
+                retry_count = retry_count + CASE WHEN $7::boolean THEN 1 ELSE 0 END,
+                failure_reason = $6::text
+          WHERE tenant_id = $1::uuid AND id = $2::integer
+            AND status = 'CLAIMED' AND claim_token = $3::uuid
+            AND claim_generation = $4::integer
+          RETURNING id, status, retry_count, sent_at`,
+        tid, Number(outboxId), claimToken, Number(claimGeneration),
+        status, reason, incrementRetry,
       );
-    } catch (err) {
-      logger.warn('Failed to mark outbox entry as failed:', err.message);
-    }
-  }
-
-  /**
-   * Get pending notifications for retry.
-   * @param {number} limit - Max notifications to fetch
-   * @returns {Array} Pending notifications
-   */
-  async getPendingForRetry(limit = 50) {
-    try {
-      const result = await prisma.$queryRawUnsafe(
-        `SELECT id, type, recipient_id, recipient_phone, title, body, payload, retry_count
-         FROM notification_outbox
-         WHERE status IN ('PENDING', 'FAILED')
-           AND retry_count < 3
-           AND (last_attempt_at IS NULL OR last_attempt_at < NOW() - INTERVAL '5 minutes')
-         ORDER BY created_at ASC
-         LIMIT $1`,
-        limit
-      );
-      return result;
-    } catch (err) {
-      logger.warn('Failed to fetch pending notifications:', err.message);
-      return [];
-    }
-  }
-
-  /**
-   * Atomically claim a batch of due outbox rows for draining.
-   *
-   * Uses `FOR UPDATE SKIP LOCKED` inside a transaction so that concurrent
-   * drain runners (multiple cluster workers / replicas) never pick the same
-   * row — each claimer locks a disjoint slice and the rest skip past locked
-   * rows instead of blocking. The drain cron is ALSO guarded by a
-   * cross-process advisory lock (withJobLock), so in practice one runner wins
-   * per tick; SKIP LOCKED is the belt-and-braces against any overlap window.
-   *
-   * Eligibility mirrors getPendingForRetry: still PENDING/FAILED, under the
-   * retry cap, and either never attempted or past the 5-minute backoff floor.
-   * Rows are returned to the caller still inside the open transaction's lock;
-   * the lock releases when this method's transaction commits. We do not hold
-   * the lock across the network send — we read, release, then send + mark by
-   * id. That trades a (tiny) double-send risk under true concurrency for not
-   * holding row locks across slow FCM/SMS calls; SKIP LOCKED + the advisory
-   * lock keep that window effectively closed.
-   *
-   * @param {number} limit Max rows to claim.
-   * @returns {Array} Claimed outbox rows.
-   */
-  async claimPendingBatch(limit = 50) {
-    try {
-      const rows = await prisma.$transaction(async (tx) => {
-        return tx.$queryRawUnsafe(
-          `SELECT id, type, recipient_id, recipient_phone, title, body, payload, retry_count
-             FROM notification_outbox
-            WHERE status IN ('PENDING', 'FAILED')
-              AND retry_count < 3
-              AND (last_attempt_at IS NULL OR last_attempt_at < NOW() - INTERVAL '5 minutes')
-            ORDER BY created_at ASC
-            LIMIT $1
-            FOR UPDATE SKIP LOCKED`,
-          limit
-        );
-      });
-      return rows;
-    } catch (err) {
-      logger.warn('Failed to claim outbox batch:', err.message);
-      return [];
-    }
+      if (rows.length !== 1) throw new Error('Notification claim fence was lost');
+      return rows[0];
+    });
   }
 }
+
+export const __testing__ = Object.freeze({
+  canonicalize,
+  normalizeTenantId,
+  normalizeChannel,
+  sourceEventKey,
+  recipientKey,
+  templateVersion,
+  buildIntent,
+});
 
 export const notificationOutbox = new NotificationOutbox();
 export default notificationOutbox;

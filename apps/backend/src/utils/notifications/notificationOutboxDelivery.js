@@ -1,5 +1,11 @@
 import prisma, { setTenant } from '../../lib/prisma.js';
+import { runInTenantContext } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
+import {
+  applyProviderReceiptToCursor,
+  beginProviderAttempts,
+  recordProviderReceipt,
+} from '../../services/notification/notificationDeliveryLedgerService.js';
 import { getTenantSettings } from '../../services/tenant/tenantSettingsService.js';
 import { sendSMS } from '../../services/smsService.js';
 import { dispatch } from './notificationDispatcher.js';
@@ -89,6 +95,8 @@ export async function resolveRecipientTokens(recipientId, explicitTenantId = nul
 }
 
 export async function resolveTenantIdForOutboxRow(row) {
+  const rowTenantId = normalizeTenantId(row?.tenant_id || row?.tenantId);
+  if (rowTenantId) return rowTenantId;
   const payload = payloadObject(row);
   const payloadTenantId = normalizeTenantId(payload.tenant_id || payload.tenantId);
   if (payloadTenantId) return payloadTenantId;
@@ -217,52 +225,178 @@ export async function deliverLegacyOutboxRow(row) {
   return { channels };
 }
 
+function rejected(providerCode, evidence = {}) {
+  return { outcome: 'rejected', providerReference: null, providerCode, evidence };
+}
+
+function uncertain(providerCode, err) {
+  return {
+    outcome: 'uncertain',
+    providerReference: null,
+    providerCode,
+    evidence: { message: String(err?.message || err || providerCode).slice(0, 500) },
+  };
+}
+
+async function deliverLegacyWithProviderReceipt(row, channels, tenantId) {
+  const results = {};
+  for (const channel of channels) {
+    if (channel === 'sms') {
+      results.sms = row.recipient_phone
+        ? rejected('sms_gateway_not_configured')
+        : rejected('phone_missing');
+      continue;
+    }
+    if (channel !== 'push') {
+      results[channel] = rejected(`${channel}_provider_not_configured`);
+      continue;
+    }
+    try {
+      const tokens = await resolveRecipientTokens(row.recipient_id, tenantId);
+      if (tokens.length === 0) {
+        results.push = rejected('fcm_token_missing');
+        continue;
+      }
+      const response = await sendPushNotification({
+        tokens,
+        title: row.title || '',
+        body: row.body || '',
+        data: payloadObject(row),
+        userId: row.recipient_id || null,
+      });
+      const accepted = response.responses?.filter(item => item.success) || [];
+      results.push = response.successCount > 0
+        ? {
+            outcome: 'acknowledged',
+            providerReference: accepted[0]?.messageId || `fcm-accepted:${response.successCount}`,
+            providerCode: response.failureCount > 0 ? 'partial_acceptance' : 'accepted',
+            evidence: {
+              success_count: response.successCount,
+              failure_count: response.failureCount,
+              responses: response.responses || [],
+            },
+          }
+        : rejected('fcm_no_token_accepted', {
+            success_count: response.successCount,
+            failure_count: response.failureCount,
+            responses: response.responses || [],
+          });
+    } catch (err) {
+      results.push = uncertain(err.code || 'fcm_transport_failure', err);
+    }
+  }
+  return results;
+}
+
 export async function deliverNotificationOutboxRow(row) {
   const decision = await resolveChannelDecision(row);
+  if (!decision.tenantId) throw new Error('notification outbox row has no tenant provenance');
 
-  if (decision.source === 'tenant') {
+  const attempts = await beginProviderAttempts({
+    tenantId: decision.tenantId,
+    outboxId: row.id,
+    claimToken: row.claim_token,
+    claimGeneration: row.claim_generation,
+    renderedIntentHash: row.rendered_intent_hash,
+    channels: decision.channels,
+  });
+  const pendingAttempts = attempts.filter(attempt => attempt.state === 'ready');
+  const providerResults = {};
+
+  for (const attempt of attempts) {
+    if (attempt.state === 'acknowledged') {
+      providerResults[attempt.channel] = {
+        outcome: 'acknowledged',
+        providerReference: attempt.receiptId,
+        providerCode: 'previously_accepted',
+        evidence: {},
+      };
+    }
+  }
+
+  if (pendingAttempts.length > 0 && decision.source === 'tenant') {
     const userId = row.recipient_id !== null && row.recipient_id !== undefined && row.recipient_id !== ''
       ? String(row.recipient_id)
       : String(row.recipient_phone || '').trim();
     if (!userId) throw new Error('dispatcher outbox row has no recipient_id or recipient_phone');
 
-    const dryRun = forceDryRunProviders(decision.channels);
+    const pendingChannels = pendingAttempts.map(attempt => attempt.channel);
+    const dryRun = forceDryRunProviders(pendingChannels);
     if (dryRun.dryRunChannels.length > 0) {
-      logger.info('notification-outbox-drain: dry-run channel fan-out', {
+      logger.info('notification-outbox-drain: provider unavailable for durable delivery', {
         outbox_id: row.id,
         tenant_id: decision.tenantId,
         type: row.type,
-        dry_run_channels: dryRun.dryRunChannels,
+        unavailable_channels: dryRun.dryRunChannels,
       });
     }
-
     try {
-      await dispatch({
+      Object.assign(providerResults, await runInTenantContext(decision.tenantId, () => dispatch({
         userId,
         title: row.title || '',
         body: row.body || '',
-        channels: decision.channels,
+        channels: pendingChannels,
         data: payloadObject(row),
         type: row.type || 'general',
-      });
+        providerReceiptMode: true,
+      })));
     } finally {
       dryRun.restore();
     }
-
-    return {
-      mode: 'dispatcher',
-      channels: decision.channels,
-      preferenceKey: decision.preferenceKey,
-      tenantId: decision.tenantId,
-    };
+  } else if (pendingAttempts.length > 0) {
+    Object.assign(providerResults, await deliverLegacyWithProviderReceipt(
+      row,
+      pendingAttempts.map(attempt => attempt.channel),
+      decision.tenantId,
+    ));
   }
 
-  await deliverLegacyOutboxRow(row);
+  const receipts = [];
+  for (const attempt of pendingAttempts) {
+    const result = providerResults[attempt.channel]
+      || uncertain('provider_result_missing', new Error('Provider returned no delivery result'));
+    const receipt = await recordProviderReceipt({
+      tenantId: decision.tenantId,
+      attemptId: attempt.attempt_id,
+      outboxId: row.id,
+      channel: attempt.channel,
+      outcome: result.outcome,
+      receiptSource: result.outcome === 'uncertain' ? 'transport_failure' : 'provider_response',
+      providerReference: result.providerReference || null,
+      providerCode: result.providerCode || null,
+      evidence: result.evidence || {},
+    });
+    receipts.push(receipt);
+  }
+
+  for (const receipt of receipts) {
+    await applyProviderReceiptToCursor({
+      tenantId: decision.tenantId,
+      receiptId: receipt.receipt_id,
+    });
+  }
+
+  const blocked = attempts.filter(attempt => attempt.state === 'blocked');
+  const outcomes = [
+    ...Object.values(providerResults).map(result => result.outcome),
+    ...blocked.map(() => 'deferred'),
+  ];
+  const outcome = outcomes.includes('uncertain')
+    ? 'uncertain'
+    : outcomes.includes('rejected')
+      ? 'rejected'
+      : outcomes.includes('deferred')
+        ? 'deferred'
+        : 'acknowledged';
+
   return {
-    mode: 'legacy',
+    mode: decision.source === 'tenant' ? 'dispatcher' : 'legacy',
     channels: decision.channels,
     preferenceKey: decision.preferenceKey,
     tenantId: decision.tenantId,
+    outcome,
+    attempts,
+    receipts,
   };
 }
 

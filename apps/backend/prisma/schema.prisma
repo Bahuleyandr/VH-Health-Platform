@@ -6941,33 +6941,50 @@ model notification_delivery_log {
 }
 
 model notification_outbox {
-  id                                      Int                                       @id @default(autoincrement())
-  type                                    String
-  recipient_id                            String?
-  recipient_phone                         String?
-  title                                   String
-  body                                    String
-  payload                                 Json?
-  status                                  String                                    @default("PENDING")
-  retry_count                             Int                                       @default(0)
-  failure_reason                          String?
-  last_attempt_at                         DateTime?
-  sent_at                                 DateTime?
-  created_at                              DateTime                                  @default(now())
-  tenant_id                               String                                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  analytics_exec_digest_deliveries        analytics_exec_digest_deliveries[]
-  diagnostic_result_patient_notifications diagnostic_result_patient_notifications[]
-  discharge_pending_result_handoffs       discharge_pending_result_handoffs[]
-  engagement_campaign_recipients          engagement_campaign_recipients[]
-  tenants                                 tenants                                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_outbox_tenant")
-  referral_patient_notifications          referral_patient_notifications[]
-  stemi_team_notifications                stemi_team_notifications[]
+  id                                                                                                                   Int                                       @id @default(autoincrement())
+  type                                                                                                                 String
+  recipient_id                                                                                                         String?
+  recipient_phone                                                                                                      String?
+  title                                                                                                                String
+  body                                                                                                                 String
+  payload                                                                                                              Json?
+  status                                                                                                               String                                    @default("PENDING")
+  retry_count                                                                                                          Int                                       @default(0)
+  failure_reason                                                                                                       String?
+  last_attempt_at                                                                                                      DateTime?
+  sent_at                                                                                                              DateTime?
+  created_at                                                                                                           DateTime                                  @default(now())
+  tenant_id                                                                                                            String                                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  channel                                                                                                              String                                    @db.VarChar(32)
+  source_event_key                                                                                                     String                                    @db.VarChar(255)
+  recipient_key                                                                                                        String                                    @db.VarChar(320)
+  template_version                                                                                                     String                                    @db.VarChar(80)
+  rendered_intent_hash                                                                                                 String                                    @db.Char(64)
+  ledger_version                                                                                                       Int                                       @default(1) @db.SmallInt
+  claim_token                                                                                                          String?                                   @db.Uuid
+  claim_generation                                                                                                     Int                                       @default(0)
+  claimed_at                                                                                                           DateTime?                                 @db.Timestamptz(6)
+  lease_expires_at                                                                                                     DateTime?                                 @db.Timestamptz(6)
+  analytics_exec_digest_deliveries                                                                                     analytics_exec_digest_deliveries[]
+  diagnostic_result_patient_notifications                                                                              diagnostic_result_patient_notifications[]
+  discharge_pending_result_handoffs                                                                                    discharge_pending_result_handoffs[]
+  engagement_campaign_recipients                                                                                       engagement_campaign_recipients[]
+  notification_delivery_attempts                                                                                       notification_delivery_attempts[]
+  notification_delivery_cursors_notification_delivery_cursors_tenant_id_blocked_outbox_idTonotification_outbox         notification_delivery_cursors[]           @relation("notification_delivery_cursors_tenant_id_blocked_outbox_idTonotification_outbox")
+  notification_delivery_cursors_notification_delivery_cursors_tenant_id_inflight_outbox_idTonotification_outbox        notification_delivery_cursors[]           @relation("notification_delivery_cursors_tenant_id_inflight_outbox_idTonotification_outbox")
+  notification_delivery_cursors_notification_delivery_cursors_tenant_id_last_contiguous_outbox_idTonotification_outbox notification_delivery_cursors[]           @relation("notification_delivery_cursors_tenant_id_last_contiguous_outbox_idTonotification_outbox")
+  tenants                                                                                                              tenants                                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notification_outbox_tenant")
+  referral_patient_notifications                                                                                       referral_patient_notifications[]
+  stemi_team_notifications                                                                                             stemi_team_notifications[]
 
   @@unique([tenant_id, id], map: "ux_notification_outbox_tenant_id")
+  @@unique([tenant_id, source_event_key, recipient_key, channel, template_version, rendered_intent_hash], map: "ux_notification_outbox_delivery_intent")
   @@index([created_at])
   @@index([status, retry_count])
   @@index([status, last_attempt_at], map: "notification_outbox_drain_idx", where: raw("(status = ANY (ARRAY['PENDING'::text, 'FAILED'::text]))"))
   @@index([tenant_id], map: "idx_notification_outbox_tenant_id")
+  @@index([tenant_id, channel, status, last_attempt_at, id], map: "idx_notification_outbox_claim_due", where: raw("(status = ANY (ARRAY['PENDING'::text, 'FAILED'::text]))"))
+  @@index([tenant_id, lease_expires_at, id], map: "idx_notification_outbox_expired_claim", where: raw("(status = 'CLAIMED'::text)"))
 }
 
 model notification_templates {
@@ -10392,6 +10409,7 @@ model tenants {
   nicu_respiratory_support_observations       nicu_respiratory_support_observations[]
   nicu_thermal_environment_observations       nicu_thermal_environment_observations[]
   note_drafts                                 note_drafts[]
+  notification_delivery_cursors               notification_delivery_cursors[]
   notification_delivery_log                   notification_delivery_log[]
   notification_events                         notification_events[]
   notification_outbox                         notification_outbox[]
@@ -24551,50 +24569,51 @@ model cath_consumables_billing_settings {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pathway_projector_inbox {
-  tenant_id               String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  consumer_key            String                   @db.VarChar(120)
-  generation              Int
-  event_id                BigInt?
-  status                  String                   @default("pending") @db.VarChar(20)
-  attempts                Int                      @default(0)
-  lease_owner             String?                  @db.Uuid
-  lease_expires_at        DateTime?                @db.Timestamptz(6)
-  next_attempt_at         DateTime                 @default(now()) @db.Timestamptz(6)
-  last_error              String?
-  outcome_at              DateTime?                @db.Timestamptz(6)
-  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
-  inbox_id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  scope_kind              String                   @default("pathway_registry") @db.VarChar(32)
-  offset_id               String?                  @db.Uuid
-  facility_id             Int?
-  interface_family        String?                  @db.VarChar(8)
-  direction               String?                  @db.VarChar(16)
-  source_partition        String?                  @db.VarChar(160)
-  source_position         BigInt?
-  source_token            String?                  @db.VarChar(255)
-  predecessor_token       String?                  @db.VarChar(255)
-  duplicate_key           String?                  @db.VarChar(255)
-  command_fingerprint     String?                  @db.Char(64)
-  occurred_at             DateTime?                @db.Timestamptz(6)
-  received_at             DateTime?                @db.Timestamptz(6)
-  recorded_at             DateTime?                @db.Timestamptz(6)
-  arrival_class           String?                  @db.VarChar(32)
-  effect_disposition      String?                  @db.VarChar(32)
-  outcome_code            String?                  @db.VarChar(80)
-  pending_task_id         Int?
-  policy_version          String?                  @db.VarChar(80)
-  policy_signature        String?                  @db.VarChar(128)
-  retention_policy        String?                  @db.VarChar(80)
-  retention_until         DateTime?                @db.Timestamptz(6)
-  cold_chain_readings     cold_chain_readings[]
-  event_outbox            event_outbox[]
-  lab_interface_messages  lab_interface_messages?
-  lab_oru_ingest_messages lab_oru_ingest_messages?
-  facilities              facilities?              @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
-  event_consumer_offsets  event_consumer_offsets?  @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")
-  tasks                   tasks?                   @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_pending_task")
-  tenants                 tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
-  vitals_chart            vitals_chart?
+  tenant_id                      String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consumer_key                   String                           @db.VarChar(120)
+  generation                     Int
+  event_id                       BigInt?
+  status                         String                           @default("pending") @db.VarChar(20)
+  attempts                       Int                              @default(0)
+  lease_owner                    String?                          @db.Uuid
+  lease_expires_at               DateTime?                        @db.Timestamptz(6)
+  next_attempt_at                DateTime                         @default(now()) @db.Timestamptz(6)
+  last_error                     String?
+  outcome_at                     DateTime?                        @db.Timestamptz(6)
+  created_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  inbox_id                       String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scope_kind                     String                           @default("pathway_registry") @db.VarChar(32)
+  offset_id                      String?                          @db.Uuid
+  facility_id                    Int?
+  interface_family               String?                          @db.VarChar(8)
+  direction                      String?                          @db.VarChar(16)
+  source_partition               String?                          @db.VarChar(160)
+  source_position                BigInt?
+  source_token                   String?                          @db.VarChar(255)
+  predecessor_token              String?                          @db.VarChar(255)
+  duplicate_key                  String?                          @db.VarChar(255)
+  command_fingerprint            String?                          @db.Char(64)
+  occurred_at                    DateTime?                        @db.Timestamptz(6)
+  received_at                    DateTime?                        @db.Timestamptz(6)
+  recorded_at                    DateTime?                        @db.Timestamptz(6)
+  arrival_class                  String?                          @db.VarChar(32)
+  effect_disposition             String?                          @db.VarChar(32)
+  outcome_code                   String?                          @db.VarChar(80)
+  pending_task_id                Int?
+  policy_version                 String?                          @db.VarChar(80)
+  policy_signature               String?                          @db.VarChar(128)
+  retention_policy               String?                          @db.VarChar(80)
+  retention_until                DateTime?                        @db.Timestamptz(6)
+  cold_chain_readings            cold_chain_readings[]
+  event_outbox                   event_outbox[]
+  lab_interface_messages         lab_interface_messages?
+  lab_oru_ingest_messages        lab_oru_ingest_messages?
+  notification_provider_receipts notification_provider_receipts[]
+  facilities                     facilities?                      @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
+  event_consumer_offsets         event_consumer_offsets?          @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")
+  tasks                          tasks?                           @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_pending_task")
+  tenants                        tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
+  vitals_chart                   vitals_chart?
 
   @@unique([tenant_id, interface_family, direction, source_partition, duplicate_key], map: "uq_pathway_projector_inbox_external_duplicate", where: raw("((scope_kind)::text = 'external_interface'::text)"))
   @@unique([tenant_id, offset_id, generation, source_position], map: "uq_pathway_projector_inbox_external_position", where: raw("((scope_kind)::text = 'external_interface'::text)"))
@@ -26205,6 +26224,73 @@ model clinical_continuity_temporary_identities {
   @@unique([tenant_id, facility_id, incident_id, paper_item_id], map: "uq_cc_temp_identity_paper")
   @@unique([tenant_id, facility_id, id], map: "uq_cc_temp_identity_scope_id")
   @@unique([tenant_id, facility_id, incident_id, id], map: "uq_cc_temp_identity_incident_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notification_delivery_attempts {
+  attempt_id                     String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                      String                           @db.Uuid
+  notification_outbox_id         Int
+  channel                        String                           @db.VarChar(32)
+  claim_token                    String                           @db.Uuid
+  claim_generation               Int
+  attempt_number                 Int
+  provider                       String                           @db.VarChar(40)
+  rendered_intent_hash           String                           @db.Char(64)
+  started_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  notification_outbox            notification_outbox              @relation(fields: [tenant_id, notification_outbox_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_delivery_attempt_outbox")
+  notification_provider_receipts notification_provider_receipts[]
+
+  @@unique([tenant_id, notification_outbox_id, channel, claim_token], map: "ux_notification_delivery_attempt_claim")
+  @@unique([tenant_id, attempt_id, notification_outbox_id, channel], map: "ux_notification_delivery_attempt_contract")
+  @@unique([tenant_id, notification_outbox_id, channel, attempt_number], map: "ux_notification_delivery_attempt_identity")
+  @@index([tenant_id, notification_outbox_id, channel, started_at(sort: Desc)], map: "idx_notification_delivery_attempt_outbox")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notification_delivery_cursors {
+  tenant_id                                                                                                  String               @db.Uuid
+  channel                                                                                                    String               @db.VarChar(32)
+  last_contiguous_outbox_id                                                                                  Int?
+  state                                                                                                      String               @default("ready") @db.VarChar(32)
+  blocked_outbox_id                                                                                          Int?
+  inflight_outbox_id                                                                                         Int?
+  updated_at                                                                                                 DateTime             @default(now()) @db.Timestamptz(6)
+  notification_outbox_notification_delivery_cursors_tenant_id_blocked_outbox_idTonotification_outbox         notification_outbox? @relation("notification_delivery_cursors_tenant_id_blocked_outbox_idTonotification_outbox", fields: [tenant_id, blocked_outbox_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_delivery_cursor_blocked")
+  notification_outbox_notification_delivery_cursors_tenant_id_inflight_outbox_idTonotification_outbox        notification_outbox? @relation("notification_delivery_cursors_tenant_id_inflight_outbox_idTonotification_outbox", fields: [tenant_id, inflight_outbox_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_delivery_cursor_inflight")
+  notification_outbox_notification_delivery_cursors_tenant_id_last_contiguous_outbox_idTonotification_outbox notification_outbox? @relation("notification_delivery_cursors_tenant_id_last_contiguous_outbox_idTonotification_outbox", fields: [tenant_id, last_contiguous_outbox_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_delivery_cursor_last")
+  tenants                                                                                                    tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_delivery_cursor_tenant")
+
+  @@id([tenant_id, channel])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model notification_provider_receipts {
+  receipt_id                     String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                      String                         @db.Uuid
+  attempt_id                     String                         @db.Uuid
+  notification_outbox_id         Int
+  channel                        String                         @db.VarChar(32)
+  outcome                        String                         @db.VarChar(24)
+  receipt_source                 String                         @db.VarChar(32)
+  provider_reference             String?                        @db.VarChar(255)
+  provider_code                  String?                        @db.VarChar(120)
+  evidence                       Json                           @default("{}")
+  observed_at                    DateTime                       @default(now()) @db.Timestamptz(6)
+  recovery_inbox_id              String?                        @db.Uuid
+  recovery_interface_family      String?                        @db.VarChar(8)
+  owner_actor_uid                String?                        @db.Uuid
+  owner_reason                   String?                        @db.VarChar(500)
+  notification_delivery_attempts notification_delivery_attempts @relation(fields: [tenant_id, attempt_id, notification_outbox_id, channel], references: [tenant_id, attempt_id, notification_outbox_id, channel], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_provider_receipt_attempt")
+  pathway_projector_inbox        pathway_projector_inbox?       @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_provider_receipt_recovery_inbox")
+
+  @@unique([tenant_id, receipt_id, notification_outbox_id, channel], map: "ux_notification_provider_receipt_identity")
+  @@index([tenant_id, notification_outbox_id, channel, observed_at(sort: Desc)], map: "idx_notification_provider_receipt_outbox")
 }
 
 enum transplant_organ_type {

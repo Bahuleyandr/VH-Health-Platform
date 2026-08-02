@@ -1,173 +1,183 @@
 import { jest } from '@jest/globals';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const CLAIM_TOKEN = '00000000-0000-4000-8000-000000000099';
+const HASH = 'a'.repeat(64);
 
 const dispatchMock = jest.fn();
 const getTenantSettingsMock = jest.fn();
 const sendPushMock = jest.fn();
-const sendSmsMock = jest.fn();
 const queryRawUnsafeMock = jest.fn();
+const beginProviderAttemptsMock = jest.fn();
+const recordProviderReceiptMock = jest.fn();
+const applyProviderReceiptToCursorMock = jest.fn();
 const loggerMock = {
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-  debug: jest.fn(),
+  info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryRawUnsafeMock,
-  },
+  default: { $queryRawUnsafe: queryRawUnsafeMock },
   setTenant: jest.fn(async (_tenantId, callback) => callback({
     $queryRawUnsafe: queryRawUnsafeMock,
   })),
 }));
-
-jest.unstable_mockModule('../../logging/logger.js', () => ({
-  default: loggerMock,
+jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
+  runInTenantContext: (_tenantId, callback) => callback(),
 }));
-
+jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
   getTenantSettings: getTenantSettingsMock,
 }));
-
 jest.unstable_mockModule('../../utils/notifications/notificationDispatcher.js', () => ({
   dispatch: dispatchMock,
 }));
-
 jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', () => ({
   sendPushNotification: sendPushMock,
 }));
-
 jest.unstable_mockModule('../../services/smsService.js', () => ({
-  __esModule: true,
-  sendSMS: sendSmsMock,
+  sendSMS: jest.fn(),
   sendAppointmentConfirmationSMS: jest.fn(),
   sendAppointmentReminderSMS: jest.fn(),
-  default: { sendSMS: sendSmsMock },
+}));
+jest.unstable_mockModule('../../services/notification/notificationDeliveryLedgerService.js', () => ({
+  beginProviderAttempts: beginProviderAttemptsMock,
+  recordProviderReceipt: recordProviderReceiptMock,
+  applyProviderReceiptToCursor: applyProviderReceiptToCursorMock,
 }));
 
 const { deliverNotificationOutboxRow } = await import(
   '../../utils/notifications/notificationOutboxDelivery.js'
 );
 
-describe('notification outbox delivery channel fan-out', () => {
+function row(overrides = {}) {
+  return {
+    id: 1001,
+    tenant_id: TENANT_ID,
+    type: 'lab_result_ready',
+    recipient_id: 42,
+    recipient_phone: '+919000000001',
+    title: 'Lab results ready',
+    body: 'Your lab results are ready.',
+    payload: { tenant_id: TENANT_ID, booking_id: 17 },
+    claim_token: CLAIM_TOKEN,
+    claim_generation: 1,
+    rendered_intent_hash: HASH,
+    ...overrides,
+  };
+}
+
+function attempt(channel, state = 'ready') {
+  return {
+    attempt_id: `${channel.padEnd(8, '0')}-0000-4000-8000-000000000001`,
+    notification_outbox_id: 1001,
+    channel,
+    state,
+  };
+}
+
+describe('notification outbox durable provider delivery', () => {
   beforeEach(() => {
     dispatchMock.mockReset();
     getTenantSettingsMock.mockReset();
     sendPushMock.mockReset();
-    sendSmsMock.mockReset();
     queryRawUnsafeMock.mockReset();
+    beginProviderAttemptsMock.mockReset();
+    recordProviderReceiptMock.mockReset();
+    applyProviderReceiptToCursorMock.mockReset();
     loggerMock.info.mockReset();
-    loggerMock.warn.mockReset();
-    loggerMock.error.mockReset();
-    loggerMock.debug.mockReset();
     delete process.env.WHATSAPP_PROVIDER;
     delete process.env.VOICE_PROVIDER;
     delete process.env.TWILIO_ACCOUNT_SID;
     delete process.env.TWILIO_AUTH_TOKEN;
     delete process.env.TWILIO_WHATSAPP_FROM;
     delete process.env.TWILIO_VOICE_FROM;
+    recordProviderReceiptMock.mockImplementation(async input => ({
+      receipt_id: `receipt-${input.channel}`,
+      ...input,
+    }));
+    applyProviderReceiptToCursorMock.mockResolvedValue({ state: 'ready' });
   });
 
-  it('routes configured results-ready rows through the dispatcher fan-out', async () => {
+  test('starts append-only attempts before dispatch and records each physical provider result', async () => {
     getTenantSettingsMock.mockResolvedValue({
-      notificationChannels: {
-        results_ready: ['push', 'whatsapp', 'voice'],
+      notificationChannels: { results_ready: ['push', 'whatsapp', 'voice'] },
+    });
+    beginProviderAttemptsMock.mockResolvedValue([
+      attempt('push'), attempt('whatsapp'), attempt('voice'),
+    ]);
+    dispatchMock.mockResolvedValue({
+      push: {
+        outcome: 'acknowledged',
+        providerReference: 'projects/test/messages/1',
+        providerCode: 'accepted',
+        evidence: { success_count: 1 },
+      },
+      whatsapp: {
+        outcome: 'rejected', providerReference: null,
+        providerCode: 'whatsapp_logged', evidence: {},
+      },
+      voice: {
+        outcome: 'rejected', providerReference: null,
+        providerCode: 'voice_logged', evidence: {},
       },
     });
-    dispatchMock.mockResolvedValue({ push: 'sent', whatsapp: 'logged', voice: 'logged' });
 
-    const result = await deliverNotificationOutboxRow({
-      id: 1001,
-      type: 'lab_result_ready',
-      recipient_id: 42,
-      recipient_phone: '+919000000001',
-      title: 'Lab results ready',
-      body: 'Your lab results are ready.',
-      payload: { tenant_id: TENANT_ID, booking_id: 17 },
-    });
+    const result = await deliverNotificationOutboxRow(row());
 
-    expect(result).toEqual({
-      mode: 'dispatcher',
-      channels: ['push', 'whatsapp', 'voice'],
-      preferenceKey: 'results_ready',
+    expect(beginProviderAttemptsMock).toHaveBeenCalledWith({
       tenantId: TENANT_ID,
+      outboxId: 1001,
+      claimToken: CLAIM_TOKEN,
+      claimGeneration: 1,
+      renderedIntentHash: HASH,
+      channels: ['push', 'whatsapp', 'voice'],
     });
-    expect(dispatchMock).toHaveBeenCalledWith({
+    expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
       userId: '42',
-      title: 'Lab results ready',
-      body: 'Your lab results are ready.',
       channels: ['push', 'whatsapp', 'voice'],
-      data: { tenant_id: TENANT_ID, booking_id: 17 },
-      type: 'lab_result_ready',
-    });
-    expect(sendPushMock).not.toHaveBeenCalled();
-    expect(sendSmsMock).not.toHaveBeenCalled();
-    expect(loggerMock.info).toHaveBeenCalledWith(
-      'notification-outbox-drain: dry-run channel fan-out',
-      expect.objectContaining({
-        dry_run_channels: ['whatsapp', 'voice'],
-        tenant_id: TENANT_ID,
-        outbox_id: 1001,
-      }),
-    );
-  });
-
-  it('keeps prefs-unset result-ready rows on the legacy push path', async () => {
-    getTenantSettingsMock.mockResolvedValue({});
-    queryRawUnsafeMock.mockResolvedValue([]);
-    sendPushMock.mockResolvedValue({ successCount: 0, failureCount: 0 });
-
-    const result = await deliverNotificationOutboxRow({
-      id: 1002,
-      type: 'lab_result_ready',
-      recipient_id: 43,
-      recipient_phone: '+919000000002',
-      title: 'Lab results ready',
-      body: 'Your lab results are ready.',
-      payload: { tenant_id: TENANT_ID, booking_id: 18 },
-    });
-
-    expect(result).toEqual({
-      mode: 'legacy',
-      channels: ['push'],
-      preferenceKey: 'results_ready',
+      providerReceiptMode: true,
+    }));
+    expect(recordProviderReceiptMock).toHaveBeenCalledTimes(3);
+    expect(applyProviderReceiptToCursorMock).toHaveBeenCalledTimes(3);
+    expect(result).toMatchObject({
+      mode: 'dispatcher',
+      outcome: 'rejected',
+      channels: ['push', 'whatsapp', 'voice'],
       tenantId: TENANT_ID,
     });
-    expect(dispatchMock).not.toHaveBeenCalled();
-    expect(sendPushMock).toHaveBeenCalledWith({
-      tokens: [],
-      title: 'Lab results ready',
-      body: 'Your lab results are ready.',
-      data: { tenant_id: TENANT_ID, booking_id: 18 },
-      userId: 43,
-    });
-    expect(sendSmsMock).not.toHaveBeenCalled();
   });
 
-  it('keeps prefs-unset phone-only reminders on the legacy SMS path', async () => {
+  test('treats the legacy SMS dry-run as provider rejection, never local success', async () => {
     getTenantSettingsMock.mockResolvedValue({});
-    sendSmsMock.mockResolvedValue({ ok: true });
-
-    const result = await deliverNotificationOutboxRow({
-      id: 1003,
+    beginProviderAttemptsMock.mockResolvedValue([attempt('sms')]);
+    const result = await deliverNotificationOutboxRow(row({
+      id: 1001,
       type: 'appointment_reminder',
       recipient_id: null,
       recipient_phone: '+919000000003',
-      title: 'Appointment reminder',
-      body: 'Your appointment is tomorrow.',
-      payload: { tenant_id: TENANT_ID, appointment_id: 19 },
-    });
+    }));
+    expect(result.outcome).toBe('rejected');
+    expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'sms',
+      outcome: 'rejected',
+      providerCode: 'sms_gateway_not_configured',
+      receiptSource: 'provider_response',
+    }));
+  });
 
-    expect(result).toEqual({
-      mode: 'legacy',
-      channels: ['sms'],
-      preferenceKey: 'appointment_reminder',
-      tenantId: TENANT_ID,
+  test('does not call a provider when the tenant/channel cursor is paused', async () => {
+    getTenantSettingsMock.mockResolvedValue({
+      notificationChannels: { results_ready: ['push'] },
     });
+    beginProviderAttemptsMock.mockResolvedValue([{
+      ...attempt('push', 'blocked'),
+      reason: 'paused_uncertain',
+      blockedOutboxId: 1000,
+    }]);
+    const result = await deliverNotificationOutboxRow(row());
+    expect(result.outcome).toBe('deferred');
     expect(dispatchMock).not.toHaveBeenCalled();
-    expect(sendSmsMock).toHaveBeenCalledWith('+919000000003', 'Your appointment is tomorrow.');
     expect(sendPushMock).not.toHaveBeenCalled();
+    expect(recordProviderReceiptMock).not.toHaveBeenCalled();
   });
 });

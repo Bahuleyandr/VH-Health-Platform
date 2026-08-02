@@ -36,12 +36,14 @@ function getTransporter() {
  * @param {string} [options.html] - HTML body
  * @param {string} [options.text] - Plain text body
  */
-export async function sendEmail({ to, subject, html, text }) {
+export async function sendEmail({ to, subject, html, text, receiptMode = false }) {
   const transport = getTransporter();
 
   if (!transport) {
     logger.warn('📧 SMTP not configured — skipping email notification');
-    return null;
+    return receiptMode
+      ? { outcome: 'rejected', code: 'smtp_not_configured', messageId: null }
+      : null;
   }
 
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
@@ -52,6 +54,11 @@ export async function sendEmail({ to, subject, html, text }) {
     return info;
   } catch (err) {
     logger.error(`📧 Failed to send email to ${to}: ${err.message}`);
+    if (receiptMode) {
+      const failure = new Error('SMTP delivery outcome is uncertain', { cause: err });
+      failure.code = err.code || 'SMTP_TRANSPORT_FAILURE';
+      throw failure;
+    }
     return null;
   }
 }

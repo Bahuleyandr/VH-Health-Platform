@@ -24,14 +24,41 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
  * @param {string} [options.type] - Notification type for in-app storage
  * @param {string} [options.voiceLanguage] - TTS language override (e.g. 'hi-IN')
  */
-export async function dispatch({ userId, title, body, channels = ['push', 'inapp'], data = {}, type = 'general', voiceLanguage = null }) {
+export async function dispatch({
+  userId,
+  title,
+  body,
+  channels = ['push', 'inapp'],
+  data = {},
+  type = 'general',
+  voiceLanguage = null,
+  providerReceiptMode = false,
+}) {
   const results = {};
+
+  const rejected = (code, evidence = {}) => ({
+    outcome: 'rejected', providerReference: null, providerCode: code, evidence,
+  });
+  const uncertain = (code, err) => ({
+    outcome: 'uncertain',
+    providerReference: null,
+    providerCode: code,
+    evidence: { message: String(err?.message || err || code).slice(0, 500) },
+  });
+  const recordLookupFailure = (factory) => {
+    if (providerReceiptMode) {
+      for (const channel of channels) results[channel] = factory(channel);
+    }
+    return results;
+  };
 
   // Lookup user info
   let user = null;
   try {
     const identifier = String(userId || '').trim();
-    if (!identifier) return results;
+    if (!identifier) {
+      return recordLookupFailure(() => rejected('recipient_identifier_missing'));
+    }
 
     const res = UUID_RE.test(identifier)
       ? await prisma.$queryRawUnsafe(
@@ -51,31 +78,53 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
     user = res[0] || null;
   } catch (err) {
     logger.error(`Notification dispatch: failed to lookup user ${userId} — ${err.message}`);
-    return results;
+    return recordLookupFailure(() => uncertain('recipient_lookup_failed', err));
   }
 
   if (!user) {
     logger.warn(`Notification dispatch: user not found — ${userId}`);
-    return results;
+    return recordLookupFailure(() => rejected('recipient_not_found'));
   }
 
   // Push notification
   if (channels.includes('push')) {
     try {
       if (user.device_token) {
-        await sendPushNotification({
+        const response = await sendPushNotification({
           tokens: user.device_token,
           title,
           body,
           data,
         });
-        results.push = 'sent';
+        if (providerReceiptMode) {
+          const accepted = response.responses?.filter(item => item.success) || [];
+          results.push = response.successCount > 0
+            ? {
+                outcome: 'acknowledged',
+                providerReference: accepted[0]?.messageId || `fcm-accepted:${response.successCount}`,
+                providerCode: response.failureCount > 0 ? 'partial_acceptance' : 'accepted',
+                evidence: {
+                  success_count: response.successCount,
+                  failure_count: response.failureCount,
+                  responses: response.responses || [],
+                },
+              }
+            : rejected('fcm_no_token_accepted', {
+                success_count: response.successCount,
+                failure_count: response.failureCount,
+                responses: response.responses || [],
+              });
+        } else {
+          results.push = 'sent';
+        }
       } else {
-        results.push = 'no_token';
+        results.push = providerReceiptMode ? rejected('fcm_token_missing') : 'no_token';
       }
     } catch (err) {
       logger.error(`Notification dispatch [push] failed for ${userId}: ${err.message}`);
-      results.push = 'error';
+      results.push = providerReceiptMode
+        ? uncertain(err.code || 'fcm_transport_failure', err)
+        : 'error';
     }
   }
 
@@ -83,48 +132,85 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   if (channels.includes('email')) {
     try {
       if (user.email) {
-        await sendEmail({
+        const response = await sendEmail({
           to: user.email,
           subject: title,
           text: body,
           html: `<p>${body}</p>`,
+          receiptMode: providerReceiptMode,
         });
-        results.email = 'sent';
+        if (providerReceiptMode) {
+          results.email = response?.outcome === 'rejected'
+            ? rejected(response.code || 'smtp_rejected')
+            : {
+                outcome: 'acknowledged',
+                providerReference: response?.messageId,
+                providerCode: 'accepted',
+                evidence: {
+                  accepted: response?.accepted || [],
+                  rejected: response?.rejected || [],
+                  response: response?.response || null,
+                },
+              };
+        } else {
+          results.email = 'sent';
+        }
       } else {
-        results.email = 'no_email';
+        results.email = providerReceiptMode ? rejected('email_address_missing') : 'no_email';
       }
     } catch (err) {
       logger.error(`Notification dispatch [email] failed for ${userId}: ${err.message}`);
-      results.email = 'error';
+      results.email = providerReceiptMode
+        ? uncertain(err.code || 'smtp_transport_failure', err)
+        : 'error';
     }
   }
 
   // In-app notification
   if (channels.includes('inapp')) {
     try {
-      await prisma.$queryRawUnsafe(
+      const stored = await prisma.$queryRawUnsafe(
         `INSERT INTO notifications (user_id, uid, phone, title, body, type, created_at, updated_at, is_read)
-         VALUES ($1, $2::uuid, $3, $4, $5, $6, NOW(), NOW(), false)`,
+         VALUES ($1, $2::uuid, $3, $4, $5, $6, NOW(), NOW(), false)
+         RETURNING id`,
         user.id, user.uid, user.phone, title, body, type
       );
-      results.inapp = 'stored';
+      results.inapp = providerReceiptMode
+        ? {
+            outcome: 'acknowledged',
+            providerReference: `notification:${stored[0].id}`,
+            providerCode: 'committed',
+            evidence: { notification_id: String(stored[0].id) },
+          }
+        : 'stored';
     } catch (err) {
       logger.error(`Notification dispatch [inapp] failed for ${userId}: ${err.message}`);
-      results.inapp = 'error';
+      results.inapp = providerReceiptMode
+        ? uncertain('inapp_commit_failed', err)
+        : 'error';
     }
   }
 
   // WhatsApp (Phase E5)
   if (channels.includes('whatsapp')) {
     if (!user.phone) {
-      results.whatsapp = 'no_phone';
+      results.whatsapp = providerReceiptMode ? rejected('phone_missing') : 'no_phone';
     } else {
       try {
         const out = await sendWhatsApp({ to: user.phone, body: `${title}\n${body}` });
-        results.whatsapp = out.status;
+        results.whatsapp = providerReceiptMode
+          ? out.status === 'sent' && out.sid
+            ? {
+                outcome: 'acknowledged', providerReference: out.sid,
+                providerCode: 'accepted', evidence: { status: out.status },
+              }
+            : rejected(`whatsapp_${out.status || 'not_sent'}`)
+          : out.status;
       } catch (err) {
         logger.error(`Notification dispatch [whatsapp] failed for ${userId}: ${err.message}`);
-        results.whatsapp = 'error';
+        results.whatsapp = providerReceiptMode
+          ? uncertain(err.code || 'whatsapp_transport_failure', err)
+          : 'error';
       }
     }
   }
@@ -132,16 +218,25 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   // Voice (Phase E5)
   if (channels.includes('voice')) {
     if (!user.phone) {
-      results.voice = 'no_phone';
+      results.voice = providerReceiptMode ? rejected('phone_missing') : 'no_phone';
     } else {
       try {
         const out = await placeVoiceCall({
           to: user.phone, message: `${title}. ${body}`, language: voiceLanguage,
         });
-        results.voice = out.status;
+        results.voice = providerReceiptMode
+          ? out.status === 'sent' && out.sid
+            ? {
+                outcome: 'acknowledged', providerReference: out.sid,
+                providerCode: 'accepted', evidence: { status: out.status },
+              }
+            : rejected(`voice_${out.status || 'not_sent'}`)
+          : out.status;
       } catch (err) {
         logger.error(`Notification dispatch [voice] failed for ${userId}: ${err.message}`);
-        results.voice = 'error';
+        results.voice = providerReceiptMode
+          ? uncertain(err.code || 'voice_transport_failure', err)
+          : 'error';
       }
     }
   }
@@ -152,7 +247,9 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   // drains PENDING type='sms' rows. fix-deferred: SMS gateway integration.
   if (channels.includes('sms')) {
     if (!user.phone) {
-      results.sms = 'no_phone';
+      results.sms = providerReceiptMode ? rejected('phone_missing') : 'no_phone';
+    } else if (providerReceiptMode) {
+      results.sms = rejected('sms_gateway_not_configured');
     } else {
       try {
         const queued = await notificationOutbox.queue({
@@ -177,7 +274,9 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   // type='print' rows to a printer queue. fix-deferred: print-queue
   // gateway integration.
   if (channels.includes('print')) {
-    try {
+    if (providerReceiptMode) {
+      results.print = rejected('print_queue_not_configured');
+    } else try {
       const queued = await notificationOutbox.queue({
         type: 'print',
         recipientId: user.id,

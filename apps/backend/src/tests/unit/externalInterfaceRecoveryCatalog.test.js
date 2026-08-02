@@ -13,12 +13,12 @@ describe('external interface recovery catalog', () => {
       .toEqual(EXTERNAL_INTERFACE_RECOVERY_FAMILIES);
   });
 
-  it('adds C6.1-C laboratory families to the landed implementations with explicit scopes', () => {
+  it('includes the landed laboratory and C6.1-D notification adapters with explicit scopes', () => {
     expect(
       Object.values(EXTERNAL_INTERFACE_RECOVERY_CATALOG)
         .filter((item) => item.implemented)
         .map((item) => item.id),
-    ).toEqual(['I01', 'I02', 'I09', 'I10', 'I15']);
+    ).toEqual(['I01', 'I02', 'I09', 'I10', 'I15', 'I17']);
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I01' }))
       .toMatchObject({
         id: 'I01',
@@ -64,6 +64,18 @@ describe('external interface recovery catalog', () => {
     })).toMatchObject({
       selectedDisposition: 'not_applicable_no_replayable_stream',
     });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I17' }))
+      .toMatchObject({
+        id: 'I17',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'outbound',
+        cursorKind: 'monotonic_position_and_predecessor',
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_channel',
+        duplicateKeyKind: 'tenant_source_recipient_channel_template_rendered_intent_sha256',
+      });
   });
 
   it('requires exact mixed-subpath selection without fallthrough', () => {

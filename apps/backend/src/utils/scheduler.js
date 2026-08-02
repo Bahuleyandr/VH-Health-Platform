@@ -279,6 +279,7 @@ import loadSwaggerDocument from './swaggerLoader.js';
 // consumer.
 import { notificationOutbox } from './notifications/notificationOutbox.js';
 import { deliverNotificationOutboxRow } from './notifications/notificationOutboxDelivery.js';
+import { reconcileExpiredClaims } from '../services/notification/notificationDeliveryLedgerService.js';
 
 // Audit hash-chain scheduled verifier (platform audit 2026-06-18 §3). The
 // tamper-evident chain on clinical_audit_events (migration 282) was only ever
@@ -373,25 +374,55 @@ export async function runAuditChainVerification() {
  * @param {number} [opts.limit=50] Max rows per drain tick.
  * @returns {{ claimed:number, sent:number, failed:number }}
  */
-export async function drainNotificationOutbox({ limit = 50 } = {}) {
-  const batch = await notificationOutbox.claimPendingBatch(limit);
-  if (!batch.length) return { claimed: 0, sent: 0, failed: 0 };
+export async function drainNotificationOutbox({ tenantId, limit = 50 } = {}) {
+  if (!tenantId) throw new Error('notification outbox drain requires tenantId');
+  const expired = await reconcileExpiredClaims({ tenantId, limit });
+  const batch = await notificationOutbox.claimPendingBatch({ tenantId, limit });
+  if (!batch.length) {
+    return { claimed: 0, sent: 0, failed: 0, uncertain: 0, deferred: 0, expired };
+  }
 
   let sent = 0;
   let failed = 0;
+  let uncertain = 0;
+  let deferred = 0;
   for (const row of batch) {
     try {
-      await deliverNotificationOutboxRow(row);
-      await notificationOutbox.markSent(row.id);
-      sent += 1;
+      const result = await deliverNotificationOutboxRow(row);
+      const claimFence = {
+        tenantId,
+        claimToken: row.claim_token,
+        claimGeneration: row.claim_generation,
+      };
+      if (result.outcome === 'acknowledged') {
+        await notificationOutbox.markSent(row.id, claimFence);
+        sent += 1;
+      } else if (result.outcome === 'rejected') {
+        await notificationOutbox.markFailed(row.id, 'provider_rejected_notification', claimFence);
+        failed += 1;
+      } else if (result.outcome === 'uncertain') {
+        await notificationOutbox.markReconciliationRequired(
+          row.id,
+          'provider_delivery_outcome_uncertain',
+          claimFence,
+        );
+        uncertain += 1;
+      } else {
+        await notificationOutbox.releaseClaim(row.id, 'tenant_channel_cursor_blocked', claimFence);
+        deferred += 1;
+      }
     } catch (err) {
-      await notificationOutbox.markFailed(row.id, String(err.message || err).slice(0, 500));
-      failed += 1;
-      logger.warn(`outbox-drain: delivery failed for row ${row.id}:`, err.message);
+      uncertain += 1;
+      logger.warn(
+        `outbox-drain: row ${row.id} remains leased for expiry reconciliation after delivery error:`,
+        err.message,
+      );
     }
   }
-  logger.info(`Notification outbox drain: claimed ${batch.length}, sent ${sent}, failed ${failed}`);
-  return { claimed: batch.length, sent, failed };
+  logger.info(
+    `Notification outbox drain: claimed ${batch.length}, sent ${sent}, rejected ${failed}, uncertain ${uncertain}, deferred ${deferred}`,
+  );
+  return { claimed: batch.length, sent, failed, uncertain, deferred, expired };
 }
 
 /**
@@ -571,7 +602,9 @@ if (process.env.NODE_ENV !== 'test') {
   // advisory lock + the SKIP LOCKED claim. Without this the durable-retry
   // guarantee for breach/critical-lab/escalation notices was inert.
   registerCron('*/2 * * * *', withJobLock('notification-outbox-drain', async () => {
-    await drainNotificationOutbox({ limit: 100 });
+    await runForEachTenant('notification-outbox-drain', tenantId => (
+      drainNotificationOutbox({ tenantId, limit: 100 })
+    ));
   }));
 
   registerCron('*/5 * * * *', withJobLock('biomed-cmms-maintenance-sweep', async () => {
@@ -993,7 +1026,11 @@ export async function runAllScheduledTasksNow() {
 
     // Always drain the outboxes once on boot — idempotent + advisory-locked, so
     // only one process across the fleet actually flushes each batch.
-    await withDbAdvisoryLock('notification-outbox-drain', () => drainNotificationOutbox({ limit: 100 }));
+    await withDbAdvisoryLock('notification-outbox-drain', () => runWithSuperAdmin(() => (
+      runForEachTenant('notification-outbox-drain', tenantId => (
+        drainNotificationOutbox({ tenantId, limit: 100 })
+      ))
+    )));
     await withDbAdvisoryLock('event-outbox-drain', () => drainEventOutbox({ limit: 100 }));
 
     if (!runStartupTasks) {

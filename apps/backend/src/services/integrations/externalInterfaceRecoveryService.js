@@ -175,18 +175,18 @@ export async function registerExternalRecoveryOffset({
           historical_cutoff_event_id, backfill_cursor_event_id)
        VALUES
          ('external_interface', $1::uuid, $2::text, $3::integer, $4::text,
-          'inbound', $5::text, $6::text, $7::integer,
+          $5::text, $6::text, $7::text, $8::integer,
           'monotonic_position_and_predecessor',
-          $8::bigint, $9::text, $10::bigint, $11::text, $12::text,
-          CASE WHEN $8::bigint IS NULL THEN 'marker_absent' ELSE NULL END,
-          $13::text, $14::text, $15::text, $16::timestamptz, NULL, NULL)
+          $9::bigint, $10::text, $11::bigint, $12::text, $13::text,
+          CASE WHEN $9::bigint IS NULL THEN 'marker_absent' ELSE NULL END,
+          $14::text, $15::text, $16::text, $17::timestamptz, NULL, NULL)
        RETURNING offset_id::text, tenant_id::text, facility_scope, facility_id,
                  interface_family, direction, source_partition, generation,
                  high_water_position::text, high_water_token,
                  retained_from_position::text, retained_from_token,
                  recovery_state, reconciliation_reason, policy_version,
                  policy_signature, retention_policy, retention_until`,
-      tid, facilityScope, facility, config.id, partition, `external:${config.id}`,
+      tid, facilityScope, facility, config.id, config.direction, partition, `external:${config.id}`,
       safeGeneration, marker.position, marker.token, retained.position, retained.token,
       state, policy.policyVersion, policy.policySignature, policy.retentionPolicy, policy.retentionUntil,
     );
@@ -370,12 +370,12 @@ export async function enqueueExternalRecoveryItem({
               outcome_code, pending_task_id
          FROM pathway_projector_inbox
         WHERE tenant_id = $1::uuid AND scope_kind = 'external_interface'
-          AND interface_family = $2::text AND direction = 'inbound'
-          AND source_partition = $3::text
-          AND (duplicate_key = $4::text OR
-            (offset_id = $5::uuid AND generation = $6::integer AND source_position = $7::bigint))
+          AND interface_family = $2::text AND direction = $3::text
+          AND source_partition = $4::text
+          AND (duplicate_key = $5::text OR
+            (offset_id = $6::uuid AND generation = $7::integer AND source_position = $8::bigint))
         FOR UPDATE`,
-      tid, config.id, offset.source_partition, duplicate, oid, offset.generation, position,
+      tid, config.id, config.direction, offset.source_partition, duplicate, oid, offset.generation, position,
     );
     if (collisions.length > 0) {
       const exact = collisions.find((row) => row.source_position === position
@@ -396,14 +396,14 @@ export async function enqueueExternalRecoveryItem({
           occurred_at, received_at, recorded_at, arrival_class, effect_disposition,
           status, next_attempt_at, policy_version, policy_signature, retention_policy, retention_until)
        VALUES ('external_interface', $1::uuid, $2::text, $3::integer, $4::uuid,
-          $5::integer, $6::text, 'inbound', $7::text, $8::bigint, $9::text,
-          $10::text, $11::text, $12::char(64), $13::timestamptz, NOW(), NOW(),
-          'recovery_backlog', 'late_pending_only', 'pending', NOW(), $14::text,
-          $15::text, $16::text, $17::timestamptz)
+          $5::integer, $6::text, $7::text, $8::text, $9::bigint, $10::text,
+          $11::text, $12::text, $13::char(64), $14::timestamptz, NOW(), NOW(),
+          'recovery_backlog', 'late_pending_only', 'pending', NOW(), $15::text,
+          $16::text, $17::text, $18::timestamptz)
        RETURNING inbox_id::text, source_position::text, source_token, duplicate_key,
                  command_fingerprint, status, arrival_class, effect_disposition, occurred_at`,
       tid, `external:${config.id}`, offset.generation, oid, offset.facility_id, config.id,
-      offset.source_partition, position, token, predecessor, duplicate, fingerprint,
+      config.direction, offset.source_partition, position, token, predecessor, duplicate, fingerprint,
       occurred, offset.policy_version, offset.policy_signature, offset.retention_policy, offset.retention_until,
     );
     return rows[0];
@@ -428,6 +428,14 @@ function matchesQueuedItem(row, expected) {
 }
 
 async function persistLateDomain({ tx, capability, config, inbox, tenantId, command }) {
+  if (config.id === 'I17') {
+    const { persistLateNotificationRecovery } = await import('./externalNotificationRecoveryService.js');
+    return persistLateNotificationRecovery({
+      tx, capability, tenantId,
+      recoveryInboxId: inbox.inbox_id,
+      command,
+    });
+  }
   if (config.id === 'I01' || config.id === 'I02') {
     const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
     return persistLateLabRecovery({
@@ -543,7 +551,9 @@ export async function processNextItemTx({
       interfaceFamily: config.id, effectDisposition: inbox.effect_disposition,
     });
     const domain = await persistLateDomain({ tx, capability, config, inbox, tenantId: tid, command });
-    const evidence = domain?.reading || domain?.observation || domain?.result;
+    const evidence = config.id === 'I17'
+      ? domain?.receipt
+      : domain?.reading || domain?.observation || domain?.result;
     if (!evidence?.id || !domain?.task?.id) {
       throw AppError.internal('Late recovery did not produce domain evidence and pending work', 'EXTERNAL_RECOVERY_PENDING_WORK_MISSING');
     }
@@ -560,20 +570,33 @@ export async function processNextItemTx({
       tid, inbox.inbox_id, owner, outcomeCode, domain.task.id,
     );
     if (terminal.length !== 1) throw AppError.conflict('Recovery terminal fence was lost', 'EXTERNAL_RECOVERY_CLAIM_FENCE_LOST');
-    const advanced = await tx.$queryRawUnsafe(
-      `UPDATE event_consumer_offsets SET high_water_position = $3::bigint,
-              high_water_token = $4::text,
-              recovery_state = CASE WHEN resume_cutoff_position = $3::bigint THEN 'ready' ELSE 'replaying' END,
-              updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid AND recovery_state = 'replaying'
-          AND high_water_position = $5::bigint AND high_water_token = $6::text
-        RETURNING high_water_position::text, high_water_token, recovery_state`,
-      tid, oid, inbox.source_position, inbox.source_token, offset.high_water_position, offset.high_water_token,
-    );
+    const advanced = domain?.recoveryCursorAction === 'pause'
+      ? await tx.$queryRawUnsafe(
+          `UPDATE event_consumer_offsets
+              SET recovery_state = 'reconciliation_required_provider_state',
+                  reconciliation_reason = $3::text, updated_at = NOW()
+            WHERE tenant_id = $1::uuid AND offset_id = $2::uuid
+              AND recovery_state = 'replaying'
+              AND high_water_position = $4::bigint AND high_water_token = $5::text
+            RETURNING high_water_position::text, high_water_token, recovery_state`,
+          tid, oid, domain.outcomeCode, offset.high_water_position, offset.high_water_token,
+        )
+      : await tx.$queryRawUnsafe(
+          `UPDATE event_consumer_offsets SET high_water_position = $3::bigint,
+                  high_water_token = $4::text,
+                  recovery_state = CASE WHEN resume_cutoff_position = $3::bigint THEN 'ready' ELSE 'replaying' END,
+                  updated_at = NOW()
+            WHERE tenant_id = $1::uuid AND offset_id = $2::uuid AND recovery_state = 'replaying'
+              AND high_water_position = $5::bigint AND high_water_token = $6::text
+            RETURNING high_water_position::text, high_water_token, recovery_state`,
+          tid, oid, inbox.source_position, inbox.source_token, offset.high_water_position, offset.high_water_token,
+        );
     if (advanced.length !== 1) throw AppError.conflict('Recovery cursor fence was lost', 'EXTERNAL_RECOVERY_CURSOR_FENCE_LOST');
     return Object.freeze({
       ...terminal[0], cursor: advanced[0],
-      ...(config.id === 'I10'
+      ...(config.id === 'I17'
+        ? { receipt_id: String(evidence.id || evidence.receipt_id) }
+        : config.id === 'I10'
         ? { reading_id: String(evidence.id) }
         : (config.id === 'I01' || config.id === 'I02')
           ? { result_id: String(evidence.id), result_ids: domain.results.map(result => String(result.id)) }
