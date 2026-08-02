@@ -12,6 +12,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:vhhealth_core/config/tenant_config.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
     show ApiConfig, SecurityConfig;
 
@@ -65,6 +66,12 @@ Future<void> main() async {
       // throws when PRODUCTION=true but CERT_PIN_HASHES is missing/malformed,
       // so an unpinned PHI build can never reach patients.
       SecurityConfig.verifyOrWarn();
+      // Fail fast on a build stamped for a tenant it cannot match. The
+      // readiness adapter compares the server's tenant to TenantConfig.id with
+      // a strict ==, and only two matching readiness successes reopen the
+      // client (C-D12 5.3), so a mis-stamp is a PERMANENT outage that blocks
+      // every hospital mutation including SOS. Refusing to launch is louder.
+      TenantConfig.verifyOrThrow();
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );

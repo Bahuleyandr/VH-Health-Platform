@@ -24,6 +24,8 @@ jobs:
       RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
+      VH_TENANT_SLUG: ${{ vars.VH_TENANT_SLUG }}
+      VH_TENANT_ID: ${{ vars.VH_TENANT_ID }}
       PATIENT_CERT_PIN_HASHES: ${{ vars.PATIENT_CERT_PIN_HASHES }}
       CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS: ${{ vars.CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS }}
       PATIENT_ANDROID_KEYSTORE_BASE64: ${{ secrets.PATIENT_ANDROID_KEYSTORE_BASE64 }}
@@ -108,6 +110,39 @@ jobs:
             --clock-skew-seconds "${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
           exit "$missing"
 
+      # See release-patient.yml for the full rationale. In short: never stamp an
+      # empty define (`--dart-define=VH_TENANT_ID=` sets TenantConfig.id to ''
+      # rather than the default, matching no tenant), and require slug + id to
+      # be stamped together and coherently. TenantConfig.verifyOrThrow enforces
+      # the same invariant at app startup.
+      - name: Resolve and validate tenant build stamp
+        run: |
+          set -euo pipefail
+          slug="${VH_TENANT_SLUG:-}"
+          tenant_id="${VH_TENANT_ID:-}"
+          default_tenant='00000000-0000-4000-8000-000000000001'
+          uuid_re='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+          defines=''
+          if [ -n "${slug}" ] || [ -n "${tenant_id}" ]; then
+            if [ -z "${slug}" ] || [ -z "${tenant_id}" ]; then
+              echo "A per-tenant patient build needs BOTH VH_TENANT_SLUG and VH_TENANT_ID." >&2
+              exit 1
+            fi
+            if ! printf '%s' "${tenant_id}" | grep -Eq "${uuid_re}"; then
+              echo "VH_TENANT_ID is not a tenant UUID: '${tenant_id}'." >&2
+              exit 1
+            fi
+            if [ "${tenant_id}" = "${default_tenant}" ]; then
+              echo "VH_TENANT_SLUG='${slug}' is stamped but VH_TENANT_ID is the platform default tenant." >&2
+              exit 1
+            fi
+            defines="--dart-define=VH_TENANT_SLUG=${slug} --dart-define=VH_TENANT_ID=${tenant_id}"
+            echo "Per-tenant patient build for slug '${slug}'."
+          else
+            echo 'Default single-tenant patient build: no tenant defines stamped.'
+          fi
+          echo "VH_TENANT_DEFINES=${defines}" >> "${GITHUB_ENV}"
+
       - name: Configure Android signing
         run: |
           set -euo pipefail
@@ -128,6 +163,7 @@ jobs:
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
+          ${VH_TENANT_DEFINES}
 
       - name: Build release AAB
         working-directory: apps/patient
@@ -138,6 +174,7 @@ jobs:
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
+          ${VH_TENANT_DEFINES}
 
       - name: Prepare release assets
         run: |

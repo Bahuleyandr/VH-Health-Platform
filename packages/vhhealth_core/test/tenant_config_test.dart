@@ -22,6 +22,78 @@ void main() {
     });
   });
 
+  // The readiness adapters compare the server's tenant against TenantConfig.id
+  // with a strict `==` (client_readiness.dart isReadyForTenant). A build whose
+  // stamp disagrees with the backend it points at therefore never reaches
+  // `available`, and because only two matching readiness successes reopen the
+  // client (C-D12 5.3) that outage is permanent — the app refuses every
+  // hospital mutation including SOS while the backend is healthy. These cases
+  // make the two unambiguous mis-stamps fail loudly at startup instead.
+  //
+  // The parameters are injectable because `String.fromEnvironment` resolves at
+  // compile time and cannot be varied within one test process.
+  group('TenantConfig.verifyOrThrow', () {
+    const defaultTenant = '00000000-0000-4000-8000-000000000001';
+    const otherTenant = '11111111-1111-4111-8111-111111111111';
+
+    test('an unstamped default build passes', () {
+      expect(
+        () => TenantConfig.verifyOrThrow(slug: '', id: defaultTenant),
+        returnsNormally,
+      );
+    });
+
+    test('a correctly stamped per-tenant build passes', () {
+      expect(
+        () => TenantConfig.verifyOrThrow(slug: 'acme', id: otherTenant),
+        returnsNormally,
+      );
+    });
+
+    // `--dart-define=VH_TENANT_ID=` with an unset CI variable yields '' rather
+    // than the default, so this is the trap an unconditional stamp would set.
+    test('an empty tenant id fails closed', () {
+      expect(
+        () => TenantConfig.verifyOrThrow(slug: '', id: ''),
+        throwsStateError,
+      );
+      expect(
+        () => TenantConfig.verifyOrThrow(slug: 'acme', id: ''),
+        throwsStateError,
+      );
+    });
+
+    test('a malformed tenant id fails closed', () {
+      for (final id in [
+        'not-a-uuid',
+        '00000000-0000-4000-8000',
+        '00000000_0000_4000_8000_000000000001',
+        ' 00000000-0000-4000-8000-000000000001',
+      ]) {
+        expect(
+          () => TenantConfig.verifyOrThrow(slug: '', id: id),
+          throwsStateError,
+          reason: 'expected StateError for id "$id"',
+        );
+      }
+    });
+
+    // isDefaultTenant is defined as slug.isEmpty, so a stamped slug carrying
+    // the default tenant id is a contradiction, and is exactly the shape of
+    // "repointed the build but forgot VH_TENANT_ID".
+    test('a stamped slug carrying the default tenant id fails closed', () {
+      expect(
+        () => TenantConfig.verifyOrThrow(slug: 'acme', id: defaultTenant),
+        throwsStateError,
+      );
+    });
+
+    test('is wired to the real build constants by default', () {
+      // This process is unstamped, so the live constants must be coherent.
+      expect(TenantConfig.verifyOrThrow, returnsNormally);
+    });
+  });
+
   group('OfflineQueue tenant namespacing (W6 T2)', () {
     test('default (unstamped) build keeps the original DB filename — NO-OP', () {
       // A stamped build would namespace this to offline_queue_<slug>.db; the
