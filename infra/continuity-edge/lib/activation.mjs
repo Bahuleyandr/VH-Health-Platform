@@ -98,7 +98,11 @@ export async function activateFromSource({
 }) {
   const resolvedRoot = path.resolve(dataRoot);
   const lockPath = path.join(resolvedRoot, 'state', 'activation.lock');
-  const metricPaths = defaultMetricPaths(resolvedRoot, prometheusPath);
+  const metricPaths = defaultMetricPaths(
+    resolvedRoot,
+    prometheusPath,
+    scope.facilityId,
+  );
   await mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
 
   return withDirectoryLock(lockPath, async () => {

@@ -720,7 +720,16 @@ export async function verifyContinuityEdgeMirror(options = {}) {
   } catch {
     result = rejected(VERIFICATION_REASONS.INVALID_ENVELOPE);
   }
-  if (!result.ok) recordContinuityVerificationFailure(result.reason);
+  // A rejection carries no normalized identity, so the caller-supplied
+  // facilityId is the only one available; an unusable value is labelled
+  // 'unknown' rather than dropped so the failure still reaches a
+  // `by (facility_id)` rule.
+  if (!result.ok) {
+    recordContinuityVerificationFailure({
+      facilityId: options.facilityId,
+      reason: result.reason
+    });
+  }
   return result;
 }
 

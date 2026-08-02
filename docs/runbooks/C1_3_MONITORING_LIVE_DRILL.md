@@ -104,12 +104,16 @@ Inspect the Prometheus targets/rules UI or API and retain evidence for:
 The five required edge series are:
 
 ```text
-vhhealth_continuity_pack_fresh_until_timestamp_seconds
-vhhealth_continuity_verification_failures_total
-vhhealth_continuity_coverage_complete
-vhhealth_continuity_edge_last_sync_success_timestamp_seconds
-vhhealth_continuity_edge_replication_lag_seconds
+vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id}
+vhhealth_continuity_verification_failures_total{facility_id,reason}
+vhhealth_continuity_coverage_complete{facility_id}
+vhhealth_continuity_edge_last_sync_success_timestamp_seconds{facility_id}
+vhhealth_continuity_edge_replication_lag_seconds{facility_id}
 ```
+
+Every sample must carry `facility_id`; the continuity-edge rules aggregate
+`by (facility_id)`. A scraped series without it is a failed gate — it rejoins
+the single aggregate group where one healthy facility masks another's failure.
 
 An absent or unauthorized target is a failed gate. Do not bypass authentication
 or change an owning slice's alert threshold to make the drill pass.

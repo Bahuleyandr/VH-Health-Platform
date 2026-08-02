@@ -1,28 +1,55 @@
+// src/observability/continuityMetrics.js
+// Prometheus series for continuity publication and continuity-edge replication.
+//
+// Every series carries facility_id. The continuity-edge alert rules aggregate
+// `by (facility_id)`, so a sample emitted without one lands in a phantom group
+// where one facility's max()/min() masks another facility's failure — a healthy
+// site would hide an expired pack or a stalled edge next door. Label
+// cardinality is bounded by the number of facilities a deployment runs.
+// tenant_id is deliberately NOT a label — it is unbounded in a multi-tenant
+// deployment and belongs in the log line, which carries the full per-event
+// detail (the escalationMetrics.js precedent).
+
 import { Counter, Gauge } from './metricPrimitives.js';
 
 const packFreshUntil = new Gauge(
   'vhhealth_continuity_pack_fresh_until_timestamp_seconds',
-  'Unix timestamp through which the latest atomically published continuity pack remains valid'
+  'Unix timestamp through which the latest atomically published continuity pack remains valid',
+  ['facility_id']
 );
 const verificationFailures = new Counter(
   'vhhealth_continuity_verification_failures_total',
   'Continuity verification failures by stable bounded reason',
-  ['reason']
+  ['facility_id', 'reason']
 );
 const coverageComplete = new Gauge(
   'vhhealth_continuity_coverage_complete',
-  'Whether the latest continuity publication had exact required coverage (1 complete, 0 incomplete)'
+  'Whether the latest continuity publication had exact required coverage (1 complete, 0 incomplete)',
+  ['facility_id']
 );
 const edgeLastSyncSuccess = new Gauge(
   'vhhealth_continuity_edge_last_sync_success_timestamp_seconds',
-  'Unix timestamp of the latest successful continuity edge sync'
+  'Unix timestamp of the latest successful continuity edge sync',
+  ['facility_id']
 );
 const edgeReplicationLag = new Gauge(
   'vhhealth_continuity_edge_replication_lag_seconds',
-  'Observed continuity edge replication lag in seconds'
+  'Observed continuity edge replication lag in seconds',
+  ['facility_id']
 );
 
 const REASON_PATTERN = /^[A-Z][A-Z0-9_]{0,79}$/;
+
+// Facility ids are positive integers. An unusable one collapses to a single
+// bounded 'unknown' series rather than throwing or dropping the sample: these
+// recorders run on the failure path, and a dropped sample would be invisible to
+// a `by (facility_id)` rule — silence is exactly what must not happen.
+function facilityLabel(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return 'unknown';
+  const normalized = Number(value);
+  if (!Number.isSafeInteger(normalized) || normalized < 1) return 'unknown';
+  return String(normalized);
+}
 
 function finiteNonNegative(value, label) {
   const normalized = Number(value);
@@ -40,39 +67,46 @@ function unixSeconds(value, label) {
   return milliseconds / 1000;
 }
 
-packFreshUntil.set({}, 0);
-coverageComplete.set({}, 0);
-edgeLastSyncSuccess.set({}, 0);
-edgeReplicationLag.set({}, 0);
-
-export function recordContinuityPublication({ freshUntil, complete }) {
-  packFreshUntil.set({}, unixSeconds(freshUntil, 'freshUntil'));
-  coverageComplete.set({}, complete === true ? 1 : 0);
+export function recordContinuityPublication({ facilityId, freshUntil, complete } = {}) {
+  const labels = { facility_id: facilityLabel(facilityId) };
+  packFreshUntil.set(labels, unixSeconds(freshUntil, 'freshUntil'));
+  coverageComplete.set(labels, complete === true ? 1 : 0);
 }
 
-export function recordContinuityCoverageIncomplete() {
-  coverageComplete.set({}, 0);
+export function recordContinuityCoverageIncomplete({ facilityId } = {}) {
+  coverageComplete.set({ facility_id: facilityLabel(facilityId) }, 0);
 }
 
-export function recordContinuityVerificationFailure(reason) {
+export function recordContinuityVerificationFailure({ facilityId, reason } = {}) {
   const normalized = String(reason || '');
   if (!REASON_PATTERN.test(normalized)) {
     throw new TypeError('reason must be a stable upper-snake-case code');
   }
-  verificationFailures.inc({ reason: normalized });
+  verificationFailures.inc({
+    facility_id: facilityLabel(facilityId),
+    reason: normalized
+  });
 }
 
-export function recordContinuityEdgeSyncSuccess({ succeededAt, replicationLagSeconds }) {
-  edgeLastSyncSuccess.set({}, unixSeconds(succeededAt, 'succeededAt'));
+export function recordContinuityEdgeSyncSuccess({
+  facilityId,
+  succeededAt,
+  replicationLagSeconds
+} = {}) {
+  const labels = { facility_id: facilityLabel(facilityId) };
+  edgeLastSyncSuccess.set(labels, unixSeconds(succeededAt, 'succeededAt'));
   edgeReplicationLag.set(
-    {},
+    labels,
     finiteNonNegative(replicationLagSeconds, 'replicationLagSeconds')
   );
 }
 
-export function setContinuityEdgeReplicationLag(replicationLagSeconds) {
+export function setContinuityEdgeReplicationLag({
+  facilityId,
+  replicationLagSeconds
+} = {}) {
   edgeReplicationLag.set(
-    {},
+    { facility_id: facilityLabel(facilityId) },
     finiteNonNegative(replicationLagSeconds, 'replicationLagSeconds')
   );
 }

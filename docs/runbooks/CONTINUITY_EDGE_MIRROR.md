@@ -228,12 +228,19 @@ Use the stable verifier reason in the edge metric/log:
 The edge exports these inert textfile metrics for the delivery lane to scrape:
 
 ```text
-vhhealth_continuity_pack_fresh_until_timestamp_seconds
-vhhealth_continuity_verification_failures_total{reason}
-vhhealth_continuity_coverage_complete
-vhhealth_continuity_edge_last_sync_success_timestamp_seconds
-vhhealth_continuity_edge_replication_lag_seconds
+vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id}
+vhhealth_continuity_verification_failures_total{facility_id,reason}
+vhhealth_continuity_coverage_complete{facility_id}
+vhhealth_continuity_edge_last_sync_success_timestamp_seconds{facility_id}
+vhhealth_continuity_edge_replication_lag_seconds{facility_id}
 ```
+
+`facility_id` is this edge's `VHEDGE_FACILITY_ID` and is present on every
+sample. The alert rules aggregate `by (facility_id)` so each facility alerts
+independently — a sample missing that label would rejoin the single aggregate
+group where one healthy facility hides another facility's failure. A sample
+labelled `facility_id="unknown"` means the emitter could not resolve the
+configured facility: treat it as a misconfigured edge, not as noise.
 
 The alert rules in `continuity-edge-alerts.yaml` are repo-ready only. This
 slice does not wire Alertmanager or deploy them.

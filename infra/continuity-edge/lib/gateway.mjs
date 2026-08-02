@@ -126,7 +126,11 @@ async function withVerifiedGatewayState({
 }
 
 export function createGateway({ config, runtime, now = () => new Date() }) {
-  const metricPaths = defaultMetricPaths(config.dataRoot, config.prometheusPath);
+  const metricPaths = defaultMetricPaths(
+    config.dataRoot,
+    config.prometheusPath,
+    config.scope.facilityId,
+  );
   return https.createServer(
     {
       key: undefined,

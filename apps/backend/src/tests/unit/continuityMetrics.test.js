@@ -10,11 +10,16 @@ import {
 describe('continuityMetrics', () => {
   it('exports the exact continuity publication and edge-sync metrics', () => {
     recordContinuityPublication({
+      facilityId: 7,
       freshUntil: '2026-07-30T06:30:00.000Z',
       complete: true,
     });
-    recordContinuityVerificationFailure('ACCESS_REVISION_ROLLBACK');
+    recordContinuityVerificationFailure({
+      facilityId: 7,
+      reason: 'ACCESS_REVISION_ROLLBACK',
+    });
     recordContinuityEdgeSyncSuccess({
+      facilityId: 7,
       succeededAt: '2026-07-30T06:20:00.000Z',
       replicationLagSeconds: 17,
     });
@@ -22,28 +27,107 @@ describe('continuityMetrics', () => {
     const output = serializeContinuityMetrics();
 
     expect(output).toContain(
-      'vhhealth_continuity_pack_fresh_until_timestamp_seconds 1785393000',
+      'vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id="7"} 1785393000',
     );
     expect(output).toContain(
-      'vhhealth_continuity_verification_failures_total{reason="ACCESS_REVISION_ROLLBACK"} 1',
+      'vhhealth_continuity_verification_failures_total{facility_id="7",reason="ACCESS_REVISION_ROLLBACK"} 1',
     );
-    expect(output).toContain('vhhealth_continuity_coverage_complete 1');
     expect(output).toContain(
-      'vhhealth_continuity_edge_last_sync_success_timestamp_seconds 1785392400',
+      'vhhealth_continuity_coverage_complete{facility_id="7"} 1',
     );
-    expect(output).toContain('vhhealth_continuity_edge_replication_lag_seconds 17');
+    expect(output).toContain(
+      'vhhealth_continuity_edge_last_sync_success_timestamp_seconds{facility_id="7"} 1785392400',
+    );
+    expect(output).toContain(
+      'vhhealth_continuity_edge_replication_lag_seconds{facility_id="7"} 17',
+    );
   });
 
   it('marks incomplete coverage and rejects unbounded failure labels', () => {
-    recordContinuityCoverageIncomplete();
-    setContinuityEdgeReplicationLag(0);
+    recordContinuityCoverageIncomplete({ facilityId: 7 });
+    setContinuityEdgeReplicationLag({ facilityId: 7, replicationLagSeconds: 0 });
 
     expect(serializeContinuityMetrics()).toContain(
-      'vhhealth_continuity_coverage_complete 0',
+      'vhhealth_continuity_coverage_complete{facility_id="7"} 0',
     );
-    expect(() => recordContinuityVerificationFailure('free form reason'))
-      .toThrow('stable upper-snake-case');
-    expect(() => setContinuityEdgeReplicationLag(-1))
-      .toThrow('finite non-negative');
+    expect(() =>
+      recordContinuityVerificationFailure({
+        facilityId: 7,
+        reason: 'free form reason',
+      }),
+    ).toThrow('stable upper-snake-case');
+    expect(() =>
+      setContinuityEdgeReplicationLag({ facilityId: 7, replicationLagSeconds: -1 }),
+    ).toThrow('finite non-negative');
+  });
+
+  // The alert rules aggregate `by (facility_id)`. Two facilities must therefore
+  // land on two distinct series — one healthy facility must never be able to
+  // supply the max()/min() that hides a sick one.
+  it('keeps one facility series from masking another facility series', () => {
+    recordContinuityPublication({
+      facilityId: 41,
+      freshUntil: '2026-07-30T00:00:00.000Z',
+      complete: false,
+    });
+    recordContinuityEdgeSyncSuccess({
+      facilityId: 41,
+      succeededAt: '2026-07-30T00:00:00.000Z',
+      replicationLagSeconds: 3600,
+    });
+    recordContinuityPublication({
+      facilityId: 42,
+      freshUntil: '2026-07-30T12:00:00.000Z',
+      complete: true,
+    });
+    recordContinuityEdgeSyncSuccess({
+      facilityId: 42,
+      succeededAt: '2026-07-30T11:59:00.000Z',
+      replicationLagSeconds: 5,
+    });
+
+    const output = serializeContinuityMetrics();
+
+    expect(output).toContain(
+      'vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id="41"} 1785369600',
+    );
+    expect(output).toContain(
+      'vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id="42"} 1785412800',
+    );
+    expect(output).toContain('vhhealth_continuity_coverage_complete{facility_id="41"} 0');
+    expect(output).toContain('vhhealth_continuity_coverage_complete{facility_id="42"} 1');
+    expect(output).toContain(
+      'vhhealth_continuity_edge_replication_lag_seconds{facility_id="41"} 3600',
+    );
+    expect(output).toContain(
+      'vhhealth_continuity_edge_replication_lag_seconds{facility_id="42"} 5',
+    );
+  });
+
+  // A sample with no facility_id would aggregate into its own phantom group and
+  // reintroduce exactly the cross-facility masking these labels exist to stop.
+  it('never emits an unlabelled continuity sample', () => {
+    const samples = serializeContinuityMetrics()
+      .split('\n')
+      .filter((line) => line.startsWith('vhhealth_continuity_'));
+
+    expect(samples.length).toBeGreaterThan(0);
+    for (const sample of samples) {
+      expect(sample).toMatch(/^vhhealth_continuity_[a-z_]+\{facility_id="[^"]+"/);
+    }
+  });
+
+  // An unusable facility id must still produce a sample: dropping it would make
+  // the failure invisible to a `by (facility_id)` rule.
+  it('collapses an unusable facility id to a bounded unknown label', () => {
+    recordContinuityVerificationFailure({ reason: 'MANIFEST_HASH_MISMATCH' });
+    recordContinuityVerificationFailure({
+      facilityId: 'not-a-facility',
+      reason: 'MANIFEST_HASH_MISMATCH',
+    });
+
+    expect(serializeContinuityMetrics()).toContain(
+      'vhhealth_continuity_verification_failures_total{facility_id="unknown",reason="MANIFEST_HASH_MISMATCH"} 2',
+    );
   });
 });

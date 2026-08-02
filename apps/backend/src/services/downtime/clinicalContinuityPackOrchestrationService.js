@@ -770,7 +770,7 @@ async function signAndPublishFacilitySet({
   try {
     assertExactProducedCoverage(requiredCoverage, produced.packs);
   } catch (error) {
-    recordContinuityCoverageIncomplete();
+    recordContinuityCoverageIncomplete({ facilityId: policy.facilityId });
     throw error;
   }
   if (
@@ -947,6 +947,7 @@ async function signAndPublishFacilitySet({
       })
   });
   recordContinuityPublication({
+    facilityId: policy.facilityId,
     freshUntil: manifestExpiresAt,
     complete: true
   });

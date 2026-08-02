@@ -281,6 +281,23 @@ pending C1.3 lane can merge cleanly. `validate-monitoring.mjs` explicitly
 checks the new file with promtool. This slice does not add Alertmanager
 receivers, routes, Secrets, or live delivery.
 
+**Per-facility aggregation (2026-08-02 correction).** All five expressions
+aggregate `by (facility_id)`, and both emitters —
+`infra/continuity-edge/lib/metrics.mjs` (textfile) and
+`apps/backend/src/observability/continuityMetrics.js` (in-process) — stamp
+`facility_id` on every sample. The original bare `max()`/`min()` collapsed
+every facility into one series, so a single healthy facility supplied the
+aggregate that hid a sick one: an expired pack or a 30-minute-stale edge
+raised no alert at all while any other facility was fresh, and the `and` arms
+could pair one facility's freshness with a different facility's incomplete
+coverage. `facility_id` is bounded by the deployment's facility count;
+`tenant_id` is deliberately not a label — it is unbounded in a multi-tenant
+deployment and belongs in the audit log (the `escalationMetrics.js`
+precedent). An unusable identity renders as a single bounded `unknown` series
+rather than being dropped, because a dropped sample is invisible to a
+`by (facility_id)` rule. No threshold, `for`, severity, routing, or receiver
+changes; annotations now name the facility so a page is actionable.
+
 ## 11. Operator route transition and outage drill
 
 The runbook preserves the deprecated backend route during coexistence. Before
@@ -321,6 +338,28 @@ Modify:
 - `docs/DOWNTIME_PROCEDURE.md`; and
 - `docs/GO_LIVE_ACTIVATION_CHECKLIST.md`, including the complete H1 RWX
   evidence rewrite.
+
+Amended 2026-08-02 for the per-facility aggregation correction in §10,
+following the C6.2 repin precedent:
+
+- `infra/kubernetes/base/monitoring/continuity-edge-alerts.yaml`, `by
+  (facility_id)` on all five expressions plus facility-naming annotations;
+- `infra/kubernetes/base/monitoring/rule-semantics.sha256` (repin the C1.3
+  semantic lock to the corrected C3.2b aggregation — unlike the C6.2 repin
+  this one is **not** validator-only: the locked expressions themselves
+  changed, which is the whole point of the entry);
+- `infra/kubernetes/base/monitoring/promtool-rule-parity.test.yaml`, add the
+  cross-facility masking and absent-facility cases;
+- `infra/continuity-edge/lib/metrics.mjs` and its three callers
+  (`bin/verify-set.mjs`, `lib/activation.mjs`, `lib/gateway.mjs`), thread the
+  already-known `scope.facilityId` into the rendered textfile;
+- `infra/continuity-edge/test/metrics.test.mjs`, new emitter-label proof;
+- `apps/backend/src/observability/continuityMetrics.js` and its two callers
+  (`services/downtime/clinicalContinuityPackOrchestrationService.js`,
+  `services/downtime/continuityEdgeMirrorVerifier.js`); and
+- `.github/workflows/_reusable-kubernetes-manifests.yml` plus
+  `.github/workflows/ci-kubernetes.yml`, gate the edge emitter's labels in the
+  same job that promtool-proves the rules consuming them.
 
 No other file may change without coordinator amendment.
 
