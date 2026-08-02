@@ -133,6 +133,26 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
     expect(response.headers['cache-control']).toBe('no-store');
   });
 
+  it('still refuses a role outside the readiness list', async () => {
+    // Widening this gate to admit PATIENT must not turn it into a no-op. This
+    // pins the refusal half of the contract (C2.2 delta: "wrong-tenant/role
+    // refusal" is a required receipt), which the PATIENT case can no longer
+    // cover now that PATIENT is authorized. DIETITIAN is one of the 16 declared
+    // roles that `clientReadinessRoutes` deliberately does not admit.
+    const response = await request(app)
+      .get(PATH)
+      .set('x-api-key', API_KEY)
+      .set(
+        'Authorization',
+        `Bearer ${generateTestToken('DIETITIAN', {
+          uid: '550e8400-e29b-41d4-a716-446655440034',
+          tenant_id: TENANT,
+        })}`,
+      )
+      .set('x-vh-route-kind', 'public');
+    expect(response.statusCode).toBe(403);
+  });
+
   it('still refuses a PATIENT on the facility-aware readiness route', async () => {
     // Facility context is staff/facility material (facilityId, contextId,
     // contextRevision). Widening the read-only probe must not widen this.
