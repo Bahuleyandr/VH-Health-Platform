@@ -2091,13 +2091,20 @@ bool _validSemanticVersion(Object? value, {required bool minimum}) {
   return RegExp(pattern).hasMatch(value);
 }
 
+// PostgreSQL BIGINT ceiling (2^63-1) for C3.1 revision values. Parsed from a
+// string, never `BigInt.from(9223372036854775807)`: that int literal is not
+// exactly representable as a JS double, so it fails to compile under dart2js,
+// and the nearest double rounds up to 2^63 — which would widen this bound by
+// one. BigInt is arbitrary precision on every target, so parsing is exact.
+final BigInt _governanceCeiling = BigInt.parse('9223372036854775807');
+
 String? _governance(Object? value, {bool allowZero = false}) {
   if (value is! String ||
       !RegExp(r'^(?:0|[1-9][0-9]{0,18})$').hasMatch(value) ||
       (!allowZero && value == '0')) {
     return null;
   }
-  if (BigInt.parse(value) > BigInt.from(9223372036854775807)) return null;
+  if (BigInt.parse(value) > _governanceCeiling) return null;
   return value;
 }
 

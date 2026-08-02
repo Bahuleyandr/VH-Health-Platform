@@ -11,6 +11,13 @@ const _tenantId = '52e31913-c846-4458-a21b-31cd2f457e9b';
 const _staffId = '22222222-2222-4222-8222-222222222222';
 const _deviceId = 'staff-device-1';
 
+// Governance revisions are canonical decimal BIGINT strings, so the ceiling is
+// held as a string here too — `9223372036854775807` as an int literal does not
+// compile under dart2js.
+const _int64Max = '9223372036854775807';
+const _aboveInt64Max = '9223372036854775808';
+const _nineteenNines = '9999999999999999999';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -184,6 +191,71 @@ void main() {
     floors = await subject.readFloors(tenantId: _tenantId, facilityId: '41');
     expect(floors!.policyVersion, '8');
     expect(floors.revocationEpoch, '3');
+  });
+
+  test('holds shared floors to the exact int64 ceiling', () async {
+    final subject = cache();
+    final trustedNow = DateTime.parse('2026-07-30T00:10:00.000Z');
+
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: _aboveInt64Max,
+        registryVersion: '5',
+        registryChecksum: 'a' * 64,
+        revocationEpoch: '3',
+        trustedNow: trustedNow,
+      ),
+      isFalse,
+    );
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '7',
+        registryVersion: _nineteenNines,
+        registryChecksum: 'a' * 64,
+        revocationEpoch: '3',
+        trustedNow: trustedNow,
+      ),
+      isFalse,
+    );
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: '7',
+        registryVersion: '5',
+        registryChecksum: 'a' * 64,
+        revocationEpoch: _aboveInt64Max,
+        trustedNow: trustedNow,
+      ),
+      isFalse,
+    );
+    expect(
+      await subject.readFloors(tenantId: _tenantId, facilityId: '41'),
+      isNull,
+    );
+
+    expect(
+      await subject.advanceActionPolicyFloors(
+        tenantId: _tenantId,
+        facilityId: '41',
+        policyVersion: _int64Max,
+        registryVersion: _int64Max,
+        registryChecksum: 'a' * 64,
+        revocationEpoch: _int64Max,
+        trustedNow: trustedNow,
+      ),
+      isTrue,
+    );
+    final floors = await subject.readFloors(
+      tenantId: _tenantId,
+      facilityId: '41',
+    );
+    expect(floors!.policyVersion, _int64Max);
+    expect(floors.revocationEpoch, _int64Max);
   });
 
   test('stores and opens one opaque, encrypted facility slot', () async {
