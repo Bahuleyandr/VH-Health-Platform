@@ -22,6 +22,7 @@ enum PatientOutageReason {
   clockUncertain,
   rateLimited,
   malformedReadiness,
+  probeForbidden,
 }
 
 @immutable
@@ -231,6 +232,19 @@ class PatientOutageController extends ChangeNotifier {
       return const ClientReadinessOutcome(
         ready: false,
         lifecycle: ContinuityLifecycleState.signedOut,
+      );
+    }
+    // 403 is an authoritative refusal, not a malformed body. Without this
+    // branch it fell through to the body parse, found no `details.readiness`,
+    // and closed as `malformedReadiness` — which is why a role gate that
+    // excluded PATIENT looked like a parser fault instead of an authorization
+    // one. C-D12 section 5.2 keeps the refusal fail-closed; the distinct
+    // reason exists so a recurrence is diagnosable rather than silent.
+    if (response.statusCode == 403) {
+      _lastProbeFailureReason = PatientOutageReason.probeForbidden;
+      return const ClientReadinessOutcome(
+        ready: false,
+        lifecycle: ContinuityLifecycleState.notReady,
       );
     }
     if (response.statusCode == 429) {

@@ -45,7 +45,7 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
     ]);
   });
 
-  it('requires both API key and authenticated staff bearer and routes its tenant', async () => {
+  it('requires both API key and an authenticated bearer and routes its tenant', async () => {
     const noApiKey = await request(app)
       .get(PATH)
       .set('Authorization', `Bearer ${generateTestToken('ADMIN')}`)
@@ -58,6 +58,11 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
       .set('x-vh-route-kind', 'public');
     expect(noBearer.statusCode).toBe(401);
 
+    // The C-D12 patient outage adapter probes this same contract with the
+    // patient JWT, so PATIENT must be authorized here. When it was not, the
+    // adapter read the 403 as an unusable readiness answer and pinned the
+    // patient app in permanent outage, where its default-deny gate refused
+    // every hospital mutation including SOS.
     const patient = await request(app)
       .get(PATH)
       .set('x-api-key', API_KEY)
@@ -69,7 +74,8 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
         })}`,
       )
       .set('x-vh-route-kind', 'public');
-    expect(patient.statusCode).toBe(403);
+    expect(patient.statusCode).toBe(200);
+    expect(patient.body.data.tenantId).toBe(TENANT);
 
     const secondTenant = '11111111-1111-4111-8111-111111111111';
     const routedTenant = await request(app)
@@ -88,6 +94,61 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
     expect(loadPolicies).toHaveBeenCalledWith(secondTenant, {
       readOnly: true
     });
+  });
+
+  it('serves a PATIENT the bounded projection and no staff or facility detail', async () => {
+    const patientTenant = '22222222-2222-4222-8222-222222222222';
+    const response = await request(app)
+      .get(PATH)
+      .set('x-api-key', API_KEY)
+      .set(
+        'Authorization',
+        `Bearer ${generateTestToken('PATIENT', {
+          uid: '550e8400-e29b-41d4-a716-446655440031',
+          tenant_id: patientTenant,
+        })}`,
+      )
+      .set('x-vh-route-kind', 'public');
+
+    expect(response.statusCode).toBe(200);
+    // Identical bounded shape the staff client receives — widening the role
+    // must not widen the payload.
+    expect(Object.keys(response.body.data).sort()).toEqual(
+      [
+        'database',
+        'endpointId',
+        'policy',
+        'readinessContractVersion',
+        'ready',
+        'routeKind',
+        'serverTime',
+        'tenantId',
+      ].sort(),
+    );
+    // A patient is scoped to their OWN tenant, never another's.
+    expect(response.body.data.tenantId).toBe(patientTenant);
+    expect(JSON.stringify(response.body)).not.toMatch(
+      /patient|staff|facility|policyDocument|databaseHost|sql|prisma|column/i,
+    );
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('still refuses a PATIENT on the facility-aware readiness route', async () => {
+    // Facility context is staff/facility material (facilityId, contextId,
+    // contextRevision). Widening the read-only probe must not widen this.
+    const response = await request(app)
+      .post(`${PATH}/v2`)
+      .set('x-api-key', API_KEY)
+      .set(
+        'Authorization',
+        `Bearer ${generateTestToken('PATIENT', {
+          uid: '550e8400-e29b-41d4-a716-446655440032',
+          tenant_id: TENANT,
+        })}`,
+      )
+      .set('x-vh-route-kind', 'public')
+      .send({ facilityContext: {} });
+    expect(response.statusCode).toBe(403);
   });
 
   it('fails closed for missing and unknown route markers', async () => {
