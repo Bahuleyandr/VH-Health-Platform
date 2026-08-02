@@ -83,3 +83,78 @@ jobs:
           curl -s -H "Content-Type: application/json" \
             -d "{\"content\": \"🔴 **${{ inputs.notification_label }} failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
             "$DISCORD_WEBHOOK_URL" || true
+
+  # Compile the staff app for the web.
+  #
+  # WHY THIS EXISTS: dart2js applies JavaScript number semantics that the Dart
+  # VM does not. An int literal above 2^53, or an import with no web
+  # implementation, analyzes clean and passes `flutter test` on the VM while
+  # failing the web compile outright. Until this job existed nothing in CI ever
+  # ran a web build on a PR, so that whole class of breakage could only be
+  # discovered by hand — exactly how the governance-ceiling literal restored in
+  # #691 slipped in (packages/vhhealth_core/lib/services/clinical_continuity_*).
+  #
+  # STAFF ONLY, deliberately. Staff is the only app with a real web target
+  # (Dockerfile.web + nginx-staff-web.conf + k8s manifests + a release image
+  # job). apps/patient/web/ is untouched `flutter create` scaffolding — stock
+  # name/description/theme colour, no commits since the 2026-04-18 subtree
+  # import, no deploy path; it compiles but never reaches runApp in a browser.
+  # Gating patient on web-compilability would invent a target that does not
+  # exist and could block legitimate mobile-only work. Nothing is lost: the
+  # #691 defect class lives in packages/vhhealth_core, which both apps reach
+  # through the same barrel, so the staff compile already covers it.
+  #
+  # --debug is deliberate: it still invokes dart2js (just without the optimizer
+  # and tree-shaker), so it rejects the same compile errors as the --release
+  # build that apps/staff/Dockerfile.web ships, for roughly a third of the
+  # runtime. This is a compatibility gate, not an artifact build — nothing is
+  # uploaded, and no --dart-define values (which include a secret API key on the
+  # release path) are needed to prove the code compiles.
+  web-build:
+    name: Flutter web build (dart2js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Same pin as the workspace job above and every other Flutter site in
+          # the repo (ci.yml, .forgejo/workflows/ci.yml, deploy-*-staging.yml,
+          # release-*.yml) — bump them together.
+          flutter-version: 3.44.0
+          cache: true
+
+      - name: Activate Melos
+        run: dart pub global activate melos 7.5.1
+
+      - name: Resolve pub workspace
+        run: dart pub get
+
+      - name: Bootstrap workspace
+        run: melos bootstrap
+
+      # Same ordering constraint as the workspace job: lib/api/generated/** is
+      # gitignored and absent on a fresh clone, and both apps reach it through
+      # the vhhealth_core barrel, so the web compile cannot resolve its imports
+      # until codegen has run.
+      - name: Codegen (regenerate Dart client from synced spec)
+        run: melos run codegen
+
+      - name: Build staff for web
+        working-directory: apps/staff
+        run: flutter build web --debug
+
+      - name: Notify Discord on failure
+        if: failure() && inputs.notify_on_failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **${{ inputs.notification_label }} / web build failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true
