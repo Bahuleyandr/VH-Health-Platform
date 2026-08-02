@@ -31,7 +31,13 @@ jobs:
   ci:
     name: Repo-owned CI runner (feature branches)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Raised 90 -> 150 (2026-08-02): on branches touching every stack the full
+    # sweep (Flutter workspace + backend canonical) legitimately runs 75-90+
+    # min, with the hosted canonical leg alone at 1h08-1h17. At 90 the ceiling
+    # cancelled healthy, still-progressing runs (PR #697, job 91494465220, was
+    # killed at 90m15s). GitHub-hosted jobs cap at 6h, so 150 stays well inside
+    # the platform limit.
+    timeout-minutes: 150
     # NOTE: backend CI secrets (DATABASE_URL/JWT_SECRET/encryption keys) are NOT
     # set job-wide on purpose — they must not leak into the admin stage, whose
     # middleware.test.ts asserts the no-JWT_SECRET code path. They're scoped to
