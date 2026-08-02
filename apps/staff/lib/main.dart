@@ -45,6 +45,7 @@ import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/models/clinical_continuity.dart';
+import 'package:vhhealth_core/config/client_readiness_config.dart';
 import 'package:vhhealth_core/config/tenant_config.dart';
 import 'package:vhhealth_core/services/clinical_continuity_facility_context.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
@@ -132,6 +133,11 @@ void main() async {
   // so a mis-stamp pins the client in a readiness outage against a healthy
   // backend. Refusing to launch is the louder, safer failure.
   TenantConfig.verifyOrThrow();
+  // Production builds must carry the owner-approved readiness clock-skew
+  // tolerance. Without this call the guard was dead code and a build with the
+  // wrong value silently fell back to the bundled default, so the
+  // owner-approved bound was never actually enforced on the artifact.
+  ClientReadinessConfig.verifyOrThrow();
   VHHttpClient.deviceTypeProvider = () => currentDeviceType;
 
   // One-screen patient summary (roadmap E5): the global patient search
